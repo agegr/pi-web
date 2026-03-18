@@ -1,0 +1,597 @@
+"use client";
+
+import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import type {
+  AgentMessage,
+  UserMessage,
+  AssistantMessage,
+  ToolResultMessage,
+  AssistantContentBlock,
+  TextContent,
+  ToolCallContent,
+  ThinkingContent,
+} from "@/lib/types";
+
+interface Props {
+  message: AgentMessage;
+  isStreaming?: boolean;
+  toolResults?: Map<string, ToolResultMessage>;
+  modelNames?: Record<string, string>;
+  entryId?: string;
+  onFork?: (entryId: string) => void;
+  forking?: boolean;
+  onNavigate?: (entryId: string) => void;
+  prevAssistantEntryId?: string;
+}
+
+function formatTime(ts?: number): string | null {
+  if (!ts) return null;
+  const d = new Date(ts);
+  const now = new Date();
+  const isToday = d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (isToday) return time;
+  const date = d.toLocaleDateString([], { month: "short", day: "numeric", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
+  return `${date} ${time}`;
+}
+
+export function MessageView({ message, isStreaming, toolResults, modelNames, entryId, onFork, forking, onNavigate, prevAssistantEntryId }: Props) {
+  if (message.role === "user") {
+    return <UserMessageView message={message as UserMessage} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} />;
+  }
+  if (message.role === "assistant") {
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} />;
+  }
+  if (message.role === "toolResult") {
+    // Rendered inline under its toolCall — skip standalone rendering if paired
+    return null;
+  }
+  return null;
+}
+
+function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAssistantEntryId }: {
+  message: UserMessage;
+  entryId?: string;
+  onFork?: (entryId: string) => void;
+  forking?: boolean;
+  onNavigate?: (entryId: string) => void;
+  prevAssistantEntryId?: string;
+}) {
+  const [hovered, setHovered] = useState(false);
+
+  const content =
+    typeof message.content === "string"
+      ? message.content
+      : message.content
+          .filter((b): b is TextContent => b.type === "text")
+          .map((b) => b.text)
+          .join("\n");
+
+  const time = formatTime(message.timestamp);
+  const canFork = !!entryId && !!onFork;
+  const canNavigate = !!prevAssistantEntryId && !!onNavigate;
+
+  return (
+    <div
+      style={{ marginBottom: 16, display: "flex", flexDirection: "column", alignItems: "flex-end" }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "85%" }}>
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            background: "var(--user-bg)",
+            border: "1px solid rgba(59,130,246,0.2)",
+            borderRadius: 12,
+            padding: "8px 12px",
+            fontSize: 14,
+            lineHeight: 1.6,
+            color: "var(--text)",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
+          {content}
+        </div>
+
+      </div>
+
+      {/* Bottom row: action buttons + timestamp */}
+      {(time || canFork || canNavigate) && (
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "flex-end",
+          gap: 6, marginTop: 3,
+        }}>
+          {(canFork || canNavigate) && (
+            <div style={{
+              display: "flex", gap: 3,
+              opacity: (hovered || forking) ? 1 : 0,
+              pointerEvents: (hovered || forking) ? "auto" : "none",
+              transition: "opacity 0.12s",
+            }}>
+              {canNavigate && (
+                <button
+                  onClick={() => onNavigate!(prevAssistantEntryId!)}
+                  title="Edit from here — branches within this session"
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "5px 12px", height: 28,
+                    background: "none", border: "none",
+                    borderRadius: 6,
+                    color: "var(--text-dim)",
+                    cursor: "pointer",
+                    fontSize: 13, fontWeight: 500,
+                    whiteSpace: "nowrap",
+                    transition: "color 0.12s",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="15 10 20 15 15 20" />
+                    <path d="M4 4v7a4 4 0 0 0 4 4h12" />
+                  </svg>
+                  Edit from here
+                </button>
+              )}
+              {canFork && (
+                <button
+                  onClick={() => onFork!(entryId!)}
+                  disabled={forking}
+                  title={forking ? "Creating new session…" : "New session — creates an independent copy from here"}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "5px 12px", height: 28,
+                    background: "none", border: "none",
+                    borderRadius: 6,
+                    color: forking ? "var(--accent)" : "var(--text-dim)",
+                    cursor: forking ? "not-allowed" : "pointer",
+                    fontSize: 13, fontWeight: 500,
+                    whiteSpace: "nowrap",
+                    transition: "color 0.12s",
+                  }}
+                  onMouseEnter={(e) => { if (!forking) e.currentTarget.style.color = "var(--accent)"; }}
+                  onMouseLeave={(e) => { if (!forking) e.currentTarget.style.color = "var(--text-dim)"; }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="6" y1="3" x2="6" y2="15" />
+                    <circle cx="18" cy="6" r="3" />
+                    <circle cx="6" cy="18" r="3" />
+                    <path d="M18 9a9 9 0 0 1-9 9" />
+                  </svg>
+                  {forking ? "Creating…" : "New session"}
+                </button>
+              )}
+            </div>
+          )}
+          {time && <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{time}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AssistantMessageView({
+  message,
+  isStreaming,
+  toolResults,
+  modelNames,
+}: {
+  message: AssistantMessage;
+  isStreaming?: boolean;
+  toolResults?: Map<string, ToolResultMessage>;
+  modelNames?: Record<string, string>;
+}) {
+  const blocks = message.content ?? [];
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      {/* Model label */}
+      <div
+        style={{
+          fontSize: 11,
+          color: "var(--text-dim)",
+          marginBottom: 4,
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+        }}
+      >
+        {message.provider && (
+          <span>{modelNames?.[message.model] ?? message.model}</span>
+        )}
+        {isStreaming && (
+          <span
+            style={{
+              display: "inline-block",
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: "var(--accent)",
+              animation: "blink 1s infinite",
+            }}
+          />
+        )}
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {blocks.map((block, i) => (
+          <BlockView key={i} block={block} toolResults={toolResults} />
+        ))}
+      </div>
+
+      {message.usage && !isStreaming && (
+        <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-dim)" }}>
+          {formatUsage(message.usage)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BlockView({ block, toolResults }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage> }) {
+  if (block.type === "text") {
+    return <TextBlock block={block as TextContent} />;
+  }
+  if (block.type === "thinking") {
+    return <ThinkingBlock block={block as ThinkingContent} />;
+  }
+  if (block.type === "toolCall") {
+    const result = toolResults?.get((block as ToolCallContent).toolCallId);
+    return <ToolCallBlock block={block as ToolCallContent} result={result} />;
+  }
+  return null;
+}
+
+function TextBlock({ block }: { block: TextContent }) {
+  return (
+    <div className="markdown-body">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          code({ className, children, ...props }) {
+            const isBlock = className?.includes("language-");
+            const lang = className?.replace("language-", "") ?? "";
+            if (isBlock) {
+              return <CodeBlock code={String(children).replace(/\n$/, "")} lang={lang} />;
+            }
+            return (
+              <code
+                style={{
+                  background: "var(--bg-selected)",
+                  padding: "1px 4px",
+                  borderRadius: 3,
+                  fontFamily: "var(--font-mono)",
+                  fontSize: "0.9em",
+                }}
+                {...props}
+              >
+                {children}
+              </code>
+            );
+          },
+          pre({ children }) {
+            // Unwrap <pre> wrapper — CodeBlock handles its own container
+            return <>{children}</>;
+          },
+        }}
+      >
+        {block.text}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+function ThinkingBlock({ block }: { block: ThinkingContent }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: 6,
+        overflow: "hidden",
+        fontSize: 13,
+      }}
+    >
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          width: "100%",
+          padding: "6px 10px",
+          background: "var(--bg-panel)",
+          border: "none",
+          color: "var(--text-muted)",
+          cursor: "pointer",
+          fontSize: 12,
+          textAlign: "left",
+        }}
+      >
+        <span>{expanded ? "▼" : "▶"}</span>
+        <span>Thinking</span>
+      </button>
+      {expanded && (
+        <div
+          style={{
+            padding: "8px 10px",
+            color: "var(--text-muted)",
+            fontSize: 12,
+            lineHeight: 1.6,
+            whiteSpace: "pre-wrap",
+            background: "var(--bg-panel)",
+            borderTop: "1px solid var(--border)",
+          }}
+        >
+          {block.thinking}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ToolCallBlock({ block, result }: { block: ToolCallContent; result?: ToolResultMessage }) {
+  const [expanded, setExpanded] = useState(false);
+  const inputStr = JSON.stringify(block.input, null, 2);
+
+  // Result display
+  const resultText = result
+    ? result.content.filter((b): b is { type: "text"; text: string } => b.type === "text").map((b) => b.text).join("\n")
+    : null;
+  const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
+  const resultPreview = resultIsEmpty ? "(no output)" : (resultText ?? "").slice(0, 120).replace(/\n/g, " ");
+  const isError = result?.isError ?? false;
+
+  return (
+    <div
+      style={{
+        borderRadius: 7,
+        overflow: "hidden",
+        fontSize: 12,
+        border: "1px solid rgba(34,197,94,0.25)",
+        background: "rgba(34,197,94,0.04)",
+      }}
+    >
+      {/* ── Tool call header ── */}
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 7,
+          width: "100%",
+          padding: "6px 10px",
+          background: "none",
+          border: "none",
+          color: "var(--text-muted)",
+          cursor: "pointer",
+          fontSize: 12,
+          textAlign: "left",
+        }}
+      >
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0, color: "#16a34a" }}>
+          <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.4" />
+          <polygon points="4.5,3.5 9,6 4.5,8.5" fill="currentColor" />
+        </svg>
+        <span style={{ color: "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11 }}>
+          {block.toolName}
+        </span>
+        <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+          {getToolPreview(block)}
+        </span>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+          <polyline points="2 3.5 5 6.5 8 3.5" />
+        </svg>
+      </button>
+
+      {/* ── Expanded: input args ── */}
+      {expanded && (
+        <pre
+          style={{
+            margin: 0,
+            padding: "8px 10px",
+            color: "var(--text-muted)",
+            fontSize: 12,
+            lineHeight: 1.5,
+            overflow: "auto",
+            background: "rgba(0,0,0,0.03)",
+            borderTop: "1px solid rgba(34,197,94,0.2)",
+          }}
+        >
+          {inputStr}
+        </pre>
+      )}
+
+      {/* ── Paired result ── */}
+      {result && (
+        <PairedResult
+          text={resultText ?? ""}
+          preview={resultPreview}
+          isEmpty={resultIsEmpty}
+          isError={isError}
+        />
+      )}
+    </div>
+  );
+}
+
+function PairedResult({ text, preview, isEmpty, isError }: { text: string; preview: string; isEmpty: boolean; isError: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div
+      style={{
+        borderTop: `1px solid ${isError ? "rgba(248,113,113,0.3)" : "rgba(34,197,94,0.15)"}`,
+        background: isError ? "rgba(248,113,113,0.04)" : "rgba(0,0,0,0.02)",
+      }}
+    >
+      <button
+        onClick={() => isEmpty ? undefined : setExpanded((v) => !v)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 7,
+          width: "100%",
+          padding: "5px 10px",
+          background: "none",
+          border: "none",
+          color: isError ? "#f87171" : "var(--text-dim)",
+          cursor: isEmpty ? "default" : "pointer",
+          textAlign: "left",
+          fontSize: 11,
+        }}
+      >
+        {/* return arrow */}
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0, color: isError ? "#f87171" : "var(--text-dim)" }}>
+          <polyline points="4 2 2 6 4 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M2 6h7a2 2 0 0 0 0-4H7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+        {!expanded && (
+          <span style={{
+            fontFamily: "var(--font-mono)",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1,
+            fontStyle: isEmpty ? "italic" : "normal",
+            opacity: isEmpty ? 0.5 : 1,
+            color: isError ? "#f87171" : "var(--text-dim)",
+          }}>
+            {preview}
+          </span>
+        )}
+        {!isEmpty && !isError && (
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+            <polyline points="2 3.5 5 6.5 8 3.5" />
+          </svg>
+        )}
+      </button>
+      {expanded && (
+        <pre
+          style={{
+            margin: 0,
+            padding: "8px 10px",
+            color: isError ? "#f87171" : "var(--text-muted)",
+            fontSize: 12,
+            lineHeight: 1.5,
+            overflow: "auto",
+            maxHeight: 300,
+            background: "var(--bg)",
+            borderTop: `1px solid ${isError ? "rgba(248,113,113,0.2)" : "rgba(34,197,94,0.15)"}`,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
+          {text}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+
+function getToolPreview(block: ToolCallContent): string {
+  const input = block.input;
+  if (!input || typeof input !== "object") return "";
+  const keys = Object.keys(input);
+  if (keys.length === 0) return "";
+
+  // Common tool input patterns
+  if ("command" in input) return String(input.command).slice(0, 60);
+  if ("path" in input) return String(input.path).slice(0, 60);
+  if ("file_path" in input) return String(input.file_path).slice(0, 60);
+  if ("pattern" in input) return String(input.pattern).slice(0, 60);
+  if ("query" in input) return String(input.query).slice(0, 60);
+
+  const first = input[keys[0]];
+  return String(first).slice(0, 60);
+}
+
+function formatUsage(usage: {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cost: { total: number };
+}): string {
+  const parts = [];
+  if (usage.input) parts.push(`${usage.input.toLocaleString()} in`);
+  if (usage.output) parts.push(`${usage.output.toLocaleString()} out`);
+  if (usage.cacheRead) parts.push(`${usage.cacheRead.toLocaleString()} cache`);
+  if (usage.cost?.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
+  return parts.join(" · ");
+}
+
+
+
+function CodeBlock({ code, lang }: { code: string; lang: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = () => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        marginTop: 4,
+        marginBottom: 4,
+        borderRadius: 6,
+        overflow: "hidden",
+        border: "1px solid var(--border)",
+      }}
+    >
+      {lang && (
+        <div
+          style={{
+            padding: "3px 10px",
+            background: "var(--bg-panel)",
+            borderBottom: "1px solid var(--border)",
+            fontSize: 11,
+            color: "var(--text-dim)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <span>{lang}</span>
+          <button
+            onClick={copy}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              fontSize: 11,
+            }}
+          >
+            {copied ? "copied" : "copy"}
+          </button>
+        </div>
+      )}
+      <pre
+        style={{
+          margin: 0,
+          padding: "10px 12px",
+          background: "var(--bg)",
+          fontSize: 12.5,
+          lineHeight: 1.6,
+          overflowX: "auto",
+          color: "var(--text)",
+        }}
+      >
+        <code>{code}</code>
+      </pre>
+    </div>
+  );
+}
+
+

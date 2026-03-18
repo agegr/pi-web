@@ -1,0 +1,123 @@
+import { NextResponse } from "next/server";
+import { appendFileSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { randomUUID } from "crypto";
+import { join } from "path";
+import {
+  resolveSessionPath,
+  invalidateSessionPathCache,
+  getSessionEntries,
+  buildTree,
+  buildSessionContext,
+  getLeafId,
+  buildSessionInfo,
+} from "@/lib/session-reader";
+
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  try {
+    const filePath = resolveSessionPath(id);
+    if (!filePath) {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    const entries = getSessionEntries(filePath);
+    const tree = buildTree(entries);
+    const leafId = getLeafId(entries);
+    const context = buildSessionContext(entries, leafId);
+    const info = buildSessionInfo(filePath);
+
+    return NextResponse.json({
+      sessionId: id,
+      filePath,
+      info,
+      tree,
+      leafId,
+      context,
+    });
+  } catch (error) {
+    return NextResponse.json({ error: String(error) }, { status: 500 });
+  }
+}
+
+// PATCH /api/sessions/[id]  body: { name: string }
+export async function PATCH(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  try {
+    const { name } = await req.json() as { name?: string };
+    if (typeof name !== "string") {
+      return NextResponse.json({ error: "name is required" }, { status: 400 });
+    }
+    const filePath = resolveSessionPath(id);
+    if (!filePath) {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    }
+    const entries = getSessionEntries(filePath);
+    const leafId = getLeafId(entries);
+    const entry = {
+      type: "session_info",
+      id: randomUUID(),
+      parentId: leafId,
+      timestamp: new Date().toISOString(),
+      name: name.trim(),
+    };
+    appendFileSync(filePath, JSON.stringify(entry) + "\n");
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json({ error: String(error) }, { status: 500 });
+  }
+}
+
+// DELETE /api/sessions/[id]
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  try {
+    const filePath = resolveSessionPath(id);
+    if (!filePath) {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    // Read header before deleting to get parentSession path
+    const firstLine = readFileSync(filePath, "utf8").split("\n")[0];
+    let parentSessionPath: string | undefined;
+    try {
+      const header = JSON.parse(firstLine) as { type?: string; parentSession?: string };
+      if (header.type === "session") parentSessionPath = header.parentSession;
+    } catch { /* ignore */ }
+
+    // Re-attach all direct children to this session's parent (cascade re-parent)
+    // Scan sibling files in the same directory
+    const dir = filePath.replace(/\\/g, "/").split("/").slice(0, -1).join("/");
+    try {
+      const files = readdirSync(dir).filter((f) => f.endsWith(".jsonl") && join(dir, f) !== filePath);
+      for (const file of files) {
+        const childPath = join(dir, file);
+        try {
+          const content = readFileSync(childPath, "utf8");
+          const lines = content.split("\n");
+          const header = JSON.parse(lines[0]) as { type?: string; parentSession?: string };
+          if (header.type === "session" && header.parentSession === filePath) {
+            // Rewrite header with new parentSession
+            header.parentSession = parentSessionPath;
+            lines[0] = JSON.stringify(header);
+            writeFileSync(childPath, lines.join("\n"));
+          }
+        } catch { /* skip malformed */ }
+      }
+    } catch { /* skip if dir unreadable */ }
+
+    unlinkSync(filePath);
+    invalidateSessionPathCache(id);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json({ error: String(error) }, { status: 500 });
+  }
+}
