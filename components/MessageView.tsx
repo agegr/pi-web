@@ -346,7 +346,7 @@ function ToolCallBlock({ block, result }: { block: ToolCallContent; result?: Too
     ? result.content.filter((b): b is { type: "text"; text: string } => b.type === "text").map((b) => b.text).join("\n")
     : null;
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
-  const resultPreview = resultIsEmpty ? "(no output)" : (resultText ?? "").slice(0, 120).replace(/\n/g, " ");
+  const resultPreview = resultIsEmpty ? "(no output)" : (resultText ?? "").slice(0, 200).replace(/\n/g, " ");
   const isError = result?.isError ?? false;
 
   return (
@@ -374,16 +374,17 @@ function ToolCallBlock({ block, result }: { block: ToolCallContent; result?: Too
           cursor: "pointer",
           fontSize: 12,
           textAlign: "left",
+          minWidth: 0,
         }}
       >
         <svg width="11" height="11" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0, color: "#16a34a" }}>
           <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.4" />
           <polygon points="4.5,3.5 9,6 4.5,8.5" fill="currentColor" />
         </svg>
-        <span style={{ color: "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11 }}>
+        <span style={{ color: "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
           {block.toolName}
         </span>
-        <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+        <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
           {getToolPreview(block)}
         </span>
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
@@ -403,6 +404,8 @@ function ToolCallBlock({ block, result }: { block: ToolCallContent; result?: Too
             overflow: "auto",
             background: "rgba(0,0,0,0.03)",
             borderTop: "1px solid rgba(34,197,94,0.2)",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-all",
           }}
         >
           {inputStr}
@@ -416,14 +419,23 @@ function ToolCallBlock({ block, result }: { block: ToolCallContent; result?: Too
           preview={resultPreview}
           isEmpty={resultIsEmpty}
           isError={isError}
+          forceExpanded={expanded}
+          onToggle={() => setExpanded((v) => !v)}
         />
       )}
     </div>
   );
 }
 
-function PairedResult({ text, preview, isEmpty, isError }: { text: string; preview: string; isEmpty: boolean; isError: boolean }) {
-  const [expanded, setExpanded] = useState(false);
+function PairedResult({ text, preview, isEmpty, isError, forceExpanded, onToggle }: {
+  text: string;
+  preview: string;
+  isEmpty: boolean;
+  isError: boolean;
+  forceExpanded?: boolean;
+  onToggle?: () => void;
+}) {
+  const expanded = forceExpanded ?? false;
 
   return (
     <div
@@ -433,7 +445,7 @@ function PairedResult({ text, preview, isEmpty, isError }: { text: string; previ
       }}
     >
       <button
-        onClick={() => isEmpty ? undefined : setExpanded((v) => !v)}
+        onClick={() => (!isEmpty && onToggle) ? onToggle() : undefined}
         style={{
           display: "flex",
           alignItems: "center",
@@ -446,6 +458,7 @@ function PairedResult({ text, preview, isEmpty, isError }: { text: string; previ
           cursor: isEmpty ? "default" : "pointer",
           textAlign: "left",
           fontSize: 11,
+          minWidth: 0,
         }}
       >
         {/* return arrow */}
@@ -456,7 +469,7 @@ function PairedResult({ text, preview, isEmpty, isError }: { text: string; previ
         {!expanded && (
           <span style={{
             fontFamily: "var(--font-mono)",
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0,
             fontStyle: isEmpty ? "italic" : "normal",
             opacity: isEmpty ? 0.5 : 1,
             color: isError ? "#f87171" : "var(--text-dim)",
@@ -479,11 +492,11 @@ function PairedResult({ text, preview, isEmpty, isError }: { text: string; previ
             fontSize: 12,
             lineHeight: 1.5,
             overflow: "auto",
-            maxHeight: 300,
+            maxHeight: 400,
             background: "var(--bg)",
             borderTop: `1px solid ${isError ? "rgba(248,113,113,0.2)" : "rgba(34,197,94,0.15)"}`,
             whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
+            wordBreak: "break-all",
           }}
         >
           {text}
@@ -501,14 +514,14 @@ function getToolPreview(block: ToolCallContent): string {
   if (keys.length === 0) return "";
 
   // Common tool input patterns
-  if ("command" in input) return String(input.command).slice(0, 60);
-  if ("path" in input) return String(input.path).slice(0, 60);
-  if ("file_path" in input) return String(input.file_path).slice(0, 60);
-  if ("pattern" in input) return String(input.pattern).slice(0, 60);
-  if ("query" in input) return String(input.query).slice(0, 60);
+  if ("command" in input) return String(input.command).slice(0, 120);
+  if ("path" in input) return String(input.path).slice(0, 120);
+  if ("file_path" in input) return String(input.file_path).slice(0, 120);
+  if ("pattern" in input) return String(input.pattern).slice(0, 120);
+  if ("query" in input) return String(input.query).slice(0, 120);
 
   const first = input[keys[0]];
-  return String(first).slice(0, 60);
+  return String(first).slice(0, 120);
 }
 
 function formatUsage(usage: {
