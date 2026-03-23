@@ -8,16 +8,35 @@ export interface ToolEntry {
   active: boolean;
 }
 
+export type ToolPreset = "none" | "default" | "full";
+export const PRESET_NONE: string[] = [];
+export const PRESET_DEFAULT: string[] = ["read", "bash", "edit", "write"];
+export const PRESET_FULL: string[] = ["bash", "read", "edit", "write", "grep", "find", "ls"];
+
+export function getPresetFromTools(tools: ToolEntry[]): ToolPreset {
+  const active = tools.filter(t => t.active).map(t => t.name).sort().join(",");
+  if (active === "") return "none";
+  if (active === [...PRESET_DEFAULT].sort().join(",")) return "default";
+  if (active === [...PRESET_FULL].sort().join(",")) return "full";
+  return "default"; // closest match
+}
+
 interface Props {
   tools: ToolEntry[];
-  onToggle: (name: string, active: boolean) => void;
+  onPreset: (preset: ToolPreset, toolNames: string[]) => void;
   onClose: () => void;
 }
 
-export function ToolPanel({ tools, onToggle, onClose }: Props) {
-  const panelRef = useRef<HTMLDivElement>(null);
+const PRESETS: { id: ToolPreset; label: string; desc: string; tools: string[] }[] = [
+  { id: "none",    label: "Off",  desc: "No tools",                                tools: PRESET_NONE },
+  { id: "default", label: "Low",  desc: "read · bash · edit · write",              tools: PRESET_DEFAULT },
+  { id: "full",    label: "High", desc: "read · bash · edit · write · grep · find · ls", tools: PRESET_FULL },
+];
 
-  // Close on outside click
+export function ToolPanel({ tools, onPreset, onClose }: Props) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const current = getPresetFromTools(tools);
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
@@ -27,6 +46,8 @@ export function ToolPanel({ tools, onToggle, onClose }: Props) {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [onClose]);
+
+  const currentIndex = PRESETS.findIndex(p => p.id === current);
 
   return (
     <div
@@ -40,87 +61,69 @@ export function ToolPanel({ tools, onToggle, onClose }: Props) {
         border: "1px solid var(--border)",
         borderRadius: 10,
         boxShadow: "0 -4px 20px rgba(0,0,0,0.10)",
-        width: 300,
-        maxHeight: 360,
+        width: 260,
+        padding: "12px 14px",
         display: "flex",
         flexDirection: "column",
-        overflow: "hidden",
+        gap: 10,
       }}
     >
+      {/* Segmented control */}
       <div style={{
-        padding: "10px 14px 8px",
-        borderBottom: "1px solid var(--border)",
-        display: "flex", alignItems: "center", justifyContent: "space-between",
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr 1fr",
+        background: "var(--bg-panel)",
+        borderRadius: 8,
+        padding: 3,
+        gap: 3,
       }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>Active Tools</span>
-        <button
-          onClick={onClose}
-          style={{
-            background: "none", border: "none", cursor: "pointer",
-            color: "var(--text-dim)", padding: 2, lineHeight: 1,
-          }}
-        >
-          <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <line x1="2" y1="2" x2="12" y2="12" /><line x1="12" y1="2" x2="2" y2="12" />
-          </svg>
-        </button>
-      </div>
-      <div style={{ overflowY: "auto", flex: 1 }}>
-        {tools.length === 0 && (
-          <div style={{ padding: "12px 14px", color: "var(--text-dim)", fontSize: 12 }}>No tools available</div>
-        )}
-        {tools.map((tool) => (
-          <div
-            key={tool.name}
-            style={{
-              display: "flex", alignItems: "flex-start", gap: 10,
-              padding: "9px 14px",
-              borderBottom: "1px solid var(--border)",
-              cursor: "pointer",
-            }}
-            onClick={() => onToggle(tool.name, !tool.active)}
-          >
-            {/* Toggle */}
-            <div
+        {PRESETS.map((preset) => {
+          const isActive = current === preset.id;
+          return (
+            <button
+              key={preset.id}
+              onClick={() => { onPreset(preset.id, preset.tools); onClose(); }}
               style={{
-                flexShrink: 0,
-                marginTop: 1,
-                width: 30, height: 16,
-                borderRadius: 8,
-                background: tool.active ? "var(--accent)" : "var(--border)",
-                position: "relative",
-                transition: "background 0.15s",
+                padding: "5px 0",
+                borderRadius: 6,
+                border: "none",
+                background: isActive ? "var(--bg)" : "transparent",
+                boxShadow: isActive ? "0 1px 3px rgba(0,0,0,0.12)" : "none",
+                color: isActive ? "var(--accent)" : "var(--text-muted)",
+                fontWeight: isActive ? 600 : 400,
+                fontSize: 12,
+                cursor: "pointer",
+                transition: "all 0.12s",
               }}
             >
-              <div style={{
-                position: "absolute",
-                top: 2,
-                left: tool.active ? 16 : 2,
-                width: 12, height: 12,
-                borderRadius: "50%",
-                background: "#fff",
-                transition: "left 0.15s",
-                boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
-              }} />
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: tool.active ? "var(--text)" : "var(--text-muted)" }}>
-                {tool.name}
-              </div>
-              <div style={{
-                fontSize: 11, color: "var(--text-dim)", marginTop: 2,
-                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-              }} title={tool.description}>
-                {tool.description}
-              </div>
-            </div>
-          </div>
+              {preset.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Description of current selection */}
+      <div style={{ fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>
+        {currentIndex >= 0 ? PRESETS[currentIndex].desc || "No tools enabled" : ""}
+        {current === "none" && <span> — agent will not use any tools</span>}
+      </div>
+
+      {/* Track bar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        {PRESETS.map((_, i) => (
+          <div
+            key={i}
+            style={{
+              flex: 1, height: 3, borderRadius: 2,
+              background: i <= currentIndex ? "var(--accent)" : "var(--border)",
+              transition: "background 0.15s",
+            }}
+          />
         ))}
       </div>
-      <div style={{ padding: "6px 14px", borderTop: "1px solid var(--border)" }}>
-        <span style={{ fontSize: 10, color: "var(--text-dim)" }}>
-          {tools.filter(t => t.active).length} of {tools.length} active · takes effect on next turn
-        </span>
+
+      <div style={{ fontSize: 10, color: "var(--text-dim)" }}>
+        takes effect on next turn
       </div>
     </div>
   );

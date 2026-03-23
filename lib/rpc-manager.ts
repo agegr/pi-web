@@ -1,6 +1,7 @@
-import { createAgentSession } from "@mariozechner/pi-coding-agent";
+import { createAgentSession, type ResourceLoader } from "@mariozechner/pi-coding-agent";
 import { join } from "path";
 import { homedir } from "os";
+import { buildNoToolsSystemPrompt } from "./system-prompt-off";
 
 // ============================================================================
 // Types
@@ -235,11 +236,13 @@ export function getRpcSession(sessionId: string): AgentSessionWrapper | undefine
 /**
  * Get or create an AgentSession for the given session.
  * For new sessions (sessionFile === ""), pi generates its own id.
+ * Pass toolNames to pre-configure active tools (empty array = off).
  */
 export async function startRpcSession(
   sessionId: string,
   sessionFile: string,
-  cwd: string
+  cwd: string,
+  toolNames?: string[]
 ): Promise<{ session: AgentSessionWrapper; realSessionId: string }> {
   const registry = getRegistry();
   const locks = getLocks();
@@ -259,7 +262,40 @@ export async function startRpcSession(
       ? SessionManager.open(sessionFile, undefined)
       : SessionManager.create(cwd, undefined);
 
-    const { session: inner } = await createAgentSession({ cwd, agentDir, sessionManager });
+    // When tools are explicitly disabled, use a minimal system prompt
+    let resourceLoader: ResourceLoader | undefined;
+    if (toolNames !== undefined && toolNames.length === 0) {
+      const { DefaultResourceLoader } = await import("@mariozechner/pi-coding-agent");
+      const prompt = buildNoToolsSystemPrompt(cwd);
+      const loader = new DefaultResourceLoader({ cwd, agentDir, systemPromptOverride: () => prompt });
+      await loader.reload();
+      resourceLoader = loader as ResourceLoader;
+    }
+
+    // Build tools array from names when caller specifies toolNames
+    let toolsOption: unknown[] | undefined;
+    if (toolNames !== undefined) {
+      const { createReadTool, createBashTool, createEditTool, createWriteTool, createGrepTool, createFindTool, createLsTool } =
+        await import("@mariozechner/pi-coding-agent");
+      const toolFactories: Record<string, () => unknown> = {
+        read: () => createReadTool(cwd),
+        bash: () => createBashTool(cwd),
+        edit: () => createEditTool(cwd),
+        write: () => createWriteTool(cwd),
+        grep: () => createGrepTool(cwd),
+        find: () => createFindTool(cwd),
+        ls: () => createLsTool(cwd),
+      };
+      toolsOption = toolNames.map((n) => toolFactories[n]?.()).filter(Boolean);
+    }
+
+    const { session: inner } = await createAgentSession({
+      cwd,
+      agentDir,
+      sessionManager,
+      ...(resourceLoader ? { resourceLoader } : {}),
+      ...(toolsOption !== undefined ? { tools: toolsOption as never[] } : {}),
+    });
     const wrapper = new AgentSessionWrapper(inner);
     wrapper.start();
 

@@ -24,15 +24,18 @@ interface Props {
   onAbortCompaction?: () => void;
   isCompacting?: boolean;
   compactError?: string | null;
-  onToolsClick?: () => void;
+  toolPreset?: "none" | "default" | "full";
+  onToolPresetChange?: (preset: "none" | "default" | "full") => void;
 }
 
 const THINKING_LEVELS = ["off", "low", "high"] as const;
+const TOOL_PRESETS = ["off", "default", "full"] as const;
+const TOOL_PRESET_MAP: Record<"off" | "default" | "full", "none" | "default" | "full"> = { off: "none", default: "default", full: "full" };
 
 export function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, modelNames, modelList, onModelChange,
   thinkingLevel, onThinkingLevelChange,
-  onCompact, onAbortCompaction, isCompacting, compactError, onToolsClick,
+  onCompact, onAbortCompaction, isCompacting, compactError, toolPreset, onToolPresetChange,
 }: Props) {
   const [value, setValue] = useState("");
   const [queueMode, setQueueMode] = useState<"steer" | "followup">("steer");
@@ -287,13 +290,13 @@ export function ChatInput({
                   disabled={isStreaming}
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
-                    padding: "3px 8px",
+                    padding: "4px 10px",
                     background: "none",
                     border: "1px solid var(--border)",
                     borderRadius: 5,
                     color: "var(--text-muted)",
                     cursor: isStreaming ? "not-allowed" : "pointer",
-                    fontSize: 11,
+                    fontSize: 12,
                     opacity: isStreaming ? 0.5 : 1,
                     transition: "border-color 0.12s, color 0.12s",
                   }}
@@ -382,13 +385,13 @@ export function ChatInput({
                     onClick={() => !isStreaming && onThinkingLevelChange(lvl)}
                     disabled={isStreaming}
                     style={{
-                      padding: "3px 7px",
+                      padding: "4px 10px",
                       background: thinkingLevel === lvl ? "var(--bg-selected)" : "none",
                       border: "none",
                       borderRight: lvl !== "high" ? "1px solid var(--border)" : "none",
                       color: thinkingLevel === lvl ? "var(--accent)" : "var(--text-dim)",
                       cursor: isStreaming ? "not-allowed" : "pointer",
-                      fontSize: 11,
+                      fontSize: 12,
                       fontWeight: thinkingLevel === lvl ? 600 : 400,
                       opacity: isStreaming ? 0.5 : 1,
                     }}
@@ -402,39 +405,38 @@ export function ChatInput({
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            {/* Tools button */}
-            {onToolsClick && (
-              <button
-                onClick={onToolsClick}
-                disabled={isStreaming}
-                title="Configure active tools"
-                style={{
-                  display: "flex", alignItems: "center", gap: 4,
-                  padding: "3px 8px",
-                  background: "none",
-                  border: "1px solid var(--border)",
-                  borderRadius: 5,
-                  color: "var(--text-muted)",
-                  cursor: isStreaming ? "not-allowed" : "pointer",
-                  fontSize: 11,
-                  opacity: isStreaming ? 0.5 : 1,
-                  transition: "border-color 0.12s, color 0.12s",
-                }}
-                onMouseEnter={(e) => {
-                  if (isStreaming) return;
-                  e.currentTarget.style.borderColor = "rgba(37,99,235,0.4)";
-                  e.currentTarget.style.color = "var(--accent)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = "var(--border)";
-                  e.currentTarget.style.color = "var(--text-muted)";
-                }}
-              >
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-                </svg>
-                Tools
-              </button>
+            {/* Tools preset selector */}
+            {onToolPresetChange && (
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <span style={{ fontSize: 12, color: "var(--text-dim)" }}>tools</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 2, border: "1px solid var(--border)", borderRadius: 5, overflow: "hidden" }}>
+                  {TOOL_PRESETS.map((lvl) => {
+                    const preset = TOOL_PRESET_MAP[lvl];
+                    const isActive = (toolPreset ?? "default") === preset;
+                    return (
+                      <button
+                        key={lvl}
+                        onClick={() => !isStreaming && onToolPresetChange(preset)}
+                        disabled={isStreaming}
+                        title={`Tools: ${lvl}`}
+                        style={{
+                          padding: "4px 10px",
+                          background: isActive ? "var(--bg-selected)" : "none",
+                          border: "none",
+                          borderRight: lvl !== "full" ? "1px solid var(--border)" : "none",
+                          color: isActive ? "var(--accent)" : "var(--text-dim)",
+                          cursor: isStreaming ? "not-allowed" : "pointer",
+                          fontSize: 12,
+                          fontWeight: isActive ? 600 : 400,
+                          opacity: isStreaming ? 0.5 : 1,
+                        }}
+                      >
+                        {lvl}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             )}
 
             {/* Compact / Abort compaction button */}
@@ -457,13 +459,13 @@ export function ChatInput({
                 disabled={isStreaming && !isCompacting}
                 style={{
                   display: "flex", alignItems: "center", gap: 4,
-                  padding: "3px 8px",
+                  padding: "4px 10px",
                   background: "none",
                   border: `1px solid ${isCompacting ? "rgba(239,68,68,0.4)" : "var(--border)"}`,
                   borderRadius: 5,
                   color: isCompacting ? "#ef4444" : "var(--text-muted)",
                   cursor: (isStreaming && !isCompacting) ? "not-allowed" : "pointer",
-                  fontSize: 11,
+                  fontSize: 12,
                   opacity: (isStreaming && !isCompacting) ? 0.5 : 1,
                   transition: "border-color 0.12s, color 0.12s",
                 }}

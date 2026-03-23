@@ -6,7 +6,7 @@ import { normalizeToolCalls } from "@/lib/normalize";
 import { MessageView } from "./MessageView";
 import { ChatInput } from "./ChatInput";
 import { BranchNavigator } from "./BranchNavigator";
-import { ToolPanel, type ToolEntry } from "./ToolPanel";
+import { type ToolEntry } from "./ToolPanel";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 
 interface SessionData {
@@ -78,6 +78,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const [modelList, setModelList] = useState<{ id: string; name: string; provider: string }[]>([]);
   // For new sessions, allow pre-selecting a model before the first message is sent
   const [newSessionModel, setNewSessionModel] = useState<{ provider: string; modelId: string } | null>(null);
+  const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("default");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const visibleMessages = messages.filter((m) => m.role === "user" || m.role === "assistant");
@@ -215,6 +216,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     if (session) {
       sessionIdRef.current = session.id;
       loadSession(session.id, true);
+      loadTools(session.id);
       // If the agent is already running (e.g. page refresh mid-stream), reconnect SSE
       // Also sync agent state (thinking level, auto flags)
       fetch(`/api/agent/${encodeURIComponent(session.id)}`)
@@ -276,6 +278,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       if (isNew && newSessionCwd) {
         // Brand-new session: single POST that spawns pi and sends the message
         const selectedModel = newSessionModel;
+        const { PRESET_NONE, PRESET_DEFAULT, PRESET_FULL } = await import("./ToolPanel");
+        const toolNames = toolPreset === "none" ? PRESET_NONE : toolPreset === "default" ? PRESET_DEFAULT : PRESET_FULL;
         const res = await fetch("/api/agent/new", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -283,6 +287,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             cwd: newSessionCwd,
             type: "prompt",
             message,
+            toolNames,
             ...(selectedModel ? { provider: selectedModel.provider, modelId: selectedModel.modelId } : {}),
           }),
         });
@@ -318,7 +323,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       setAgentRunning(false);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, agentRunning, scrollToBottom, connectEvents, onSessionCreated]);
+  }, [isNew, newSessionCwd, newSessionModel, toolPreset, session, agentRunning, scrollToBottom, connectEvents, onSessionCreated]);
 
   const handleAbort = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -385,8 +390,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     const t = setTimeout(() => setCompactError(null), 3000);
     return () => clearTimeout(t);
   }, [compactError]);
-  const [tools, setTools] = useState<ToolEntry[]>([]);
-  const [toolPanelOpen, setToolPanelOpen] = useState(false);
+  const setToolPresetPersist = useCallback((preset: "none" | "default" | "full") => {
+    setToolPreset(preset);
+  }, []);
 
   const handleModelChange = useCallback(async (provider: string, modelId: string) => {
     if (isNew) {
@@ -497,42 +503,31 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       });
       if (!res.ok) return;
       const data = await res.json() as { success?: boolean; data?: ToolEntry[] };
-      if (data.data) setTools(data.data);
+      if (data.data) {
+        const { getPresetFromTools } = await import("./ToolPanel");
+        setToolPresetPersist(getPresetFromTools(data.data));
+      }
     } catch (e) {
       console.error("Failed to load tools:", e);
     }
-  }, []);
+  }, [setToolPresetPersist]);
 
-  const handleToolsClick = useCallback(async () => {
+  const handleToolPresetChange = useCallback(async (preset: "none" | "default" | "full") => {
+    const { PRESET_NONE, PRESET_DEFAULT, PRESET_FULL } = await import("./ToolPanel");
+    const toolNames = preset === "none" ? PRESET_NONE : preset === "default" ? PRESET_DEFAULT : PRESET_FULL;
+    setToolPresetPersist(preset);
     const sid = sessionIdRef.current;
     if (!sid) return;
-    // Load tools fresh each time panel opens
-    await loadTools(sid);
-    setToolPanelOpen(true);
-  }, [loadTools]);
-
-  const handleToolToggle = useCallback(async (name: string, active: boolean) => {
-    // Optimistic update
-    setTools(prev => prev.map(t => t.name === name ? { ...t, active } : t));
-    const sid = sessionIdRef.current;
-    if (!sid) return;
-    // Compute new active list based on updated tools
-    const newActiveNames = tools
-      .map(t => t.name === name ? { ...t, active } : t)
-      .filter(t => t.active)
-      .map(t => t.name);
     try {
       await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "set_tools", toolNames: newActiveNames }),
+        body: JSON.stringify({ type: "set_tools", toolNames }),
       });
     } catch (e) {
       console.error("Failed to set tools:", e);
-      // Revert on error
-      setTools(prev => prev.map(t => t.name === name ? { ...t, active: !active } : t));
     }
-  }, [tools]);
+  }, [setToolPresetPersist]);
 
   if (loading) {
     return (
@@ -624,15 +619,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       </div>
 
       <div style={{ position: "relative" }}>
-        {toolPanelOpen && tools.length > 0 && (
-          <div style={{ position: "absolute", bottom: "100%", right: 16, zIndex: 200 }}>
-            <ToolPanel
-              tools={tools}
-              onToggle={handleToolToggle}
-              onClose={() => setToolPanelOpen(false)}
-            />
-          </div>
-        )}
         <ChatInput
           onSend={handleSend}
           onAbort={handleAbort}
@@ -649,7 +635,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           onAbortCompaction={handleAbortCompaction}
           isCompacting={isCompacting}
           compactError={compactError}
-          onToolsClick={session || isNew ? handleToolsClick : undefined}
+          toolPreset={toolPreset}
+          onToolPresetChange={session || isNew ? handleToolPresetChange : undefined}
         />
       </div>
     </div>
