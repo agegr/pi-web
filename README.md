@@ -1,6 +1,6 @@
 # pi-web
 
-A web interface for the [pi coding agent](https://github.com/mariozechner/pi). Browse sessions, chat with the agent, fork conversations, and navigate message branches — all in the browser.
+A web interface for the [pi coding agent](https://github.com/badlogic/pi-mono). Browse sessions, chat with the agent, fork conversations, and navigate message branches — all in the browser.
 
 ## Setup
 
