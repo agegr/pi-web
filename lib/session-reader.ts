@@ -31,24 +31,61 @@ export function getSessionsDir(): string {
   return join(getAgentDir(), "sessions");
 }
 
-// Build a map of modelId -> friendly name from ~/.pi/agent/models.json
-let _modelNameCache: Map<string, string> | null = null;
-export function getModelNameMap(): Map<string, string> {
-  if (_modelNameCache) return _modelNameCache;
-  _modelNameCache = new Map();
+export interface ModelInfo {
+  id: string;
+  name: string;
+  provider: string;
+}
+
+// Build a map of modelId -> ModelInfo from ~/.pi/agent/models.json
+let _modelCache: Map<string, ModelInfo> | null = null;
+function getModelCache(): Map<string, ModelInfo> {
+  if (_modelCache) return _modelCache;
+  _modelCache = new Map();
   const path = join(getAgentDir(), "models.json");
-  if (!existsSync(path)) return _modelNameCache;
+  if (!existsSync(path)) return _modelCache;
   try {
     const data = JSON.parse(readFileSync(path, "utf8")) as {
       providers?: Record<string, { models?: { id: string; name?: string }[] }>;
     };
-    for (const provider of Object.values(data.providers ?? {})) {
-      for (const model of provider.models ?? []) {
-        if (model.id && model.name) _modelNameCache.set(model.id, model.name);
+    for (const [provider, providerData] of Object.entries(data.providers ?? {})) {
+      for (const model of providerData.models ?? []) {
+        if (model.id && model.name) {
+          _modelCache.set(model.id, { id: model.id, name: model.name, provider });
+        }
       }
     }
   } catch { /* ignore */ }
-  return _modelNameCache;
+  return _modelCache;
+}
+
+export function getModelNameMap(): Map<string, string> {
+  const result = new Map<string, string>();
+  for (const [id, info] of getModelCache()) result.set(id, info.name);
+  return result;
+}
+
+export function getModelList(): ModelInfo[] {
+  return Array.from(getModelCache().values());
+}
+
+export function getDefaultModel(): { provider: string; modelId: string } | null {
+  const path = join(getAgentDir(), "settings.json");
+  if (!existsSync(path)) return null;
+  try {
+    const data = JSON.parse(readFileSync(path, "utf8")) as {
+      defaultProvider?: string;
+      defaultModel?: string;
+    };
+    if (!data.defaultProvider) return null;
+    if (data.defaultModel) {
+      return { provider: data.defaultProvider, modelId: data.defaultModel };
+    }
+    // Only provider saved — pick the first model from that provider in models.json
+    const first = Array.from(getModelCache().values()).find((m) => m.provider === data.defaultProvider);
+    if (first) return { provider: first.provider, modelId: first.id };
+  } catch { /* ignore */ }
+  return null;
 }
 
 export function parseSessionFile(filePath: string): FileEntry[] {

@@ -16,6 +16,7 @@ interface Props {
   isStreaming: boolean;
   model?: { provider: string; modelId: string } | null;
   modelNames?: Record<string, string>;
+  modelList?: { id: string; name: string; provider: string }[];
   onModelChange?: (provider: string, modelId: string) => void;
   thinkingLevel?: string;
   onThinkingLevelChange?: (level: string) => void;
@@ -29,7 +30,7 @@ interface Props {
 const THINKING_LEVELS = ["off", "low", "high"] as const;
 
 export function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, modelNames, onModelChange,
+  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, modelNames, modelList, onModelChange,
   thinkingLevel, onThinkingLevelChange,
   onCompact, onAbortCompaction, isCompacting, compactError, onToolsClick,
 }: Props) {
@@ -82,14 +83,18 @@ export function ChatInput({
     ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
   }, []);
 
-  // Build model options from modelNames map + current model provider
-  const modelOptions: ModelOption[] = Object.entries(modelNames ?? {}).map(([modelId, name]) => ({
-    provider: model?.provider ?? "unknown",
-    modelId,
-    name,
-  }));
+  // Build model options: prefer modelList (has provider info), fallback to modelNames
+  const modelOptions: ModelOption[] = modelList && modelList.length > 0
+    ? modelList.map((m) => ({ provider: m.provider, modelId: m.id, name: m.name }))
+    : Object.entries(modelNames ?? {}).map(([modelId, name]) => ({
+        provider: model?.provider ?? "unknown",
+        modelId,
+        name,
+      }));
 
-  const currentName = model ? (modelNames?.[model.modelId] ?? model.modelId) : null;
+  const currentName = model
+    ? (modelNames?.[model.modelId] ?? model.modelId)
+    : modelOptions.length > 0 ? modelOptions[0].name : null;
 
   // Close dropdown on outside click
   useEffect(() => {

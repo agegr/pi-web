@@ -75,6 +75,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   });
   const [agentRunning, setAgentRunning] = useState(false);
   const [modelNames, setModelNames] = useState<Record<string, string>>({});
+  const [modelList, setModelList] = useState<{ id: string; name: string; provider: string }[]>([]);
+  // For new sessions, allow pre-selecting a model before the first message is sent
+  const [newSessionModel, setNewSessionModel] = useState<{ provider: string; modelId: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const visibleMessages = messages.filter((m) => m.role === "user" || m.role === "assistant");
@@ -193,7 +196,21 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   // On mount: load existing session, or show empty chat for new session
   useEffect(() => {
-    fetch("/api/models").then((r) => r.json()).then((d: { models: Record<string, string> }) => setModelNames(d.models)).catch(() => {});
+    fetch("/api/models").then((r) => r.json()).then((d: { models: Record<string, string>; modelList?: { id: string; name: string; provider: string }[]; defaultModel?: { provider: string; modelId: string } | null }) => {
+      setModelNames(d.models);
+      if (d.modelList) {
+        setModelList(d.modelList);
+        if (isNew && d.modelList.length > 0) {
+          // Use pi's saved default model from settings.json, fallback to first available
+          const def = d.defaultModel;
+          const match = def && d.modelList.find((m) => m.id === def.modelId && m.provider === def.provider);
+          const selected = match
+            ? { provider: match.provider, modelId: match.id }
+            : { provider: d.modelList[0].provider, modelId: d.modelList[0].id };
+          setNewSessionModel(selected);
+        }
+      }
+    }).catch(() => {});
 
     if (session) {
       sessionIdRef.current = session.id;
@@ -258,10 +275,16 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     try {
       if (isNew && newSessionCwd) {
         // Brand-new session: single POST that spawns pi and sends the message
+        const selectedModel = newSessionModel;
         const res = await fetch("/api/agent/new", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cwd: newSessionCwd, type: "prompt", message }),
+          body: JSON.stringify({
+            cwd: newSessionCwd,
+            type: "prompt",
+            message,
+            ...(selectedModel ? { provider: selectedModel.provider, modelId: selectedModel.modelId } : {}),
+          }),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json() as { sessionId: string };
@@ -295,7 +318,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       setAgentRunning(false);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, session, agentRunning, scrollToBottom, connectEvents, onSessionCreated]);
+  }, [isNew, newSessionCwd, newSessionModel, session, agentRunning, scrollToBottom, connectEvents, onSessionCreated]);
 
   const handleAbort = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -352,6 +375,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   const [currentModelOverride, setCurrentModelOverride] = useState<{ provider: string; modelId: string } | null>(null);
   const currentModel = currentModelOverride ?? data?.context.model ?? null;
+  const displayModel = isNew ? newSessionModel : currentModel;
 
   const [thinkingLevel, setThinkingLevel] = useState<string>("off");
   const [isCompacting, setIsCompacting] = useState(false);
@@ -365,6 +389,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const [toolPanelOpen, setToolPanelOpen] = useState(false);
 
   const handleModelChange = useCallback(async (provider: string, modelId: string) => {
+    if (isNew) {
+      setNewSessionModel({ provider, modelId });
+      return;
+    }
     const sid = sessionIdRef.current;
     if (!sid) return;
     try {
@@ -377,7 +405,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     } catch (e) {
       console.error("Failed to set model:", e);
     }
-  }, []);
+  }, [isNew]);
 
   const handleThinkingLevelChange = useCallback(async (level: string) => {
     const sid = sessionIdRef.current;
@@ -611,8 +639,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           onSteer={agentRunning ? handleSteer : undefined}
           onFollowUp={agentRunning ? handleFollowUp : undefined}
           isStreaming={agentRunning}
-          model={currentModel}
+          model={displayModel}
           modelNames={modelNames}
+          modelList={modelList}
           onModelChange={handleModelChange}
           thinkingLevel={thinkingLevel}
           onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}
