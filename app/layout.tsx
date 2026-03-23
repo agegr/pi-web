@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Pi Agent",
+  title: "Pi Agent Web",
   description: "Pi Coding Agent Web Interface",
 };
 
