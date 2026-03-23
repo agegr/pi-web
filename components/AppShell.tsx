@@ -6,6 +6,7 @@ import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
+import { ModelsConfig } from "./ModelsConfig";
 import type { SessionInfo } from "@/lib/types";
 
 const CHAT_TAB: Tab = { id: "chat", type: "chat", label: "Chat" };
@@ -19,6 +20,7 @@ export function AppShell() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [sessionKey, setSessionKey] = useState(0);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
+  const [modelsConfigOpen, setModelsConfigOpen] = useState(false);
 
   const [initialSessionId] = useState<string | null>(() => searchParams.get("session"));
 
@@ -92,6 +94,7 @@ export function AppShell() {
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? CHAT_TAB;
 
   return (
+    <>
     <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "var(--bg)" }}>
       {/* Sidebar */}
       <div
@@ -115,6 +118,31 @@ export function AppShell() {
           onOpenFile={handleOpenFile}
           explorerRefreshKey={explorerRefreshKey}
         />
+        {/* Models config button at sidebar bottom */}
+        <div style={{ borderTop: "1px solid var(--border)", padding: "8px 10px", flexShrink: 0 }}>
+          <button
+            onClick={() => setModelsConfigOpen(true)}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              width: "100%", padding: "6px 8px",
+              background: "none", border: "none", borderRadius: 5,
+              color: "var(--text-muted)", cursor: "pointer", fontSize: 12,
+              textAlign: "left",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "var(--text-muted)"; }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="4" y="4" width="16" height="16" rx="2" />
+              <rect x="9" y="9" width="6" height="6" />
+              <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
+              <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
+              <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
+              <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
+            </svg>
+            Models
+          </button>
+        </div>
       </div>
 
       {/* Main content */}
@@ -165,5 +193,7 @@ export function AppShell() {
         </div>
       </div>
     </div>
+    {modelsConfigOpen && <ModelsConfig onClose={() => setModelsConfigOpen(false)} />}
+    </>
   );
 }

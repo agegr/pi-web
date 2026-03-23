@@ -37,7 +37,7 @@ export interface ModelInfo {
   provider: string;
 }
 
-// Build a map of modelId -> ModelInfo from ~/.pi/agent/models.json
+// Build a map of "provider:modelId" -> ModelInfo from ~/.pi/agent/models.json
 let _modelCache: Map<string, ModelInfo> | null = null;
 function getModelCache(): Map<string, ModelInfo> {
   if (_modelCache) return _modelCache;
@@ -51,7 +51,7 @@ function getModelCache(): Map<string, ModelInfo> {
     for (const [provider, providerData] of Object.entries(data.providers ?? {})) {
       for (const model of providerData.models ?? []) {
         if (model.id && model.name) {
-          _modelCache.set(model.id, { id: model.id, name: model.name, provider });
+          _modelCache.set(`${provider}:${model.id}`, { id: model.id, name: model.name, provider });
         }
       }
     }
@@ -61,12 +61,16 @@ function getModelCache(): Map<string, ModelInfo> {
 
 export function getModelNameMap(): Map<string, string> {
   const result = new Map<string, string>();
-  for (const [id, info] of getModelCache()) result.set(id, info.name);
+  for (const info of getModelCache().values()) result.set(info.id, info.name);
   return result;
 }
 
 export function getModelList(): ModelInfo[] {
   return Array.from(getModelCache().values());
+}
+
+export function invalidateModelCache(): void {
+  _modelCache = null;
 }
 
 export function getDefaultModel(): { provider: string; modelId: string } | null {

@@ -84,16 +84,24 @@ export function ChatInput({
   }, []);
 
   // Build model options: prefer modelList (has provider info), fallback to modelNames
-  const modelOptions: ModelOption[] = modelList && modelList.length > 0
-    ? modelList.map((m) => ({ provider: m.provider, modelId: m.id, name: m.name }))
-    : Object.entries(modelNames ?? {}).map(([modelId, name]) => ({
-        provider: model?.provider ?? "unknown",
-        modelId,
-        name,
+  // If multiple providers share the same model id, append provider name to disambiguate
+  const modelOptions: ModelOption[] = (() => {
+    if (modelList && modelList.length > 0) {
+      return modelList.map((m) => ({
+        provider: m.provider,
+        modelId: m.id,
+        name: `${m.name} (${m.provider})`,
       }));
+    }
+    return Object.entries(modelNames ?? {}).map(([modelId, name]) => ({
+      provider: model?.provider ?? "unknown",
+      modelId,
+      name,
+    }));
+  })();
 
   const currentName = model
-    ? (modelNames?.[model.modelId] ?? model.modelId)
+    ? (modelOptions.find((o) => o.modelId === model.modelId && o.provider === model.provider)?.name ?? model.modelId)
     : modelOptions.length > 0 ? modelOptions[0].name : null;
 
   // Close dropdown on outside click
@@ -327,10 +335,10 @@ export function ChatInput({
                     minWidth: 160,
                   }}>
                     {modelOptions.map((opt) => {
-                      const isActive = opt.modelId === model?.modelId;
+                      const isActive = opt.modelId === model?.modelId && opt.provider === model?.provider;
                       return (
                         <button
-                          key={opt.modelId}
+                          key={`${opt.provider}:${opt.modelId}`}
                           onClick={() => {
                             setModelDropdownOpen(false);
                             if (!isActive) onModelChange(opt.provider, opt.modelId);
