@@ -211,7 +211,6 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange }: Props) {
 
   const handleSelect = useCallback((id: string) => {
     onLeafChange(id);
-    setOpen(false);
   }, [onLeafChange]);
 
   // Only show if there's actual branching
@@ -222,7 +221,7 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange }: Props) {
   if (!firstNode || firstNode.children.length <= 1) return null;
 
   return (
-    <div style={{ borderBottom: "1px solid var(--border)", background: "var(--bg)", flexShrink: 0 }}>
+    <div style={{ borderBottom: "1px solid var(--border)", background: "var(--bg)", flexShrink: 0, position: "relative" }}>
       {/* Header toggle */}
       <button
         onClick={() => setOpen((v) => !v)}
@@ -253,9 +252,21 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange }: Props) {
         </svg>
       </button>
 
-      {/* Tree panel */}
+      {/* Tree panel - overlay */}
       {open && (
-        <div style={{ padding: "4px 12px 8px 12px", maxHeight: 260, overflowY: "auto" }}>
+        <div style={{
+          position: "absolute",
+          top: "100%",
+          left: 0,
+          right: 0,
+          padding: "4px 12px 8px 12px",
+          maxHeight: 260,
+          overflowY: "auto",
+          background: "var(--bg)",
+          borderBottom: "1px solid var(--border)",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+          zIndex: 100,
+        }}>
           {firstNode.children.map((child, idx) => (
             <TreeNodeView
               key={child.entry.id}
