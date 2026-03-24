@@ -88,7 +88,6 @@ export class AgentSessionWrapper {
           sessionFile: this.inner.sessionFile ?? "",
           isStreaming: this.inner.isStreaming,
           isCompacting: this.inner.isCompacting ?? false,
-          thinkingLevel: this.inner.thinkingLevel ?? "off",
           autoCompactionEnabled: this.inner.autoCompactionEnabled ?? false,
           autoRetryEnabled: this.inner.autoRetryEnabled ?? false,
           model: model ? { id: model.id, provider: model.provider } : undefined,

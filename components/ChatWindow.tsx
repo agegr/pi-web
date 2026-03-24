@@ -255,13 +255,12 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       // Also sync agent state (thinking level, auto flags)
       fetch(`/api/agent/${encodeURIComponent(session.id)}`)
         .then((r) => r.json())
-        .then((d: { running?: boolean; state?: { isStreaming?: boolean; thinkingLevel?: string; isCompacting?: boolean; contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null } }) => {
+        .then((d: { running?: boolean; state?: { isStreaming?: boolean; isCompacting?: boolean; contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null } }) => {
           if (d.running && d.state?.isStreaming) {
             setAgentRunning(true);
             connectEvents(session.id);
           }
           if (d.state) {
-            if (d.state.thinkingLevel) setThinkingLevel(d.state.thinkingLevel);
             if (d.state.isCompacting !== undefined) setIsCompacting(d.state.isCompacting);
             if (d.state.contextUsage !== undefined) setContextUsage(d.state.contextUsage ?? null);
           }
@@ -424,7 +423,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const currentModel = currentModelOverride ?? data?.context.model ?? null;
   const displayModel = isNew ? newSessionModel : currentModel;
 
-  const [thinkingLevel, setThinkingLevel] = useState<string>("off");
   const [isCompacting, setIsCompacting] = useState(false);
   const [compactError, setCompactError] = useState<string | null>(null);
   useEffect(() => {
@@ -454,21 +452,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       console.error("Failed to set model:", e);
     }
   }, [isNew]);
-
-  const handleThinkingLevelChange = useCallback(async (level: string) => {
-    const sid = sessionIdRef.current;
-    if (!sid) return;
-    setThinkingLevel(level);
-    try {
-      await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "set_thinking_level", level }),
-      });
-    } catch (e) {
-      console.error("Failed to set thinking level:", e);
-    }
-  }, []);
 
   const handleCompact = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -671,8 +654,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           modelNames={modelNames}
           modelList={modelList}
           onModelChange={handleModelChange}
-          thinkingLevel={thinkingLevel}
-          onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}
           onCompact={session || isNew ? handleCompact : undefined}
           onAbortCompaction={handleAbortCompaction}
           isCompacting={isCompacting}

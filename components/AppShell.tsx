@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
@@ -23,10 +23,20 @@ export function AppShell() {
   const [modelsConfigOpen, setModelsConfigOpen] = useState(false);
 
   const [initialSessionId] = useState<string | null>(() => searchParams.get("session"));
+  const [activeCwd, setActiveCwd] = useState<string | null>(null);
 
   // Tab management
   const [tabs, setTabs] = useState<Tab[]>([CHAT_TAB]);
   const [activeTabId, setActiveTabId] = useState<string>("chat");
+
+  const handleCwdChange = useCallback((cwd: string | null) => {
+    setActiveCwd(cwd);
+    // If no session is open, remount ChatWindow for the new cwd
+    setSelectedSession((prev) => {
+      if (prev === null) setSessionKey((k) => k + 1);
+      return prev;
+    });
+  }, []);
 
   const handleSelectSession = useCallback((session: SessionInfo) => {
     setNewSessionCwd(null);
@@ -89,7 +99,9 @@ export function AppShell() {
     setActiveTabId((cur) => (cur === tabId ? "chat" : cur));
   }, []);
 
-  const showChat = selectedSession !== null || newSessionCwd !== null;
+  // Show chat area if a session is selected, or if we have a cwd to start a new session in
+  const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
+  const showChat = selectedSession !== null || effectiveNewSessionCwd !== null;
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? CHAT_TAB;
 
@@ -115,6 +127,7 @@ export function AppShell() {
           refreshKey={refreshKey}
           onSessionDeleted={handleSessionDeleted}
           selectedCwd={selectedSession?.cwd ?? newSessionCwd ?? null}
+          onCwdChange={handleCwdChange}
           onOpenFile={handleOpenFile}
           explorerRefreshKey={explorerRefreshKey}
         />
@@ -163,7 +176,7 @@ export function AppShell() {
               <ChatWindow
                 key={sessionKey}
                 session={selectedSession}
-                newSessionCwd={newSessionCwd}
+                newSessionCwd={effectiveNewSessionCwd}
                 onAgentEnd={handleAgentEnd}
                 onSessionCreated={handleSessionCreated}
                 onSessionForked={handleSessionForked}

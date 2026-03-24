@@ -18,8 +18,6 @@ interface Props {
   modelNames?: Record<string, string>;
   modelList?: { id: string; name: string; provider: string }[];
   onModelChange?: (provider: string, modelId: string) => void;
-  thinkingLevel?: string;
-  onThinkingLevelChange?: (level: string) => void;
   onCompact?: () => void;
   onAbortCompaction?: () => void;
   isCompacting?: boolean;
@@ -37,15 +35,12 @@ function fmtTokens(n: number): string {
   return String(n);
 }
 
-const THINKING_LEVELS = ["off", "low", "high"] as const;
 const TOOL_PRESETS = ["off", "default", "full"] as const;
 const TOOL_PRESET_MAP: Record<"off" | "default" | "full", "none" | "default" | "full"> = { off: "none", default: "default", full: "full" };
 
 export function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, modelNames, modelList, onModelChange,
-  thinkingLevel, onThinkingLevelChange,
-  onCompact, onAbortCompaction, isCompacting, compactError, toolPreset, onToolPresetChange,
-  sessionStats, retryInfo, contextUsage,
+  onCompact, onAbortCompaction, isCompacting, compactError, toolPreset, onToolPresetChange, sessionStats, retryInfo, contextUsage,
 }: Props) {
   const [value, setValue] = useState("");
   const [queueMode, setQueueMode] = useState<"steer" | "followup">("steer");
@@ -201,76 +196,49 @@ export function ChatInput({
 
           {isStreaming ? (
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-              {/* Steer / Follow-up mode toggle + send, only when callbacks available */}
               {(onSteer || onFollowUp) && (
-                <>
-                  <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: 5, overflow: "hidden" }}>
-                    {(["steer", "followup"] as const).map((mode) => {
-                      const active = queueMode === mode;
-                      const color = mode === "steer" ? "rgba(234,179,8,0.9)" : "rgba(99,102,241,0.9)";
-                      return (
-                        <button
-                          key={mode}
-                          onClick={() => setQueueMode(mode)}
-                          title={mode === "steer" ? "Interrupt: inject guidance mid-run" : "Follow-up: queue message for after agent finishes"}
-                          style={{
-                            padding: "3px 8px",
-                            background: active ? (mode === "steer" ? "rgba(234,179,8,0.12)" : "rgba(99,102,241,0.12)") : "none",
-                            border: "none",
-                            borderRight: mode === "steer" ? "1px solid var(--border)" : "none",
-                            color: active ? color : "var(--text-dim)",
-                            cursor: "pointer",
-                            fontSize: 11,
-                            fontWeight: active ? 700 : 400,
-                          }}
-                        >
-                          {mode === "steer" ? "Steer" : "Follow-up"}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <button
-                    onClick={handleQueueSend}
-                    disabled={!value.trim()}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 5,
-                      padding: "5px 12px",
-                      background: value.trim()
-                        ? (queueMode === "steer" ? "rgba(234,179,8,0.15)" : "rgba(99,102,241,0.12)")
-                        : "var(--bg-panel)",
-                      border: `1px solid ${queueMode === "steer" ? "rgba(234,179,8,0.35)" : "rgba(99,102,241,0.35)"}`,
-                      borderRadius: 7,
-                      color: value.trim()
-                        ? (queueMode === "steer" ? "rgba(234,179,8,0.9)" : "rgba(99,102,241,0.9)")
-                        : "var(--text-dim)",
-                      cursor: value.trim() ? "pointer" : "not-allowed",
-                      fontSize: 12,
-                      fontWeight: 600,
-                    }}
-                  >
-                    Send
-                  </button>
-                </>
+                <button
+                  onClick={handleQueueSend}
+                  disabled={!value.trim()}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "7px 14px",
+                    background: value.trim()
+                      ? (queueMode === "steer" ? "rgba(234,179,8,0.12)" : "rgba(129,140,248,0.12)")
+                      : "none",
+                    border: `1px solid ${queueMode === "steer" ? "rgba(234,179,8,0.35)" : "rgba(129,140,248,0.35)"}`,
+                    borderRadius: 8,
+                    color: value.trim()
+                      ? (queueMode === "steer" ? "rgba(180,130,0,1)" : "rgba(99,102,241,1)")
+                      : "var(--text-dim)",
+                    cursor: value.trim() ? "pointer" : "not-allowed",
+                    fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
+                    transition: "background 0.12s",
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="2" y1="7" x2="11" y2="7" /><polyline points="7.5 3 12 7 7.5 11" />
+                  </svg>
+                  Send
+                </button>
               )}
-              {/* Stop button */}
               <button
                 onClick={onAbort}
                 style={{
+                  flexShrink: 0,
                   display: "flex", alignItems: "center", gap: 6,
                   padding: "7px 14px",
                   background: "rgba(239,68,68,0.08)",
-                  border: "1px solid rgba(239,68,68,0.35)",
+                  border: "1px solid rgba(239,68,68,0.3)",
                   borderRadius: 8,
                   color: "#ef4444",
                   cursor: "pointer",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  whiteSpace: "nowrap",
-                  letterSpacing: "-0.01em",
+                  fontSize: 13, fontWeight: 600,
+                  whiteSpace: "nowrap", letterSpacing: "-0.01em",
                 }}
               >
-                <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                  <rect x="2" y="2" width="9" height="9" rx="2" fill="currentColor" />
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <rect x="1.5" y="1.5" width="7" height="7" rx="1.5" fill="currentColor" />
                 </svg>
                 Stop
               </button>
@@ -304,205 +272,201 @@ export function ChatInput({
           )}
         </div>
 
-        {/* Bottom bar */}
-        <div style={{ marginTop: 6, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            {/* Model selector */}
-            {modelOptions.length > 0 && currentName && onModelChange && (
-              <div ref={dropdownRef} style={{ position: "relative" }}>
-                <button
-                  onClick={() => setModelDropdownOpen((v) => !v)}
-                  disabled={isStreaming}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 5,
-                    padding: "4px 10px",
-                    background: "none",
-                    border: "1px solid var(--border)",
-                    borderRadius: 5,
-                    color: "var(--text-muted)",
-                    cursor: isStreaming ? "not-allowed" : "pointer",
-                    fontSize: 12,
-                    opacity: isStreaming ? 0.5 : 1,
-                    transition: "border-color 0.12s, color 0.12s",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (isStreaming) return;
-                    e.currentTarget.style.borderColor = "rgba(37,99,235,0.4)";
-                    e.currentTarget.style.color = "var(--accent)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = "var(--border)";
-                    e.currentTarget.style.color = "var(--text-muted)";
-                  }}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="4" y="4" width="16" height="16" rx="2" />
-                    <rect x="9" y="9" width="6" height="6" />
-                    <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
-                    <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
-                    <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
-                    <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
-                  </svg>
-                  {currentName}
-                  <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ transform: modelDropdownOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
-                    <polyline points="2 3.5 5 6.5 8 3.5" />
-                  </svg>
-                </button>
+        {/* Bottom bar: left | center (stats) | right */}
+        <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8 }}>
 
-                {modelDropdownOpen && (
-                  <div style={{
-                    position: "absolute",
-                    bottom: "calc(100% + 6px)",
-                    left: 0,
-                    zIndex: 100,
-                    background: "var(--bg)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 8,
-                    boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
-                    overflow: "hidden",
-                    minWidth: 160,
-                  }}>
-                    {modelOptions.map((opt) => {
-                      const isActive = opt.modelId === model?.modelId && opt.provider === model?.provider;
-                      return (
-                        <button
-                          key={`${opt.provider}:${opt.modelId}`}
-                          onClick={() => {
-                            setModelDropdownOpen(false);
-                            if (!isActive) onModelChange(opt.provider, opt.modelId);
-                          }}
-                          style={{
-                            display: "flex", alignItems: "center", gap: 8,
-                            width: "100%",
-                            padding: "8px 12px",
-                            background: isActive ? "var(--bg-selected)" : "none",
-                            border: "none",
-                            borderBottom: "1px solid var(--border)",
-                            color: isActive ? "var(--text)" : "var(--text-muted)",
-                            cursor: "pointer",
-                            fontSize: 12,
-                            textAlign: "left",
-                            fontWeight: isActive ? 600 : 400,
-                          }}
-                          onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                          onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
-                        >
-                          {isActive ? (
-                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <polyline points="1.5 5 4 7.5 8.5 2.5" />
-                            </svg>
-                          ) : <span style={{ width: 10, flexShrink: 0 }} />}
-                          {opt.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+          {/* LEFT: model selector (idle) or steer/followup toggle (streaming) */}
+          <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: 6 }}>
+            {isStreaming && (onSteer || onFollowUp) ? (
+              /* Steer / Follow-up pill toggle */
+              <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
+                {(["steer", "followup"] as const).map((mode, i) => {
+                  const active = queueMode === mode;
+                  const accent = mode === "steer" ? "rgba(234,179,8,1)" : "rgba(129,140,248,1)";
+                  const accentBg = mode === "steer" ? "rgba(234,179,8,0.1)" : "rgba(129,140,248,0.1)";
+                  return (
+                    <button
+                      key={mode}
+                      onClick={() => setQueueMode(mode)}
+                      title={mode === "steer" ? "Interrupt agent mid-run" : "Queue after agent finishes"}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 5,
+                        padding: "4px 10px",
+                        background: active ? accentBg : "none",
+                        border: "none",
+                        borderLeft: i > 0 ? `1px solid ${active ? "transparent" : "var(--border)"}` : "none",
+                        color: active ? accent : "var(--text-dim)",
+                        cursor: "pointer",
+                        fontSize: 12,
+                        fontWeight: active ? 600 : 400,
+                        whiteSpace: "nowrap",
+                        transition: "background 0.12s, color 0.12s",
+                      }}
+                    >
+                      {mode === "steer" ? (
+                        <>
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
+                          </svg>
+                          Steer
+                        </>
+                      ) : (
+                        <>
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="5" y1="1" x2="5" y2="6" /><polyline points="2.5 3.5 5 1 7.5 3.5" />
+                            <line x1="2" y1="9" x2="8" y2="9" />
+                          </svg>
+                          Follow-up
+                        </>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
-            )}
-
-            {/* Thinking level selector */}
-            {onThinkingLevelChange && (
-              <div style={{ display: "flex", alignItems: "center", border: "1px solid var(--border)", borderRadius: 5, overflow: "hidden" }}>
-                {THINKING_LEVELS.map((lvl, i) => (
+            ) : (
+              /* Model selector */
+              modelOptions.length > 0 && currentName && onModelChange && (
+                <div ref={dropdownRef} style={{ position: "relative" }}>
                   <button
-                    key={lvl}
-                    onClick={() => !isStreaming && onThinkingLevelChange(lvl)}
+                    onClick={() => setModelDropdownOpen((v) => !v)}
                     disabled={isStreaming}
                     style={{
+                      display: "flex", alignItems: "center", gap: 5,
                       padding: "4px 10px",
-                      background: thinkingLevel === lvl ? "var(--bg-selected)" : "none",
-                      border: "none",
-                      borderLeft: i > 0 ? `1px solid ${thinkingLevel === lvl || thinkingLevel === THINKING_LEVELS[i - 1] ? "transparent" : "var(--border)"}` : "none",
-                      color: thinkingLevel === lvl ? "var(--accent)" : "var(--text-dim)",
+                      background: "none",
+                      border: "1px solid var(--border)",
+                      borderRadius: 5,
+                      color: "var(--text-muted)",
                       cursor: isStreaming ? "not-allowed" : "pointer",
                       fontSize: 12,
-                      fontWeight: thinkingLevel === lvl ? 600 : 400,
                       opacity: isStreaming ? 0.5 : 1,
+                      transition: "border-color 0.12s, color 0.12s",
                     }}
-                    title={`Thinking: ${lvl}`}
+                    onMouseEnter={(e) => {
+                      if (isStreaming) return;
+                      e.currentTarget.style.borderColor = "rgba(37,99,235,0.4)";
+                      e.currentTarget.style.color = "var(--accent)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = "var(--border)";
+                      e.currentTarget.style.color = "var(--text-muted)";
+                    }}
                   >
-                    {lvl}
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="4" y="4" width="16" height="16" rx="2" />
+                      <rect x="9" y="9" width="6" height="6" />
+                      <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
+                      <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
+                      <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
+                      <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
+                    </svg>
+                    {currentName}
+                    <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ transform: modelDropdownOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+                      <polyline points="2 3.5 5 6.5 8 3.5" />
+                    </svg>
                   </button>
-                ))}
-              </div>
+                  {modelDropdownOpen && (
+                    <div style={{
+                      position: "absolute", bottom: "calc(100% + 6px)", left: 0,
+                      zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
+                      borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
+                      overflow: "hidden", minWidth: 160,
+                    }}>
+                      {modelOptions.map((opt) => {
+                        const isActive = opt.modelId === model?.modelId && opt.provider === model?.provider;
+                        return (
+                          <button
+                            key={`${opt.provider}:${opt.modelId}`}
+                            onClick={() => { setModelDropdownOpen(false); if (!isActive) onModelChange(opt.provider, opt.modelId); }}
+                            style={{
+                              display: "flex", alignItems: "center", gap: 8,
+                              width: "100%", padding: "8px 12px",
+                              background: isActive ? "var(--bg-selected)" : "none",
+                              border: "none", borderBottom: "1px solid var(--border)",
+                              color: isActive ? "var(--text)" : "var(--text-muted)",
+                              cursor: "pointer", fontSize: 12, textAlign: "left",
+                              fontWeight: isActive ? 600 : 400,
+                            }}
+                            onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
+                            onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
+                          >
+                            {isActive
+                              ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
+                              : <span style={{ width: 10, flexShrink: 0 }} />}
+                            {opt.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
             )}
           </div>
 
-          {/* Token usage + context window */}
-          {(sessionStats || contextUsage) && (() => {
-            const items: React.ReactNode[] = [];
-            const tooltipParts: string[] = [];
-
-            if (sessionStats) {
-              const t = sessionStats.tokens;
-              const total = (t.input || 0) + (t.output || 0) + (t.cacheRead || 0) + (t.cacheWrite || 0);
-              if (total) {
-                // upload / input tokens
-                if (t.input) items.push(
-                  <span key="in" style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="5" y1="8.5" x2="5" y2="1.5" />
-                      <polyline points="2 4 5 1.5 8 4" />
-                    </svg>
-                    {fmtTokens(t.input)}
-                  </span>
-                );
-                // download / output tokens
-                if (t.output) items.push(
-                  <span key="out" style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="5" y1="1.5" x2="5" y2="8.5" />
-                      <polyline points="2 6 5 8.5 8 6" />
-                    </svg>
-                    {fmtTokens(t.output)}
-                  </span>
-                );
-                // cache read tokens
-                if (t.cacheRead) items.push(
-                  <span key="cache" style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M8.5 5a3.5 3.5 0 1 1-1-2.45" />
-                      <polyline points="6.5 1.5 8.5 2.5 7.5 4.5" />
-                    </svg>
-                    {fmtTokens(t.cacheRead)}
-                  </span>
-                );
-                tooltipParts.push(`in: ${t.input?.toLocaleString() ?? 0}  out: ${t.output?.toLocaleString() ?? 0}  cache read: ${t.cacheRead?.toLocaleString() ?? 0}  cache write: ${t.cacheWrite?.toLocaleString() ?? 0}`);
+          {/* CENTER: token + context stats */}
+          <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
+            {(sessionStats || contextUsage) && (() => {
+              const items: React.ReactNode[] = [];
+              const tooltipParts: string[] = [];
+              if (sessionStats) {
+                const t = sessionStats.tokens;
+                const total = (t.input || 0) + (t.output || 0) + (t.cacheRead || 0) + (t.cacheWrite || 0);
+                if (total) {
+                  if (t.input) items.push(
+                    <span key="in" style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="5" y1="8.5" x2="5" y2="1.5" /><polyline points="2 4 5 1.5 8 4" />
+                      </svg>
+                      {fmtTokens(t.input)}
+                    </span>
+                  );
+                  if (t.output) items.push(
+                    <span key="out" style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
+                      </svg>
+                      {fmtTokens(t.output)}
+                    </span>
+                  );
+                  if (t.cacheRead) items.push(
+                    <span key="cache" style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M8.5 5a3.5 3.5 0 1 1-1-2.45" /><polyline points="6.5 1.5 8.5 2.5 7.5 4.5" />
+                      </svg>
+                      {fmtTokens(t.cacheRead)}
+                    </span>
+                  );
+                  tooltipParts.push(`in: ${t.input?.toLocaleString() ?? 0}  out: ${t.output?.toLocaleString() ?? 0}  cache read: ${t.cacheRead?.toLocaleString() ?? 0}  cache write: ${t.cacheWrite?.toLocaleString() ?? 0}`);
+                }
               }
-            }
-
-            let ctxColor = "var(--text-dim)";
-            if (contextUsage?.contextWindow) {
-              const pct = contextUsage.percent;
-              if (pct !== null && pct > 90) ctxColor = "#ef4444";
-              else if (pct !== null && pct > 70) ctxColor = "rgba(234,179,8,0.9)";
-              const ctxStr = pct !== null
-                ? `${pct.toFixed(0)}% / ${fmtTokens(contextUsage.contextWindow)}`
-                : `? / ${fmtTokens(contextUsage.contextWindow)}`;
-              items.push(
-                <span key="ctx" style={{ display: "flex", alignItems: "center", gap: 3, color: ctxColor }}>
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M1 9 L1 5 Q1 1 5 1 Q9 1 9 5 L9 9" />
-                    <line x1="1" y1="9" x2="9" y2="9" />
-                  </svg>
-                  {ctxStr}
-                </span>
+              let ctxColor = "var(--text-dim)";
+              if (contextUsage?.contextWindow) {
+                const pct = contextUsage.percent;
+                if (pct !== null && pct > 90) ctxColor = "#ef4444";
+                else if (pct !== null && pct > 70) ctxColor = "rgba(234,179,8,0.9)";
+                const ctxStr = pct !== null ? `${pct.toFixed(0)}% / ${fmtTokens(contextUsage.contextWindow)}` : `? / ${fmtTokens(contextUsage.contextWindow)}`;
+                items.push(
+                  <span key="ctx" style={{ display: "flex", alignItems: "center", gap: 3, color: ctxColor }}>
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M1 9 L1 5 Q1 1 5 1 Q9 1 9 5 L9 9" /><line x1="1" y1="9" x2="9" y2="9" />
+                    </svg>
+                    {ctxStr}
+                  </span>
+                );
+                tooltipParts.push(`context: ${pct !== null ? pct.toFixed(1) + "%" : "unknown"} of ${contextUsage.contextWindow.toLocaleString()} tokens`);
+              }
+              if (!items.length) return null;
+              return (
+                <div title={tooltipParts.join("  |  ")} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11, color: "var(--text-dim)", whiteSpace: "nowrap", cursor: "default" }}>
+                  {items}
+                </div>
               );
-              tooltipParts.push(`context: ${pct !== null ? pct.toFixed(1) + "%" : "unknown"} of ${contextUsage.contextWindow.toLocaleString()} tokens`);
-            }
+            })()}
+          </div>
 
-            if (!items.length) return null;
-            return (
-              <div title={tooltipParts.join("  |  ")}
-                style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11, color: "var(--text-dim)", whiteSpace: "nowrap", cursor: "default" }}>
-                {items}
-              </div>
-            );
-          })()}
-
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            {/* Tools preset selector */}
+          {/* RIGHT: tools preset + compact */}
+          <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: 6 }}>
             {onToolPresetChange && (
               <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                 <span style={{ fontSize: 12, color: "var(--text-dim)" }}>tools</span>
@@ -513,23 +477,14 @@ export function ChatInput({
                     const prevPreset = i > 0 ? TOOL_PRESET_MAP[TOOL_PRESETS[i - 1]] : null;
                     const prevActive = prevPreset !== null && (toolPreset ?? "default") === prevPreset;
                     return (
-                      <button
-                        key={lvl}
-                        onClick={() => !isStreaming && onToolPresetChange(preset)}
-                        disabled={isStreaming}
-                        title={`Tools: ${lvl}`}
+                      <button key={lvl} onClick={() => !isStreaming && onToolPresetChange(preset)} disabled={isStreaming} title={`Tools: ${lvl}`}
                         style={{
-                          padding: "4px 10px",
-                          background: isActive ? "var(--bg-selected)" : "none",
-                          border: "none",
-                          borderLeft: i > 0 ? `1px solid ${isActive || prevActive ? "transparent" : "var(--border)"}` : "none",
+                          padding: "4px 10px", background: isActive ? "var(--bg-selected)" : "none",
+                          border: "none", borderLeft: i > 0 ? `1px solid ${isActive || prevActive ? "transparent" : "var(--border)"}` : "none",
                           color: isActive ? "var(--accent)" : "var(--text-dim)",
                           cursor: isStreaming ? "not-allowed" : "pointer",
-                          fontSize: 12,
-                          fontWeight: isActive ? 600 : 400,
-                          opacity: isStreaming ? 0.5 : 1,
-                        }}
-                      >
+                          fontSize: 12, fontWeight: isActive ? 600 : 400, opacity: isStreaming ? 0.5 : 1,
+                        }}>
                         {lvl}
                       </button>
                     );
@@ -538,7 +493,6 @@ export function ChatInput({
               </div>
             )}
 
-            {/* Compact / Abort compaction button */}
             {onCompact && (
               <div style={{ position: "relative" }}>
                 {compactError && (
@@ -547,60 +501,48 @@ export function ChatInput({
                     background: "#1f2937", color: "#f87171",
                     fontSize: 11, padding: "4px 8px", borderRadius: 5,
                     whiteSpace: "nowrap", pointerEvents: "none",
-                    boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-                    zIndex: 50,
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.2)", zIndex: 50,
                   }}>
                     {compactError}
                   </div>
                 )}
-              <button
-                onClick={isCompacting ? onAbortCompaction : onCompact}
-                disabled={isStreaming && !isCompacting}
-                style={{
-                  display: "flex", alignItems: "center", gap: 4,
-                  padding: "4px 10px",
-                  background: "none",
-                  border: `1px solid ${isCompacting ? "rgba(239,68,68,0.4)" : "var(--border)"}`,
-                  borderRadius: 5,
-                  color: isCompacting ? "#ef4444" : "var(--text-muted)",
-                  cursor: (isStreaming && !isCompacting) ? "not-allowed" : "pointer",
-                  fontSize: 12,
-                  opacity: (isStreaming && !isCompacting) ? 0.5 : 1,
-                  transition: "border-color 0.12s, color 0.12s",
-                }}
-                onMouseEnter={(e) => {
-                  if (isStreaming && !isCompacting) return;
-                  e.currentTarget.style.borderColor = isCompacting ? "rgba(239,68,68,0.7)" : "rgba(37,99,235,0.4)";
-                  e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--accent)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = isCompacting ? "rgba(239,68,68,0.4)" : "var(--border)";
-                  e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text-muted)";
-                }}
-                title={isCompacting ? "Abort compaction" : "Compact context"}
-              >
-                {isCompacting ? (
-                  <>
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                      <rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" />
-                    </svg>
-                    Compacting…
-                  </>
-                ) : (
-                  <>
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="4 14 10 14 10 20" />
-                      <polyline points="20 10 14 10 14 4" />
-                      <line x1="10" y1="14" x2="3" y2="21" />
-                      <line x1="21" y1="3" x2="14" y2="10" />
-                    </svg>
-                    Compact
-                  </>
-                )}
-              </button>
+                <button
+                  onClick={isCompacting ? onAbortCompaction : onCompact}
+                  disabled={isStreaming && !isCompacting}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 4, padding: "4px 10px",
+                    background: "none",
+                    border: `1px solid ${isCompacting ? "rgba(239,68,68,0.4)" : "var(--border)"}`,
+                    borderRadius: 5,
+                    color: isCompacting ? "#ef4444" : "var(--text-muted)",
+                    cursor: (isStreaming && !isCompacting) ? "not-allowed" : "pointer",
+                    fontSize: 12, opacity: (isStreaming && !isCompacting) ? 0.5 : 1,
+                    transition: "border-color 0.12s, color 0.12s",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (isStreaming && !isCompacting) return;
+                    e.currentTarget.style.borderColor = isCompacting ? "rgba(239,68,68,0.7)" : "rgba(37,99,235,0.4)";
+                    e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--accent)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = isCompacting ? "rgba(239,68,68,0.4)" : "var(--border)";
+                    e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text-muted)";
+                  }}
+                  title={isCompacting ? "Abort compaction" : "Compact context"}
+                >
+                  {isCompacting ? (
+                    <><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" /></svg>Compacting…</>
+                  ) : (
+                    <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" />
+                      <line x1="10" y1="14" x2="3" y2="21" /><line x1="21" y1="3" x2="14" y2="10" />
+                    </svg>Compact</>
+                  )}
+                </button>
               </div>
             )}
           </div>
+
         </div>
       </div>
     </div>

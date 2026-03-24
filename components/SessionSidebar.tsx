@@ -12,6 +12,7 @@ interface Props {
   refreshKey?: number;
   onSessionDeleted?: (sessionId: string) => void;
   selectedCwd?: string | null;
+  onCwdChange?: (cwd: string | null) => void;
   onOpenFile?: (filePath: string, fileName: string) => void;
   explorerRefreshKey?: number;
 }
@@ -190,7 +191,7 @@ function PiAgentTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onOpenFile, explorerRefreshKey }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey }: Props) {
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -230,6 +231,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }, [explorerRefreshKey]);
 
   const restoredRef = useRef(false);
+
+  useEffect(() => {
+    onCwdChange?.(selectedCwd);
+  }, [selectedCwd, onCwdChange]);
 
   // Auto-select cwd and restore session from URL on first load
   useEffect(() => {
