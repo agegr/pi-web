@@ -90,9 +90,23 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
 
   const initialScrollDoneRef = useRef(false);
+  // When true, suppress auto-scroll (viewport is locked during streaming)
+  const scrollLockedRef = useRef(false);
+  // Ref to the last sent user message element for scrolling it to top
+  const lastUserMsgRef = useRef<HTMLDivElement>(null);
+  // Set to true after send so the post-render effect scrolls the user msg to top
+  const pendingScrollToUserRef = useRef(false);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     messagesEndRef.current?.scrollIntoView({ behavior });
+  }, []);
+
+  const scrollUserMsgToTop = useCallback(() => {
+    const container = scrollContainerRef.current;
+    const el = lastUserMsgRef.current;
+    if (!container || !el) return;
+    const elAbsTop = el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
+    container.scrollTo({ top: elAbsTop - 16, behavior: "smooth" });
   }, []);
 
   const loadSession = useCallback(async (sid: string, showLoading = false) => {
@@ -179,6 +193,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       case "agent_end":
         setAgentRunning(false);
         setRetryInfo(null);
+        scrollLockedRef.current = false;
         dispatch({ type: "end" });
         if (sessionIdRef.current) {
           loadSession(sessionIdRef.current);
@@ -279,12 +294,15 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     if (messages.length > 0) {
       if (!initialScrollDoneRef.current) {
         initialScrollDoneRef.current = true;
-        setTimeout(() => scrollToBottom("instant"), 50);
-      } else {
-        setTimeout(() => scrollToBottom("smooth"), 50);
+        scrollToBottom("instant");
+      } else if (pendingScrollToUserRef.current) {
+        pendingScrollToUserRef.current = false;
+        scrollUserMsgToTop();
+      } else if (!scrollLockedRef.current) {
+        scrollToBottom("smooth");
       }
     }
-  }, [messages.length, scrollToBottom]);
+  }, [messages.length, scrollToBottom, scrollUserMsgToTop]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLeafChange = useCallback(async (leafId: string | null) => {
     setActiveLeafId(leafId);
@@ -313,7 +331,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     setMessages((prev) => [...prev, userMsg]);
     setAgentRunning(true);
     dispatch({ type: "start" });
-    scrollToBottom();
+    scrollLockedRef.current = true;
+    pendingScrollToUserRef.current = true;
 
     try {
       if (isNew && newSessionCwd) {
@@ -362,9 +381,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     } catch (e) {
       console.error("Failed to send message:", e);
       setAgentRunning(false);
+      scrollLockedRef.current = false;
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, toolPreset, session, agentRunning, scrollToBottom, connectEvents, onSessionCreated]);
+  }, [isNew, newSessionCwd, newSessionModel, toolPreset, session, agentRunning, scrollUserMsgToTop, connectEvents, onSessionCreated]);
 
   const handleAbort = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -591,6 +611,11 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 toolResultsMap.set((msg as import("@/lib/types").ToolResultMessage).toolCallId, msg as import("@/lib/types").ToolResultMessage);
               }
             }
+            // Index of the last user message (for scroll-to-top on send)
+            let lastUserIdx = -1;
+            for (let i = messages.length - 1; i >= 0; i--) {
+              if (messages[i].role === "user") { lastUserIdx = i; break; }
+            }
             let refIdx = 0;
             return messages.map((msg, idx) => {
               // For user messages, find the previous assistant's entryId for "Continue" button
@@ -615,7 +640,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               );
               if (!isVisible) return view;
               return (
-                <div key={idx} ref={(el) => { messageRefs.current[currentRefIdx] = el; }}>
+                <div key={idx} ref={(el) => {
+                  messageRefs.current[currentRefIdx] = el;
+                  if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
+                }}>
                   {view}
                 </div>
               );
@@ -630,6 +658,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             <div style={{ padding: "8px 0", color: "var(--text-muted)", fontSize: 13 }}>
               <span style={{ animation: "pulse 1.5s infinite" }}>Thinking...</span>
             </div>
+          )}
+
+          {agentRunning && (
+            <div style={{ height: scrollContainerRef.current ? scrollContainerRef.current.clientHeight : "80vh" }} />
           )}
 
           <div ref={messagesEndRef} />
