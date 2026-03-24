@@ -110,8 +110,10 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
       refIndex++;
 
       if (el && totalH > 0) {
-        const top = el.offsetTop;
-        const h = el.offsetHeight;
+        const elRect = el.getBoundingClientRect();
+        const containerRect = scrollEl.getBoundingClientRect();
+        const top = elRect.top - containerRect.top + scrollEl.scrollTop;
+        const h = elRect.height;
         newNodes.push({
           topRatio: top / totalH,
           heightRatio: h / totalH,
@@ -155,8 +157,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!visible) return;
-    // Don't initiate drag if clicking a node button
-    if ((e.target as HTMLElement).closest("[data-minimap-node]")) return;
+
     draggingRef.current = true;
     const rect = e.currentTarget.getBoundingClientRect();
     const clickRatio = (e.clientY - rect.top) / rect.height;
@@ -180,13 +181,36 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
     window.addEventListener("mouseup", onUp);
   }, [visible, viewportRatio, scrollRatio, scrollToMinimapRatio]);
 
-  const scrollToNode = useCallback((node: NodeInfo) => {
-    const refs = messageRefs.current;
-    const el = refs?.[node.index];
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
+
+
+  // Compute collision-free tooltip positions for all nodes
+  const TOOLTIP_HEIGHT = 22;
+  const TOOLTIP_GAP = 2;
+  const minimapHeightPx = containerRef.current?.clientHeight ?? 600;
+
+  const tooltipPositions = useMemo(() => {
+    if (!minimapHovered || nodes.length === 0) return [];
+    // Initial positions: centered on the dot
+    const positions = nodes.map((node) =>
+      Math.round(node.topRatio * minimapHeightPx - TOOLTIP_HEIGHT / 2)
+    );
+    // Iterative push-apart to resolve overlaps (top-to-bottom pass, then bottom-to-top)
+    for (let pass = 0; pass < 10; pass++) {
+      for (let i = 1; i < positions.length; i++) {
+        const minTop = positions[i - 1] + TOOLTIP_HEIGHT + TOOLTIP_GAP;
+        if (positions[i] < minTop) positions[i] = minTop;
+      }
+      for (let i = positions.length - 2; i >= 0; i--) {
+        const maxTop = positions[i + 1] - TOOLTIP_HEIGHT - TOOLTIP_GAP;
+        if (positions[i] > maxTop) positions[i] = maxTop;
+      }
     }
-  }, [messageRefs]);
+    // Clamp all to minimap bounds
+    for (let i = 0; i < positions.length; i++) {
+      positions[i] = Math.max(0, Math.min(minimapHeightPx - TOOLTIP_HEIGHT, positions[i]));
+    }
+    return positions;
+  }, [minimapHovered, nodes, minimapHeightPx]);
 
   if (!visible) return null;
 
@@ -196,9 +220,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
   // Find the node closest to the current mouse position
   const nearestIndex = mouseYRatio !== null && nodes.length > 0
     ? nodes.reduce((best, node) => {
-        const nodeMid = node.topRatio + node.heightRatio / 2;
-        const bestMid = nodes[best].topRatio + nodes[best].heightRatio / 2;
-        return Math.abs(nodeMid - mouseYRatio) < Math.abs(bestMid - mouseYRatio) ? node.index : best;
+        return Math.abs(node.topRatio - mouseYRatio) < Math.abs(nodes[best].topRatio - mouseYRatio) ? node.index : best;
       }, 0)
     : null;
 
@@ -216,7 +238,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
         width: MINIMAP_WIDTH,
         flexShrink: 0,
         position: "relative",
-        cursor: "ns-resize",
+        cursor: "default",
         userSelect: "none",
         borderLeft: "1px solid var(--border)",
         background: "var(--bg-panel)",
@@ -250,11 +272,11 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
         return (
           <div
             key={node.index}
-            data-minimap-node="1"
-            onClick={() => scrollToNode(node)}
+
             style={{
               position: "absolute",
               top: `${dotTop}%`,
+              transform: "translateY(-50%)",
               left: 0,
               right: 0,
               height: "12px",
@@ -279,43 +301,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
               }}
             />
 
-            {/* Tooltip — shown for all nodes when minimap is hovered */}
-            {minimapHovered && preview && (
-              <div
-                style={{
-                  position: "absolute",
-                  right: "100%",
-                  marginRight: 6,
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                  background: "var(--bg)",
-                  borderTop: `1px solid ${isNearest ? color.border : "var(--border)"}`,
-                  borderRight: `1px solid ${isNearest ? color.border : "var(--border)"}`,
-                  borderBottom: `1px solid ${isNearest ? color.border : "var(--border)"}`,
-                  borderLeft: `2px solid ${color.border}`,
-                  borderRadius: 4,
-                  padding: "3px 7px",
-                  width: 200,
-                  zIndex: 100,
-                  pointerEvents: "none",
-                  opacity: isNearest ? 1 : 0.45,
-                  transition: "opacity 0.1s",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: isNearest ? "var(--text)" : "var(--text-muted)",
-                    lineHeight: 1.4,
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {preview}
-                </div>
-              </div>
-            )}
+
           </div>
         );
       })}
@@ -333,6 +319,50 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
           zIndex: 0,
         }}
       />
+
+      {/* Tooltips for all nodes, collision-free positions */}
+      {minimapHovered && nodes.map((node, i) => {
+        const preview = getMessagePreview(node.msg);
+        const color = getNodeColor(node.msg);
+        const isNearest = nearestIndex === node.index;
+        if (!preview || tooltipPositions.length === 0) return null;
+        return (
+          <div
+            key={node.index}
+            style={{
+              position: "absolute",
+              top: tooltipPositions[i],
+              right: "100%",
+              marginRight: 6,
+              background: "var(--bg)",
+              borderTop: `1px solid ${isNearest ? color.border : "var(--border)"}`,
+              borderRight: `1px solid ${isNearest ? color.border : "var(--border)"}`,
+              borderBottom: `1px solid ${isNearest ? color.border : "var(--border)"}`,
+              borderLeft: `2px solid ${color.border}`,
+              borderRadius: 4,
+              padding: "2px 7px",
+              width: 200,
+              zIndex: 100,
+              pointerEvents: "none",
+              opacity: isNearest ? 1 : 0.45,
+              transition: "top 0.1s, opacity 0.1s",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 11,
+                color: isNearest ? "var(--text)" : "var(--text-muted)",
+                lineHeight: 1.4,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {preview}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -601,7 +601,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       )}
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-      <div ref={scrollContainerRef} style={{ flex: 1, overflowY: "auto", padding: "16px 0" }}>
+      <div ref={scrollContainerRef} style={{ flex: 1, overflowY: "auto", padding: "16px 0", scrollbarWidth: "none" }}>
         <div style={{ maxWidth: 820, margin: "0 auto", padding: "0 16px" }}>
           {(() => {
             // Build toolCallId -> ToolResultMessage map for inline pairing
