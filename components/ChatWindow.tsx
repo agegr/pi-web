@@ -292,12 +292,13 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   useEffect(() => {
     if (messages.length > 0) {
-      if (!initialScrollDoneRef.current) {
+      if (pendingScrollToUserRef.current) {
+        pendingScrollToUserRef.current = false;
+        initialScrollDoneRef.current = true;
+        scrollUserMsgToTop();
+      } else if (!initialScrollDoneRef.current) {
         initialScrollDoneRef.current = true;
         scrollToBottom("instant");
-      } else if (pendingScrollToUserRef.current) {
-        pendingScrollToUserRef.current = false;
-        scrollUserMsgToTop();
       } else if (!scrollLockedRef.current) {
         scrollToBottom("smooth");
       }

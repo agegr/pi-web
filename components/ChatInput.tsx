@@ -279,50 +279,53 @@ export function ChatInput({
           {/* LEFT: model selector (idle) or steer/followup toggle (streaming) */}
           <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: 6 }}>
             {isStreaming && (onSteer || onFollowUp) ? (
-              /* Steer / Follow-up pill toggle */
-              <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
-                {(["steer", "followup"] as const).map((mode, i) => {
-                  const active = queueMode === mode;
-                  const accent = mode === "steer" ? "rgba(234,179,8,1)" : "rgba(129,140,248,1)";
-                  const accentBg = mode === "steer" ? "rgba(234,179,8,0.1)" : "rgba(129,140,248,0.1)";
-                  return (
-                    <button
-                      key={mode}
-                      onClick={() => setQueueMode(mode)}
-                      title={mode === "steer" ? "Interrupt agent mid-run" : "Queue after agent finishes"}
-                      style={{
-                        display: "flex", alignItems: "center", gap: 5,
-                        padding: "4px 10px",
-                        background: active ? accentBg : "none",
-                        border: "none",
-                        borderLeft: i > 0 ? `1px solid ${active ? "transparent" : "var(--border)"}` : "none",
-                        color: active ? accent : "var(--text-dim)",
-                        cursor: "pointer",
-                        fontSize: 12,
-                        fontWeight: active ? 600 : 400,
-                        whiteSpace: "nowrap",
-                        transition: "background 0.12s, color 0.12s",
-                      }}
-                    >
-                      {mode === "steer" ? (
-                        <>
-                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
-                          </svg>
-                          Steer
-                        </>
-                      ) : (
-                        <>
-                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="5" y1="1" x2="5" y2="6" /><polyline points="2.5 3.5 5 1 7.5 3.5" />
-                            <line x1="2" y1="9" x2="8" y2="9" />
-                          </svg>
-                          Follow-up
-                        </>
-                      )}
-                    </button>
-                  );
-                })}
+              /* 发送模式 label + 打断/排队 pill toggle */
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 12, color: "var(--text-dim)" }}>发送模式</span>
+                <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
+                  {(["steer", "followup"] as const).map((mode, i) => {
+                    const active = queueMode === mode;
+                    const accent = mode === "steer" ? "rgba(234,179,8,1)" : "rgba(129,140,248,1)";
+                    const accentBg = mode === "steer" ? "rgba(234,179,8,0.1)" : "rgba(129,140,248,0.1)";
+                    return (
+                      <button
+                        key={mode}
+                        onClick={() => setQueueMode(mode)}
+                        title={mode === "steer" ? "打断 Agent 当前运行" : "在 Agent 完成后排队发送"}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 5,
+                          padding: "4px 10px",
+                          background: active ? accentBg : "none",
+                          border: "none",
+                          borderLeft: i > 0 ? `1px solid ${active ? "transparent" : "var(--border)"}` : "none",
+                          color: active ? accent : "var(--text-dim)",
+                          cursor: "pointer",
+                          fontSize: 12,
+                          fontWeight: active ? 600 : 400,
+                          whiteSpace: "nowrap",
+                          transition: "background 0.12s, color 0.12s",
+                        }}
+                      >
+                        {mode === "steer" ? (
+                          <>
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
+                            </svg>
+                            打断
+                          </>
+                        ) : (
+                          <>
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                              <line x1="5" y1="1" x2="5" y2="6" /><polyline points="2.5 3.5 5 1 7.5 3.5" />
+                              <line x1="2" y1="9" x2="8" y2="9" />
+                            </svg>
+                            排队
+                          </>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             ) : (
               /* Model selector */
@@ -478,7 +481,7 @@ export function ChatInput({
                     const prevPreset = i > 0 ? TOOL_PRESET_MAP[TOOL_PRESETS[i - 1]] : null;
                     const prevActive = prevPreset !== null && (toolPreset ?? "default") === prevPreset;
                     return (
-                      <button key={lvl} onClick={() => !isStreaming && onToolPresetChange(preset)} disabled={isStreaming} title={`Tools: ${lvl}`}
+                      <button key={lvl} onClick={() => !isStreaming && onToolPresetChange(preset)} disabled={isStreaming} title={lvl === "off" ? "无工具，纯聊天，不浪费一个 token" : lvl === "default" ? "4 项内置工具" : "使用全部内置工具"}
                         style={{
                           padding: "4px 10px", background: isActive ? "var(--bg-selected)" : "none",
                           border: "none", borderLeft: i > 0 ? `1px solid ${isActive || prevActive ? "transparent" : "var(--border)"}` : "none",
@@ -529,7 +532,7 @@ export function ChatInput({
                     e.currentTarget.style.borderColor = isCompacting ? "rgba(239,68,68,0.4)" : "var(--border)";
                     e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text-muted)";
                   }}
-                  title={isCompacting ? "Abort compaction" : "Compact context"}
+                  title={isCompacting ? "停止压缩" : "压缩上下文"}
                 >
                   {isCompacting ? (
                     <><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" /></svg>Compacting…</>
