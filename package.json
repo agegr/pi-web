@@ -1,7 +1,20 @@
 {
-  "name": "pi-web",
-  "version": "0.2.0",
-  "private": true,
+  "name": "@agegr/pi-web",
+  "version": "0.2.1",
+  "description": "Web UI for the pi coding agent",
+  "bin": {
+    "pi-web": "bin/pi-web.js"
+  },
+  "files": [
+    "bin",
+    ".next/server",
+    ".next/static",
+    ".next/BUILD_ID",
+    ".next/package.json",
+    "public",
+    "next.config.ts",
+    "package.json"
+  ],
   "scripts": {
     "dev": "next dev -p 3030",
     "build": "next build",

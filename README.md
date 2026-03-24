@@ -2,20 +2,26 @@
 
 A web interface for the [pi coding agent](https://github.com/badlogic/pi-mono). Browse sessions, chat with the agent, fork conversations, and navigate message branches — all in the browser.
 
-## Setup
+## Installation
 
 ```bash
-npm install
-npm run dev
+npm install -g @agegr/pi-web
+pi-web
 ```
 
 Open [http://localhost:3030](http://localhost:3030).
 
-Production:
+Set a custom port with the `PORT` environment variable:
 
 ```bash
-npm run build
-npm start
+PORT=8080 pi-web
+```
+
+## Development Setup
+
+```bash
+npm install
+npm run dev
 ```
 
 Recommended: download a pre-configured working folder (with skills already set up) from https://github.com/agegr/working-chat/

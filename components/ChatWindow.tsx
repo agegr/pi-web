@@ -87,8 +87,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   // Always holds the current real session id once known
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
 
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  const initialScrollDoneRef = useRef(false);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    messagesEndRef.current?.scrollIntoView({ behavior });
   }, []);
 
   const loadSession = useCallback(async (sid: string, showLoading = false) => {
@@ -242,7 +244,14 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   }, []);
 
   useEffect(() => {
-    if (messages.length > 0) setTimeout(scrollToBottom, 50);
+    if (messages.length > 0) {
+      if (!initialScrollDoneRef.current) {
+        initialScrollDoneRef.current = true;
+        setTimeout(() => scrollToBottom("instant"), 50);
+      } else {
+        setTimeout(() => scrollToBottom("smooth"), 50);
+      }
+    }
   }, [messages.length, scrollToBottom]);
 
   const handleLeafChange = useCallback(async (leafId: string | null) => {
