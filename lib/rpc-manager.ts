@@ -82,6 +82,7 @@ export class AgentSessionWrapper {
 
       case "get_state": {
         const model = this.inner.model;
+        const contextUsage = this.inner.getContextUsage();
         return {
           sessionId: this.inner.sessionId,
           sessionFile: this.inner.sessionFile ?? "",
@@ -93,6 +94,9 @@ export class AgentSessionWrapper {
           model: model ? { id: model.id, provider: model.provider } : undefined,
           messageCount: 0,
           pendingMessageCount: 0,
+          contextUsage: contextUsage
+            ? { percent: contextUsage.percent, contextWindow: contextUsage.contextWindow, tokens: contextUsage.tokens }
+            : null,
         };
       }
 

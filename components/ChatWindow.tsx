@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, useReducer } from "react";
+import { useEffect, useState, useRef, useCallback, useReducer, useMemo } from "react";
 import type { SessionInfo, SessionTreeNode, AgentMessage } from "@/lib/types";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { MessageView } from "./MessageView";
@@ -79,6 +79,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   // For new sessions, allow pre-selecting a model before the first message is sent
   const [newSessionModel, setNewSessionModel] = useState<{ provider: string; modelId: string } | null>(null);
   const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("default");
+  const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number } | null>(null);
+  const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const visibleMessages = messages.filter((m) => m.role === "user" || m.role === "assistant");
@@ -121,6 +123,21 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     }
   }, []);
 
+  const sessionStats = useMemo(() => {
+    const tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    for (const msg of messages) {
+      if (msg.role !== "assistant") continue;
+      const u = (msg as import("@/lib/types").AssistantMessage).usage;
+      if (!u) continue;
+      tokens.input += u.input ?? 0;
+      tokens.output += u.output ?? 0;
+      tokens.cacheRead += u.cacheRead ?? 0;
+      tokens.cacheWrite += u.cacheWrite ?? 0;
+    }
+    const total = tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite;
+    return total > 0 ? { tokens } : null;
+  }, [messages]);
+
   const loadContext = useCallback(async (sid: string, leafId: string | null) => {
     try {
       const url = leafId
@@ -161,9 +178,18 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         break;
       case "agent_end":
         setAgentRunning(false);
+        setRetryInfo(null);
         dispatch({ type: "end" });
-        // Reload from file to get toolResult pairing and accurate final state
-        if (sessionIdRef.current) loadSession(sessionIdRef.current);
+        if (sessionIdRef.current) {
+          loadSession(sessionIdRef.current);
+          // Refresh context usage after the turn completes
+          fetch(`/api/agent/${encodeURIComponent(sessionIdRef.current)}`)
+            .then((r) => r.json())
+            .then((d: { state?: { contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null } }) => {
+              if (d.state?.contextUsage !== undefined) setContextUsage(d.state.contextUsage ?? null);
+            })
+            .catch(() => {});
+        }
         onAgentEnd?.();
         break;
       case "message_update": {
@@ -181,6 +207,12 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         dispatch({ type: "reset" });
         break;
       }
+      case "auto_retry_start":
+        setRetryInfo({ attempt: event.attempt as number, maxAttempts: event.maxAttempts as number });
+        break;
+      case "auto_retry_end":
+        setRetryInfo(null);
+        break;
       case "auto_compaction_start":
         setIsCompacting(true);
         setCompactError(null);
@@ -223,7 +255,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       // Also sync agent state (thinking level, auto flags)
       fetch(`/api/agent/${encodeURIComponent(session.id)}`)
         .then((r) => r.json())
-        .then((d: { running?: boolean; state?: { isStreaming?: boolean; thinkingLevel?: string; isCompacting?: boolean } }) => {
+        .then((d: { running?: boolean; state?: { isStreaming?: boolean; thinkingLevel?: string; isCompacting?: boolean; contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null } }) => {
           if (d.running && d.state?.isStreaming) {
             setAgentRunning(true);
             connectEvents(session.id);
@@ -231,6 +263,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           if (d.state) {
             if (d.state.thinkingLevel) setThinkingLevel(d.state.thinkingLevel);
             if (d.state.isCompacting !== undefined) setIsCompacting(d.state.isCompacting);
+            if (d.state.contextUsage !== undefined) setContextUsage(d.state.contextUsage ?? null);
           }
         })
         .catch(() => {});
@@ -646,6 +679,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           compactError={compactError}
           toolPreset={toolPreset}
           onToolPresetChange={session || isNew ? handleToolPresetChange : undefined}
+          sessionStats={sessionStats}
+          retryInfo={retryInfo}
+          contextUsage={contextUsage}
         />
       </div>
     </div>

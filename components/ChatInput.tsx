@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useCallback, useEffect, KeyboardEvent } from "react";
+import React, { useRef, useState, useCallback, useEffect, KeyboardEvent } from "react";
 
 interface ModelOption {
   provider: string;
@@ -26,6 +26,15 @@ interface Props {
   compactError?: string | null;
   toolPreset?: "none" | "default" | "full";
   onToolPresetChange?: (preset: "none" | "default" | "full") => void;
+  sessionStats?: { tokens: { input: number; output: number; cacheRead: number; cacheWrite: number } } | null;
+  retryInfo?: { attempt: number; maxAttempts: number } | null;
+  contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
+}
+
+function fmtTokens(n: number): string {
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(0)}k`;
+  return String(n);
 }
 
 const THINKING_LEVELS = ["off", "low", "high"] as const;
@@ -36,6 +45,7 @@ export function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, modelNames, modelList, onModelChange,
   thinkingLevel, onThinkingLevelChange,
   onCompact, onAbortCompaction, isCompacting, compactError, toolPreset, onToolPresetChange,
+  sessionStats, retryInfo, contextUsage,
 }: Props) {
   const [value, setValue] = useState("");
   const [queueMode, setQueueMode] = useState<"steer" | "followup">("steer");
@@ -130,6 +140,21 @@ export function ChatInput({
       }}
     >
       <div style={{ maxWidth: 820, margin: "0 auto" }}>
+        {/* Retry banner */}
+        {retryInfo && (
+          <div style={{
+            marginBottom: 8, padding: "5px 10px",
+            background: "rgba(234,179,8,0.08)", border: "1px solid rgba(234,179,8,0.25)",
+            borderRadius: 6, fontSize: 12, color: "rgba(180,130,0,0.9)",
+            display: "flex", alignItems: "center", gap: 6,
+          }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
+            </svg>
+            Retrying ({retryInfo.attempt}/{retryInfo.maxAttempts})…
+          </div>
+        )}
         {/* Main input */}
         <div
           style={{
@@ -378,8 +403,8 @@ export function ChatInput({
 
             {/* Thinking level selector */}
             {onThinkingLevelChange && (
-              <div style={{ display: "flex", alignItems: "center", gap: 2, border: "1px solid var(--border)", borderRadius: 5, overflow: "hidden" }}>
-                {THINKING_LEVELS.map((lvl) => (
+              <div style={{ display: "flex", alignItems: "center", border: "1px solid var(--border)", borderRadius: 5, overflow: "hidden" }}>
+                {THINKING_LEVELS.map((lvl, i) => (
                   <button
                     key={lvl}
                     onClick={() => !isStreaming && onThinkingLevelChange(lvl)}
@@ -388,7 +413,7 @@ export function ChatInput({
                       padding: "4px 10px",
                       background: thinkingLevel === lvl ? "var(--bg-selected)" : "none",
                       border: "none",
-                      borderRight: lvl !== "high" ? "1px solid var(--border)" : "none",
+                      borderLeft: i > 0 ? `1px solid ${thinkingLevel === lvl || thinkingLevel === THINKING_LEVELS[i - 1] ? "transparent" : "var(--border)"}` : "none",
                       color: thinkingLevel === lvl ? "var(--accent)" : "var(--text-dim)",
                       cursor: isStreaming ? "not-allowed" : "pointer",
                       fontSize: 12,
@@ -404,15 +429,89 @@ export function ChatInput({
             )}
           </div>
 
+          {/* Token usage + context window */}
+          {(sessionStats || contextUsage) && (() => {
+            const items: React.ReactNode[] = [];
+            const tooltipParts: string[] = [];
+
+            if (sessionStats) {
+              const t = sessionStats.tokens;
+              const total = (t.input || 0) + (t.output || 0) + (t.cacheRead || 0) + (t.cacheWrite || 0);
+              if (total) {
+                // upload / input tokens
+                if (t.input) items.push(
+                  <span key="in" style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="5" y1="8.5" x2="5" y2="1.5" />
+                      <polyline points="2 4 5 1.5 8 4" />
+                    </svg>
+                    {fmtTokens(t.input)}
+                  </span>
+                );
+                // download / output tokens
+                if (t.output) items.push(
+                  <span key="out" style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="5" y1="1.5" x2="5" y2="8.5" />
+                      <polyline points="2 6 5 8.5 8 6" />
+                    </svg>
+                    {fmtTokens(t.output)}
+                  </span>
+                );
+                // cache read tokens
+                if (t.cacheRead) items.push(
+                  <span key="cache" style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M8.5 5a3.5 3.5 0 1 1-1-2.45" />
+                      <polyline points="6.5 1.5 8.5 2.5 7.5 4.5" />
+                    </svg>
+                    {fmtTokens(t.cacheRead)}
+                  </span>
+                );
+                tooltipParts.push(`in: ${t.input?.toLocaleString() ?? 0}  out: ${t.output?.toLocaleString() ?? 0}  cache read: ${t.cacheRead?.toLocaleString() ?? 0}  cache write: ${t.cacheWrite?.toLocaleString() ?? 0}`);
+              }
+            }
+
+            let ctxColor = "var(--text-dim)";
+            if (contextUsage?.contextWindow) {
+              const pct = contextUsage.percent;
+              if (pct !== null && pct > 90) ctxColor = "#ef4444";
+              else if (pct !== null && pct > 70) ctxColor = "rgba(234,179,8,0.9)";
+              const ctxStr = pct !== null
+                ? `${pct.toFixed(0)}% / ${fmtTokens(contextUsage.contextWindow)}`
+                : `? / ${fmtTokens(contextUsage.contextWindow)}`;
+              items.push(
+                <span key="ctx" style={{ display: "flex", alignItems: "center", gap: 3, color: ctxColor }}>
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1 9 L1 5 Q1 1 5 1 Q9 1 9 5 L9 9" />
+                    <line x1="1" y1="9" x2="9" y2="9" />
+                  </svg>
+                  {ctxStr}
+                </span>
+              );
+              tooltipParts.push(`context: ${pct !== null ? pct.toFixed(1) + "%" : "unknown"} of ${contextUsage.contextWindow.toLocaleString()} tokens`);
+            }
+
+            if (!items.length) return null;
+            return (
+              <div title={tooltipParts.join("  |  ")}
+                style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11, color: "var(--text-dim)", whiteSpace: "nowrap", cursor: "default" }}>
+                {items}
+              </div>
+            );
+          })()}
+
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             {/* Tools preset selector */}
             {onToolPresetChange && (
               <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                 <span style={{ fontSize: 12, color: "var(--text-dim)" }}>tools</span>
-                <div style={{ display: "flex", alignItems: "center", gap: 2, border: "1px solid var(--border)", borderRadius: 5, overflow: "hidden" }}>
-                  {TOOL_PRESETS.map((lvl) => {
+                <div style={{ display: "flex", alignItems: "center", border: "1px solid var(--border)", borderRadius: 5, overflow: "hidden" }}>
+                  {TOOL_PRESETS.map((lvl, i) => {
                     const preset = TOOL_PRESET_MAP[lvl];
                     const isActive = (toolPreset ?? "default") === preset;
+                    const prevPreset = i > 0 ? TOOL_PRESET_MAP[TOOL_PRESETS[i - 1]] : null;
+                    const prevActive = prevPreset !== null && (toolPreset ?? "default") === prevPreset;
                     return (
                       <button
                         key={lvl}
@@ -423,7 +522,7 @@ export function ChatInput({
                           padding: "4px 10px",
                           background: isActive ? "var(--bg-selected)" : "none",
                           border: "none",
-                          borderRight: lvl !== "full" ? "1px solid var(--border)" : "none",
+                          borderLeft: i > 0 ? `1px solid ${isActive || prevActive ? "transparent" : "var(--border)"}` : "none",
                           color: isActive ? "var(--accent)" : "var(--text-dim)",
                           cursor: isStreaming ? "not-allowed" : "pointer",
                           fontSize: 12,
