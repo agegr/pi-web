@@ -73,7 +73,7 @@ export function FileViewer({ filePath }: Props) {
           borderBottom: "1px solid var(--border)",
           fontSize: 11,
           color: "var(--text-dim)",
-          background: "var(--bg-panel)",
+          background: "var(--bg)",
           flexShrink: 0,
         }}
       >

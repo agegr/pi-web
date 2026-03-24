@@ -132,9 +132,10 @@ export function ChatInput({
         borderTop: "1px solid var(--border)",
         background: "var(--bg-panel)",
         padding: "10px 16px 12px",
+        paddingRight: 52, // 16px base + 36px for ChatMinimap alignment
       }}
     >
-      <div style={{ maxWidth: 820, margin: "0 auto" }}>
+      <div style={{ maxWidth: 960, margin: "0 auto" }}>
         {/* Retry banner */}
         {retryInfo && (
           <div style={{

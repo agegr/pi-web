@@ -222,7 +222,7 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange }: Props) {
   if (!firstNode || firstNode.children.length <= 1) return null;
 
   return (
-    <div style={{ borderBottom: "1px solid var(--border)", background: "var(--bg-panel)", flexShrink: 0 }}>
+    <div style={{ borderBottom: "1px solid var(--border)", background: "var(--bg)", flexShrink: 0 }}>
       {/* Header toggle */}
       <button
         onClick={() => setOpen((v) => !v)}

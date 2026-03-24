@@ -35,7 +35,6 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
       style={{
         display: "flex",
         alignItems: "flex-end",
-        borderBottom: "1px solid var(--border)",
         background: "var(--bg-panel)",
         overflowX: "auto",
         flexShrink: 0,
@@ -56,8 +55,7 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
               paddingLeft: 12,
               paddingRight: tab.type === "chat" ? 12 : 6,
               borderRight: "1px solid var(--border)",
-              borderTop: isActive ? "2px solid var(--accent)" : "2px solid transparent",
-              background: isActive ? "var(--bg)" : "transparent",
+              background: isActive ? "var(--bg)" : "var(--bg-panel)",
               cursor: "pointer",
               fontSize: 12,
               color: isActive ? "var(--text)" : "var(--text-muted)",
