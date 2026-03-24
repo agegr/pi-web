@@ -53,15 +53,16 @@ git clone https://github.com/agegr/working-chat.git
 ```
 app/
   api/
-    sessions/     # read session files
-    agent/        # send commands, stream events
-    files/        # browse and open files in the current cwd
-    models/       # list available models
+    sessions/      # read/write session files
+    agent/         # send commands, stream events via SSE
+    files/         # read file contents for the in-app viewer
+    models/        # list available models + default model
     models-config/ # read and write models.json
-components/       # UI components
+components/        # UI components
 lib/
-  session-reader.ts   # parse .jsonl session files
-  rpc-manager.ts      # manage AgentSession lifecycle
+  session-reader.ts  # parse .jsonl session files
+  rpc-manager.ts     # manage AgentSession lifecycle
+  normalize.ts       # normalize toolCall field names (file vs. stream format)
   types.ts
 ```
 

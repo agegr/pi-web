@@ -19,7 +19,8 @@
     "dev": "next dev -p 3030",
     "build": "next build --webpack",
     "start": "next start -p 3030",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
   },
   "dependencies": {
     "@mariozechner/pi-coding-agent": "^0.62.0",
