@@ -106,3 +106,23 @@ pre, code {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
 }
+
+@media (max-width: 640px) {
+  .chat-stats-center {
+    display: none !important;
+  }
+  .sidebar-inline {
+    display: none !important;
+  }
+  .sidebar-overlay {
+    display: flex !important;
+  }
+}
+
+@media (min-width: 641px) {
+  .sidebar-overlay {
+    display: none !important;
+  }
+}
+
+

@@ -153,7 +153,7 @@ function PiAgentTitle() {
   const [scrambling, setScrambling] = useState(false);
   const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const target = showVersion ? "v0.2.1-260324" : "Pi Agent Web";
+  const target = showVersion ? "v0.3.1-260324" : "Pi Agent Web";
   const display = useScramble(target, scrambling);
 
   const triggerScramble = useCallback((toVersion: boolean) => {

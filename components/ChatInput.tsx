@@ -409,7 +409,7 @@ export function ChatInput({
           </div>
 
           {/* CENTER: token + context stats */}
-          <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
+          <div className="chat-stats-center" style={{ flex: 1, display: "flex", justifyContent: "center" }}>
             {(sessionStats || contextUsage) && (() => {
               const items: React.ReactNode[] = [];
               const tooltipParts: string[] = [];
@@ -470,7 +470,7 @@ export function ChatInput({
           </div>
 
           {/* RIGHT: tools preset + compact */}
-          <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
             {onToolPresetChange && (
               <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                 <span style={{ fontSize: 12, color: "var(--text-dim)" }}>tools</span>
