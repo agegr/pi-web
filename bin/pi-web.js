@@ -6,7 +6,8 @@ const path = require("path");
 const fs = require("fs");
 
 const pkgDir = path.join(__dirname, "..");
-const nextBin = path.join(pkgDir, "node_modules", ".bin", "next");
+const isWindows = process.platform === "win32";
+const nextBin = path.join(pkgDir, "node_modules", ".bin", isWindows ? "next.cmd" : "next");
 const nextDir = path.join(pkgDir, ".next");
 const port = process.env.PORT || "3030";
 
@@ -19,6 +20,7 @@ const child = spawn(nextBin, ["start", "-p", port], {
   cwd: pkgDir,
   stdio: "inherit",
   env: { ...process.env },
+  shell: isWindows,
 });
 
 child.on("exit", (code) => process.exit(code ?? 0));
