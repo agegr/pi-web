@@ -25,6 +25,8 @@ export function AppShell() {
 
   const [initialSessionId] = useState<string | null>(() => searchParams.get("session"));
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
+  // True once the initial ?session= URL param has been resolved (or confirmed absent)
+  const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !searchParams.get("session"));
 
   // Tab management
   const [tabs, setTabs] = useState<Tab[]>([CHAT_TAB]);
@@ -39,11 +41,16 @@ export function AppShell() {
     });
   }, []);
 
-  const handleSelectSession = useCallback((session: SessionInfo) => {
+  const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
     setNewSessionCwd(null);
     setSelectedSession(session);
     setSessionKey((k) => k + 1);
-    router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
+    setInitialSessionRestored(true);
+    // Skip router.replace when restoring from URL — the param is already correct
+    // and calling replace in production Next.js triggers a Suspense remount loop
+    if (!isRestore) {
+      router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
+    }
   }, [router]);
 
   const handleNewSession = useCallback((_sessionId: string, cwd: string) => {
@@ -77,6 +84,10 @@ export function AppShell() {
     router.replace(`?session=${encodeURIComponent(newSessionId)}`, { scroll: false });
   }, [router]);
 
+  const handleInitialRestoreDone = useCallback(() => {
+    setInitialSessionRestored(true);
+  }, []);
+
   const handleSessionDeleted = useCallback((sessionId: string) => {
     setRefreshKey((k) => k + 1);
     if (selectedSession?.id === sessionId) {
@@ -103,6 +114,8 @@ export function AppShell() {
   // Show chat area if a session is selected, or if we have a cwd to start a new session in
   const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
   const showChat = selectedSession !== null || effectiveNewSessionCwd !== null;
+  // While restoring initial session from URL, don't show the placeholder
+  const showPlaceholder = initialSessionRestored && !showChat;
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? CHAT_TAB;
 
@@ -113,6 +126,7 @@ export function AppShell() {
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
         initialSessionId={initialSessionId}
+        onInitialRestoreDone={handleInitialRestoreDone}
         refreshKey={refreshKey}
         onSessionDeleted={handleSessionDeleted}
         selectedCwd={selectedSession?.cwd ?? newSessionCwd ?? null}
@@ -272,7 +286,7 @@ export function AppShell() {
                 onSessionCreated={handleSessionCreated}
                 onSessionForked={handleSessionForked}
               />
-            ) : (
+            ) : showPlaceholder ? (
               <div
                 style={{
                   height: "100%",
@@ -285,7 +299,7 @@ export function AppShell() {
               >
                 Select a session from the sidebar
               </div>
-            )}
+            ) : null}
           </div>
 
           {/* File tabs */}

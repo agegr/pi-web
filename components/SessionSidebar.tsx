@@ -6,9 +6,10 @@ import { FileExplorer } from "./FileExplorer";
 
 interface Props {
   selectedSessionId: string | null;
-  onSelectSession: (session: SessionInfo) => void;
+  onSelectSession: (session: SessionInfo, isRestore?: boolean) => void;
   onNewSession?: (sessionId: string, cwd: string) => void;
   initialSessionId?: string | null;
+  onInitialRestoreDone?: () => void;
   refreshKey?: number;
   onSessionDeleted?: (sessionId: string) => void;
   selectedCwd?: string | null;
@@ -191,7 +192,7 @@ function PiAgentTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey }: Props) {
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -243,18 +244,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     if (selectedCwd === null) {
       // If restoring a session, set cwd to match that session
       if (initialSessionId && !restoredRef.current) {
+        restoredRef.current = true;
         const target = allSessions.find((s) => s.id === initialSessionId);
         if (target) {
           setSelectedCwd(target.cwd);
-          restoredRef.current = true;
-          onSelectSession(target);
+          onSelectSession(target, true);
           return;
         }
+        // Session not found — notify parent so it can show the placeholder
+        onInitialRestoreDone?.();
       }
       const cwds = getRecentCwds(allSessions);
       if (cwds.length > 0) setSelectedCwd(cwds[0]);
     }
-  }, [allSessions, selectedCwd, initialSessionId, onSelectSession]);
+  }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone]);
 
   const commitCustomPath = useCallback(() => {
     const path = customPathValue.trim();
@@ -413,10 +416,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 flex: 1,
                 fontFamily: "var(--font-mono)",
                 fontSize: 11,
+                color: selectedCwd ? "var(--text)" : "var(--text-dim)",
               }}
               title={selectedCwd ?? ""}
             >
-              {selectedCwd ? displayCwd(selectedCwd) : "Select project…"}
+              {selectedCwd ? displayCwd(selectedCwd) : (initialSessionId && !restoredRef.current ? "" : "Select project…")}
             </span>
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: dropdownOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
               <polyline points="2 3.5 5 6.5 8 3.5" />
