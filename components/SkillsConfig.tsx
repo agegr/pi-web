@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import type { SkillSearchResult } from "@/app/api/skills/search/route";
 
 interface Skill {
   name: string;
@@ -12,6 +13,14 @@ interface Skill {
     source?: string;
     scope?: string;
   };
+}
+
+function shortenPath(p: string): string {
+  const home = typeof window !== "undefined"
+    ? null
+    : null; // server-side not needed
+  // Match common home dir patterns: /Users/xxx, /home/xxx
+  return p.replace(/^\/(?:Users|home)\/[^/]+/, "~");
 }
 
 function sourceLabel(skill: Skill): string {
@@ -76,7 +85,7 @@ function SkillDetail({ skill, onToggle, toggling, saveError }: {
           background: label === "project" ? "rgba(99,102,241,0.12)" : "rgba(120,120,120,0.12)",
           color: label === "project" ? "rgba(99,102,241,0.8)" : "var(--text-dim)",
         }}>{label}</span>
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-dim)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{skill.filePath}</span>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-dim)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortenPath(skill.filePath)}</span>
         <Toggle enabled={enabled} loading={toggling} onToggle={() => onToggle(skill)} />
         {saveError && <span style={{ fontSize: 12, color: "#f87171", flexShrink: 0 }}>{saveError}</span>}
       </div>
@@ -94,6 +103,195 @@ function SkillDetail({ skill, onToggle, toggling, saveError }: {
   );
 }
 
+function AddSkillPanel({ cwd, onInstalled }: { cwd: string; onInstalled: () => void }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<SkillSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [installing, setInstalling] = useState<string | null>(null);
+  const [installError, setInstallError] = useState<string | null>(null);
+  const [installedPkgs, setInstalledPkgs] = useState<Set<string>>(new Set());
+  const [scope, setScope] = useState<"global" | "project">("global");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const search = useCallback(async (q: string) => {
+    if (!q.trim()) return;
+    setSearching(true);
+    setSearchError(null);
+    setResults([]);
+    try {
+      const res = await fetch("/api/skills/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: q.trim() }),
+      });
+      const d = await res.json() as { results?: SkillSearchResult[]; error?: string };
+      if (d.error) { setSearchError(d.error); return; }
+      setResults(d.results ?? []);
+      if ((d.results ?? []).length === 0) setSearchError("No skills found");
+    } catch (e) {
+      setSearchError(String(e));
+    } finally {
+      setSearching(false);
+    }
+  }, []);
+
+  const install = useCallback(async (pkg: string) => {
+    setInstalling(pkg);
+    setInstallError(null);
+    try {
+      const res = await fetch("/api/skills/install", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ package: pkg, scope, cwd }),
+      });
+      const d = await res.json() as { success?: boolean; error?: string };
+      if (!res.ok || d.error) { setInstallError(d.error ?? `HTTP ${res.status}`); return; }
+      setInstalledPkgs((prev) => new Set(prev).add(pkg));
+      onInstalled();
+    } catch (e) {
+      setInstallError(String(e));
+    } finally {
+      setInstalling(null);
+    }
+  }, [onInstalled]);
+
+  const installPath = scope === "global"
+    ? "~/.agents/skills/"
+    : `${shortenPath(cwd)}/.agents/skills/`;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+
+      {/* ── Header area ── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>Add Skill</div>
+
+        {/* Search row */}
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") search(query); }}
+            placeholder="e.g. react, testing, deploy"
+            style={{
+              flex: 1, padding: "7px 10px", fontSize: 13,
+              background: "var(--bg-panel)", border: "1px solid var(--border)",
+              borderRadius: 6, color: "var(--text)", outline: "none",
+            }}
+          />
+          <button
+            onClick={() => search(query)}
+            disabled={searching || !query.trim()}
+            style={{
+              padding: "7px 16px", fontSize: 13, borderRadius: 6, border: "none",
+              background: "var(--accent)", color: "#fff",
+              cursor: searching || !query.trim() ? "not-allowed" : "pointer",
+              opacity: searching || !query.trim() ? 0.5 : 1,
+              flexShrink: 0,
+            }}
+          >
+            {searching ? "Searching…" : "Search"}
+          </button>
+        </div>
+
+        {/* Scope + install path row */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", borderRadius: 5, border: "1px solid var(--border)", overflow: "hidden", fontSize: 12, flexShrink: 0 }}>
+            {(["global", "project"] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setScope(s)}
+                style={{
+                  padding: "3px 10px", border: "none", cursor: "pointer",
+                  background: scope === s ? "var(--bg-selected)" : "none",
+                  color: scope === s ? "var(--text)" : "var(--text-dim)",
+                  fontWeight: scope === s ? 600 : 400,
+                  borderRight: s === "global" ? "1px solid var(--border)" : "none",
+                }}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+          <span style={{ fontSize: 12, color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            → {installPath}
+          </span>
+        </div>
+
+        {/* Errors */}
+        {searchError && <div style={{ fontSize: 12, color: "#f87171" }}>{searchError}</div>}
+        {installError && <div style={{ fontSize: 12, color: "#f87171", wordBreak: "break-word" }}>{installError}</div>}
+      </div>
+
+      {/* ── Results list ── */}
+      {results.length > 0 ? (
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          {results.map((r) => {
+            const isInstalled = installedPkgs.has(r.package);
+            const isInstalling = installing === r.package;
+            // split "owner/repo@skill" for cleaner display
+            const atIdx = r.package.indexOf("@");
+            const repopart = atIdx > -1 ? r.package.slice(0, atIdx) : r.package;
+            const skillpart = atIdx > -1 ? r.package.slice(atIdx + 1) : null;
+            return (
+              <div
+                key={r.package}
+                style={{
+                  display: "flex", alignItems: "center", gap: 14,
+                  padding: "12px 0",
+                  borderBottom: "1px solid var(--border)",
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {/* skill name prominent */}
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 3 }}>
+                    {skillpart ?? repopart}
+                  </div>
+                  {/* repo + installs + link row */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-dim)" }}>{repopart}</span>
+                    <span style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500 }}>{r.installs}</span>
+                    {r.url && (
+                      <a href={r.url} target="_blank" rel="noreferrer"
+                        style={{ fontSize: 12, color: "var(--accent)", textDecoration: "none" }}>
+                        skills.sh ↗
+                      </a>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => !isInstalled && !isInstalling && install(r.package)}
+                  disabled={isInstalled || isInstalling || installing !== null}
+                  style={{
+                    flexShrink: 0, padding: "5px 14px", fontSize: 12, fontWeight: 500,
+                    borderRadius: 5, border: "1px solid var(--border)", cursor:
+                      isInstalled || isInstalling || installing !== null ? "not-allowed" : "pointer",
+                    background: isInstalled ? "rgba(34,197,94,0.1)" : "none",
+                    color: isInstalled ? "#16a34a" : isInstalling ? "var(--accent)" : "var(--text-muted)",
+                    transition: "color 0.12s",
+                  }}
+                >
+                  {isInstalled ? "✓ Installed" : isInstalling ? "Installing…" : "Install"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        !searchError && !searching && (
+          <div style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.8 }}>
+            Search <a href="https://skills.sh" target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "none" }}>skills.sh</a> to discover and install skills for your agent.
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
 export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => void }) {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,8 +299,9 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
   const [selected, setSelected] = useState<string | null>(null);
   const [toggling, setToggling] = useState<Set<string>>(new Set());
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [addMode, setAddMode] = useState(false);
 
-  useEffect(() => {
+  const loadSkills = useCallback(() => {
     setLoading(true);
     setError(null);
     fetch(`/api/skills?cwd=${encodeURIComponent(cwd)}`)
@@ -111,11 +310,13 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
         if (d.error) { setError(d.error); return; }
         const list = d.skills ?? [];
         setSkills(list);
-        if (list.length > 0) setSelected(list[0].filePath);
+        if (list.length > 0 && !selected) setSelected(list[0].filePath);
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, [cwd]);
+  }, [cwd, selected]);
+
+  useEffect(() => { loadSkills(); }, [cwd]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggle = useCallback(async (skill: Skill) => {
     const next = !skill.disableModelInvocation;
@@ -150,7 +351,7 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
             <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>Skills</span>
-            <code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cwd}</code>
+            <code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortenPath(cwd)}</code>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: "2px 6px" }}>×</button>
         </div>
@@ -179,12 +380,12 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
                       {grpLabel}
                     </div>
                     {grpSkills.map((skill) => {
-                      const isSelected = selected === skill.filePath;
+                      const isSelected = !addMode && selected === skill.filePath;
                       const disabled = skill.disableModelInvocation;
                       return (
                         <div
                           key={skill.filePath}
-                          onClick={() => setSelected(skill.filePath)}
+                          onClick={() => { setSelected(skill.filePath); setAddMode(false); }}
                           style={{
                             display: "flex", alignItems: "center", gap: 7,
                             padding: "8px 8px", borderRadius: 5, cursor: "pointer",
@@ -214,11 +415,34 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
                 ));
               })())}
             </div>
+            {/* Add skill button */}
+            <div style={{ padding: "8px 6px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
+              <div
+                onClick={() => setAddMode(true)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "7px 8px", borderRadius: 5, cursor: "pointer",
+                  background: addMode ? "var(--bg-selected)" : "none",
+                  color: addMode ? "var(--accent)" : "var(--text-dim)",
+                  fontSize: 12,
+                }}
+                onMouseEnter={(e) => { if (!addMode) e.currentTarget.style.background = "var(--bg-hover)"; }}
+                onMouseLeave={(e) => { if (!addMode) e.currentTarget.style.background = "none"; }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                Add skill
+              </div>
+            </div>
           </div>
 
-          {/* Right: detail */}
+          {/* Right: detail or add panel */}
           <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
-            {loading ? null : selectedSkill ? (
+            {addMode ? (
+              <AddSkillPanel cwd={cwd} onInstalled={() => { loadSkills(); }} />
+            ) : loading ? null : selectedSkill ? (
               <SkillDetail
                 key={selectedSkill.filePath}
                 skill={selectedSkill}

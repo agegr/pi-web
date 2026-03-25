@@ -39,6 +39,25 @@ function formatTime(ts?: number): string | null {
   return `${date} ${time}`;
 }
 
+function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text);
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+    return Promise.resolve();
+  } catch {
+    return Promise.reject();
+  }
+}
+
 export function MessageView({ message, isStreaming, toolResults, modelNames, entryId, onFork, forking, onNavigate, prevAssistantEntryId }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} />;
@@ -62,6 +81,7 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
   prevAssistantEntryId?: string;
 }) {
   const [hovered, setHovered] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const content =
     typeof message.content === "string"
@@ -74,6 +94,13 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
   const time = formatTime(message.timestamp);
   const canFork = !!entryId && !!onFork;
   const canNavigate = !!prevAssistantEntryId && !!onNavigate;
+
+  const copyContent = () => {
+    copyText(content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
 
   return (
     <div
@@ -103,11 +130,47 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
       </div>
 
       {/* Bottom row: action buttons + timestamp */}
-      {(time || canFork || canNavigate) && (
+      {(time || canFork || canNavigate || true) && (
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "flex-end",
           gap: 6, marginTop: 3,
         }}>
+          <div style={{
+            display: "flex", gap: 3,
+            opacity: hovered ? 1 : 0,
+            pointerEvents: hovered ? "auto" : "none",
+            transition: "opacity 0.12s",
+          }}>
+            <button
+              onClick={copyContent}
+              title="Copy message"
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                padding: "3px 8px", height: 22,
+                background: "none", border: "none",
+                borderRadius: 5,
+                color: copied ? "var(--accent)" : "var(--text-dim)",
+                cursor: "pointer",
+                fontSize: 11, fontWeight: 400,
+                whiteSpace: "nowrap",
+                transition: "color 0.12s",
+              }}
+              onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = "var(--accent)"; }}
+              onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-dim)"; }}
+            >
+              {copied ? (
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              ) : (
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+              )}
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
           {(canFork || canNavigate) && (
             <div style={{
               display: "flex", gap: 3,
@@ -120,20 +183,20 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
                   onClick={() => onNavigate!(prevAssistantEntryId!)}
                   title="Edit from here — branches within this session"
                   style={{
-                    display: "flex", alignItems: "center", gap: 5,
-                    padding: "5px 12px", height: 28,
+                    display: "flex", alignItems: "center", gap: 4,
+                    padding: "3px 8px", height: 22,
                     background: "none", border: "none",
-                    borderRadius: 6,
+                    borderRadius: 5,
                     color: "var(--text-dim)",
                     cursor: "pointer",
-                    fontSize: 13, fontWeight: 500,
+                    fontSize: 11, fontWeight: 400,
                     whiteSpace: "nowrap",
                     transition: "color 0.12s",
                   }}
                   onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; }}
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="15 10 20 15 15 20" />
                     <path d="M4 4v7a4 4 0 0 0 4 4h12" />
                   </svg>
@@ -146,20 +209,20 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
                   disabled={forking}
                   title={forking ? "Creating new session…" : "New session — creates an independent copy from here"}
                   style={{
-                    display: "flex", alignItems: "center", gap: 5,
-                    padding: "5px 12px", height: 28,
+                    display: "flex", alignItems: "center", gap: 4,
+                    padding: "3px 8px", height: 22,
                     background: "none", border: "none",
-                    borderRadius: 6,
+                    borderRadius: 5,
                     color: forking ? "var(--accent)" : "var(--text-dim)",
                     cursor: forking ? "not-allowed" : "pointer",
-                    fontSize: 13, fontWeight: 500,
+                    fontSize: 11, fontWeight: 400,
                     whiteSpace: "nowrap",
                     transition: "color 0.12s",
                   }}
                   onMouseEnter={(e) => { if (!forking) e.currentTarget.style.color = "var(--accent)"; }}
                   onMouseLeave={(e) => { if (!forking) e.currentTarget.style.color = "var(--text-dim)"; }}
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="6" y1="3" x2="6" y2="15" />
                     <circle cx="18" cy="6" r="3" />
                     <circle cx="6" cy="18" r="3" />
@@ -189,9 +252,27 @@ function AssistantMessageView({
   modelNames?: Record<string, string>;
 }) {
   const blocks = message.content ?? [];
+  const [hovered, setHovered] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const textContent = blocks
+    .filter((b): b is TextContent => b.type === "text")
+    .map((b) => b.text)
+    .join("\n");
+
+  const copyContent = () => {
+    copyText(textContent).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
 
   return (
-    <div style={{ marginBottom: 16 }}>
+    <div
+      style={{ marginBottom: 16 }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       {/* Model label */}
       <div
         style={{
@@ -226,11 +307,48 @@ function AssistantMessageView({
         ))}
       </div>
 
-      {message.usage && !isStreaming && (
-        <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-dim)" }}>
-          {formatUsage(message.usage)}
-        </div>
-      )}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8, marginTop: 4,
+      }}>
+        {message.usage && !isStreaming && (
+          <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
+            {formatUsage(message.usage)}
+          </div>
+        )}
+        {textContent && !isStreaming && (
+          <button
+            onClick={copyContent}
+            title="Copy message"
+            style={{
+              display: "flex", alignItems: "center", gap: 4,
+              padding: "3px 8px", height: 22,
+              background: "none", border: "none",
+              borderRadius: 5,
+              color: copied ? "var(--accent)" : "var(--text-dim)",
+              cursor: "pointer",
+              fontSize: 11, fontWeight: 400,
+              whiteSpace: "nowrap",
+              opacity: hovered ? 1 : 0,
+              pointerEvents: hovered ? "auto" : "none",
+              transition: "opacity 0.12s, color 0.12s",
+            }}
+            onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = "var(--accent)"; }}
+            onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-dim)"; }}
+          >
+            {copied ? (
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            ) : (
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+            )}
+            {copied ? "Copied" : "Copy"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -545,7 +663,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
   const [copied, setCopied] = useState(false);
 
   const copy = () => {
-    navigator.clipboard.writeText(code).then(() => {
+    copyText(code).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
