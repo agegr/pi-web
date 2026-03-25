@@ -48,12 +48,15 @@ function getRecentCwds(sessions: SessionInfo[]): string[] {
     .map(([cwd]) => cwd);
 }
 
-function displayCwd(cwd: string): string {
-  // Show last 2 path segments for readability
-  const parts = cwd.replace(/\\/g, "/").split("/").filter(Boolean);
-  if (parts.length <= 2) return cwd;
-  return "…/" + parts.slice(-2).join("/");
+function shortenCwd(cwd: string, homeDir?: string): string {
+  const path = (homeDir && cwd.startsWith(homeDir)) ? "~" + cwd.slice(homeDir.length) : cwd;
+  const sep = path.includes("/") ? "/" : "\\";
+  const parts = path.split(sep).filter(Boolean);
+  if (parts.length <= 2) return path;
+  return "…/" + parts.slice(-2).join(sep);
 }
+
+
 
 interface SessionTreeNode {
   session: SessionInfo;
@@ -197,6 +200,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
+  const [homeDir, setHomeDir] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [customPathOpen, setCustomPathOpen] = useState(false);
   const [customPathValue, setCustomPathValue] = useState("");
@@ -230,6 +234,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   useEffect(() => {
     if (explorerRefreshKey !== undefined) setExplorerKey((k) => k + 1);
   }, [explorerRefreshKey]);
+
+  useEffect(() => {
+    fetch("/api/home").then((r) => r.json()).then((d: { home?: string }) => {
+      if (d.home) setHomeDir(d.home);
+    }).catch(() => {});
+  }, []);
 
   const restoredRef = useRef(false);
 
@@ -268,6 +278,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     setCustomPathValue("");
     setDropdownOpen(false);
   }, [customPathValue]);
+
+  const useDefaultCwd = useCallback(async () => {
+    try {
+      const res = await fetch("/api/default-cwd", { method: "POST" });
+      const data = await res.json() as { cwd?: string; error?: string };
+      if (data.cwd) {
+        setSelectedCwd(data.cwd);
+        setDropdownOpen(false);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -393,8 +416,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               width: "100%",
               display: "flex",
               alignItems: "center",
-              justifyContent: "space-between",
-              gap: 6,
               padding: "6px 10px",
               background: "var(--bg-hover)",
               border: "1px solid var(--border)",
@@ -405,26 +426,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               textAlign: "left",
             }}
           >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="var(--text-muted)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-              <path d="M1 3.5h10M1 3.5v7h10v-7M1 3.5l1-2h3l1 2" />
-            </svg>
             <span
               style={{
+                flex: 1,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
-                flex: 1,
                 fontFamily: "var(--font-mono)",
                 fontSize: 11,
                 color: selectedCwd ? "var(--text)" : "var(--text-dim)",
               }}
               title={selectedCwd ?? ""}
             >
-              {selectedCwd ? displayCwd(selectedCwd) : (initialSessionId && !restoredRef.current ? "" : "Select project…")}
+              {selectedCwd ? shortenCwd(selectedCwd, homeDir) : (initialSessionId && !restoredRef.current ? "" : "Select project…")}
             </span>
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: dropdownOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
-              <polyline points="2 3.5 5 6.5 8 3.5" />
-            </svg>
           </button>
 
           {dropdownOpen && (
@@ -477,9 +492,35 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     </svg>
                   )}
                   {cwd !== selectedCwd && <span style={{ width: 10, flexShrink: 0 }} />}
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayCwd(cwd)}</span>
+                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortenCwd(cwd, homeDir)}</span>
                 </button>
               ))}
+
+              {/* Default cwd shortcut */}
+              {!customPathOpen && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); useDefaultCwd(); }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 7,
+                    width: "100%",
+                    padding: "8px 10px",
+                    background: "none",
+                    border: "none",
+                    borderTop: recentCwds.length > 0 ? "1px solid var(--border)" : "none",
+                    color: "var(--text-muted)",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    fontSize: 11,
+                  }}
+                >
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <path d="M1 3A1 1 0 0 1 2 2H4L5 3.5H8.5a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-.5.5h-7A.5.5 0 0 1 1 8V3Z" />
+                  </svg>
+                  <span>Use default directory</span>
+                </button>
+              )}
 
               {/* Custom path entry */}
               {!customPathOpen ? (
@@ -503,7 +544,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     fontSize: 11,
                   }}
                 >
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" style={{ flexShrink: 0 }}>
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" style={{ flexShrink: 0 }}>
                     <line x1="5" y1="1" x2="5" y2="9" />
                     <line x1="1" y1="5" x2="9" y2="5" />
                   </svg>
@@ -577,7 +618,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       </div>
 
       {/* Session list */}
-      <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "4px 0", minHeight: 80 }}>
+      <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}>
         {loading && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
             Loading...

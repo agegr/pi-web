@@ -281,7 +281,7 @@ export function ChatInput({
             {isStreaming && (onSteer || onFollowUp) ? (
               /* 发送模式 label + 打断/排队 pill toggle */
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 12, color: "var(--text-dim)" }}>发送模式</span>
+                <span style={{ fontSize: 12, color: "var(--text-dim)" }}>Send Mode</span>
                 <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
                   {(["steer", "followup"] as const).map((mode, i) => {
                     const active = queueMode === mode;
@@ -311,7 +311,7 @@ export function ChatInput({
                             <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                               <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
                             </svg>
-                            打断
+                            Steer
                           </>
                         ) : (
                           <>
@@ -319,7 +319,7 @@ export function ChatInput({
                               <line x1="5" y1="1" x2="5" y2="6" /><polyline points="2.5 3.5 5 1 7.5 3.5" />
                               <line x1="2" y1="9" x2="8" y2="9" />
                             </svg>
-                            排队
+                            Follow-up
                           </>
                         )}
                       </button>
