@@ -24,12 +24,6 @@ npm install
 npm run dev
 ```
 
-Recommended: download a pre-configured working folder (with skills already set up) from https://github.com/agegr/working-chat/
-
-```bash
-git clone https://github.com/agegr/working-chat.git
-```
-
 ## Features
 
 - **Session browser** — lists all pi sessions grouped by working directory
