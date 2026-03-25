@@ -67,14 +67,23 @@ function Toggle({ enabled, loading, onToggle }: { enabled: boolean; loading: boo
   );
 }
 
-function SkillDetail({ skill, onToggle, toggling, saveError }: {
+function SkillDetail({ skill, cwd, onToggle, toggling, saveError }: {
   skill: Skill;
+  cwd: string;
   onToggle: (skill: Skill) => void;
   toggling: boolean;
   saveError: string | null;
 }) {
   const label = sourceLabel(skill);
   const enabled = !skill.disableModelInvocation;
+
+  function displayPath(p: string): string {
+    if (label === "project" && p.startsWith(cwd)) {
+      const rel = p.slice(cwd.length).replace(/^\//, "");
+      return `./${rel}`;
+    }
+    return shortenPath(p);
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -85,7 +94,7 @@ function SkillDetail({ skill, onToggle, toggling, saveError }: {
           background: label === "project" ? "rgba(99,102,241,0.12)" : "rgba(120,120,120,0.12)",
           color: label === "project" ? "rgba(99,102,241,0.8)" : "var(--text-dim)",
         }}>{label}</span>
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-dim)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortenPath(skill.filePath)}</span>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-dim)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayPath(skill.filePath)}</span>
         <Toggle enabled={enabled} loading={toggling} onToggle={() => onToggle(skill)} />
         {saveError && <span style={{ fontSize: 12, color: "#f87171", flexShrink: 0 }}>{saveError}</span>}
       </div>
@@ -446,6 +455,7 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
               <SkillDetail
                 key={selectedSkill.filePath}
                 skill={selectedSkill}
+                cwd={cwd}
                 onToggle={toggle}
                 toggling={toggling.has(selectedSkill.filePath)}
                 saveError={saveError}
