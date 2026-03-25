@@ -165,7 +165,7 @@ function AddSkillPanel({ cwd, onInstalled }: { cwd: string; onInstalled: () => v
     } finally {
       setInstalling(null);
     }
-  }, [onInstalled]);
+  }, [onInstalled, scope, cwd]);
 
   const installPath = scope === "global"
     ? "~/.agents/skills/"
