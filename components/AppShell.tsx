@@ -7,6 +7,7 @@ import { ChatWindow } from "./ChatWindow";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { ModelsConfig } from "./ModelsConfig";
+import { SkillsConfig } from "./SkillsConfig";
 import type { SessionInfo } from "@/lib/types";
 
 const CHAT_TAB: Tab = { id: "chat", type: "chat", label: "Chat" };
@@ -21,6 +22,7 @@ export function AppShell() {
   const [sessionKey, setSessionKey] = useState(0);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [modelsConfigOpen, setModelsConfigOpen] = useState(false);
+  const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const [initialSessionId] = useState<string | null>(() => searchParams.get("session"));
@@ -134,29 +136,53 @@ export function AppShell() {
         onOpenFile={handleOpenFile}
         explorerRefreshKey={explorerRefreshKey}
       />
-      <div style={{ borderTop: "1px solid var(--border)", padding: "8px 10px", flexShrink: 0 }}>
-        <button
-          onClick={() => setModelsConfigOpen(true)}
-          style={{
-            display: "flex", alignItems: "center", gap: 6,
-            width: "100%", padding: "6px 8px",
-            background: "none", border: "none", borderRadius: 5,
-            color: "var(--text-muted)", cursor: "pointer", fontSize: 12,
-            textAlign: "left",
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "var(--text-muted)"; }}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="4" y="4" width="16" height="16" rx="2" />
-            <rect x="9" y="9" width="6" height="6" />
-            <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
-            <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
-            <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
-            <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
-          </svg>
-          Models
-        </button>
+      <div style={{ padding: "6px 10px", flexShrink: 0, display: "flex", justifyContent: "space-between" }}>
+        {([
+          {
+            label: "Models",
+            onClick: () => setModelsConfigOpen(true),
+            disabled: false,
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" />
+                <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
+                <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
+                <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
+                <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
+              </svg>
+            ),
+          },
+          {
+            label: "Skills",
+            onClick: () => setSkillsConfigOpen(true),
+            disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                <path d="M2 17l10 5 10-5" />
+                <path d="M2 12l10 5 10-5" />
+              </svg>
+            ),
+          },
+        ] as const).map(({ label, onClick, disabled, icon }) => (
+          <button
+            key={label}
+            onClick={onClick}
+            disabled={disabled}
+            title={label}
+            style={{
+              flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+              padding: "7px 0", background: "none", border: "none",
+              borderRadius: 5, color: "var(--text-muted)", cursor: disabled ? "default" : "pointer",
+              fontSize: 11, opacity: disabled ? 0.35 : 1,
+            }}
+            onMouseEnter={(e) => { if (!disabled) { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text)"; } }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "var(--text-muted)"; }}
+          >
+            {icon}
+            {label}
+          </button>
+        ))}
       </div>
     </>
   );
@@ -312,6 +338,9 @@ export function AppShell() {
       </div>
     </div>
     {modelsConfigOpen && <ModelsConfig onClose={() => setModelsConfigOpen(false)} />}
+    {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
+      <SkillsConfig cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!} onClose={() => setSkillsConfigOpen(false)} />
+    )}
     </>
   );
 }
