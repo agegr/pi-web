@@ -1,8 +1,24 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+interface OAuthProvider {
+  id: string;
+  name: string;
+  usesCallbackServer: boolean;
+  loggedIn: boolean;
+}
+
+type OAuthLoginState =
+  | { phase: "idle" }
+  | { phase: "connecting" }
+  | { phase: "auth"; url: string; instructions: string | null; token: string }
+  | { phase: "prompt"; message: string; placeholder: string | null; token: string }
+  | { phase: "progress"; message: string }
+  | { phase: "success" }
+  | { phase: "error"; message: string };
 
 interface ModelEntry {
   id: string;
@@ -32,7 +48,8 @@ interface ModelsJson {
 
 type Selection =
   | { type: "provider"; name: string }
-  | { type: "model"; providerName: string; index: number };
+  | { type: "model"; providerName: string; index: number }
+  | { type: "oauth"; providerId: string };
 
 const API_OPTIONS = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"] as const;
 
@@ -202,6 +219,191 @@ function ModelDetail({ model, onChange, onDelete }: { model: ModelEntry; onChang
   );
 }
 
+// ── OAuth detail ──────────────────────────────────────────────────────────────
+
+function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefresh: () => void }) {
+  const [loginState, setLoginState] = useState<OAuthLoginState>({ phase: "idle" });
+  const [inputValue, setInputValue] = useState("");
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (loginState.phase === "auth" || loginState.phase === "prompt") {
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }, [loginState.phase]);
+
+  // Reset state when provider changes
+  useEffect(() => {
+    setLoginState({ phase: "idle" });
+    setInputValue("");
+    eventSourceRef.current?.close();
+    eventSourceRef.current = null;
+  }, [provider.id]);
+
+  useEffect(() => {
+    return () => { eventSourceRef.current?.close(); };
+  }, []);
+
+  const handleLogin = useCallback(() => {
+    eventSourceRef.current?.close();
+    setLoginState({ phase: "connecting" });
+    setInputValue("");
+
+    const es = new EventSource(`/api/auth/login/${encodeURIComponent(provider.id)}`);
+    eventSourceRef.current = es;
+
+    es.onmessage = (e) => {
+      const data = JSON.parse(e.data) as {
+        type: string; url?: string; instructions?: string | null;
+        token?: string; message?: string; placeholder?: string | null;
+      };
+      if (data.type === "auth") {
+        setLoginState({ phase: "auth", url: data.url!, instructions: data.instructions ?? null, token: data.token! });
+        window.open(data.url!, "_blank", "noopener,noreferrer");
+      } else if (data.type === "prompt_request") {
+        setLoginState({ phase: "prompt", message: data.message!, placeholder: data.placeholder ?? null, token: data.token! });
+      } else if (data.type === "progress") {
+        setLoginState({ phase: "progress", message: data.message! });
+      } else if (data.type === "success") {
+        es.close();
+        setLoginState({ phase: "success" });
+        onRefresh();
+      } else if (data.type === "error") {
+        es.close();
+        setLoginState({ phase: "error", message: data.message! });
+      } else if (data.type === "cancelled") {
+        es.close();
+        setLoginState({ phase: "idle" });
+      }
+    };
+    es.onerror = () => {
+      es.close();
+      setLoginState((prev) => prev.phase === "success" ? prev : { phase: "error", message: "Connection lost" });
+    };
+  }, [provider.id, onRefresh]);
+
+  const handleLogout = useCallback(async () => {
+    await fetch(`/api/auth/logout/${encodeURIComponent(provider.id)}`, { method: "POST" });
+    setLoginState({ phase: "idle" });
+    onRefresh();
+  }, [provider.id, onRefresh]);
+
+  const submitCode = useCallback(async (token: string, code: string) => {
+    if (!code.trim()) return;
+    setLoginState({ phase: "progress", message: "Verifying…" });
+    try {
+      const res = await fetch(`/api/auth/login/${encodeURIComponent(provider.id)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, code: code.trim() }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({})) as { error?: string };
+        setLoginState({ phase: "error", message: d.error ?? `Server error ${res.status}` });
+        return;
+      }
+      setInputValue("");
+      // Success path: SSE stream will emit "success" and update state
+    } catch (e) {
+      setLoginState({ phase: "error", message: e instanceof Error ? e.message : "Network error" });
+    }
+  }, [provider.id]);
+
+  const isWorking = loginState.phase === "connecting" || loginState.phase === "progress" ||
+    loginState.phase === "auth" || loginState.phase === "prompt";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <SectionTitle>Subscription</SectionTitle>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.loggedIn ? "#4ade80" : "var(--border)", display: "inline-block" }} />
+          <span style={{ fontSize: 11, color: provider.loggedIn ? "#4ade80" : "var(--text-dim)" }}>
+            {provider.loggedIn ? "connected" : "not connected"}
+          </span>
+        </div>
+      </div>
+
+      {/* Status */}
+      <div style={{ minHeight: 48 }}>
+        {loginState.phase === "idle" && (
+          <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
+            {provider.loggedIn ? "Already connected. You can re-login or disconnect." : `Connect your ${provider.name} account.`}
+          </p>
+        )}
+        {loginState.phase === "connecting" && (
+          <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>Opening browser…</p>
+        )}
+        {(loginState.phase === "auth" || loginState.phase === "prompt") && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
+              {loginState.phase === "auth"
+                ? "Complete sign-in in the browser, then copy the redirect URL from the address bar and paste it below."
+                : loginState.message}
+            </p>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input
+                ref={inputRef}
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") submitCode(loginState.token, inputValue); }}
+                placeholder={loginState.phase === "auth" ? "http://localhost:1455/auth/callback?code=…" : (loginState.placeholder ?? "Enter value…")}
+                style={{ flex: 1, padding: "6px 9px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 5, color: "var(--text)", fontSize: 12, outline: "none", fontFamily: "var(--font-mono)", boxSizing: "border-box" }}
+              />
+              <button
+                onClick={() => submitCode(loginState.token, inputValue)}
+                disabled={!inputValue.trim()}
+                style={{ padding: "6px 12px", background: inputValue.trim() ? "var(--accent)" : "var(--bg-panel)", border: "none", borderRadius: 5, color: inputValue.trim() ? "#fff" : "var(--text-dim)", cursor: inputValue.trim() ? "pointer" : "not-allowed", fontSize: 12, fontWeight: 600, flexShrink: 0 }}
+              >
+                Submit
+              </button>
+            </div>
+          </div>
+        )}
+        {loginState.phase === "progress" && (
+          <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>{loginState.message}</p>
+        )}
+        {loginState.phase === "success" && (
+          <p style={{ margin: 0, fontSize: 12, color: "#4ade80" }}>Connected successfully.</p>
+        )}
+        {loginState.phase === "error" && (
+          <p style={{ margin: 0, fontSize: 12, color: "#f87171" }}>{loginState.message}</p>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div style={{ display: "flex", gap: 8 }}>
+        {isWorking ? (
+          <button
+            onClick={() => { eventSourceRef.current?.close(); setLoginState({ phase: "idle" }); }}
+            style={{ padding: "5px 12px", background: "none", border: "1px solid var(--border)", borderRadius: 5, color: "var(--text-muted)", cursor: "pointer", fontSize: 12 }}
+          >
+            Cancel
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={handleLogin}
+              style={{ padding: "5px 14px", background: "var(--accent)", border: "none", borderRadius: 5, color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600 }}
+            >
+              {provider.loggedIn ? "Re-login" : "Login"}
+            </button>
+            {provider.loggedIn && (
+              <button
+                onClick={handleLogout}
+                style={{ padding: "5px 12px", background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 5, color: "#ef4444", cursor: "pointer", fontSize: 12 }}
+              >
+                Disconnect
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function ModelsConfig({ onClose }: { onClose: () => void }) {
@@ -211,6 +413,14 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
+
+  const loadOAuthProviders = useCallback(() => {
+    fetch("/api/auth/providers")
+      .then((r) => r.json())
+      .then((d: { providers: OAuthProvider[] }) => setOauthProviders(d.providers))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch("/api/models-config")
@@ -223,7 +433,8 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
       })
       .catch(() => setConfig({ providers: {} }))
       .finally(() => setLoading(false));
-  }, []);
+    loadOAuthProviders();
+  }, [loadOAuthProviders]);
 
   const addProvider = useCallback(() => {
     let finalName = "new-provider";
@@ -323,6 +534,11 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
   // Resolve current detail
   const detailContent = (() => {
     if (!selection) return null;
+    if (selection.type === "oauth") {
+      const p = oauthProviders.find((p) => p.id === selection.providerId);
+      if (!p) return null;
+      return <OAuthDetail key={p.id} provider={p} onRefresh={loadOAuthProviders} />;
+    }
     if (selection.type === "provider") {
       const provider = config.providers?.[selection.name];
       if (!provider) return null;
@@ -370,10 +586,39 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
           {/* Left: tree */}
           <div style={{ width: 210, borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", flexShrink: 0, background: "var(--bg-panel)" }}>
             <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>
+              {/* OAuth subscriptions group */}
+              {oauthProviders.length > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ padding: "4px 8px 6px", fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                    Subscriptions
+                  </div>
+                  {oauthProviders.map((p) => {
+                    const isSelected = selection?.type === "oauth" && selection.providerId === p.id;
+                    return (
+                      <div
+                        key={p.id}
+                        onClick={() => setSelection({ type: "oauth", providerId: p.id })}
+                        style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 8px", borderRadius: 5, cursor: "pointer", background: isSelected ? "var(--bg-selected)" : "none" }}
+                        onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
+                        onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "none"; }}
+                      >
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: p.loggedIn ? "#4ade80" : "var(--border)", flexShrink: 0 }} />
+                        <span style={{ fontSize: 12, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {p.name}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  <div style={{ margin: "8px 8px 0", borderTop: "1px solid var(--border)" }} />
+                  <div style={{ padding: "6px 8px 2px", fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                    Custom providers
+                  </div>
+                </div>
+              )}
               {loading ? (
                 <div style={{ padding: "10px 8px", fontSize: 12, color: "var(--text-muted)" }}>Loading…</div>
               ) : providers.length === 0 ? (
-                <div style={{ padding: "10px 8px", fontSize: 11, color: "var(--text-dim)" }}>No providers yet</div>
+                <div style={{ padding: "4px 8px", fontSize: 11, color: "var(--text-dim)" }}>No providers yet</div>
               ) : providers.map(([pName, pData]) => {
                 const isProviderSelected = selection?.type === "provider" && selection.name === pName;
                 const models = pData.models ?? [];

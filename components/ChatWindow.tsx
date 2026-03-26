@@ -58,9 +58,10 @@ interface Props {
   onAgentEnd?: () => void;
   onSessionCreated?: (session: SessionInfo) => void;
   onSessionForked?: (newSessionId: string) => void;
+  modelsRefreshKey?: number;
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked }: Props) {
+export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey }: Props) {
   const isNew = session === null && newSessionCwd !== null;
 
   const [data, setData] = useState<SessionData | null>(null);
@@ -159,8 +160,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         : `/api/sessions/${encodeURIComponent(sid)}/context`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json() as { context: { messages: AgentMessage[] } };
+      const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[] } };
       setMessages(d.context.messages);
+      setEntryIds(d.context.entryIds ?? []);
     } catch (e) {
       console.error("Failed to load context:", e);
     }
@@ -244,14 +246,13 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     }
   }, [loadSession, onAgentEnd]);
 
-  // On mount: load existing session, or show empty chat for new session
+  // Fetch model list — re-runs whenever modelsRefreshKey changes (e.g. after ModelsConfig save/OAuth login)
   useEffect(() => {
     fetch("/api/models").then((r) => r.json()).then((d: { models: Record<string, string>; modelList?: { id: string; name: string; provider: string }[]; defaultModel?: { provider: string; modelId: string } | null }) => {
       setModelNames(d.models);
       if (d.modelList) {
         setModelList(d.modelList);
         if (isNew && d.modelList.length > 0) {
-          // Use pi's saved default model from settings.json, fallback to first available
           const def = d.defaultModel;
           const match = def && d.modelList.find((m) => m.id === def.modelId && m.provider === def.provider);
           const selected = match
@@ -261,6 +262,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         }
       }
     }).catch(() => {});
+  }, [isNew, modelsRefreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // On mount: load existing session, or show empty chat for new session
+  useEffect(() => {
 
     if (session) {
       sessionIdRef.current = session.id;

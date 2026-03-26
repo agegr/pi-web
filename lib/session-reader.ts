@@ -60,8 +60,9 @@ function getModelCache(): Map<string, ModelInfo> {
 }
 
 export function getModelNameMap(): Map<string, string> {
+  // Keyed by "provider:id" to avoid collisions across providers
   const result = new Map<string, string>();
-  for (const info of getModelCache().values()) result.set(info.id, info.name);
+  for (const [key, info] of getModelCache().entries()) result.set(key, info.name);
   return result;
 }
 
