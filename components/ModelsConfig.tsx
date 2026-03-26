@@ -342,6 +342,15 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
                 ? "Complete sign-in in the browser, then copy the redirect URL from the address bar and paste it below."
                 : loginState.message}
             </p>
+            {loginState.phase === "auth" && (
+              <p style={{ margin: 0, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>
+                If the browser window did not open,{" "}
+                <a href={loginState.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", wordBreak: "break-all" }}>
+                  click here to open the login page
+                </a>
+                .
+              </p>
+            )}
             <div style={{ display: "flex", gap: 6 }}>
               <input
                 ref={inputRef}
