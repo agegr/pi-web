@@ -168,8 +168,8 @@ function AddSkillPanel({ cwd, onInstalled }: { cwd: string; onInstalled: () => v
   }, [onInstalled, scope, cwd]);
 
   const installPath = scope === "global"
-    ? "~/.agents/skills/"
-    : `${shortenPath(cwd)}/.agents/skills/`;
+    ? "~/.pi/agent/skills/"
+    : `${shortenPath(cwd)}/.pi/agent/skills/`;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
