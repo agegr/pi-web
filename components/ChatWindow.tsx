@@ -112,10 +112,13 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     container.scrollTo({ top: elAbsTop - 16, behavior: "smooth" });
   }, []);
 
-  const loadSession = useCallback(async (sid: string, showLoading = false) => {
+  const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
     try {
       if (showLoading) setLoading(true);
-      const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}`);
+      const url = includeState
+        ? `/api/sessions/${encodeURIComponent(sid)}?includeState`
+        : `/api/sessions/${encodeURIComponent(sid)}`;
+      const res = await fetch(url);
       if (res.status === 404) {
         if (showLoading) {
           setData(null);
@@ -123,18 +126,20 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           setMessages([]);
           setError(null);
         }
-        return;
+        return null;
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json() as SessionData;
+      const d = await res.json() as SessionData & { agentState?: { running: boolean; state?: { isStreaming?: boolean; isCompacting?: boolean; contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null } } };
       setData(d);
       setActiveLeafId(d.leafId);
       setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
       setCurrentModelOverride(null);
       setError(null);
+      return d.agentState ?? null;
     } catch (e) {
       setError(String(e));
+      return null;
     } finally {
       if (showLoading) setLoading(false);
     }
@@ -280,23 +285,21 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
     if (session) {
       sessionIdRef.current = session.id;
-      loadSession(session.id, true);
-      loadTools(session.id);
-      // If the agent is already running (e.g. page refresh mid-stream), reconnect SSE
-      // Also sync agent state (thinking level, auto flags)
-      fetch(`/api/agent/${encodeURIComponent(session.id)}`)
-        .then((r) => r.json())
-        .then((d: { running?: boolean; state?: { isStreaming?: boolean; isCompacting?: boolean; contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null } }) => {
-          if (d.running && d.state?.isStreaming) {
+      // Single request: load session content + agent state together
+      loadSession(session.id, true, true).then((agentState) => {
+        if (!agentState) return;
+        if (agentState.running) {
+          loadTools(session.id);
+          if (agentState.state?.isStreaming) {
             setAgentRunning(true);
             connectEvents(session.id);
           }
-          if (d.state) {
-            if (d.state.isCompacting !== undefined) setIsCompacting(d.state.isCompacting);
-            if (d.state.contextUsage !== undefined) setContextUsage(d.state.contextUsage ?? null);
-          }
-        })
-        .catch(() => {});
+        }
+        if (agentState.state) {
+          if (agentState.state.isCompacting !== undefined) setIsCompacting(agentState.state.isCompacting);
+          if (agentState.state.contextUsage !== undefined) setContextUsage(agentState.state.contextUsage ?? null);
+        }
+      });
     }
     // isNew: nothing to load, just show empty chat
     return () => {

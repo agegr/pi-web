@@ -8,9 +8,10 @@ import {
   buildSessionContext,
   buildSessionInfo,
 } from "@/lib/session-reader";
+import { getRpcSession } from "@/lib/rpc-manager";
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
@@ -27,6 +28,18 @@ export async function GET(
     const context = buildSessionContext(entries, leafId);
     const info = buildSessionInfo(filePath);
 
+    const url = new URL(req.url);
+    let agentState: { running: boolean; state?: unknown } | undefined;
+    if (url.searchParams.has("includeState")) {
+      const rpc = getRpcSession(id);
+      if (rpc?.isAlive()) {
+        const state = await rpc.send({ type: "get_state" });
+        agentState = { running: true, state };
+      } else {
+        agentState = { running: false };
+      }
+    }
+
     return NextResponse.json({
       sessionId: id,
       filePath,
@@ -34,6 +47,7 @@ export async function GET(
       tree,
       leafId,
       context,
+      ...(agentState !== undefined ? { agentState } : {}),
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

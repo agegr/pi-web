@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
@@ -30,6 +30,8 @@ export function AppShell() {
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
   // True once the initial ?session= URL param has been resolved (or confirmed absent)
   const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !searchParams.get("session"));
+  // Suppresses sessionKey bump in handleCwdChange during the initial URL restore
+  const suppressCwdBumpRef = useRef(false);
 
   // Tab management
   const [tabs, setTabs] = useState<Tab[]>([CHAT_TAB]);
@@ -37,7 +39,9 @@ export function AppShell() {
 
   const handleCwdChange = useCallback((cwd: string | null) => {
     setActiveCwd(cwd);
-    // If no session is open, remount ChatWindow for the new cwd
+    // If no session is open, remount ChatWindow for the new cwd.
+    // Skip if cwd is null (initial mount) or during the initial URL restore.
+    if (!cwd || suppressCwdBumpRef.current) return;
     setSelectedSession((prev) => {
       if (prev === null) setSessionKey((k) => k + 1);
       return prev;
@@ -49,6 +53,12 @@ export function AppShell() {
     setSelectedSession(session);
     setSessionKey((k) => k + 1);
     setInitialSessionRestored(true);
+    if (isRestore) {
+      // Suppress the redundant sessionKey bump that would come from the
+      // onCwdChange effect firing after setSelectedCwd in the sidebar
+      suppressCwdBumpRef.current = true;
+      setTimeout(() => { suppressCwdBumpRef.current = false; }, 0);
+    }
     // Skip router.replace when restoring from URL — the param is already correct
     // and calling replace in production Next.js triggers a Suspense remount loop
     if (!isRestore) {
