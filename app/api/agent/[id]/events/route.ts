@@ -13,7 +13,7 @@ export async function GET(
   // Fast path: already-running session
   let session = getRpcSession(id);
   if (!session || !session.isAlive()) {
-    const filePath = resolveSessionPath(id);
+    const filePath = await resolveSessionPath(id);
     if (!filePath) {
       return new Response("Session not found", { status: 404 });
     }

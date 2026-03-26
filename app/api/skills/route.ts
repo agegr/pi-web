@@ -1,19 +1,8 @@
 import { NextResponse } from "next/server";
 import { existsSync, readFileSync, writeFileSync } from "fs";
-import { join } from "path";
-import { homedir } from "os";
+import { DefaultResourceLoader, getAgentDir, parseFrontmatter } from "@mariozechner/pi-coding-agent";
 
 export const dynamic = "force-dynamic";
-
-function getAgentDir(): string {
-  const env = process.env.PI_CODING_AGENT_DIR;
-  if (env) {
-    if (env === "~") return homedir();
-    if (env.startsWith("~/")) return homedir() + env.slice(1);
-    return env;
-  }
-  return join(homedir(), ".pi", "agent");
-}
 
 // GET /api/skills?cwd=<path>
 // Uses DefaultResourceLoader (same logic as AgentSession startup) so settings.json
@@ -24,7 +13,6 @@ export async function GET(req: Request) {
   if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
 
   try {
-    const { DefaultResourceLoader } = await import("@mariozechner/pi-coding-agent");
     const loader = new DefaultResourceLoader({ cwd, agentDir: getAgentDir() });
     await loader.reload();
     const { skills, diagnostics } = loader.getSkills();
@@ -43,40 +31,27 @@ export async function PATCH(req: Request) {
     if (!existsSync(filePath)) return NextResponse.json({ error: "file not found" }, { status: 404 });
 
     const content = readFileSync(filePath, "utf8");
-    const updated = setFrontmatterField(content, "disable-model-invocation", disableModelInvocation ? true : undefined);
+    const key = "disable-model-invocation";
+
+    // Use parseFrontmatter to check current value, then do a surgical line edit
+    // to preserve the original YAML formatting of all other fields.
+    const { frontmatter } = parseFrontmatter<Record<string, unknown>>(content);
+    const alreadySet = Boolean(frontmatter[key]);
+
+    let updated = content;
+    if (disableModelInvocation && !alreadySet) {
+      // Add key after the opening --- line
+      updated = content.replace(/^---\r?\n/, `---\n${key}: true\n`);
+      // If no frontmatter exists, create one
+      if (updated === content) updated = `---\n${key}: true\n---\n${content}`;
+    } else if (!disableModelInvocation && alreadySet) {
+      // Remove the key line entirely
+      updated = content.replace(new RegExp(`^${key}\\s*:.*\\r?\\n`, "m"), "");
+    }
+
     writeFileSync(filePath, updated, "utf8");
     return NextResponse.json({ success: true });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
-}
-
-function setFrontmatterField(content: string, key: string, value: boolean | undefined): string {
-  const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---(\r?\n|$)/);
-  if (!fmMatch) {
-    if (value === undefined) return content;
-    return `---\n${key}: true\n---\n${content}`;
-  }
-
-  const fmBody = fmMatch[1];
-  const rest = content.slice(fmMatch[0].length);
-  const lineEnd = fmMatch[0].includes("\r\n") ? "\r\n" : "\n";
-
-  const lines = fmBody.split(/\r?\n/);
-  const keyRegex = new RegExp(`^(${key})\\s*:.*$`);
-  const existingIdx = lines.findIndex((l) => keyRegex.test(l));
-
-  if (value === undefined) {
-    if (existingIdx === -1) return content;
-    lines.splice(existingIdx, 1);
-  } else {
-    const newLine = `${key}: ${value}`;
-    if (existingIdx === -1) {
-      lines.push(newLine);
-    } else {
-      lines[existingIdx] = newLine;
-    }
-  }
-
-  return `---${lineEnd}${lines.join(lineEnd)}${lineEnd}---${lineEnd}${rest}`;
 }

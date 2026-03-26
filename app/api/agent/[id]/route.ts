@@ -19,7 +19,7 @@ export async function POST(
       return NextResponse.json({ success: true, data: result });
     }
 
-    const filePath = resolveSessionPath(id);
+    const filePath = await resolveSessionPath(id);
     if (!filePath) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }

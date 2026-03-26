@@ -1,7 +1,5 @@
-import { createAgentSession, type ResourceLoader } from "@mariozechner/pi-coding-agent";
-import { join } from "path";
-import { homedir } from "os";
-import { buildNoToolsSystemPrompt } from "./system-prompt-off";
+import { createAgentSession } from "@mariozechner/pi-coding-agent";
+import { cacheSessionPath } from "./session-reader";
 
 // ============================================================================
 // Types
@@ -114,6 +112,8 @@ export class AgentSessionWrapper {
         // After fork, inner.sessionId is the new session's id.
         // Capture it before destroy() clears state.
         const newSessionId = this.inner.sessionId as string;
+        const newSessionFile = this.inner.sessionFile as string | undefined;
+        if (newSessionFile) cacheSessionPath(newSessionId, newSessionFile);
         // Destroy this wrapper immediately so the next request for the
         // original session reloads a clean AgentSession from its file.
         this.destroy();
@@ -131,13 +131,32 @@ export class AgentSessionWrapper {
       }
 
       case "compact": {
-        const settings = this.inner.settingsManager.getCompactionSettings();
-        const keepRecentTokens: number = settings?.keepRecentTokens ?? 20000;
-        const usage = this.inner.getContextUsage();
-        const currentTokens: number | null = usage?.tokens ?? null;
-        if (currentTokens !== null && currentTokens < keepRecentTokens) {
+        // Check if there's actually anything to summarize before calling pi's compact().
+        // pi does not guard against empty messagesToSummarize — when the session is shorter
+        // than keepRecentTokens, findCutPoint returns firstKeptEntryIndex = first message,
+        // making messagesToSummarize empty, and generateSummary produces a useless
+        // "conversation is empty" summary.
+        const { findCutPoint, DEFAULT_COMPACTION_SETTINGS } = await import("@mariozechner/pi-coding-agent");
+        const pathEntries = this.inner.sessionManager.getBranch() as Array<{ type: string; id?: string }>;
+        const settings = { ...DEFAULT_COMPACTION_SETTINGS, ...this.inner.settingsManager.getCompactionSettings() };
+
+        // Find the start boundary (after any previous compaction)
+        let prevCompactionIndex = -1;
+        for (let i = pathEntries.length - 1; i >= 0; i--) {
+          if (pathEntries[i].type === "compaction") { prevCompactionIndex = i; break; }
+        }
+        const boundaryStart = prevCompactionIndex + 1;
+        const boundaryEnd = pathEntries.length;
+
+        const cutPoint = findCutPoint(pathEntries as never, boundaryStart, boundaryEnd, settings.keepRecentTokens);
+        // messagesToSummarize = entries[boundaryStart .. historyEnd), where:
+        //   historyEnd = isSplitTurn ? turnStartIndex : firstKeptEntryIndex
+        // Empty when historyEnd <= boundaryStart.
+        const historyEnd = cutPoint.isSplitTurn ? cutPoint.turnStartIndex : cutPoint.firstKeptEntryIndex;
+        if (historyEnd <= boundaryStart) {
           throw new Error("Conversation too short to compact");
         }
+
         const result = await this.inner.compact(command.customInstructions as string | undefined);
         return result;
       }
@@ -221,25 +240,14 @@ function getLocks(): Map<string, Promise<{ session: AgentSessionWrapper; realSes
   return globalThis.__piStartLocks;
 }
 
-function getAgentDir(): string {
-  const env = process.env.PI_CODING_AGENT_DIR;
-  if (env) {
-    if (env === "~") return homedir();
-    if (env.startsWith("~/")) return homedir() + env.slice(1);
-    return env;
-  }
-  return join(homedir(), ".pi", "agent");
-}
-
 export function getRpcSession(sessionId: string): AgentSessionWrapper | undefined {
   return getRegistry().get(sessionId);
 }
 
-
 /**
  * Get or create an AgentSession for the given session.
  * For new sessions (sessionFile === ""), pi generates its own id.
- * Pass toolNames to pre-configure active tools (empty array = off).
+ * Pass toolNames to pre-configure active tools (empty array = all tools disabled).
  */
 export async function startRpcSession(
   sessionId: string,
@@ -257,52 +265,47 @@ export async function startRpcSession(
   if (inflight) return inflight;
 
   const starting = (async () => {
+    const { SessionManager, codingTools, getAgentDir } = await import("@mariozechner/pi-coding-agent");
     const agentDir = getAgentDir();
 
-    const { SessionManager } = await import("@mariozechner/pi-coding-agent");
-    // Pass undefined for sessionDir so pi derives it from cwd (new) or file path (existing)
     const sessionManager = sessionFile
       ? SessionManager.open(sessionFile, undefined)
       : SessionManager.create(cwd, undefined);
 
-    // When tools are explicitly disabled, use a minimal system prompt
-    let resourceLoader: ResourceLoader | undefined;
-    if (toolNames !== undefined && toolNames.length === 0) {
-      const { DefaultResourceLoader } = await import("@mariozechner/pi-coding-agent");
-      const prompt = buildNoToolsSystemPrompt(cwd);
-      const loader = new DefaultResourceLoader({ cwd, agentDir, systemPromptOverride: () => prompt });
-      await loader.reload();
-      resourceLoader = loader as ResourceLoader;
-    }
-
-    // Build tools array from names when caller specifies toolNames
-    let toolsOption: unknown[] | undefined;
+    // Determine which tools to pass based on requested toolNames.
+    // createAgentSession uses tools[] to set initialActiveToolNames.
+    // Pass all coding tools (pi will activate only the ones matching toolNames).
+    // For "all off", pass empty array so initialActiveToolNames becomes [].
+    let toolsOption: typeof codingTools | [] | undefined;
     if (toolNames !== undefined) {
-      const { createReadTool, createBashTool, createEditTool, createWriteTool, createGrepTool, createFindTool, createLsTool } =
-        await import("@mariozechner/pi-coding-agent");
-      const toolFactories: Record<string, () => unknown> = {
-        read: () => createReadTool(cwd),
-        bash: () => createBashTool(cwd),
-        edit: () => createEditTool(cwd),
-        write: () => createWriteTool(cwd),
-        grep: () => createGrepTool(cwd),
-        find: () => createFindTool(cwd),
-        ls: () => createLsTool(cwd),
-      };
-      toolsOption = toolNames.map((n) => toolFactories[n]?.()).filter(Boolean);
+      toolsOption = toolNames.length === 0 ? [] : codingTools;
     }
 
     const { session: inner } = await createAgentSession({
       cwd,
       agentDir,
       sessionManager,
-      ...(resourceLoader ? { resourceLoader } : {}),
-      ...(toolsOption !== undefined ? { tools: toolsOption as never[] } : {}),
+      ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
     });
+
+    // If specific tool names were requested (non-empty), narrow active tools now
+    if (toolNames && toolNames.length > 0) {
+      inner.setActiveToolsByName(toolNames);
+    }
+
+    // When all tools are disabled, clear the system prompt entirely.
+    // pi's buildSystemPrompt always produces a non-empty prompt even with no tools;
+    // the only way to truly clear it is to call agent.setSystemPrompt directly.
+    if (toolNames?.length === 0) {
+      inner.agent.setSystemPrompt("");
+    }
+
     const wrapper = new AgentSessionWrapper(inner);
     wrapper.start();
 
     const realSessionId = inner.sessionId as string;
+    const realSessionFile = inner.sessionFile as string | undefined;
+    if (realSessionFile) cacheSessionPath(realSessionId, realSessionFile);
 
     wrapper.onDestroy(() => registry.delete(realSessionId));
     registry.set(realSessionId, wrapper);

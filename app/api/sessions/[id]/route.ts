@@ -1,14 +1,11 @@
 import { NextResponse } from "next/server";
-import { appendFileSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
-import { randomUUID } from "crypto";
+import { readdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
+import { SessionManager } from "@mariozechner/pi-coding-agent";
 import {
   resolveSessionPath,
   invalidateSessionPathCache,
-  getSessionEntries,
-  buildTree,
   buildSessionContext,
-  getLeafId,
   buildSessionInfo,
 } from "@/lib/session-reader";
 
@@ -18,14 +15,15 @@ export async function GET(
 ) {
   const { id } = await params;
   try {
-    const filePath = resolveSessionPath(id);
+    const filePath = await resolveSessionPath(id);
     if (!filePath) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const entries = getSessionEntries(filePath);
-    const tree = buildTree(entries);
-    const leafId = getLeafId(entries);
+    const sm = SessionManager.open(filePath);
+    const entries = sm.getEntries() as never;
+    const tree = sm.getTree();
+    const leafId = sm.getLeafId();
     const context = buildSessionContext(entries, leafId);
     const info = buildSessionInfo(filePath);
 
@@ -53,20 +51,12 @@ export async function PATCH(
     if (typeof name !== "string") {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
     }
-    const filePath = resolveSessionPath(id);
+    const filePath = await resolveSessionPath(id);
     if (!filePath) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
-    const entries = getSessionEntries(filePath);
-    const leafId = getLeafId(entries);
-    const entry = {
-      type: "session_info",
-      id: randomUUID(),
-      parentId: leafId,
-      timestamp: new Date().toISOString(),
-      name: name.trim(),
-    };
-    appendFileSync(filePath, JSON.stringify(entry) + "\n");
+    const sm = SessionManager.open(filePath);
+    sm.appendSessionInfo(name.trim());
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
@@ -80,7 +70,7 @@ export async function DELETE(
 ) {
   const { id } = await params;
   try {
-    const filePath = resolveSessionPath(id);
+    const filePath = await resolveSessionPath(id);
     if (!filePath) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }

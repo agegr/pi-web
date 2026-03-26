@@ -1,19 +1,9 @@
 import { NextResponse } from "next/server";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
-import { homedir } from "os";
+import { getAgentDir } from "@mariozechner/pi-coding-agent";
 
 export const dynamic = "force-dynamic";
-
-function getAgentDir(): string {
-  const env = process.env.PI_CODING_AGENT_DIR;
-  if (env) {
-    if (env === "~") return homedir();
-    if (env.startsWith("~/")) return homedir() + env.slice(1);
-    return env;
-  }
-  return join(homedir(), ".pi", "agent");
-}
 
 function getModelsPath(): string {
   return join(getAgentDir(), "models.json");
@@ -44,9 +34,7 @@ export async function PUT(req: Request) {
   try {
     const body = await req.json() as Record<string, unknown>;
     writeModelsJson(body);
-    // Invalidate model cache so next /api/models returns fresh data
-    const { invalidateModelCache } = await import("@/lib/session-reader");
-    invalidateModelCache();
+    // Model registry refreshes on each /api/models request (no local cache to invalidate)
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
