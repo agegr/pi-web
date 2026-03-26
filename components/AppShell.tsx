@@ -202,65 +202,34 @@ export function AppShell() {
   return (
     <>
     <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "var(--bg)" }}>
-      {/* Sidebar — inline on desktop (animated width) */}
+      {/* Mobile overlay backdrop — separate from sidebar so sidebar is only mounted once */}
       <div
-        className="sidebar-inline"
-        style={{
-          width: sidebarOpen ? 260 : 0,
-          minWidth: sidebarOpen ? 260 : 0,
-          borderRight: sidebarOpen ? "1px solid var(--border)" : "none",
-          background: "var(--bg-panel)",
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          transition: "width 0.2s ease, min-width 0.2s ease",
-        }}
-      >
-        <div style={{ width: 260, minWidth: 260, display: "flex", flexDirection: "column", height: "100%" }}>
-          {sidebarContent}
-        </div>
-      </div>
-
-      {/* Sidebar — overlay on mobile (animated slide + fade) */}
-      <div
-        className="sidebar-overlay"
+        className="sidebar-overlay-backdrop"
+        onClick={() => setSidebarOpen(false)}
         style={{
           position: "fixed",
           inset: 0,
-          zIndex: 200,
-          display: "none",
+          zIndex: 199,
+          background: "rgba(0,0,0,0.4)",
+          opacity: sidebarOpen ? 1 : 0,
           pointerEvents: sidebarOpen ? "auto" : "none",
+          transition: "opacity 0.25s ease",
+        }}
+      />
+
+      {/* Single sidebar — inline on desktop, overlay on mobile */}
+      <div
+        className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}`}
+        style={{
+          background: "var(--bg-panel)",
+          borderRight: "1px solid var(--border)",
+          display: "flex",
+          flexDirection: "column",
+          flexShrink: 0,
+          zIndex: 200,
         }}
       >
-        <div
-          onClick={() => setSidebarOpen(false)}
-          style={{
-            position: "absolute",
-            inset: 0,
-            background: "rgba(0,0,0,0.4)",
-            opacity: sidebarOpen ? 1 : 0,
-            transition: "opacity 0.25s ease",
-          }}
-        />
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            bottom: 0,
-            width: 280,
-            maxWidth: "85vw",
-            background: "var(--bg-panel)",
-            borderRight: "1px solid var(--border)",
-            display: "flex",
-            flexDirection: "column",
-            boxShadow: sidebarOpen ? "4px 0 20px rgba(0,0,0,0.15)" : "none",
-            transform: sidebarOpen ? "translateX(0)" : "translateX(-100%)",
-            transition: "transform 0.25s ease",
-          }}
-        >
-          {sidebarContent}
-        </div>
+        {sidebarContent}
       </div>
 
       {/* Main content */}
