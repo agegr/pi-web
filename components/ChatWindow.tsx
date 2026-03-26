@@ -80,7 +80,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   // For new sessions, allow pre-selecting a model before the first message is sent
   const [newSessionModel, setNewSessionModel] = useState<{ provider: string; modelId: string } | null>(null);
   const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("default");
-  const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number } | null>(null);
+  const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -89,6 +89,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const eventSourceRef = useRef<EventSource | null>(null);
   // Always holds the current real session id once known
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
+  // Ref mirror of agentRunning for use in stable closures (e.g. SSE onerror)
+  const agentRunningRef = useRef(false);
 
   const initialScrollDoneRef = useRef(false);
   // When true, suppress auto-scroll (viewport is locked during streaming)
@@ -183,7 +185,16 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         // ignore
       }
     };
-    es.onerror = () => { /* silent */ };
+    es.onerror = () => {
+      // Reconnect if agent is still running (e.g. after server timeout)
+      if (eventSourceRef.current === es && agentRunningRef.current) {
+        es.close();
+        eventSourceRef.current = null;
+        setTimeout(() => {
+          if (agentRunningRef.current) connectEvents(sid);
+        }, 1000);
+      }
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAgentEvent = useCallback((event: AgentEvent) => {
@@ -225,7 +236,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         break;
       }
       case "auto_retry_start":
-        setRetryInfo({ attempt: event.attempt as number, maxAttempts: event.maxAttempts as number });
+        setRetryInfo({ attempt: event.attempt as number, maxAttempts: event.maxAttempts as number, errorMessage: event.errorMessage as string | undefined });
         break;
       case "auto_retry_end":
         setRetryInfo(null);
@@ -294,6 +305,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    agentRunningRef.current = agentRunning;
+  }, [agentRunning]);
 
   useEffect(() => {
     if (messages.length > 0) {

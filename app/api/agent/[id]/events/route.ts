@@ -40,8 +40,18 @@ export async function GET(
         encode(event);
       });
 
+      // Heartbeat every 30s to prevent server/proxy timeout (Next.js default ~120-150s)
+      const heartbeat = setInterval(() => {
+        try {
+          controller.enqueue(new TextEncoder().encode(":\n\n"));
+        } catch {
+          // controller already closed
+        }
+      }, 30_000);
+
       // Cleanup when client disconnects
       const cleanup = () => {
+        clearInterval(heartbeat);
         unsubscribe();
         controller.close();
       };
