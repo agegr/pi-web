@@ -374,10 +374,11 @@ function TextBlock({ block }: { block: TextContent }) {
         remarkPlugins={[remarkGfm]}
         components={{
           code({ className, children, ...props }) {
-            const isBlock = className?.includes("language-");
             const lang = className?.replace("language-", "") ?? "";
+            const raw = String(children);
+            const isBlock = className?.includes("language-") || raw.includes("\n");
             if (isBlock) {
-              return <CodeBlock code={String(children).replace(/\n$/, "")} lang={lang} />;
+              return <CodeBlock code={raw.replace(/\n$/, "")} lang={lang} />;
             }
             return (
               <code
@@ -680,34 +681,32 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
         border: "1px solid var(--border)",
       }}
     >
-      {lang && (
-        <div
+      <div
+        style={{
+          padding: "3px 10px",
+          background: "var(--bg-panel)",
+          borderBottom: "1px solid var(--border)",
+          fontSize: 11,
+          color: "var(--text-dim)",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <span>{lang}</span>
+        <button
+          onClick={copy}
           style={{
-            padding: "3px 10px",
-            background: "var(--bg-panel)",
-            borderBottom: "1px solid var(--border)",
+            background: "none",
+            border: "none",
+            color: "var(--text-muted)",
+            cursor: "pointer",
             fontSize: 11,
-            color: "var(--text-dim)",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
           }}
         >
-          <span>{lang}</span>
-          <button
-            onClick={copy}
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              fontSize: 11,
-            }}
-          >
-            {copied ? "copied" : "copy"}
-          </button>
-        </div>
-      )}
+          {copied ? "copied" : "copy"}
+        </button>
+      </div>
       <pre
         style={{
           margin: 0,

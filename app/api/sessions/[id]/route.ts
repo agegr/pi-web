@@ -118,6 +118,7 @@ export async function DELETE(
       }
     } catch { /* skip if dir unreadable */ }
 
+    getRpcSession(id)?.destroy();
     unlinkSync(filePath);
     invalidateSessionPathCache(id);
     return NextResponse.json({ ok: true });
