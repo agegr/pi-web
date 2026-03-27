@@ -305,7 +305,7 @@ function AssistantMessageView({
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {blocks.map((block, i) => (
-          <BlockView key={i} block={block} toolResults={toolResults} />
+          <BlockView key={i} block={block} toolResults={toolResults} isStreaming={isStreaming} />
         ))}
       </div>
 
@@ -355,7 +355,7 @@ function AssistantMessageView({
   );
 }
 
-function BlockView({ block, toolResults }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage> }) {
+function BlockView({ block, toolResults, isStreaming }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean }) {
   if (block.type === "text") {
     return <TextBlock block={block as TextContent} />;
   }
@@ -364,7 +364,7 @@ function BlockView({ block, toolResults }: { block: AssistantContentBlock; toolR
   }
   if (block.type === "toolCall") {
     const result = toolResults?.get((block as ToolCallContent).toolCallId);
-    return <ToolCallBlock block={block as ToolCallContent} result={result} />;
+    return <ToolCallBlock block={block as ToolCallContent} result={result} isRunning={isStreaming && !result} />;
   }
   return null;
 }
@@ -458,7 +458,7 @@ function ThinkingBlock({ block }: { block: ThinkingContent }) {
   );
 }
 
-function ToolCallBlock({ block, result }: { block: ToolCallContent; result?: ToolResultMessage }) {
+function ToolCallBlock({ block, result, isRunning }: { block: ToolCallContent; result?: ToolResultMessage; isRunning?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const inputStr = JSON.stringify(block.input, null, 2);
 
@@ -498,10 +498,16 @@ function ToolCallBlock({ block, result }: { block: ToolCallContent; result?: Too
           minWidth: 0,
         }}
       >
-        <svg width="11" height="11" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0, color: "#16a34a" }}>
-          <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.4" />
-          <polygon points="4.5,3.5 9,6 4.5,8.5" fill="currentColor" />
-        </svg>
+        {isRunning ? (
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0, color: "#16a34a", animation: "spin 1s linear infinite" }}>
+            <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.4" strokeDasharray="14 8" strokeLinecap="round" />
+          </svg>
+        ) : (
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0, color: "#16a34a" }}>
+            <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.4" />
+            <polygon points="4.5,3.5 9,6 4.5,8.5" fill="currentColor" />
+          </svg>
+        )}
         <span style={{ color: "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
           {block.toolName}
         </span>
