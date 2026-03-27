@@ -46,7 +46,7 @@ html, body {
 }
 
 :root {
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, monospace;
+  --font-mono: var(--font-noto-mono), 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, 'PingFang SC', 'Microsoft YaHei', monospace;
 }
 
 pre, code {
@@ -96,6 +96,13 @@ pre, code {
 }
 .markdown-body th { background: var(--bg-panel); font-weight: 600; }
 .markdown-body hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
+
+/* syntax highlighter line numbers */
+.markdown-body span.linenumber,
+span.linenumber {
+  color: var(--text-dim) !important;
+  font-style: normal !important;
+}
 
 @keyframes blink {
   0%, 100% { opacity: 1; }

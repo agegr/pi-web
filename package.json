@@ -1,6 +1,6 @@
 {
   "name": "@agegr/pi-web",
-  "version": "0.3.10",
+  "version": "0.3.11",
   "description": "Web UI for the pi coding agent",
   "bin": {
     "pi-web": "bin/pi-web.js"
@@ -23,11 +23,13 @@
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
   },
   "dependencies": {
-    "@mariozechner/pi-coding-agent": "^0.62.0",
+    "@mariozechner/pi-coding-agent": "^0.63.1",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "next": "16.2.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^16.1.1",
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {

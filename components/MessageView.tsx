@@ -3,6 +3,8 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import type {
   AgentMessage,
   UserMessage,
@@ -707,19 +709,23 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
           {copied ? "copied" : "copy"}
         </button>
       </div>
-      <pre
-        style={{
+      <SyntaxHighlighter
+        language={lang || "text"}
+        style={vs}
+        showLineNumbers
+        lineNumberStyle={{ color: "var(--text-dim)", fontStyle: "normal" }}
+        customStyle={{
           margin: 0,
           padding: "10px 12px",
-          background: "var(--bg)",
           fontSize: 12.5,
           lineHeight: 1.6,
-          overflowX: "auto",
-          color: "var(--text)",
+          borderRadius: 0,
+          background: "var(--bg)",
         }}
+        codeTagProps={{ style: { fontFamily: "var(--font-mono)" } }}
       >
-        <code>{code}</code>
-      </pre>
+        {code}
+      </SyntaxHighlighter>
     </div>
   );
 }

@@ -1,5 +1,12 @@
 import type { Metadata } from "next";
+import { Noto_Sans_Mono } from "next/font/google";
 import "./globals.css";
+
+const notoSansMono = Noto_Sans_Mono({
+  subsets: ["latin", "cyrillic"],
+  variable: "--font-noto-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Pi Agent Web",
@@ -12,7 +19,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" className={notoSansMono.variable}>
       <body style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
         {children}
       </body>
