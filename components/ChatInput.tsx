@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState, useCallback, useEffect, KeyboardEvent } from "react";
+import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 
 interface ModelOption {
   provider: string;
@@ -29,6 +29,10 @@ interface Props {
   contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
 }
 
+export interface ChatInputHandle {
+  insertText: (text: string) => void;
+}
+
 function fmtTokens(n: number): string {
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
   if (n >= 1000) return `${(n / 1000).toFixed(0)}k`;
@@ -38,15 +42,40 @@ function fmtTokens(n: number): string {
 const TOOL_PRESETS = ["off", "default", "full"] as const;
 const TOOL_PRESET_MAP: Record<"off" | "default" | "full", "none" | "default" | "full"> = { off: "none", default: "default", full: "full" };
 
-export function ChatInput({
+export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, modelNames, modelList, onModelChange,
   onCompact, onAbortCompaction, isCompacting, compactError, toolPreset, onToolPresetChange, sessionStats, retryInfo, contextUsage,
-}: Props) {
+}: Props, ref) {
   const [value, setValue] = useState("");
   const [queueMode, setQueueMode] = useState<"steer" | "followup">("steer");
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    insertText(text: string) {
+      const ta = textareaRef.current;
+      if (!ta) {
+        setValue((v) => v + (v ? " " : "") + text);
+        return;
+      }
+      const start = ta.selectionStart ?? ta.value.length;
+      const end = ta.selectionEnd ?? ta.value.length;
+      const before = ta.value.slice(0, start);
+      const after = ta.value.slice(end);
+      const sep = before.length > 0 && !before.endsWith(" ") ? " " : "";
+      const newVal = before + sep + text + after;
+      setValue(newVal);
+      requestAnimationFrame(() => {
+        if (!ta) return;
+        const pos = start + sep.length + text.length;
+        ta.setSelectionRange(pos, pos);
+        ta.focus();
+        ta.style.height = "auto";
+        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      });
+    },
+  }));
 
   const handleSend = useCallback(() => {
     const msg = value.trim();
@@ -570,4 +599,4 @@ export function ChatInput({
       </div>
     </div>
   );
-}
+});

@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback, useReducer, useMemo } from "r
 import type { SessionInfo, SessionTreeNode, AgentMessage } from "@/lib/types";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { MessageView } from "./MessageView";
-import { ChatInput } from "./ChatInput";
+import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { BranchNavigator } from "./BranchNavigator";
 import { type ToolEntry } from "./ToolPanel";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
@@ -59,9 +59,10 @@ interface Props {
   onSessionCreated?: (session: SessionInfo) => void;
   onSessionForked?: (newSessionId: string) => void;
   modelsRefreshKey?: number;
+  chatInputRef?: React.RefObject<ChatInputHandle | null>;
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey }: Props) {
+export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef }: Props) {
   const isNew = session === null && newSessionCwd !== null;
 
   const [data, setData] = useState<SessionData | null>(null);
@@ -701,6 +702,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
       <div style={{ position: "relative" }}>
         <ChatInput
+          ref={chatInputRef}
           onSend={handleSend}
           onAbort={handleAbort}
           onSteer={agentRunning ? handleSteer : undefined}

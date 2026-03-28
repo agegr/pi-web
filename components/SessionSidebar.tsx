@@ -16,6 +16,7 @@ interface Props {
   onCwdChange?: (cwd: string | null) => void;
   onOpenFile?: (filePath: string, fileName: string) => void;
   explorerRefreshKey?: number;
+  onAtMention?: (relativePath: string) => void;
 }
 
 function formatRelativeTime(dateStr: string): string {
@@ -195,7 +196,7 @@ function PiAgentTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention }: Props) {
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -718,6 +719,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 cwd={selectedCwdProp ?? selectedCwd!}
                 onOpenFile={onOpenFile ?? (() => {})}
                 refreshKey={explorerKey}
+                onAtMention={onAtMention}
               />
             </div>
           )}

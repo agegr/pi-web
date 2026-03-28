@@ -9,6 +9,7 @@ import { TabBar, type Tab } from "./TabBar";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import type { SessionInfo } from "@/lib/types";
+import type { ChatInputHandle } from "./ChatInput";
 
 const CHAT_TAB: Tab = { id: "chat", type: "chat", label: "Chat" };
 
@@ -25,6 +26,11 @@ export function AppShell() {
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const chatInputRef = useRef<ChatInputHandle | null>(null);
+
+  const handleAtMention = useCallback((relativePath: string) => {
+    chatInputRef.current?.insertText("@" + relativePath);
+  }, []);
 
   const [initialSessionId] = useState<string | null>(() => searchParams.get("session"));
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
@@ -146,6 +152,7 @@ export function AppShell() {
         onCwdChange={handleCwdChange}
         onOpenFile={handleOpenFile}
         explorerRefreshKey={explorerRefreshKey}
+        onAtMention={handleAtMention}
       />
       <div style={{ padding: "6px 10px", flexShrink: 0, display: "flex", justifyContent: "space-between" }}>
         {([
@@ -293,6 +300,7 @@ export function AppShell() {
                 onSessionCreated={handleSessionCreated}
                 onSessionForked={handleSessionForked}
                 modelsRefreshKey={modelsRefreshKey}
+                chatInputRef={chatInputRef}
               />
             ) : showPlaceholder ? (
               <div

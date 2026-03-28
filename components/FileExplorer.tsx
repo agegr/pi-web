@@ -23,6 +23,7 @@ interface Props {
   cwd: string;
   onOpenFile: (filePath: string, fileName: string) => void;
   refreshKey?: number;
+  onAtMention?: (relativePath: string) => void;
 }
 
 
@@ -30,11 +31,15 @@ interface Props {
 function TreeNode({
   node,
   depth,
+  cwd,
   onOpenFile,
+  onAtMention,
 }: {
   node: FileNode;
   depth: number;
+  cwd: string;
   onOpenFile: (filePath: string, fileName: string) => void;
+  onAtMention?: (relativePath: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [children, setChildren] = useState<FileNode[]>(node.children ?? []);
@@ -84,6 +89,7 @@ function TreeNode({
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         style={{
+          position: "relative",
           display: "flex",
           alignItems: "center",
           gap: 4,
@@ -127,11 +133,50 @@ function TreeNode({
             <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4" />
           </svg>
         )}
+        {onAtMention && hovered && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              const base = cwd.replace(/\/$/, "");
+              const rel = node.fullPath.startsWith(base + "/")
+                ? node.fullPath.slice(base.length + 1)
+                : node.fullPath;
+              onAtMention(rel);
+            }}
+            title="Insert path into chat"
+            style={{
+              position: "absolute",
+              right: 4,
+              top: "50%",
+              transform: "translateY(-50%)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 4,
+              padding: "0 8px",
+              height: 20,
+              background: "var(--bg-panel)",
+              border: "1px solid var(--border)",
+              borderRadius: 4,
+              color: "var(--accent)",
+              cursor: "pointer",
+              fontSize: 11,
+              fontWeight: 600,
+              whiteSpace: "nowrap",
+            }}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
+            </svg>
+            mention
+          </button>
+        )}
       </div>
       {node.isDir && open && (
         <div>
           {children.map((child) => (
-            <TreeNode key={child.fullPath} node={child} depth={depth + 1} onOpenFile={onOpenFile} />
+            <TreeNode key={child.fullPath} node={child} depth={depth + 1} cwd={cwd} onOpenFile={onOpenFile} onAtMention={onAtMention} />
           ))}
           {children.length === 0 && loaded && (
             <div style={{ paddingLeft: 8 + (depth + 1) * 14, fontSize: 11, color: "var(--text-dim)", height: 22, display: "flex", alignItems: "center" }}>
@@ -144,7 +189,7 @@ function TreeNode({
   );
 }
 
-export function FileExplorer({ cwd, onOpenFile, refreshKey }: Props) {
+export function FileExplorer({ cwd, onOpenFile, refreshKey, onAtMention }: Props) {
   const [roots, setRoots] = useState<FileNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -199,7 +244,7 @@ export function FileExplorer({ cwd, onOpenFile, refreshKey }: Props) {
   return (
     <div style={{ padding: "2px 4px" }}>
       {roots.map((node) => (
-        <TreeNode key={`${treeKey}:${node.fullPath}`} node={node} depth={0} onOpenFile={onOpenFile} />
+        <TreeNode key={`${treeKey}:${node.fullPath}`} node={node} depth={0} cwd={cwd} onOpenFile={onOpenFile} onAtMention={onAtMention} />
       ))}
       {roots.length === 0 && (
         <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>
