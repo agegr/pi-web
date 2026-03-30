@@ -9,7 +9,7 @@ export async function GET() {
 
   try {
     const authStorage = AuthStorage.create();
-    const registry = new ModelRegistry(authStorage);
+    const registry = ModelRegistry.create(authStorage);
     const available = registry.getAvailable();
     modelList = available.map((m: { id: string; name: string; provider: string }) => ({
       id: m.id,
