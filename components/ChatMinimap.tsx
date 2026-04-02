@@ -104,10 +104,11 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
     for (let i = 0; i < allMessages.length; i++) {
       const msg = allMessages[i];
       if (msg.role !== "user" && msg.role !== "assistant") continue;
-      if (!hasTextContent(msg)) continue;
 
       const el = refs?.[refIndex];
       refIndex++;
+
+      if (!hasTextContent(msg)) continue;
 
       if (el && totalH > 0) {
         const elRect = el.getBoundingClientRect();
