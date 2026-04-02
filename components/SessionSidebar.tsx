@@ -418,13 +418,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               display: "flex",
               alignItems: "center",
               padding: "6px 10px",
-              background: "var(--bg-hover)",
-              border: "1px solid var(--border)",
+              background: selectedCwd ? "var(--bg-hover)" : "rgba(37,99,235,0.06)",
+              border: selectedCwd ? "1px solid var(--border)" : "1px solid rgba(37,99,235,0.4)",
               borderRadius: 7,
               cursor: "pointer",
               fontSize: 12,
               color: "var(--text)",
               textAlign: "left",
+              transition: "border-color 0.15s, background 0.15s",
             }}
           >
             <span

@@ -41,6 +41,18 @@ async function getAllowedRoots(): Promise<Set<string>> {
   for (const s of sessions) {
     if (s.cwd) roots.add(s.cwd);
   }
+  // Also allow ~/pi-cwd-* directories created by the default-cwd endpoint
+  const home = (await import("os")).homedir();
+  const { readdirSync } = await import("fs");
+  try {
+    for (const name of readdirSync(home)) {
+      if (/^pi-cwd-\d{8}$/.test(name)) {
+        roots.add(path.join(home, name));
+      }
+    }
+  } catch {
+    // ignore if home is unreadable
+  }
   return roots;
 }
 
