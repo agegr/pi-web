@@ -525,6 +525,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const handleSteer = useCallback(async (message: string) => {
     const sid = sessionIdRef.current;
     if (!sid) return;
+    setMessages((prev) => [...prev, { role: "user", content: `[steer] ${message}`, timestamp: Date.now() } as AgentMessage]);
     try {
       await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
         method: "POST",
@@ -539,6 +540,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const handleFollowUp = useCallback(async (message: string) => {
     const sid = sessionIdRef.current;
     if (!sid) return;
+    setMessages((prev) => [...prev, { role: "user", content: message, timestamp: Date.now() } as AgentMessage]);
     try {
       await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
         method: "POST",
@@ -661,6 +663,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                   forking={forkingEntryId === entryIds[idx]}
                   onNavigate={agentRunning ? undefined : handleNavigate}
                   prevAssistantEntryId={agentRunning ? undefined : prevAssistantEntryId}
+                  onEditContent={(content) => chatInputRef?.current?.insertIfEmpty(content)}
                 />
               );
               if (!isVisible) return view;

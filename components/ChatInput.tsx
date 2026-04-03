@@ -31,6 +31,7 @@ interface Props {
 
 export interface ChatInputHandle {
   insertText: (text: string) => void;
+  insertIfEmpty: (text: string) => void;
 }
 
 function fmtTokens(n: number): string {
@@ -53,6 +54,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useImperativeHandle(ref, () => ({
+    insertIfEmpty(text: string) {
+      const ta = textareaRef.current;
+      const current = ta ? ta.value : value;
+      if (current.trim()) return;
+      setValue(text);
+      requestAnimationFrame(() => {
+        if (!ta) return;
+        ta.focus();
+        ta.style.height = "auto";
+        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      });
+    },
     insertText(text: string) {
       const ta = textareaRef.current;
       if (!ta) {
