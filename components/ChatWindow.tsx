@@ -92,6 +92,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
   // Ref mirror of agentRunning for use in stable closures (e.g. SSE onerror)
   const agentRunningRef = useRef(false);
+  const handleAgentEventRef = useRef<((event: AgentEvent) => void) | null>(null);
 
   const initialScrollDoneRef = useRef(false);
   // When true, suppress auto-scroll (viewport is locked during streaming)
@@ -219,7 +220,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     es.onmessage = (e) => {
       try {
         const event = JSON.parse(e.data) as AgentEvent;
-        handleAgentEvent(event);
+        handleAgentEventRef.current?.(event);
       } catch {
         // ignore
       }
@@ -295,6 +296,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         break;
     }
   }, [loadSession, onAgentEnd]);
+  handleAgentEventRef.current = handleAgentEvent;
 
   // Fetch model list — re-runs whenever modelsRefreshKey changes (e.g. after ModelsConfig save/OAuth login)
   useEffect(() => {

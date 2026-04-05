@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -289,6 +289,10 @@ function AssistantMessageView({
   const blocks = message.content ?? [];
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
+  const streamStartRef = useRef<number | null>(null);
+  const [tps, setTps] = useState<number | null>(null);
+  const blocksRef = useRef(blocks);
+  blocksRef.current = blocks;
 
   const textContent = blocks
     .filter((b): b is TextContent => b.type === "text")
@@ -301,6 +305,28 @@ function AssistantMessageView({
       setTimeout(() => setCopied(false), 1500);
     });
   };
+
+  useEffect(() => {
+    if (!isStreaming) {
+      streamStartRef.current = null;
+      setTps(null);
+      return;
+    }
+    const tick = () => {
+      let chars = 0;
+      for (const b of blocksRef.current) {
+        if (b.type === "text") chars += (b as TextContent).text?.length ?? 0;
+        else if (b.type === "thinking") chars += (b as ThinkingContent).thinking?.length ?? 0;
+        else if (b.type === "toolCall") chars += JSON.stringify((b as ToolCallContent).input ?? {}).length;
+      }
+      if (chars === 0) return;
+      if (streamStartRef.current === null) streamStartRef.current = Date.now();
+      const elapsed = (Date.now() - streamStartRef.current) / 1000;
+      if (elapsed > 0.5) setTps(chars / 4 / elapsed);
+    };
+    const id = setInterval(tick, 300);
+    return () => clearInterval(id);
+  }, [isStreaming]);
 
   return (
     <div
@@ -322,18 +348,38 @@ function AssistantMessageView({
         {message.provider && (
           <span>{modelNames?.[`${message.provider}:${message.model}`] ?? modelNames?.[message.model] ?? message.model}</span>
         )}
-        {isStreaming && (
-          <span
-            style={{
-              display: "inline-block",
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              background: "var(--accent)",
-              animation: "blink 1s infinite",
-            }}
-          />
-        )}
+        {isStreaming && (() => {
+          let chars = 0;
+          for (const b of blocks) {
+            if (b.type === "text") chars += (b as TextContent).text?.length ?? 0;
+            else if (b.type === "thinking") chars += (b as ThinkingContent).thinking?.length ?? 0;
+            else if (b.type === "toolCall") chars += JSON.stringify((b as ToolCallContent).input ?? {}).length;
+          }
+          const est = Math.round(chars / 4);
+          return (
+            <>
+
+              {est > 0 && (
+                <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text)" }} title="预估 token 数（流式接收中）">
+                  <span style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 11, fontWeight: 400 }}>
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
+                    </svg>
+                    {est}
+                  </span>
+                  {tps !== null && (() => {
+                    const bg = tps >= 50 ? "#53b3cb" : tps >= 30 ? "#9bc53d" : tps >= 15 ? "#f9c22e" : "#e01a4f";
+                    return (
+                      <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, background: bg, color: "#fff", fontSize: 11, fontWeight: 400 }}>
+                        {tps.toFixed(1)} t/s
+                      </span>
+                    );
+                  })()}
+                </span>
+              )}
+            </>
+          );
+        })()}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -532,7 +578,7 @@ function ToolCallBlock({ block, result, isRunning }: { block: ToolCallContent; r
         }}
       >
         {isRunning ? (
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0, color: "#16a34a", animation: "spin 1s linear infinite" }}>
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0, color: "#16a34a" }}>
             <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.4" strokeDasharray="14 8" strokeLinecap="round" />
           </svg>
         ) : (

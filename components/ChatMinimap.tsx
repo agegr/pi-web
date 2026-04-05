@@ -78,8 +78,11 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
     () => (streamingMessage ? [...messages, streamingMessage] : messages) as (AgentMessage | Partial<AgentMessage>)[],
     [messages, streamingMessage]
   );
+  const allMessagesRef = useRef(allMessages);
+  allMessagesRef.current = allMessages;
 
-  const updatePositions = useCallback(() => {
+  const updatePositionsRef = useRef<() => void>(null!);
+  updatePositionsRef.current = () => {
     const scrollEl = scrollContainer.current;
     if (!scrollEl) return;
 
@@ -101,6 +104,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
     const newNodes: NodeInfo[] = [];
     let refIndex = 0;
 
+    const allMessages = allMessagesRef.current;
     for (let i = 0; i < allMessages.length; i++) {
       const msg = allMessages[i];
       if (msg.role !== "user" && msg.role !== "assistant") continue;
@@ -124,7 +128,9 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
       }
     }
     setNodes(newNodes);
-  }, [scrollContainer, messageRefs, allMessages]);
+  };
+
+  const updatePositions = useCallback(() => updatePositionsRef.current(), []);
 
   useEffect(() => {
     const el = scrollContainer.current;
@@ -141,11 +147,11 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
     };
   }, [scrollContainer, updatePositions]);
 
-  // Re-measure when messages change (new messages arrive)
+  // Re-measure when message count changes (new messages arrive)
   useEffect(() => {
     const t = setTimeout(updatePositions, 50);
     return () => clearTimeout(t);
-  }, [messages.length, streamingMessage, updatePositions]);
+  }, [messages.length, updatePositions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const scrollToMinimapRatio = useCallback((viewportTopRatio: number) => {
     const el = scrollContainer.current;
