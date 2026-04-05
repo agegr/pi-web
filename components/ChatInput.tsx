@@ -38,6 +38,7 @@ interface Props {
 export interface ChatInputHandle {
   insertText: (text: string) => void;
   insertIfEmpty: (text: string) => void;
+  addImages: (files: File[]) => void;
 }
 
 function fmtTokens(n: number): string {
@@ -57,7 +58,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [queueMode, setQueueMode] = useState<"steer" | "followup">("steer");
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
-  const [isDragOver, setIsDragOver] = useState(false);
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -96,6 +97,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
+    },
+    addImages(files: File[]) {
+      processImageFiles(files);
     },
   }));
 
@@ -192,24 +196,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     processImageFiles(files);
   }, [processImageFiles]);
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    const hasImages = Array.from(e.dataTransfer.items).some((item) => item.type.startsWith("image/"));
-    if (!hasImages) return;
-    e.preventDefault();
-    setIsDragOver(true);
-  }, []);
 
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
-    setIsDragOver(false);
-  }, []);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    const files = Array.from(e.dataTransfer.files);
-    processImageFiles(files);
-  }, [processImageFiles]);
 
   // Build model options: prefer modelList (has provider info), fallback to modelNames
   const modelOptions: ModelOption[] = (() => {
@@ -257,9 +244,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         padding: "10px 16px 12px",
         paddingRight: 52, // 16px base + 36px for ChatMinimap alignment
       }}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
     >
       {/* Hidden file input */}
       <input
@@ -326,12 +310,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             display: "flex",
             gap: 8,
             alignItems: "center",
-            background: isDragOver ? "rgba(37,99,235,0.04)" : "var(--bg)",
-            border: `1px solid ${isDragOver
-              ? "rgba(37,99,235,0.6)"
-              : isStreaming && (onSteer || onFollowUp)
-                ? (queueMode === "steer" ? "rgba(234,179,8,0.4)" : "rgba(99,102,241,0.4)")
-                : "var(--border)"}`,
+            background: "var(--bg)",
+            border: `1px solid ${isStreaming && (onSteer || onFollowUp)
+              ? (queueMode === "steer" ? "rgba(234,179,8,0.4)" : "rgba(99,102,241,0.4)")
+              : "var(--border)"}`,
             borderRadius: 8,
             padding: "8px 8px 8px 12px",
             transition: "border-color 0.15s, background 0.15s",
@@ -345,8 +327,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             onInput={handleInput}
             onPaste={handlePaste}
             placeholder={
-              isDragOver ? "Drop image here…"
-              : isStreaming && (onSteer || onFollowUp)
+              isStreaming && (onSteer || onFollowUp)
                 ? (queueMode === "steer" ? "Inject guidance mid-run…" : "Queue a message for after agent finishes…")
                 : isStreaming ? "Agent is running…"
                 : "Message…"

@@ -101,6 +101,39 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   // Set to true after send so the post-render effect scrolls the user msg to top
   const pendingScrollToUserRef = useRef(false);
 
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dragCounterRef = useRef(0);
+
+  const handleWindowDragEnter = useCallback((e: React.DragEvent) => {
+    const hasImages = Array.from(e.dataTransfer.items).some((item) => item.type.startsWith("image/"));
+    if (!hasImages) return;
+    e.preventDefault();
+    dragCounterRef.current += 1;
+    setIsDragOver(true);
+  }, []);
+
+  const handleWindowDragOver = useCallback((e: React.DragEvent) => {
+    const hasImages = Array.from(e.dataTransfer.items).some((item) => item.type.startsWith("image/"));
+    if (!hasImages) return;
+    e.preventDefault();
+  }, []);
+
+  const handleWindowDragLeave = useCallback((e: React.DragEvent) => {
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragOver(false);
+    }
+  }, []);
+
+  const handleWindowDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDragOver(false);
+    const files = Array.from(e.dataTransfer.files);
+    chatInputRef?.current?.addImages(files);
+  }, [chatInputRef]);
+
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     messagesEndRef.current?.scrollIntoView({ behavior });
   }, []);
@@ -627,7 +660,64 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+    <div
+      style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", position: "relative" }}
+      onDragEnter={handleWindowDragEnter}
+      onDragOver={handleWindowDragOver}
+      onDragLeave={handleWindowDragLeave}
+      onDrop={handleWindowDrop}
+    >
+      {isDragOver && (
+        <div style={{
+          position: "absolute", inset: 0, zIndex: 50,
+          background: "rgba(37,99,235,0.06)",
+          backdropFilter: "blur(1px)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          pointerEvents: "none",
+          animation: "drop-zone-in 0.15s ease both",
+        }}>
+          {/* ripple rings emanating from centre */}
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+            {[0, 0.8, 1.6].map((delay) => (
+              <div key={delay} style={{
+                position: "absolute",
+                width: 720, height: 720,
+                borderRadius: "50%",
+                border: "1.5px solid rgba(37,99,235,0.5)",
+                animation: `drop-ripple 2.4s ease-out ${delay}s infinite backwards`,
+                transformOrigin: "center",
+              }} />
+            ))}
+          </div>
+          {/* centre SVG — 2× size, no card/border wrapper */}
+          <svg
+            width="280" height="280" viewBox="0 0 140 140" fill="none" xmlns="http://www.w3.org/2000/svg"
+            style={{ filter: "drop-shadow(0 6px 18px rgba(37,99,235,0.18))" }}
+          >
+
+            {/* photo frame */}
+            <rect x="28" y="44" width="84" height="60" rx="8" fill="rgba(37,99,235,0.08)" stroke="rgba(37,99,235,0.50)" strokeWidth="1.8"/>
+
+            {/* mountain silhouette */}
+            <path d="M36 100 L54 72 L68 88 L80 74 L104 100Z" fill="rgba(37,99,235,0.16)" stroke="rgba(37,99,235,0.40)" strokeWidth="1.4" strokeLinejoin="round"/>
+
+            {/* sun */}
+            <circle cx="96" cy="58" r="8" fill="rgba(37,99,235,0.22)" stroke="rgba(37,99,235,0.55)" strokeWidth="1.6"/>
+
+            {/* sun rays */}
+            <g stroke="rgba(37,99,235,0.45)" strokeWidth="1.4" strokeLinecap="round">
+              <line x1="96" y1="46" x2="96" y2="43"/>
+              <line x1="96" y1="70" x2="96" y2="73"/>
+              <line x1="84" y1="58" x2="81" y2="58"/>
+              <line x1="108" y1="58" x2="111" y2="58"/>
+              <line x1="87.5" y1="49.5" x2="85.4" y2="47.4"/>
+              <line x1="104.5" y1="66.5" x2="106.6" y2="68.6"/>
+              <line x1="104.5" y1="49.5" x2="106.6" y2="47.4"/>
+              <line x1="87.5" y1="66.5" x2="85.4" y2="68.6"/>
+            </g>
+          </svg>
+        </div>
+      )}
       {data && data.tree.length > 0 && (
         <BranchNavigator
           tree={data.tree}

@@ -104,6 +104,26 @@ span.linenumber {
   font-style: normal !important;
 }
 
+@keyframes drop-zone-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes drop-icon-float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-6px); }
+}
+
+@keyframes drop-ring-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50%       { opacity: 1;   transform: scale(1.06); }
+}
+
+@keyframes drop-ripple {
+  0%   { transform: scale(0); opacity: 0.6; }
+  100% { transform: scale(1); opacity: 0; }
+}
+
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
