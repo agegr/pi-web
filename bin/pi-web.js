@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 "use strict";
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { spawn } = require("child_process");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require("path");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const fs = require("fs");
 
 const pkgDir = path.join(__dirname, "..");

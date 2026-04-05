@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback, useReducer, useMemo } from "r
 import type { SessionInfo, SessionTreeNode, AgentMessage } from "@/lib/types";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { MessageView } from "./MessageView";
-import { ChatInput, type ChatInputHandle } from "./ChatInput";
+import { ChatInput, type ChatInputHandle, type AttachedImage } from "./ChatInput";
 import { BranchNavigator } from "./BranchNavigator";
 import { type ToolEntry } from "./ToolPanel";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
@@ -279,7 +279,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         }
       }
     }).catch(() => {});
-  }, [isNew, modelsRefreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isNew, modelsRefreshKey]);
 
   // On mount: load existing session, or show empty chat for new session
   useEffect(() => {
@@ -327,7 +327,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         scrollToBottom("smooth");
       }
     }
-  }, [messages.length, scrollToBottom, scrollUserMsgToTop]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [messages.length, scrollToBottom, scrollUserMsgToTop]);
 
   const handleLeafChange = useCallback(async (leafId: string | null) => {
     setActiveLeafId(leafId);
@@ -345,12 +345,16 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     }
   }, [loadContext]);
 
-  const handleSend = useCallback(async (message: string) => {
-    if (!message.trim() || agentRunning) return;
+  const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
+    if (!message.trim() && !images?.length) return;
+    if (agentRunning) return;
 
+    const imageBlocks = images?.map((img) => ({ type: "image" as const, source: { type: "base64" as const, media_type: img.mimeType, data: img.data } }));
     const userMsg: AgentMessage = {
       role: "user",
-      content: message,
+      content: imageBlocks?.length
+        ? [...(message.trim() ? [{ type: "text" as const, text: message }] : []), ...imageBlocks]
+        : message,
       timestamp: Date.now(),
     };
     setMessages((prev) => [...prev, userMsg]);
@@ -358,6 +362,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     dispatch({ type: "start" });
     scrollLockedRef.current = true;
     pendingScrollToUserRef.current = true;
+
+    const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
 
     try {
       if (isNew && newSessionCwd) {
@@ -373,6 +379,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             type: "prompt",
             message,
             toolNames,
+            ...(piImages?.length ? { images: piImages } : {}),
             ...(selectedModel ? { provider: selectedModel.provider, modelId: selectedModel.modelId } : {}),
           }),
         });
@@ -399,7 +406,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         const res = await fetch(`/api/agent/${encodeURIComponent(session.id)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "prompt", message }),
+          body: JSON.stringify({ type: "prompt", message, ...(piImages?.length ? { images: piImages } : {}) }),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
       }
@@ -409,7 +416,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       scrollLockedRef.current = false;
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, toolPreset, session, agentRunning, scrollUserMsgToTop, connectEvents, onSessionCreated]);
+  }, [isNew, newSessionCwd, newSessionModel, toolPreset, session, agentRunning, connectEvents, onSessionCreated]);
 
   const handleAbort = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -522,30 +529,32 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     }
   }, [isCompacting, loadSession]);
 
-  const handleSteer = useCallback(async (message: string) => {
+  const handleSteer = useCallback(async (message: string, images?: AttachedImage[]) => {
     const sid = sessionIdRef.current;
     if (!sid) return;
     setMessages((prev) => [...prev, { role: "user", content: `[steer] ${message}`, timestamp: Date.now() } as AgentMessage]);
+    const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
     try {
       await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "steer", message }),
+        body: JSON.stringify({ type: "steer", message, ...(piImages?.length ? { images: piImages } : {}) }),
       });
     } catch (e) {
       console.error("Failed to steer:", e);
     }
   }, []);
 
-  const handleFollowUp = useCallback(async (message: string) => {
+  const handleFollowUp = useCallback(async (message: string, images?: AttachedImage[]) => {
     const sid = sessionIdRef.current;
     if (!sid) return;
     setMessages((prev) => [...prev, { role: "user", content: message, timestamp: Date.now() } as AgentMessage]);
+    const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
     try {
       await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "follow_up", message }),
+        body: JSON.stringify({ type: "follow_up", message, ...(piImages?.length ? { images: piImages } : {}) }),
       });
     } catch (e) {
       console.error("Failed to follow up:", e);

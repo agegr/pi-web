@@ -69,10 +69,12 @@ export class AgentSessionWrapper {
     const type = command.type as string;
 
     switch (type) {
-      case "prompt":
+      case "prompt": {
         // Fire and forget — events come via subscribe
-        this.inner.prompt(command.message as string).catch(() => {});
+        const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
+        this.inner.prompt(command.message as string, promptImages?.length ? { images: promptImages } : undefined).catch(() => {});
         return null;
+      }
 
       case "abort":
         await this.inner.abort();
@@ -187,12 +189,14 @@ export class AgentSessionWrapper {
       }
 
       case "steer": {
-        await this.inner.steer(command.message as string);
+        const steerImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
+        await this.inner.steer(command.message as string, steerImages?.length ? steerImages : undefined);
         return null;
       }
 
       case "follow_up": {
-        await this.inner.followUp(command.message as string);
+        const followImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
+        await this.inner.followUp(command.message as string, followImages?.length ? followImages : undefined);
         return null;
       }
 

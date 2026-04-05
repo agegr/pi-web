@@ -266,7 +266,6 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
       {nodes.map((node) => {
         const color = getNodeColor(node.msg);
         const isNearest = minimapHovered && nearestIndex === node.index;
-        const preview = getMessagePreview(node.msg);
         const isUser = node.msg.role === "user";
         const dotTop = node.topRatio * 100;
 

@@ -2,6 +2,12 @@
 
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 
+export interface AttachedImage {
+  data: string;   // base64, no prefix
+  mimeType: string;
+  previewUrl: string; // object URL for display
+}
+
 interface ModelOption {
   provider: string;
   modelId: string;
@@ -9,10 +15,10 @@ interface ModelOption {
 }
 
 interface Props {
-  onSend: (message: string) => void;
+  onSend: (message: string, images?: AttachedImage[]) => void;
   onAbort: () => void;
-  onSteer?: (message: string) => void;
-  onFollowUp?: (message: string) => void;
+  onSteer?: (message: string, images?: AttachedImage[]) => void;
+  onFollowUp?: (message: string, images?: AttachedImage[]) => void;
   isStreaming: boolean;
   model?: { provider: string; modelId: string } | null;
   modelNames?: Record<string, string>;
@@ -50,8 +56,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [value, setValue] = useState("");
   const [queueMode, setQueueMode] = useState<"steer" | "followup">("steer");
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+  const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
@@ -90,27 +99,68 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     },
   }));
 
+  const processImageFiles = useCallback(async (files: File[]) => {
+    const imageFiles = files.filter((f) => f.type.startsWith("image/"));
+    if (!imageFiles.length) return;
+    const newImages = await Promise.all(
+      imageFiles.map(
+        (file) =>
+          new Promise<AttachedImage>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const result = reader.result as string;
+              // result is "data:<mime>;base64,<data>"
+              const base64 = result.split(",")[1];
+              resolve({ data: base64, mimeType: file.type, previewUrl: URL.createObjectURL(file) });
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          })
+      )
+    );
+    setAttachedImages((prev) => [...prev, ...newImages]);
+  }, []);
+
+  const removeImage = useCallback((index: number) => {
+    setAttachedImages((prev) => {
+      const next = [...prev];
+      URL.revokeObjectURL(next[index].previewUrl);
+      next.splice(index, 1);
+      return next;
+    });
+  }, []);
+
+  const clearImages = useCallback(() => {
+    setAttachedImages((prev) => {
+      prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
+      return [];
+    });
+  }, []);
+
   const handleSend = useCallback(() => {
     const msg = value.trim();
-    if (!msg || isStreaming) return;
-    onSend(msg);
+    if (!msg && !attachedImages.length) return;
+    if (isStreaming) return;
+    onSend(msg, attachedImages.length ? attachedImages : undefined);
     setValue("");
+    clearImages();
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
-  }, [value, isStreaming, onSend]);
+  }, [value, attachedImages, isStreaming, onSend, clearImages]);
 
   const handleQueueSend = useCallback(() => {
     const msg = value.trim();
-    if (!msg) return;
+    if (!msg && !attachedImages.length) return;
     if (queueMode === "steer" && onSteer) {
-      onSteer(msg);
+      onSteer(msg, attachedImages.length ? attachedImages : undefined);
     } else if (queueMode === "followup" && onFollowUp) {
-      onFollowUp(msg);
+      onFollowUp(msg, attachedImages.length ? attachedImages : undefined);
     }
     setValue("");
+    clearImages();
     if (textareaRef.current) textareaRef.current.style.height = "auto";
-  }, [value, queueMode, onSteer, onFollowUp]);
+  }, [value, attachedImages, queueMode, onSteer, onFollowUp, clearImages]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -132,6 +182,34 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     ta.style.height = "auto";
     ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
   }, []);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = Array.from(e.clipboardData?.items ?? []);
+    const imageItems = items.filter((item) => item.type.startsWith("image/"));
+    if (!imageItems.length) return;
+    e.preventDefault();
+    const files = imageItems.map((item) => item.getAsFile()).filter((f): f is File => f !== null);
+    processImageFiles(files);
+  }, [processImageFiles]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    const hasImages = Array.from(e.dataTransfer.items).some((item) => item.type.startsWith("image/"));
+    if (!hasImages) return;
+    e.preventDefault();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const files = Array.from(e.dataTransfer.files);
+    processImageFiles(files);
+  }, [processImageFiles]);
 
   // Build model options: prefer modelList (has provider info), fallback to modelNames
   const modelOptions: ModelOption[] = (() => {
@@ -179,7 +257,23 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         padding: "10px 16px 12px",
         paddingRight: 52, // 16px base + 36px for ChatMinimap alignment
       }}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? []);
+          processImageFiles(files);
+          e.target.value = "";
+        }}
+      />
       <div style={{ maxWidth: 820, margin: "0 auto" }}>
         {/* Retry banner */}
         {retryInfo && (
@@ -196,20 +290,52 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             Retrying ({retryInfo.attempt}/{retryInfo.maxAttempts})…{retryInfo.errorMessage && <span style={{ opacity: 0.7, marginLeft: 4 }}>— {retryInfo.errorMessage}</span>}
           </div>
         )}
+        {/* Image previews */}
+        {attachedImages.length > 0 && (
+          <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+            {attachedImages.map((img, i) => (
+              <div key={i} style={{ position: "relative", flexShrink: 0 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={img.previewUrl}
+                  alt=""
+                  style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 6, border: "1px solid var(--border)", display: "block" }}
+                />
+                <button
+                  onClick={() => removeImage(i)}
+                  style={{
+                    position: "absolute", top: -4, right: -4,
+                    width: 16, height: 16, borderRadius: "50%",
+                    background: "var(--bg-panel)", border: "1px solid var(--border)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    cursor: "pointer", padding: 0, color: "var(--text-muted)",
+                  }}
+                >
+                  <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                    <line x1="1" y1="1" x2="7" y2="7" /><line x1="7" y1="1" x2="1" y2="7" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Main input */}
         <div
           style={{
             display: "flex",
             gap: 8,
             alignItems: "center",
-            background: "var(--bg)",
-            border: `1px solid ${isStreaming && (onSteer || onFollowUp)
-              ? (queueMode === "steer" ? "rgba(234,179,8,0.4)" : "rgba(99,102,241,0.4)")
-              : "var(--border)"}`,
+            background: isDragOver ? "rgba(37,99,235,0.04)" : "var(--bg)",
+            border: `1px solid ${isDragOver
+              ? "rgba(37,99,235,0.6)"
+              : isStreaming && (onSteer || onFollowUp)
+                ? (queueMode === "steer" ? "rgba(234,179,8,0.4)" : "rgba(99,102,241,0.4)")
+                : "var(--border)"}`,
             borderRadius: 8,
             padding: "8px 8px 8px 12px",
-            transition: "border-color 0.15s",
-          }}
+            transition: "border-color 0.15s, background 0.15s",
+          } as React.CSSProperties}
         >
           <textarea
             ref={textareaRef}
@@ -217,8 +343,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
             onInput={handleInput}
+            onPaste={handlePaste}
             placeholder={
-              isStreaming && (onSteer || onFollowUp)
+              isDragOver ? "Drop image here…"
+              : isStreaming && (onSteer || onFollowUp)
                 ? (queueMode === "steer" ? "Inject guidance mid-run…" : "Queue a message for after agent finishes…")
                 : isStreaming ? "Agent is running…"
                 : "Message…"
@@ -239,6 +367,31 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               overflow: "auto",
             }}
           />
+
+          {/* Attach image button */}
+          {!isStreaming && (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              title="Attach image"
+              style={{
+                flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                width: 28, height: 28, padding: 0,
+                background: "none", border: "none",
+                borderRadius: 6,
+                color: attachedImages.length ? "var(--accent)" : "var(--text-dim)",
+                cursor: "pointer",
+                transition: "color 0.12s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = attachedImages.length ? "var(--accent)" : "var(--text-dim)"; }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <polyline points="21 15 16 10 5 21" />
+              </svg>
+            </button>
+          )}
 
           {isStreaming ? (
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
@@ -292,20 +445,20 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           ) : (
             <button
               onClick={handleSend}
-              disabled={!value.trim()}
+              disabled={!value.trim() && !attachedImages.length}
               style={{
                 flexShrink: 0,
                 display: "flex", alignItems: "center", gap: 6,
                 padding: "7px 14px",
-                background: value.trim() ? "var(--accent)" : "var(--bg-panel)",
+                background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
                 border: "none",
                 borderRadius: 8,
-                color: value.trim() ? "#fff" : "var(--text-dim)",
-                cursor: value.trim() ? "pointer" : "not-allowed",
+                color: (value.trim() || attachedImages.length) ? "#fff" : "var(--text-dim)",
+                cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
                 fontSize: 13,
                 fontWeight: 600,
                 letterSpacing: "-0.01em",
-                boxShadow: value.trim() ? "0 1px 3px rgba(37,99,235,0.25)" : "none",
+                boxShadow: (value.trim() || attachedImages.length) ? "0 1px 3px rgba(37,99,235,0.25)" : "none",
                 transition: "background 0.15s, box-shadow 0.15s",
               }}
             >

@@ -280,7 +280,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     setDropdownOpen(false);
   }, [customPathValue]);
 
-  const useDefaultCwd = useCallback(async () => {
+  const handleDefaultCwd = useCallback(async () => {
     try {
       const res = await fetch("/api/default-cwd", { method: "POST" });
       const data = await res.json() as { cwd?: string; error?: string };
@@ -501,7 +501,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               {/* Default cwd shortcut */}
               {!customPathOpen && (
                 <button
-                  onClick={(e) => { e.stopPropagation(); useDefaultCwd(); }}
+                  onClick={(e) => { e.stopPropagation(); handleDefaultCwd(); }}
                   style={{
                     display: "flex",
                     alignItems: "center",

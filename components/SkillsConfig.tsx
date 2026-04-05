@@ -16,9 +16,6 @@ interface Skill {
 }
 
 function shortenPath(p: string): string {
-  const home = typeof window !== "undefined"
-    ? null
-    : null; // server-side not needed
   // Match common home dir patterns: /Users/xxx, /home/xxx
   return p.replace(/^\/(?:Users|home)\/[^/]+/, "~");
 }
@@ -31,13 +28,6 @@ function sourceLabel(skill: Skill): string {
   return "path";
 }
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>
-      {children}
-    </div>
-  );
-}
 
 function Toggle({ enabled, loading, onToggle }: { enabled: boolean; loading: boolean; onToggle: () => void }) {
   return (

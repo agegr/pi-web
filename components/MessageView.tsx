@@ -12,6 +12,7 @@ import type {
   ToolResultMessage,
   AssistantContentBlock,
   TextContent,
+  ImageContent,
   ToolCallContent,
   ThinkingContent,
 } from "@/lib/types";
@@ -95,6 +96,11 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
           .map((b) => b.text)
           .join("\n");
 
+  const imageBlocks: ImageContent[] =
+    typeof message.content === "string"
+      ? []
+      : message.content.filter((b): b is ImageContent => b.type === "image");
+
   const time = formatTime(message.timestamp);
   const canFork = !!entryId && !!onFork;
   const canNavigate = !!prevAssistantEntryId && !!onNavigate;
@@ -128,6 +134,31 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
             wordBreak: "break-word",
           }}
         >
+          {imageBlocks.length > 0 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: content ? 8 : 0 }}>
+              {imageBlocks.map((img, i) => {
+                // lib/types.ts ImageContent uses {source:{type,data,media_type,url}}
+                // pi-ai on-disk format uses flat {data, mimeType} — handle both
+                const flat = img as unknown as { data?: string; mimeType?: string };
+                const src = img.source
+                  ? img.source.type === "base64"
+                    ? `data:${img.source.media_type};base64,${img.source.data}`
+                    : img.source.url ?? ""
+                  : flat.data
+                    ? `data:${flat.mimeType};base64,${flat.data}`
+                    : "";
+                return (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={i}
+                    src={src}
+                    alt=""
+                    style={{ maxWidth: 240, maxHeight: 240, borderRadius: 6, objectFit: "contain", display: "block", border: "1px solid rgba(59,130,246,0.15)" }}
+                  />
+                );
+              })}
+            </div>
+          )}
           {content}
         </div>
 
