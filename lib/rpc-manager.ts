@@ -118,26 +118,25 @@ export class AgentSessionWrapper {
         if (!currentSessionFile) throw new Error("Persisted session is missing a session file");
 
         const entry = sessionManager.getEntry(entryId);
-        if (!entry || entry.type !== "message" || entry.message.role !== "user") {
-          throw new Error("Invalid entry ID for forking");
-        }
+        if (!entry) throw new Error("Invalid entry ID for forking");
 
         const sessionDir = sessionManager.getSessionDir();
-
         let newSessionFile: string;
+
         if (!entry.parentId) {
+          // Fork before the first message: create an empty session linked to this one
           const newManager = SessionManager.create(sessionManager.getCwd(), sessionDir);
           newManager.newSession({ parentSession: currentSessionFile });
           newSessionFile = newManager.getSessionFile() as string;
         } else {
+          // Fork after some history: copy path up to (but not including) the fork point
           const sourceManager = SessionManager.open(currentSessionFile, sessionDir);
           const forkedPath = sourceManager.createBranchedSession(entry.parentId);
           if (!forkedPath) throw new Error("Failed to create forked session");
           newSessionFile = forkedPath;
         }
 
-        const newManager = SessionManager.open(newSessionFile, sessionDir);
-        const newSessionId = newManager.getSessionId() as string;
+        const newSessionId = SessionManager.open(newSessionFile, sessionDir).getSessionId() as string;
         cacheSessionPath(newSessionId, newSessionFile);
         this.destroy();
         return { cancelled: false, newSessionId };
