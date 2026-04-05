@@ -96,6 +96,7 @@ export class AgentSessionWrapper {
           contextUsage: contextUsage
             ? { percent: contextUsage.percent, contextWindow: contextUsage.contextWindow, tokens: contextUsage.tokens }
             : null,
+          systemPrompt: (this.inner.agent as { state?: { systemPrompt?: string } })?.state?.systemPrompt ?? "",
         };
       }
 

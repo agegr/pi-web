@@ -165,6 +165,42 @@ span.linenumber {
   }
 }
 
+.system-prompt-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px;
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.system-prompt-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+.system-prompt-panel {
+  scrollbar-width: auto;
+}
+.system-prompt-panel::-webkit-scrollbar {
+  width: 16px;
+}
+.system-prompt-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+.system-prompt-panel::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
+  border: 3px solid var(--bg-panel);
+}
+.system-prompt-panel::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+}
+
 /* Mobile sidebar: slide in/out as overlay */
 @media (max-width: 640px) {
   .chat-stats-center {

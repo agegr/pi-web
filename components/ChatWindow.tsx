@@ -83,6 +83,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("default");
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
+  const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const visibleMessages = messages.filter((m) => m.role === "user" || m.role === "assistant");
@@ -164,7 +165,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         return null;
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json() as SessionData & { agentState?: { running: boolean; state?: { isStreaming?: boolean; isCompacting?: boolean; contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null } } };
+      const d = await res.json() as SessionData & { agentState?: { running: boolean; state?: { isStreaming?: boolean; isCompacting?: boolean; contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null; systemPrompt?: string } } };
       setData(d);
       setActiveLeafId(d.leafId);
       setMessages(d.context.messages);
@@ -253,8 +254,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           // Refresh context usage after the turn completes
           fetch(`/api/agent/${encodeURIComponent(sessionIdRef.current)}`)
             .then((r) => r.json())
-            .then((d: { state?: { contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null } }) => {
+            .then((d: { state?: { contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null; systemPrompt?: string } }) => {
               if (d.state?.contextUsage !== undefined) setContextUsage(d.state.contextUsage ?? null);
+              if (d.state?.systemPrompt !== undefined) setSystemPrompt(d.state.systemPrompt || null);
             })
             .catch(() => {});
         }
@@ -334,6 +336,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         if (agentState.state) {
           if (agentState.state.isCompacting !== undefined) setIsCompacting(agentState.state.isCompacting);
           if (agentState.state.contextUsage !== undefined) setContextUsage(agentState.state.contextUsage ?? null);
+          if (agentState.state.systemPrompt !== undefined) setSystemPrompt(agentState.state.systemPrompt || null);
         }
       });
     }
@@ -348,6 +351,20 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   useEffect(() => {
     agentRunningRef.current = agentRunning;
   }, [agentRunning]);
+
+  useEffect(() => {
+    if (!systemPrompt) return;
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const isNear = el.scrollTop < 80;
+      setNearTop(isNear);
+      if (!isNear) setSystemPromptExpanded(false);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [systemPrompt]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -506,6 +523,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     await loadContext(sid, entryId);
   }, [loadContext]);
 
+  const [systemPromptExpanded, setSystemPromptExpanded] = useState(false);
+  const [nearTop, setNearTop] = useState(false);
   const [currentModelOverride, setCurrentModelOverride] = useState<{ provider: string; modelId: string } | null>(null);
   const currentModel = currentModelOverride ?? data?.context.model ?? null;
   const displayModel = isNew ? newSessionModel : currentModel;
@@ -728,9 +747,36 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         />
       )}
 
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+      <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
+      {systemPrompt && nearTop && (
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 10 }}>
+          <div style={{ padding: "8px 16px" }}>
+            <div style={{ display: "inline-block", position: "relative" }}>
+              <button
+                onClick={() => setSystemPromptExpanded(v => !v)}
+                title="System Prompt"
+                className="system-prompt-btn"
+              >
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="8" y1="13" x2="16" y2="13" />
+                  <line x1="8" y1="17" x2="13" y2="17" />
+                </svg>
+                System
+              </button>
+              {systemPromptExpanded && (
+                <div className="system-prompt-panel" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, width: "min(800px, 90vw)", maxHeight: "calc(100vh - 200px)", overflowY: "auto", background: "var(--bg-panel)", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.15)", padding: "12px 16px", color: "var(--text-muted)", fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap", fontFamily: "var(--font-mono)" }}>
+                  {systemPrompt}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       <div ref={scrollContainerRef} style={{ flex: 1, overflowY: "auto", padding: "16px 0", scrollbarWidth: "none" }}>
         <div style={{ maxWidth: 820, margin: "0 auto", padding: "0 16px" }}>
+
           {(() => {
             // Build toolCallId -> ToolResultMessage map for inline pairing
             const toolResultsMap = new Map<string, import("@/lib/types").ToolResultMessage>();
@@ -827,6 +873,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           contextUsage={contextUsage}
         />
       </div>
+
     </div>
   );
 }
