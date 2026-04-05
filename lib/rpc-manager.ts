@@ -154,32 +154,21 @@ export class AgentSessionWrapper {
       }
 
       case "compact": {
-        // Check if there's actually anything to summarize before calling pi's compact().
-        // pi does not guard against empty messagesToSummarize — when the session is shorter
-        // than keepRecentTokens, findCutPoint returns firstKeptEntryIndex = first message,
-        // making messagesToSummarize empty, and generateSummary produces a useless
-        // "conversation is empty" summary.
+        // pi's compact() does not guard against empty messagesToSummarize — use findCutPoint
+        // to pre-check and throw a clean error instead of generating a useless empty summary.
         const { findCutPoint, DEFAULT_COMPACTION_SETTINGS } = await import("@mariozechner/pi-coding-agent");
-        const pathEntries = this.inner.sessionManager.getBranch() as Array<{ type: string; id?: string }>;
+        const pathEntries = this.inner.sessionManager.getBranch() as Array<{ type: string }>;
         const settings = { ...DEFAULT_COMPACTION_SETTINGS, ...this.inner.settingsManager.getCompactionSettings() };
-
-        // Find the start boundary (after any previous compaction)
         let prevCompactionIndex = -1;
         for (let i = pathEntries.length - 1; i >= 0; i--) {
           if (pathEntries[i].type === "compaction") { prevCompactionIndex = i; break; }
         }
         const boundaryStart = prevCompactionIndex + 1;
-        const boundaryEnd = pathEntries.length;
-
-        const cutPoint = findCutPoint(pathEntries as never, boundaryStart, boundaryEnd, settings.keepRecentTokens);
-        // messagesToSummarize = entries[boundaryStart .. historyEnd), where:
-        //   historyEnd = isSplitTurn ? turnStartIndex : firstKeptEntryIndex
-        // Empty when historyEnd <= boundaryStart.
+        const cutPoint = findCutPoint(pathEntries as never, boundaryStart, pathEntries.length, settings.keepRecentTokens);
         const historyEnd = cutPoint.isSplitTurn ? cutPoint.turnStartIndex : cutPoint.firstKeptEntryIndex;
         if (historyEnd <= boundaryStart) {
           throw new Error("Conversation too short to compact");
         }
-
         const result = await this.inner.compact(command.customInstructions as string | undefined);
         return result;
       }
