@@ -11,8 +11,6 @@ import { SkillsConfig } from "./SkillsConfig";
 import type { SessionInfo } from "@/lib/types";
 import type { ChatInputHandle } from "./ChatInput";
 
-const CHAT_TAB: Tab = { id: "chat", type: "chat", label: "Chat" };
-
 export function AppShell() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -28,6 +26,11 @@ export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
 
+  // Right panel — file tabs only
+  const [fileTabs, setFileTabs] = useState<Tab[]>([]);
+  const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
+  const [rightPanelOpen, setRightPanelOpen] = useState(false);
+
   const handleAtMention = useCallback((relativePath: string) => {
     chatInputRef.current?.insertText("@" + relativePath);
   }, []);
@@ -38,10 +41,6 @@ export function AppShell() {
   const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !searchParams.get("session"));
   // Suppresses sessionKey bump in handleCwdChange during the initial URL restore
   const suppressCwdBumpRef = useRef(false);
-
-  // Tab management
-  const [tabs, setTabs] = useState<Tab[]>([CHAT_TAB]);
-  const [activeTabId, setActiveTabId] = useState<string>("chat");
 
   const handleCwdChange = useCallback((cwd: string | null) => {
     setActiveCwd(cwd);
@@ -118,17 +117,26 @@ export function AppShell() {
 
   const handleOpenFile = useCallback((filePath: string, fileName: string) => {
     const tabId = `file:${filePath}`;
-    setTabs((prev) => {
+    setFileTabs((prev) => {
       if (prev.find((t) => t.id === tabId)) return prev;
       return [...prev, { id: tabId, type: "file", label: fileName, filePath }];
     });
-    setActiveTabId(tabId);
+    setActiveFileTabId(tabId);
+    setRightPanelOpen(true);
   }, []);
 
-  const handleCloseTab = useCallback((tabId: string) => {
-    setTabs((prev) => prev.filter((t) => t.id !== tabId));
-    setActiveTabId((cur) => (cur === tabId ? "chat" : cur));
-  }, []);
+  const handleCloseFileTab = useCallback((tabId: string) => {
+    setFileTabs((prev) => {
+      const next = prev.filter((t) => t.id !== tabId);
+      if (next.length === 0) setRightPanelOpen(false);
+      return next;
+    });
+    setActiveFileTabId((cur) => {
+      if (cur !== tabId) return cur;
+      const remaining = fileTabs.filter((t) => t.id !== tabId);
+      return remaining.length > 0 ? remaining[remaining.length - 1].id : null;
+    });
+  }, [fileTabs]);
 
   // Show chat area if a session is selected, or if we have a cwd to start a new session in
   const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
@@ -136,7 +144,7 @@ export function AppShell() {
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat;
 
-  const activeTab = tabs.find((t) => t.id === activeTabId) ?? CHAT_TAB;
+  const activeFileTab = fileTabs.find((t) => t.id === activeFileTabId) ?? null;
 
   const sidebarContent = (
     <>
@@ -209,7 +217,7 @@ export function AppShell() {
   return (
     <>
     <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "var(--bg)" }}>
-      {/* Mobile overlay backdrop — separate from sidebar so sidebar is only mounted once */}
+      {/* Mobile overlay backdrop */}
       <div
         className="sidebar-overlay-backdrop"
         onClick={() => setSidebarOpen(false)}
@@ -224,7 +232,7 @@ export function AppShell() {
         }}
       />
 
-      {/* Single sidebar — inline on desktop, overlay on mobile */}
+      {/* Left sidebar */}
       <div
         className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}`}
         style={{
@@ -239,123 +247,135 @@ export function AppShell() {
         {sidebarContent}
       </div>
 
-      {/* Main content */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        {/* Tab bar with sidebar toggle */}
-        <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+      {/* Center: chat */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+        {/* Top bar with sidebar toggle */}
+        <div style={{ display: "flex", alignItems: "center", flexShrink: 0, borderBottom: "1px solid var(--border)", height: 36, background: "var(--bg-panel)" }}>
           <button
             onClick={() => setSidebarOpen((v) => !v)}
             title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
             style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 36,
-              height: 36,
-              padding: 0,
-              background: "var(--bg-panel)",
-              border: "none",
-              borderRight: "1px solid var(--border)",
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              flexShrink: 0,
-              transition: "color 0.12s",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              width: 36, height: 36, padding: 0,
+              background: "none", border: "none", borderRight: "1px solid var(--border)",
+              color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
             }}
             onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
           >
             {sidebarOpen ? (
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <line x1="9" y1="3" x2="9" y2="21" />
+                <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="9" y1="3" x2="9" y2="21" />
               </svg>
             ) : (
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <line x1="3" y1="6" x2="21" y2="6" />
-                <line x1="3" y1="12" x2="21" y2="12" />
-                <line x1="3" y1="18" x2="21" y2="18" />
+                <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
               </svg>
             )}
           </button>
-          <div style={{ flex: 1, overflow: "hidden" }}>
-            <TabBar
-              tabs={tabs}
-              activeTabId={activeTabId}
-              onSelectTab={setActiveTabId}
-              onCloseTab={handleCloseTab}
-            />
-          </div>
+          <span style={{ padding: "0 12px", fontSize: 12, color: "var(--text-dim)", userSelect: "none" }}>Chat</span>
+          <div style={{ flex: 1 }} />
+          {/* Toggle right panel */}
+          <button
+            onClick={() => setRightPanelOpen((v) => !v)}
+            title={rightPanelOpen ? "Hide file panel" : "Show file panel"}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              width: 36, height: 36, padding: 0,
+              background: "none", border: "none", borderLeft: "1px solid var(--border)",
+              color: rightPanelOpen ? "var(--text)" : "var(--text-muted)",
+              cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = rightPanelOpen ? "var(--text)" : "var(--text-muted)"; }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
+            </svg>
+          </button>
         </div>
 
-        {/* Tab content */}
+        {/* Chat content */}
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
-          {/* Chat tab — always mounted, hidden when another tab is active */}
-          <div style={{ position: "absolute", inset: 0, display: activeTab.type === "chat" ? "flex" : "none", flexDirection: "column" }}>
-            {showChat ? (
-              <ChatWindow
-                key={sessionKey}
-                session={selectedSession}
-                newSessionCwd={effectiveNewSessionCwd}
-                onAgentEnd={handleAgentEnd}
-                onSessionCreated={handleSessionCreated}
-                onSessionForked={handleSessionForked}
-                modelsRefreshKey={modelsRefreshKey}
-                chatInputRef={chatInputRef}
-              />
-            ) : showPlaceholder ? (
-              activeCwd ? (
-                <div
-                  style={{
-                    height: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "var(--text-muted)",
-                    fontSize: 15,
-                  }}
-                >
-                  Select a session from the sidebar
-                </div>
-              ) : (
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 12,
-                    left: 12,
-                    display: "flex",
-                    alignItems: "flex-start",
-                    gap: 8,
-                    userSelect: "none",
-                    pointerEvents: "none",
-                  }}
-                >
-                  {/* Arrow pointing left */}
-                  <svg
-                    width="44" height="44" viewBox="0 0 24 24" fill="none"
-                    stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-                    style={{ opacity: 0.7, flexShrink: 0 }}
-                  >
-                    <line x1="20" y1="12" x2="4" y2="12" />
-                    <polyline points="10 6 4 12 10 18" />
-                  </svg>
-                  <div>
-                    <div style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>
-                      Get Started
-                    </div>
-                    <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.8 }}>
-                      <span style={{ color: "var(--text-dim)", marginRight: 6 }}>1.</span>Select a project directory from the sidebar<br />
-                      <span style={{ color: "var(--text-dim)", marginRight: 6 }}>2.</span>Add models via the <strong style={{ color: "var(--text)" }}>Models</strong> button at the bottom
-                    </div>
+          {showChat ? (
+            <ChatWindow
+              key={sessionKey}
+              session={selectedSession}
+              newSessionCwd={effectiveNewSessionCwd}
+              onAgentEnd={handleAgentEnd}
+              onSessionCreated={handleSessionCreated}
+              onSessionForked={handleSessionForked}
+              modelsRefreshKey={modelsRefreshKey}
+              chatInputRef={chatInputRef}
+            />
+          ) : showPlaceholder ? (
+            activeCwd ? (
+              <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 15 }}>
+                Select a session from the sidebar
+              </div>
+            ) : (
+              <div style={{ position: "absolute", top: 12, left: 12, display: "flex", alignItems: "flex-start", gap: 8, userSelect: "none", pointerEvents: "none" }}>
+                <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7, flexShrink: 0 }}>
+                  <line x1="20" y1="12" x2="4" y2="12" /><polyline points="10 6 4 12 10 18" />
+                </svg>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>Get Started</div>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.8 }}>
+                    <span style={{ color: "var(--text-dim)", marginRight: 6 }}>1.</span>Select a project directory from the sidebar<br />
+                    <span style={{ color: "var(--text-dim)", marginRight: 6 }}>2.</span>Add models via the <strong style={{ color: "var(--text)" }}>Models</strong> button at the bottom
                   </div>
                 </div>
-              )
-            ) : null}
-          </div>
+              </div>
+            )
+          ) : null}
+        </div>
+      </div>
 
-          {/* File tabs */}
-          {activeTab.type === "file" && activeTab.filePath && (
-            <div style={{ position: "absolute", inset: 0 }}>
-              <FileViewer filePath={activeTab.filePath} />
+      {/* Right panel: file viewer — always mounted, width animated via CSS */}
+      <div
+        className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}`}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          borderLeft: "1px solid var(--border)",
+          background: "var(--bg)",
+        }}
+      >
+        {/* Right panel tab bar */}
+        <div style={{ display: "flex", alignItems: "center", flexShrink: 0, background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", height: 36 }}>
+          <div style={{ flex: 1, overflow: "hidden" }}>
+            <TabBar
+              tabs={fileTabs}
+              activeTabId={activeFileTabId ?? ""}
+              onSelectTab={setActiveFileTabId}
+              onCloseTab={handleCloseFileTab}
+            />
+          </div>
+          <button
+            onClick={() => setRightPanelOpen(false)}
+            title="Close file panel"
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              width: 36, height: 36, padding: 0, flexShrink: 0,
+              background: "none", border: "none", borderLeft: "1px solid var(--border)",
+              color: "var(--text-muted)", cursor: "pointer", transition: "color 0.12s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
+            </svg>
+          </button>
+        </div>
+
+        {/* File content */}
+        <div style={{ flex: 1, overflow: "hidden" }}>
+          {activeFileTab?.filePath ? (
+            <FileViewer filePath={activeFileTab.filePath} cwd={activeCwd ?? undefined} />
+          ) : (
+            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
+              No file open
             </div>
           )}
         </div>
@@ -365,7 +385,6 @@ export function AppShell() {
     {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
       <SkillsConfig cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!} onClose={() => setSkillsConfigOpen(false)} />
     )}
-
     </>
   );
 }

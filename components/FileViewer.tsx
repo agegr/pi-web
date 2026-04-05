@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
+import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
 
 interface Props {
   filePath: string;
+  cwd?: string;
 }
 
 interface FileData {
@@ -249,13 +250,14 @@ function DiffView({ oldContent, newContent }: { oldContent: string; newContent: 
   );
 }
 
-export function FileViewer({ filePath }: Props) {
+export function FileViewer({ filePath, cwd }: Props) {
   const [data, setData] = useState<FileData | null>(null);
   const [prevContent, setPrevContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState(false);
   const [viewMode, setViewMode] = useState<"source" | "diff">("source");
+  const [wrapLines, setWrapLines] = useState(false);
   const [watching, setWatching] = useState(false);
   const [changeCount, setChangeCount] = useState(0);
   const esRef = useRef<EventSource | null>(null);
@@ -294,6 +296,7 @@ export function FileViewer({ filePath }: Props) {
     setPrevContent(null);
     setPreviewMode(false);
     setViewMode("source");
+    setWrapLines(false);
     setChangeCount(0);
     setWatching(false);
 
@@ -369,7 +372,11 @@ export function FileViewer({ filePath }: Props) {
           flexShrink: 0,
         }}
       >
-        <span style={{ fontFamily: "var(--font-mono)" }}>{filePath}</span>
+        <span style={{ fontFamily: "var(--font-mono)" }} title={filePath}>
+          {cwd && filePath.startsWith(cwd.replace(/\/$/, "") + "/")
+            ? filePath.slice(cwd.replace(/\/$/, "").length + 1)
+            : filePath}
+        </span>
         <span style={{ marginLeft: "auto" }}>{data.language}</span>
         {viewMode === "source" && <span>{lines.length} lines</span>}
         <span>{formatSize(data.size)}</span>
@@ -420,6 +427,23 @@ export function FileViewer({ filePath }: Props) {
           </div>
         )}
 
+        {/* Word wrap toggle */}
+        {viewMode === "source" && !previewMode && (
+          <button
+            onClick={() => setWrapLines((v) => !v)}
+            title={wrapLines ? "Disable word wrap" : "Enable word wrap"}
+            style={{
+              padding: "2px 8px", fontSize: 11, cursor: "pointer",
+              background: wrapLines ? "var(--bg-selected)" : "var(--bg-hover)",
+              color: wrapLines ? "var(--text)" : "var(--text-muted)",
+              border: "1px solid var(--border)", borderRadius: 5,
+              fontWeight: wrapLines ? 600 : 400,
+            }}
+          >
+            wrap
+          </button>
+        )}
+
         {/* HTML source/preview toggle */}
         {isHtml && viewMode === "source" && (
           <div style={{ display: "flex", borderRadius: 5, overflow: "hidden", border: "1px solid var(--border)" }}>
@@ -463,7 +487,7 @@ export function FileViewer({ filePath }: Props) {
         ) : (
           <SyntaxHighlighter
             language={data.language === "text" ? "plaintext" : data.language}
-            style={vscDarkPlus}
+            style={vs}
             showLineNumbers
             lineNumberStyle={{
               color: "var(--text-dim)",
@@ -481,7 +505,7 @@ export function FileViewer({ filePath }: Props) {
               minHeight: "100%",
             }}
             codeTagProps={{ style: { fontFamily: "var(--font-mono)" } }}
-            wrapLongLines={false}
+            wrapLongLines={wrapLines}
           >
             {data.content}
           </SyntaxHighlighter>
