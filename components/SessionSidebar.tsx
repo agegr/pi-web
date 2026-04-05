@@ -209,6 +209,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [explorerKey, setExplorerKey] = useState(0);
+  const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
+  const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
+  const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadSessions = useCallback(async (showLoading = false) => {
     try {
@@ -218,6 +222,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       const data = await res.json() as { sessions: SessionInfo[] };
       setAllSessions(data.sessions);
       setError(null);
+      if (!showLoading) {
+        setSessionRefreshDone(true);
+        if (sessionRefreshTimerRef.current) clearTimeout(sessionRefreshTimerRef.current);
+        sessionRefreshTimerRef.current = setTimeout(() => setSessionRefreshDone(false), 2000);
+      }
     } catch (e) {
       setError(String(e));
     } finally {
@@ -376,35 +385,43 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               New
             </button>
             <button
-              onClick={() => loadSessions(true)}
+              onClick={() => loadSessions(false)}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center",
-                background: "var(--bg-hover)",
-                border: "1px solid var(--border)",
-                color: "var(--text-muted)",
+                background: sessionRefreshDone ? "rgba(74,222,128,0.18)" : "var(--bg-hover)",
+                border: `1px solid ${sessionRefreshDone ? "rgba(74,222,128,0.4)" : "var(--border)"}`,
+                color: sessionRefreshDone ? "#4ade80" : "var(--text-muted)",
                 cursor: "pointer",
                 width: 32, height: 32,
                 borderRadius: 7,
                 padding: 0,
                 flexShrink: 0,
-                transition: "background 0.12s, color 0.12s, border-color 0.12s",
+                transition: "background 0.3s, color 0.3s, border-color 0.3s",
               }}
               onMouseEnter={(e) => {
+                if (sessionRefreshDone) return;
                 e.currentTarget.style.background = "var(--bg-selected)";
                 e.currentTarget.style.color = "var(--accent)";
                 e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
               }}
               onMouseLeave={(e) => {
+                if (sessionRefreshDone) return;
                 e.currentTarget.style.background = "var(--bg-hover)";
                 e.currentTarget.style.color = "var(--text-muted)";
                 e.currentTarget.style.borderColor = "var(--border)";
               }}
               title="Refresh"
             >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                <path d="M3 3v5h5" />
-              </svg>
+              {sessionRefreshDone ? (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              ) : (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                  <path d="M3 3v5h5" />
+                </svg>
+              )}
             </button>
           </div>
         </div>
@@ -694,24 +711,37 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               Explorer
             </button>
             <button
-              onClick={() => setExplorerKey((k) => k + 1)}
+              onClick={() => {
+                setExplorerKey((k) => k + 1);
+                setExplorerRefreshDone(true);
+                if (explorerRefreshTimerRef.current) clearTimeout(explorerRefreshTimerRef.current);
+                explorerRefreshTimerRef.current = setTimeout(() => setExplorerRefreshDone(false), 2000);
+              }}
               title="Refresh explorer"
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center",
                 width: 26, height: 26, padding: 0, marginRight: 6,
-                background: "none", border: "none",
-                color: "var(--text-dim)", cursor: "pointer",
+                background: explorerRefreshDone ? "rgba(74,222,128,0.18)" : "none",
+                border: "none",
+                color: explorerRefreshDone ? "#4ade80" : "var(--text-dim)",
+                cursor: "pointer",
                 borderRadius: 5,
                 flexShrink: 0,
-                transition: "color 0.12s, background 0.12s",
+                transition: "color 0.3s, background 0.3s",
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
+              onMouseEnter={(e) => { if (explorerRefreshDone) return; e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+              onMouseLeave={(e) => { if (explorerRefreshDone) return; e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                <path d="M3 3v5h5" />
-              </svg>
+              {explorerRefreshDone ? (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              ) : (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                  <path d="M3 3v5h5" />
+                </svg>
+              )}
             </button>
           </div>
           {explorerOpen && (

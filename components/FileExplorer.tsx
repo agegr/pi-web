@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { getFileIcon, FolderIcon } from "./FileIcons";
 
 interface FileEntry {
@@ -26,7 +26,20 @@ interface Props {
   onAtMention?: (relativePath: string) => void;
 }
 
-
+async function fetchEntries(dirPath: string): Promise<FileNode[]> {
+  const encoded = dirPath.split("/").filter(Boolean).join("/");
+  const res = await fetch(`/api/files/${encoded}?type=list`);
+  if (!res.ok) return [];
+  const data = await res.json() as { entries?: FileEntry[] };
+  return (data.entries ?? []).map((e) => ({
+    name: e.name,
+    fullPath: dirPath.replace(/\/$/, "") + "/" + e.name,
+    isDir: e.isDir,
+    size: e.size,
+    children: e.isDir ? [] : undefined,
+    loaded: !e.isDir,
+  }));
+}
 
 function TreeNode({
   node,
@@ -34,37 +47,29 @@ function TreeNode({
   cwd,
   onOpenFile,
   onAtMention,
+  expandedPaths,
+  onToggleExpanded,
 }: {
   node: FileNode;
   depth: number;
   cwd: string;
   onOpenFile: (filePath: string, fileName: string) => void;
   onAtMention?: (relativePath: string) => void;
+  expandedPaths: Set<string>;
+  onToggleExpanded: (fullPath: string, open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const open = expandedPaths.has(node.fullPath);
   const [children, setChildren] = useState<FileNode[]>(node.children ?? []);
   const [loaded, setLoaded] = useState(node.loaded ?? false);
   const [loading, setLoading] = useState(false);
   const [hovered, setHovered] = useState(false);
 
-  const loadChildren = useCallback(async () => {
-    if (loaded) return;
+  const loadChildren = useCallback(async (force = false) => {
+    if (loaded && !force) return;
     setLoading(true);
     try {
-      const encoded = node.fullPath.split("/").filter(Boolean).join("/");
-      const res = await fetch(`/api/files/${encoded}?type=list`);
-      if (!res.ok) return;
-      const data = await res.json() as { entries: FileEntry[] };
-      setChildren(
-        data.entries.map((e) => ({
-          name: e.name,
-          fullPath: node.fullPath.replace(/\/$/, "") + "/" + e.name,
-          isDir: e.isDir,
-          size: e.size,
-          children: e.isDir ? [] : undefined,
-          loaded: !e.isDir,
-        }))
-      );
+      const entries = await fetchEntries(node.fullPath);
+      setChildren(entries);
       setLoaded(true);
     } catch {
       // ignore
@@ -73,14 +78,29 @@ function TreeNode({
     }
   }, [loaded, node.fullPath]);
 
+  // When refreshKey causes a re-render with the same node identity, reload open dirs
+  const prevLoadedRef = useRef(loaded);
+  useEffect(() => {
+    prevLoadedRef.current = loaded;
+  });
+
+  // Re-fetch children whenever the node becomes open and was already loaded (refresh case)
+  useEffect(() => {
+    if (open && loaded) {
+      loadChildren(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [node.fullPath]);
+
   const handleClick = useCallback(() => {
     if (node.isDir) {
-      if (!loaded && !open) loadChildren();
-      setOpen((v) => !v);
+      const next = !open;
+      onToggleExpanded(node.fullPath, next);
+      if (next && !loaded) loadChildren();
     } else {
       onOpenFile(node.fullPath, node.name);
     }
-  }, [node.isDir, node.fullPath, node.name, loaded, open, loadChildren, onOpenFile]);
+  }, [node.isDir, node.fullPath, node.name, loaded, open, loadChildren, onOpenFile, onToggleExpanded]);
 
   return (
     <div>
@@ -176,7 +196,7 @@ function TreeNode({
       {node.isDir && open && (
         <div>
           {children.map((child) => (
-            <TreeNode key={child.fullPath} node={child} depth={depth + 1} cwd={cwd} onOpenFile={onOpenFile} onAtMention={onAtMention} />
+            <TreeNode key={child.fullPath} node={child} depth={depth + 1} cwd={cwd} onOpenFile={onOpenFile} onAtMention={onAtMention} expandedPaths={expandedPaths} onToggleExpanded={onToggleExpanded} />
           ))}
           {children.length === 0 && loaded && (
             <div style={{ paddingLeft: 8 + (depth + 1) * 14, fontSize: 11, color: "var(--text-dim)", height: 22, display: "flex", alignItems: "center" }}>
@@ -193,37 +213,31 @@ export function FileExplorer({ cwd, onOpenFile, refreshKey, onAtMention }: Props
   const [roots, setRoots] = useState<FileNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [treeKey, setTreeKey] = useState(0);
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const prevCwdRef = useRef<string | null>(null);
+
+  const handleToggleExpanded = useCallback((fullPath: string, open: boolean) => {
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      if (open) next.add(fullPath); else next.delete(fullPath);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
-    setTreeKey((k) => k + 1);
-  }, [refreshKey]);
+    const cwdChanged = prevCwdRef.current !== cwd;
+    prevCwdRef.current = cwd;
 
-  useEffect(() => {
-    setLoading(true);
+    // Reset expanded state only when cwd changes, not on refreshKey bumps
+    if (cwdChanged) setExpandedPaths(new Set());
+
+    setLoading(cwdChanged);
     setError(null);
-    const encoded = cwd.split("/").filter(Boolean).join("/");
-    fetch(`/api/files/${encoded}?type=list`)
-      .then((r) => r.json())
-      .then((data: { entries?: FileEntry[]; error?: string }) => {
-        if (data.error) {
-          setError(data.error);
-          return;
-        }
-        setRoots(
-          (data.entries ?? []).map((e) => ({
-            name: e.name,
-            fullPath: cwd.replace(/\/$/, "") + "/" + e.name,
-            isDir: e.isDir,
-            size: e.size,
-            children: e.isDir ? [] : undefined,
-            loaded: !e.isDir,
-          }))
-        );
-      })
+    fetchEntries(cwd)
+      .then((entries) => setRoots(entries))
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, [cwd, treeKey]);
+  }, [cwd, refreshKey]);
 
   if (loading) {
     return (
@@ -244,7 +258,16 @@ export function FileExplorer({ cwd, onOpenFile, refreshKey, onAtMention }: Props
   return (
     <div style={{ padding: "2px 4px" }}>
       {roots.map((node) => (
-        <TreeNode key={`${treeKey}:${node.fullPath}`} node={node} depth={0} cwd={cwd} onOpenFile={onOpenFile} onAtMention={onAtMention} />
+        <TreeNode
+          key={node.fullPath}
+          node={node}
+          depth={0}
+          cwd={cwd}
+          onOpenFile={onOpenFile}
+          onAtMention={onAtMention}
+          expandedPaths={expandedPaths}
+          onToggleExpanded={handleToggleExpanded}
+        />
       ))}
       {roots.length === 0 && (
         <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>

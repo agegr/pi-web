@@ -101,6 +101,54 @@ export async function GET(
       return NextResponse.json({ content, language, size: stat.size });
     }
 
+    if (type === "watch") {
+      if (!stat.isFile()) {
+        return NextResponse.json({ error: "Not a file" }, { status: 400 });
+      }
+      let watcher: fs.FSWatcher | null = null;
+      const stream = new ReadableStream({
+        start(controller) {
+          const send = (eventName: string, data: Record<string, unknown>) => {
+            const payload = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
+            try {
+              controller.enqueue(new TextEncoder().encode(payload));
+            } catch {
+              // client disconnected
+            }
+          };
+          // Send initial ping so client knows connection is live
+          send("connected", { filePath });
+          try {
+            watcher = fs.watch(filePath, () => {
+              try {
+                const s = fs.statSync(filePath);
+                send("change", { mtime: s.mtime.toISOString(), size: s.size });
+              } catch {
+                send("change", { mtime: new Date().toISOString(), size: 0 });
+              }
+            });
+            watcher.on("error", () => {
+              try { controller.close(); } catch { /* ignore */ }
+            });
+          } catch {
+            send("error", { message: "Failed to watch file" });
+            controller.close();
+          }
+        },
+        cancel() {
+          try { watcher?.close(); } catch { /* ignore */ }
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
+        },
+      });
+    }
+
     // type === "list"
     if (!stat.isDirectory()) {
       return NextResponse.json({ error: "Not a directory" }, { status: 400 });
