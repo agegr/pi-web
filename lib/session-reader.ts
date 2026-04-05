@@ -1,4 +1,3 @@
-import { statSync } from "fs";
 import { SessionManager, buildSessionContext as piBuildSessionContext, getAgentDir } from "@mariozechner/pi-coding-agent";
 import type { SessionEntry } from "./types";
 import type { SessionEntry as PiSessionEntry } from "@mariozechner/pi-coding-agent";
@@ -191,49 +190,6 @@ export function getLeafId(entries: SessionEntry[]): string | null {
   return entries[entries.length - 1].id;
 }
 
-export function buildSessionInfo(filePath: string): SessionInfo | null {
-  try {
-    const sm = SessionManager.open(filePath);
-    const header = sm.getHeader();
-    if (!header) return null;
 
-    const entries = sm.getEntries();
-    let messageCount = 0;
-    let firstMessage = "";
-    let name: string | undefined;
-
-    for (const entry of entries) {
-      if (entry.type === "session_info") {
-        const e = entry as { type: "session_info"; name?: string };
-        if (e.name) name = e.name.trim();
-      }
-      if (entry.type !== "message") continue;
-      messageCount++;
-      const msg = (entry as { message: { role: string; content: unknown } }).message;
-      if (!firstMessage && msg.role === "user") {
-        const c = msg.content;
-        firstMessage = typeof c === "string"
-          ? c
-          : (Array.isArray(c) ? (c.find((b: { type: string }) => b.type === "text") as { text: string } | undefined)?.text ?? "" : "");
-      }
-    }
-
-    let modified = header.timestamp;
-    try { modified = statSync(filePath).mtime.toISOString(); } catch { /* use header timestamp */ }
-
-    return {
-      path: filePath,
-      id: header.id,
-      cwd: header.cwd ?? "",
-      name,
-      created: header.timestamp,
-      modified,
-      messageCount,
-      firstMessage: firstMessage || "(no messages)",
-    };
-  } catch {
-    return null;
-  }
-}
 
 

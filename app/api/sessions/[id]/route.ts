@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { readdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { SessionManager } from "@mariozechner/pi-coding-agent";
 import {
   resolveSessionPath,
   invalidateSessionPathCache,
   buildSessionContext,
-  buildSessionInfo,
+  listAllSessions,
 } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-manager";
 
@@ -26,7 +26,29 @@ export async function GET(
     const tree = sm.getTree();
     const leafId = sm.getLeafId();
     const context = buildSessionContext(entries, leafId);
-    const info = buildSessionInfo(filePath);
+
+    const header = sm.getHeader();
+    let modified = header?.timestamp ?? new Date().toISOString();
+    try { modified = statSync(filePath).mtime.toISOString(); } catch { /* use header timestamp */ }
+    const allSessions = await listAllSessions();
+    const parentSessionId = allSessions.find((s) => s.id === id)?.parentSessionId;
+    const info = header ? {
+      path: filePath,
+      id: header.id,
+      cwd: header.cwd ?? "",
+      name: sm.getSessionName(),
+      created: header.timestamp,
+      modified,
+      messageCount: context.messages.length,
+      firstMessage: context.messages.find((m) => m.role === "user")
+        ? (() => {
+            const msg = context.messages.find((m) => m.role === "user")!;
+            const c = (msg as { content: unknown }).content;
+            return typeof c === "string" ? c : (Array.isArray(c) ? (c.find((b: { type: string }) => b.type === "text") as { text: string } | undefined)?.text ?? "" : "") || "(no messages)";
+          })()
+        : "(no messages)",
+      parentSessionId,
+    } : null;
 
     const url = new URL(req.url);
     let agentState: { running: boolean; state?: unknown } | undefined;

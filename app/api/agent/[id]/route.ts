@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { resolveSessionPath, buildSessionInfo } from "@/lib/session-reader";
+import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession } from "@/lib/rpc-manager";
+import { SessionManager } from "@mariozechner/pi-coding-agent";
 
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
@@ -24,8 +25,7 @@ export async function POST(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const info = buildSessionInfo(filePath);
-    const cwd = info?.cwd ?? process.cwd();
+    const cwd = SessionManager.open(filePath).getHeader()?.cwd ?? process.cwd();
 
     const { session } = await startRpcSession(id, filePath, cwd);
     const result = await session.send(body);
