@@ -1,6 +1,6 @@
 {
   "name": "@agegr/pi-web",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Web UI for the pi coding agent",
   "bin": {
     "pi-web": "bin/pi-web.js"
@@ -16,9 +16,9 @@
     "package.json"
   ],
   "scripts": {
-    "dev": "next dev -p 3355",
+    "dev": "next dev -p 30141",
     "build": "next build --webpack",
-    "start": "next start -p 3355",
+    "start": "next start -p 30141",
     "lint": "eslint .",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
   },

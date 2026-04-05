@@ -9,12 +9,16 @@ npm install -g @agegr/pi-web
 pi-web
 ```
 
-Open [http://localhost:3355](http://localhost:3355).
+Open [http://localhost:30141](http://localhost:30141).
 
-Set a custom port with the `PORT` environment variable:
+Options:
 
 ```bash
-PORT=8080 pi-web
+pi-web --port 8080               # custom port
+pi-web --hostname 127.0.0.1      # local-only access
+pi-web -p 8080 -H 127.0.0.1     # combined
+
+PORT=8080 pi-web                 # env var also works
 ```
 
 ## Development Setup
