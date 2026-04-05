@@ -1,4 +1,4 @@
-import { createAgentSession } from "@mariozechner/pi-coding-agent";
+import { createAgentSession, SessionManager } from "@mariozechner/pi-coding-agent";
 import { cacheSessionPath } from "./session-reader";
 
 // ============================================================================
@@ -107,15 +107,35 @@ export class AgentSessionWrapper {
       }
 
       case "fork": {
-        const result = await this.inner.fork(command.entryId as string);
-        if (result.cancelled) return { cancelled: true };
-        // After fork, inner.sessionId is the new session's id.
-        // Capture it before destroy() clears state.
-        const newSessionId = this.inner.sessionId as string;
-        const newSessionFile = this.inner.sessionFile as string | undefined;
-        if (newSessionFile) cacheSessionPath(newSessionId, newSessionFile);
-        // Destroy this wrapper immediately so the next request for the
-        // original session reloads a clean AgentSession from its file.
+        const entryId = command.entryId as string;
+        const sessionManager = this.inner.sessionManager as SessionManager;
+        const currentSessionFile = this.inner.sessionFile as string | undefined;
+
+        if (!sessionManager.isPersisted()) return { cancelled: true };
+        if (!currentSessionFile) throw new Error("Persisted session is missing a session file");
+
+        const entry = sessionManager.getEntry(entryId);
+        if (!entry || entry.type !== "message" || entry.message.role !== "user") {
+          throw new Error("Invalid entry ID for forking");
+        }
+
+        const sessionDir = sessionManager.getSessionDir();
+
+        let newSessionFile: string;
+        if (!entry.parentId) {
+          const newManager = SessionManager.create(sessionManager.getCwd(), sessionDir);
+          newManager.newSession({ parentSession: currentSessionFile });
+          newSessionFile = newManager.getSessionFile() as string;
+        } else {
+          const sourceManager = SessionManager.open(currentSessionFile, sessionDir);
+          const forkedPath = sourceManager.createBranchedSession(entry.parentId);
+          if (!forkedPath) throw new Error("Failed to create forked session");
+          newSessionFile = forkedPath;
+        }
+
+        const newManager = SessionManager.open(newSessionFile, sessionDir);
+        const newSessionId = newManager.getSessionId() as string;
+        cacheSessionPath(newSessionId, newSessionFile);
         this.destroy();
         return { cancelled: false, newSessionId };
       }
@@ -297,7 +317,7 @@ export async function startRpcSession(
     // pi's buildSystemPrompt always produces a non-empty prompt even with no tools;
     // the only way to truly clear it is to call agent.setSystemPrompt directly.
     if (toolNames?.length === 0) {
-      inner.agent.setSystemPrompt("");
+      inner.agent.state.systemPrompt = "";
     }
 
     const wrapper = new AgentSessionWrapper(inner);
