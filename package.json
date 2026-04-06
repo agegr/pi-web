@@ -23,7 +23,7 @@
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
   },
   "dependencies": {
-    "@mariozechner/pi-coding-agent": "^0.65.0",
+    "@mariozechner/pi-coding-agent": "^0.65.2",
     "@types/react-syntax-highlighter": "^15.5.13",
     "next": "16.2.1",
     "react": "^19.2.4",
