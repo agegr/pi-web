@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
@@ -42,6 +42,28 @@ export function AppShell() {
   const handleBranchLeafChange = useCallback((leafId: string | null) => {
     branchLeafChangeFnRef.current?.(leafId);
   }, []);
+
+  const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
+  const [systemPromptOpen, setSystemPromptOpen] = useState(false);
+  const [systemPromptPos, setSystemPromptPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const systemBtnRef = useRef<HTMLButtonElement>(null);
+
+  const handleSystemPromptChange = useCallback((prompt: string | null) => {
+    setSystemPrompt(prompt);
+    if (!prompt) setSystemPromptOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!systemPromptOpen || !topBarRef.current) return;
+    const update = () => {
+      const rect = topBarRef.current!.getBoundingClientRect();
+      setSystemPromptPos({ top: rect.bottom, left: rect.left, width: rect.width });
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(topBarRef.current);
+    return () => ro.disconnect();
+  }, [systemPromptOpen]);
 
   // Right panel — file tabs only
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
@@ -94,6 +116,8 @@ export function AppShell() {
     setSessionKey((k) => k + 1);
     setBranchTree([]);
     setBranchActiveLeafId(null);
+    setSystemPrompt(null);
+    setSystemPromptOpen(false);
     router.replace("/", { scroll: false });
   }, [router]);
 
@@ -292,7 +316,7 @@ export function AppShell() {
               </svg>
             )}
           </button>
-          <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+          <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
             <BranchNavigator
               tree={branchTree}
               activeLeafId={branchActiveLeafId}
@@ -300,25 +324,59 @@ export function AppShell() {
               inline
               containerRef={topBarRef}
             />
+            {systemPrompt && (
+              <>
+                <button
+                  ref={systemBtnRef}
+                  onClick={() => setSystemPromptOpen((v) => !v)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    height: "100%", padding: "0 12px",
+                    background: "none", border: "none",
+                    borderRight: "1px solid var(--border)",
+                    cursor: "pointer",
+                    color: systemPromptOpen ? "var(--text)" : "var(--text-muted)",
+                    fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = systemPromptOpen ? "var(--text)" : "var(--text-muted)"; }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--accent)", flexShrink: 0 }}>
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="8" y1="13" x2="16" y2="13" />
+                    <line x1="8" y1="17" x2="13" y2="17" />
+                  </svg>
+                  <span>System</span>
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 2, transform: systemPromptOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+                    <polyline points="2 3.5 5 6.5 8 3.5" />
+                  </svg>
+                </button>
+                {systemPromptOpen && systemPromptPos && (
+                  <div style={{
+                    position: "fixed",
+                    top: systemPromptPos.top,
+                    left: systemPromptPos.left,
+                    width: systemPromptPos.width,
+                    maxHeight: "min(400px, 50vh)",
+                    overflowY: "auto",
+                    background: "var(--bg-panel)",
+                    borderBottom: "1px solid var(--border)",
+                    padding: "12px 16px",
+                    color: "var(--text-muted)",
+                    fontSize: 12,
+                    lineHeight: 1.6,
+                    whiteSpace: "pre-wrap",
+                    fontFamily: "var(--font-mono)",
+                    zIndex: 500,
+                  }}>
+                    {systemPrompt}
+                  </div>
+                )}
+              </>
+            )}
           </div>
-          {/* Toggle right panel */}
-          <button
-            onClick={() => setRightPanelOpen((v) => !v)}
-            title={rightPanelOpen ? "Hide file panel" : "Show file panel"}
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              width: 36, height: 36, padding: 0,
-              background: "none", border: "none", borderLeft: "1px solid var(--border)",
-              color: rightPanelOpen ? "var(--text)" : "var(--text-muted)",
-              cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = rightPanelOpen ? "var(--text)" : "var(--text-muted)"; }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
-            </svg>
-          </button>
+
         </div>
 
         {/* Chat content */}
@@ -334,6 +392,7 @@ export function AppShell() {
               modelsRefreshKey={modelsRefreshKey}
               chatInputRef={chatInputRef}
               onBranchDataChange={handleBranchDataChange}
+              onSystemPromptChange={handleSystemPromptChange}
             />
           ) : showPlaceholder ? (
             activeCwd ? (
@@ -378,22 +437,7 @@ export function AppShell() {
               onCloseTab={handleCloseFileTab}
             />
           </div>
-          <button
-            onClick={() => setRightPanelOpen(false)}
-            title="Close file panel"
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              width: 36, height: 36, padding: 0, flexShrink: 0,
-              background: "none", border: "none", borderLeft: "1px solid var(--border)",
-              color: "var(--text-muted)", cursor: "pointer", transition: "color 0.12s",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
-            </svg>
-          </button>
+
         </div>
 
         {/* File content */}
@@ -408,6 +452,25 @@ export function AppShell() {
         </div>
       </div>
     </div>
+    {/* File panel toggle — always visible at top-right */}
+    <button
+      onClick={() => setRightPanelOpen((v) => !v)}
+      title={rightPanelOpen ? "Hide file panel" : "Show file panel"}
+      style={{
+        position: "fixed", top: 0, right: 0, zIndex: 300,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        width: 36, height: 36, padding: 0,
+        background: "var(--bg-panel)", border: "none", borderLeft: "1px solid var(--border)", borderBottom: "1px solid var(--border)",
+        color: rightPanelOpen ? "var(--text)" : "var(--text-muted)",
+        cursor: "pointer", transition: "color 0.12s",
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.color = rightPanelOpen ? "var(--text)" : "var(--text-muted)"; }}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
+      </svg>
+    </button>
     {modelsConfigOpen && <ModelsConfig onClose={() => { setModelsConfigOpen(false); setModelsRefreshKey((k) => k + 1); }} />}
     {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
       <SkillsConfig cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!} onClose={() => setSkillsConfigOpen(false)} />
