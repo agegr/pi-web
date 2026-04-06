@@ -3,6 +3,8 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface Props {
   filePath: string;
@@ -305,7 +307,9 @@ export function FileViewer({ filePath, cwd }: Props) {
       esRef.current = null;
     }
 
-    fetchContent(filePath).finally(() => setLoading(false));
+    fetchContent(filePath).then((d) => {
+      if (d?.language === "markdown") setPreviewMode(true);
+    }).finally(() => setLoading(false));
 
     // Set up SSE watch
     const encoded = filePath.split("/").filter(Boolean).join("/");
@@ -353,6 +357,7 @@ export function FileViewer({ filePath, cwd }: Props) {
   if (!data) return null;
 
   const isHtml = data.language === "html";
+  const isMarkdown = data.language === "markdown";
   const lines = data.content.split("\n");
   const hasDiff = prevContent !== null && prevContent !== data.content;
 
@@ -471,6 +476,34 @@ export function FileViewer({ filePath, cwd }: Props) {
             </button>
           </div>
         )}
+
+        {/* Markdown preview/raw toggle */}
+        {isMarkdown && viewMode === "source" && (
+          <div style={{ display: "flex", borderRadius: 5, overflow: "hidden", border: "1px solid var(--border)" }}>
+            <button
+              onClick={() => setPreviewMode(true)}
+              style={{
+                padding: "2px 8px", fontSize: 11, border: "none", cursor: "pointer",
+                background: previewMode ? "var(--bg-selected)" : "var(--bg-hover)",
+                color: previewMode ? "var(--text)" : "var(--text-muted)",
+                fontWeight: previewMode ? 600 : 400,
+              }}
+            >
+              Preview
+            </button>
+            <button
+              onClick={() => setPreviewMode(false)}
+              style={{
+                padding: "2px 8px", fontSize: 11, border: "none", borderLeft: "1px solid var(--border)", cursor: "pointer",
+                background: !previewMode ? "var(--bg-selected)" : "var(--bg-hover)",
+                color: !previewMode ? "var(--text)" : "var(--text-muted)",
+                fontWeight: !previewMode ? 600 : 400,
+              }}
+            >
+              Raw
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Content area */}
@@ -484,6 +517,13 @@ export function FileViewer({ filePath, cwd }: Props) {
             style={{ width: "100%", height: "100%", border: "none", background: "#fff" }}
             title="HTML preview"
           />
+        ) : isMarkdown && previewMode ? (
+          <div
+            className="markdown-body markdown-file-preview"
+            style={{ padding: "24px 32px", maxWidth: 800 }}
+          >
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.content}</ReactMarkdown>
+          </div>
         ) : (
           <SyntaxHighlighter
             language={data.language === "text" ? "plaintext" : data.language}
