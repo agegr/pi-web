@@ -11,6 +11,10 @@ interface Props {
   inline?: boolean;
   /** When inline, use this ref's bounding rect to size/position the dropdown */
   containerRef?: React.RefObject<HTMLElement | null>;
+  /** Controlled open state for inline mode */
+  open?: boolean;
+  /** Called when the button is clicked in inline mode */
+  onToggle?: () => void;
 }
 
 // Find the set of entry IDs on the path from root to activeLeafId
@@ -205,8 +209,9 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
   );
 }
 
-export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, containerRef }: Props) {
-  const [open, setOpen] = useState(false);
+export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, containerRef, open: openProp, onToggle }: Props) {
+  const [openInternal, setOpenInternal] = useState(false);
+  const open = openProp !== undefined ? openProp : openInternal;
   const btnRef = useRef<HTMLButtonElement>(null);
   const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
@@ -261,29 +266,28 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
       <div style={{ height: "100%", display: "flex", alignItems: "stretch" }}>
         <button
           ref={btnRef}
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => onToggle ? onToggle() : setOpenInternal((v) => !v)}
           style={{
             display: "flex",
             alignItems: "center",
             gap: 6,
             height: "100%",
             padding: "0 12px",
-            background: "none",
+            background: open ? "var(--bg-selected)" : "none",
             border: "none",
-            borderLeft: "1px solid var(--border)",
+            borderTop: open ? "2px solid var(--accent)" : "2px solid transparent",
             borderRight: "1px solid var(--border)",
             cursor: "pointer",
             color: open ? "var(--text)" : "var(--text-muted)",
             fontSize: 11,
             whiteSpace: "nowrap",
-            transition: "color 0.1s",
+            transition: "color 0.1s, background 0.1s",
           }}
           onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
           onMouseLeave={(e) => { e.currentTarget.style.color = open ? "var(--text)" : "var(--text-muted)"; }}
         >
           {branchIcon}
           <span>Branches</span>
-          {chevron}
         </button>
         {open && dropdownPos && (
           <div style={{
@@ -319,7 +323,7 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
     <div style={{ borderBottom: "1px solid var(--border)", background: "var(--bg)", flexShrink: 0, position: "relative" }}>
       {/* Header toggle */}
       <button
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpenInternal((v) => !v)}
         style={{
           display: "flex",
           alignItems: "center",
