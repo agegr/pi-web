@@ -49,6 +49,7 @@ function TreeNode({
   onAtMention,
   expandedPaths,
   onToggleExpanded,
+  refreshKey,
 }: {
   node: FileNode;
   depth: number;
@@ -57,6 +58,7 @@ function TreeNode({
   onAtMention?: (relativePath: string) => void;
   expandedPaths: Set<string>;
   onToggleExpanded: (fullPath: string, open: boolean) => void;
+  refreshKey?: number;
 }) {
   const open = expandedPaths.has(node.fullPath);
   const [children, setChildren] = useState<FileNode[]>(node.children ?? []);
@@ -84,13 +86,13 @@ function TreeNode({
     prevLoadedRef.current = loaded;
   });
 
-  // Re-fetch children whenever the node becomes open and was already loaded (refresh case)
+  // Re-fetch children when refreshKey changes and the directory is already open/loaded
   useEffect(() => {
     if (open && loaded) {
       loadChildren(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [node.fullPath]);
+  }, [refreshKey]);
 
   const handleClick = useCallback(() => {
     if (node.isDir) {
@@ -196,7 +198,7 @@ function TreeNode({
       {node.isDir && open && (
         <div>
           {children.map((child) => (
-            <TreeNode key={child.fullPath} node={child} depth={depth + 1} cwd={cwd} onOpenFile={onOpenFile} onAtMention={onAtMention} expandedPaths={expandedPaths} onToggleExpanded={onToggleExpanded} />
+            <TreeNode key={child.fullPath} node={child} depth={depth + 1} cwd={cwd} onOpenFile={onOpenFile} onAtMention={onAtMention} expandedPaths={expandedPaths} onToggleExpanded={onToggleExpanded} refreshKey={refreshKey} />
           ))}
           {children.length === 0 && loaded && (
             <div style={{ paddingLeft: 8 + (depth + 1) * 14, fontSize: 11, color: "var(--text-dim)", height: 22, display: "flex", alignItems: "center" }}>
@@ -267,6 +269,7 @@ export function FileExplorer({ cwd, onOpenFile, refreshKey, onAtMention }: Props
           onAtMention={onAtMention}
           expandedPaths={expandedPaths}
           onToggleExpanded={handleToggleExpanded}
+          refreshKey={refreshKey}
         />
       ))}
       {roots.length === 0 && (
