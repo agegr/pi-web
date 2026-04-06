@@ -8,7 +8,8 @@ import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
-import type { SessionInfo } from "@/lib/types";
+import { BranchNavigator } from "./BranchNavigator";
+import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ChatInputHandle } from "./ChatInput";
 
 export function AppShell() {
@@ -25,6 +26,22 @@ export function AppShell() {
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
+  const topBarRef = useRef<HTMLDivElement>(null);
+
+  // Branch navigator state — populated by ChatWindow via onBranchDataChange
+  const [branchTree, setBranchTree] = useState<SessionTreeNode[]>([]);
+  const [branchActiveLeafId, setBranchActiveLeafId] = useState<string | null>(null);
+  const branchLeafChangeFnRef = useRef<((leafId: string | null) => void) | null>(null);
+
+  const handleBranchDataChange = useCallback((tree: SessionTreeNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void) => {
+    setBranchTree(tree);
+    setBranchActiveLeafId(activeLeafId);
+    branchLeafChangeFnRef.current = onLeafChange;
+  }, []);
+
+  const handleBranchLeafChange = useCallback((leafId: string | null) => {
+    branchLeafChangeFnRef.current?.(leafId);
+  }, []);
 
   // Right panel — file tabs only
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
@@ -75,6 +92,8 @@ export function AppShell() {
     setSelectedSession(null);
     setNewSessionCwd(cwd);
     setSessionKey((k) => k + 1);
+    setBranchTree([]);
+    setBranchActiveLeafId(null);
     router.replace("/", { scroll: false });
   }, [router]);
 
@@ -250,7 +269,7 @@ export function AppShell() {
       {/* Center: chat */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Top bar with sidebar toggle */}
-        <div style={{ display: "flex", alignItems: "center", flexShrink: 0, borderBottom: "1px solid var(--border)", height: 36, background: "var(--bg-panel)" }}>
+        <div ref={topBarRef} style={{ display: "flex", alignItems: "center", flexShrink: 0, borderBottom: "1px solid var(--border)", height: 36, background: "var(--bg-panel)" }}>
           <button
             onClick={() => setSidebarOpen((v) => !v)}
             title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
@@ -273,8 +292,15 @@ export function AppShell() {
               </svg>
             )}
           </button>
-          <span style={{ padding: "0 12px", fontSize: 12, color: "var(--text-dim)", userSelect: "none" }}>Chat</span>
-          <div style={{ flex: 1 }} />
+          <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+            <BranchNavigator
+              tree={branchTree}
+              activeLeafId={branchActiveLeafId}
+              onLeafChange={handleBranchLeafChange}
+              inline
+              containerRef={topBarRef}
+            />
+          </div>
           {/* Toggle right panel */}
           <button
             onClick={() => setRightPanelOpen((v) => !v)}
@@ -307,6 +333,7 @@ export function AppShell() {
               onSessionForked={handleSessionForked}
               modelsRefreshKey={modelsRefreshKey}
               chatInputRef={chatInputRef}
+              onBranchDataChange={handleBranchDataChange}
             />
           ) : showPlaceholder ? (
             activeCwd ? (

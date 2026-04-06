@@ -1,12 +1,16 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import type { SessionEntry, SessionTreeNode } from "@/lib/types";
 
 interface Props {
   tree: SessionTreeNode[];
   activeLeafId: string | null;
   onLeafChange: (leafId: string | null) => void;
+  /** When true, renders as a compact inline button for embedding in a top bar */
+  inline?: boolean;
+  /** When inline, use this ref's bounding rect to size/position the dropdown */
+  containerRef?: React.RefObject<HTMLElement | null>;
 }
 
 // Find the set of entry IDs on the path from root to activeLeafId
@@ -201,8 +205,24 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
   );
 }
 
-export function BranchNavigator({ tree, activeLeafId, onLeafChange }: Props) {
+export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, containerRef }: Props) {
   const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  useEffect(() => {
+    if (!open || !inline) return;
+    const anchor = containerRef?.current ?? btnRef.current;
+    if (!anchor) return;
+    const update = () => {
+      const rect = anchor.getBoundingClientRect();
+      setDropdownPos({ top: rect.bottom, left: rect.left, width: rect.width });
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(anchor);
+    return () => ro.disconnect();
+  }, [open, inline, containerRef]);
 
   const activePathIds = useMemo(
     () => buildActivePath(tree, activeLeafId),
@@ -219,6 +239,81 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange }: Props) {
   // Find first meaningful node (skip pure linear prefix)
   const { node: firstNode } = tree.length > 0 ? compress(tree[0]) : { node: tree[0] };
   if (!firstNode || firstNode.children.length <= 1) return null;
+
+  const branchIcon = (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--accent)", flexShrink: 0 }}>
+      <line x1="6" y1="3" x2="6" y2="15" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M18 9a9 9 0 0 1-9 9" />
+    </svg>
+  );
+
+  const chevron = (
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 2, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+      <polyline points="2 3.5 5 6.5 8 3.5" />
+    </svg>
+  );
+
+
+  if (inline) {
+    return (
+      <div style={{ height: "100%", display: "flex", alignItems: "stretch" }}>
+        <button
+          ref={btnRef}
+          onClick={() => setOpen((v) => !v)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            height: "100%",
+            padding: "0 12px",
+            background: "none",
+            border: "none",
+            borderLeft: "1px solid var(--border)",
+            borderRight: "1px solid var(--border)",
+            cursor: "pointer",
+            color: open ? "var(--text)" : "var(--text-muted)",
+            fontSize: 11,
+            whiteSpace: "nowrap",
+            transition: "color 0.1s",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = open ? "var(--text)" : "var(--text-muted)"; }}
+        >
+          {branchIcon}
+          <span>Branches</span>
+          {chevron}
+        </button>
+        {open && dropdownPos && (
+          <div style={{
+            position: "fixed",
+            top: dropdownPos.top,
+            left: dropdownPos.left,
+            width: dropdownPos.width,
+            padding: "4px 12px 8px 12px",
+            maxHeight: 260,
+            overflowY: "auto",
+            background: "var(--bg-panel)",
+            borderBottom: "1px solid var(--border)",
+            zIndex: 500,
+          }}>
+            {firstNode.children.map((child, idx) => (
+              <TreeNodeView
+                key={child.entry.id}
+                node={child}
+                activePathIds={activePathIds}
+                depth={0}
+                isLast={idx === firstNode.children.length - 1}
+                parentLines={[]}
+                onSelect={handleSelect}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ borderBottom: "1px solid var(--border)", background: "var(--bg)", flexShrink: 0, position: "relative" }}>
@@ -239,17 +334,9 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange }: Props) {
           textAlign: "left",
         }}
       >
-        {/* branch icon */}
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--accent)", flexShrink: 0 }}>
-          <line x1="6" y1="3" x2="6" y2="15" />
-          <circle cx="18" cy="6" r="3" />
-          <circle cx="6" cy="18" r="3" />
-          <path d="M18 9a9 9 0 0 1-9 9" />
-        </svg>
+        {branchIcon}
         <span style={{ color: "var(--text-muted)" }}>Branches</span>
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 2, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
-          <polyline points="2 3.5 5 6.5 8 3.5" />
-        </svg>
+        {chevron}
       </button>
 
       {/* Tree panel - overlay */}

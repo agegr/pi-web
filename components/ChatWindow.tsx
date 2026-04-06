@@ -5,7 +5,6 @@ import type { SessionInfo, SessionTreeNode, AgentMessage } from "@/lib/types";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle, type AttachedImage } from "./ChatInput";
-import { BranchNavigator } from "./BranchNavigator";
 import { type ToolEntry } from "./ToolPanel";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 
@@ -60,9 +59,10 @@ interface Props {
   onSessionForked?: (newSessionId: string) => void;
   modelsRefreshKey?: number;
   chatInputRef?: React.RefObject<ChatInputHandle | null>;
+  onBranchDataChange?: (tree: SessionTreeNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void) => void;
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef }: Props) {
+export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange }: Props) {
   const isNew = session === null && newSessionCwd !== null;
 
   const [data, setData] = useState<SessionData | null>(null);
@@ -396,6 +396,11 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       }).catch(() => {});
     }
   }, [loadContext]);
+
+  useEffect(() => {
+    if (!onBranchDataChange) return;
+    onBranchDataChange(data?.tree ?? [], activeLeafId, handleLeafChange);
+  }, [data?.tree, activeLeafId, handleLeafChange, onBranchDataChange]);
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
     if (!message.trim() && !images?.length) return;
@@ -739,13 +744,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           </svg>
         </div>
       )}
-      {data && data.tree.length > 0 && (
-        <BranchNavigator
-          tree={data.tree}
-          activeLeafId={activeLeafId}
-          onLeafChange={handleLeafChange}
-        />
-      )}
+
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
       {systemPrompt && nearTop && (
