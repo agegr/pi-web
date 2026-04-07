@@ -48,7 +48,6 @@ export function AppShell() {
 
   const handleSystemPromptChange = useCallback((prompt: string | null) => {
     setSystemPrompt(prompt);
-    if (!prompt) setActiveTopPanel(null);
   }, []);
 
   // Single active panel — only one dropdown open at a time
@@ -102,6 +101,7 @@ export function AppShell() {
     setNewSessionCwd(null);
     setSelectedSession(session);
     setSessionKey((k) => k + 1);
+    setSystemPrompt(null);
     setInitialSessionRestored(true);
     if (isRestore) {
       // Suppress the redundant sessionKey bump that would come from the
@@ -322,17 +322,18 @@ export function AppShell() {
               </svg>
             )}
           </button>
-          <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
-            <BranchNavigator
-              tree={branchTree}
-              activeLeafId={branchActiveLeafId}
-              onLeafChange={handleBranchLeafChange}
-              inline
-              containerRef={topBarRef}
-              open={activeTopPanel === "branches"}
-              onToggle={() => toggleTopPanel("branches")}
-            />
-            {systemPrompt && (
+          {showChat && (
+            <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
+              <BranchNavigator
+                tree={branchTree}
+                activeLeafId={branchActiveLeafId}
+                onLeafChange={handleBranchLeafChange}
+                inline
+                containerRef={topBarRef}
+                open={activeTopPanel === "branches"}
+                onToggle={() => toggleTopPanel("branches")}
+                hasSession
+              />
               <button
                 ref={systemBtnRef}
                 onClick={() => toggleTopPanel("system")}
@@ -350,7 +351,7 @@ export function AppShell() {
                 onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.color = activeTopPanel === "system" ? "var(--text)" : "var(--text-muted)"; }}
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--accent)", flexShrink: 0 }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: systemPrompt ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }}>
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                   <polyline points="14 2 14 8 20 8" />
                   <line x1="8" y1="13" x2="16" y2="13" />
@@ -358,8 +359,8 @@ export function AppShell() {
                 </svg>
                 <span>System</span>
               </button>
-            )}
-          </div>
+            </div>
+          )}
           {/* Top panel dropdown — shared, only one active at a time */}
           {activeTopPanel && topPanelPos && (
             <div style={{
@@ -371,18 +372,31 @@ export function AppShell() {
             }}>
               {activeTopPanel === "system" && (
                 <div style={{
-                  maxHeight: "min(600px, 75vh)",
-                  overflowY: "auto",
                   background: "var(--bg-panel)",
                   borderBottom: "1px solid var(--border)",
-                  padding: "12px 16px",
-                  color: "var(--text-muted)",
-                  fontSize: 12,
-                  lineHeight: 1.6,
-                  whiteSpace: "pre-wrap",
-                  fontFamily: "var(--font-mono)",
                 }}>
-                  {systemPrompt}
+                  {systemPrompt ? (
+                    <div style={{
+                      maxHeight: "min(600px, 75vh)",
+                      overflowY: "auto",
+                      padding: "12px 16px",
+                      color: "var(--text-muted)",
+                      fontSize: 12,
+                      lineHeight: 1.6,
+                      whiteSpace: "pre-wrap",
+                      fontFamily: "var(--font-mono)",
+                    }}>
+                      {systemPrompt}
+                    </div>
+                  ) : systemPrompt === "" ? (
+                    <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
+                      System prompt is empty (tools are disabled)
+                    </div>
+                  ) : (
+                    <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
+                      Send a message to load the system prompt
+                    </div>
+                  )}
                 </div>
               )}
             </div>

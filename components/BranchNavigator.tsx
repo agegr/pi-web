@@ -15,6 +15,8 @@ interface Props {
   open?: boolean;
   /** Called when the button is clicked in inline mode */
   onToggle?: () => void;
+  /** Whether a session is currently active (used to show appropriate empty reason) */
+  hasSession?: boolean;
 }
 
 // Find the set of entry IDs on the path from root to activeLeafId
@@ -209,7 +211,7 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
   );
 }
 
-export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, containerRef, open: openProp, onToggle }: Props) {
+export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, containerRef, open: openProp, onToggle, hasSession }: Props) {
   const [openInternal, setOpenInternal] = useState(false);
   const open = openProp !== undefined ? openProp : openInternal;
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -238,15 +240,19 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
     onLeafChange(id);
   }, [onLeafChange]);
 
-  // Only show if there's actual branching
-  if (!hasBranch(tree)) return null;
+  const noBranchReason = !hasSession
+    ? "No active session"
+    : !hasBranch(tree)
+      ? "This session has no branches"
+      : null;
 
   // Find first meaningful node (skip pure linear prefix)
-  const { node: firstNode } = tree.length > 0 ? compress(tree[0]) : { node: tree[0] };
-  if (!firstNode || firstNode.children.length <= 1) return null;
+  const compressed = tree.length > 0 ? compress(tree[0]) : null;
+  const firstNode = compressed?.node ?? null;
+  const hasContent = !noBranchReason && firstNode && firstNode.children.length > 1;
 
   const branchIcon = (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--accent)", flexShrink: 0 }}>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: hasContent ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }}>
       <line x1="6" y1="3" x2="6" y2="15" />
       <circle cx="18" cy="6" r="3" />
       <circle cx="6" cy="18" r="3" />
@@ -295,24 +301,29 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
             top: dropdownPos.top,
             left: dropdownPos.left,
             width: dropdownPos.width,
-            padding: "4px 12px 8px 12px",
-            maxHeight: 260,
-            overflowY: "auto",
             background: "var(--bg-panel)",
             borderBottom: "1px solid var(--border)",
             zIndex: 500,
           }}>
-            {firstNode.children.map((child, idx) => (
-              <TreeNodeView
-                key={child.entry.id}
-                node={child}
-                activePathIds={activePathIds}
-                depth={0}
-                isLast={idx === firstNode.children.length - 1}
-                parentLines={[]}
-                onSelect={handleSelect}
-              />
-            ))}
+            {hasContent && firstNode ? (
+              <div style={{ padding: "4px 12px 8px 12px", maxHeight: 260, overflowY: "auto" }}>
+                {firstNode.children.map((child, idx) => (
+                  <TreeNodeView
+                    key={child.entry.id}
+                    node={child}
+                    activePathIds={activePathIds}
+                    depth={0}
+                    isLast={idx === firstNode.children.length - 1}
+                    parentLines={[]}
+                    onSelect={handleSelect}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
+                {noBranchReason}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -350,25 +361,30 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
           top: "100%",
           left: 0,
           right: 0,
-          padding: "4px 12px 8px 12px",
-          maxHeight: 260,
-          overflowY: "auto",
           background: "var(--bg)",
           borderBottom: "1px solid var(--border)",
           boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
           zIndex: 100,
         }}>
-          {firstNode.children.map((child, idx) => (
-            <TreeNodeView
-              key={child.entry.id}
-              node={child}
-              activePathIds={activePathIds}
-              depth={0}
-              isLast={idx === firstNode.children.length - 1}
-              parentLines={[]}
-              onSelect={handleSelect}
-            />
-          ))}
+          {hasContent && firstNode ? (
+            <div style={{ padding: "4px 12px 8px 12px", maxHeight: 260, overflowY: "auto" }}>
+              {firstNode.children.map((child, idx) => (
+                <TreeNodeView
+                  key={child.entry.id}
+                  node={child}
+                  activePathIds={activePathIds}
+                  depth={0}
+                  isLast={idx === firstNode.children.length - 1}
+                  parentLines={[]}
+                  onSelect={handleSelect}
+                />
+              ))}
+            </div>
+          ) : (
+            <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
+              {noBranchReason ?? "This session has no branches"}
+            </div>
+          )}
         </div>
       )}
     </div>
