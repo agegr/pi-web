@@ -76,7 +76,7 @@ export function AppShell() {
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
 
   const handleAtMention = useCallback((relativePath: string) => {
-    chatInputRef.current?.insertText("@" + relativePath);
+    chatInputRef.current?.insertText("`" + relativePath + "`");
   }, []);
 
   const [initialSessionId] = useState<string | null>(() => searchParams.get("session"));
