@@ -104,6 +104,50 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   // Set to true after send so the post-render effect scrolls the user msg to top
   const pendingScrollToUserRef = useRef(false);
 
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    const stored = localStorage.getItem("pi-sound-enabled");
+    return stored === null ? true : stored === "true";
+  });
+
+  const handleSoundToggle = useCallback(() => {
+    setSoundEnabled((prev) => {
+      const next = !prev;
+      localStorage.setItem("pi-sound-enabled", String(next));
+      return next;
+    });
+  }, []);
+
+  const playDoneSound = useCallback(() => {
+    try {
+      const ctx = new AudioContext();
+      const now = ctx.currentTime;
+      // Two-tone chime: C5 then E5
+      const freqs = [523.25, 659.25];
+      freqs.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        const t = now + i * 0.18;
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.18, t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+        osc.start(t);
+        osc.stop(t + 0.45);
+      });
+      // Close context after sounds finish
+      setTimeout(() => ctx.close(), 1200);
+    } catch {
+      // AudioContext not available, silently ignore
+    }
+  }, []);
+
+  const soundEnabledRef = useRef(soundEnabled);
+  useEffect(() => { soundEnabledRef.current = soundEnabled; }, [soundEnabled]);
+
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounterRef = useRef(0);
 
@@ -250,6 +294,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         setRetryInfo(null);
         scrollLockedRef.current = false;
         dispatch({ type: "end" });
+        if (soundEnabledRef.current) playDoneSound();
         if (sessionIdRef.current) {
           loadSession(sessionIdRef.current);
           // Refresh context usage after the turn completes
@@ -298,7 +343,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         }
         break;
     }
-  }, [loadSession, onAgentEnd]);
+  }, [loadSession, onAgentEnd, playDoneSound]);
   handleAgentEventRef.current = handleAgentEvent;
 
   // Fetch model list — re-runs whenever modelsRefreshKey changes (e.g. after ModelsConfig save/OAuth login)
@@ -836,6 +881,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           sessionStats={sessionStats}
           retryInfo={retryInfo}
           contextUsage={contextUsage}
+          soundEnabled={soundEnabled}
+          onSoundToggle={handleSoundToggle}
         />
       </div>
 

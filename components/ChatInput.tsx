@@ -33,6 +33,8 @@ interface Props {
   sessionStats?: { tokens: { input: number; output: number; cacheRead: number; cacheWrite: number } } | null;
   retryInfo?: { attempt: number; maxAttempts: number; errorMessage?: string } | null;
   contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
+  soundEnabled?: boolean;
+  onSoundToggle?: () => void;
 }
 
 export interface ChatInputHandle {
@@ -53,14 +55,17 @@ const TOOL_PRESET_MAP: Record<"off" | "default" | "full", "none" | "default" | "
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, modelNames, modelList, onModelChange,
   onCompact, onAbortCompaction, isCompacting, compactError, toolPreset, onToolPresetChange, sessionStats, retryInfo, contextUsage,
+  soundEnabled, onSoundToggle,
 }: Props, ref) {
   const [value, setValue] = useState("");
   const [queueMode, setQueueMode] = useState<"steer" | "followup">("steer");
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+  const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const toolDropdownRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useImperativeHandle(ref, () => ({
@@ -222,11 +227,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     ? (modelOptions.find((o) => o.modelId === model.modelId && o.provider === model.provider)?.name ?? model.modelId)
     : modelOptions.length > 0 ? modelOptions[0].name : null;
 
-  // Close dropdown on outside click
+  // Close dropdowns on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setModelDropdownOpen(false);
+      }
+      if (toolDropdownRef.current && !toolDropdownRef.current.contains(e.target as Node)) {
+        setToolDropdownOpen(false);
       }
     };
     document.addEventListener("mousedown", handler);
@@ -664,31 +672,82 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             })()}
           </div>
 
-          {/* RIGHT: tools preset + compact */}
+          {/* RIGHT: tools preset + compact + sound */}
           <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
             {onToolPresetChange && (
-              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <span style={{ fontSize: 12, color: "var(--text-dim)" }}>tools</span>
-                <div style={{ display: "flex", alignItems: "center", border: "1px solid var(--border)", borderRadius: 5, overflow: "hidden" }}>
-                  {TOOL_PRESETS.map((lvl, i) => {
-                    const preset = TOOL_PRESET_MAP[lvl];
-                    const isActive = (toolPreset ?? "default") === preset;
-                    const prevPreset = i > 0 ? TOOL_PRESET_MAP[TOOL_PRESETS[i - 1]] : null;
-                    const prevActive = prevPreset !== null && (toolPreset ?? "default") === prevPreset;
-                    return (
-                      <button key={lvl} onClick={() => !isStreaming && onToolPresetChange(preset)} disabled={isStreaming} title={lvl === "off" ? "无工具，纯聊天，不浪费一个 token" : lvl === "default" ? "4 项内置工具" : "使用全部内置工具"}
-                        style={{
-                          padding: "4px 10px", background: isActive ? "var(--bg-selected)" : "none",
-                          border: "none", borderLeft: i > 0 ? `1px solid ${isActive || prevActive ? "transparent" : "var(--border)"}` : "none",
-                          color: isActive ? "var(--accent)" : "var(--text-dim)",
-                          cursor: isStreaming ? "not-allowed" : "pointer",
-                          fontSize: 12, fontWeight: isActive ? 600 : 400, opacity: isStreaming ? 0.5 : 1,
-                        }}>
-                        {lvl}
-                      </button>
-                    );
-                  })}
-                </div>
+              <div ref={toolDropdownRef} style={{ position: "relative" }}>
+                <button
+                  onClick={() => !isStreaming && setToolDropdownOpen((v) => !v)}
+                  disabled={isStreaming}
+                  title="切换工具预设"
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "4px 8px",
+                    background: "none",
+                    border: "1px solid var(--border)",
+                    borderRadius: 5,
+                    color: "var(--text-muted)",
+                    cursor: isStreaming ? "not-allowed" : "pointer",
+                    fontSize: 12,
+                    opacity: isStreaming ? 0.5 : 1,
+                    transition: "border-color 0.12s, color 0.12s",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (isStreaming) return;
+                    e.currentTarget.style.borderColor = "rgba(37,99,235,0.4)";
+                    e.currentTarget.style.color = "var(--accent)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = "var(--border)";
+                    e.currentTarget.style.color = "var(--text-muted)";
+                  }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+                  </svg>
+                  <span>{Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? "default"))?.[0] ?? "default"}</span>
+                  <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: toolDropdownOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+                    <polyline points="2 3.5 5 6.5 8 3.5" />
+                  </svg>
+                </button>
+                {toolDropdownOpen && (
+                  <div style={{
+                    position: "absolute", bottom: "calc(100% + 6px)", right: 0,
+                    zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
+                    borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
+                    overflow: "hidden", minWidth: 120,
+                  }}>
+                    {TOOL_PRESETS.map((lvl) => {
+                      const preset = TOOL_PRESET_MAP[lvl];
+                      const isActive = (toolPreset ?? "default") === preset;
+                      const desc = lvl === "off" ? "无工具，纯聊天" : lvl === "default" ? "4 项内置工具" : "全部内置工具";
+                      return (
+                        <button
+                          key={lvl}
+                          onClick={() => { setToolDropdownOpen(false); if (!isActive) onToolPresetChange(preset); }}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 8,
+                            width: "100%", padding: "7px 12px",
+                            background: isActive ? "var(--bg-selected)" : "none",
+                            border: "none",
+                            color: isActive ? "var(--text)" : "var(--text-muted)",
+                            cursor: "pointer", fontSize: 12, textAlign: "left",
+                            fontWeight: isActive ? 600 : 400,
+                            whiteSpace: "nowrap",
+                          }}
+                          onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
+                          onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
+                        >
+                          {isActive
+                            ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
+                            : <span style={{ width: 10, flexShrink: 0 }} />}
+                          <span style={{ flex: 1 }}>{lvl}</span>
+                          <span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: 8 }}>{desc}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
@@ -739,6 +798,48 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   )}
                 </button>
               </div>
+            )}
+
+            {onSoundToggle !== undefined && (
+              <button
+                onClick={onSoundToggle}
+                title={soundEnabled ? "关闭完成提示音" : "开启完成提示音"}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 26, height: 26, padding: 0,
+                  background: "none",
+                  border: "1px solid var(--border)",
+                  borderRadius: 5,
+                  color: soundEnabled ? "var(--text-muted)" : "var(--text-dim)",
+                  cursor: "pointer",
+                  opacity: soundEnabled ? 1 : 0.45,
+                  transition: "color 0.12s, opacity 0.12s, border-color 0.12s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "rgba(37,99,235,0.4)";
+                  e.currentTarget.style.color = "var(--accent)";
+                  e.currentTarget.style.opacity = "1";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "var(--border)";
+                  e.currentTarget.style.color = soundEnabled ? "var(--text-muted)" : "var(--text-dim)";
+                  e.currentTarget.style.opacity = soundEnabled ? "1" : "0.45";
+                }}
+              >
+                {soundEnabled ? (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                  </svg>
+                ) : (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                    <line x1="23" y1="9" x2="17" y2="15" />
+                    <line x1="17" y1="9" x2="23" y2="15" />
+                  </svg>
+                )}
+              </button>
             )}
           </div>
 
