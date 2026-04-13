@@ -1,7 +1,6 @@
 import { SessionManager, buildSessionContext as piBuildSessionContext, getAgentDir } from "@mariozechner/pi-coding-agent";
-import type { SessionEntry } from "./types";
-import type { SessionEntry as PiSessionEntry } from "@mariozechner/pi-coding-agent";
-import type { SessionInfo, SessionContext, SessionTreeNode } from "./types";
+import type { SessionEntry, SessionInfo, SessionContext, SessionTreeNode, AssistantMessage } from "./types";
+import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } from "@mariozechner/pi-coding-agent";
 import { normalizeToolCalls } from "./normalize";
 
 export { getAgentDir };
@@ -11,8 +10,7 @@ export function getSessionsDir(): string {
 }
 
 export async function listAllSessions(): Promise<SessionInfo[]> {
-  const piSessions = await SessionManager.listAll();
-  // Build a path→id map for resolving parentSessionPath to parentSessionId
+  const piSessions: PiSessionInfo[] = await SessionManager.listAll();
   const pathToId = new Map<string, string>();
   for (const s of piSessions) pathToId.set(s.path, s.id);
 
@@ -65,7 +63,8 @@ export function invalidateSessionPathCache(sessionId: string): void {
 }
 
 export function getSessionEntries(filePath: string): SessionEntry[] {
-  return SessionManager.open(filePath).getEntries() as unknown as SessionEntry[];
+  const entries = SessionManager.open(filePath).getEntries();
+  return entries as unknown as SessionEntry[];
 }
 
 export function buildTree(entries: SessionEntry[]): SessionTreeNode[] {
@@ -109,8 +108,7 @@ export function buildSessionContext(entries: SessionEntry[], leafId?: string | n
   for (const e of entries) byId.set(e.id, e);
 
   const piEntries = entries as unknown as PiSessionEntry[];
-  const piById = byId as unknown as Map<string, PiSessionEntry>;
-  const piCtx = piBuildSessionContext(piEntries, leafId, piById);
+  const piCtx = piBuildSessionContext(piEntries, leafId, byId as unknown as Map<string, PiSessionEntry>);
 
   // Build entryIds: parallel array to messages[], mapping each message back to its entry id.
   // Needed for fork and navigate_tree calls from the UI.
@@ -165,7 +163,7 @@ export function buildSessionContext(entries: SessionEntry[], leafId?: string | n
 
   // pi injects compaction summary as {role:"compactionSummary", summary, tokensBefore}.
   // Convert to {role:"user"} so MessageView can render it the same as before.
-  const messages = (piCtx.messages as import("./types").AgentMessage[]).map((msg) => {
+  const messages = (piCtx.messages as AssistantMessage[]).map((msg) => {
     const raw = msg as unknown as Record<string, unknown>;
     if (raw.role === "compactionSummary") {
       return {

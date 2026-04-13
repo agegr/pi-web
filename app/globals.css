@@ -1,5 +1,22 @@
 @import "tailwindcss";
 
+@theme {
+  --color-bg: var(--bg);
+  --color-bg-panel: var(--bg-panel);
+  --color-bg-hover: var(--bg-hover);
+  --color-bg-selected: var(--bg-selected);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-dim: var(--text-dim);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-user-bg: var(--user-bg);
+  --color-assistant-bg: var(--assistant-bg);
+  --color-tool-bg: var(--tool-bg);
+  --font-mono-font: var(--font-mono);
+}
+
 :root {
   --bg: #ffffff;
   --bg-panel: #f5f5f5;

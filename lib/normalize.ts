@@ -1,22 +1,30 @@
-import type { AgentMessage } from "./types";
+import type { AgentMessage, AssistantMessage, ToolCallContent } from "./types";
 
-/**
- * Pi stores toolCall blocks as {id, name, arguments} but our types use
- * {toolCallId, toolName, input}. Normalize both file-read and streaming paths.
- */
+function isObject(val: unknown): val is Record<string, unknown> {
+  return typeof val === "object" && val !== null && !Array.isArray(val);
+}
+
+function normalizeToolCallBlock(block: unknown): ToolCallContent | null {
+  if (!isObject(block) || block.type !== "toolCall") return null;
+  return {
+    type: "toolCall",
+    toolCallId: typeof block.toolCallId === "string" ? block.toolCallId : (typeof block.id === "string" ? block.id : ""),
+    toolName: typeof block.toolName === "string" ? block.toolName : (typeof block.name === "string" ? block.name : ""),
+    input: typeof block.input === "object" && block.input !== null && !Array.isArray(block.input)
+      ? block.input as Record<string, unknown>
+      : (typeof block.arguments === "object" && block.arguments !== null && !Array.isArray(block.arguments)
+        ? block.arguments as Record<string, unknown>
+        : {}),
+  };
+}
+
 export function normalizeToolCalls(msg: AgentMessage): AgentMessage {
   if (msg.role !== "assistant") return msg;
-  const raw = msg as unknown as { content?: unknown[] };
-  if (!Array.isArray(raw.content)) return msg;
-  const normalized = raw.content.map((block) => {
-    const b = block as Record<string, unknown>;
-    if (b.type !== "toolCall") return b;
-    return {
-      type: "toolCall",
-      toolCallId: b.toolCallId ?? b.id,
-      toolName: b.toolName ?? b.name,
-      input: b.input ?? b.arguments,
-    };
+  const content = (msg as AssistantMessage).content;
+  if (!Array.isArray(content)) return msg;
+  const normalized = content.map((block) => {
+    const result = normalizeToolCallBlock(block);
+    return result ?? block;
   });
-  return { ...(msg as object), content: normalized } as unknown as AgentMessage;
+  return { ...msg, content: normalized } as AgentMessage;
 }

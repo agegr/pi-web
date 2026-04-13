@@ -151,7 +151,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
   useEffect(() => {
     const t = setTimeout(updatePositions, 50);
     return () => clearTimeout(t);
-  }, [messages.length, updatePositions]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [messages.length, updatePositions]);
 
   const scrollToMinimapRatio = useCallback((viewportTopRatio: number) => {
     const el = scrollContainer.current;

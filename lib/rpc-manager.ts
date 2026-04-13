@@ -1,5 +1,6 @@
 import { createAgentSession, SessionManager } from "@mariozechner/pi-coding-agent";
 import { cacheSessionPath } from "./session-reader";
+import type { AgentSessionLike, ToolInfo } from "./pi-types";
 
 // ============================================================================
 // Types
@@ -24,8 +25,7 @@ export class AgentSessionWrapper {
   private onDestroyCallback: (() => void) | null = null;
   private _alive = true;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  constructor(public readonly inner: any) {}
+  constructor(public readonly inner: AgentSessionLike) {}
 
   get sessionId(): string {
     return this.inner.sessionId;
@@ -87,32 +87,32 @@ export class AgentSessionWrapper {
           sessionId: this.inner.sessionId,
           sessionFile: this.inner.sessionFile ?? "",
           isStreaming: this.inner.isStreaming,
-          isCompacting: this.inner.isCompacting ?? false,
-          autoCompactionEnabled: this.inner.autoCompactionEnabled ?? false,
-          autoRetryEnabled: this.inner.autoRetryEnabled ?? false,
+          isCompacting: this.inner.isCompacting,
+          autoCompactionEnabled: this.inner.autoCompactionEnabled,
+          autoRetryEnabled: this.inner.autoRetryEnabled,
           model: model ? { id: model.id, provider: model.provider } : undefined,
           messageCount: 0,
           pendingMessageCount: 0,
           contextUsage: contextUsage
             ? { percent: contextUsage.percent, contextWindow: contextUsage.contextWindow, tokens: contextUsage.tokens }
             : null,
-          systemPrompt: (this.inner.agent as { state?: { systemPrompt?: string } })?.state?.systemPrompt ?? "",
+          systemPrompt: this.inner.agent.state?.systemPrompt ?? "",
         };
       }
 
       case "set_model": {
         const { provider, modelId } = command as { provider: string; modelId: string };
         const registry = this.inner.modelRegistry;
-        const model = registry?.find(provider, modelId);
+        const model = registry.find(provider, modelId);
         if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
         await this.inner.setModel(model);
-        return model;
+        return { id: model.id, provider: model.provider };
       }
 
       case "fork": {
         const entryId = command.entryId as string;
-        const sessionManager = this.inner.sessionManager as SessionManager;
-        const currentSessionFile = this.inner.sessionFile as string | undefined;
+        const sessionManager = this.inner.sessionManager;
+        const currentSessionFile = this.inner.sessionFile;
 
         if (!sessionManager.isPersisted()) return { cancelled: true };
         if (!currentSessionFile) throw new Error("Persisted session is missing a session file");
@@ -136,7 +136,7 @@ export class AgentSessionWrapper {
           newSessionFile = forkedPath;
         }
 
-        const newSessionId = SessionManager.open(newSessionFile, sessionDir).getSessionId() as string;
+        const newSessionId = SessionManager.open(newSessionFile, sessionDir).getSessionId();
         cacheSessionPath(newSessionId, newSessionFile);
         this.destroy();
         return { cancelled: false, newSessionId };
@@ -190,9 +190,9 @@ export class AgentSessionWrapper {
       }
 
       case "get_tools": {
-        const all = this.inner.getAllTools() as Array<{ name: string; description: string }>;
-        const active = new Set<string>(this.inner.getActiveToolNames() as string[]);
-        return all.map((t: { name: string; description: string }) => ({
+        const all: ToolInfo[] = this.inner.getAllTools();
+        const active = new Set<string>(this.inner.getActiveToolNames());
+        return all.map((t) => ({
           name: t.name,
           description: t.description,
           active: active.has(t.name),
