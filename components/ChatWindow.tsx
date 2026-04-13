@@ -97,8 +97,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const handleAgentEventRef = useRef<((event: AgentEvent) => void) | null>(null);
 
   const initialScrollDoneRef = useRef(false);
-  // When true, suppress auto-scroll (viewport is locked during streaming)
-  const scrollLockedRef = useRef(false);
   // Ref to the last sent user message element for scrolling it to top
   const lastUserMsgRef = useRef<HTMLDivElement>(null);
   // Set to true after send so the post-render effect scrolls the user msg to top
@@ -292,7 +290,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       case "agent_end":
         setAgentRunning(false);
         setRetryInfo(null);
-        scrollLockedRef.current = false;
         dispatch({ type: "end" });
         if (soundEnabledRef.current) playDoneSound();
         if (sessionIdRef.current) {
@@ -413,11 +410,11 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       } else if (!initialScrollDoneRef.current) {
         initialScrollDoneRef.current = true;
         scrollToBottom("instant");
-      } else if (!scrollLockedRef.current) {
+      } else if (!agentRunningRef.current) {
         scrollToBottom("smooth");
       }
     }
-  }, [messages.length, scrollToBottom, scrollUserMsgToTop]);
+  }, [messages.length, agentRunning, scrollToBottom, scrollUserMsgToTop]);
 
   const handleLeafChange = useCallback(async (leafId: string | null) => {
     setActiveLeafId(leafId);
@@ -455,7 +452,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     setMessages((prev) => [...prev, userMsg]);
     setAgentRunning(true);
     dispatch({ type: "start" });
-    scrollLockedRef.current = true;
     pendingScrollToUserRef.current = true;
 
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
@@ -508,7 +504,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     } catch (e) {
       console.error("Failed to send message:", e);
       setAgentRunning(false);
-      scrollLockedRef.current = false;
       dispatch({ type: "end" });
     }
   }, [isNew, newSessionCwd, newSessionModel, toolPreset, session, agentRunning, connectEvents, onSessionCreated]);
