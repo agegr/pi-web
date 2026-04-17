@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
-import { execFile } from "child_process";
-import { promisify } from "util";
+import { runNpx } from "@/lib/npx";
 
 export const dynamic = "force-dynamic";
-
-const execFileAsync = promisify(execFile);
 
 const ANSI_RE = /\x1B\[[0-9;]*m/g;
 
@@ -19,7 +16,7 @@ export async function POST(req: Request) {
     if (isGlobal) args.push("-g");
 
     console.log(`[skills/install] running: npx ${args.join(" ")}`);
-    const { stdout, stderr } = await execFileAsync("npx", args, {
+    const { stdout, stderr } = await runNpx(args, {
       timeout: 60000,
       cwd: !isGlobal && cwd ? cwd : undefined,
       env: { ...process.env, FORCE_COLOR: "0" },

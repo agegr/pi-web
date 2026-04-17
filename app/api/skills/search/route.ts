@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
-import { execFile } from "child_process";
-import { promisify } from "util";
+import { runNpx } from "@/lib/npx";
 
 export const dynamic = "force-dynamic";
-
-const execFileAsync = promisify(execFile);
 
 const ANSI_RE = /\x1B\[[0-9;]*m/g;
 
@@ -40,7 +37,7 @@ export async function POST(req: Request) {
     const { query } = await req.json() as { query?: string };
     if (!query?.trim()) return NextResponse.json({ error: "query required" }, { status: 400 });
 
-    const { stdout, stderr } = await execFileAsync("npx", ["skills", "find", query.trim()], {
+    const { stdout, stderr } = await runNpx(["skills", "find", query.trim()], {
       timeout: 20000,
       env: { ...process.env, FORCE_COLOR: "0" },
     });
