@@ -73,7 +73,11 @@ export async function GET(
 ) {
   try {
     const { path: segments } = await params;
-    const filePath = "/" + segments.join("/");
+    // On Windows, the first segment is a drive letter like "C:" and the path
+    // must NOT be prefixed with "/" (else path.resolve yields "C:\C:\..." and
+    // the allowed-roots check always fails). On POSIX, keep the leading "/".
+    const isWinDrive = segments.length > 0 && /^[a-zA-Z]:$/.test(segments[0]);
+    const filePath = isWinDrive ? segments.join("/") : "/" + segments.join("/");
     const type = request.nextUrl.searchParams.get("type") ?? "list";
 
     const allowedRoots = await getAllowedRoots();
