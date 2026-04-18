@@ -168,7 +168,7 @@ export function AppShell() {
     const tabId = `file:${filePath}`;
     setFileTabs((prev) => {
       if (prev.find((t) => t.id === tabId)) return prev;
-      return [...prev, { id: tabId, type: "file", label: fileName, filePath }];
+      return [...prev, { id: tabId, label: fileName, filePath }];
     });
     setActiveFileTabId(tabId);
     setRightPanelOpen(true);

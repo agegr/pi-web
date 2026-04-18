@@ -35,7 +35,21 @@ function getLanguage(filePath: string): string {
   return EXT_TO_LANGUAGE[ext] ?? "text";
 }
 
+// Short-TTL cache for the allowed-roots set. Without this, every file list/read
+// request re-scans every pi session on disk just to check access. 5s is short
+// enough that newly-created cwds appear promptly; stored on globalThis so it
+// survives Next.js hot-reload.
+declare global {
+  var __piAllowedRootsCache: { roots: Set<string>; expiresAt: number } | undefined;
+}
+
+const ALLOWED_ROOTS_TTL_MS = 5_000;
+
 async function getAllowedRoots(): Promise<Set<string>> {
+  const now = Date.now();
+  const cached = globalThis.__piAllowedRootsCache;
+  if (cached && cached.expiresAt > now) return cached.roots;
+
   const sessions = await listAllSessions();
   const roots = new Set<string>();
   for (const s of sessions) {
@@ -53,6 +67,8 @@ async function getAllowedRoots(): Promise<Set<string>> {
   } catch {
     // ignore if home is unreadable
   }
+
+  globalThis.__piAllowedRootsCache = { roots, expiresAt: now + ALLOWED_ROOTS_TTL_MS };
   return roots;
 }
 

@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect, useReducer } from "react";
 import type { AgentMessage, SessionInfo, SessionTreeNode } from "@/lib/types";
 import { normalizeToolCalls } from "@/lib/normalize";
+import { sendAgentCommand } from "@/lib/agent-client";
 import type { ToolEntry } from "@/components/ToolPanel";
 
 export interface SessionData {
@@ -183,16 +184,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const loadTools = useCallback(async (sid: string) => {
     try {
-      const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "get_tools" }),
-      });
-      if (!res.ok) return;
-      const data = await res.json() as { success?: boolean; data?: ToolEntry[] };
-      if (data.data) {
+      const tools = await sendAgentCommand<ToolEntry[]>(sid, { type: "get_tools" });
+      if (tools) {
         const { getPresetFromTools } = await import("@/components/ToolPanel");
-        setToolPresetState(getPresetFromTools(data.data));
+        setToolPresetState(getPresetFromTools(tools));
       }
     } catch (e) {
       console.error("Failed to load tools:", e);
@@ -341,12 +336,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         });
       } else if (session) {
         connectEvents(session.id);
-        const res = await fetch(`/api/agent/${encodeURIComponent(session.id)}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: "prompt", message, ...(piImages?.length ? { images: piImages } : {}) }),
+        await sendAgentCommand(session.id, {
+          type: "prompt",
+          message,
+          ...(piImages?.length ? { images: piImages } : {}),
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
       }
     } catch (e) {
       console.error("Failed to send message:", e);
@@ -359,11 +353,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current;
     if (!sid) return;
     try {
-      await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "abort" }),
-      });
+      await sendAgentCommand(sid, { type: "abort" });
     } catch (e) {
       console.error("Failed to abort:", e);
     }
@@ -374,14 +364,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (!sid) return;
     setForkingEntryId(entryId);
     try {
-      const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "fork", entryId }),
+      const result = await sendAgentCommand<{ cancelled?: boolean; newSessionId?: string }>(sid, {
+        type: "fork",
+        entryId,
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const result = await res.json() as { success?: boolean; data?: { cancelled?: boolean; newSessionId?: string } };
-      const { cancelled, newSessionId } = result.data ?? {};
+      const { cancelled, newSessionId } = result ?? {};
       if (!cancelled && newSessionId) {
         onSessionForked?.(newSessionId);
       }
@@ -395,11 +382,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleNavigate = useCallback(async (entryId: string) => {
     const sid = sessionIdRef.current;
     if (!sid) return;
-    fetch(`/api/agent/${encodeURIComponent(sid)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "navigate_tree", targetId: entryId }),
-    }).catch(() => {});
+    sendAgentCommand(sid, { type: "navigate_tree", targetId: entryId }).catch(() => {});
     setActiveLeafId(entryId);
     await loadContext(sid, entryId);
   }, [loadContext]);
@@ -410,11 +393,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (!sid) return;
     await loadContext(sid, leafId);
     if (leafId) {
-      fetch(`/api/agent/${encodeURIComponent(sid)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "navigate_tree", targetId: leafId }),
-      }).catch(() => {});
+      sendAgentCommand(sid, { type: "navigate_tree", targetId: leafId }).catch(() => {});
     }
   }, [loadContext]);
 
@@ -426,11 +405,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current;
     if (!sid) return;
     try {
-      await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "set_model", provider, modelId }),
-      });
+      await sendAgentCommand(sid, { type: "set_model", provider, modelId });
       setCurrentModelOverride({ provider, modelId });
     } catch (e) {
       console.error("Failed to set model:", e);
@@ -443,19 +418,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setIsCompacting(true);
     setCompactError(null);
     try {
-      const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "compact" }),
-      });
-      const result = await res.json() as { success?: boolean; error?: string };
-      if (!res.ok || result.error) {
-        setCompactError(result.error ?? `HTTP ${res.status}`);
-        return;
-      }
+      await sendAgentCommand(sid, { type: "compact" });
       await loadSession(sid, true);
     } catch (e) {
-      setCompactError(String(e));
+      setCompactError(e instanceof Error ? e.message : String(e));
     } finally {
       setIsCompacting(false);
     }
@@ -467,10 +433,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setMessages((prev) => [...prev, { role: "user", content: `[steer] ${message}`, timestamp: Date.now() } as AgentMessage]);
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
     try {
-      await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "steer", message, ...(piImages?.length ? { images: piImages } : {}) }),
+      await sendAgentCommand(sid, {
+        type: "steer",
+        message,
+        ...(piImages?.length ? { images: piImages } : {}),
       });
     } catch (e) {
       console.error("Failed to steer:", e);
@@ -483,10 +449,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setMessages((prev) => [...prev, { role: "user", content: message, timestamp: Date.now() } as AgentMessage]);
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
     try {
-      await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "follow_up", message, ...(piImages?.length ? { images: piImages } : {}) }),
+      await sendAgentCommand(sid, {
+        type: "follow_up",
+        message,
+        ...(piImages?.length ? { images: piImages } : {}),
       });
     } catch (e) {
       console.error("Failed to follow up:", e);
@@ -497,11 +463,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current;
     if (!sid) return;
     try {
-      await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "abort_compaction" }),
-      });
+      await sendAgentCommand(sid, { type: "abort_compaction" });
     } catch (e) {
       console.error("Failed to abort compaction:", e);
     }
@@ -514,11 +476,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current;
     if (!sid) return;
     try {
-      await fetch(`/api/agent/${encodeURIComponent(sid)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "set_tools", toolNames }),
-      });
+      await sendAgentCommand(sid, { type: "set_tools", toolNames });
     } catch (e) {
       console.error("Failed to set tools:", e);
     }
@@ -562,10 +520,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    agentRunningRef.current = agentRunning;
-  }, [agentRunning]);
 
   useEffect(() => {
     onSystemPromptChange?.(systemPrompt);

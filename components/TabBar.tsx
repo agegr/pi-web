@@ -5,9 +5,8 @@ import { getFileIcon } from "./FileIcons";
 
 export interface Tab {
   id: string;
-  type: "chat" | "file";
   label: string;
-  filePath?: string;
+  filePath: string;
 }
 
 interface Props {
@@ -16,16 +15,6 @@ interface Props {
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
 }
-
-function ChatIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
-  );
-}
-
-
 
 export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
   const [hoveredClose, setHoveredClose] = useState<string | null>(null);
@@ -53,7 +42,7 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
               gap: 6,
               height: 36,
               paddingLeft: 12,
-              paddingRight: tab.type === "chat" ? 12 : 6,
+              paddingRight: 6,
               borderRight: "1px solid var(--border)",
               background: isActive ? "var(--bg)" : "var(--bg-panel)",
               cursor: "pointer",
@@ -68,7 +57,7 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
             }}
           >
             <span style={{ flexShrink: 0, opacity: isActive ? 1 : 0.7, display: "flex", alignItems: "center" }}>
-              {tab.type === "chat" ? <ChatIcon /> : getFileIcon(tab.label, 13)}
+              {getFileIcon(tab.label, 13)}
             </span>
             <span
               style={{
@@ -77,35 +66,33 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
                 flex: 1,
                 fontWeight: isActive ? 500 : 400,
               }}
-              title={tab.filePath ?? tab.label}
+              title={tab.filePath}
             >
               {tab.label}
             </span>
-            {tab.type === "file" && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onCloseTab(tab.id); }}
-                onMouseEnter={() => setHoveredClose(tab.id)}
-                onMouseLeave={() => setHoveredClose(null)}
-                style={{
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  width: 16, height: 16,
-                  background: hoveredClose === tab.id ? "var(--bg-hover)" : "transparent",
-                  border: "none",
-                  borderRadius: 3,
-                  color: hoveredClose === tab.id ? "var(--text)" : "var(--text-dim)",
-                  cursor: "pointer",
-                  padding: 0,
-                  flexShrink: 0,
-                  transition: "background 0.1s, color 0.1s",
-                }}
-                title="Close"
-              >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                  <line x1="2" y1="2" x2="8" y2="8" />
-                  <line x1="8" y1="2" x2="2" y2="8" />
-                </svg>
-              </button>
-            )}
+            <button
+              onClick={(e) => { e.stopPropagation(); onCloseTab(tab.id); }}
+              onMouseEnter={() => setHoveredClose(tab.id)}
+              onMouseLeave={() => setHoveredClose(null)}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: 16, height: 16,
+                background: hoveredClose === tab.id ? "var(--bg-hover)" : "transparent",
+                border: "none",
+                borderRadius: 3,
+                color: hoveredClose === tab.id ? "var(--text)" : "var(--text-dim)",
+                cursor: "pointer",
+                padding: 0,
+                flexShrink: 0,
+                transition: "background 0.1s, color 0.1s",
+              }}
+              title="Close"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                <line x1="2" y1="2" x2="8" y2="8" />
+                <line x1="8" y1="2" x2="2" y2="8" />
+              </svg>
+            </button>
           </div>
         );
       })}
