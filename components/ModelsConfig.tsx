@@ -720,16 +720,28 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
         {/* Footer */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, padding: "10px 18px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
           {saveError && <span style={{ fontSize: 12, color: "#f87171", flex: 1 }}>{saveError}</span>}
-          {savedOk && <span style={{ fontSize: 12, color: "#4ade80", flex: 1 }}>Saved</span>}
           <button onClick={onClose} style={{ padding: "6px 14px", background: "none", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer", fontSize: 13 }}>
             Cancel
           </button>
-          <button onClick={handleSave} disabled={saving} style={{
-            padding: "6px 16px", background: saving ? "var(--bg-panel)" : "var(--accent)",
-            border: "none", borderRadius: 6, color: saving ? "var(--text-muted)" : "#fff",
-            cursor: saving ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600,
+          <button onClick={handleSave} disabled={saving || savedOk} style={{
+            position: "relative",
+            padding: "6px 16px",
+            minWidth: 92,
+            background: savedOk ? "#16a34a" : saving ? "var(--bg-panel)" : "var(--accent)",
+            border: "none", borderRadius: 6,
+            color: savedOk ? "#fff" : saving ? "var(--text-muted)" : "#fff",
+            cursor: (saving || savedOk) ? "default" : "pointer", fontSize: 13, fontWeight: 600,
+            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+            transition: "background-color 0.2s ease, color 0.2s ease",
+            animation: savedOk ? "saved-pop 0.45s ease" : undefined,
           }}>
-            {saving ? "Saving…" : "Save"}
+            {savedOk && (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+                style={{ strokeDasharray: 18, animation: "saved-check-draw 0.35s ease forwards", flexShrink: 0 }}>
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            )}
+            <span>{savedOk ? "Saved" : saving ? "Saving…" : "Save"}</span>
           </button>
         </div>
       </div>
