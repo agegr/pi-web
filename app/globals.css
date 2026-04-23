@@ -45,6 +45,11 @@ html, body {
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 14px;
+  overscroll-behavior: none;
+}
+
+body {
+  height: 100dvh;
 }
 
 ::-webkit-scrollbar {
@@ -265,6 +270,22 @@ span.linenumber {
   .sidebar-container.sidebar-closed {
     transform: translateX(-100%);
     box-shadow: none;
+  }
+
+  .right-panel-container {
+    overflow: hidden;
+    transition: width 0.2s ease, min-width 0.2s ease;
+    flex-shrink: 0;
+  }
+  .right-panel-container.right-panel-open {
+    width: 100%;
+    min-width: 0;
+  }
+  .right-panel-container.right-panel-closed {
+    width: 0 !important;
+    min-width: 0 !important;
+    border-left: none !important;
+    display: none !important;
   }
 }
 

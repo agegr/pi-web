@@ -20,7 +20,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={notoSansMono.variable}>
-      <body style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
+      <body style={{ height: "100dvh", display: "flex", flexDirection: "column" }}>
         {children}
       </body>
     </html>
