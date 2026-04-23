@@ -85,11 +85,11 @@ function NumInput({ value, onChange, placeholder }: { value: string; onChange: (
   return <input type="number" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} style={inputStyle} />;
 }
 
-function Select({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: readonly string[] }) {
+function Select({ value, onChange, options, required }: { value: string; onChange: (v: string) => void; options: readonly string[]; required?: boolean }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)}
       style={{ ...inputStyle, color: value ? "var(--text)" : "var(--text-dim)" }}>
-      <option value="">— inherit / none —</option>
+      {!required && <option value="">— inherit / none —</option>}
       {options.map((o) => <option key={o} value={o}>{o}</option>)}
     </select>
   );
@@ -118,6 +118,11 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete }: {
   const [editingName, setEditingName] = useState(name);
   useEffect(() => setEditingName(name), [name]);
   const set = <K extends keyof ProviderEntry>(k: K, v: ProviderEntry[K]) => onChange({ ...provider, [k]: v });
+
+  useEffect(() => {
+    if (!provider.api) onChange({ ...provider, api: "openai-completions" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider.api]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -153,7 +158,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete }: {
       </Field>
 
       <Field label="API">
-        <Select value={provider.api ?? ""} onChange={(v) => set("api", v || undefined)} options={API_OPTIONS} />
+        <Select value={provider.api ?? "openai-completions"} onChange={(v) => set("api", v)} options={API_OPTIONS} required />
       </Field>
     </div>
   );
@@ -449,7 +454,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     let finalName = "new-provider";
     let n = 1;
     while (config.providers?.[finalName]) finalName = `new-provider-${n++}`;
-    setConfig((prev) => ({ ...prev, providers: { ...(prev.providers ?? {}), [finalName]: {} } }));
+    setConfig((prev) => ({ ...prev, providers: { ...(prev.providers ?? {}), [finalName]: { api: "openai-completions" } } }));
     setSelection({ type: "provider", name: finalName });
   }, [config.providers]);
 
