@@ -173,7 +173,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} />
             )}
 
-            {streamState.isStreaming && !streamState.streamingMessage && (
+            {agentRunning && !streamState.streamingMessage && (
               <div className="py-2 text-[13px] text-text-muted">
                 <span className="animate-[pulse_1.5s_infinite]">Thinking...</span>
               </div>

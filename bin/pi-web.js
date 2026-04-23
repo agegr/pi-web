@@ -51,8 +51,23 @@ if (hostname) nextArgs.push("-H", hostname);
 // and path-with-spaces problems on Windows when shell: true is used.
 const child = spawn(process.execPath, [nextBin, ...nextArgs], {
   cwd: pkgDir,
-  stdio: "inherit",
+  stdio: ["inherit", "pipe", "inherit"],
   env: { ...process.env },
+});
+
+let browserOpened = false;
+const url = `http://${hostname ?? "localhost"}:${port}`;
+
+child.stdout.on("data", (chunk) => {
+  const text = chunk.toString();
+  process.stdout.write(text);
+  if (!browserOpened && text.includes("Ready")) {
+    browserOpened = true;
+    const isWindows = process.platform === "win32";
+    const isMac = process.platform === "darwin";
+    const openCmd = isWindows ? "start" : isMac ? "open" : "xdg-open";
+    spawn(openCmd, [url], { shell: isWindows, stdio: "ignore", detached: true }).unref();
+  }
 });
 
 child.on("exit", (code) => process.exit(code ?? 0));
