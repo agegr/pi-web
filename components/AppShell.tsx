@@ -88,14 +88,25 @@ export function AppShell() {
 
   const handleCwdChange = useCallback((cwd: string | null) => {
     setActiveCwd(cwd);
-    // If no session is open, remount ChatWindow for the new cwd.
     // Skip if cwd is null (initial mount) or during the initial URL restore.
     if (!cwd || suppressCwdBumpRef.current) return;
+    // Close any session that belongs to a different cwd — it no longer
+    // matches the selected project directory.
     setSelectedSession((prev) => {
-      if (prev === null) setSessionKey((k) => k + 1);
+      if (prev && prev.cwd !== cwd) return null;
       return prev;
     });
-  }, []);
+    setNewSessionCwd((prev) => {
+      if (prev && prev !== cwd) return null;
+      return prev;
+    });
+    setSessionKey((k) => k + 1);
+    setBranchTree([]);
+    setBranchActiveLeafId(null);
+    setSystemPrompt(null);
+    setActiveTopPanel(null);
+    router.replace("/", { scroll: false });
+  }, [router]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
     setNewSessionCwd(null);

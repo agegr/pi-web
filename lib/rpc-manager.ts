@@ -278,7 +278,7 @@ export async function startRpcSession(
   if (inflight) return inflight;
 
   const starting = (async () => {
-    const { SessionManager, codingTools, getAgentDir } = await import("@mariozechner/pi-coding-agent");
+    const { SessionManager, getAgentDir } = await import("@mariozechner/pi-coding-agent");
     const agentDir = getAgentDir();
 
     const sessionManager = sessionFile
@@ -286,12 +286,12 @@ export async function startRpcSession(
       : SessionManager.create(cwd, undefined);
 
     // Determine which tools to pass based on requested toolNames.
-    // createAgentSession uses tools[] to set initialActiveToolNames.
-    // Pass all coding tools (pi will activate only the ones matching toolNames).
-    // For "all off", pass empty array so initialActiveToolNames becomes [].
-    let toolsOption: typeof codingTools | [] | undefined;
+    // Since v0.68.0, createAgentSession expects string[] tool names instead of Tool[] instances.
+    // Pass all built-in coding tool names by default; for "all off", pass empty array.
+    const allCodingToolNames = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+    let toolsOption: string[] | undefined;
     if (toolNames !== undefined) {
-      toolsOption = toolNames.length === 0 ? [] : codingTools;
+      toolsOption = toolNames.length === 0 ? [] : allCodingToolNames;
     }
 
     const { session: inner } = await createAgentSession({

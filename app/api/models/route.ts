@@ -1,4 +1,4 @@
-import { AuthStorage, ModelRegistry, SettingsManager } from "@mariozechner/pi-coding-agent";
+import { AuthStorage, ModelRegistry, SettingsManager, getAgentDir } from "@mariozechner/pi-coding-agent";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +8,7 @@ export async function GET() {
   let defaultModel: { provider: string; modelId: string } | null = null;
 
   try {
+    const agentDir = getAgentDir();
     const authStorage = AuthStorage.create();
     const registry = ModelRegistry.create(authStorage);
     const available = registry.getAvailable();
@@ -18,7 +19,7 @@ export async function GET() {
     }));
     for (const m of modelList) nameMap.set(`${m.provider}:${m.id}`, m.name);
 
-    const settings = SettingsManager.create();
+    const settings = SettingsManager.create(process.cwd(), agentDir);
     const provider = settings.getDefaultProvider();
     const modelId = settings.getDefaultModel();
     if (provider) {
