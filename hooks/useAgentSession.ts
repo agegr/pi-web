@@ -49,6 +49,11 @@ interface AgentEvent {
   [key: string]: unknown;
 }
 
+export type AgentPhase =
+  | { kind: "waiting_model" }
+  | { kind: "running_tools"; tools: { id: string; name: string }[] }
+  | null;
+
 export interface UseAgentSessionOptions {
   session: SessionInfo | null;
   newSessionCwd: string | null;
@@ -102,6 +107,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [currentModelOverride, setCurrentModelOverride] = useState<{ provider: string; modelId: string } | null>(null);
   const [isCompacting, setIsCompacting] = useState(false);
   const [compactError, setCompactError] = useState<string | null>(null);
+  const [agentPhase, setAgentPhase] = useState<AgentPhase>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
@@ -228,10 +234,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     switch (event.type) {
       case "agent_start":
         setAgentRunning(true);
+        setAgentPhase({ kind: "waiting_model" });
         dispatch({ type: "start" });
         break;
       case "agent_end":
         setAgentRunning(false);
+        setAgentPhase(null);
         setRetryInfo(null);
         dispatch({ type: "end" });
         if (sessionIdRef.current) {
@@ -246,11 +254,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
         onAgentEnd?.();
         break;
+      case "message_start":
       case "message_update": {
         const msg = event.message as Partial<AgentMessage> | undefined;
         if (msg) {
           dispatch({ type: "update", message: normalizeToolCalls(msg as AgentMessage) });
         }
+        setAgentPhase(null);
         break;
       }
       case "message_end": {
@@ -259,6 +269,27 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
         }
         dispatch({ type: "reset" });
+        setAgentPhase({ kind: "waiting_model" });
+        break;
+      }
+      case "tool_execution_start": {
+        const id = event.toolCallId as string;
+        const name = event.toolName as string;
+        setAgentPhase((prev) => {
+          const tools = prev?.kind === "running_tools" ? [...prev.tools] : [];
+          if (!tools.some((t) => t.id === id)) tools.push({ id, name });
+          return { kind: "running_tools", tools };
+        });
+        break;
+      }
+      case "tool_execution_end": {
+        const id = event.toolCallId as string;
+        setAgentPhase((prev) => {
+          if (prev?.kind !== "running_tools") return prev;
+          const tools = prev.tools.filter((t) => t.id !== id);
+          if (tools.length === 0) return { kind: "waiting_model" };
+          return { kind: "running_tools", tools };
+        });
         break;
       }
       case "auto_retry_start":
@@ -297,6 +328,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
     setMessages((prev) => [...prev, userMsg]);
     setAgentRunning(true);
+    setAgentPhase({ kind: "waiting_model" });
     dispatch({ type: "start" });
     pendingScrollToUserRef.current = true;
 
@@ -345,6 +377,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       console.error("Failed to send message:", e);
       setAgentRunning(false);
+      setAgentPhase(null);
       dispatch({ type: "end" });
     }
   }, [isNew, newSessionCwd, newSessionModel, toolPreset, session, agentRunning, connectEvents, onSessionCreated]);
@@ -504,6 +537,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           loadTools(session.id);
           if (agentState.state?.isStreaming) {
             setAgentRunning(true);
+            setAgentPhase({ kind: "waiting_model" });
             connectEvents(session.id);
           }
         }
@@ -576,6 +610,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunning, modelNames, modelList, newSessionModel, toolPreset,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, currentModel, displayModel, sessionStats,
+    agentPhase,
     isNew,
     // Refs
     sessionIdRef, eventSourceRef, messagesEndRef, scrollContainerRef,

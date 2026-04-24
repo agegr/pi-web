@@ -5,7 +5,7 @@ import type { AgentMessage, SessionInfo, SessionTreeNode } from "@/lib/types";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
-import { useAgentSession } from "@/hooks/useAgentSession";
+import { useAgentSession, type AgentPhase } from "@/hooks/useAgentSession";
 import { useAudio } from "@/hooks/useAudio";
 import { useDragDrop } from "@/hooks/useDragDrop";
 
@@ -21,12 +21,25 @@ interface Props {
   onSystemPromptChange?: (prompt: string | null) => void;
 }
 
+function phaseLabel(phase: AgentPhase): string {
+  if (phase?.kind === "running_tools") {
+    const names = phase.tools.map((t) => t.name);
+    if (names.length === 0) return "Running tool...";
+    if (names.length === 1) return `Running ${names[0]}...`;
+    if (names.length <= 3) return `Running ${names.join(", ")}...`;
+    return `Running ${names.slice(0, 2).join(", ")} (+${names.length - 2})...`;
+  }
+  if (phase?.kind === "waiting_model") return "Waiting for model...";
+  return "Thinking...";
+}
+
 export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange }: Props) {
   const {
     loading, error, messages, entryIds, streamState,
     agentRunning, modelNames, modelList, toolPreset,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, displayModel: displayModelValue, sessionStats,
+    agentPhase,
     isNew,
     messagesEndRef, scrollContainerRef,
     lastUserMsgRef,
@@ -175,7 +188,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
             {agentRunning && !streamState.streamingMessage && (
               <div className="py-2 text-[13px] text-text-muted">
-                <span className="animate-[pulse_1.5s_infinite]">Thinking...</span>
+                <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase)}</span>
               </div>
             )}
 
