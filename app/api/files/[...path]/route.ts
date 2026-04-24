@@ -11,6 +11,23 @@ const IGNORED_NAMES = new Set([
 
 const IGNORED_SUFFIXES = [".pyc"];
 
+const IMAGE_EXT_TO_MIME: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  svg: "image/svg+xml",
+  bmp: "image/bmp",
+  ico: "image/x-icon",
+  avif: "image/avif",
+};
+
+function getImageMime(filePath: string): string | null {
+  const ext = path.basename(filePath).toLowerCase().split(".").pop() ?? "";
+  return IMAGE_EXT_TO_MIME[ext] ?? null;
+}
+
 const EXT_TO_LANGUAGE: Record<string, string> = {
   ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
   mjs: "javascript", cjs: "javascript", py: "python", rb: "ruby",
@@ -111,6 +128,21 @@ export async function GET(
     if (type === "read") {
       if (!stat.isFile()) {
         return NextResponse.json({ error: "Not a file" }, { status: 400 });
+      }
+      const imageMime = getImageMime(filePath);
+      if (imageMime) {
+        // Limit image size to 10MB
+        if (stat.size > 10 * 1024 * 1024) {
+          return NextResponse.json({ error: "Image too large (>10MB)" }, { status: 413 });
+        }
+        const buf = fs.readFileSync(filePath);
+        return new Response(new Uint8Array(buf), {
+          headers: {
+            "Content-Type": imageMime,
+            "Content-Length": String(stat.size),
+            "Cache-Control": "no-cache",
+          },
+        });
       }
       // Limit file size to 2MB
       if (stat.size > 2 * 1024 * 1024) {

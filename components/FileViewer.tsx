@@ -17,6 +17,18 @@ interface FileData {
   size: number;
 }
 
+const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif"]);
+
+function isImagePath(filePath: string): boolean {
+  const base = filePath.split("/").pop() ?? "";
+  const ext = base.toLowerCase().split(".").pop() ?? "";
+  return IMAGE_EXTS.has(ext);
+}
+
+function encodeFilePath(filePath: string): string {
+  return filePath.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+}
+
 type DiffLine =
   | { type: "unchanged"; text: string; lineNo: number }
   | { type: "removed"; text: string; lineNo: number }
@@ -252,7 +264,142 @@ function DiffView({ oldContent, newContent }: { oldContent: string; newContent: 
   );
 }
 
+function ImageViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
+  const [watching, setWatching] = useState(false);
+  const [bust, setBust] = useState(0);
+  const [size, setSize] = useState<number | null>(null);
+  const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const esRef = useRef<EventSource | null>(null);
+
+  const ext = (filePath.split("/").pop() ?? "").toLowerCase().split(".").pop() ?? "";
+
+  useEffect(() => {
+    setBust(0);
+    setSize(null);
+    setNaturalSize(null);
+    setError(null);
+    setWatching(false);
+
+    if (esRef.current) {
+      esRef.current.close();
+      esRef.current = null;
+    }
+
+    const encoded = encodeFilePath(filePath);
+    const es = new EventSource(`/api/files/${encoded}?type=watch`);
+    esRef.current = es;
+
+    es.addEventListener("connected", () => setWatching(true));
+    es.addEventListener("change", (e) => {
+      try {
+        const d = JSON.parse((e as MessageEvent).data) as { size?: number };
+        if (typeof d.size === "number") setSize(d.size);
+      } catch { /* ignore */ }
+      setBust((b) => b + 1);
+    });
+    es.addEventListener("error", () => setWatching(false));
+    es.onerror = () => setWatching(false);
+
+    return () => {
+      es.close();
+      esRef.current = null;
+    };
+  }, [filePath]);
+
+  const encoded = encodeFilePath(filePath);
+  const src = `/api/files/${encoded}?type=read${bust ? `&v=${bust}` : ""}`;
+
+  const formatSizeStr = size != null ? formatSize(size) : null;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          padding: "4px 16px",
+          borderBottom: "1px solid var(--border)",
+          fontSize: 11,
+          color: "var(--text-dim)",
+          background: "var(--bg)",
+          flexShrink: 0,
+        }}
+      >
+        <span style={{ fontFamily: "var(--font-mono)" }} title={filePath}>
+          {cwd && filePath.startsWith(cwd.replace(/\/$/, "") + "/")
+            ? filePath.slice(cwd.replace(/\/$/, "").length + 1)
+            : filePath}
+        </span>
+        <span style={{ marginLeft: "auto" }}>{ext || "image"}</span>
+        {naturalSize && <span>{naturalSize.w} × {naturalSize.h}</span>}
+        {formatSizeStr && <span>{formatSizeStr}</span>}
+        <span
+          title={watching ? "Live sync active" : "Not watching"}
+          style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "#4ade80" : "var(--text-dim)" }}
+        >
+          <span
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              background: watching ? "#4ade80" : "var(--border)",
+              display: "inline-block",
+              boxShadow: watching ? "0 0 4px #4ade80" : "none",
+            }}
+          />
+          {watching ? "live" : "static"}
+        </span>
+      </div>
+      <div
+        style={{
+          flex: 1,
+          overflow: "auto",
+          background: "var(--bg-panel)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 16,
+          backgroundImage:
+            "linear-gradient(45deg, var(--bg) 25%, transparent 25%), linear-gradient(-45deg, var(--bg) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, var(--bg) 75%), linear-gradient(-45deg, transparent 75%, var(--bg) 75%)",
+          backgroundSize: "16px 16px",
+          backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
+        }}
+      >
+        {error ? (
+          <div style={{ color: "#f87171", fontSize: 13 }}>{error}</div>
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={src}
+            alt={filePath}
+            onLoad={(e) => {
+              const img = e.currentTarget;
+              setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
+            }}
+            onError={() => setError("Failed to load image")}
+            style={{
+              maxWidth: "100%",
+              maxHeight: "100%",
+              objectFit: "contain",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+            }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function FileViewer({ filePath, cwd }: Props) {
+  if (isImagePath(filePath)) {
+    return <ImageViewer filePath={filePath} cwd={cwd} />;
+  }
+  return <TextFileViewer filePath={filePath} cwd={cwd} />;
+}
+
+function TextFileViewer({ filePath, cwd }: Props) {
   const [data, setData] = useState<FileData | null>(null);
   const [prevContent, setPrevContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
