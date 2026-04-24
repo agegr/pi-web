@@ -1,6 +1,6 @@
 {
   "name": "@agegr/pi-web",
-  "version": "0.5.18",
+  "version": "0.5.19",
   "description": "Web UI for the pi coding agent",
   "bin": {
     "pi-web": "bin/pi-web.js"

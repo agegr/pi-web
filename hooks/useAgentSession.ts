@@ -127,6 +127,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const sessionStats = (() => {
     const tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    let cost = 0;
     for (const msg of messages) {
       if (msg.role !== "assistant") continue;
       const u = (msg as import("@/lib/types").AssistantMessage).usage;
@@ -135,9 +136,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       tokens.output += u.output ?? 0;
       tokens.cacheRead += u.cacheRead ?? 0;
       tokens.cacheWrite += u.cacheWrite ?? 0;
+      cost += u.cost?.total ?? 0;
     }
     const total = tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite;
-    return total > 0 ? { tokens } : null;
+    return total > 0 ? { tokens, cost } : null;
   })();
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {

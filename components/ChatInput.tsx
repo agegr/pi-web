@@ -30,7 +30,7 @@ interface Props {
   compactError?: string | null;
   toolPreset?: "none" | "default" | "full";
   onToolPresetChange?: (preset: "none" | "default" | "full") => void;
-  sessionStats?: { tokens: { input: number; output: number; cacheRead: number; cacheWrite: number } } | null;
+  sessionStats?: { tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }; cost?: number } | null;
   retryInfo?: { attempt: number; maxAttempts: number; errorMessage?: string } | null;
   contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
   soundEnabled?: boolean;
@@ -644,6 +644,19 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       {fmtTokens(t.cacheRead)}
                     </span>
                   );
+                  if (sessionStats.cost && sessionStats.cost > 0) {
+                    const c = sessionStats.cost;
+                    const costStr = c >= 1 ? `$${c.toFixed(2)}` : c >= 0.01 ? `$${c.toFixed(3)}` : `$${c.toFixed(4)}`;
+                    items.push(
+                      <span key="cost" style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="5" y1="1" x2="5" y2="9" /><path d="M7.5 2.5 H4 a1.5 1.5 0 0 0 0 3 h2 a1.5 1.5 0 0 1 0 3 H2.5" />
+                        </svg>
+                        {costStr}
+                      </span>
+                    );
+                    tooltipParts.push(`cost: $${c.toFixed(4)}`);
+                  }
                   tooltipParts.push(`in: ${t.input?.toLocaleString() ?? 0}  out: ${t.output?.toLocaleString() ?? 0}  cache read: ${t.cacheRead?.toLocaleString() ?? 0}  cache write: ${t.cacheWrite?.toLocaleString() ?? 0}`);
                 }
               }
