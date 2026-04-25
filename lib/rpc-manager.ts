@@ -97,6 +97,7 @@ export class AgentSessionWrapper {
             ? { percent: contextUsage.percent, contextWindow: contextUsage.contextWindow, tokens: contextUsage.tokens }
             : null,
           systemPrompt: this.inner.agent.state?.systemPrompt ?? "",
+          thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
         };
       }
 
@@ -150,6 +151,12 @@ export class AgentSessionWrapper {
       case "set_thinking_level": {
         const level = command.level as string;
         this.inner.setThinkingLevel(level);
+        // setThinkingLevel clamps xhigh→high for models where supportsXhigh()===false.
+        // If the model has DeepSeek thinking compat (reasoningEffortMap maps xhigh→max),
+        // force the state back so the compat layer can use it correctly.
+        if (level === "xhigh" && (this.inner.model as { compat?: { thinkingFormat?: string } } | null)?.compat?.thinkingFormat === "deepseek" && this.inner.agent?.state) {
+          this.inner.agent.state.thinkingLevel = "xhigh";
+        }
         return null;
       }
 

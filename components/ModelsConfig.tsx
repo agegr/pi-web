@@ -166,6 +166,28 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete }: {
 
 // ── Model detail ──────────────────────────────────────────────────────────────
 
+const DEEPSEEK_COMPAT = {
+  thinkingFormat: "deepseek",
+  requiresReasoningContentOnAssistantMessages: true,
+  reasoningEffortMap: { minimal: "high", low: "high", medium: "high", high: "high", xhigh: "max" },
+} as const;
+
+function hasDeepseekCompat(compat: Record<string, unknown> | undefined): boolean {
+  return compat?.thinkingFormat === "deepseek";
+}
+
+function setDeepseekCompat(model: ModelEntry, enabled: boolean): ModelEntry {
+  if (enabled) {
+    return { ...model, compat: { ...(model.compat ?? {}), ...DEEPSEEK_COMPAT } };
+  }
+  if (!model.compat) return model;
+  const rest = { ...model.compat };
+  delete rest.thinkingFormat;
+  delete rest.requiresReasoningContentOnAssistantMessages;
+  delete rest.reasoningEffortMap;
+  return { ...model, compat: Object.keys(rest).length ? rest : undefined };
+}
+
 function ModelDetail({ model, onChange, onDelete }: { model: ModelEntry; onChange: (m: ModelEntry) => void; onDelete: () => void }) {
   const set = <K extends keyof ModelEntry>(k: K, v: ModelEntry[K]) => onChange({ ...model, [k]: v });
   const costVal = (k: keyof NonNullable<ModelEntry["cost"]>) => model.cost?.[k] !== undefined ? String(model.cost[k]) : "";
@@ -198,6 +220,14 @@ function ModelDetail({ model, onChange, onDelete }: { model: ModelEntry; onChang
         <Check label="Image input" checked={model.input?.includes("image") ?? false}
           onChange={(v) => set("input", v ? ["text", "image"] : undefined)} />
       </div>
+
+      {model.reasoning && (
+        <Check
+          label="DeepSeek thinking compat"
+          checked={hasDeepseekCompat(model.compat)}
+          onChange={(v) => onChange(setDeepseekCompat(model, v))}
+        />
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Field label="Context window (tokens)">
