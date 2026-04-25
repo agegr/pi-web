@@ -19,6 +19,8 @@ interface Props {
   chatInputRef?: React.RefObject<ChatInputHandle | null>;
   onBranchDataChange?: (tree: SessionTreeNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void) => void;
   onSystemPromptChange?: (prompt: string | null) => void;
+  onSessionStatsChange?: (stats: { tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }; cost?: number } | null) => void;
+  onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
 }
 
 function phaseLabel(phase: AgentPhase): string {
@@ -33,7 +35,7 @@ function phaseLabel(phase: AgentPhase): string {
   return "Thinking...";
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange }: Props) {
+export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onContextUsageChange }: Props) {
   const {
     loading, error, messages, entryIds, streamState,
     agentRunning, modelNames, modelList, toolPreset, thinkingLevel,
@@ -67,6 +69,29 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       origHandler?.(event);
     };
   }, [origHandler, handleAgentEventRef]);
+
+  // Push session stats up to AppShell for the top bar.
+  // Compare scalar fields to avoid loops from new object identity each render.
+  const statsKey = sessionStats
+    ? `${sessionStats.tokens.input}|${sessionStats.tokens.output}|${sessionStats.tokens.cacheRead}|${sessionStats.tokens.cacheWrite}|${sessionStats.cost ?? 0}`
+    : null;
+  const sessionStatsRef = useRef(sessionStats);
+  sessionStatsRef.current = sessionStats;
+  useEffect(() => {
+    onSessionStatsChange?.(sessionStatsRef.current);
+  }, [statsKey, onSessionStatsChange]);
+  useEffect(() => () => { onSessionStatsChange?.(null); }, [onSessionStatsChange]);
+
+  // Push context usage up to AppShell as well.
+  const ctxKey = contextUsage
+    ? `${contextUsage.percent ?? "null"}|${contextUsage.contextWindow}|${contextUsage.tokens ?? "null"}`
+    : null;
+  const contextUsageRef = useRef(contextUsage);
+  contextUsageRef.current = contextUsage;
+  useEffect(() => {
+    onContextUsageChange?.(contextUsageRef.current);
+  }, [ctxKey, onContextUsageChange]);
+  useEffect(() => () => { onContextUsageChange?.(null); }, [onContextUsageChange]);
 
   const onDrop = useCallback((files: File[]) => {
     chatInputRef?.current?.addImages(files);
@@ -241,9 +266,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           onToolPresetChange={session || isNew ? handleToolPresetChange : undefined}
           thinkingLevel={thinkingLevel}
           onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}
-          sessionStats={sessionStats}
           retryInfo={retryInfo}
-          contextUsage={contextUsage}
           soundEnabled={soundEnabled}
           onSoundToggle={onSoundToggle}
         />

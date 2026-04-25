@@ -32,9 +32,7 @@ interface Props {
   onToolPresetChange?: (preset: "none" | "default" | "full") => void;
   thinkingLevel?: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
   onThinkingLevelChange?: (level: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh") => void;
-  sessionStats?: { tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }; cost?: number } | null;
   retryInfo?: { attempt: number; maxAttempts: number; errorMessage?: string } | null;
-  contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
   soundEnabled?: boolean;
   onSoundToggle?: () => void;
 }
@@ -43,12 +41,6 @@ export interface ChatInputHandle {
   insertText: (text: string) => void;
   insertIfEmpty: (text: string) => void;
   addImages: (files: File[]) => void;
-}
-
-function fmtTokens(n: number): string {
-  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(0)}k`;
-  return String(n);
 }
 
 const TOOL_PRESETS = ["off", "default", "full"] as const;
@@ -69,7 +61,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, modelNames, modelList, onModelChange,
   onCompact, onAbortCompaction, isCompacting, compactError, toolPreset, onToolPresetChange,
   thinkingLevel, onThinkingLevelChange,
-  sessionStats, retryInfo, contextUsage,
+  retryInfo,
   soundEnabled, onSoundToggle,
 }: Props, ref) {
   const [value, setValue] = useState("");
@@ -377,33 +369,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             }}
           />
 
-          {/* Attach image button */}
-          {!isStreaming && (
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              title="Attach image"
-              style={{
-                flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                width: 28, height: 28, padding: 0,
-                background: "none", border: "none",
-                borderRadius: 6,
-                color: attachedImages.length ? "var(--accent)" : "var(--text-dim)",
-                cursor: "pointer",
-                transition: "color 0.12s",
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = attachedImages.length ? "var(--accent)" : "var(--text-dim)"; }}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                <circle cx="8.5" cy="8.5" r="1.5" />
-                <polyline points="21 15 16 10 5 21" />
-              </svg>
-            </button>
-          )}
-
           {isStreaming ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
               {(onSteer || onFollowUp) && (
                 <button
                   onClick={handleQueueSend}
@@ -457,6 +424,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               disabled={!value.trim() && !attachedImages.length}
               style={{
                 flexShrink: 0,
+                alignSelf: "flex-end",
                 display: "flex", alignItems: "center", gap: 6,
                 padding: "7px 14px",
                 background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
@@ -480,16 +448,46 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           )}
         </div>
 
-        {/* Bottom bar: left | center (stats) | right */}
-        <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8 }}>
+        {/* Bottom bar: left | center (context) | right */}
+        <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 6 }}>
 
-          {/* LEFT: model selector (idle) or steer/followup toggle (streaming) */}
-          <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: 6 }}>
+          {/* LEFT: attach + model selector (idle) or steer/followup toggle (streaming) */}
+          <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: 2 }}>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isStreaming}
+              title="Attach image"
+              style={{
+                flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                width: 32, height: 32, padding: 0,
+                background: "none", border: "none",
+                borderRadius: 9,
+                color: attachedImages.length ? "var(--accent)" : "var(--text-muted)",
+                cursor: isStreaming ? "not-allowed" : "pointer",
+                opacity: isStreaming ? 0.5 : 1,
+                transition: "background 0.12s, color 0.12s",
+              }}
+              onMouseEnter={(e) => {
+                if (isStreaming) return;
+                e.currentTarget.style.background = "var(--bg-hover)";
+                e.currentTarget.style.color = attachedImages.length ? "var(--accent)" : "var(--text)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "none";
+                e.currentTarget.style.color = attachedImages.length ? "var(--accent)" : "var(--text-muted)";
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <polyline points="21 15 16 10 5 21" />
+              </svg>
+            </button>
             {isStreaming && (onSteer || onFollowUp) ? (
               /* 发送模式 label + 打断/排队 pill toggle */
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ fontSize: 12, color: "var(--text-dim)" }}>Send Mode</span>
-                <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
+                <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: 9, overflow: "hidden" }}>
                   {(["steer", "followup"] as const).map((mode, i) => {
                     const active = queueMode === mode;
                     const accent = mode === "steer" ? "rgba(234,179,8,1)" : "rgba(129,140,248,1)";
@@ -501,7 +499,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                         title={mode === "steer" ? "打断 Agent 当前运行" : "在 Agent 完成后排队发送"}
                         style={{
                           display: "flex", alignItems: "center", gap: 5,
-                          padding: "4px 10px",
+                          padding: "8px 14px",
+                          height: 32,
                           background: active ? accentBg : "none",
                           border: "none",
                           borderLeft: i > 0 ? `1px solid ${active ? "transparent" : "var(--border)"}` : "none",
@@ -542,25 +541,26 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     onClick={() => setModelDropdownOpen((v) => !v)}
                     disabled={isStreaming}
                     style={{
-                      display: "flex", alignItems: "center", gap: 5,
-                      padding: "4px 10px",
-                      width: 160, overflow: "hidden",
-                      background: "none",
-                      border: "1px solid var(--border)",
-                      borderRadius: 5,
+                      display: "flex", alignItems: "center", gap: 6,
+                      padding: "8px 12px",
+                      height: 32,
+                      maxWidth: 220, overflow: "hidden",
+                      background: modelDropdownOpen ? "var(--bg-hover)" : "none",
+                      border: "none",
+                      borderRadius: 9,
                       color: "var(--text-muted)",
                       cursor: isStreaming ? "not-allowed" : "pointer",
                       fontSize: 12,
                       opacity: isStreaming ? 0.5 : 1,
-                      transition: "border-color 0.12s, color 0.12s",
+                      transition: "background 0.12s, color 0.12s",
                     }}
                     onMouseEnter={(e) => {
                       if (isStreaming) return;
-                      e.currentTarget.style.borderColor = "rgba(37,99,235,0.4)";
-                      e.currentTarget.style.color = "var(--accent)";
+                      e.currentTarget.style.background = "var(--bg-hover)";
+                      e.currentTarget.style.color = "var(--text)";
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = "var(--border)";
+                      e.currentTarget.style.background = modelDropdownOpen ? "var(--bg-hover)" : "none";
                       e.currentTarget.style.color = "var(--text-muted)";
                     }}
                   >
@@ -572,10 +572,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
                       <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
                     </svg>
-                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{currentName}</span>
-                    <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: modelDropdownOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
-                      <polyline points="2 3.5 5 6.5 8 3.5" />
-                    </svg>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{currentName}</span>
                   </button>
                   {modelDropdownOpen && (
                     <div style={{
@@ -631,82 +628,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             )}
           </div>
 
-          {/* CENTER: token + context stats */}
-          <div className="chat-stats-center" style={{ flex: 1, display: "flex", justifyContent: "center" }}>
-            {(sessionStats || contextUsage) && (() => {
-              const items: React.ReactNode[] = [];
-              const tooltipParts: string[] = [];
-              if (sessionStats) {
-                const t = sessionStats.tokens;
-                const total = (t.input || 0) + (t.output || 0) + (t.cacheRead || 0) + (t.cacheWrite || 0);
-                if (total) {
-                  if (t.input) items.push(
-                    <span key="in" style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="5" y1="8.5" x2="5" y2="1.5" /><polyline points="2 4 5 1.5 8 4" />
-                      </svg>
-                      {fmtTokens(t.input)}
-                    </span>
-                  );
-                  if (t.output) items.push(
-                    <span key="out" style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
-                      </svg>
-                      {fmtTokens(t.output)}
-                    </span>
-                  );
-                  if (t.cacheRead) items.push(
-                    <span key="cache" style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M8.5 5a3.5 3.5 0 1 1-1-2.45" /><polyline points="6.5 1.5 8.5 2.5 7.5 4.5" />
-                      </svg>
-                      {fmtTokens(t.cacheRead)}
-                    </span>
-                  );
-                  if (sessionStats.cost && sessionStats.cost > 0) {
-                    const c = sessionStats.cost;
-                    const costStr = c >= 1 ? `$${c.toFixed(2)}` : c >= 0.01 ? `$${c.toFixed(3)}` : `$${c.toFixed(4)}`;
-                    items.push(
-                      <span key="cost" style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-                          <line x1="5" y1="1" x2="5" y2="9" /><path d="M7.5 2.5 H4 a1.5 1.5 0 0 0 0 3 h2 a1.5 1.5 0 0 1 0 3 H2.5" />
-                        </svg>
-                        {costStr}
-                      </span>
-                    );
-                    tooltipParts.push(`cost: $${c.toFixed(4)}`);
-                  }
-                  tooltipParts.push(`in: ${t.input?.toLocaleString() ?? 0}  out: ${t.output?.toLocaleString() ?? 0}  cache read: ${t.cacheRead?.toLocaleString() ?? 0}  cache write: ${t.cacheWrite?.toLocaleString() ?? 0}`);
-                }
-              }
-              let ctxColor = "var(--text-dim)";
-              if (contextUsage?.contextWindow) {
-                const pct = contextUsage.percent;
-                if (pct !== null && pct > 90) ctxColor = "#ef4444";
-                else if (pct !== null && pct > 70) ctxColor = "rgba(234,179,8,0.9)";
-                const ctxStr = pct !== null ? `${pct.toFixed(0)}% / ${fmtTokens(contextUsage.contextWindow)}` : `? / ${fmtTokens(contextUsage.contextWindow)}`;
-                items.push(
-                  <span key="ctx" style={{ display: "flex", alignItems: "center", gap: 3, color: ctxColor }}>
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M1 9 L1 5 Q1 1 5 1 Q9 1 9 5 L9 9" /><line x1="1" y1="9" x2="9" y2="9" />
-                    </svg>
-                    {ctxStr}
-                  </span>
-                );
-                tooltipParts.push(`context: ${pct !== null ? pct.toFixed(1) + "%" : "unknown"} of ${contextUsage.contextWindow.toLocaleString()} tokens`);
-              }
-              if (!items.length) return null;
-              return (
-                <div title={tooltipParts.join("  |  ")} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11, color: "var(--text-dim)", whiteSpace: "nowrap", cursor: "default" }}>
-                  {items}
-                </div>
-              );
-            })()}
-          </div>
+          {/* spacer */}
+          <div style={{ flex: 1 }} />
 
           {/* RIGHT: thinking + tools preset + compact + sound */}
-          <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
+          <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: 2, marginLeft: "auto" }}>
             {onThinkingLevelChange && (
               <div ref={thinkingDropdownRef} style={{ position: "relative" }}>
                 <button
@@ -715,23 +641,24 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   title="切换推理强度"
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
-                    padding: "4px 8px",
-                    background: "none",
-                    border: "1px solid var(--border)",
-                    borderRadius: 5,
+                    padding: "8px 12px",
+                    height: 32,
+                    background: thinkingDropdownOpen ? "var(--bg-hover)" : "none",
+                    border: "none",
+                    borderRadius: 9,
                     color: "var(--text-muted)",
                     cursor: isStreaming ? "not-allowed" : "pointer",
                     fontSize: 12,
                     opacity: isStreaming ? 0.5 : 1,
-                    transition: "border-color 0.12s, color 0.12s",
+                    transition: "background 0.12s, color 0.12s",
                   }}
                   onMouseEnter={(e) => {
                     if (isStreaming) return;
-                    e.currentTarget.style.borderColor = "rgba(37,99,235,0.4)";
-                    e.currentTarget.style.color = "var(--accent)";
+                    e.currentTarget.style.background = "var(--bg-hover)";
+                    e.currentTarget.style.color = "var(--text)";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = "var(--border)";
+                    e.currentTarget.style.background = thinkingDropdownOpen ? "var(--bg-hover)" : "none";
                     e.currentTarget.style.color = "var(--text-muted)";
                   }}
                 >
@@ -741,9 +668,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     <line x1="8" y1="21" x2="11" y2="21" />
                   </svg>
                   <span>{thinkingLevel ?? "auto"}</span>
-                  <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: thinkingDropdownOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
-                    <polyline points="2 3.5 5 6.5 8 3.5" />
-                  </svg>
                 </button>
                 {thinkingDropdownOpen && (
                   <div style={{
@@ -792,23 +716,24 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   title="切换工具预设"
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
-                    padding: "4px 8px",
-                    background: "none",
-                    border: "1px solid var(--border)",
-                    borderRadius: 5,
+                    padding: "8px 12px",
+                    height: 32,
+                    background: toolDropdownOpen ? "var(--bg-hover)" : "none",
+                    border: "none",
+                    borderRadius: 9,
                     color: "var(--text-muted)",
                     cursor: isStreaming ? "not-allowed" : "pointer",
                     fontSize: 12,
                     opacity: isStreaming ? 0.5 : 1,
-                    transition: "border-color 0.12s, color 0.12s",
+                    transition: "background 0.12s, color 0.12s",
                   }}
                   onMouseEnter={(e) => {
                     if (isStreaming) return;
-                    e.currentTarget.style.borderColor = "rgba(37,99,235,0.4)";
-                    e.currentTarget.style.color = "var(--accent)";
+                    e.currentTarget.style.background = "var(--bg-hover)";
+                    e.currentTarget.style.color = "var(--text)";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = "var(--border)";
+                    e.currentTarget.style.background = toolDropdownOpen ? "var(--bg-hover)" : "none";
                     e.currentTarget.style.color = "var(--text-muted)";
                   }}
                 >
@@ -816,9 +741,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
                   </svg>
                   <span>{Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? "default"))?.[0] ?? "default"}</span>
-                  <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: toolDropdownOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
-                    <polyline points="2 3.5 5 6.5 8 3.5" />
-                  </svg>
                 </button>
                 {toolDropdownOpen && (
                   <div style={{
@@ -878,22 +800,24 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   onClick={isCompacting ? onAbortCompaction : onCompact}
                   disabled={isStreaming && !isCompacting}
                   style={{
-                    display: "flex", alignItems: "center", gap: 4, padding: "4px 10px",
-                    background: "none",
-                    border: `1px solid ${isCompacting ? "rgba(239,68,68,0.4)" : "var(--border)"}`,
-                    borderRadius: 5,
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "8px 12px",
+                    height: 32,
+                    background: isCompacting ? "rgba(239,68,68,0.08)" : "none",
+                    border: "none",
+                    borderRadius: 9,
                     color: isCompacting ? "#ef4444" : "var(--text-muted)",
                     cursor: (isStreaming && !isCompacting) ? "not-allowed" : "pointer",
                     fontSize: 12, opacity: (isStreaming && !isCompacting) ? 0.5 : 1,
-                    transition: "border-color 0.12s, color 0.12s",
+                    transition: "background 0.12s, color 0.12s",
                   }}
                   onMouseEnter={(e) => {
                     if (isStreaming && !isCompacting) return;
-                    e.currentTarget.style.borderColor = isCompacting ? "rgba(239,68,68,0.7)" : "rgba(37,99,235,0.4)";
-                    e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--accent)";
+                    e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.16)" : "var(--bg-hover)";
+                    e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text)";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = isCompacting ? "rgba(239,68,68,0.4)" : "var(--border)";
+                    e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.08)" : "none";
                     e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text-muted)";
                   }}
                   title={isCompacting ? "停止压缩" : "压缩上下文"}
@@ -916,24 +840,24 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 title={soundEnabled ? "关闭完成提示音" : "开启完成提示音"}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  width: 26, height: 26, padding: 0,
+                  width: 32, height: 32, padding: 0,
                   background: "none",
-                  border: "1px solid var(--border)",
-                  borderRadius: 5,
+                  border: "none",
+                  borderRadius: 9,
                   color: soundEnabled ? "var(--text-muted)" : "var(--text-dim)",
                   cursor: "pointer",
-                  opacity: soundEnabled ? 1 : 0.45,
-                  transition: "color 0.12s, opacity 0.12s, border-color 0.12s",
+                  opacity: soundEnabled ? 1 : 0.55,
+                  transition: "background 0.12s, color 0.12s, opacity 0.12s",
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = "rgba(37,99,235,0.4)";
-                  e.currentTarget.style.color = "var(--accent)";
+                  e.currentTarget.style.background = "var(--bg-hover)";
+                  e.currentTarget.style.color = "var(--text)";
                   e.currentTarget.style.opacity = "1";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = "var(--border)";
+                  e.currentTarget.style.background = "none";
                   e.currentTarget.style.color = soundEnabled ? "var(--text-muted)" : "var(--text-dim)";
-                  e.currentTarget.style.opacity = soundEnabled ? "1" : "0.45";
+                  e.currentTarget.style.opacity = soundEnabled ? "1" : "0.55";
                 }}
               >
                 {soundEnabled ? (
