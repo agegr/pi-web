@@ -1,10 +1,6 @@
 import { createAgentSession, SessionManager } from "@mariozechner/pi-coding-agent";
 import { cacheSessionPath } from "./session-reader";
 import type { AgentSessionLike, ToolInfo } from "./pi-types";
-import { installPiDeepseekCompat } from "./pi-deepseek-compat";
-
-// Install once on module load (server-side only)
-installPiDeepseekCompat();
 
 // ============================================================================
 // Types
@@ -154,15 +150,6 @@ export class AgentSessionWrapper {
       case "set_thinking_level": {
         const level = command.level as string;
         this.inner.setThinkingLevel(level);
-        // pi clamps xhigh→high for models where supportsXhigh()===false. For deepseek
-        // models routed through anthropic-messages we want to keep xhigh so our
-        // pi-deepseek-compat shim can map it to effort:"max". Force the state back.
-        if (level === "xhigh") {
-          const modelId = (this.inner.model?.id ?? "").toLowerCase();
-          if (modelId.includes("deepseek") && this.inner.agent?.state) {
-            this.inner.agent.state.thinkingLevel = "xhigh";
-          }
-        }
         return null;
       }
 
