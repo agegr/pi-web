@@ -156,6 +156,19 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     : undefined;
                 const isVisible = msg.role === "user" || msg.role === "assistant";
                 const currentRefIdx = isVisible ? refIdx++ : -1;
+                let showTimestamp = false;
+                if (msg.role === "assistant") {
+                  showTimestamp = true;
+                  for (let j = idx + 1; j < messages.length; j++) {
+                    const r = messages[j].role;
+                    if (r === "user") break;
+                    if (r === "assistant") { showTimestamp = false; break; }
+                  }
+                  // Hide on the currently-streaming tail (the streaming bubble owns the live timestamp)
+                  if (showTimestamp && streamState.isStreaming && idx === messages.length - 1) {
+                    showTimestamp = false;
+                  }
+                }
                 const view = (
                   <MessageView
                     key={idx}
@@ -168,6 +181,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     onNavigate={agentRunning ? undefined : handleNavigate}
                     prevAssistantEntryId={agentRunning ? undefined : prevAssistantEntryId}
                     onEditContent={(content) => chatInputRef?.current?.insertIfEmpty(content)}
+                    showTimestamp={showTimestamp}
                   />
                 );
                 if (!isVisible) return view;
