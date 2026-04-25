@@ -234,7 +234,7 @@ export function AppShell() {
         explorerRefreshKey={explorerRefreshKey}
         onAtMention={handleAtMention}
       />
-      <div style={{ padding: "6px 10px", flexShrink: 0, display: "flex", justifyContent: "space-between" }}>
+      <div style={{ padding: "6px 8px 12px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
         {([
           {
             label: "Models",
@@ -270,10 +270,11 @@ export function AppShell() {
             disabled={disabled}
             title={label}
             style={{
-              flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-              padding: "7px 0", background: "none", border: "none",
-              borderRadius: 5, color: "var(--text-muted)", cursor: disabled ? "default" : "pointer",
-              fontSize: 11, opacity: disabled ? 0.35 : 1,
+              flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              height: 32, padding: 0, background: "none", border: "none",
+              borderRadius: 9, color: "var(--text-muted)", cursor: disabled ? "default" : "pointer",
+              fontSize: 12, opacity: disabled ? 0.35 : 1,
+              transition: "background 0.12s, color 0.12s",
             }}
             onMouseEnter={(e) => { if (!disabled) { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text)"; } }}
             onMouseLeave={(e) => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "var(--text-muted)"; }}
