@@ -33,7 +33,7 @@ export interface AgentSessionLike {
   readonly modelRegistry: { find: (provider: string, modelId: string) => ModelLike | undefined };
   readonly sessionManager: SessionManager;
   readonly settingsManager: SettingsManager;
-  readonly agent: { state?: { systemPrompt?: string } };
+  readonly agent: { state?: { systemPrompt?: string; thinkingLevel?: string } };
 
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;
   prompt(text: string, options?: { images?: Array<{ type: "image"; data: string; mimeType: string }> }): Promise<void>;
