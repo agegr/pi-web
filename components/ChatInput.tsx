@@ -65,7 +65,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   soundEnabled, onSoundToggle,
 }: Props, ref) {
   const [value, setValue] = useState("");
-  const [queueMode, setQueueMode] = useState<"steer" | "followup">("steer");
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
@@ -167,31 +166,32 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
   }, [value, attachedImages, isStreaming, onSend, clearImages]);
 
-  const handleQueueSend = useCallback(() => {
+  const sendQueued = useCallback((mode: "steer" | "followup") => {
     const msg = value.trim();
     if (!msg && !attachedImages.length) return;
-    if (queueMode === "steer" && onSteer) {
+    if (mode === "steer" && onSteer) {
       onSteer(msg, attachedImages.length ? attachedImages : undefined);
-    } else if (queueMode === "followup" && onFollowUp) {
+    } else if (mode === "followup" && onFollowUp) {
       onFollowUp(msg, attachedImages.length ? attachedImages : undefined);
     }
     setValue("");
     clearImages();
     if (textareaRef.current) textareaRef.current.style.height = "auto";
-  }, [value, attachedImages, queueMode, onSteer, onFollowUp, clearImages]);
+  }, [value, attachedImages, onSteer, onFollowUp, clearImages]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
         e.preventDefault();
         if (isStreaming && (onSteer || onFollowUp)) {
-          handleQueueSend();
+          // Default Enter sends as steer if available, else followup
+          sendQueued(onSteer ? "steer" : "followup");
         } else {
           handleSend();
         }
       }
     },
-    [isStreaming, onSteer, onFollowUp, handleQueueSend, handleSend]
+    [isStreaming, onSteer, onFollowUp, sendQueued, handleSend]
   );
 
   const handleInput = useCallback(() => {
@@ -332,7 +332,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             alignItems: "center",
             background: "var(--bg)",
             border: `1px solid ${isStreaming && (onSteer || onFollowUp)
-              ? (queueMode === "steer" ? "rgba(234,179,8,0.4)" : "rgba(99,102,241,0.4)")
+              ? "rgba(234,179,8,0.4)"
               : "var(--border)"}`,
             borderRadius: 8,
             padding: "8px 8px 8px 12px",
@@ -348,7 +348,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             onPaste={handlePaste}
             placeholder={
               isStreaming && (onSteer || onFollowUp)
-                ? (queueMode === "steer" ? "Inject guidance mid-run…" : "Queue a message for after agent finishes…")
+                ? "Steer 立即注入 / Follow-up 排队…"
                 : isStreaming ? "Agent is running…"
                 : "Message…"
             }
@@ -371,52 +371,53 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
           {isStreaming ? (
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
-              {(onSteer || onFollowUp) && (
+              {onSteer && (
                 <button
-                  onClick={handleQueueSend}
-                  disabled={!value.trim()}
+                  onClick={() => sendQueued("steer")}
+                  disabled={!value.trim() && !attachedImages.length}
+                  title="打断 Agent 当前运行，立即注入消息"
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
-                    padding: "7px 14px",
-                    background: value.trim()
-                      ? (queueMode === "steer" ? "rgba(234,179,8,0.12)" : "rgba(129,140,248,0.12)")
-                      : "none",
-                    border: `1px solid ${queueMode === "steer" ? "rgba(234,179,8,0.35)" : "rgba(129,140,248,0.35)"}`,
+                    padding: "7px 12px",
+                    background: (value.trim() || attachedImages.length) ? "rgba(234,179,8,0.12)" : "none",
+                    border: "1px solid rgba(234,179,8,0.35)",
                     borderRadius: 8,
-                    color: value.trim()
-                      ? (queueMode === "steer" ? "rgba(180,130,0,1)" : "rgba(99,102,241,1)")
-                      : "var(--text-dim)",
-                    cursor: value.trim() ? "pointer" : "not-allowed",
+                    color: (value.trim() || attachedImages.length) ? "rgba(180,130,0,1)" : "var(--text-dim)",
+                    cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
                     fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
                     transition: "background 0.12s",
                   }}
                 >
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="2" y1="7" x2="11" y2="7" /><polyline points="7.5 3 12 7 7.5 11" />
+                  <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
                   </svg>
-                  Send
+                  Steer
                 </button>
               )}
-              <button
-                onClick={onAbort}
-                style={{
-                  flexShrink: 0,
-                  display: "flex", alignItems: "center", gap: 6,
-                  padding: "7px 14px",
-                  background: "rgba(239,68,68,0.08)",
-                  border: "1px solid rgba(239,68,68,0.3)",
-                  borderRadius: 8,
-                  color: "#ef4444",
-                  cursor: "pointer",
-                  fontSize: 13, fontWeight: 600,
-                  whiteSpace: "nowrap", letterSpacing: "-0.01em",
-                }}
-              >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <rect x="1.5" y="1.5" width="7" height="7" rx="1.5" fill="currentColor" />
-                </svg>
-                Stop
-              </button>
+              {onFollowUp && (
+                <button
+                  onClick={() => sendQueued("followup")}
+                  disabled={!value.trim() && !attachedImages.length}
+                  title="在 Agent 完成后排队发送"
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "7px 12px",
+                    background: (value.trim() || attachedImages.length) ? "rgba(129,140,248,0.12)" : "none",
+                    border: "1px solid rgba(129,140,248,0.35)",
+                    borderRadius: 8,
+                    color: (value.trim() || attachedImages.length) ? "rgba(99,102,241,1)" : "var(--text-dim)",
+                    cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
+                    fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
+                    transition: "background 0.12s",
+                  }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="5" y1="1" x2="5" y2="6" /><polyline points="2.5 3.5 5 1 7.5 3.5" />
+                    <line x1="2" y1="9" x2="8" y2="9" />
+                  </svg>
+                  Follow-up
+                </button>
+              )}
             </div>
           ) : (
             <button
@@ -483,59 +484,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <polyline points="21 15 16 10 5 21" />
               </svg>
             </button>
-            {isStreaming && (onSteer || onFollowUp) ? (
-              /* 发送模式 label + 打断/排队 pill toggle */
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 12, color: "var(--text-dim)" }}>Send Mode</span>
-                <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: 9, overflow: "hidden" }}>
-                  {(["steer", "followup"] as const).map((mode, i) => {
-                    const active = queueMode === mode;
-                    const accent = mode === "steer" ? "rgba(234,179,8,1)" : "rgba(129,140,248,1)";
-                    const accentBg = mode === "steer" ? "rgba(234,179,8,0.1)" : "rgba(129,140,248,0.1)";
-                    return (
-                      <button
-                        key={mode}
-                        onClick={() => setQueueMode(mode)}
-                        title={mode === "steer" ? "打断 Agent 当前运行" : "在 Agent 完成后排队发送"}
-                        style={{
-                          display: "flex", alignItems: "center", gap: 5,
-                          padding: "8px 14px",
-                          height: 32,
-                          background: active ? accentBg : "none",
-                          border: "none",
-                          borderLeft: i > 0 ? `1px solid ${active ? "transparent" : "var(--border)"}` : "none",
-                          color: active ? accent : "var(--text-dim)",
-                          cursor: "pointer",
-                          fontSize: 12,
-                          fontWeight: active ? 600 : 400,
-                          whiteSpace: "nowrap",
-                          transition: "background 0.12s, color 0.12s",
-                        }}
-                      >
-                        {mode === "steer" ? (
-                          <>
-                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
-                            </svg>
-                            Steer
-                          </>
-                        ) : (
-                          <>
-                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                              <line x1="5" y1="1" x2="5" y2="6" /><polyline points="2.5 3.5 5 1 7.5 3.5" />
-                              <line x1="2" y1="9" x2="8" y2="9" />
-                            </svg>
-                            Follow-up
-                          </>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              /* Model selector */
-              modelOptions.length > 0 && currentName && onModelChange && (
+            {/* Model selector — visible always, disabled during streaming */}
+            {modelOptions.length > 0 && currentName && onModelChange && (
                 <div ref={dropdownRef} style={{ position: "relative" }}>
                   <button
                     onClick={() => setModelDropdownOpen((v) => !v)}
@@ -624,16 +574,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     </div>
                   )}
                 </div>
-              )
             )}
           </div>
 
           {/* spacer */}
           <div style={{ flex: 1 }} />
 
-          {/* RIGHT: thinking + tools preset + compact + sound */}
+          {/* RIGHT: thinking + tools preset + compact + sound (idle) | Stop + sound (streaming) */}
           <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: 2, marginLeft: "auto" }}>
-            {onThinkingLevelChange && (
+            {!isStreaming && onThinkingLevelChange && (
               <div ref={thinkingDropdownRef} style={{ position: "relative" }}>
                 <button
                   onClick={() => !isStreaming && setThinkingDropdownOpen((v) => !v)}
@@ -708,7 +657,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 )}
               </div>
             )}
-            {onToolPresetChange && (
+            {!isStreaming && onToolPresetChange && (
               <div ref={toolDropdownRef} style={{ position: "relative" }}>
                 <button
                   onClick={() => !isStreaming && setToolDropdownOpen((v) => !v)}
@@ -783,7 +732,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </div>
             )}
 
-            {onCompact && (
+            {!isStreaming && onCompact && (
               <div style={{ position: "relative" }}>
                 {compactError && (
                   <div style={{
@@ -832,6 +781,33 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   )}
                 </button>
               </div>
+            )}
+
+            {isStreaming && (
+              <button
+                onClick={onAbort}
+                title="停止 Agent"
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "8px 14px",
+                  height: 32,
+                  background: "rgba(239,68,68,0.08)",
+                  border: "1px solid rgba(239,68,68,0.3)",
+                  borderRadius: 9,
+                  color: "#ef4444",
+                  cursor: "pointer",
+                  fontSize: 12, fontWeight: 600,
+                  whiteSpace: "nowrap", letterSpacing: "-0.01em",
+                  transition: "background 0.12s",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.16)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.08)"; }}
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <rect x="1.5" y="1.5" width="7" height="7" rx="1.5" fill="currentColor" />
+                </svg>
+                Stop
+              </button>
             )}
 
             {onSoundToggle !== undefined && (
