@@ -18,7 +18,7 @@ export async function POST(req: Request) {
     }
 
     // Use a one-time key so startRpcSession's lock doesn't conflict with real session ids
-    const { provider, modelId, toolNames, ...promptCommand } = command as { provider?: string; modelId?: string; toolNames?: string[]; [key: string]: unknown };
+    const { provider, modelId, toolNames, thinkingLevel, ...promptCommand } = command as { provider?: string; modelId?: string; toolNames?: string[]; thinkingLevel?: string; [key: string]: unknown };
 
     const tempKey = `__new__${Date.now()}`;
     const { session, realSessionId } = await startRpcSession(tempKey, "", cwd, toolNames);
@@ -31,6 +31,11 @@ export async function POST(req: Request) {
     // Apply pre-selected model before sending the prompt
     if (provider && modelId) {
       await session.send({ type: "set_model", provider, modelId });
+    }
+
+    // Apply pre-selected thinking level before sending the prompt
+    if (thinkingLevel) {
+      await session.send({ type: "set_thinking_level", level: thinkingLevel });
     }
 
     const result = await session.send(promptCommand);

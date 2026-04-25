@@ -36,7 +36,7 @@ function phaseLabel(phase: AgentPhase): string {
 export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange }: Props) {
   const {
     loading, error, messages, entryIds, streamState,
-    agentRunning, modelNames, modelList, toolPreset,
+    agentRunning, modelNames, modelList, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, displayModel: displayModelValue, sessionStats,
     agentPhase,
@@ -45,7 +45,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     lastUserMsgRef,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handleAbortCompaction,
-    handleToolPresetChange, handleAgentEventRef,
+    handleToolPresetChange, handleThinkingLevelChange, handleAgentEventRef,
   } = useAgentSession({
     session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange,
@@ -225,6 +225,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           compactError={compactError}
           toolPreset={toolPreset}
           onToolPresetChange={session || isNew ? handleToolPresetChange : undefined}
+          thinkingLevel={thinkingLevel}
+          onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}
           sessionStats={sessionStats}
           retryInfo={retryInfo}
           contextUsage={contextUsage}
