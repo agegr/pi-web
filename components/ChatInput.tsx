@@ -259,9 +259,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     <div
       style={{
         flexShrink: 0,
-        borderTop: "1px solid var(--border)",
-        background: "var(--bg-panel)",
-        padding: "10px 16px 12px",
+        background: "transparent",
+        padding: "0 16px 8px",
         paddingRight: 52, // 16px base + 36px for ChatMinimap alignment
       }}
     >
@@ -333,10 +332,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             background: "var(--bg)",
             border: `1px solid ${isStreaming && (onSteer || onFollowUp)
               ? "rgba(234,179,8,0.4)"
-              : "var(--border)"}`,
-            borderRadius: 8,
-            padding: "8px 8px 8px 12px",
-            transition: "border-color 0.15s, background 0.15s",
+              : "color-mix(in srgb, var(--border) 70%, transparent)"}`,
+            borderRadius: 14,
+            padding: "10px 10px 10px 14px",
+            boxShadow: "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
+            transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
           } as React.CSSProperties}
         >
           <textarea
@@ -450,7 +450,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         </div>
 
         {/* Bottom bar: left | center (context) | right */}
-        <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
 
           {/* LEFT: attach + model selector (idle) or steer/followup toggle (streaming) */}
           <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: 2 }}>

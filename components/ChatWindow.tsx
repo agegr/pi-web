@@ -102,6 +102,34 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const visibleMessages = messages.filter((m) => m.role === "user" || m.role === "assistant");
   const messageRefs = useMessageRefs(visibleMessages.length);
 
+  const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !agentRunning;
+
+  const chatInputElement = (
+    <ChatInput
+      ref={chatInputRef}
+      onSend={handleSend}
+      onAbort={handleAbort}
+      onSteer={agentRunning ? handleSteer : undefined}
+      onFollowUp={agentRunning ? handleFollowUp : undefined}
+      isStreaming={agentRunning}
+      model={displayModelValue}
+      modelNames={modelNames}
+      modelList={modelList}
+      onModelChange={handleModelChange}
+      onCompact={session || isNew ? handleCompact : undefined}
+      onAbortCompaction={handleAbortCompaction}
+      isCompacting={isCompacting}
+      compactError={compactError}
+      toolPreset={toolPreset}
+      onToolPresetChange={session || isNew ? handleToolPresetChange : undefined}
+      thinkingLevel={thinkingLevel}
+      onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}
+      retryInfo={retryInfo}
+      soundEnabled={soundEnabled}
+      onSoundToggle={onSoundToggle}
+    />
+  );
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center text-text-muted">
@@ -158,8 +186,21 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         </div>
       )}
 
+      {isEmptyNew ? (
+        <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8">
+          <div className="w-full max-w-[820px]">
+            <div className="mb-8 flex justify-center">
+              <pre className="select-none font-mono leading-[1.35]" style={{color:"#888",fontSize:"11px"}}>
+{" ███████████   ███ \n░░███░░░░░███ ░░░  \n ░███    ░███ ████ \n ░██████████ ░░███ \n ░███░░░░░░   ░███ \n ░███         ░███ \n █████        █████\n░░░░░        ░░░░░ "}
+              </pre>
+            </div>
+            {chatInputElement}
+          </div>
+        </div>
+      ) : (
+      <>
       <div className="relative flex flex-1 overflow-hidden">
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto py-4 [scrollbar-width:none]">
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pt-4 [scrollbar-width:none]">
           <div className="mx-auto max-w-[820px] px-4">
 
             {(() => {
@@ -247,30 +288,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       </div>
 
       <div className="relative">
-        <ChatInput
-          ref={chatInputRef}
-          onSend={handleSend}
-          onAbort={handleAbort}
-          onSteer={agentRunning ? handleSteer : undefined}
-          onFollowUp={agentRunning ? handleFollowUp : undefined}
-          isStreaming={agentRunning}
-          model={displayModelValue}
-          modelNames={modelNames}
-          modelList={modelList}
-          onModelChange={handleModelChange}
-          onCompact={session || isNew ? handleCompact : undefined}
-          onAbortCompaction={handleAbortCompaction}
-          isCompacting={isCompacting}
-          compactError={compactError}
-          toolPreset={toolPreset}
-          onToolPresetChange={session || isNew ? handleToolPresetChange : undefined}
-          thinkingLevel={thinkingLevel}
-          onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}
-          retryInfo={retryInfo}
-          soundEnabled={soundEnabled}
-          onSoundToggle={onSoundToggle}
-        />
+        {chatInputElement}
       </div>
+      </>
+      )}
     </div>
   );
 }
