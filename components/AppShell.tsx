@@ -181,8 +181,14 @@ export function AppShell() {
   const handleSessionDeleted = useCallback((sessionId: string) => {
     setRefreshKey((k) => k + 1);
     if (selectedSession?.id === sessionId) {
+      const cwd = selectedSession.cwd;
       setSelectedSession(null);
-      setNewSessionCwd(null);
+      setNewSessionCwd(cwd ?? null);
+      setSessionKey((k) => k + 1);
+      setBranchTree([]);
+      setBranchActiveLeafId(null);
+      setSystemPrompt(null);
+      setActiveTopPanel(null);
       router.replace("/", { scroll: false });
     }
   }, [selectedSession, router]);

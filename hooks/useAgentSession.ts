@@ -108,6 +108,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
   const [forkingEntryId, setForkingEntryId] = useState<string | null>(null);
   const [currentModelOverride, setCurrentModelOverride] = useState<{ provider: string; modelId: string } | null>(null);
+  const [pendingModel, setPendingModel] = useState<{ provider: string; modelId: string } | null>(null);
   const [isCompacting, setIsCompacting] = useState(false);
   const [compactError, setCompactError] = useState<string | null>(null);
   const [agentPhase, setAgentPhase] = useState<AgentPhase>(null);
@@ -125,7 +126,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const setNewSessionModel = opts.setNewSessionModel ?? setNewSessionModelState;
   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
 
-  const currentModel = currentModelOverride ?? data?.context.model ?? null;
+  const currentModel = currentModelOverride ?? data?.context.model ?? pendingModel ?? null;
   const displayModel = isNew ? newSessionModel : currentModel;
 
   const sessionStats = (() => {
@@ -346,6 +347,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       if (isNew && newSessionCwd) {
         const selectedModel = newSessionModel;
+        if (selectedModel) setPendingModel(selectedModel);
         const { PRESET_NONE, PRESET_DEFAULT, PRESET_FULL } = await import("@/components/ToolPanel");
         const toolNames = toolPreset === "none" ? PRESET_NONE : toolPreset === "default" ? PRESET_DEFAULT : PRESET_FULL;
         const res = await fetch("/api/agent/new", {
