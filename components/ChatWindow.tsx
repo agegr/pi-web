@@ -326,6 +326,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     prevAssistantEntryId={agentRunning ? undefined : prevAssistantEntryId}
                     onEditContent={(content) => chatInputRef?.current?.insertIfEmpty(content)}
                     showTimestamp={showTimestamp}
+                    prevTimestamp={idx > 0 ? (messages[idx - 1] as import("@/lib/types").AgentMessage & { timestamp?: number }).timestamp : undefined}
                   />
                 );
                 if (!isVisible) return view;

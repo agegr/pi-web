@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -29,6 +29,7 @@ interface Props {
   prevAssistantEntryId?: string;
   onEditContent?: (content: string) => void;
   showTimestamp?: boolean;
+  prevTimestamp?: number;
 }
 
 function formatTime(ts?: number): string | null {
@@ -63,12 +64,12 @@ function copyText(text: string): Promise<void> {
   }
 }
 
-export function MessageView({ message, isStreaming, toolResults, modelNames, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp }: Props) {
+export function MessageView({ message, isStreaming, toolResults, modelNames, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} showTimestamp={showTimestamp} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -282,12 +283,14 @@ function AssistantMessageView({
   toolResults,
   modelNames,
   showTimestamp,
+  prevTimestamp,
 }: {
   message: AssistantMessage;
   isStreaming?: boolean;
   toolResults?: Map<string, ToolResultMessage>;
   modelNames?: Record<string, string>;
   showTimestamp?: boolean;
+  prevTimestamp?: number;
 }) {
   const time = showTimestamp ? formatTime(message.timestamp) : null;
   const blocks = message.content ?? [];
@@ -297,6 +300,33 @@ function AssistantMessageView({
   const [tps, setTps] = useState<number | null>(null);
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
+
+  // Streaming-based timing for thinking blocks
+  const blockStartTimesRef = useRef<Map<number, number>>(new Map());
+  const [streamingDurations, setStreamingDurations] = useState<Map<number, number>>(new Map());
+
+  // Thinking duration derived from file timestamps: time from prev message end to this message end
+  // This is the total generation time (thinking + any text before first tool call)
+  const thinkingDurationFromFile = useMemo<number | undefined>(() => {
+    if (!message.timestamp || !prevTimestamp) return undefined;
+    const secs = Math.round((message.timestamp - prevTimestamp) / 1000);
+    return secs > 0 ? secs : undefined;
+  }, [message.timestamp, prevTimestamp]);
+
+  // Tool call durations derived from session file timestamps (accurate for completed messages)
+  // assistant message timestamp = when generation ended = when tools started running
+  // toolResult timestamp = when tool execution finished
+  const toolCallDurations = useMemo<Map<string, number>>(() => {
+    const map = new Map<string, number>();
+    if (!toolResults || !message.timestamp) return map;
+    for (const [callId, result] of toolResults) {
+      if (result.timestamp && message.timestamp) {
+        const secs = Math.round((result.timestamp - message.timestamp) / 1000);
+        if (secs > 0) map.set(callId, secs);
+      }
+    }
+    return map;
+  }, [toolResults, message.timestamp]);
 
   const textContent = blocks
     .filter((b): b is TextContent => b.type === "text")
@@ -312,20 +342,52 @@ function AssistantMessageView({
 
   useEffect(() => {
     if (!isStreaming) {
+      // Finalise any un-finished thinking block durations on stream end
+      const now = Date.now();
+      setStreamingDurations((prev: Map<number, number>) => {
+        const next = new Map(prev);
+        for (const [idx, start] of blockStartTimesRef.current) {
+          if (!next.has(idx)) next.set(idx, Math.round((now - start) / 1000));
+        }
+        return next;
+      });
       streamStartRef.current = null;
       setTps(null);
       return;
     }
     const tick = () => {
+      const bs = blocksRef.current;
+      const now = Date.now();
+
+      // Record start time for each block the first time we see it
+      bs.forEach((_, i) => {
+        if (!blockStartTimesRef.current.has(i)) blockStartTimesRef.current.set(i, now);
+      });
+
+      // When a non-last block has a successor already started, finalise its duration
+      setStreamingDurations((prev: Map<number, number>) => {
+        let changed = false;
+        const next = new Map(prev);
+        for (let i = 0; i < bs.length - 1; i++) {
+          if (!next.has(i) && blockStartTimesRef.current.has(i)) {
+            const start = blockStartTimesRef.current.get(i)!;
+            const nextStart = blockStartTimesRef.current.get(i + 1) ?? now;
+            next.set(i, Math.round((nextStart - start) / 1000));
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+
       let chars = 0;
-      for (const b of blocksRef.current) {
+      for (const b of bs) {
         if (b.type === "text") chars += (b as TextContent).text?.length ?? 0;
         else if (b.type === "thinking") chars += (b as ThinkingContent).thinking?.length ?? 0;
         else if (b.type === "toolCall") chars += JSON.stringify((b as ToolCallContent).input ?? {}).length;
       }
       if (chars === 0) return;
-      if (streamStartRef.current === null) streamStartRef.current = Date.now();
-      const elapsed = (Date.now() - streamStartRef.current) / 1000;
+      if (streamStartRef.current === null) streamStartRef.current = now;
+      const elapsed = (now - streamStartRef.current) / 1000;
       if (elapsed > 0.5) setTps(chars / 4 / elapsed);
     };
     const id = setInterval(tick, 300);
@@ -388,7 +450,7 @@ function AssistantMessageView({
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {blocks.map((block, i) => (
-          <BlockView key={i} block={block} toolResults={toolResults} isStreaming={isStreaming} />
+          <BlockView key={i} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(i) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} />
         ))}
       </div>
 
@@ -441,16 +503,18 @@ function AssistantMessageView({
   );
 }
 
-function BlockView({ block, toolResults, isStreaming }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean }) {
+function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCallDurations }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number> }) {
   if (block.type === "text") {
     return <TextBlock block={block as TextContent} />;
   }
   if (block.type === "thinking") {
-    return <ThinkingBlock block={block as ThinkingContent} />;
+    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} />;
   }
   if (block.type === "toolCall") {
-    const result = toolResults?.get((block as ToolCallContent).toolCallId);
-    return <ToolCallBlock block={block as ToolCallContent} result={result} isRunning={isStreaming && !result} />;
+    const tc = block as ToolCallContent;
+    const result = toolResults?.get(tc.toolCallId);
+    const duration = toolCallDurations?.get(tc.toolCallId);
+    return <ToolCallBlock block={tc} result={result} isRunning={isStreaming && !result} duration={duration} />;
   }
   return null;
 }
@@ -495,7 +559,7 @@ function TextBlock({ block }: { block: TextContent }) {
   );
 }
 
-function ThinkingBlock({ block }: { block: ThinkingContent }) {
+function ThinkingBlock({ block, duration }: { block: ThinkingContent; duration?: number }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <div
@@ -522,8 +586,10 @@ function ThinkingBlock({ block }: { block: ThinkingContent }) {
           textAlign: "left",
         }}
       >
-        <span>{expanded ? "▼" : "▶"}</span>
         <span>Thinking</span>
+        {duration !== undefined && (
+          <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
+        )}
       </button>
       {expanded && (
         <div
@@ -544,7 +610,8 @@ function ThinkingBlock({ block }: { block: ThinkingContent }) {
   );
 }
 
-function ToolCallBlock({ block, result, isRunning }: { block: ToolCallContent; result?: ToolResultMessage; isRunning?: boolean }) {
+
+function ToolCallBlock({ block, result, isRunning, duration }: { block: ToolCallContent; result?: ToolResultMessage; isRunning?: boolean; duration?: number }) {
   const [expanded, setExpanded] = useState(false);
   const inputStr = JSON.stringify(block.input, null, 2);
 
@@ -553,7 +620,6 @@ function ToolCallBlock({ block, result, isRunning }: { block: ToolCallContent; r
     ? result.content.filter((b): b is { type: "text"; text: string } => b.type === "text").map((b) => b.text).join("\n")
     : null;
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
-  const resultPreview = resultIsEmpty ? "(no output)" : (resultText ?? "").slice(0, 200).replace(/\n/g, " ");
   const isError = result?.isError ?? false;
 
   return (
@@ -562,8 +628,8 @@ function ToolCallBlock({ block, result, isRunning }: { block: ToolCallContent; r
         borderRadius: 7,
         overflow: "hidden",
         fontSize: 12,
-        border: "1px solid rgba(34,197,94,0.25)",
-        background: "rgba(34,197,94,0.04)",
+        border: isError ? "1px solid rgba(248,113,113,0.45)" : "1px solid rgba(34,197,94,0.25)",
+        background: isError ? "rgba(248,113,113,0.05)" : "rgba(34,197,94,0.04)",
       }}
     >
       {/* ── Tool call header ── */}
@@ -584,22 +650,15 @@ function ToolCallBlock({ block, result, isRunning }: { block: ToolCallContent; r
           minWidth: 0,
         }}
       >
-        {isRunning ? (
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0, color: "#16a34a" }}>
-            <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.4" strokeDasharray="14 8" strokeLinecap="round" />
-          </svg>
-        ) : (
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0, color: "#16a34a" }}>
-            <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.4" />
-            <polygon points="4.5,3.5 9,6 4.5,8.5" fill="currentColor" />
-          </svg>
-        )}
-        <span style={{ color: "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
+        <span style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
           {block.toolName}
         </span>
         <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
           {getToolPreview(block)}
         </span>
+        {duration !== undefined && (
+          <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
+        )}
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
           <polyline points="2 3.5 5 6.5 8 3.5" />
         </svg>
@@ -616,7 +675,7 @@ function ToolCallBlock({ block, result, isRunning }: { block: ToolCallContent; r
             lineHeight: 1.5,
             overflow: "auto",
             background: "rgba(0,0,0,0.03)",
-            borderTop: "1px solid rgba(34,197,94,0.2)",
+            borderTop: isError ? "1px solid rgba(248,113,113,0.25)" : "1px solid rgba(34,197,94,0.2)",
             whiteSpace: "pre-wrap",
             wordBreak: "break-all",
           }}
@@ -625,31 +684,23 @@ function ToolCallBlock({ block, result, isRunning }: { block: ToolCallContent; r
         </pre>
       )}
 
-      {/* ── Paired result ── */}
-      {result && (
+      {/* ── Paired result — only shown when expanded ── */}
+      {expanded && result && (
         <PairedResult
           text={resultText ?? ""}
-          preview={resultPreview}
           isEmpty={resultIsEmpty}
           isError={isError}
-          forceExpanded={expanded}
-          onToggle={() => setExpanded((v) => !v)}
         />
       )}
     </div>
   );
 }
 
-function PairedResult({ text, preview, isEmpty, isError, forceExpanded, onToggle }: {
+function PairedResult({ text, isEmpty, isError }: {
   text: string;
-  preview: string;
   isEmpty: boolean;
   isError: boolean;
-  forceExpanded?: boolean;
-  onToggle?: () => void;
 }) {
-  const expanded = forceExpanded ?? false;
-
   return (
     <div
       style={{
@@ -657,64 +708,24 @@ function PairedResult({ text, preview, isEmpty, isError, forceExpanded, onToggle
         background: isError ? "rgba(248,113,113,0.04)" : "rgba(0,0,0,0.02)",
       }}
     >
-      <button
-        onClick={() => (!isEmpty && onToggle) ? onToggle() : undefined}
+      <pre
         style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 7,
-          width: "100%",
-          padding: "5px 10px",
-          background: "none",
-          border: "none",
-          color: isError ? "#f87171" : "var(--text-dim)",
-          cursor: isEmpty ? "default" : "pointer",
-          textAlign: "left",
-          fontSize: 11,
-          minWidth: 0,
+          margin: 0,
+          padding: "8px 10px",
+          color: isError ? "#f87171" : (isEmpty ? "var(--text-dim)" : "var(--text-muted)"),
+          fontSize: 12,
+          lineHeight: 1.5,
+          overflow: "auto",
+          maxHeight: 400,
+          background: "var(--bg)",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-all",
+          fontStyle: isEmpty ? "italic" : "normal",
+          opacity: isEmpty ? 0.6 : 1,
         }}
       >
-        {/* return arrow */}
-        <svg width="11" height="11" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0, color: isError ? "#f87171" : "var(--text-dim)" }}>
-          <polyline points="4 2 2 6 4 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M2 6h7a2 2 0 0 0 0-4H7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-        {!expanded && (
-          <span style={{
-            fontFamily: "var(--font-mono)",
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0,
-            fontStyle: isEmpty ? "italic" : "normal",
-            opacity: isEmpty ? 0.5 : 1,
-            color: isError ? "#f87171" : "var(--text-dim)",
-          }}>
-            {preview}
-          </span>
-        )}
-        {!isEmpty && !isError && (
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
-            <polyline points="2 3.5 5 6.5 8 3.5" />
-          </svg>
-        )}
-      </button>
-      {expanded && (
-        <pre
-          style={{
-            margin: 0,
-            padding: "8px 10px",
-            color: isError ? "#f87171" : "var(--text-muted)",
-            fontSize: 12,
-            lineHeight: 1.5,
-            overflow: "auto",
-            maxHeight: 400,
-            background: "var(--bg)",
-            borderTop: `1px solid ${isError ? "rgba(248,113,113,0.2)" : "rgba(34,197,94,0.15)"}`,
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-all",
-          }}
-        >
-          {text}
-        </pre>
-      )}
+        {isEmpty ? "(no output)" : text}
+      </pre>
     </div>
   );
 }
