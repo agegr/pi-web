@@ -9,6 +9,7 @@ import { TabBar, type Tab } from "./TabBar";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { BranchNavigator } from "./BranchNavigator";
+import { createSidebarWidthTracker } from "@/lib/sidebar-width";
 import { useTheme } from "@/hooks/useTheme";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ChatInputHandle } from "./ChatInput";
@@ -27,8 +28,14 @@ export function AppShell() {
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(260);
+  const [sidebarDragging, setSidebarDragging] = useState(false);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
+  const appShellRef = useRef<HTMLDivElement>(null);
+  const sidebarResizeHandleRef = useRef<HTMLDivElement>(null);
+  const sidebarDraggingRef = useRef(false);
+  const sidebarWidthTrackerRef = useRef(createSidebarWidthTracker({ min: 220, max: 520 }));
 
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
   const [branchTree, setBranchTree] = useState<SessionTreeNode[]>([]);
@@ -88,6 +95,44 @@ export function AppShell() {
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+
+  useEffect(() => {
+    const onMouseDown = (e: MouseEvent) => {
+      if (window.innerWidth <= 640) return;
+      e.preventDefault();
+      sidebarDraggingRef.current = true;
+      setSidebarDragging(true);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    };
+
+    const onMove = (e: MouseEvent) => {
+      if (!sidebarDraggingRef.current || !appShellRef.current) return;
+      const rect = appShellRef.current.getBoundingClientRect();
+      const result = sidebarWidthTrackerRef.current.next(e.clientX - rect.left);
+      if (result.changed) {
+        setSidebarWidth(result.width);
+      }
+    };
+
+    const onUp = () => {
+      if (!sidebarDraggingRef.current) return;
+      sidebarDraggingRef.current = false;
+      setSidebarDragging(false);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    const handleEl = sidebarResizeHandleRef.current;
+    handleEl?.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      handleEl?.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
 
   const handleAtMention = useCallback((relativePath: string) => {
     chatInputRef.current?.insertText("`" + relativePath + "`");
@@ -296,7 +341,7 @@ export function AppShell() {
 
   return (
     <>
-    <div style={{ display: "flex", height: "100dvh", overflow: "hidden", background: "var(--bg)" }}>
+    <div ref={appShellRef} style={{ display: "flex", height: "100dvh", overflow: "hidden", background: "var(--bg)" }}>
       {/* Mobile overlay backdrop */}
       <div
         className="sidebar-overlay-backdrop"
@@ -322,10 +367,35 @@ export function AppShell() {
           flexDirection: "column",
           flexShrink: 0,
           zIndex: 200,
+          ["--sidebar-width" as string]: `${sidebarWidth}px`,
+          transition: sidebarDragging ? "none" : undefined,
         }}
       >
         {sidebarContent}
       </div>
+
+      {sidebarOpen && (
+        <div
+          ref={sidebarResizeHandleRef}
+          className="sidebar-resize-handle"
+          style={{
+            flexShrink: 0,
+            width: 5,
+            cursor: "col-resize",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "transparent",
+            transition: sidebarDragging ? "none" : "background 0.15s",
+            position: "relative",
+            zIndex: 201,
+          }}
+          onMouseEnter={(e) => { if (!sidebarDraggingRef.current) e.currentTarget.style.background = "var(--bg-hover)"; }}
+          onMouseLeave={(e) => { if (!sidebarDraggingRef.current) e.currentTarget.style.background = "transparent"; }}
+        >
+          <div style={{ width: 2, height: 24, borderRadius: 1, background: "var(--border)" }} />
+        </div>
+      )}
 
       {/* Center: chat */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>

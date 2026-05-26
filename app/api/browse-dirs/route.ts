@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readdirSync, statSync } from "fs";
+import { existsSync, readdirSync, statSync } from "fs";
 import { join, basename } from "path";
 import { homedir } from "os";
 
@@ -68,11 +68,10 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const dirPath = searchParams.get("path");
+    const home = homedir();
 
     if (!dirPath) {
-      // Return home directory as default
-      const home = homedir();
-      return NextResponse.json({ path: home, entries: listDir(home) });
+      return NextResponse.json({ path: home, entries: listDir(home), valid: true });
     }
 
     // Security: only allow listing directories that are under known roots
@@ -91,8 +90,6 @@ export async function GET(req: Request) {
         }
       }
     }
-    // Always allow home directory
-    const home = homedir();
     allowedRoots.add(home.toLowerCase?.() ?? home);
 
     const normalized = dirPath.toLowerCase?.() ?? dirPath;
@@ -104,8 +101,18 @@ export async function GET(req: Request) {
       // (this is a local-only server)
     }
 
+    if (!isDirectory(dirPath)) {
+      return NextResponse.json({
+        path: home,
+        entries: listDir(home),
+        valid: false,
+        error: `Directory does not exist: ${dirPath}`,
+        requestedPath: dirPath,
+      });
+    }
+
     const entries = listDir(dirPath);
-    return NextResponse.json({ path: dirPath, entries });
+    return NextResponse.json({ path: dirPath, entries, valid: true });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
@@ -118,6 +125,14 @@ interface DirEntry {
 }
 
 const SKIP_DIRS = new Set(["node_modules", ".git", ".next", "dist", "build", "__pycache__", ".cache", "coverage", ".turbo", "target", "vendor", ".DS_Store"]);
+
+function isDirectory(dirPath: string): boolean {
+  try {
+    return existsSync(dirPath) && statSync(dirPath).isDirectory();
+  } catch {
+    return false;
+  }
+}
 
 function listDir(dirPath: string): DirEntry[] {
   try {
