@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import os from "os";
 import { listAllSessions } from "@/lib/session-reader";
 
 const IGNORED_NAMES = new Set([
@@ -98,6 +99,10 @@ function isWindowsAbsolutePath(filePath: string): boolean {
 function filePathFromSegments(segments: string[]): string {
   const joined = segments.join("/");
   const slashJoined = normalizeSlashes(joined);
+  // Expand ~ to user's home directory
+  if (slashJoined === "~" || slashJoined.startsWith("~/")) {
+    return slashJoined.replace(/^~/, os.homedir());
+  }
   if (isWindowsAbsolutePath(slashJoined)) return slashJoined;
   return "/" + joined.replace(/^\/+/, "");
 }
