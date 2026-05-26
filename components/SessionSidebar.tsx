@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { FileExplorer } from "./FileExplorer";
+import { FolderPicker } from "./FolderPicker";
 
 interface Props {
   selectedSessionId: string | null;
@@ -205,6 +206,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [customPathOpen, setCustomPathOpen] = useState(false);
   const [customPathValue, setCustomPathValue] = useState("");
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const customPathInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [explorerOpen, setExplorerOpen] = useState(true);
@@ -571,31 +573,56 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 </button>
               ) : (
                 <div style={{ padding: "6px 8px", borderTop: recentCwds.length > 0 ? "none" : undefined }}>
-                  <input
-                    ref={customPathInputRef}
-                    value={customPathValue}
-                    onChange={(e) => setCustomPathValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") commitCustomPath();
-                      if (e.key === "Escape") {
-                        setCustomPathOpen(false);
-                        setCustomPathValue("");
-                      }
-                    }}
-                    placeholder="/path/to/project"
-                    style={{
-                      width: "100%",
-                      fontSize: 11,
-                      fontFamily: "var(--font-mono)",
-                      padding: "5px 8px",
-                      border: "1px solid var(--accent)",
-                      borderRadius: 5,
-                      outline: "none",
-                      background: "var(--bg)",
-                      color: "var(--text)",
-                      boxSizing: "border-box",
-                    }}
-                  />
+                  <div style={{ display: "flex", gap: 5 }}>
+                    <input
+                      ref={customPathInputRef}
+                      value={customPathValue}
+                      onChange={(e) => setCustomPathValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commitCustomPath();
+                        if (e.key === "Escape") {
+                          setCustomPathOpen(false);
+                          setCustomPathValue("");
+                        }
+                      }}
+                      placeholder="/path/to/project"
+                      style={{
+                        flex: 1,
+                        fontSize: 11,
+                        fontFamily: "var(--font-mono)",
+                        padding: "5px 8px",
+                        border: "1px solid var(--accent)",
+                        borderRadius: 5,
+                        outline: "none",
+                        background: "var(--bg)",
+                        color: "var(--text)",
+                        boxSizing: "border-box",
+                        minWidth: 0,
+                      }}
+                    />
+                    <button
+                      onClick={() => setFolderPickerOpen(true)}
+                      title="Browse folders"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: 28,
+                        height: 28,
+                        flexShrink: 0,
+                        background: "var(--bg-hover)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 5,
+                        color: "var(--text-muted)",
+                        cursor: "pointer",
+                        padding: 0,
+                      }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M1 4a1 1 0 0 1 1-1h6l3 3h11a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V4Z" />
+                      </svg>
+                    </button>
+                  </div>
                   <div style={{ display: "flex", gap: 5, marginTop: 5 }}>
                     <button
                       onClick={commitCustomPath}
@@ -756,6 +783,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           )}
         </div>
       )}
+      <FolderPicker
+        isOpen={folderPickerOpen}
+        onClose={() => setFolderPickerOpen(false)}
+        onSelect={(path) => { setCustomPathValue(path); setFolderPickerOpen(false); }}
+      />
     </div>
   );
 }
