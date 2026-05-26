@@ -210,19 +210,43 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!visible) return;
 
-    draggingRef.current = true;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const clickRatio = (e.clientY - rect.top) / rect.height;
-    const grabOffset = clickRatio - scrollRatio * (1 - viewportRatio);
-    const insideBox = grabOffset >= 0 && grabOffset <= viewportRatio;
-    const offset = insideBox ? grabOffset : viewportRatio / 2;
+    const el = scrollContainer.current;
+    if (!el) return;
 
-    scrollToMinimapRatio(clickRatio - offset);
+    draggingRef.current = true;
+    const dragContainer = containerRef.current;
+    if (!dragContainer) return;
+
+    const rect = dragContainer.getBoundingClientRect();
+    const clickRatio = (e.clientY - rect.top) / rect.height;
+
+    const totalH = el.scrollHeight;
+    const clientH = el.clientHeight;
+    const scrollable = totalH - clientH;
+    const currentViewportRatio = clientH / totalH;
+    const currentScrollRatio = scrollable > 0 ? el.scrollTop / scrollable : 0;
+
+    const grabOffset = clickRatio - currentScrollRatio * (1 - currentViewportRatio);
+    const insideBox = grabOffset >= 0 && grabOffset <= currentViewportRatio;
+    const offset = insideBox ? grabOffset : currentViewportRatio / 2;
+
+    const scrollLocal = (ratio: number) => {
+      const liveTotalH = el.scrollHeight;
+      const liveClientH = el.clientHeight;
+      const liveScrollable = liveTotalH - liveClientH;
+      if (liveScrollable <= 0) return;
+      const liveViewportRatio = liveClientH / liveTotalH;
+      const clamped = Math.max(0, Math.min(1 - liveViewportRatio, ratio));
+      el.scrollTop = (clamped / (1 - liveViewportRatio)) * liveScrollable;
+    };
+
+    scrollLocal(clickRatio - offset);
 
     const onMove = (ev: MouseEvent) => {
       if (!draggingRef.current) return;
-      const r = (ev.clientY - rect.top) / rect.height;
-      scrollToMinimapRatio(r - offset);
+      const liveRect = dragContainer.getBoundingClientRect();
+      const r = (ev.clientY - liveRect.top) / liveRect.height;
+      scrollLocal(r - offset);
     };
     const onUp = () => {
       draggingRef.current = false;
@@ -231,7 +255,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [visible, viewportRatio, scrollRatio, scrollToMinimapRatio]);
+  }, [visible, scrollContainer]);
 
   if (!visible) return null;
 

@@ -29,6 +29,9 @@ export function AppShell() {
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(260);
+  const sidebarWidthRef = useRef(sidebarWidth);
+  sidebarWidthRef.current = sidebarWidth;
+
   const [sidebarDragging, setSidebarDragging] = useState(false);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
@@ -97,6 +100,8 @@ export function AppShell() {
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
 
   useEffect(() => {
+    let localWidth = sidebarWidthRef.current;
+
     const onMouseDown = (e: MouseEvent) => {
       if (window.innerWidth <= 640) return;
       e.preventDefault();
@@ -104,6 +109,7 @@ export function AppShell() {
       setSidebarDragging(true);
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
+      localWidth = sidebarWidthRef.current;
     };
 
     const onMove = (e: MouseEvent) => {
@@ -111,7 +117,11 @@ export function AppShell() {
       const rect = appShellRef.current.getBoundingClientRect();
       const result = sidebarWidthTrackerRef.current.next(e.clientX - rect.left);
       if (result.changed) {
-        setSidebarWidth(result.width);
+        localWidth = result.width;
+        const sidebarDiv = appShellRef.current.querySelector(".sidebar-container") as HTMLDivElement | null;
+        if (sidebarDiv) {
+          sidebarDiv.style.setProperty("--sidebar-width", `${result.width}px`);
+        }
       }
     };
 
@@ -121,6 +131,7 @@ export function AppShell() {
       setSidebarDragging(false);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      setSidebarWidth(localWidth);
     };
 
     const handleEl = sidebarResizeHandleRef.current;
