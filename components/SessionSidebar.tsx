@@ -209,10 +209,33 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [explorerKey, setExplorerKey] = useState(0);
+  // Explorer height as fraction (0–1) of the available space below the header
+  const [explorerFraction, setExplorerFraction] = useState(0.5);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
+  const headerHeightRef = useRef(0);
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Drag-to-resize between session list and explorer
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!draggingRef.current || !sidebarRef.current) return;
+      const sidebarRect = sidebarRef.current.getBoundingClientRect();
+      const headerEl = sidebarRef.current.querySelector('[data-sidebar-header]');
+      const headerH = headerEl ? headerEl.getBoundingClientRect().height : 0;
+      const available = sidebarRect.height - headerH;
+      const y = e.clientY - sidebarRect.top - headerH;
+      const frac = Math.max(0.1, Math.min(0.9, y / available));
+      setExplorerFraction(1 - frac);
+    };
+    const onUp = () => { draggingRef.current = false; document.body.style.cursor = ''; document.body.style.userSelect = ''; };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, []);
 
   const loadSessions = useCallback(async (showLoading = false) => {
     try {
@@ -302,6 +325,47 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }
   }, []);
 
+  const handleBrowseFolder = useCallback(async () => {
+    // Try the File System Access API (Chromium only)
+    if (typeof window !== "undefined" && "showDirectoryPicker" in window) {
+      try {
+        const handle = await (window as unknown as { showDirectoryPicker: () => Promise<{ name: string }> }).showDirectoryPicker();
+        const dirName = handle.name;
+        // Resolve the full path server-side
+        const res = await fetch("/api/browse-dirs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dirName }),
+        });
+        const data = await res.json() as { matches?: string[] };
+        const matches = data.matches ?? [];
+        if (matches.length === 1) {
+          // Single match — use it
+          setSelectedCwd(matches[0]);
+          setDropdownOpen(false);
+        } else if (matches.length > 1) {
+          // Multiple matches — show in custom path for user to pick
+          setCustomPathOpen(true);
+          setCustomPathValue("");
+          // We'll show matches as hints — for now just use the first
+          // A better UX would be a sub-menu, but keep it simple
+          setCustomPathValue(matches[0]);
+        } else {
+          // No server match — just use the folder name as-is
+          setCustomPathOpen(true);
+          setCustomPathValue(dirName);
+          setTimeout(() => customPathInputRef.current?.focus(), 0);
+        }
+      } catch {
+        // User cancelled or API not available
+      }
+      return;
+    }
+    // Fallback: open custom path input
+    setCustomPathOpen(true);
+    setTimeout(() => customPathInputRef.current?.focus(), 0);
+  }, []);
+
   // Close dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -334,9 +398,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const sessionTree = buildSessionTree(filteredSessions);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+    <div ref={sidebarRef} style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       {/* Header */}
       <div
+        data-sidebar-header=""
         style={{
           padding: "12px 10px 10px",
           borderBottom: "1px solid var(--border)",
@@ -541,6 +606,35 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 </button>
               )}
 
+              {/* Browse folder — uses File System Access API (Chromium only) */}
+              {!customPathOpen && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleBrowseFolder(); }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 7,
+                    width: "100%",
+                    padding: "8px 10px",
+                    background: "none",
+                    border: "none",
+                    borderTop: "1px solid var(--border)",
+                    color: "var(--accent)",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    fontSize: 11,
+                    fontWeight: 500,
+                  }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                    <line x1="12" y1="11" x2="12" y2="17" />
+                    <line x1="9" y1="14" x2="15" y2="14" />
+                  </svg>
+                  <span>Browse folder…</span>
+                </button>
+              )}
+
               {/* Custom path entry */}
               {!customPathOpen ? (
                 <button
@@ -637,7 +731,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       </div>
 
       {/* Session list */}
-      <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}>
+      <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? `${1 - explorerFraction} 1 0` : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}>
         {loading && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
             Loading...
@@ -669,14 +763,42 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         ))}
       </div>
 
+      {/* Drag handle between session list and explorer */}
+      {(selectedCwdProp || selectedCwd) && explorerOpen && (
+        <div
+          onMouseDown={(e) => {
+            e.preventDefault();
+            draggingRef.current = true;
+            document.body.style.cursor = 'row-resize';
+            document.body.style.userSelect = 'none';
+          }}
+          style={{
+            flexShrink: 0,
+            height: 5,
+            cursor: 'row-resize',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'transparent',
+            borderTop: '1px solid var(--border)',
+            transition: 'background 0.15s',
+            position: 'relative',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+          onMouseLeave={(e) => { if (!draggingRef.current) e.currentTarget.style.background = 'transparent'; }}
+        >
+          <div style={{ width: 24, height: 2, borderRadius: 1, background: 'var(--border)' }} />
+        </div>
+      )}
+
       {/* File Explorer section */}
       {(selectedCwdProp || selectedCwd) && (
         <div
           style={{
-            borderTop: "1px solid var(--border)",
             display: "flex",
             flexDirection: "column",
-            flex: explorerOpen ? "1 1 0" : "0 0 auto",
+            borderTop: !explorerOpen ? "1px solid var(--border)" : undefined,
+            flex: explorerOpen ? `${explorerFraction} 1 0` : "0 0 auto",
             minHeight: 0,
             overflow: "hidden",
           }}

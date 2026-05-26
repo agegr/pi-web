@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
+import { SkillMenu, type SkillItem } from "./SkillMenu";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -20,6 +21,7 @@ interface Props {
   onSteer?: (message: string, images?: AttachedImage[]) => void;
   onFollowUp?: (message: string, images?: AttachedImage[]) => void;
   isStreaming: boolean;
+  cwd?: string | null;
   model?: { provider: string; modelId: string } | null;
   modelNames?: Record<string, string>;
   modelList?: { id: string; name: string; provider: string }[];
@@ -60,7 +62,7 @@ const THINKING_LEVEL_DESC: Record<typeof THINKING_LEVELS[number], string> = {
 };
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, modelNames, modelList, onModelChange,
+  onSend, onAbort, onSteer, onFollowUp, isStreaming, cwd, model, modelNames, modelList, onModelChange,
   onCompact, onAbortCompaction, isCompacting, compactError, toolPreset, onToolPresetChange,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo,
@@ -72,6 +74,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
+  const [skillMenuOpen, setSkillMenuOpen] = useState(false);
+  const [skillMenuQuery, setSkillMenuQuery] = useState("");
+  const [skillMenuRect, setSkillMenuRect] = useState<{ top: number; left: number; width: number } | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -185,6 +190,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      // Let SkillMenu handle ArrowUp/ArrowDown/Enter/Tab when menu is open
+      if (skillMenuOpen && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === "Escape" || e.key === "Tab")) {
+        // SkillMenu has its own document-level keydown listener with capture=true
+        // We just need to stop the textarea from processing these keys
+        if (e.key === "Enter" || e.key === "Escape" || e.key === "Tab") {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        return;
+      }
       if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
         e.preventDefault();
         if (isStreaming && (onSteer || onFollowUp)) {
@@ -195,7 +210,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }
       }
     },
-    [isStreaming, onSteer, onFollowUp, sendQueued, handleSend]
+    [isStreaming, onSteer, onFollowUp, sendQueued, handleSend, skillMenuOpen]
   );
 
   const handleInput = useCallback(() => {
@@ -203,6 +218,28 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (!ta) return;
     ta.style.height = "auto";
     ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+  }, []);
+
+  const handleSkillSelect = useCallback((skill: SkillItem) => {
+    setSkillMenuOpen(false);
+    // Replace the entire value with /skill-name so the user can add their prompt after it
+    setValue(`/skill:${skill.name} `);
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      const pos = ta.value.length;
+      ta.setSelectionRange(pos, pos);
+      ta.focus();
+    });
+  }, []);
+
+  const handleSkillMenuClose = useCallback(() => {
+    setSkillMenuOpen(false);
+    // Clear the leading slash if the user dismisses without selecting
+    setValue((prev) => {
+      if (prev === "/" || (prev.startsWith("/") && !prev.includes(" "))) return "";
+      return prev;
+    });
   }, []);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
@@ -349,7 +386,34 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           <textarea
             ref={textareaRef}
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value;
+              setValue(v);
+              // Detect slash command
+              if (cwd) {
+                if (v === "/") {
+                  const ta = textareaRef.current;
+                  if (ta) {
+                    const rect = ta.getBoundingClientRect();
+                    setSkillMenuRect({ top: rect.top, left: rect.left, width: rect.width });
+                  }
+                  setSkillMenuQuery("");
+                  setSkillMenuOpen(true);
+                } else if (v.startsWith("/") && !v.includes(" ")) {
+                  setSkillMenuQuery(v.slice(1));
+                  if (!skillMenuOpen) {
+                    const ta = textareaRef.current;
+                    if (ta) {
+                      const rect = ta.getBoundingClientRect();
+                      setSkillMenuRect({ top: rect.top, left: rect.left, width: rect.width });
+                    }
+                    setSkillMenuOpen(true);
+                  }
+                } else if (skillMenuOpen) {
+                  setSkillMenuOpen(false);
+                }
+              }
+            }}
             onKeyDown={handleKeyDown}
             onInput={handleInput}
             onPaste={handlePaste}
@@ -455,6 +519,17 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             </button>
           )}
         </div>
+
+        {/* Skill slash command menu */}
+        {skillMenuOpen && cwd && (
+          <SkillMenu
+            cwd={cwd}
+            query={skillMenuQuery}
+            onSelect={handleSkillSelect}
+            onClose={handleSkillMenuClose}
+            anchorRect={skillMenuRect}
+          />
+        )}
 
         {/* Bottom bar: left | center (context) | right */}
         <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
