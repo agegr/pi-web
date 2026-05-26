@@ -767,12 +767,25 @@ function formatUsage(usage: {
 
 
 
+// 去除行号前缀（如 "1. " 开头的行）
+function stripLineNumbers(code: string): string {
+  return code.split('\n').map(line => {
+    // 匹配 行号. 开头的前缀（最多 5 位数字）
+    const match = line.match(/^\s*\d{1,5}\.\s+/);
+    if (match) {
+      return line.slice(match[0].length);
+    }
+    return line;
+  }).join('\n');
+}
+
 function CodeBlock({ code, lang }: { code: string; lang: string }) {
   const { isDark } = useTheme();
   const [copied, setCopied] = useState(false);
 
   const copy = () => {
-    copyText(code).then(() => {
+    const cleanCode = stripLineNumbers(code);
+    copyText(cleanCode).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
