@@ -30,7 +30,10 @@ export interface AgentSessionLike {
   readonly autoCompactionEnabled: boolean;
   readonly autoRetryEnabled: boolean;
   readonly model: ModelLike | undefined;
-  readonly modelRegistry: { find: (provider: string, modelId: string) => ModelLike | undefined };
+  readonly modelRegistry: {
+    find: (provider: string, modelId: string) => ModelLike | undefined;
+    refresh?: () => void;
+  };
   readonly sessionManager: SessionManager;
   readonly settingsManager: SettingsManager;
   readonly agent: { state?: { systemPrompt?: string; thinkingLevel?: string } };

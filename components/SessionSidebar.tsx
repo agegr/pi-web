@@ -332,6 +332,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }, []);
 
   const restoredRef = useRef(false);
+  const lastSelectedCwdRef = useRef<string | null>(null);
 
   useEffect(() => {
     onCwdChange?.(selectedCwd);
@@ -348,6 +349,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         const target = allSessions.find((s) => s.id === initialSessionId);
         if (target) {
           setSelectedCwd(target.cwd);
+          lastSelectedCwdRef.current = target.cwd;
           onSelectSession(target, true);
           return;
         }
@@ -355,16 +357,28 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         onInitialRestoreDone?.();
       }
       const cwds = getRecentCwds(allSessions);
-      if (cwds.length > 0) setSelectedCwd(cwds[0]);
+      if (cwds.length > 0) {
+        setSelectedCwd(cwds[0]);
+        lastSelectedCwdRef.current = cwds[0];
+      }
       return;
     }
 
     const selectedSession = selectedSessionId ? allSessions.find((s) => s.id === selectedSessionId) ?? null : null;
-    if (selectedSession?.cwd === selectedCwd) return;
+    if (selectedSession?.cwd === selectedCwd) {
+      lastSelectedCwdRef.current = selectedCwd;
+      return;
+    }
 
-    const target = pickSessionForCwd(allSessions, selectedCwd);
-    if (target) {
-      onSelectSession(target);
+    // Only auto-restore sessions of a new folder IF the selectedCwd has actually changed
+    // (i.e. we switched folders). If it's the same folder, and selectedSessionId is null,
+    // we want to stay in "New Session" mode.
+    if (lastSelectedCwdRef.current !== selectedCwd) {
+      lastSelectedCwdRef.current = selectedCwd;
+      const target = pickSessionForCwd(allSessions, selectedCwd);
+      if (target) {
+        onSelectSession(target);
+      }
     }
   }, [allSessions, selectedCwd, initialSessionId, onInitialRestoreDone, onSelectSession, selectedSessionId]);
 

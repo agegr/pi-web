@@ -107,7 +107,9 @@ export class AgentSessionWrapper {
         let model = registry.find(provider, modelId);
         if (!model) {
           // Model not found in the cached registry. Refresh from models.json in case it was newly added!
-          registry.refresh();
+          if (typeof registry.refresh === "function") {
+            registry.refresh();
+          }
           model = registry.find(provider, modelId);
         }
         if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
