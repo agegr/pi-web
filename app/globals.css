@@ -152,6 +152,26 @@ pre, code {
 }
 .markdown-body th { background: var(--bg-panel); font-weight: 600; }
 .markdown-body hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
+.markdown-body .katex {
+  color: inherit;
+}
+.markdown-body .katex-display {
+  display: block;
+  margin: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.35rem 0 0.45rem;
+  text-align: left;
+}
+.markdown-body .katex-display > .katex {
+  display: inline-block;
+  max-width: 100%;
+  white-space: nowrap;
+}
+.markdown-body p:has(> .katex-display:only-child) {
+  margin: 0 0 10px;
+  line-height: 1.2;
+}
 
 /* File viewer markdown preview — larger headings */
 .markdown-file-preview h1 { font-size: 1.8em; }
