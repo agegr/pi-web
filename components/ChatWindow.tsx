@@ -98,6 +98,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     isCompacting, compactError, displayModel: displayModelValue, sessionStats,
     agentPhase,
     isNew,
+    isAborting,
+    sseState,
     messagesEndRef, scrollContainerRef,
     lastUserMsgRef,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
@@ -113,6 +115,36 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   playDoneSoundRef.current = playDoneSound;
   const soundEnabledRef = useRef(soundEnabled);
   soundEnabledRef.current = soundEnabled;
+
+  const [autoScrollLocked, setAutoScrollLocked] = useState(true);
+  const autoScrollLockedRef = useRef(true);
+
+  // Monitor layout scrolling to detect user's manual scroll actions
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const handleScrollEvent = () => {
+      const threshold = 60; // distance in pixels from bottom to lock
+      const distanceToBottom = el.scrollHeight - el.clientHeight - el.scrollTop;
+      const isAtBottom = distanceToBottom <= threshold;
+      if (autoScrollLockedRef.current !== isAtBottom) {
+        autoScrollLockedRef.current = isAtBottom;
+        setAutoScrollLocked(isAtBottom);
+      }
+    };
+    el.addEventListener("scroll", handleScrollEvent, { passive: true });
+    return () => el.removeEventListener("scroll", handleScrollEvent);
+  }, [scrollContainerRef]);
+
+  // Handle auto-scroll locks dynamically during model tokens streaming
+  useEffect(() => {
+    if (streamState.isStreaming && autoScrollLockedRef.current) {
+      const el = scrollContainerRef.current;
+      if (el) {
+        el.scrollTop = el.scrollHeight;
+      }
+    }
+  }, [streamState.streamingMessage, streamState.isStreaming, scrollContainerRef]);
 
   // Wrap agent event handler to play sound on agent_end
   const origHandler = handleAgentEventRef.current;
@@ -193,6 +225,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       retryInfo={retryInfo}
       soundEnabled={soundEnabled}
       onSoundToggle={onSoundToggle}
+      isAborting={isAborting}
+      sseState={sseState}
     />
   );
 
@@ -369,6 +403,31 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             <div ref={messagesEndRef} />
           </div>
         </div>
+
+        {streamState.isStreaming && !autoScrollLocked && (
+          <button
+            onClick={() => {
+              const el = scrollContainerRef.current;
+              if (el) {
+                el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+                autoScrollLockedRef.current = true;
+                setAutoScrollLocked(true);
+              }
+            }}
+            className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 rounded-full border border-solid border-border bg-bg-panel px-4 py-1.5 text-xs text-text shadow-lg transition-all hover:bg-bg-hover active:scale-95 animate-bounce"
+            style={{
+              boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+              fontFamily: "var(--font-mono)",
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <polyline points="19 12 12 19 5 12" />
+            </svg>
+            New content below
+          </button>
+        )}
+
         <ChatMinimap
           messages={messages}
           streamingMessage={streamState.streamingMessage}

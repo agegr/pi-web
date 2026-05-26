@@ -40,6 +40,8 @@ interface Props {
   retryInfo?: { attempt: number; maxAttempts: number; errorMessage?: string } | null;
   soundEnabled?: boolean;
   onSoundToggle?: () => void;
+  isAborting?: boolean;
+  sseState?: "connecting" | "connected" | "disconnected";
 }
 
 export interface ChatInputHandle {
@@ -68,6 +70,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo,
   soundEnabled, onSoundToggle,
+  isAborting = false,
+  sseState,
 }: Props, ref) {
   const [value, setValue] = useState("");
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
@@ -226,16 +230,33 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const handleSkillSelect = useCallback((skill: SkillItem) => {
     setSkillMenuOpen(false);
-    // Replace the entire value with /skill-name so the user can add their prompt after it
-    setValue(`/skill:${skill.name} `);
-    requestAnimationFrame(() => {
-      const ta = textareaRef.current;
-      if (!ta) return;
-      const pos = ta.value.length;
-      ta.setSelectionRange(pos, pos);
-      ta.focus();
-    });
-  }, []);
+    const ta = textareaRef.current;
+    if (!ta) {
+      setValue(`/skill:${skill.name} `);
+      return;
+    }
+
+    const selectionStart = ta.selectionStart ?? ta.value.length;
+    const textBeforeCaret = value.slice(0, selectionStart);
+    const textAfterCaret = value.slice(selectionStart);
+
+    // Find the last / index of the word we are completing
+    const lastSlashIdx = textBeforeCaret.lastIndexOf("/");
+    if (lastSlashIdx >= 0 && (lastSlashIdx === 0 || textBeforeCaret[lastSlashIdx - 1] === " ")) {
+      const beforeSlash = textBeforeCaret.slice(0, lastSlashIdx);
+      const inserted = `/skill:${skill.name} `;
+      const newVal = beforeSlash + inserted + textAfterCaret;
+      setValue(newVal);
+
+      requestAnimationFrame(() => {
+        const newPos = beforeSlash.length + inserted.length;
+        ta.setSelectionRange(newPos, newPos);
+        ta.focus();
+        ta.style.height = "auto";
+        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      });
+    }
+  }, [value]);
 
   const handleMentionSelect = useCallback((filePath: string) => {
     setMentionMenuOpen(false);
@@ -434,14 +455,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               if (!ta) return;
 
               // ── 1. Slash command detection ──
-              if (v === "/") {
-                const rect = ta.getBoundingClientRect();
-                setSkillMenuRect({ top: rect.top, left: rect.left, width: rect.width });
-                setSkillMenuQuery("");
-                setSkillMenuOpen(true);
-                setMentionMenuOpen(false);
-              } else if (v.startsWith("/") && !v.includes(" ")) {
-                setSkillMenuQuery(v.slice(1));
+              const caretPos = e.target.selectionStart ?? v.length;
+              const textBeforeCaret = v.slice(0, caretPos);
+
+              // Match a leading "/" or a space followed by "/" that hasn't been completed yet
+              const lastSlashIdx = textBeforeCaret.lastIndexOf("/");
+              const isSlashCmd = lastSlashIdx >= 0 && (lastSlashIdx === 0 || textBeforeCaret[lastSlashIdx - 1] === " ");
+              const slashQuery = isSlashCmd ? textBeforeCaret.slice(lastSlashIdx + 1) : "";
+
+              if (isSlashCmd && !slashQuery.includes(" ")) {
+                setSkillMenuQuery(slashQuery);
                 if (!skillMenuOpen) {
                   const rect = ta.getBoundingClientRect();
                   setSkillMenuRect({ top: rect.top, left: rect.left, width: rect.width });
@@ -452,9 +475,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 if (skillMenuOpen) setSkillMenuOpen(false);
 
                 // ── 2. Caret-aware @ file mention detection ──
-                const caretPos = e.target.selectionStart ?? v.length;
-                const textBeforeCaret = v.slice(0, caretPos);
-                
                 // Find index of last "@" in the text before caret
                 const lastAtIdx = textBeforeCaret.lastIndexOf("@");
                 if (lastAtIdx >= 0 && (lastAtIdx === 0 || textBeforeCaret[lastAtIdx - 1] === " ")) {
@@ -963,27 +983,39 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {isStreaming && (
               <button
                 onClick={onAbort}
-                title="停止 Agent"
+                disabled={isAborting}
+                title={isAborting ? "正在停止…" : "停止 Agent"}
                 style={{
                   display: "flex", alignItems: "center", gap: 6,
                   padding: "8px 14px",
                   height: 32,
-                  background: "rgba(239,68,68,0.08)",
-                  border: "1px solid rgba(239,68,68,0.3)",
+                  background: isAborting ? "rgba(156,163,175,0.08)" : "rgba(239,68,68,0.08)",
+                  border: isAborting ? "1px solid rgba(156,163,175,0.3)" : "1px solid rgba(239,68,68,0.3)",
                   borderRadius: 9,
-                  color: "#ef4444",
-                  cursor: "pointer",
+                  color: isAborting ? "var(--text-muted)" : "#ef4444",
+                  cursor: isAborting ? "not-allowed" : "pointer",
                   fontSize: 12, fontWeight: 600,
                   whiteSpace: "nowrap", letterSpacing: "-0.01em",
                   transition: "background 0.12s",
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.16)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.08)"; }}
+                onMouseEnter={(e) => { if (!isAborting) e.currentTarget.style.background = "rgba(239,68,68,0.16)"; }}
+                onMouseLeave={(e) => { if (!isAborting) e.currentTarget.style.background = "rgba(239,68,68,0.08)"; }}
               >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <rect x="1.5" y="1.5" width="7" height="7" rx="1.5" fill="currentColor" />
-                </svg>
-                Stop
+                {isAborting ? (
+                  <>
+                    <svg className="animate-spin" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: "spin 1s linear infinite" }}>
+                      <circle cx="12" cy="12" r="10" strokeLinecap="round" strokeDasharray="30 15" stroke="currentColor"></circle>
+                    </svg>
+                    Stopping
+                  </>
+                ) : (
+                  <>
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                      <rect x="1.5" y="1.5" width="7" height="7" rx="1.5" fill="currentColor" />
+                    </svg>
+                    Stop
+                  </>
+                )}
               </button>
             )}
 
@@ -1027,6 +1059,50 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   </svg>
                 )}
               </button>
+            )}
+
+            {sseState && isStreaming && (
+              <div
+                title={
+                  sseState === "connected"
+                    ? "SSE Link: Connected"
+                    : sseState === "connecting"
+                    ? "SSE Link: Reconnecting…"
+                    : "SSE Link: Disconnected"
+                }
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  height: 32,
+                  padding: "0 8px",
+                  borderRadius: 9,
+                  background: "var(--bg-panel)",
+                  border: "1px solid var(--border)",
+                  fontSize: 10,
+                  fontFamily: "var(--font-mono)",
+                  fontWeight: 600,
+                  color: "var(--text-muted)",
+                  gap: 5,
+                }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background:
+                      sseState === "connected"
+                        ? "#22c55e"
+                        : sseState === "connecting"
+                        ? "#f59e0b"
+                        : "#ef4444",
+                    display: "inline-block",
+                  }}
+                  className={sseState === "connecting" ? "animate-pulse" : ""}
+                />
+                {sseState === "connected" ? "LINK" : "RECON"}
+              </div>
             )}
           </div>
 
