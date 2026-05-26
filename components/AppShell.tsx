@@ -98,6 +98,69 @@ export function AppShell() {
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const [rightPanelWidth, setRightPanelWidth] = useState(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem("my-agent-web:right-panel-width");
+        if (stored) return parseInt(stored, 10);
+      } catch {}
+    }
+    return 450;
+  });
+  const rightPanelWidthRef = useRef(rightPanelWidth);
+  rightPanelWidthRef.current = rightPanelWidth;
+
+  const [rightPanelDragging, setRightPanelDragging] = useState(false);
+  const rightPanelDraggingRef = useRef(false);
+  const rightResizeHandleRef = useRef<HTMLDivElement>(null);
+  const rightWidthTrackerRef = useRef(createSidebarWidthTracker({ min: 280, max: 1200 }));
+
+  useEffect(() => {
+    let localWidth = rightPanelWidthRef.current;
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (window.innerWidth <= 640) return;
+      e.preventDefault();
+      rightPanelDraggingRef.current = true;
+      setRightPanelDragging(true);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      localWidth = rightPanelWidthRef.current;
+    };
+
+    const onMove = (e: MouseEvent) => {
+      if (!rightPanelDraggingRef.current || !appShellRef.current) return;
+      const rect = appShellRef.current.getBoundingClientRect();
+      const rawWidth = rect.right - e.clientX;
+      const result = rightWidthTrackerRef.current.next(rawWidth);
+      if (result.changed) {
+        localWidth = result.width;
+        setRightPanelWidth(result.width);
+      }
+    };
+
+    const onUp = () => {
+      if (!rightPanelDraggingRef.current) return;
+      rightPanelDraggingRef.current = false;
+      setRightPanelDragging(false);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      setRightPanelWidth(localWidth);
+      try {
+        localStorage.setItem("my-agent-web:right-panel-width", String(localWidth));
+      } catch {}
+    };
+
+    const handleEl = rightResizeHandleRef.current;
+    handleEl?.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      handleEl?.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [rightPanelOpen]);
 
   useEffect(() => {
     let localWidth = sidebarWidthRef.current;
@@ -711,6 +774,28 @@ export function AppShell() {
         </div>
       </div>
 
+      {/* Right resize handle */}
+      {rightPanelOpen && (
+        <div
+          ref={rightResizeHandleRef}
+          style={{
+            width: 5,
+            cursor: "col-resize",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "transparent",
+            transition: rightPanelDragging ? "none" : "background 0.15s",
+            position: "relative",
+            zIndex: 201,
+          }}
+          onMouseEnter={(e) => { if (!rightPanelDraggingRef.current) e.currentTarget.style.background = "var(--bg-hover)"; }}
+          onMouseLeave={(e) => { if (!rightPanelDraggingRef.current) e.currentTarget.style.background = "transparent"; }}
+        >
+          <div style={{ width: 2, height: 24, borderRadius: 1, background: "var(--border)" }} />
+        </div>
+      )}
+
       {/* Right panel: file viewer — always mounted, width animated via CSS */}
       <div
         className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}`}
@@ -719,11 +804,14 @@ export function AppShell() {
           flexDirection: "column",
           borderLeft: "1px solid var(--border)",
           background: "var(--bg)",
+          width: rightPanelOpen ? `${rightPanelWidth}px` : 0,
+          minWidth: rightPanelOpen ? `${rightPanelWidth}px` : 0,
+          transition: rightPanelDragging ? "none" : "width 0.2s ease, min-width 0.2s ease",
         }}
       >
         {/* Right panel tab bar */}
-        <div style={{ display: "flex", alignItems: "center", flexShrink: 0, background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", height: 36 }}>
-          <div style={{ flex: 1, overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", flexShrink: 0, background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", height: 36, width: "100%", minWidth: 0 }}>
+          <div style={{ flex: 1, overflow: "hidden", width: "100%", minWidth: 0 }}>
             <TabBar
               tabs={fileTabs}
               activeTabId={activeFileTabId ?? ""}
@@ -735,11 +823,11 @@ export function AppShell() {
         </div>
 
         {/* File content */}
-        <div style={{ flex: 1, overflow: "hidden" }}>
+        <div style={{ flex: 1, overflow: "hidden", width: "100%", minWidth: 0 }}>
           {activeFileTab?.filePath ? (
             <FileViewer filePath={activeFileTab.filePath} cwd={activeCwd ?? undefined} />
           ) : (
-            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
+            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12, width: "100%", minWidth: 0 }}>
               No file open
             </div>
           )}
