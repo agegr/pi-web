@@ -62,7 +62,8 @@ interface NodeInfo {
   topRatio: number;   // 0–1 within total scroll height
   heightRatio: number;
   msg: AgentMessage | Partial<AgentMessage>;
-  index: number;
+  index: number;      // index in nodes array (0, 1, 2...)
+  refIndex: number;   // index in messageRefs.current
 }
 
 export function ChatMinimap({ messages, streamingMessage, scrollContainer, messageRefs }: Props) {
@@ -130,7 +131,8 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
         const el = refs?.[refIndex];
         refIndex++;
 
-        if (!hasTextContent(msg)) continue;
+        // Show only user messages as minimap anchor points
+        if (msg.role !== "user") continue;
 
         if (el) {
           const elRect = el.getBoundingClientRect();
@@ -141,7 +143,8 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
             topRatio: top / totalH,
             heightRatio: h / totalH,
             msg,
-            index: newNodes.length,
+            index: newNodes.length, // sequential index in this filtered array
+            refIndex: refIndex - 1, // actual index in messageRefs.current
           });
         }
       }
@@ -323,7 +326,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
               // Click dot directly to scroll smoothly to center of that message
               e.stopPropagation();
               e.preventDefault();
-              const el = messageRefs.current?.[node.index];
+              const el = messageRefs.current?.[node.refIndex];
               if (el) {
                 el.scrollIntoView({ behavior: "smooth", block: "center" });
               }
@@ -331,17 +334,16 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
             style={{
               position: "absolute",
               top: `${dotTop}%`,
-              transform: "translateY(-50%)",
-              left: 0,
-              right: 0,
-              height: "12px",
+              transform: "translate(-50%, -50%)",
+              left: "50%",
+              width: "16px",
+              height: "16px",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               cursor: "pointer",
               zIndex: 3,
             }}
-            title={isUser ? "点击快速定位到用户提问..." : "点击快速定位到助理回答..."}
           >
             {/* Dot */}
             <div

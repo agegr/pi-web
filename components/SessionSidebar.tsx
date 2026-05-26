@@ -83,8 +83,11 @@ function shortenCwd(cwd: string, homeDir?: string): string {
   const path = (homeDir && cwd.startsWith(homeDir)) ? "~" + cwd.slice(homeDir.length) : cwd;
   const sep = path.includes("/") ? "/" : "\\";
   const parts = path.split(sep).filter(Boolean);
-  if (parts.length <= 2) return path;
-  return "…/" + parts.slice(-2).join(sep);
+  if (parts.length === 0) return path;
+  // Always return the folder name (last part) + optional full path or shorter structure inside Title,
+  // let's display folder name clearly and fallback to path if needed.
+  const folderName = parts[parts.length - 1];
+  return folderName;
 }
 
 function getParentPath(path: string): string | null {
@@ -202,7 +205,7 @@ function PiAgentTitle() {
   const [scrambling, setScrambling] = useState(false);
   const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const target = showVersion ? `${process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}p${process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}` : "Pi Agent Web";
+  const target = showVersion ? `${process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}p${process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}` : "My Agent Web";
   const display = useScramble(target, scrambling);
 
   const triggerScramble = useCallback((toVersion: boolean) => {
@@ -663,6 +666,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         <div ref={dropdownRef} style={{ position: "relative" }}>
           <button
             onClick={() => setDropdownOpen((v) => !v)}
+            title={selectedCwd ?? ""}
             style={{
               width: "100%",
               display: "flex",
@@ -684,13 +688,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
-                fontFamily: "var(--font-mono)",
-                fontSize: 11,
+                fontWeight: 600,
+                fontSize: 12,
                 color: selectedCwd ? "var(--text)" : "var(--text-dim)",
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
               }}
-              title={selectedCwd ?? ""}
             >
-              {selectedCwd ? shortenCwd(selectedCwd, homeDir) : (initialSessionId && !restoredRef.current ? "" : "Select project…")}
+              📊 {selectedCwd ? (shortenCwd(selectedCwd, homeDir) + ` (${selectedCwd})`) : (initialSessionId && !restoredRef.current ? "" : "Select project…")}
             </span>
           </button>
 
@@ -754,7 +760,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       </svg>
                     )}
                     {cwd !== selectedCwd && <span style={{ width: 10, flexShrink: 0 }} />}
-                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortenCwd(cwd, homeDir)}</span>
+                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📁 {shortenCwd(cwd, homeDir)} <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: 4 }}>({cwd})</span></span>
                   </button>
                   {removable && (
                     <button
@@ -1341,6 +1347,45 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 <polyline points="3 2 7 5 3 8" />
               </svg>
               Explorer
+            </button>
+            <button
+              onClick={async () => {
+                const targetCwd = selectedCwdProp ?? selectedCwd;
+                if (!targetCwd) return;
+                try {
+                  const res = await fetch("/api/open-folder", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ path: targetCwd }),
+                  });
+                  if (!res.ok) {
+                    const data = await res.json();
+                    alert(`Failed to open folder: ${data.error}`);
+                  }
+                } catch (err: any) {
+                  alert(`Failed to open folder: ${err.message || err}`);
+                }
+              }}
+              title="Open folder in system explorer"
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: 26, height: 26, padding: 0, marginRight: 4,
+                background: "none",
+                border: "none",
+                color: "var(--text-dim)",
+                cursor: "pointer",
+                borderRadius: 5,
+                flexShrink: 0,
+                transition: "color 0.3s, background 0.3s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                <polyline points="12 11 15 8 12 5" />
+                <line x1="9" y1="8" x2="15" y2="8" />
+              </svg>
             </button>
             <button
               onClick={() => {

@@ -116,21 +116,15 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const soundEnabledRef = useRef(soundEnabled);
   soundEnabledRef.current = soundEnabled;
 
-  const [autoScrollLocked, setAutoScrollLocked] = useState(true);
-  const autoScrollLockedRef = useRef(true);
+  const autoScrollLockedRef = useRef(false);
 
   // Monitor layout scrolling to detect user's manual scroll actions
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
     const handleScrollEvent = () => {
-      const threshold = 60; // distance in pixels from bottom to lock
       const distanceToBottom = el.scrollHeight - el.clientHeight - el.scrollTop;
-      const isAtBottom = distanceToBottom <= threshold;
-      if (autoScrollLockedRef.current !== isAtBottom) {
-        autoScrollLockedRef.current = isAtBottom;
-        setAutoScrollLocked(isAtBottom);
-      }
+      autoScrollLockedRef.current = distanceToBottom <= 15; // Set lock to true ONLY if extremely close to bottom
     };
     el.addEventListener("scroll", handleScrollEvent, { passive: true });
     return () => el.removeEventListener("scroll", handleScrollEvent);
@@ -138,10 +132,27 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   // Handle auto-scroll locks dynamically during model tokens streaming
   useEffect(() => {
-    if (streamState.isStreaming && autoScrollLockedRef.current) {
+    if (streamState.isStreaming) {
       const el = scrollContainerRef.current;
       if (el) {
-        el.scrollTop = el.scrollHeight;
+        // Calculate the live distance to bottom from current DOM state
+        const distanceToBottom = el.scrollHeight - el.clientHeight - el.scrollTop;
+        const isCurrentlyAtBottom = distanceToBottom <= 15;
+
+        // If the user has scrolled up, lock auto-scroll to false and don't scroll
+        if (!isCurrentlyAtBottom) {
+          autoScrollLockedRef.current = false;
+          return;
+        }
+
+        // Only scroll to bottom if autoScrollLockedRef.current (meaning they were at bottom or opted to)
+        if (autoScrollLockedRef.current) {
+          const scrollTarget = el.scrollHeight - el.clientHeight;
+          const currentScroll = el.scrollTop;
+          if (scrollTarget - currentScroll > 2) {
+            el.scrollTo({ top: scrollTarget, behavior: "auto" });
+          }
+        }
       }
     }
   }, [streamState.streamingMessage, streamState.isStreaming, scrollContainerRef]);
@@ -303,7 +314,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             >
               <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0, flex: 1, lineHeight: 1.4 }}>
                 <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--text)" }}>π</span>
-                <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: "-0.01em" }}>Pi Agent Web</span>
+                <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: "-0.01em" }}>My Agent Web</span>
                 <span style={{ fontSize: 14, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
                   <Typewriter phrases={TYPEWRITER_PHRASES} />
                 </span>
@@ -397,36 +408,12 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             )}
 
             {agentRunning && (
-              <div style={{ height: scrollContainerRef.current ? scrollContainerRef.current.clientHeight : "80vh" }} />
+              <div style={{ height: "140px" }} />
             )}
 
-            <div ref={messagesEndRef} />
+            <div ref={messagesEndRef} style={{ height: "40px" }} />
           </div>
         </div>
-
-        {streamState.isStreaming && !autoScrollLocked && (
-          <button
-            onClick={() => {
-              const el = scrollContainerRef.current;
-              if (el) {
-                el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-                autoScrollLockedRef.current = true;
-                setAutoScrollLocked(true);
-              }
-            }}
-            className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 rounded-full border border-solid border-border bg-bg-panel px-4 py-1.5 text-xs text-text shadow-lg transition-all hover:bg-bg-hover active:scale-95 animate-bounce"
-            style={{
-              boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-              fontFamily: "var(--font-mono)",
-            }}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <polyline points="19 12 12 19 5 12" />
-            </svg>
-            New content below
-          </button>
-        )}
 
         <ChatMinimap
           messages={messages}

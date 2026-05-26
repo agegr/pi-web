@@ -282,6 +282,25 @@ export function AppShell() {
 
   const activeFileTab = fileTabs.find((t) => t.id === activeFileTabId) ?? null;
 
+  const currentCwd = selectedSession?.cwd ?? newSessionCwd ?? activeCwd ?? null;
+
+  const handleOpenTerminal = useCallback(async () => {
+    if (!currentCwd) return;
+    try {
+      const res = await fetch("/api/open-terminal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: currentCwd }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(`Failed to open terminal: ${data.error}`);
+      }
+    } catch (e: any) {
+      alert(`Failed to open terminal: ${e.message || String(e)}`);
+    }
+  }, [currentCwd]);
+
   const sidebarContent = (
     <>
       <SessionSidebar
@@ -464,6 +483,27 @@ export function AppShell() {
                 <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
               </svg>
             )}
+          </button>
+          <button
+            onClick={handleOpenTerminal}
+            disabled={!currentCwd}
+            title={currentCwd ? "Open in system terminal" : "Please select a project first"}
+            aria-label="Open terminal"
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              width: 36, height: 36, padding: 0,
+              background: "none", border: "none", borderRight: "1px solid var(--border)",
+              color: "var(--text-muted)", cursor: currentCwd ? "pointer" : "not-allowed",
+              flexShrink: 0, transition: "color 0.12s",
+              opacity: currentCwd ? 1 : 0.45,
+            }}
+            onMouseEnter={(e) => { if (currentCwd) e.currentTarget.style.color = "var(--text)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="4 17 10 11 4 5" />
+              <line x1="12" y1="19" x2="20" y2="19" />
+            </svg>
           </button>
           {showChat && (
             <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
