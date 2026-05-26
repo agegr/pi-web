@@ -134,7 +134,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   useEffect(() => {
     if (streamState.isStreaming) {
       const el = scrollContainerRef.current;
-      if (el) {
+      if (!el) return;
+
+      let rId: number;
+      const adjustScroll = () => {
         // Calculate the live distance to bottom from current DOM state
         const distanceToBottom = el.scrollHeight - el.clientHeight - el.scrollTop;
         const isCurrentlyAtBottom = distanceToBottom <= 15;
@@ -153,7 +156,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             el.scrollTo({ top: scrollTarget, behavior: "auto" });
           }
         }
-      }
+      };
+
+      rId = requestAnimationFrame(adjustScroll);
+      return () => cancelAnimationFrame(rId);
     }
   }, [streamState.streamingMessage, streamState.isStreaming, scrollContainerRef]);
 
@@ -334,7 +340,14 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       ) : (
       <>
       <div className="relative flex flex-1 overflow-hidden">
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pt-4 [scrollbar-width:none]">
+        <div
+          ref={scrollContainerRef}
+          className="flex-1 overflow-y-auto pt-4 [scrollbar-width:none]"
+          style={{
+            contain: "content",
+            willChange: "transform",
+          }}
+        >
           <div className="mx-auto max-w-[820px] px-4">
 
             {(() => {

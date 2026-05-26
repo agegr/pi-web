@@ -66,6 +66,49 @@ function copyText(text: string): Promise<void> {
   }
 }
 
+function arePropsEqual(prev: Props, next: Props) {
+  if (prev.isStreaming !== next.isStreaming) return false;
+  if (prev.forking !== next.forking) return false;
+  if (prev.showTimestamp !== next.showTimestamp) return false;
+  if (prev.prevTimestamp !== next.prevTimestamp) return false;
+  if (prev.entryId !== next.entryId) return false;
+  if (prev.prevAssistantEntryId !== next.prevAssistantEntryId) return false;
+
+  if (prev.message !== next.message) {
+    if (prev.message.role !== next.message.role) return false;
+    if (JSON.stringify(prev.message.content) !== JSON.stringify(next.message.content)) {
+      return false;
+    }
+  }
+
+  if (prev.message.role === "assistant") {
+    const prevMsg = prev.message as AssistantMessage;
+    const nextMsg = next.message as AssistantMessage;
+    const prevBlocks = prevMsg.content ?? [];
+    const nextBlocks = nextMsg.content ?? [];
+    const prevCallIds = prevBlocks.filter((b) => b.type === "toolCall").map((b) => (b as any).toolCallId);
+    const nextCallIds = nextBlocks.filter((b) => b.type === "toolCall").map((b) => (b as any).toolCallId);
+
+    if (prevCallIds.length !== nextCallIds.length) return false;
+    for (let i = 0; i < prevCallIds.length; i++) {
+      if (prevCallIds[i] !== nextCallIds[i]) return false;
+    }
+
+    for (const callId of prevCallIds) {
+      const prevRes = prev.toolResults?.get(callId);
+      const nextRes = next.toolResults?.get(callId);
+      if (prevRes !== nextRes) {
+        if (!prevRes || !nextRes) return false;
+        if (JSON.stringify(prevRes.content) !== JSON.stringify(nextRes.content)) {
+          return false;
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
 export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
@@ -78,7 +121,7 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     return null;
   }
   return null;
-});
+}, arePropsEqual);
 
 function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent }: {
   message: UserMessage;
@@ -118,7 +161,13 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
 
   return (
     <div
-      style={{ marginBottom: 16, display: "flex", flexDirection: "column", alignItems: "flex-end" }}
+      style={{
+        marginBottom: 16,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "flex-end",
+        contain: "content",
+      }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -398,7 +447,7 @@ function AssistantMessageView({
 
   return (
     <div
-      style={{ marginBottom: 16 }}
+      style={{ marginBottom: 16, contain: "content" }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
