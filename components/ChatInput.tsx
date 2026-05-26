@@ -2,6 +2,7 @@
 
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import { SkillMenu, type SkillItem } from "./SkillMenu";
+import { AtMentionMenu } from "./AtMentionMenu";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -77,6 +78,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [skillMenuOpen, setSkillMenuOpen] = useState(false);
   const [skillMenuQuery, setSkillMenuQuery] = useState("");
   const [skillMenuRect, setSkillMenuRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
+  const [mentionMenuQuery, setMentionMenuQuery] = useState("");
+  const [mentionMenuRect, setMentionMenuRect] = useState<{ top: number; left: number; width: number } | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -190,9 +194,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      // Let SkillMenu handle ArrowUp/ArrowDown/Enter/Tab when menu is open
-      if (skillMenuOpen && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === "Escape" || e.key === "Tab")) {
-        // SkillMenu has its own document-level keydown listener with capture=true
+      // Let SkillMenu or AtMentionMenu handle ArrowUp/ArrowDown/Enter/Tab when menu is open
+      if ((skillMenuOpen || mentionMenuOpen) && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === "Escape" || e.key === "Tab")) {
+        // Autocomplete menus have their own document-level keydown listener with capture=true
         // We just need to stop the textarea from processing these keys
         if (e.key === "Enter" || e.key === "Escape" || e.key === "Tab") {
           e.preventDefault();
@@ -210,7 +214,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }
       }
     },
-    [isStreaming, onSteer, onFollowUp, sendQueued, handleSend, skillMenuOpen]
+    [isStreaming, onSteer, onFollowUp, sendQueued, handleSend, skillMenuOpen, mentionMenuOpen]
   );
 
   const handleInput = useCallback(() => {
@@ -231,6 +235,40 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       ta.setSelectionRange(pos, pos);
       ta.focus();
     });
+  }, []);
+
+  const handleMentionSelect = useCallback((filePath: string) => {
+    setMentionMenuOpen(false);
+    const ta = textareaRef.current;
+    if (!ta) {
+      setValue((v) => v + "@" + filePath + " ");
+      return;
+    }
+
+    const selectionStart = ta.selectionStart ?? ta.value.length;
+    const textBeforeCaret = value.slice(0, selectionStart);
+    const textAfterCaret = value.slice(selectionStart);
+    
+    // Find the last @ index of the word we are completing
+    const lastAtIdx = textBeforeCaret.lastIndexOf("@");
+    if (lastAtIdx >= 0 && (lastAtIdx === 0 || textBeforeCaret[lastAtIdx - 1] === " ")) {
+      const beforeAt = textBeforeCaret.slice(0, lastAtIdx);
+      const inserted = "@" + filePath + " ";
+      const newVal = beforeAt + inserted + textAfterCaret;
+      setValue(newVal);
+      
+      requestAnimationFrame(() => {
+        const newPos = beforeAt.length + inserted.length;
+        ta.setSelectionRange(newPos, newPos);
+        ta.focus();
+        ta.style.height = "auto";
+        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      });
+    }
+  }, [value]);
+
+  const handleMentionMenuClose = useCallback(() => {
+    setMentionMenuOpen(false);
   }, []);
 
   const handleSkillMenuClose = useCallback(() => {
@@ -389,28 +427,49 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             onChange={(e) => {
               const v = e.target.value;
               setValue(v);
-              // Detect slash command
-              if (cwd) {
-                if (v === "/") {
-                  const ta = textareaRef.current;
-                  if (ta) {
-                    const rect = ta.getBoundingClientRect();
-                    setSkillMenuRect({ top: rect.top, left: rect.left, width: rect.width });
-                  }
-                  setSkillMenuQuery("");
+              
+              if (!cwd) return;
+
+              const ta = textareaRef.current;
+              if (!ta) return;
+
+              // ── 1. Slash command detection ──
+              if (v === "/") {
+                const rect = ta.getBoundingClientRect();
+                setSkillMenuRect({ top: rect.top, left: rect.left, width: rect.width });
+                setSkillMenuQuery("");
+                setSkillMenuOpen(true);
+                setMentionMenuOpen(false);
+              } else if (v.startsWith("/") && !v.includes(" ")) {
+                setSkillMenuQuery(v.slice(1));
+                if (!skillMenuOpen) {
+                  const rect = ta.getBoundingClientRect();
+                  setSkillMenuRect({ top: rect.top, left: rect.left, width: rect.width });
                   setSkillMenuOpen(true);
-                } else if (v.startsWith("/") && !v.includes(" ")) {
-                  setSkillMenuQuery(v.slice(1));
-                  if (!skillMenuOpen) {
-                    const ta = textareaRef.current;
-                    if (ta) {
-                      const rect = ta.getBoundingClientRect();
-                      setSkillMenuRect({ top: rect.top, left: rect.left, width: rect.width });
-                    }
-                    setSkillMenuOpen(true);
+                }
+                setMentionMenuOpen(false);
+              } else {
+                if (skillMenuOpen) setSkillMenuOpen(false);
+
+                // ── 2. Caret-aware @ file mention detection ──
+                const caretPos = e.target.selectionStart ?? v.length;
+                const textBeforeCaret = v.slice(0, caretPos);
+                
+                // Find index of last "@" in the text before caret
+                const lastAtIdx = textBeforeCaret.lastIndexOf("@");
+                if (lastAtIdx >= 0 && (lastAtIdx === 0 || textBeforeCaret[lastAtIdx - 1] === " ")) {
+                  const potentialQuery = textBeforeCaret.slice(lastAtIdx + 1);
+                  // Ensure no spaces exist in the filename segment after "@"
+                  if (!potentialQuery.includes(" ")) {
+                    setMentionMenuQuery(potentialQuery);
+                    const rect = ta.getBoundingClientRect();
+                    setMentionMenuRect({ top: rect.top, left: rect.left, width: rect.width });
+                    setMentionMenuOpen(true);
+                  } else {
+                    setMentionMenuOpen(false);
                   }
-                } else if (skillMenuOpen) {
-                  setSkillMenuOpen(false);
+                } else {
+                  setMentionMenuOpen(false);
                 }
               }
             }}
@@ -528,6 +587,17 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             onSelect={handleSkillSelect}
             onClose={handleSkillMenuClose}
             anchorRect={skillMenuRect}
+          />
+        )}
+
+        {/* At-mention file dropdown menu */}
+        {mentionMenuOpen && cwd && (
+          <AtMentionMenu
+            cwd={cwd}
+            query={mentionMenuQuery}
+            onSelect={handleMentionSelect}
+            onClose={handleMentionMenuClose}
+            anchorRect={mentionMenuRect}
           />
         )}
 

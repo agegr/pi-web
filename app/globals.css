@@ -127,7 +127,13 @@ pre, code {
 .markdown-body h1 { font-size: 1.15em; }
 .markdown-body h2 { font-size: 1.05em; }
 .markdown-body h3 { font-size: 0.95em; }
-.markdown-body ul, .markdown-body ol {
+.markdown-body ul {
+  list-style-type: disc;
+  padding-left: 20px;
+  margin: 4px 0 8px;
+}
+.markdown-body ol {
+  list-style-type: decimal;
   padding-left: 20px;
   margin: 4px 0 8px;
 }

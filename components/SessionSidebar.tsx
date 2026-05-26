@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { selectCwdWithValidation, type BrowseValidationResponse } from "@/lib/cwd-selection";
 import { pickSessionForCwd } from "@/lib/project-session-restore";
 import { buildRecentCwdOptions, removeStoredRecentCwd } from "@/lib/recent-cwds";
@@ -255,6 +255,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [browseEntries, setBrowseEntries] = useState<BrowseDirEntry[]>([]);
   const [browseLoading, setBrowseLoading] = useState(false);
   const [browseError, setBrowseError] = useState<string | null>(null);
+  const [browseSearch, setBrowseSearch] = useState("");
+  const [browseIsEditingPath, setBrowseIsEditingPath] = useState(false);
+  const [browsePathInputVal, setBrowsePathInputVal] = useState("");
   const customPathInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [explorerOpen, setExplorerOpen] = useState(true);
@@ -406,7 +409,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       const res = await fetch(`/api/browse-dirs${query}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as BrowseDirResponse;
-      setBrowsePath(data.path ?? path ?? null);
+      const resolvedPath = data.path ?? path ?? null;
+      setBrowsePath(resolvedPath);
+      setBrowsePathInputVal(resolvedPath ?? "");
+      setBrowseSearch("");
+      setBrowseIsEditingPath(false);
       setBrowseEntries(data.entries ?? []);
       if (data.valid === false && data.error) {
         setBrowseError(data.error);
@@ -503,6 +510,40 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   const recentCwdOptions = buildRecentCwdOptions(getRecentCwds(allSessions), storedRecentCwds, RECENT_CWDS_LIMIT);
   const browseParentPath = browsePath ? getParentPath(browsePath) : null;
+
+  const browseBreadcrumbs = useMemo(() => {
+    if (!browsePath) return [];
+    const isWin = browsePath.includes("\\") || /^[a-zA-Z]:/.test(browsePath);
+    const parts = browsePath.split(/[\\/]+/).filter(Boolean);
+    const crumbs: { name: string; path: string }[] = [];
+
+    if (isWin && parts[0] && /^[a-zA-Z]:$/.test(parts[0])) {
+      const drive = parts[0];
+      crumbs.push({ name: drive, path: drive + "\\" });
+      let current = drive + "\\";
+      for (let i = 1; i < parts.length; i++) {
+        current += (current.endsWith("\\") ? "" : "\\") + parts[i];
+        crumbs.push({ name: parts[i], path: current });
+      }
+    } else {
+      let current = "";
+      if (browsePath.startsWith("/")) {
+        crumbs.push({ name: "root", path: "/" });
+      }
+      for (let i = 0; i < parts.length; i++) {
+        current += (current.endsWith("/") || current === "" ? "" : "/") + parts[i];
+        const absPath = browsePath.startsWith("/") ? ("/" + current) : current;
+        crumbs.push({ name: parts[i], path: absPath });
+      }
+    }
+    return crumbs;
+  }, [browsePath]);
+
+  const filteredBrowseEntries = useMemo(() => {
+    if (!browseSearch.trim()) return browseEntries;
+    const q = browseSearch.toLowerCase();
+    return browseEntries.filter((entry) => entry.name.toLowerCase().includes(q));
+  }, [browseEntries, browseSearch]);
   const filteredSessions = selectedCwd
     ? allSessions.filter((s) => s.cwd === selectedCwd)
     : allSessions;
@@ -786,6 +827,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
               {browseOpen ? (
                 <div style={{ padding: "6px 8px", borderTop: recentCwdOptions.length > 0 ? "none" : undefined }}>
+                  {/* Path segment breadcrumbs or direct path input */}
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                     <button
                       onClick={() => {
@@ -803,40 +845,203 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                         color: browseParentPath && !browseLoading ? "var(--text-muted)" : "var(--text-dim)",
                         cursor: browseParentPath && !browseLoading ? "pointer" : "not-allowed",
                         flexShrink: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 12,
                       }}
                       title={browseParentPath ? `Up to ${browseParentPath}` : "Already at root"}
                     >
                       ↑
                     </button>
-                    <div
+                    {browseIsEditingPath ? (
+                      <input
+                        type="text"
+                        value={browsePathInputVal}
+                        onChange={(e) => setBrowsePathInputVal(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            loadBrowseEntries(browsePathInputVal).catch((err) => setBrowseError(String(err)));
+                          } else if (e.key === "Escape") {
+                            setBrowseIsEditingPath(false);
+                            setBrowsePathInputVal(browsePath ?? "");
+                          }
+                        }}
+                        onBlur={() => {
+                          setTimeout(() => {
+                            setBrowseIsEditingPath(false);
+                            setBrowsePathInputVal(browsePath ?? "");
+                          }, 250);
+                        }}
+                        autoFocus
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          fontSize: 11,
+                          fontFamily: "var(--font-mono)",
+                          color: "var(--text)",
+                          padding: "5px 8px",
+                          border: "1px solid var(--accent)",
+                          borderRadius: 5,
+                          background: "var(--bg)",
+                          outline: "none",
+                        }}
+                      />
+                    ) : (
+                      <div
+                        onDoubleClick={() => {
+                          setBrowseIsEditingPath(true);
+                        }}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 2,
+                          padding: "4px 6px",
+                          border: "1px solid var(--border)",
+                          borderRadius: 5,
+                          background: "var(--bg-hover)",
+                          overflowX: "auto",
+                          scrollbarWidth: "none",
+                          whiteSpace: "nowrap",
+                          cursor: "text",
+                        }}
+                        title="Double-click to edit path directly"
+                      >
+                        <div style={{ display: "flex", alignItems: "center" }}>
+                          {browseBreadcrumbs.map((crumb: { name: string; path: string }, idx: number) => (
+                            <span key={crumb.path} style={{ display: "inline-flex", alignItems: "center" }}>
+                              {idx > 0 && <span style={{ color: "var(--text-dim)", fontSize: 10, margin: "0 2px", userSelect: "none" }}>/</span>}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  loadBrowseEntries(crumb.path).catch(() => {});
+                                }}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  padding: "2px 4px",
+                                  borderRadius: 3,
+                                  fontSize: 11,
+                                  fontFamily: "var(--font-mono)",
+                                  color: (idx === browseBreadcrumbs.length - 1) ? "var(--text)" : "var(--accent)",
+                                  cursor: "pointer",
+                                  fontWeight: (idx === browseBreadcrumbs.length - 1) ? "bold" : "normal",
+                                  transition: "background 0.15s, color 0.15s",
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = "rgba(100,116,139,0.12)"}
+                                onMouseLeave={(e) => e.currentTarget.style.background = "none"}
+                              >
+                                {crumb.name}
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setBrowseIsEditingPath(true);
+                          }}
+                          style={{
+                            marginLeft: "auto",
+                            background: "none",
+                            border: "none",
+                            padding: "4px",
+                            cursor: "pointer",
+                            color: "var(--text-dim)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            borderRadius: 4,
+                            flexShrink: 0,
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.color = "var(--text)"}
+                          onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-dim)"}
+                          title="Edit path directly"
+                        >
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                          </svg>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Instant search filter bar */}
+                  <div style={{ position: "relative", marginBottom: 6 }}>
+                    <input
+                      type="text"
+                      className="search-input"
+                      value={browseSearch}
+                      onChange={(e) => setBrowseSearch(e.target.value)}
+                      placeholder="Filter folders..."
                       style={{
-                        flex: 1,
-                        minWidth: 0,
+                        width: "100%",
                         fontSize: 11,
-                        fontFamily: "var(--font-mono)",
-                        color: "var(--text-muted)",
-                        padding: "5px 8px",
+                        padding: "5px 24px 5px 8px",
                         border: "1px solid var(--border)",
                         borderRadius: 5,
                         background: "var(--bg-hover)",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
+                        color: "var(--text)",
+                        outline: "none",
+                        boxSizing: "border-box",
                       }}
-                      title={browsePath ?? ""}
-                    >
-                      {browsePath ?? "Loading..."}
-                    </div>
+                    />
+                    {browseSearch ? (
+                      <button
+                        onClick={() => setBrowseSearch("")}
+                        style={{
+                          position: "absolute",
+                          right: 6,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          background: "none",
+                          border: "none",
+                          color: "var(--text-dim)",
+                          cursor: "pointer",
+                          padding: 0,
+                          display: "flex",
+                          alignItems: "center",
+                          fontSize: 12,
+                        }}
+                      >
+                        ×
+                      </button>
+                    ) : (
+                      <svg
+                        width="10"
+                        height="10"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        style={{
+                          position: "absolute",
+                          right: 8,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          color: "var(--text-dim)",
+                          pointerEvents: "none",
+                        }}
+                      >
+                        <circle cx="11" cy="11" r="8" />
+                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                      </svg>
+                    )}
                   </div>
-                  <div style={{ maxHeight: 220, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-hover)" }}>
+
+                  <div style={{ maxHeight: 200, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-hover)" }}>
                     {browseLoading ? (
                       <div style={{ padding: "10px 8px", fontSize: 11, color: "var(--text-muted)" }}>Loading folders...</div>
                     ) : browseError ? (
                       <div style={{ padding: "10px 8px", fontSize: 11, color: "#f87171" }}>{browseError}</div>
-                    ) : browseEntries.length === 0 ? (
-                      <div style={{ padding: "10px 8px", fontSize: 11, color: "var(--text-muted)" }}>No subfolders</div>
+                    ) : filteredBrowseEntries.length === 0 ? (
+                      <div style={{ padding: "10px 8px", fontSize: 11, color: "var(--text-muted)" }}>
+                        {browseSearch ? "No matching folders" : "No subfolders"}
+                      </div>
                     ) : (
-                      browseEntries.map((entry) => (
+                      filteredBrowseEntries.map((entry: BrowseDirEntry) => (
                         <button
                           key={entry.path}
                           onClick={() => loadBrowseEntries(entry.path).catch(() => {})}
@@ -845,7 +1050,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                             display: "flex",
                             alignItems: "center",
                             gap: 7,
-                            padding: "7px 8px",
+                            padding: "6px 8px",
                             background: "none",
                             border: "none",
                             borderBottom: "1px solid var(--border)",
@@ -853,11 +1058,30 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                             cursor: "pointer",
                             color: "var(--text-muted)",
                             fontSize: 11,
+                            transition: "background 0.1s, color 0.1s",
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = "var(--bg-selected)";
+                            e.currentTarget.style.color = "var(--text)";
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = "none";
+                            e.currentTarget.style.color = "var(--text-muted)";
                           }}
                           title={entry.path}
                         >
-                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                            <path d="M1 3A1 1 0 0 1 2 2H4L5 3.5H8.5a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-.5.5h-7A.5.5 0 0 1 1 8V3Z" />
+                          <svg
+                            width="11"
+                            height="11"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.1"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            style={{ flexShrink: 0, color: "var(--accent)" }}
+                          >
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                           </svg>
                           <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.name}</span>
                         </button>
