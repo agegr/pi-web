@@ -321,7 +321,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (event.errorMessage) {
           setCompactError(event.errorMessage as string);
         } else if (!event.aborted) {
-          if (sessionIdRef.current) loadSession(sessionIdRef.current);
+          if (sessionIdRef.current) {
+            loadSession(sessionIdRef.current);
+            // Fetch updated contextUsage after compaction
+            fetch(`/api/agent/${encodeURIComponent(sessionIdRef.current)}`)
+              .then((r) => r.json())
+              .then((d: { state?: { contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null; systemPrompt?: string } }) => {
+                if (d.state?.contextUsage !== undefined) setContextUsage(d.state.contextUsage ?? null);
+              })
+              .catch(() => {});
+          }
         }
         break;
     }
@@ -367,7 +376,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             ...(thinkingLevel !== "auto" ? { thinkingLevel } : {}),
           }),
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          let detail = "";
+          try {
+            const errorBody = await res.json() as { error?: string };
+            detail = errorBody.error ? `: ${errorBody.error}` : "";
+          } catch {
+            // ignore non-JSON error responses
+          }
+          throw new Error(`HTTP ${res.status}${detail}`);
+        }
         const result = await res.json() as { sessionId: string };
         const realId = result.sessionId;
         sessionIdRef.current = realId;
@@ -469,6 +487,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       await sendAgentCommand(sid, { type: "compact" });
       await loadSession(sid, true);
+      // Fetch updated contextUsage after compaction
+      fetch(`/api/agent/${encodeURIComponent(sid)}`)
+        .then((r) => r.json())
+        .then((d: { state?: { contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null; systemPrompt?: string } }) => {
+          if (d.state?.contextUsage !== undefined) setContextUsage(d.state.contextUsage ?? null);
+        })
+        .catch(() => {});
     } catch (e) {
       setCompactError(e instanceof Error ? e.message : String(e));
     } finally {
