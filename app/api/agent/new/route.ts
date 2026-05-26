@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
-import { existsSync } from "fs";
+import { existsSync, mkdirSync } from "fs";
+import { homedir } from "os";
 import { startRpcSession } from "@/lib/rpc-manager";
+
+function expandHome(filePath: string): string {
+  if (filePath.startsWith("~/") || filePath === "~") {
+    return filePath.replace(/^~/, homedir());
+  }
+  return filePath;
+}
 
 // POST /api/agent/new  body: { cwd: string; type: string; message: string; ... }
 // Spawns a brand-new pi session and immediately sends the first command.
@@ -8,13 +16,15 @@ import { startRpcSession } from "@/lib/rpc-manager";
 export async function POST(req: Request) {
   try {
     const body = await req.json() as { cwd?: string; [key: string]: unknown };
-    const { cwd, ...command } = body;
+    const { cwd: rawCwd, ...command } = body;
 
-    if (!cwd || typeof cwd !== "string") {
+    if (!rawCwd || typeof rawCwd !== "string") {
       return NextResponse.json({ error: "cwd is required" }, { status: 400 });
     }
+
+    const cwd = expandHome(rawCwd);
     if (!existsSync(cwd)) {
-      return NextResponse.json({ error: `Directory does not exist: ${cwd}` }, { status: 400 });
+      mkdirSync(cwd, { recursive: true });
     }
 
     // Use a one-time key so startRpcSession's lock doesn't conflict with real session ids
