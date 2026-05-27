@@ -103,7 +103,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelThinkingLevels, setModelThinkingLevels] = useState<Record<string, string[]>>({});
   const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>({});
   const [newSessionModel, setNewSessionModelState] = useState<{ provider: string; modelId: string } | null>(null);
-  const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("default");
+  const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("full");
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>("auto");
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
@@ -249,10 +249,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         es.close();
         eventSourceRef.current = null;
 
-        // 仅当 agent 处于运行状态，或者虽然暂时连接不上但我们希望主动保活（例如未显式结束的流）时进行指数退避重连
+        // 如果 agent 处于活跃运行（对话输出未结束）状态下意外在长轮询中掉线，我们必须进行指数退避重连；
+        // 如果当时未在运行，普通心跳暂时中断则不需要在客户端盲目引发高频重试，在发送时直接建立新连接或保持默认静默。
         if (agentRunningRef.current) {
           const attempt = sseReconnectAttemptRef.current;
-          // 采用指数退避：1s, 2s, 4s, 8s, 16s... 最大延迟 16 秒
           const delay = Math.min(1000 * Math.pow(2, attempt), 16000);
           
           sseReconnectAttemptRef.current += 1;
@@ -619,11 +619,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       loadSession(session.id, true, true).then((agentState) => {
         if (agentState?.running) {
           loadTools(session.id);
+          // BUG FIX: Even if not actively streaming at this microsecond, we must establish connectEvents so we can stream later!
+          connectEvents(session.id);
           if (agentState.state?.isStreaming) {
             setAgentRunning(true);
             setAgentPhase({ kind: "waiting_model" });
-            connectEvents(session.id);
           }
+        } else {
+          // Robust Event Source listener active for sending inputs later
+          connectEvents(session.id);
         }
         if (agentState?.state) {
           if (agentState.state.isCompacting !== undefined) setIsCompacting(agentState.state.isCompacting);
@@ -634,11 +638,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       });
     }
     return () => {
-      eventSourceRef.current?.close();
-      eventSourceRef.current = null;
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+      if (sseReconnectTimerRef.current) {
+        clearTimeout(sseReconnectTimerRef.current);
+        sseReconnectTimerRef.current = null;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [session]);
 
   useEffect(() => {
     onSystemPromptChange?.(systemPrompt);

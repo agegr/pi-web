@@ -9,6 +9,7 @@ import { TabBar, type Tab } from "./TabBar";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { BranchNavigator } from "./BranchNavigator";
+import { GitPanel } from "./GitPanel";
 import { createSidebarWidthTracker } from "@/lib/sidebar-width";
 import { useTheme } from "@/hooks/useTheme";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
@@ -75,10 +76,10 @@ export function AppShell() {
   }, []);
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | null>(null);
+  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "git" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
-  const toggleTopPanel = useCallback((panel: "branches" | "system") => {
+  const toggleTopPanel = useCallback((panel: "branches" | "system" | "git") => {
     setActiveTopPanel((cur) => cur === panel ? null : panel);
   }, []);
 
@@ -601,10 +602,39 @@ export function AppShell() {
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                   <polyline points="14 2 14 8 20 8" />
                   <line x1="8" y1="13" x2="16" y2="13" />
+                  <line x1="8" y1="13" x2="16" y2="13" />
                   <line x1="8" y1="17" x2="13" y2="17" />
                 </svg>
                 <span>System</span>
               </button>
+              {currentCwd && (
+                <button
+                  data-git-btn
+                  onClick={() => toggleTopPanel("git")}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    height: "100%", padding: "0 12px",
+                    background: activeTopPanel === "git" ? "var(--bg-selected)" : "none",
+                    border: "none",
+                    borderTop: activeTopPanel === "git" ? "2px solid var(--accent)" : "2px solid transparent",
+                    borderRight: "1px solid var(--border)",
+                    cursor: "pointer",
+                    color: activeTopPanel === "git" ? "var(--text)" : "var(--text-muted)",
+                    fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = activeTopPanel === "git" ? "var(--text)" : "var(--text-muted)"; }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--accent)", flexShrink: 0 }}>
+                    <circle cx="5" cy="6.5" r="1.2" />
+                    <circle cx="9" cy="6.5" r="1.2" />
+                    <circle cx="5" cy="10" r="1.2" />
+                    <path d="M5 7.7V8.8" />
+                    <path d="M9 7.7v.5A2 2 0 0 1 7 10.2H6" />
+                  </svg>
+                  <span>Git</span>
+                </button>
+              )}
             </div>
           )}
           {/* Session stats — right-aligned in top bar */}
@@ -728,6 +758,14 @@ export function AppShell() {
                     </div>
                   )}
                 </div>
+              )}
+              {activeTopPanel === "git" && currentCwd && (
+                <GitPanel
+                  cwd={currentCwd}
+                  isOpen={activeTopPanel === "git"}
+                  onClose={() => setActiveTopPanel(null)}
+                  containerRef={topBarRef}
+                />
               )}
             </div>
           )}
