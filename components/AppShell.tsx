@@ -9,6 +9,7 @@ import { TabBar, type Tab } from "./TabBar";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { BranchNavigator } from "./BranchNavigator";
+import { createSidebarWidthTracker } from "@/lib/sidebar-width";
 import { useTheme } from "@/hooks/useTheme";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ChatInputHandle } from "./ChatInput";
@@ -27,8 +28,17 @@ export function AppShell() {
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(260);
+  const sidebarWidthRef = useRef(sidebarWidth);
+  sidebarWidthRef.current = sidebarWidth;
+
+  const [sidebarDragging, setSidebarDragging] = useState(false);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
+  const appShellRef = useRef<HTMLDivElement>(null);
+  const sidebarResizeHandleRef = useRef<HTMLDivElement>(null);
+  const sidebarDraggingRef = useRef(false);
+  const sidebarWidthTrackerRef = useRef(createSidebarWidthTracker({ min: 220, max: 520 }));
 
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
   const [branchTree, setBranchTree] = useState<SessionTreeNode[]>([]);
@@ -88,6 +98,115 @@ export function AppShell() {
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const [rightPanelWidth, setRightPanelWidth] = useState(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem("my-agent-web:right-panel-width");
+        if (stored) return parseInt(stored, 10);
+      } catch {}
+    }
+    return 450;
+  });
+  const rightPanelWidthRef = useRef(rightPanelWidth);
+  rightPanelWidthRef.current = rightPanelWidth;
+
+  const [rightPanelDragging, setRightPanelDragging] = useState(false);
+  const rightPanelDraggingRef = useRef(false);
+  const rightResizeHandleRef = useRef<HTMLDivElement>(null);
+  const rightWidthTrackerRef = useRef(createSidebarWidthTracker({ min: 280, max: 1200 }));
+
+  useEffect(() => {
+    let localWidth = rightPanelWidthRef.current;
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (window.innerWidth <= 640) return;
+      e.preventDefault();
+      rightPanelDraggingRef.current = true;
+      setRightPanelDragging(true);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      localWidth = rightPanelWidthRef.current;
+    };
+
+    const onMove = (e: MouseEvent) => {
+      if (!rightPanelDraggingRef.current || !appShellRef.current) return;
+      const rect = appShellRef.current.getBoundingClientRect();
+      const rawWidth = rect.right - e.clientX;
+      const result = rightWidthTrackerRef.current.next(rawWidth);
+      if (result.changed) {
+        localWidth = result.width;
+        setRightPanelWidth(result.width);
+      }
+    };
+
+    const onUp = () => {
+      if (!rightPanelDraggingRef.current) return;
+      rightPanelDraggingRef.current = false;
+      setRightPanelDragging(false);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      setRightPanelWidth(localWidth);
+      try {
+        localStorage.setItem("my-agent-web:right-panel-width", String(localWidth));
+      } catch {}
+    };
+
+    const handleEl = rightResizeHandleRef.current;
+    handleEl?.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      handleEl?.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [rightPanelOpen]);
+
+  useEffect(() => {
+    let localWidth = sidebarWidthRef.current;
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (window.innerWidth <= 640) return;
+      e.preventDefault();
+      sidebarDraggingRef.current = true;
+      setSidebarDragging(true);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      localWidth = sidebarWidthRef.current;
+    };
+
+    const onMove = (e: MouseEvent) => {
+      if (!sidebarDraggingRef.current || !appShellRef.current) return;
+      const rect = appShellRef.current.getBoundingClientRect();
+      const result = sidebarWidthTrackerRef.current.next(e.clientX - rect.left);
+      if (result.changed) {
+        localWidth = result.width;
+        const sidebarDiv = appShellRef.current.querySelector(".sidebar-container") as HTMLDivElement | null;
+        if (sidebarDiv) {
+          sidebarDiv.style.setProperty("--sidebar-width", `${result.width}px`);
+        }
+      }
+    };
+
+    const onUp = () => {
+      if (!sidebarDraggingRef.current) return;
+      sidebarDraggingRef.current = false;
+      setSidebarDragging(false);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      setSidebarWidth(localWidth);
+    };
+
+    const handleEl = sidebarResizeHandleRef.current;
+    handleEl?.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      handleEl?.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
 
   const handleAtMention = useCallback((relativePath: string) => {
     chatInputRef.current?.insertText("`" + relativePath + "`");
@@ -226,6 +345,25 @@ export function AppShell() {
 
   const activeFileTab = fileTabs.find((t) => t.id === activeFileTabId) ?? null;
 
+  const currentCwd = selectedSession?.cwd ?? newSessionCwd ?? activeCwd ?? null;
+
+  const handleOpenTerminal = useCallback(async () => {
+    if (!currentCwd) return;
+    try {
+      const res = await fetch("/api/open-terminal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: currentCwd }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(`Failed to open terminal: ${data.error}`);
+      }
+    } catch (e: any) {
+      alert(`Failed to open terminal: ${e.message || String(e)}`);
+    }
+  }, [currentCwd]);
+
   const sidebarContent = (
     <>
       <SessionSidebar
@@ -296,7 +434,7 @@ export function AppShell() {
 
   return (
     <>
-    <div style={{ display: "flex", height: "100dvh", overflow: "hidden", background: "var(--bg)" }}>
+    <div ref={appShellRef} style={{ display: "flex", height: "100dvh", overflow: "hidden", background: "var(--bg)" }}>
       {/* Mobile overlay backdrop */}
       <div
         className="sidebar-overlay-backdrop"
@@ -322,10 +460,35 @@ export function AppShell() {
           flexDirection: "column",
           flexShrink: 0,
           zIndex: 200,
+          ["--sidebar-width" as string]: `${sidebarWidth}px`,
+          transition: sidebarDragging ? "none" : undefined,
         }}
       >
         {sidebarContent}
       </div>
+
+      {sidebarOpen && (
+        <div
+          ref={sidebarResizeHandleRef}
+          className="sidebar-resize-handle"
+          style={{
+            flexShrink: 0,
+            width: 5,
+            cursor: "col-resize",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "transparent",
+            transition: sidebarDragging ? "none" : "background 0.15s",
+            position: "relative",
+            zIndex: 201,
+          }}
+          onMouseEnter={(e) => { if (!sidebarDraggingRef.current) e.currentTarget.style.background = "var(--bg-hover)"; }}
+          onMouseLeave={(e) => { if (!sidebarDraggingRef.current) e.currentTarget.style.background = "transparent"; }}
+        >
+          <div style={{ width: 2, height: 24, borderRadius: 1, background: "var(--border)" }} />
+        </div>
+      )}
 
       {/* Center: chat */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
@@ -383,6 +546,27 @@ export function AppShell() {
                 <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
               </svg>
             )}
+          </button>
+          <button
+            onClick={handleOpenTerminal}
+            disabled={!currentCwd}
+            title={currentCwd ? "Open in system terminal" : "Please select a project first"}
+            aria-label="Open terminal"
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              width: 36, height: 36, padding: 0,
+              background: "none", border: "none", borderRight: "1px solid var(--border)",
+              color: "var(--text-muted)", cursor: currentCwd ? "pointer" : "not-allowed",
+              flexShrink: 0, transition: "color 0.12s",
+              opacity: currentCwd ? 1 : 0.45,
+            }}
+            onMouseEnter={(e) => { if (currentCwd) e.currentTarget.style.color = "var(--text)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="4 17 10 11 4 5" />
+              <line x1="12" y1="19" x2="20" y2="19" />
+            </svg>
           </button>
           {showChat && (
             <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
@@ -590,6 +774,28 @@ export function AppShell() {
         </div>
       </div>
 
+      {/* Right resize handle */}
+      {rightPanelOpen && (
+        <div
+          ref={rightResizeHandleRef}
+          style={{
+            width: 5,
+            cursor: "col-resize",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "transparent",
+            transition: rightPanelDragging ? "none" : "background 0.15s",
+            position: "relative",
+            zIndex: 201,
+          }}
+          onMouseEnter={(e) => { if (!rightPanelDraggingRef.current) e.currentTarget.style.background = "var(--bg-hover)"; }}
+          onMouseLeave={(e) => { if (!rightPanelDraggingRef.current) e.currentTarget.style.background = "transparent"; }}
+        >
+          <div style={{ width: 2, height: 24, borderRadius: 1, background: "var(--border)" }} />
+        </div>
+      )}
+
       {/* Right panel: file viewer — always mounted, width animated via CSS */}
       <div
         className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}`}
@@ -598,11 +804,14 @@ export function AppShell() {
           flexDirection: "column",
           borderLeft: "1px solid var(--border)",
           background: "var(--bg)",
+          width: rightPanelOpen ? `${rightPanelWidth}px` : 0,
+          minWidth: rightPanelOpen ? `${rightPanelWidth}px` : 0,
+          transition: rightPanelDragging ? "none" : "width 0.2s ease, min-width 0.2s ease",
         }}
       >
         {/* Right panel tab bar */}
-        <div style={{ display: "flex", alignItems: "center", flexShrink: 0, background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", height: 36 }}>
-          <div style={{ flex: 1, overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", flexShrink: 0, background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", height: 36, width: "100%", minWidth: 0 }}>
+          <div style={{ flex: 1, overflow: "hidden", width: "100%", minWidth: 0 }}>
             <TabBar
               tabs={fileTabs}
               activeTabId={activeFileTabId ?? ""}
@@ -614,11 +823,11 @@ export function AppShell() {
         </div>
 
         {/* File content */}
-        <div style={{ flex: 1, overflow: "hidden" }}>
+        <div style={{ flex: 1, overflow: "hidden", width: "100%", minWidth: 0 }}>
           {activeFileTab?.filePath ? (
             <FileViewer filePath={activeFileTab.filePath} cwd={activeCwd ?? undefined} />
           ) : (
-            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
+            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12, width: "100%", minWidth: 0 }}>
               No file open
             </div>
           )}

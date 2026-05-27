@@ -244,6 +244,31 @@ function streamFile(filePath: string, stat: fs.Stats, contentType: string, range
   });
 }
 
+function getRecursiveFiles(baseDir: string, currentDir: string = baseDir, fileList: string[] = [], maxFiles: number = 3000): string[] {
+  if (fileList.length >= maxFiles) return fileList;
+  try {
+    const names = fs.readdirSync(currentDir);
+    for (const name of names) {
+      if (fileList.length >= maxFiles) break;
+      if (IGNORED_NAMES.has(name) || IGNORED_SUFFIXES.some((s) => name.endsWith(s))) continue;
+      // Skip hidden folders (except .env)
+      if (name.startsWith(".") && name !== ".env") continue;
+
+      const fullPath = path.join(currentDir, name);
+      const stat = fs.statSync(fullPath);
+      if (stat.isDirectory()) {
+        getRecursiveFiles(baseDir, fullPath, fileList, maxFiles);
+      } else if (stat.isFile()) {
+        const relative = path.relative(baseDir, fullPath).replace(/\\/g, "/");
+        fileList.push(relative);
+      }
+    }
+  } catch {
+    // ignore directory read errors
+  }
+  return fileList;
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
@@ -334,6 +359,14 @@ export async function GET(
           "X-Accel-Buffering": "no",
         },
       });
+    }
+
+    if (type === "recursive-list") {
+      if (!stat.isDirectory()) {
+         return NextResponse.json({ error: "Not a directory" }, { status: 400 });
+      }
+      const files = getRecursiveFiles(filePath);
+      return NextResponse.json({ files, path: filePath });
     }
 
     // type === "list"

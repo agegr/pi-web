@@ -11,17 +11,18 @@ interface Props {
 }
 
 const MINIMAP_WIDTH = 36;
+const TOOLTIP_HEIGHT = 44; // Adjusted for double-line layout
 
 function getMessagePreview(msg: AgentMessage | Partial<AgentMessage>): string {
   if (msg.role === "user") {
     const content = msg.content;
-    if (typeof content === "string") return content.slice(0, 200);
+    if (typeof content === "string") return content.slice(0, 150);
     if (Array.isArray(content)) {
       return (content as { type: string; text?: string }[])
         .filter((b) => b.type === "text" && b.text)
         .map((b) => b.text!)
         .join("\n")
-        .slice(0, 200);
+        .slice(0, 150);
     }
     return "";
   }
@@ -31,11 +32,11 @@ function getMessagePreview(msg: AgentMessage | Partial<AgentMessage>): string {
       .filter((b): b is TextContent => b.type === "text")
       .map((b) => b.text)
       .join(" ");
-    if (text) return text.slice(0, 200);
+    if (text) return text.slice(0, 150);
     const toolNames = blocks
       .filter((b) => b.type === "toolCall")
       .map((b) => (b as { type: string; toolName: string }).toolName);
-    if (toolNames.length) return toolNames.join(", ");
+    if (toolNames.length) return `调用了工具: ${toolNames.join(", ")}`;
     return "";
   }
   return "";
@@ -43,16 +44,16 @@ function getMessagePreview(msg: AgentMessage | Partial<AgentMessage>): string {
 
 function getNodeColor(msg: AgentMessage | Partial<AgentMessage>): { bg: string; border: string } {
   if (msg.role === "user") {
-    return { bg: "rgba(37,99,235,0.18)", border: "rgba(37,99,235,0.7)" };
+    return { bg: "var(--accent)", border: "var(--accent)" };
   }
-  return { bg: "rgba(107,114,128,0.12)", border: "rgba(107,114,128,0.5)" };
+  return { bg: "var(--text-dim)", border: "var(--text-muted)" };
 }
 
 function hasTextContent(msg: AgentMessage | Partial<AgentMessage>): boolean {
   if (msg.role === "user") return true;
   if (msg.role === "assistant") {
     const blocks = (msg as Partial<AssistantMessage>).content ?? [];
-    return blocks.some((b) => b.type === "text");
+    return blocks.some((b) => b.type === "text" || b.type === "toolCall");
   }
   return false;
 }
@@ -61,7 +62,8 @@ interface NodeInfo {
   topRatio: number;   // 0–1 within total scroll height
   heightRatio: number;
   msg: AgentMessage | Partial<AgentMessage>;
-  index: number;
+  index: number;      // index in nodes array (0, 1, 2...)
+  refIndex: number;   // index in messageRefs.current
 }
 
 export function ChatMinimap({ messages, streamingMessage, scrollContainer, messageRefs }: Props) {
@@ -73,6 +75,8 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
   const [mouseYRatio, setMouseYRatio] = useState<number | null>(null);
   const draggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const nodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastUpdateNodesRef = useRef<number>(0);
 
   const allMessages = useMemo(
     () => (streamingMessage ? [...messages, streamingMessage] : messages) as (AgentMessage | Partial<AgentMessage>)[],
@@ -81,8 +85,8 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
   const allMessagesRef = useRef(allMessages);
   allMessagesRef.current = allMessages;
 
-  const updatePositionsRef = useRef<() => void>(null!);
-  updatePositionsRef.current = () => {
+  // 1. FAST scroll state synchronizer (No layout thrashing / bounding box triggers)
+  const updateScrollState = useCallback(() => {
     const scrollEl = scrollContainer.current;
     if (!scrollEl) return;
 
@@ -98,60 +102,104 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
       setScrollRatio(scrollEl.scrollTop / scrollable);
       setViewportRatio(clientH / totalH);
     }
+  }, [scrollContainer]);
 
-    // Build node positions from real DOM refs
-    const refs = messageRefs.current;
-    const newNodes: NodeInfo[] = [];
-    let refIndex = 0;
+  // 2. SLOW node measurer throttled/debounced to keep the browser responsive, especially during message streams
+  const throttleUpdateNodes = useCallback(() => {
+    const scheduleDelay = 150; // max resolution refresh: once every 150ms
 
-    const allMessages = allMessagesRef.current;
-    for (let i = 0; i < allMessages.length; i++) {
-      const msg = allMessages[i];
-      if (msg.role !== "user" && msg.role !== "assistant") continue;
+    const run = () => {
+      lastUpdateNodesRef.current = Date.now();
+      const scrollEl = scrollContainer.current;
+      if (!scrollEl) return;
 
-      const el = refs?.[refIndex];
-      refIndex++;
-
-      if (!hasTextContent(msg)) continue;
-
-      if (el && totalH > 0) {
-        const elRect = el.getBoundingClientRect();
-        const containerRect = scrollEl.getBoundingClientRect();
-        const top = elRect.top - containerRect.top + scrollEl.scrollTop;
-        const h = elRect.height;
-        newNodes.push({
-          topRatio: top / totalH,
-          heightRatio: h / totalH,
-          msg,
-          index: newNodes.length,
-        });
+      const totalH = scrollEl.scrollHeight;
+      if (totalH <= 0) {
+        setNodes([]);
+        return;
       }
+
+      const refs = messageRefs.current;
+      const newNodes: NodeInfo[] = [];
+      let refIndex = 0;
+
+      const allMessages = allMessagesRef.current;
+      for (let i = 0; i < allMessages.length; i++) {
+        const msg = allMessages[i];
+        if (msg.role !== "user" && msg.role !== "assistant") continue;
+
+        const el = refs?.[refIndex];
+        refIndex++;
+
+        // Show only user messages as minimap anchor points
+        if (msg.role !== "user") continue;
+
+        if (el) {
+          const elRect = el.getBoundingClientRect();
+          const containerRect = scrollEl.getBoundingClientRect();
+          const top = elRect.top - containerRect.top + scrollEl.scrollTop;
+          const h = elRect.height;
+          newNodes.push({
+            topRatio: top / totalH,
+            heightRatio: h / totalH,
+            msg,
+            index: newNodes.length, // sequential index in this filtered array
+            refIndex: refIndex - 1, // actual index in messageRefs.current
+          });
+        }
+      }
+      setNodes(newNodes);
+    };
+
+    if (nodeTimeoutRef.current) {
+      clearTimeout(nodeTimeoutRef.current);
     }
-    setNodes(newNodes);
-  };
 
-  const updatePositions = useCallback(() => updatePositionsRef.current(), []);
+    const elapsed = Date.now() - lastUpdateNodesRef.current;
+    if (elapsed >= scheduleDelay) {
+      run();
+    } else {
+      nodeTimeoutRef.current = setTimeout(run, scheduleDelay - elapsed);
+    }
+  }, [scrollContainer, messageRefs]);
 
+  // Listening to scrolling & layouts
   useEffect(() => {
     const el = scrollContainer.current;
     if (!el) return;
-    el.addEventListener("scroll", updatePositions, { passive: true });
-    const ro = new ResizeObserver(updatePositions);
-    ro.observe(el);
-    // Also observe the scroll content for height changes
-    if (el.firstElementChild) ro.observe(el.firstElementChild);
-    updatePositions();
-    return () => {
-      el.removeEventListener("scroll", updatePositions);
-      ro.disconnect();
-    };
-  }, [scrollContainer, updatePositions]);
 
-  // Re-measure when message count changes (new messages arrive)
+    // Fast scroll updates (No bounding rect fetches!)
+    const handleScroll = () => {
+      updateScrollState();
+    };
+
+    el.addEventListener("scroll", handleScroll, { passive: true });
+
+    // Slow layout resize updates (Throttled measuring!)
+    const handleResize = () => {
+      updateScrollState();
+      throttleUpdateNodes();
+    };
+
+    const ro = new ResizeObserver(handleResize);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+
+    // Run first layout computation
+    handleResize();
+
+    return () => {
+      el.removeEventListener("scroll", handleScroll);
+      ro.disconnect();
+      if (nodeTimeoutRef.current) clearTimeout(nodeTimeoutRef.current);
+    };
+  }, [scrollContainer, updateScrollState, throttleUpdateNodes]);
+
+  // Re-measure when messages length changes (e.g. after a chunk finishes or a new round gets sent)
   useEffect(() => {
-    const t = setTimeout(updatePositions, 50);
-    return () => clearTimeout(t);
-  }, [messages.length, updatePositions]);
+    updateScrollState();
+    throttleUpdateNodes();
+  }, [messages.length, updateScrollState, throttleUpdateNodes]);
 
   const scrollToMinimapRatio = useCallback((viewportTopRatio: number) => {
     const el = scrollContainer.current;
@@ -165,19 +213,43 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!visible) return;
 
-    draggingRef.current = true;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const clickRatio = (e.clientY - rect.top) / rect.height;
-    const grabOffset = clickRatio - scrollRatio * (1 - viewportRatio);
-    const insideBox = grabOffset >= 0 && grabOffset <= viewportRatio;
-    const offset = insideBox ? grabOffset : viewportRatio / 2;
+    const el = scrollContainer.current;
+    if (!el) return;
 
-    scrollToMinimapRatio(clickRatio - offset);
+    draggingRef.current = true;
+    const dragContainer = containerRef.current;
+    if (!dragContainer) return;
+
+    const rect = dragContainer.getBoundingClientRect();
+    const clickRatio = (e.clientY - rect.top) / rect.height;
+
+    const totalH = el.scrollHeight;
+    const clientH = el.clientHeight;
+    const scrollable = totalH - clientH;
+    const currentViewportRatio = clientH / totalH;
+    const currentScrollRatio = scrollable > 0 ? el.scrollTop / scrollable : 0;
+
+    const grabOffset = clickRatio - currentScrollRatio * (1 - currentViewportRatio);
+    const insideBox = grabOffset >= 0 && grabOffset <= currentViewportRatio;
+    const offset = insideBox ? grabOffset : currentViewportRatio / 2;
+
+    const scrollLocal = (ratio: number) => {
+      const liveTotalH = el.scrollHeight;
+      const liveClientH = el.clientHeight;
+      const liveScrollable = liveTotalH - liveClientH;
+      if (liveScrollable <= 0) return;
+      const liveViewportRatio = liveClientH / liveTotalH;
+      const clamped = Math.max(0, Math.min(1 - liveViewportRatio, ratio));
+      el.scrollTop = (clamped / (1 - liveViewportRatio)) * liveScrollable;
+    };
+
+    scrollLocal(clickRatio - offset);
 
     const onMove = (ev: MouseEvent) => {
       if (!draggingRef.current) return;
-      const r = (ev.clientY - rect.top) / rect.height;
-      scrollToMinimapRatio(r - offset);
+      const liveRect = dragContainer.getBoundingClientRect();
+      const r = (ev.clientY - liveRect.top) / liveRect.height;
+      scrollLocal(r - offset);
     };
     const onUp = () => {
       draggingRef.current = false;
@@ -186,50 +258,22 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [visible, viewportRatio, scrollRatio, scrollToMinimapRatio]);
-
-
-
-  // Compute collision-free tooltip positions for all nodes
-  const TOOLTIP_HEIGHT = 22;
-  const TOOLTIP_GAP = 2;
-  const minimapHeightPx = containerRef.current?.clientHeight ?? 600;
-
-  const tooltipPositions = useMemo(() => {
-    if (!minimapHovered || nodes.length === 0) return [];
-    // Initial positions: centered on the dot
-    const positions = nodes.map((node) =>
-      Math.round(node.topRatio * minimapHeightPx - TOOLTIP_HEIGHT / 2)
-    );
-    // Iterative push-apart to resolve overlaps (top-to-bottom pass, then bottom-to-top)
-    for (let pass = 0; pass < 10; pass++) {
-      for (let i = 1; i < positions.length; i++) {
-        const minTop = positions[i - 1] + TOOLTIP_HEIGHT + TOOLTIP_GAP;
-        if (positions[i] < minTop) positions[i] = minTop;
-      }
-      for (let i = positions.length - 2; i >= 0; i--) {
-        const maxTop = positions[i + 1] - TOOLTIP_HEIGHT - TOOLTIP_GAP;
-        if (positions[i] > maxTop) positions[i] = maxTop;
-      }
-    }
-    // Clamp all to minimap bounds
-    for (let i = 0; i < positions.length; i++) {
-      positions[i] = Math.max(0, Math.min(minimapHeightPx - TOOLTIP_HEIGHT, positions[i]));
-    }
-    return positions;
-  }, [minimapHovered, nodes, minimapHeightPx]);
+  }, [visible, scrollContainer]);
 
   if (!visible) return null;
 
   const viewportBoxTop = scrollRatio * (1 - viewportRatio) * 100;
   const viewportBoxHeight = viewportRatio * 100;
 
-  // Find the node closest to the current mouse position
+  // Find the single node closest to the current mouse cursor vertical position
   const nearestIndex = mouseYRatio !== null && nodes.length > 0
     ? nodes.reduce((best, node) => {
         return Math.abs(node.topRatio - mouseYRatio) < Math.abs(nodes[best].topRatio - mouseYRatio) ? node.index : best;
       }, 0)
     : null;
+
+  const nearestNode = nearestIndex !== null ? nodes[nearestIndex] : null;
+  const minimapHeightPx = containerRef.current?.clientHeight ?? 500;
 
   return (
     <div
@@ -260,9 +304,9 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
           right: 0,
           top: `${viewportBoxTop}%`,
           height: `${viewportBoxHeight}%`,
-          background: "rgba(100,100,100,0.1)",
-          borderTop: "1px solid rgba(100,100,100,0.2)",
-          borderBottom: "1px solid rgba(100,100,100,0.2)",
+          background: "rgba(100, 100, 100, 0.12)",
+          borderTop: "1px solid rgba(100, 100, 100, 0.25)",
+          borderBottom: "1px solid rgba(100, 100, 100, 0.25)",
           pointerEvents: "none",
           zIndex: 1,
         }}
@@ -278,19 +322,27 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
         return (
           <div
             key={node.index}
-
+            onMouseDown={(e) => {
+              // Click dot directly to scroll smoothly to center of that message
+              e.stopPropagation();
+              e.preventDefault();
+              const el = messageRefs.current?.[node.refIndex];
+              if (el) {
+                el.scrollIntoView({ behavior: "smooth", block: "center" });
+              }
+            }}
             style={{
               position: "absolute",
               top: `${dotTop}%`,
-              transform: "translateY(-50%)",
-              left: 0,
-              right: 0,
-              height: "12px",
+              transform: "translate(-50%, -50%)",
+              left: "50%",
+              width: "16px",
+              height: "16px",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               cursor: "pointer",
-              zIndex: 2,
+              zIndex: 3,
             }}
           >
             {/* Dot */}
@@ -299,20 +351,19 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
                 width: isUser ? 8 : 6,
                 height: isUser ? 8 : 6,
                 borderRadius: isUser ? 2 : "50%",
-                background: color.bg,
+                background: isNearest ? color.border : color.bg + "44", // Semi-transparent when not nearest, beautifully highlighting hierarchy
                 border: `1.5px solid ${color.border}`,
                 flexShrink: 0,
-                transition: "transform 0.1s",
-                transform: isNearest ? "scale(1.6)" : "scale(1)",
+                transition: "transform 0.15s, background-color 0.15s",
+                transform: isNearest ? "scale(1.5)" : "scale(1)",
+                boxShadow: isNearest ? "0 0 6px var(--accent)" : "none",
               }}
             />
-
-
           </div>
         );
       })}
 
-      {/* Center line */}
+      {/* Center vertical gutter line */}
       <div
         style={{
           position: "absolute",
@@ -323,52 +374,80 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
           background: "var(--border)",
           transform: "translateX(-50%)",
           zIndex: 0,
+          opacity: 0.5,
         }}
       />
 
-      {/* Tooltips for all nodes, collision-free positions */}
-      {minimapHovered && nodes.map((node, i) => {
-        const preview = getMessagePreview(node.msg);
-        const color = getNodeColor(node.msg);
-        const isNearest = nearestIndex === node.index;
-        if (!preview || tooltipPositions.length === 0) return null;
-        return (
-          <div
-            key={node.index}
-            style={{
-              position: "absolute",
-              top: tooltipPositions[i],
-              right: "100%",
-              marginRight: 6,
-              background: "var(--bg)",
-              borderTop: `1px solid ${isNearest ? color.border : "var(--border)"}`,
-              borderRight: `1px solid ${isNearest ? color.border : "var(--border)"}`,
-              borderBottom: `1px solid ${isNearest ? color.border : "var(--border)"}`,
-              borderLeft: `2px solid ${color.border}`,
-              borderRadius: 4,
-              padding: "2px 7px",
-              width: 200,
-              zIndex: 100,
-              pointerEvents: "none",
-              opacity: isNearest ? 1 : 0.45,
-              transition: "top 0.1s, opacity 0.1s",
-            }}
-          >
+      {/* Single, non-overlapping active hover tooltip */}
+      {minimapHovered && nearestNode && (
+        (() => {
+          const preview = getMessagePreview(nearestNode.msg);
+          if (!preview) return null;
+          const color = getNodeColor(nearestNode.msg);
+          const isUser = nearestNode.msg.role === "user";
+
+          // Calculate precise pixel location matching mouse view height and constrain to bounds
+          const idealTopPx = nearestNode.topRatio * minimapHeightPx - TOOLTIP_HEIGHT / 2;
+          const constrainedTopPx = Math.max(0, Math.min(minimapHeightPx - TOOLTIP_HEIGHT - 12, idealTopPx));
+
+          return (
             <div
               style={{
-                fontSize: 11,
-                color: isNearest ? "var(--text)" : "var(--text-muted)",
-                lineHeight: 1.4,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
+                position: "absolute",
+                top: constrainedTopPx,
+                right: "100%",
+                marginRight: 8,
+                background: "var(--bg)",
+                borderTop: "1px solid var(--border)",
+                borderRight: "1px solid var(--border)",
+                borderBottom: "1px solid var(--border)",
+                borderLeft: `3px solid ${color.border}`,
+                borderRadius: 6,
+                padding: "6px 10px",
+                width: 220,
+                zIndex: 100,
+                pointerEvents: "none",
+                opacity: 1,
+                boxShadow: "0 4px 12px rgba(0,0,0,0.16), 0 2px 4px rgba(0,0,0,0.08)",
+                display: "flex",
+                flexDirection: "column",
+                gap: 3,
+                minHeight: TOOLTIP_HEIGHT,
               }}
             >
-              {preview}
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: isUser ? "var(--accent)" : "var(--text)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  lineHeight: 1.2,
+                }}
+              >
+                <span>{isUser ? "🙋 用户提问" : "🤖 助理回答"}</span>
+              </div>
+              <div
+                style={{
+                  fontSize: 10,
+                  color: "var(--text-muted)",
+                  lineHeight: 1.4,
+                  whiteSpace: "normal",
+                  wordBreak: "break-all",
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {preview}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })()
+      )}
     </div>
   );
 }

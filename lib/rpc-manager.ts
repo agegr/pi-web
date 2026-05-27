@@ -104,7 +104,14 @@ export class AgentSessionWrapper {
       case "set_model": {
         const { provider, modelId } = command as { provider: string; modelId: string };
         const registry = this.inner.modelRegistry;
-        const model = registry.find(provider, modelId);
+        let model = registry.find(provider, modelId);
+        if (!model) {
+          // Model not found in the cached registry. Refresh from models.json in case it was newly added!
+          if (typeof registry.refresh === "function") {
+            registry.refresh();
+          }
+          model = registry.find(provider, modelId);
+        }
         if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
         await this.inner.setModel(model);
         return { id: model.id, provider: model.provider };

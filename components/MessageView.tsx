@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -66,7 +66,50 @@ function copyText(text: string): Promise<void> {
   }
 }
 
-export function MessageView({ message, isStreaming, toolResults, modelNames, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp }: Props) {
+function arePropsEqual(prev: Props, next: Props) {
+  if (prev.isStreaming !== next.isStreaming) return false;
+  if (prev.forking !== next.forking) return false;
+  if (prev.showTimestamp !== next.showTimestamp) return false;
+  if (prev.prevTimestamp !== next.prevTimestamp) return false;
+  if (prev.entryId !== next.entryId) return false;
+  if (prev.prevAssistantEntryId !== next.prevAssistantEntryId) return false;
+
+  if (prev.message !== next.message) {
+    if (prev.message.role !== next.message.role) return false;
+    if (JSON.stringify(prev.message.content) !== JSON.stringify(next.message.content)) {
+      return false;
+    }
+  }
+
+  if (prev.message.role === "assistant") {
+    const prevMsg = prev.message as AssistantMessage;
+    const nextMsg = next.message as AssistantMessage;
+    const prevBlocks = prevMsg.content ?? [];
+    const nextBlocks = nextMsg.content ?? [];
+    const prevCallIds = prevBlocks.filter((b) => b.type === "toolCall").map((b) => (b as any).toolCallId);
+    const nextCallIds = nextBlocks.filter((b) => b.type === "toolCall").map((b) => (b as any).toolCallId);
+
+    if (prevCallIds.length !== nextCallIds.length) return false;
+    for (let i = 0; i < prevCallIds.length; i++) {
+      if (prevCallIds[i] !== nextCallIds[i]) return false;
+    }
+
+    for (const callId of prevCallIds) {
+      const prevRes = prev.toolResults?.get(callId);
+      const nextRes = next.toolResults?.get(callId);
+      if (prevRes !== nextRes) {
+        if (!prevRes || !nextRes) return false;
+        if (JSON.stringify(prevRes.content) !== JSON.stringify(nextRes.content)) {
+          return false;
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
   }
@@ -78,7 +121,7 @@ export function MessageView({ message, isStreaming, toolResults, modelNames, ent
     return null;
   }
   return null;
-}
+}, arePropsEqual);
 
 function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent }: {
   message: UserMessage;
@@ -118,7 +161,13 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
 
   return (
     <div
-      style={{ marginBottom: 16, display: "flex", flexDirection: "column", alignItems: "flex-end" }}
+      style={{
+        marginBottom: 16,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "flex-end",
+        contain: "content",
+      }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -398,7 +447,7 @@ function AssistantMessageView({
 
   return (
     <div
-      style={{ marginBottom: 16 }}
+      style={{ marginBottom: 16, contain: "content" }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -771,6 +820,10 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
   const { isDark } = useTheme();
   const [copied, setCopied] = useState(false);
 
+  const lineCount = useMemo(() => code.split("\n").length, [code]);
+  const isCollapsible = lineCount > 45;
+  const [isCollapsed, setIsCollapsed] = useState(isCollapsible);
+
   const copy = () => {
     copyText(code).then(() => {
       setCopied(true);
@@ -782,8 +835,8 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
     <div
       style={{
         position: "relative",
-        marginTop: 4,
-        marginBottom: 4,
+        marginTop: 6,
+        marginBottom: 6,
         borderRadius: 6,
         overflow: "hidden",
         border: "1px solid var(--border)",
@@ -791,7 +844,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
     >
       <div
         style={{
-          padding: "3px 10px",
+          padding: "5px 12px",
           background: "var(--bg-panel)",
           borderBottom: "1px solid var(--border)",
           fontSize: 11,
@@ -799,39 +852,153 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
+          fontFamily: "var(--font-mono)",
         }}
       >
-        <span>{lang}</span>
-        <button
-          onClick={copy}
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            cursor: "pointer",
-            fontSize: 11,
-          }}
-        >
-          {copied ? "copied" : "copy"}
-        </button>
+        <span style={{ fontWeight: 600 }}>{lang || "text"}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {isCollapsible && (
+            <button
+              onClick={() => setIsCollapsed((v) => !v)}
+              style={{
+                background: "none",
+                border: "none",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                fontSize: 11,
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
+            >
+              {isCollapsed ? (
+                <>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <polyline points="7 13 12 18 17 13"></polyline>
+                    <polyline points="7 6 12 11 17 6"></polyline>
+                  </svg>
+                  展开 ({lineCount} 行)
+                </>
+              ) : (
+                <>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <polyline points="17 11 12 6 7 11"></polyline>
+                    <polyline points="17 18 12 13 7 18"></polyline>
+                  </svg>
+                  折叠
+                </>
+              )}
+            </button>
+          )}
+          <button
+            onClick={copy}
+            style={{
+              background: "none",
+              border: "none",
+              color: copied ? "var(--accent)" : "var(--text-muted)",
+              cursor: "pointer",
+              fontSize: 11,
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              fontWeight: copied ? 600 : 400,
+            }}
+            onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = "var(--text)"; }}
+            onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-muted)"; }}
+          >
+            {copied ? (
+              <>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                已复制
+              </>
+            ) : (
+              <>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+                复制
+              </>
+            )}
+          </button>
+        </div>
       </div>
-      <SyntaxHighlighter
-        language={lang || "text"}
-        style={isDark ? vscDarkPlus : vs}
-        showLineNumbers
-        lineNumberStyle={{ color: "var(--text-dim)", fontStyle: "normal" }}
-        customStyle={{
-          margin: 0,
-          padding: "10px 12px",
-          fontSize: 12.5,
-          lineHeight: 1.6,
-          borderRadius: 0,
-          background: "var(--bg)",
+
+      <div
+        style={{
+          position: "relative",
+          maxHeight: isCollapsed ? "300px" : "none",
+          overflow: "hidden",
         }}
-        codeTagProps={{ style: { fontFamily: "var(--font-mono)" } }}
       >
-        {code}
-      </SyntaxHighlighter>
+        <SyntaxHighlighter
+          language={lang || "text"}
+          style={isDark ? vscDarkPlus : vs}
+          showLineNumbers
+          lineNumberStyle={{ color: "var(--text-dim)", fontStyle: "normal" }}
+          customStyle={{
+            margin: 0,
+            padding: "12px 14px",
+            fontSize: 12.5,
+            lineHeight: 1.6,
+            borderRadius: 0,
+            background: "var(--bg)",
+            maxHeight: isCollapsed ? "300px" : "1000px",
+            overflow: "auto",
+          }}
+          codeTagProps={{ style: { fontFamily: "var(--font-mono)" } }}
+        >
+          {code}
+        </SyntaxHighlighter>
+
+        {isCollapsed && (
+          <div
+            onClick={() => setIsCollapsed(false)}
+            style={{
+              position: "absolute",
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: "70px",
+              background: "linear-gradient(to top, var(--bg) 15%, rgba(0,0,0,0) 100%)",
+              display: "flex",
+              alignItems: "flex-end",
+              justifyContent: "center",
+              paddingBottom: "12px",
+              cursor: "pointer",
+              userSelect: "none",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 11,
+                color: "var(--text-muted)",
+                background: "var(--bg-panel)",
+                border: "1px solid var(--border)",
+                borderRadius: "15px",
+                padding: "4px 12px",
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
+                fontWeight: 600,
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="7 13 12 18 17 13"></polyline>
+                <polyline points="7 6 12 11 17 6"></polyline>
+              </svg>
+              展开完整代码 ({lineCount} 行)
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

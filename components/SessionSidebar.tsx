@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { selectCwdWithValidation, type BrowseValidationResponse } from "@/lib/cwd-selection";
+import { pickSessionForCwd } from "@/lib/project-session-restore";
+import { buildRecentCwdOptions, removeStoredRecentCwd } from "@/lib/recent-cwds";
 import type { SessionInfo } from "@/lib/types";
 import { FileExplorer } from "./FileExplorer";
 
@@ -19,6 +22,17 @@ interface Props {
   onAtMention?: (relativePath: string) => void;
 }
 
+interface BrowseDirEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+}
+
+interface BrowseDirResponse extends BrowseValidationResponse {
+  entries?: BrowseDirEntry[];
+  requestedPath?: string;
+}
+
 function formatRelativeTime(dateStr: string): string {
   const date = new Date(dateStr);
   const now = new Date();
@@ -33,6 +47,9 @@ function formatRelativeTime(dateStr: string): string {
   return date.toLocaleDateString();
 }
 
+const RECENT_CWDS_STORAGE_KEY = "pi-recent-cwds";
+const RECENT_CWDS_LIMIT = 5;
+
 /** Return the 5 most recently active cwds across all sessions */
 function getRecentCwds(sessions: SessionInfo[]): string[] {
   const latestByCwd = new Map<string, string>(); // cwd -> most recent modified
@@ -45,16 +62,46 @@ function getRecentCwds(sessions: SessionInfo[]): string[] {
   }
   return [...latestByCwd.entries()]
     .sort((a, b) => b[1].localeCompare(a[1]))
-    .slice(0, 5)
+    .slice(0, RECENT_CWDS_LIMIT)
     .map(([cwd]) => cwd);
+}
+
+function readStoredRecentCwds(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(RECENT_CWDS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((cwd): cwd is string => typeof cwd === "string" && cwd.trim().length > 0);
+  } catch {
+    return [];
+  }
 }
 
 function shortenCwd(cwd: string, homeDir?: string): string {
   const path = (homeDir && cwd.startsWith(homeDir)) ? "~" + cwd.slice(homeDir.length) : cwd;
   const sep = path.includes("/") ? "/" : "\\";
   const parts = path.split(sep).filter(Boolean);
-  if (parts.length <= 2) return path;
-  return "…/" + parts.slice(-2).join(sep);
+  if (parts.length === 0) return path;
+  // Always return the folder name (last part) + optional full path or shorter structure inside Title,
+  // let's display folder name clearly and fallback to path if needed.
+  const folderName = parts[parts.length - 1];
+  return folderName;
+}
+
+function getParentPath(path: string): string | null {
+  const trimmed = path.replace(/[\\/]+$/, "");
+  if (!trimmed || trimmed === "/") return null;
+  if (/^[a-zA-Z]:$/.test(trimmed)) return null;
+
+  const lastSlash = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  if (lastSlash < 0) return null;
+  if (lastSlash === 0) return "/";
+
+  const parent = trimmed.slice(0, lastSlash);
+  if (/^[a-zA-Z]:$/.test(parent)) return `${parent}\\`;
+  return parent || null;
 }
 
 
@@ -158,7 +205,7 @@ function PiAgentTitle() {
   const [scrambling, setScrambling] = useState(false);
   const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const target = showVersion ? `${process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}p${process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}` : "Pi Agent Web";
+  const target = showVersion ? `${process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}p${process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}` : "My Agent Web";
   const display = useScramble(target, scrambling);
 
   const triggerScramble = useCallback((toVersion: boolean) => {
@@ -201,18 +248,50 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
+  const [storedRecentCwds, setStoredRecentCwds] = useState<string[]>([]);
   const [homeDir, setHomeDir] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [customPathOpen, setCustomPathOpen] = useState(false);
   const [customPathValue, setCustomPathValue] = useState("");
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const [browsePath, setBrowsePath] = useState<string | null>(null);
+  const [browseEntries, setBrowseEntries] = useState<BrowseDirEntry[]>([]);
+  const [browseLoading, setBrowseLoading] = useState(false);
+  const [browseError, setBrowseError] = useState<string | null>(null);
+  const [browseSearch, setBrowseSearch] = useState("");
+  const [browseIsEditingPath, setBrowseIsEditingPath] = useState(false);
+  const [browsePathInputVal, setBrowsePathInputVal] = useState("");
   const customPathInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [explorerKey, setExplorerKey] = useState(0);
+  // Explorer height as fraction (0–1) of the available space below the header
+  const [explorerFraction, setExplorerFraction] = useState(0.5);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
+  const headerHeightRef = useRef(0);
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Drag-to-resize between session list and explorer
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!draggingRef.current || !sidebarRef.current) return;
+      const sidebarRect = sidebarRef.current.getBoundingClientRect();
+      const headerEl = sidebarRef.current.querySelector('[data-sidebar-header]');
+      const headerH = headerEl ? headerEl.getBoundingClientRect().height : 0;
+      const available = sidebarRect.height - headerH;
+      const y = e.clientY - sidebarRect.top - headerH;
+      const frac = Math.max(0.1, Math.min(0.9, y / available));
+      setExplorerFraction(1 - frac);
+    };
+    const onUp = () => { draggingRef.current = false; document.body.style.cursor = ''; document.body.style.userSelect = ''; };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, []);
 
   const loadSessions = useCallback(async (showLoading = false) => {
     try {
@@ -251,7 +330,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }).catch(() => {});
   }, []);
 
+  useEffect(() => {
+    setStoredRecentCwds(readStoredRecentCwds());
+  }, []);
+
   const restoredRef = useRef(false);
+  const lastSelectedCwdRef = useRef<string | null>(null);
 
   useEffect(() => {
     onCwdChange?.(selectedCwd);
@@ -268,6 +352,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         const target = allSessions.find((s) => s.id === initialSessionId);
         if (target) {
           setSelectedCwd(target.cwd);
+          lastSelectedCwdRef.current = target.cwd;
           onSelectSession(target, true);
           return;
         }
@@ -275,25 +360,131 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         onInitialRestoreDone?.();
       }
       const cwds = getRecentCwds(allSessions);
-      if (cwds.length > 0) setSelectedCwd(cwds[0]);
+      if (cwds.length > 0) {
+        setSelectedCwd(cwds[0]);
+        lastSelectedCwdRef.current = cwds[0];
+      }
+      return;
     }
-  }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone]);
+
+    const selectedSession = selectedSessionId ? allSessions.find((s) => s.id === selectedSessionId) ?? null : null;
+    if (selectedSession?.cwd === selectedCwd) {
+      lastSelectedCwdRef.current = selectedCwd;
+      return;
+    }
+
+    // Only auto-restore sessions of a new folder IF the selectedCwd has actually changed
+    // (i.e. we switched folders). If it's the same folder, and selectedSessionId is null,
+    // we want to stay in "New Session" mode.
+    if (lastSelectedCwdRef.current !== selectedCwd) {
+      lastSelectedCwdRef.current = selectedCwd;
+      const target = pickSessionForCwd(allSessions, selectedCwd);
+      if (target) {
+        onSelectSession(target);
+      }
+    }
+  }, [allSessions, selectedCwd, initialSessionId, onInitialRestoreDone, onSelectSession, selectedSessionId]);
+
+  const persistStoredRecentCwds = useCallback((next: string[]) => {
+    try {
+      window.localStorage.setItem(RECENT_CWDS_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // ignore localStorage failures
+    }
+  }, []);
+
+  const rememberCwd = useCallback((cwd: string) => {
+    const trimmed = cwd.trim();
+    if (!trimmed) return;
+    setStoredRecentCwds((prev) => {
+      const next = [trimmed, ...prev.filter((item) => item !== trimmed)].slice(0, RECENT_CWDS_LIMIT);
+      persistStoredRecentCwds(next);
+      return next;
+    });
+  }, [persistStoredRecentCwds]);
+
+  const forgetStoredCwd = useCallback((cwd: string) => {
+    setStoredRecentCwds((prev) => {
+      const next = removeStoredRecentCwd(prev, cwd);
+      persistStoredRecentCwds(next);
+      return next;
+    });
+    setBrowseOpen(false);
+    setBrowseError(null);
+    setCustomPathOpen(false);
+    setCustomPathValue("");
+    if (selectedCwd === cwd) {
+      setSelectedCwd(null);
+    }
+  }, [persistStoredRecentCwds, selectedCwd]);
+
+  const loadBrowseEntries = useCallback(async (path?: string | null) => {
+    try {
+      setBrowseLoading(true);
+      setBrowseError(null);
+      const query = path ? `?path=${encodeURIComponent(path)}` : "";
+      const res = await fetch(`/api/browse-dirs${query}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as BrowseDirResponse;
+      const resolvedPath = data.path ?? path ?? null;
+      setBrowsePath(resolvedPath);
+      setBrowsePathInputVal(resolvedPath ?? "");
+      setBrowseSearch("");
+      setBrowseIsEditingPath(false);
+      setBrowseEntries(data.entries ?? []);
+      if (data.valid === false && data.error) {
+        setBrowseError(data.error);
+      }
+    } catch (e) {
+      setBrowseError(String(e));
+      setBrowseEntries([]);
+    } finally {
+      setBrowseLoading(false);
+    }
+  }, []);
+
+  const commitSelectedCwd = useCallback(async (candidatePath: string) => {
+    const result = await selectCwdWithValidation(candidatePath, async (path) => {
+      const res = await fetch(`/api/browse-dirs?path=${encodeURIComponent(path)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json() as BrowseDirResponse;
+    });
+
+    if (!result.ok) {
+      setBrowseError(result.error);
+      if (result.fallbackPath && result.fallbackPath !== browsePath) {
+        await loadBrowseEntries(result.fallbackPath);
+      }
+      return false;
+    }
+
+    setBrowseError(null);
+    rememberCwd(result.cwd);
+    setSelectedCwd(result.cwd);
+    setBrowseOpen(false);
+    setCustomPathOpen(false);
+    setCustomPathValue("");
+    setDropdownOpen(false);
+    return true;
+  }, [browsePath, loadBrowseEntries, rememberCwd]);
 
   const commitCustomPath = useCallback(() => {
     const path = customPathValue.trim();
     if (path) {
-      setSelectedCwd(path);
+      commitSelectedCwd(path).catch((e) => setBrowseError(String(e)));
+      return;
     }
     setCustomPathOpen(false);
     setCustomPathValue("");
     setDropdownOpen(false);
-  }, [customPathValue]);
+  }, [commitSelectedCwd, customPathValue]);
 
   const handleDefaultCwd = useCallback(async () => {
     try {
       const res = await fetch("/api/default-cwd", { method: "POST" });
       const data = await res.json() as { cwd?: string; error?: string };
       if (data.cwd) {
+        rememberCwd(data.cwd);
         setSelectedCwd(data.cwd);
         setDropdownOpen(false);
       }
@@ -302,6 +493,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }
   }, []);
 
+  const handleBrowseFolder = useCallback(async () => {
+    setCustomPathOpen(false);
+    setCustomPathValue("");
+    setBrowseOpen(true);
+    await loadBrowseEntries(selectedCwdProp ?? selectedCwd ?? null);
+  }, [loadBrowseEntries, selectedCwd, selectedCwdProp]);
+
   // Close dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -309,6 +507,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         setDropdownOpen(false);
         setCustomPathOpen(false);
         setCustomPathValue("");
+        setBrowseOpen(false);
+        setBrowseError(null);
       }
     };
     document.addEventListener("mousedown", handler);
@@ -325,7 +525,42 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onNewSession?.(tempId, selectedCwd);
   }, [selectedCwd, onNewSession]);
 
-  const recentCwds = getRecentCwds(allSessions);
+  const recentCwdOptions = buildRecentCwdOptions(getRecentCwds(allSessions), storedRecentCwds, RECENT_CWDS_LIMIT);
+  const browseParentPath = browsePath ? getParentPath(browsePath) : null;
+
+  const browseBreadcrumbs = useMemo(() => {
+    if (!browsePath) return [];
+    const isWin = browsePath.includes("\\") || /^[a-zA-Z]:/.test(browsePath);
+    const parts = browsePath.split(/[\\/]+/).filter(Boolean);
+    const crumbs: { name: string; path: string }[] = [];
+
+    if (isWin && parts[0] && /^[a-zA-Z]:$/.test(parts[0])) {
+      const drive = parts[0];
+      crumbs.push({ name: drive, path: drive + "\\" });
+      let current = drive + "\\";
+      for (let i = 1; i < parts.length; i++) {
+        current += (current.endsWith("\\") ? "" : "\\") + parts[i];
+        crumbs.push({ name: parts[i], path: current });
+      }
+    } else {
+      let current = "";
+      if (browsePath.startsWith("/")) {
+        crumbs.push({ name: "root", path: "/" });
+      }
+      for (let i = 0; i < parts.length; i++) {
+        current += (current.endsWith("/") || current === "" ? "" : "/") + parts[i];
+        const absPath = browsePath.startsWith("/") ? ("/" + current) : current;
+        crumbs.push({ name: parts[i], path: absPath });
+      }
+    }
+    return crumbs;
+  }, [browsePath]);
+
+  const filteredBrowseEntries = useMemo(() => {
+    if (!browseSearch.trim()) return browseEntries;
+    const q = browseSearch.toLowerCase();
+    return browseEntries.filter((entry) => entry.name.toLowerCase().includes(q));
+  }, [browseEntries, browseSearch]);
   const filteredSessions = selectedCwd
     ? allSessions.filter((s) => s.cwd === selectedCwd)
     : allSessions;
@@ -334,9 +569,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const sessionTree = buildSessionTree(filteredSessions);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+    <div ref={sidebarRef} style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       {/* Header */}
       <div
+        data-sidebar-header=""
         style={{
           padding: "12px 10px 10px",
           borderBottom: "1px solid var(--border)",
@@ -430,6 +666,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         <div ref={dropdownRef} style={{ position: "relative" }}>
           <button
             onClick={() => setDropdownOpen((v) => !v)}
+            title={selectedCwd ?? ""}
             style={{
               width: "100%",
               display: "flex",
@@ -451,13 +688,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
-                fontFamily: "var(--font-mono)",
-                fontSize: 11,
+                fontWeight: 600,
+                fontSize: 12,
                 color: selectedCwd ? "var(--text)" : "var(--text-dim)",
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
               }}
-              title={selectedCwd ?? ""}
             >
-              {selectedCwd ? shortenCwd(selectedCwd, homeDir) : (initialSessionId && !restoredRef.current ? "" : "Select project…")}
+              📊 {selectedCwd ? (shortenCwd(selectedCwd, homeDir) + ` (${selectedCwd})`) : (initialSessionId && !restoredRef.current ? "" : "Select project…")}
             </span>
           </button>
 
@@ -476,43 +715,80 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 overflow: "hidden",
               }}
             >
-              {recentCwds.map((cwd) => (
-                <button
+              {recentCwdOptions.map(({ cwd, removable }) => (
+                <div
                   key={cwd}
-                  onClick={() => {
-                    setSelectedCwd(cwd);
-                    setCustomPathOpen(false);
-                    setCustomPathValue("");
-                    setDropdownOpen(false);
-                  }}
                   style={{
                     display: "flex",
-                    alignItems: "center",
-                    gap: 7,
-                    width: "100%",
-                    padding: "8px 10px",
-                    background: cwd === selectedCwd ? "var(--bg-selected)" : "none",
-                    border: "none",
+                    alignItems: "stretch",
                     borderBottom: "1px solid var(--border)",
-                    color: cwd === selectedCwd ? "var(--text)" : "var(--text-muted)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    fontSize: 11,
-                    fontFamily: "var(--font-mono)",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
+                    background: cwd === selectedCwd ? "var(--bg-selected)" : "none",
                   }}
                   title={cwd}
                 >
-                  {cwd === selectedCwd && (
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                      <polyline points="1.5 5 4 7.5 8.5 2.5" />
-                    </svg>
+                  <button
+                    onClick={() => {
+                      setSelectedCwd(cwd);
+                      setCustomPathOpen(false);
+                      setCustomPathValue("");
+                      setBrowseOpen(false);
+                      setBrowseError(null);
+                      setDropdownOpen(false);
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 7,
+                      flex: 1,
+                      minWidth: 0,
+                      padding: "8px 10px",
+                      background: "none",
+                      border: "none",
+                      color: cwd === selectedCwd ? "var(--text)" : "var(--text-muted)",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      fontSize: 11,
+                      fontFamily: "var(--font-mono)",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {cwd === selectedCwd && (
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                        <polyline points="1.5 5 4 7.5 8.5 2.5" />
+                      </svg>
+                    )}
+                    {cwd !== selectedCwd && <span style={{ width: 10, flexShrink: 0 }} />}
+                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📁 {shortenCwd(cwd, homeDir)} <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: 4 }}>({cwd})</span></span>
+                  </button>
+                  {removable && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        forgetStoredCwd(cwd);
+                      }}
+                      title={`Remove ${cwd}`}
+                      aria-label={`Remove ${cwd}`}
+                      style={{
+                        width: 30,
+                        flexShrink: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: "none",
+                        border: "none",
+                        color: "var(--text-dim)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
+                        <line x1="2" y1="2" x2="8" y2="8" />
+                        <line x1="8" y1="2" x2="2" y2="8" />
+                      </svg>
+                    </button>
                   )}
-                  {cwd !== selectedCwd && <span style={{ width: 10, flexShrink: 0 }} />}
-                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortenCwd(cwd, homeDir)}</span>
-                </button>
+                </div>
               ))}
 
               {/* Default cwd shortcut */}
@@ -527,7 +803,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     padding: "8px 10px",
                     background: "none",
                     border: "none",
-                    borderTop: recentCwds.length > 0 ? "1px solid var(--border)" : "none",
+                    borderTop: recentCwdOptions.length > 0 ? "1px solid var(--border)" : "none",
                     color: "var(--text-muted)",
                     cursor: "pointer",
                     textAlign: "left",
@@ -541,11 +817,345 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 </button>
               )}
 
-              {/* Custom path entry */}
-              {!customPathOpen ? (
+              {!customPathOpen && !browseOpen && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleBrowseFolder(); }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 7,
+                    width: "100%",
+                    padding: "8px 10px",
+                    background: "none",
+                    border: "none",
+                    borderTop: "1px solid var(--border)",
+                    color: "var(--accent)",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    fontSize: 11,
+                    fontWeight: 500,
+                  }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                    <line x1="12" y1="11" x2="12" y2="17" />
+                    <line x1="9" y1="14" x2="15" y2="14" />
+                  </svg>
+                  <span>Browse folder…</span>
+                </button>
+              )}
+
+              {browseOpen ? (
+                <div style={{ padding: "6px 8px", borderTop: recentCwdOptions.length > 0 ? "none" : undefined }}>
+                  {/* Path segment breadcrumbs or direct path input */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                    <button
+                      onClick={() => {
+                        if (!browseParentPath || browseLoading) return;
+                        loadBrowseEntries(browseParentPath).catch(() => {});
+                      }}
+                      disabled={!browseParentPath || browseLoading}
+                      style={{
+                        width: 24,
+                        height: 24,
+                        padding: 0,
+                        borderRadius: 5,
+                        border: "1px solid var(--border)",
+                        background: "var(--bg-hover)",
+                        color: browseParentPath && !browseLoading ? "var(--text-muted)" : "var(--text-dim)",
+                        cursor: browseParentPath && !browseLoading ? "pointer" : "not-allowed",
+                        flexShrink: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 12,
+                      }}
+                      title={browseParentPath ? `Up to ${browseParentPath}` : "Already at root"}
+                    >
+                      ↑
+                    </button>
+                    {browseIsEditingPath ? (
+                      <input
+                        type="text"
+                        value={browsePathInputVal}
+                        onChange={(e) => setBrowsePathInputVal(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            loadBrowseEntries(browsePathInputVal).catch((err) => setBrowseError(String(err)));
+                          } else if (e.key === "Escape") {
+                            setBrowseIsEditingPath(false);
+                            setBrowsePathInputVal(browsePath ?? "");
+                          }
+                        }}
+                        onBlur={() => {
+                          setTimeout(() => {
+                            setBrowseIsEditingPath(false);
+                            setBrowsePathInputVal(browsePath ?? "");
+                          }, 250);
+                        }}
+                        autoFocus
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          fontSize: 11,
+                          fontFamily: "var(--font-mono)",
+                          color: "var(--text)",
+                          padding: "5px 8px",
+                          border: "1px solid var(--accent)",
+                          borderRadius: 5,
+                          background: "var(--bg)",
+                          outline: "none",
+                        }}
+                      />
+                    ) : (
+                      <div
+                        onDoubleClick={() => {
+                          setBrowseIsEditingPath(true);
+                        }}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 2,
+                          padding: "4px 6px",
+                          border: "1px solid var(--border)",
+                          borderRadius: 5,
+                          background: "var(--bg-hover)",
+                          overflowX: "auto",
+                          scrollbarWidth: "none",
+                          whiteSpace: "nowrap",
+                          cursor: "text",
+                        }}
+                        title="Double-click to edit path directly"
+                      >
+                        <div style={{ display: "flex", alignItems: "center" }}>
+                          {browseBreadcrumbs.map((crumb: { name: string; path: string }, idx: number) => (
+                            <span key={crumb.path} style={{ display: "inline-flex", alignItems: "center" }}>
+                              {idx > 0 && <span style={{ color: "var(--text-dim)", fontSize: 10, margin: "0 2px", userSelect: "none" }}>/</span>}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  loadBrowseEntries(crumb.path).catch(() => {});
+                                }}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  padding: "2px 4px",
+                                  borderRadius: 3,
+                                  fontSize: 11,
+                                  fontFamily: "var(--font-mono)",
+                                  color: (idx === browseBreadcrumbs.length - 1) ? "var(--text)" : "var(--accent)",
+                                  cursor: "pointer",
+                                  fontWeight: (idx === browseBreadcrumbs.length - 1) ? "bold" : "normal",
+                                  transition: "background 0.15s, color 0.15s",
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = "rgba(100,116,139,0.12)"}
+                                onMouseLeave={(e) => e.currentTarget.style.background = "none"}
+                              >
+                                {crumb.name}
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setBrowseIsEditingPath(true);
+                          }}
+                          style={{
+                            marginLeft: "auto",
+                            background: "none",
+                            border: "none",
+                            padding: "4px",
+                            cursor: "pointer",
+                            color: "var(--text-dim)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            borderRadius: 4,
+                            flexShrink: 0,
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.color = "var(--text)"}
+                          onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-dim)"}
+                          title="Edit path directly"
+                        >
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                          </svg>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Instant search filter bar */}
+                  <div style={{ position: "relative", marginBottom: 6 }}>
+                    <input
+                      type="text"
+                      className="search-input"
+                      value={browseSearch}
+                      onChange={(e) => setBrowseSearch(e.target.value)}
+                      placeholder="Filter folders..."
+                      style={{
+                        width: "100%",
+                        fontSize: 11,
+                        padding: "5px 24px 5px 8px",
+                        border: "1px solid var(--border)",
+                        borderRadius: 5,
+                        background: "var(--bg-hover)",
+                        color: "var(--text)",
+                        outline: "none",
+                        boxSizing: "border-box",
+                      }}
+                    />
+                    {browseSearch ? (
+                      <button
+                        onClick={() => setBrowseSearch("")}
+                        style={{
+                          position: "absolute",
+                          right: 6,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          background: "none",
+                          border: "none",
+                          color: "var(--text-dim)",
+                          cursor: "pointer",
+                          padding: 0,
+                          display: "flex",
+                          alignItems: "center",
+                          fontSize: 12,
+                        }}
+                      >
+                        ×
+                      </button>
+                    ) : (
+                      <svg
+                        width="10"
+                        height="10"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        style={{
+                          position: "absolute",
+                          right: 8,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          color: "var(--text-dim)",
+                          pointerEvents: "none",
+                        }}
+                      >
+                        <circle cx="11" cy="11" r="8" />
+                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                      </svg>
+                    )}
+                  </div>
+
+                  <div style={{ maxHeight: 200, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-hover)" }}>
+                    {browseLoading ? (
+                      <div style={{ padding: "10px 8px", fontSize: 11, color: "var(--text-muted)" }}>Loading folders...</div>
+                    ) : browseError ? (
+                      <div style={{ padding: "10px 8px", fontSize: 11, color: "#f87171" }}>{browseError}</div>
+                    ) : filteredBrowseEntries.length === 0 ? (
+                      <div style={{ padding: "10px 8px", fontSize: 11, color: "var(--text-muted)" }}>
+                        {browseSearch ? "No matching folders" : "No subfolders"}
+                      </div>
+                    ) : (
+                      filteredBrowseEntries.map((entry: BrowseDirEntry) => (
+                        <button
+                          key={entry.path}
+                          onClick={() => loadBrowseEntries(entry.path).catch(() => {})}
+                          style={{
+                            width: "100%",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 7,
+                            padding: "6px 8px",
+                            background: "none",
+                            border: "none",
+                            borderBottom: "1px solid var(--border)",
+                            textAlign: "left",
+                            cursor: "pointer",
+                            color: "var(--text-muted)",
+                            fontSize: 11,
+                            transition: "background 0.1s, color 0.1s",
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = "var(--bg-selected)";
+                            e.currentTarget.style.color = "var(--text)";
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = "none";
+                            e.currentTarget.style.color = "var(--text-muted)";
+                          }}
+                          title={entry.path}
+                        >
+                          <svg
+                            width="11"
+                            height="11"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.1"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            style={{ flexShrink: 0, color: "var(--accent)" }}
+                          >
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                          </svg>
+                          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.name}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  <div style={{ display: "flex", gap: 5, marginTop: 5 }}>
+                    <button
+                      onClick={() => {
+                        if (!browsePath || browseLoading) return;
+                        commitSelectedCwd(browsePath).catch((e) => setBrowseError(String(e)));
+                      }}
+                      disabled={!browsePath || browseLoading}
+                      style={{
+                        flex: 1,
+                        padding: "4px 0",
+                        background: "var(--accent)",
+                        border: "none",
+                        borderRadius: 5,
+                        color: "#fff",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        cursor: !browsePath || browseLoading ? "not-allowed" : "pointer",
+                        opacity: !browsePath || browseLoading ? 0.6 : 1,
+                      }}
+                    >
+                      Select this folder
+                    </button>
+                    <button
+                      onClick={() => {
+                        setBrowseOpen(false);
+                        setBrowseError(null);
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: "4px 0",
+                        background: "var(--bg-hover)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 5,
+                        color: "var(--text-muted)",
+                        fontSize: 11,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : !customPathOpen ? (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
+                    setBrowseOpen(false);
+                    setBrowseError(null);
                     setCustomPathOpen(true);
                     setTimeout(() => customPathInputRef.current?.focus(), 0);
                   }}
@@ -570,7 +1180,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   <span>Custom path…</span>
                 </button>
               ) : (
-                <div style={{ padding: "6px 8px", borderTop: recentCwds.length > 0 ? "none" : undefined }}>
+                <div style={{ padding: "6px 8px", borderTop: recentCwdOptions.length > 0 ? "none" : undefined }}>
                   <input
                     ref={customPathInputRef}
                     value={customPathValue}
@@ -637,7 +1247,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       </div>
 
       {/* Session list */}
-      <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}>
+      <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? `${1 - explorerFraction} 1 0` : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}>
         {loading && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
             Loading...
@@ -669,14 +1279,42 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         ))}
       </div>
 
+      {/* Drag handle between session list and explorer */}
+      {(selectedCwdProp || selectedCwd) && explorerOpen && (
+        <div
+          onMouseDown={(e) => {
+            e.preventDefault();
+            draggingRef.current = true;
+            document.body.style.cursor = 'row-resize';
+            document.body.style.userSelect = 'none';
+          }}
+          style={{
+            flexShrink: 0,
+            height: 5,
+            cursor: 'row-resize',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'transparent',
+            borderTop: '1px solid var(--border)',
+            transition: 'background 0.15s',
+            position: 'relative',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+          onMouseLeave={(e) => { if (!draggingRef.current) e.currentTarget.style.background = 'transparent'; }}
+        >
+          <div style={{ width: 24, height: 2, borderRadius: 1, background: 'var(--border)' }} />
+        </div>
+      )}
+
       {/* File Explorer section */}
       {(selectedCwdProp || selectedCwd) && (
         <div
           style={{
-            borderTop: "1px solid var(--border)",
             display: "flex",
             flexDirection: "column",
-            flex: explorerOpen ? "1 1 0" : "0 0 auto",
+            borderTop: !explorerOpen ? "1px solid var(--border)" : undefined,
+            flex: explorerOpen ? `${explorerFraction} 1 0` : "0 0 auto",
             minHeight: 0,
             overflow: "hidden",
           }}
@@ -709,6 +1347,45 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 <polyline points="3 2 7 5 3 8" />
               </svg>
               Explorer
+            </button>
+            <button
+              onClick={async () => {
+                const targetCwd = selectedCwdProp ?? selectedCwd;
+                if (!targetCwd) return;
+                try {
+                  const res = await fetch("/api/open-folder", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ path: targetCwd }),
+                  });
+                  if (!res.ok) {
+                    const data = await res.json();
+                    alert(`Failed to open folder: ${data.error}`);
+                  }
+                } catch (err: any) {
+                  alert(`Failed to open folder: ${err.message || err}`);
+                }
+              }}
+              title="Open folder in system explorer"
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: 26, height: 26, padding: 0, marginRight: 4,
+                background: "none",
+                border: "none",
+                color: "var(--text-dim)",
+                cursor: "pointer",
+                borderRadius: 5,
+                flexShrink: 0,
+                transition: "color 0.3s, background 0.3s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                <polyline points="12 11 15 8 12 5" />
+                <line x1="9" y1="8" x2="15" y2="8" />
+              </svg>
             </button>
             <button
               onClick={() => {

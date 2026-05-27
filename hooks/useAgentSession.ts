@@ -114,6 +114,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [isCompacting, setIsCompacting] = useState(false);
   const [compactError, setCompactError] = useState<string | null>(null);
   const [agentPhase, setAgentPhase] = useState<AgentPhase>(null);
+  const [isAborting, setIsAborting] = useState(false);
+  const [sseState, setSseState] = useState<"connecting" | "connected" | "disconnected">("disconnected");
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
@@ -217,8 +219,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
+    setSseState("connecting");
     const es = new EventSource(`/api/agent/${encodeURIComponent(sid)}/events`);
     eventSourceRef.current = es;
+
+    es.onopen = () => {
+      setSseState("connected");
+    };
+
     es.onmessage = (e) => {
       try {
         const event = JSON.parse(e.data) as AgentEvent;
@@ -228,9 +236,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     };
     es.onerror = () => {
+      setSseState("disconnected");
       if (eventSourceRef.current === es && agentRunningRef.current) {
         es.close();
         eventSourceRef.current = null;
+        setSseState("connecting");
         setTimeout(() => {
           if (agentRunningRef.current) connectEvents(sid);
         }, 1000);
@@ -246,11 +256,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     switch (event.type) {
       case "agent_start":
         setAgentRunning(true);
+        setIsAborting(false);
         setAgentPhase({ kind: "waiting_model" });
         dispatch({ type: "start" });
         break;
       case "agent_end":
         setAgentRunning(false);
+        setIsAborting(false);
         setAgentPhase(null);
         setRetryInfo(null);
         dispatch({ type: "end" });
@@ -321,7 +333,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (event.errorMessage) {
           setCompactError(event.errorMessage as string);
         } else if (!event.aborted) {
-          if (sessionIdRef.current) loadSession(sessionIdRef.current);
+          if (sessionIdRef.current) {
+            loadSession(sessionIdRef.current);
+            // Fetch updated contextUsage after compaction
+            fetch(`/api/agent/${encodeURIComponent(sessionIdRef.current)}`)
+              .then((r) => r.json())
+              .then((d: { state?: { contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null; systemPrompt?: string } }) => {
+                if (d.state?.contextUsage !== undefined) setContextUsage(d.state.contextUsage ?? null);
+              })
+              .catch(() => {});
+          }
         }
         break;
     }
@@ -367,7 +388,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             ...(thinkingLevel !== "auto" ? { thinkingLevel } : {}),
           }),
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          let detail = "";
+          try {
+            const errorBody = await res.json() as { error?: string };
+            detail = errorBody.error ? `: ${errorBody.error}` : "";
+          } catch {
+            // ignore non-JSON error responses
+          }
+          throw new Error(`HTTP ${res.status}${detail}`);
+        }
         const result = await res.json() as { sessionId: string };
         const realId = result.sessionId;
         sessionIdRef.current = realId;
@@ -401,10 +431,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleAbort = useCallback(async () => {
     const sid = sessionIdRef.current;
     if (!sid) return;
+    setIsAborting(true);
     try {
       await sendAgentCommand(sid, { type: "abort" });
     } catch (e) {
       console.error("Failed to abort:", e);
+      setIsAborting(false);
     }
   }, []);
 
@@ -469,6 +501,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       await sendAgentCommand(sid, { type: "compact" });
       await loadSession(sid, true);
+      // Fetch updated contextUsage after compaction
+      fetch(`/api/agent/${encodeURIComponent(sid)}`)
+        .then((r) => r.json())
+        .then((d: { state?: { contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null; systemPrompt?: string } }) => {
+          if (d.state?.contextUsage !== undefined) setContextUsage(d.state.contextUsage ?? null);
+        })
+        .catch(() => {});
     } catch (e) {
       setCompactError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -642,6 +681,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     isCompacting, compactError, currentModel, displayModel, sessionStats,
     agentPhase,
     isNew,
+    isAborting,
+    sseState,
     // Refs
     sessionIdRef, eventSourceRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,

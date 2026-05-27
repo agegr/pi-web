@@ -98,6 +98,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     isCompacting, compactError, displayModel: displayModelValue, sessionStats,
     agentPhase,
     isNew,
+    isAborting,
+    sseState,
     messagesEndRef, scrollContainerRef,
     lastUserMsgRef,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
@@ -113,6 +115,53 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   playDoneSoundRef.current = playDoneSound;
   const soundEnabledRef = useRef(soundEnabled);
   soundEnabledRef.current = soundEnabled;
+
+  const autoScrollLockedRef = useRef(false);
+
+  // Monitor layout scrolling to detect user's manual scroll actions
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const handleScrollEvent = () => {
+      const distanceToBottom = el.scrollHeight - el.clientHeight - el.scrollTop;
+      autoScrollLockedRef.current = distanceToBottom <= 15; // Set lock to true ONLY if extremely close to bottom
+    };
+    el.addEventListener("scroll", handleScrollEvent, { passive: true });
+    return () => el.removeEventListener("scroll", handleScrollEvent);
+  }, [scrollContainerRef]);
+
+  // Handle auto-scroll locks dynamically during model tokens streaming
+  useEffect(() => {
+    if (streamState.isStreaming) {
+      const el = scrollContainerRef.current;
+      if (!el) return;
+
+      let rId: number;
+      const adjustScroll = () => {
+        // Calculate the live distance to bottom from current DOM state
+        const distanceToBottom = el.scrollHeight - el.clientHeight - el.scrollTop;
+        const isCurrentlyAtBottom = distanceToBottom <= 15;
+
+        // If the user has scrolled up, lock auto-scroll to false and don't scroll
+        if (!isCurrentlyAtBottom) {
+          autoScrollLockedRef.current = false;
+          return;
+        }
+
+        // Only scroll to bottom if autoScrollLockedRef.current (meaning they were at bottom or opted to)
+        if (autoScrollLockedRef.current) {
+          const scrollTarget = el.scrollHeight - el.clientHeight;
+          const currentScroll = el.scrollTop;
+          if (scrollTarget - currentScroll > 2) {
+            el.scrollTo({ top: scrollTarget, behavior: "auto" });
+          }
+        }
+      };
+
+      rId = requestAnimationFrame(adjustScroll);
+      return () => cancelAnimationFrame(rId);
+    }
+  }, [streamState.streamingMessage, streamState.isStreaming, scrollContainerRef]);
 
   // Wrap agent event handler to play sound on agent_end
   const origHandler = handleAgentEventRef.current;
@@ -175,6 +224,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       onSteer={agentRunning ? handleSteer : undefined}
       onFollowUp={agentRunning ? handleFollowUp : undefined}
       isStreaming={agentRunning}
+      cwd={session?.cwd ?? newSessionCwd ?? null}
       model={displayModelValue}
       modelNames={modelNames}
       modelList={modelList}
@@ -192,6 +242,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       retryInfo={retryInfo}
       soundEnabled={soundEnabled}
       onSoundToggle={onSoundToggle}
+      isAborting={isAborting}
+      sseState={sseState}
     />
   );
 
@@ -268,7 +320,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             >
               <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0, flex: 1, lineHeight: 1.4 }}>
                 <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--text)" }}>π</span>
-                <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: "-0.01em" }}>Pi Agent Web</span>
+                <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: "-0.01em" }}>My Agent Web</span>
                 <span style={{ fontSize: 14, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
                   <Typewriter phrases={TYPEWRITER_PHRASES} />
                 </span>
@@ -288,7 +340,14 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       ) : (
       <>
       <div className="relative flex flex-1 overflow-hidden">
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pt-4 [scrollbar-width:none]">
+        <div
+          ref={scrollContainerRef}
+          className="flex-1 overflow-y-auto pt-4 [scrollbar-width:none]"
+          style={{
+            contain: "content",
+            willChange: "transform",
+          }}
+        >
           <div className="mx-auto max-w-[820px] px-4">
 
             {(() => {
@@ -362,12 +421,13 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             )}
 
             {agentRunning && (
-              <div style={{ height: scrollContainerRef.current ? scrollContainerRef.current.clientHeight : "80vh" }} />
+              <div style={{ height: "140px" }} />
             )}
 
-            <div ref={messagesEndRef} />
+            <div ref={messagesEndRef} style={{ height: "40px" }} />
           </div>
         </div>
+
         <ChatMinimap
           messages={messages}
           streamingMessage={streamState.streamingMessage}

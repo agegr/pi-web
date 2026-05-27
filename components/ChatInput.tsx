@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
+import { SkillMenu, type SkillItem } from "./SkillMenu";
+import { AtMentionMenu } from "./AtMentionMenu";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -20,6 +22,7 @@ interface Props {
   onSteer?: (message: string, images?: AttachedImage[]) => void;
   onFollowUp?: (message: string, images?: AttachedImage[]) => void;
   isStreaming: boolean;
+  cwd?: string | null;
   model?: { provider: string; modelId: string } | null;
   modelNames?: Record<string, string>;
   modelList?: { id: string; name: string; provider: string }[];
@@ -37,6 +40,8 @@ interface Props {
   retryInfo?: { attempt: number; maxAttempts: number; errorMessage?: string } | null;
   soundEnabled?: boolean;
   onSoundToggle?: () => void;
+  isAborting?: boolean;
+  sseState?: "connecting" | "connected" | "disconnected";
 }
 
 export interface ChatInputHandle {
@@ -60,11 +65,13 @@ const THINKING_LEVEL_DESC: Record<typeof THINKING_LEVELS[number], string> = {
 };
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, modelNames, modelList, onModelChange,
+  onSend, onAbort, onSteer, onFollowUp, isStreaming, cwd, model, modelNames, modelList, onModelChange,
   onCompact, onAbortCompaction, isCompacting, compactError, toolPreset, onToolPresetChange,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo,
   soundEnabled, onSoundToggle,
+  isAborting = false,
+  sseState,
 }: Props, ref) {
   const [value, setValue] = useState("");
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
@@ -72,6 +79,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
+  const [skillMenuOpen, setSkillMenuOpen] = useState(false);
+  const [skillMenuQuery, setSkillMenuQuery] = useState("");
+  const [skillMenuRect, setSkillMenuRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
+  const [mentionMenuQuery, setMentionMenuQuery] = useState("");
+  const [mentionMenuRect, setMentionMenuRect] = useState<{ top: number; left: number; width: number } | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -185,6 +198,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      // Let SkillMenu or AtMentionMenu handle ArrowUp/ArrowDown/Enter/Tab when menu is open
+      if ((skillMenuOpen || mentionMenuOpen) && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === "Escape" || e.key === "Tab")) {
+        // Autocomplete menus have their own document-level keydown listener with capture=true
+        // We just need to stop the textarea from processing these keys
+        if (e.key === "Enter" || e.key === "Escape" || e.key === "Tab") {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        return;
+      }
       if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
         e.preventDefault();
         if (isStreaming && (onSteer || onFollowUp)) {
@@ -195,7 +218,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }
       }
     },
-    [isStreaming, onSteer, onFollowUp, sendQueued, handleSend]
+    [isStreaming, onSteer, onFollowUp, sendQueued, handleSend, skillMenuOpen, mentionMenuOpen]
   );
 
   const handleInput = useCallback(() => {
@@ -203,6 +226,79 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (!ta) return;
     ta.style.height = "auto";
     ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+  }, []);
+
+  const handleSkillSelect = useCallback((skill: SkillItem) => {
+    setSkillMenuOpen(false);
+    const ta = textareaRef.current;
+    if (!ta) {
+      setValue(`/skill:${skill.name} `);
+      return;
+    }
+
+    const selectionStart = ta.selectionStart ?? ta.value.length;
+    const textBeforeCaret = value.slice(0, selectionStart);
+    const textAfterCaret = value.slice(selectionStart);
+
+    // Find the last / index of the word we are completing
+    const lastSlashIdx = textBeforeCaret.lastIndexOf("/");
+    if (lastSlashIdx >= 0 && (lastSlashIdx === 0 || textBeforeCaret[lastSlashIdx - 1] === " ")) {
+      const beforeSlash = textBeforeCaret.slice(0, lastSlashIdx);
+      const inserted = `/skill:${skill.name} `;
+      const newVal = beforeSlash + inserted + textAfterCaret;
+      setValue(newVal);
+
+      requestAnimationFrame(() => {
+        const newPos = beforeSlash.length + inserted.length;
+        ta.setSelectionRange(newPos, newPos);
+        ta.focus();
+        ta.style.height = "auto";
+        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      });
+    }
+  }, [value]);
+
+  const handleMentionSelect = useCallback((filePath: string) => {
+    setMentionMenuOpen(false);
+    const ta = textareaRef.current;
+    if (!ta) {
+      setValue((v) => v + "@" + filePath + " ");
+      return;
+    }
+
+    const selectionStart = ta.selectionStart ?? ta.value.length;
+    const textBeforeCaret = value.slice(0, selectionStart);
+    const textAfterCaret = value.slice(selectionStart);
+    
+    // Find the last @ index of the word we are completing
+    const lastAtIdx = textBeforeCaret.lastIndexOf("@");
+    if (lastAtIdx >= 0 && (lastAtIdx === 0 || textBeforeCaret[lastAtIdx - 1] === " ")) {
+      const beforeAt = textBeforeCaret.slice(0, lastAtIdx);
+      const inserted = "@" + filePath + " ";
+      const newVal = beforeAt + inserted + textAfterCaret;
+      setValue(newVal);
+      
+      requestAnimationFrame(() => {
+        const newPos = beforeAt.length + inserted.length;
+        ta.setSelectionRange(newPos, newPos);
+        ta.focus();
+        ta.style.height = "auto";
+        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      });
+    }
+  }, [value]);
+
+  const handleMentionMenuClose = useCallback(() => {
+    setMentionMenuOpen(false);
+  }, []);
+
+  const handleSkillMenuClose = useCallback(() => {
+    setSkillMenuOpen(false);
+    // Clear the leading slash if the user dismisses without selecting
+    setValue((prev) => {
+      if (prev === "/" || (prev.startsWith("/") && !prev.includes(" "))) return "";
+      return prev;
+    });
   }, []);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
@@ -349,7 +445,54 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           <textarea
             ref={textareaRef}
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value;
+              setValue(v);
+              
+              if (!cwd) return;
+
+              const ta = textareaRef.current;
+              if (!ta) return;
+
+              // ── 1. Slash command detection ──
+              const caretPos = e.target.selectionStart ?? v.length;
+              const textBeforeCaret = v.slice(0, caretPos);
+
+              // Match a leading "/" or a space followed by "/" that hasn't been completed yet
+              const lastSlashIdx = textBeforeCaret.lastIndexOf("/");
+              const isSlashCmd = lastSlashIdx >= 0 && (lastSlashIdx === 0 || textBeforeCaret[lastSlashIdx - 1] === " ");
+              const slashQuery = isSlashCmd ? textBeforeCaret.slice(lastSlashIdx + 1) : "";
+
+              if (isSlashCmd && !slashQuery.includes(" ")) {
+                setSkillMenuQuery(slashQuery);
+                if (!skillMenuOpen) {
+                  const rect = ta.getBoundingClientRect();
+                  setSkillMenuRect({ top: rect.top, left: rect.left, width: rect.width });
+                  setSkillMenuOpen(true);
+                }
+                setMentionMenuOpen(false);
+              } else {
+                if (skillMenuOpen) setSkillMenuOpen(false);
+
+                // ── 2. Caret-aware @ file mention detection ──
+                // Find index of last "@" in the text before caret
+                const lastAtIdx = textBeforeCaret.lastIndexOf("@");
+                if (lastAtIdx >= 0 && (lastAtIdx === 0 || textBeforeCaret[lastAtIdx - 1] === " ")) {
+                  const potentialQuery = textBeforeCaret.slice(lastAtIdx + 1);
+                  // Ensure no spaces exist in the filename segment after "@"
+                  if (!potentialQuery.includes(" ")) {
+                    setMentionMenuQuery(potentialQuery);
+                    const rect = ta.getBoundingClientRect();
+                    setMentionMenuRect({ top: rect.top, left: rect.left, width: rect.width });
+                    setMentionMenuOpen(true);
+                  } else {
+                    setMentionMenuOpen(false);
+                  }
+                } else {
+                  setMentionMenuOpen(false);
+                }
+              }
+            }}
             onKeyDown={handleKeyDown}
             onInput={handleInput}
             onPaste={handlePaste}
@@ -455,6 +598,28 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             </button>
           )}
         </div>
+
+        {/* Skill slash command menu */}
+        {skillMenuOpen && cwd && (
+          <SkillMenu
+            cwd={cwd}
+            query={skillMenuQuery}
+            onSelect={handleSkillSelect}
+            onClose={handleSkillMenuClose}
+            anchorRect={skillMenuRect}
+          />
+        )}
+
+        {/* At-mention file dropdown menu */}
+        {mentionMenuOpen && cwd && (
+          <AtMentionMenu
+            cwd={cwd}
+            query={mentionMenuQuery}
+            onSelect={handleMentionSelect}
+            onClose={handleMentionMenuClose}
+            anchorRect={mentionMenuRect}
+          />
+        )}
 
         {/* Bottom bar: left | center (context) | right */}
         <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
@@ -818,27 +983,39 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {isStreaming && (
               <button
                 onClick={onAbort}
-                title="停止 Agent"
+                disabled={isAborting}
+                title={isAborting ? "正在停止…" : "停止 Agent"}
                 style={{
                   display: "flex", alignItems: "center", gap: 6,
                   padding: "8px 14px",
                   height: 32,
-                  background: "rgba(239,68,68,0.08)",
-                  border: "1px solid rgba(239,68,68,0.3)",
+                  background: isAborting ? "rgba(156,163,175,0.08)" : "rgba(239,68,68,0.08)",
+                  border: isAborting ? "1px solid rgba(156,163,175,0.3)" : "1px solid rgba(239,68,68,0.3)",
                   borderRadius: 9,
-                  color: "#ef4444",
-                  cursor: "pointer",
+                  color: isAborting ? "var(--text-muted)" : "#ef4444",
+                  cursor: isAborting ? "not-allowed" : "pointer",
                   fontSize: 12, fontWeight: 600,
                   whiteSpace: "nowrap", letterSpacing: "-0.01em",
                   transition: "background 0.12s",
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.16)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.08)"; }}
+                onMouseEnter={(e) => { if (!isAborting) e.currentTarget.style.background = "rgba(239,68,68,0.16)"; }}
+                onMouseLeave={(e) => { if (!isAborting) e.currentTarget.style.background = "rgba(239,68,68,0.08)"; }}
               >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <rect x="1.5" y="1.5" width="7" height="7" rx="1.5" fill="currentColor" />
-                </svg>
-                Stop
+                {isAborting ? (
+                  <>
+                    <svg className="animate-spin" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: "spin 1s linear infinite" }}>
+                      <circle cx="12" cy="12" r="10" strokeLinecap="round" strokeDasharray="30 15" stroke="currentColor"></circle>
+                    </svg>
+                    Stopping
+                  </>
+                ) : (
+                  <>
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                      <rect x="1.5" y="1.5" width="7" height="7" rx="1.5" fill="currentColor" />
+                    </svg>
+                    Stop
+                  </>
+                )}
               </button>
             )}
 
@@ -882,6 +1059,50 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   </svg>
                 )}
               </button>
+            )}
+
+            {sseState && isStreaming && (
+              <div
+                title={
+                  sseState === "connected"
+                    ? "SSE Link: Connected"
+                    : sseState === "connecting"
+                    ? "SSE Link: Reconnecting…"
+                    : "SSE Link: Disconnected"
+                }
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  height: 32,
+                  padding: "0 8px",
+                  borderRadius: 9,
+                  background: "var(--bg-panel)",
+                  border: "1px solid var(--border)",
+                  fontSize: 10,
+                  fontFamily: "var(--font-mono)",
+                  fontWeight: 600,
+                  color: "var(--text-muted)",
+                  gap: 5,
+                }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background:
+                      sseState === "connected"
+                        ? "#22c55e"
+                        : sseState === "connecting"
+                        ? "#f59e0b"
+                        : "#ef4444",
+                    display: "inline-block",
+                  }}
+                  className={sseState === "connecting" ? "animate-pulse" : ""}
+                />
+                {sseState === "connected" ? "LINK" : "RECON"}
+              </div>
             )}
           </div>
 

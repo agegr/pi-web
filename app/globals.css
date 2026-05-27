@@ -127,7 +127,13 @@ pre, code {
 .markdown-body h1 { font-size: 1.15em; }
 .markdown-body h2 { font-size: 1.05em; }
 .markdown-body h3 { font-size: 0.95em; }
-.markdown-body ul, .markdown-body ol {
+.markdown-body ul {
+  list-style-type: disc;
+  padding-left: 20px;
+  margin: 4px 0 8px;
+}
+.markdown-body ol {
+  list-style-type: decimal;
   padding-left: 20px;
   margin: 4px 0 8px;
 }
@@ -244,8 +250,8 @@ span.linenumber {
     transition: width 0.2s ease, min-width 0.2s ease;
   }
   .sidebar-container.sidebar-open {
-    width: 260px;
-    min-width: 260px;
+    width: var(--sidebar-width, 260px);
+    min-width: var(--sidebar-width, 260px);
   }
   .sidebar-container.sidebar-closed {
     width: 0;
@@ -254,8 +260,12 @@ span.linenumber {
   }
   /* keep inner content at fixed width so it doesn't reflow during animation */
   .sidebar-container > * {
-    width: 260px;
-    min-width: 260px;
+    width: var(--sidebar-width, 260px);
+    min-width: var(--sidebar-width, 260px);
+  }
+
+  .sidebar-resize-handle {
+    display: flex;
   }
 }
 
@@ -285,6 +295,9 @@ span.linenumber {
 
 /* Mobile sidebar: slide in/out as overlay */
 @media (max-width: 640px) {
+  .sidebar-resize-handle {
+    display: none !important;
+  }
   .chat-stats-center {
     display: none !important;
   }
