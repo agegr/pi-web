@@ -48,6 +48,7 @@ app/api/
   files/[...path]/route.ts        GET file contents for viewer
   models/route.ts                 GET { models, modelList, defaultModel }
   models-config/route.ts          GET/POST — read/write ~/.pi/agent/models.json
+  git-status/route.ts             POST git operations (status, diff, commit, push, etc.)
 
 lib/
   rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
@@ -68,6 +69,7 @@ components/
   ModelsConfig.tsx    modal for editing models.json (opened from sidebar bottom)
   FileExplorer.tsx    file tree inside sidebar
   FileViewer.tsx      file content in a tab
+  GitPanel.tsx        Git visualizer panel (changes, branches, history, diff modal)
   TabBar.tsx          tab bar (Chat + open file tabs)
 ```
 
@@ -109,6 +111,37 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 
 ### Orphaned sessions
 Sessions whose first line can't be parsed as a valid header are marked `orphaned: true` in the API response — displayed with an "incomplete" badge in the sidebar and not clickable.
+
+---
+
+## Git Panel (`components/GitPanel.tsx`)
+
+A full-featured Git visualizer docked as a right-side tab via virtual file path `"git"`.
+
+### Architecture
+- **Activation**: `FileViewer.tsx` intercepts `filePath === "git"` and renders `<GitPanel cwd={cwd} />` instead of a file viewer.
+- **Navigation**: `AppShell.tsx` adds a "Git" button in the global header that pushes a virtual tab `{ id: "file:git", label: "Git", filePath: "git" }` and opens the right panel.
+- **API bridge**: All git operations go through `POST /api/git-status` with action field.
+
+### Three collapsible sections (matching EXPLORER chevron style)
+1. **CHANGES (变更清单)**: File tree with checkboxes, stage/commit workflow, diff on double-click.
+2. **BRANCHES (分支管理)**: Branch list with checkout/merge/delete.
+3. **HISTORY (提交日志)**: Commit log with expandable file detail panel.
+
+### Key design rules
+- **No emojis** — all visual indicators use SVG icons (`IconGitBranch`, `Chevi`, `IconRefresh`) matching the rest of the app.
+- **No nested `<button>`** — section headers use `<div>` wrapper to avoid React hydration errors.
+- **Flex-balanced sections** — CHANGES flex 2, BRANCHES flex 1, HISTORY flex 2. Each collapses to `0 0 auto` when folded.
+- **Folder count badge** — right-aligned number on folder rows (count = recursive leaf files).
+- **Tree indentation** — `8 + depth * 16` px left padding; files get an extra 13px below the chevron/folder gap.
+- **Diff modal** — fixed full-viewport overlay (95vw × 82vh) with simple line-by-line diff.
+- **All tooltips in Chinese** (`title="双击查看 Diff"`).
+
+### Common pitfalls
+- **Hydration**: The "+ 新建" create-branch button must NOT be nested inside the section's toggle `<button>`. Wrap both in a `<div>`.
+- **Section flex**: When a section is collapsed (secOpen.* = false), set its container to `flex: "0 0 auto"` to avoid leaving empty space.
+- **Status label**: `git status -s` first 2 chars are the status prefix (` M`, `??`). **Do not `.trim()` before slicing** — truncates filenames by 1 char.
+- **Binary files**: The API route detects `.png/.jpg/.webp/.gif/.mp3/.mp4` extensions and returns `{ binary: true }` instead of attempting to diff.
 
 ---
 

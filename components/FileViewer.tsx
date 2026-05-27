@@ -524,7 +524,7 @@ function AudioViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
 
 export function FileViewer({ filePath, cwd }: Props) {
   if (filePath === "git" && cwd) {
-    return <GitPanel cwd={cwd} inline={true} />;
+    return <GitPanel cwd={cwd} />;
   }
   if (isImagePath(filePath)) {
     return <ImageViewer filePath={filePath} cwd={cwd} />;
