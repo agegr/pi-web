@@ -17,6 +17,7 @@ interface Props {
   onOpenFile?: (filePath: string, fileName: string) => void;
   explorerRefreshKey?: number;
   onAtMention?: (relativePath: string) => void;
+  requestWorkspaceTrust?: (cwd: string) => Promise<string | null>;
 }
 
 function formatRelativeTime(dateStr: string): string {
@@ -196,7 +197,7 @@ function PiAgentTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention, requestWorkspaceTrust }: Props) {
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -252,55 +253,77 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }, []);
 
   const restoredRef = useRef(false);
+  const autoSelectAttemptedRef = useRef(false);
 
   useEffect(() => {
     onCwdChange?.(selectedCwd);
   }, [selectedCwd, onCwdChange]);
+
+  const selectCwd = useCallback(async (cwd: string): Promise<string | null> => {
+    let selected = cwd;
+    if (requestWorkspaceTrust) {
+      const trustedCwd = await requestWorkspaceTrust(cwd);
+      if (!trustedCwd) return null;
+      selected = trustedCwd;
+    }
+    setSelectedCwd(selected);
+    return selected;
+  }, [requestWorkspaceTrust]);
 
   // Auto-select cwd and restore session from URL on first load
   useEffect(() => {
     if (allSessions.length === 0) return;
 
     if (selectedCwd === null) {
-      // If restoring a session, set cwd to match that session
-      if (initialSessionId && !restoredRef.current) {
-        restoredRef.current = true;
-        const target = allSessions.find((s) => s.id === initialSessionId);
-        if (target) {
-          setSelectedCwd(target.cwd);
-          onSelectSession(target, true);
-          return;
+      let cancelled = false;
+      void (async () => {
+        // If restoring a session, set cwd to match that session
+        if (initialSessionId && !restoredRef.current) {
+          restoredRef.current = true;
+          const target = allSessions.find((s) => s.id === initialSessionId);
+          if (target) {
+            const trustedCwd = await selectCwd(target.cwd);
+            if (!cancelled && trustedCwd) onSelectSession({ ...target, cwd: trustedCwd }, true);
+            return;
+          }
+          // Session not found — notify parent so it can show the placeholder
+          if (!cancelled) onInitialRestoreDone?.();
         }
-        // Session not found — notify parent so it can show the placeholder
-        onInitialRestoreDone?.();
-      }
-      const cwds = getRecentCwds(allSessions);
-      if (cwds.length > 0) setSelectedCwd(cwds[0]);
+        if (autoSelectAttemptedRef.current) return;
+        autoSelectAttemptedRef.current = true;
+        const cwds = getRecentCwds(allSessions);
+        if (cwds.length > 0) await selectCwd(cwds[0]);
+      })();
+      return () => {
+        cancelled = true;
+      };
     }
-  }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone]);
+  }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone, selectCwd]);
 
-  const commitCustomPath = useCallback(() => {
+  const commitCustomPath = useCallback(async () => {
     const path = customPathValue.trim();
     if (path) {
-      setSelectedCwd(path);
+      const trustedCwd = await selectCwd(path);
+      if (!trustedCwd) return;
     }
     setCustomPathOpen(false);
     setCustomPathValue("");
     setDropdownOpen(false);
-  }, [customPathValue]);
+  }, [customPathValue, selectCwd]);
 
   const handleDefaultCwd = useCallback(async () => {
     try {
       const res = await fetch("/api/default-cwd", { method: "POST" });
       const data = await res.json() as { cwd?: string; error?: string };
       if (data.cwd) {
-        setSelectedCwd(data.cwd);
+        const trustedCwd = await selectCwd(data.cwd);
+        if (!trustedCwd) return;
         setDropdownOpen(false);
       }
     } catch {
       // ignore
     }
-  }, []);
+  }, [selectCwd]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -315,15 +338,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const handleNewSession = useCallback(() => {
+  const handleNewSession = useCallback(async () => {
     if (!selectedCwd) return;
+    const trustedCwd = await selectCwd(selectedCwd);
+    if (!trustedCwd) return;
     // Generate a temporary UUID client-side — no backend call needed.
     // Pi will be spawned lazily when the user sends the first message.
     const tempId = typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
       : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
-    onNewSession?.(tempId, selectedCwd);
-  }, [selectedCwd, onNewSession]);
+    onNewSession?.(tempId, trustedCwd);
+  }, [selectedCwd, onNewSession, selectCwd]);
 
   const recentCwds = getRecentCwds(allSessions);
   const filteredSessions = selectedCwd
@@ -479,8 +504,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               {recentCwds.map((cwd) => (
                 <button
                   key={cwd}
-                  onClick={() => {
-                    setSelectedCwd(cwd);
+                  onClick={async () => {
+                    const trustedCwd = await selectCwd(cwd);
+                    if (!trustedCwd) return;
                     setCustomPathOpen(false);
                     setCustomPathValue("");
                     setDropdownOpen(false);
@@ -576,7 +602,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     value={customPathValue}
                     onChange={(e) => setCustomPathValue(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter") commitCustomPath();
+                      if (e.key === "Enter") void commitCustomPath();
                       if (e.key === "Escape") {
                         setCustomPathOpen(false);
                         setCustomPathValue("");
@@ -598,7 +624,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   />
                   <div style={{ display: "flex", gap: 5, marginTop: 5 }}>
                     <button
-                      onClick={commitCustomPath}
+                      onClick={() => void commitCustomPath()}
                       style={{
                         flex: 1,
                         padding: "4px 0",

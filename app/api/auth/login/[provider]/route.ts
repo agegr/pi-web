@@ -1,4 +1,5 @@
 import { AuthStorage } from "@earendil-works/pi-coding-agent";
+import { assertTrustedRequest } from "@/app/api/_security/api-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,9 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ provider: string }> }
 ) {
+  const blocked = assertTrustedRequest(req);
+  if (blocked) return blocked;
+
   const { provider } = await params;
   const { token, code } = (await req.json()) as { token?: string; code?: string };
 
@@ -44,6 +48,9 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ provider: string }> }
 ) {
+  const blocked = assertTrustedRequest(req);
+  if (blocked) return blocked;
+
   const { provider } = await params;
 
   const encoder = new TextEncoder();

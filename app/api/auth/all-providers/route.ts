@@ -1,11 +1,15 @@
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { assertTrustedRequest } from "@/app/api/_security/api-auth";
 
 export const dynamic = "force-dynamic";
 
 // Providers that use OAuth — handled separately via /api/auth/providers
 const OAUTH_PROVIDER_IDS = new Set(["anthropic", "github-copilot", "openai-codex"]);
 
-export async function GET() {
+export async function GET(req: Request) {
+  const blocked = assertTrustedRequest(req);
+  if (blocked) return blocked;
+
   const authStorage = AuthStorage.create();
   const registry = ModelRegistry.create(authStorage);
   const all = registry.getAll();

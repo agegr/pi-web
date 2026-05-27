@@ -153,14 +153,15 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
     return () => clearTimeout(t);
   }, [messages.length, updatePositions]);
 
+  const scrollEl = scrollContainer.current;
   const scrollToMinimapRatio = useCallback((viewportTopRatio: number) => {
-    const el = scrollContainer.current;
+    const el = scrollEl;
     if (!el) return;
     const scrollable = el.scrollHeight - el.clientHeight;
     if (scrollable <= 0) return;
     const clamped = Math.max(0, Math.min(1 - viewportRatio, viewportTopRatio));
     el.scrollTop = (clamped / (1 - viewportRatio)) * scrollable;
-  }, [scrollContainer, viewportRatio]);
+  }, [scrollEl, viewportRatio]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!visible) return;

@@ -1,8 +1,12 @@
 import { AuthStorage } from "@earendil-works/pi-coding-agent";
+import { assertTrustedRequest } from "@/app/api/_security/api-auth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
+  const blocked = assertTrustedRequest(req);
+  if (blocked) return blocked;
+
   const authStorage = AuthStorage.create();
   const providers = authStorage.getOAuthProviders();
 

@@ -367,7 +367,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             ...(thinkingLevel !== "auto" ? { thinkingLevel } : {}),
           }),
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error ?? `HTTP ${res.status}`);
+        }
         const result = await res.json() as { sessionId: string };
         const realId = result.sessionId;
         sessionIdRef.current = realId;

@@ -13,6 +13,82 @@ const { parseArgs } = require("util");
 const pkgDir = path.join(__dirname, "..");
 const nextDir = path.join(pkgDir, ".next");
 
+function readUserConfig() {
+  const home = process.env.HOME || process.env.USERPROFILE;
+  if (!home) return {};
+  const configPath = path.join(home, ".pi", "web.json");
+  if (!fs.existsSync(configPath)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(configPath, "utf8"));
+  } catch {
+    console.warn(`Ignoring invalid config: ${configPath}`);
+    return {};
+  }
+}
+
+function parseEnvFile(content) {
+  const env = {};
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const index = line.indexOf("=");
+    if (index <= 0) continue;
+    const key = line.slice(0, index).trim();
+    let value = line.slice(index + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    env[key] = value;
+  }
+  return env;
+}
+
+function readUserEnv() {
+  const home = process.env.HOME || process.env.USERPROFILE;
+  if (!home) return {};
+  const envPath = path.join(home, ".pi", "web.env");
+  if (!fs.existsSync(envPath)) return {};
+  try {
+    return parseEnvFile(fs.readFileSync(envPath, "utf8"));
+  } catch {
+    console.warn(`Ignoring invalid config: ${envPath}`);
+    return {};
+  }
+}
+
+function boolConfig(value) {
+  if (typeof value === "boolean") return value ? "1" : "0";
+  return undefined;
+}
+
+function applyUserConfigToEnv(config, envConfig) {
+  if (!process.env.WEB_TOKEN) {
+    if (envConfig.WEB_TOKEN) process.env.WEB_TOKEN = envConfig.WEB_TOKEN;
+    else if (typeof config.webToken === "string") process.env.WEB_TOKEN = config.webToken;
+  }
+  if (!process.env.PI_WEB_REMOTE) {
+    if (envConfig.PI_WEB_REMOTE) process.env.PI_WEB_REMOTE = envConfig.PI_WEB_REMOTE;
+    else {
+      const remote = boolConfig(config.remote);
+      if (remote) process.env.PI_WEB_REMOTE = remote;
+    }
+  }
+  if (!process.env.PI_WEB_COOKIE_SECURE) {
+    if (envConfig.PI_WEB_COOKIE_SECURE) process.env.PI_WEB_COOKIE_SECURE = envConfig.PI_WEB_COOKIE_SECURE;
+    else {
+      const cookieSecure = boolConfig(config.cookieSecure);
+      if (cookieSecure) process.env.PI_WEB_COOKIE_SECURE = cookieSecure;
+    }
+  }
+  if (!process.env.PI_WEB_HOSTNAME && envConfig.PI_WEB_HOSTNAME) {
+    process.env.PI_WEB_HOSTNAME = envConfig.PI_WEB_HOSTNAME;
+  }
+}
+
+const userEnv = readUserEnv();
+const userConfig = readUserConfig();
+applyUserConfigToEnv(userConfig, userEnv);
+
 // Resolve next's CLI entry directly to avoid relying on .bin symlinks (which
 // may not exist when installed via npx).
 let nextBin;
@@ -36,8 +112,9 @@ const { values: cliArgs } = parseArgs({
   strict: false,
 });
 
-const port     = cliArgs.port     ?? process.env.PORT     ?? "30141";
-const hostname = cliArgs.hostname ?? process.env.HOSTNAME ?? null;
+const remoteEnabled = /^(1|true|yes|on)$/i.test(process.env.PI_WEB_REMOTE ?? "");
+const port = cliArgs.port ?? process.env.PORT ?? "30141";
+const hostname = cliArgs.hostname ?? process.env.PI_WEB_HOSTNAME ?? (remoteEnabled ? "0.0.0.0" : null);
 
 if (!fs.existsSync(nextDir)) {
   console.error("Build artifacts not found. Please report this issue.");
@@ -56,7 +133,8 @@ const child = spawn(process.execPath, [nextBin, ...nextArgs], {
 });
 
 let browserOpened = false;
-const url = `http://${hostname ?? "localhost"}:${port}`;
+const browserHost = !hostname || hostname === "0.0.0.0" || hostname === "::" ? "localhost" : hostname;
+const url = `http://${browserHost}:${port}`;
 
 child.stdout.on("data", (chunk) => {
   const text = chunk.toString();

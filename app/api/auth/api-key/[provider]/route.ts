@@ -1,12 +1,16 @@
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { NextResponse } from "next/server";
+import { assertTrustedRequest } from "@/app/api/_security/api-auth";
 
 export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ provider: string }> };
 
 // GET /api/auth/api-key/[provider] — returns auth status (never returns the actual key)
-export async function GET(_req: Request, { params }: Params) {
+export async function GET(req: Request, { params }: Params) {
+  const blocked = assertTrustedRequest(req);
+  if (blocked) return blocked;
+
   const { provider } = await params;
   const authStorage = AuthStorage.create();
   const registry = ModelRegistry.create(authStorage);
@@ -18,6 +22,9 @@ export async function GET(_req: Request, { params }: Params) {
 
 // POST /api/auth/api-key/[provider]  body: { apiKey: string }
 export async function POST(req: Request, { params }: Params) {
+  const blocked = assertTrustedRequest(req);
+  if (blocked) return blocked;
+
   const { provider } = await params;
   try {
     const { apiKey } = await req.json() as { apiKey?: string };
@@ -33,7 +40,10 @@ export async function POST(req: Request, { params }: Params) {
 }
 
 // DELETE /api/auth/api-key/[provider] — removes stored API key
-export async function DELETE(_req: Request, { params }: Params) {
+export async function DELETE(req: Request, { params }: Params) {
+  const blocked = assertTrustedRequest(req);
+  if (blocked) return blocked;
+
   const { provider } = await params;
   try {
     const authStorage = AuthStorage.create();

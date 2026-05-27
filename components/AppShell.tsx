@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
@@ -13,10 +13,20 @@ import { useTheme } from "@/hooks/useTheme";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ChatInputHandle } from "./ChatInput";
 
+type WorkspaceTrustRequest = {
+  cwd: string;
+  resolve: (cwd: string | null) => void;
+};
+
 export function AppShell() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isDark, toggleTheme } = useTheme();
+  const [authReady, setAuthReady] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authLoginRequired, setAuthLoginRequired] = useState(false);
+  const [authToken, setAuthToken] = useState("");
+  const [authSubmitting, setAuthSubmitting] = useState(false);
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
   // When user clicks +, we only store the cwd — no fake session id
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
@@ -26,9 +36,109 @@ export function AppShell() {
   const [modelsConfigOpen, setModelsConfigOpen] = useState(false);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
+  const [workspaceTrustRequest, setWorkspaceTrustRequest] = useState<WorkspaceTrustRequest | null>(null);
+  const [workspaceTrustSubmitting, setWorkspaceTrustSubmitting] = useState(false);
+  const [workspaceTrustError, setWorkspaceTrustError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/session", { cache: "no-store" })
+      .then(async (res) => {
+        if (res.status === 401) {
+          const body = (await res.json().catch(() => ({}))) as { loginRequired?: boolean; error?: string };
+          if (body.loginRequired) {
+            if (!cancelled) {
+              setAuthLoginRequired(true);
+              setAuthError(null);
+            }
+            return;
+          }
+          throw new Error(body.error ?? `HTTP ${res.status}`);
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!cancelled) setAuthReady(true);
+      })
+      .catch((error) => {
+        if (!cancelled) setAuthError(String(error));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleAuthSubmit = useCallback(async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!authToken.trim() || authSubmitting) return;
+    setAuthSubmitting(true);
+    setAuthError(null);
+    try {
+      const res = await fetch("/api/auth/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: authToken.trim() }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      setAuthReady(true);
+      setAuthLoginRequired(false);
+      setAuthToken("");
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAuthSubmitting(false);
+    }
+  }, [authSubmitting, authToken]);
+
+  const requestWorkspaceTrust = useCallback(async (cwd: string): Promise<string | null> => {
+    try {
+      const res = await fetch(`/api/workspaces/trust?cwd=${encodeURIComponent(cwd)}`, { cache: "no-store" });
+      const data = (await res.json().catch(() => ({}))) as { cwd?: string; trusted?: boolean; error?: string };
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      if (data.trusted) return data.cwd ?? cwd;
+    } catch (error) {
+      setWorkspaceTrustError(error instanceof Error ? error.message : String(error));
+      return null;
+    }
+
+    setWorkspaceTrustError(null);
+    return new Promise<string | null>((resolve) => {
+      setWorkspaceTrustRequest({ cwd, resolve });
+    });
+  }, []);
+
+  const closeWorkspaceTrustPrompt = useCallback((cwd: string | null) => {
+    setWorkspaceTrustRequest((current) => {
+      current?.resolve(cwd);
+      return null;
+    });
+    setWorkspaceTrustSubmitting(false);
+    setWorkspaceTrustError(null);
+  }, []);
+
+  const handleTrustWorkspace = useCallback(async () => {
+    const request = workspaceTrustRequest;
+    if (!request || workspaceTrustSubmitting) return;
+    setWorkspaceTrustSubmitting(true);
+    setWorkspaceTrustError(null);
+    try {
+      const res = await fetch("/api/workspaces/trust", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: request.cwd }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { cwd?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      closeWorkspaceTrustPrompt(data.cwd ?? request.cwd);
+    } catch (error) {
+      setWorkspaceTrustError(error instanceof Error ? error.message : String(error));
+      setWorkspaceTrustSubmitting(false);
+    }
+  }, [closeWorkspaceTrustPrompt, workspaceTrustRequest, workspaceTrustSubmitting]);
 
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
   const [branchTree, setBranchTree] = useState<SessionTreeNode[]>([]);
@@ -226,6 +336,73 @@ export function AppShell() {
 
   const activeFileTab = fileTabs.find((t) => t.id === activeFileTabId) ?? null;
 
+  if (!authReady && authLoginRequired) {
+    return (
+      <div style={{ height: "100dvh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)", color: "var(--text)" }}>
+        <form
+          onSubmit={handleAuthSubmit}
+          style={{
+            width: "min(360px, calc(100vw - 32px))",
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+            padding: 20,
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            background: "var(--bg-panel)",
+          }}
+        >
+          <div style={{ fontSize: 16, fontWeight: 600 }}>Remote access</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.45 }}>
+            Use an official browser profile you trust, keep extensions minimal, and avoid shared devices.
+          </div>
+          <input
+            type="password"
+            value={authToken}
+            onChange={(event) => setAuthToken(event.currentTarget.value)}
+            placeholder="WEB_TOKEN"
+            autoFocus
+            style={{
+              height: 36,
+              padding: "0 10px",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              background: "var(--bg)",
+              color: "var(--text)",
+              outline: "none",
+              font: "inherit",
+            }}
+          />
+          {authError && <div style={{ color: "#f87171", fontSize: 12 }}>{authError}</div>}
+          <button
+            type="submit"
+            disabled={authSubmitting || !authToken.trim()}
+            style={{
+              height: 36,
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              background: authSubmitting || !authToken.trim() ? "var(--bg-hover)" : "var(--accent)",
+              color: authSubmitting || !authToken.trim() ? "var(--text-muted)" : "white",
+              cursor: authSubmitting || !authToken.trim() ? "default" : "pointer",
+              font: "inherit",
+              fontWeight: 600,
+            }}
+          >
+            {authSubmitting ? "Checking..." : "Unlock"}
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  if (!authReady) {
+    return (
+      <div style={{ height: "100dvh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)", color: authError ? "#f87171" : "var(--text-muted)" }}>
+        {authError ? `Failed to start local session: ${authError}` : "Starting local session..."}
+      </div>
+    );
+  }
+
   const sidebarContent = (
     <>
       <SessionSidebar
@@ -241,6 +418,7 @@ export function AppShell() {
         onOpenFile={handleOpenFile}
         explorerRefreshKey={explorerRefreshKey}
         onAtMention={handleAtMention}
+        requestWorkspaceTrust={requestWorkspaceTrust}
       />
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
         {([
@@ -647,6 +825,100 @@ export function AppShell() {
     {modelsConfigOpen && <ModelsConfig onClose={() => { setModelsConfigOpen(false); setModelsRefreshKey((k) => k + 1); }} />}
     {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
       <SkillsConfig cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!} onClose={() => setSkillsConfigOpen(false)} />
+    )}
+    {workspaceTrustRequest && (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 900,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 16,
+          background: "rgba(0,0,0,0.42)",
+        }}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="workspace-trust-title"
+          style={{
+            width: "min(440px, 100%)",
+            padding: 18,
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            background: "var(--bg-panel)",
+            color: "var(--text)",
+            boxShadow: "0 18px 48px rgba(0,0,0,0.22)",
+          }}
+        >
+          <div id="workspace-trust-title" style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>
+            Trust this workspace?
+          </div>
+          <div style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.55, marginBottom: 12 }}>
+            Pi can read files and run tools from this directory after you trust it.
+          </div>
+          <div
+            title={workspaceTrustRequest.cwd}
+            style={{
+              padding: "8px 10px",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              background: "var(--bg)",
+              color: "var(--text)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 12,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              marginBottom: 12,
+            }}
+          >
+            {workspaceTrustRequest.cwd}
+          </div>
+          {workspaceTrustError && (
+            <div style={{ color: "#f87171", fontSize: 12, marginBottom: 10 }}>{workspaceTrustError}</div>
+          )}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => closeWorkspaceTrustPrompt(null)}
+              disabled={workspaceTrustSubmitting}
+              style={{
+                height: 34,
+                padding: "0 12px",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                background: "var(--bg-hover)",
+                color: "var(--text-muted)",
+                cursor: workspaceTrustSubmitting ? "default" : "pointer",
+                font: "inherit",
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleTrustWorkspace}
+              disabled={workspaceTrustSubmitting}
+              style={{
+                height: 34,
+                padding: "0 12px",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                background: "var(--accent)",
+                color: "white",
+                cursor: workspaceTrustSubmitting ? "default" : "pointer",
+                font: "inherit",
+                fontWeight: 600,
+              }}
+            >
+              {workspaceTrustSubmitting ? "Trusting..." : "Trust workspace"}
+            </button>
+          </div>
+        </div>
+      </div>
     )}
     </>
   );

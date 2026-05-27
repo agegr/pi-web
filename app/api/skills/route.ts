@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { DefaultResourceLoader, getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { assertTrustedRequest } from "@/app/api/_security/api-auth";
+import { assertTrustedWorkspace, normalizeWorkspacePath } from "@/app/api/_security/workspace-trust";
 
 export const dynamic = "force-dynamic";
 
@@ -8,12 +10,18 @@ export const dynamic = "force-dynamic";
 // Uses DefaultResourceLoader (same logic as AgentSession startup) so settings.json
 // skill paths, package skills, and .agents/skills directories are all included.
 export async function GET(req: Request) {
+  const blocked = assertTrustedRequest(req);
+  if (blocked) return blocked;
+
   const { searchParams } = new URL(req.url);
   const cwd = searchParams.get("cwd");
   if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
+  const normalizedCwd = normalizeWorkspacePath(cwd);
+  const blockedWorkspace = assertTrustedWorkspace(normalizedCwd);
+  if (blockedWorkspace) return blockedWorkspace;
 
   try {
-    const loader = new DefaultResourceLoader({ cwd, agentDir: getAgentDir() });
+    const loader = new DefaultResourceLoader({ cwd: normalizedCwd, agentDir: getAgentDir() });
     await loader.reload();
     const { skills, diagnostics } = loader.getSkills();
     return NextResponse.json({ skills, diagnostics });
@@ -24,6 +32,9 @@ export async function GET(req: Request) {
 
 // PATCH /api/skills — toggle disable-model-invocation on a SKILL.md file
 export async function PATCH(req: Request) {
+  const blocked = assertTrustedRequest(req);
+  if (blocked) return blocked;
+
   try {
     const body = await req.json() as { filePath: string; disableModelInvocation: boolean };
     const { filePath, disableModelInvocation } = body;
