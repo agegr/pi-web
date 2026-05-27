@@ -7,6 +7,7 @@ import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTheme } from "@/hooks/useTheme";
+import { GitPanel } from "./GitPanel";
 import { encodeFilePathForApi, getFileName, getRelativeFilePath } from "@/lib/file-paths";
 
 interface Props {
@@ -522,6 +523,9 @@ function AudioViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
 }
 
 export function FileViewer({ filePath, cwd }: Props) {
+  if (filePath === "git" && cwd) {
+    return <GitPanel cwd={cwd} inline={true} />;
+  }
   if (isImagePath(filePath)) {
     return <ImageViewer filePath={filePath} cwd={cwd} />;
   }

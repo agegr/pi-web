@@ -610,20 +610,29 @@ export function AppShell() {
               {currentCwd && (
                 <button
                   data-git-btn
-                  onClick={() => toggleTopPanel("git")}
+                  onClick={() => {
+                    // 追加或激活右侧 Git 独立大页签
+                    const gitTabId = "file:git";
+                    setFileTabs((prev) => {
+                      if (prev.find((t) => t.id === gitTabId)) return prev;
+                      return [...prev, { id: gitTabId, label: "Git", filePath: "git" }];
+                    });
+                    setActiveFileTabId(gitTabId);
+                    setRightPanelOpen(true);
+                  }}
                   style={{
                     display: "flex", alignItems: "center", gap: 6,
                     height: "100%", padding: "0 12px",
-                    background: activeTopPanel === "git" ? "var(--bg-selected)" : "none",
+                    background: activeFileTabId === "file:git" && rightPanelOpen ? "var(--bg-selected)" : "none",
                     border: "none",
-                    borderTop: activeTopPanel === "git" ? "2px solid var(--accent)" : "2px solid transparent",
+                    borderTop: activeFileTabId === "file:git" && rightPanelOpen ? "2px solid var(--accent)" : "2px solid transparent",
                     borderRight: "1px solid var(--border)",
                     cursor: "pointer",
-                    color: activeTopPanel === "git" ? "var(--text)" : "var(--text-muted)",
+                    color: activeFileTabId === "file:git" && rightPanelOpen ? "var(--text)" : "var(--text-muted)",
                     fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
                   }}
                   onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = activeTopPanel === "git" ? "var(--text)" : "var(--text-muted)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = activeFileTabId === "file:git" && rightPanelOpen ? "var(--text)" : "var(--text-muted)"; }}
                 >
                   <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--accent)", flexShrink: 0 }}>
                     <circle cx="5" cy="6.5" r="1.2" />
@@ -758,14 +767,6 @@ export function AppShell() {
                     </div>
                   )}
                 </div>
-              )}
-              {activeTopPanel === "git" && currentCwd && (
-                <GitPanel
-                  cwd={currentCwd}
-                  isOpen={activeTopPanel === "git"}
-                  onClose={() => setActiveTopPanel(null)}
-                  containerRef={topBarRef}
-                />
               )}
             </div>
           )}
