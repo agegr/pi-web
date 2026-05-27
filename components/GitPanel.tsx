@@ -71,9 +71,12 @@ export function GitPanel({ cwd }: Props) {
   const [checkedFiles, setCheckedFiles] = useState<Record<string, boolean>>({});
   const [commitMessage, setCommitMessage] = useState("");
   const [committing, setCommiting] = useState(false);
+  
+  // ── POPUP DIALOG MODE FOR DIFFS (像 IDEA 类似，在全视野弹出红绿对照，支持宽阔阅读和上下滚动) ──
   const [selectedDiffFile, setSelectedDiffFile] = useState<string | null>(null);
   const [diffData, setDiffData] = useState<{ oldContent: string; newContent: string } | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
+  const [historicalDiffHash, setHistoricalDiffHash] = useState<string | null>(null);
 
   // Expanded folders state map for folder tree
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
@@ -97,7 +100,10 @@ export function GitPanel({ cwd }: Props) {
   const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(null);
   const [commitDetailsFiles, setCommitDetailsFiles] = useState<{ status: string; file: string }[]>([]);
   const [commitFilesLoading, setCommitFilesLoading] = useState(false);
-  const [activeHistoryDiffFile, setActiveHistoryDiffFile] = useState<string | null>(null);
+
+  // Height of history bottom panel (adjustable split)
+  const [historySplitHeight, setHistorySplitHeight] = useState(250);
+  const historyResizerRef = useRef<HTMLDivElement>(null);
 
   const showNotification = useCallback((message: string) => {
     setActionSuccess(message);
@@ -199,6 +205,24 @@ export function GitPanel({ cwd }: Props) {
       });
     }
   }, [gitState?.modifiedFiles]);
+
+  // Handle history split dragging
+  const handleSplitMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = historySplitHeight;
+    const onMove = (ev: MouseEvent) => {
+      const delta = ev.clientY - startY;
+      // Invert delta because lower height increases when dragging up
+      setHistorySplitHeight(Math.max(100, Math.min(500, startH - delta)));
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
 
   const handleCheckoutBranch = async (branch: string) => {
     if (!cwd) return;
@@ -367,7 +391,6 @@ export function GitPanel({ cwd }: Props) {
     e.preventDefault();
     if (!commitMessage.trim() || !cwd) return;
 
-    // Check which files are checked to build stage
     const selectedFiles = Object.keys(checkedFiles).filter((f) => checkedFiles[f]);
     if (selectedFiles.length === 0) {
       alert("请至少勾选一个要提交的文件");
@@ -425,11 +448,8 @@ export function GitPanel({ cwd }: Props) {
 
   // File Diff view fetching
   const triggerDiffView = async (filePath: string, historicalHash?: string) => {
-    if (historicalHash) {
-      setActiveHistoryDiffFile(filePath);
-    } else {
-      setSelectedDiffFile(filePath);
-    }
+    setSelectedDiffFile(filePath);
+    setHistoricalDiffHash(historicalHash || null);
     setDiffLoading(true);
     setDiffData(null);
     try {
@@ -460,7 +480,6 @@ export function GitPanel({ cwd }: Props) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "冲突自动解决失败");
       showNotification(`文件冲突已成功解决！已选择保留${mode === "mine" ? "我的修改" : "对方的修改"}`);
-      // Update Diff details
       await triggerDiffView(filePath);
       await fetchGitStatus();
     } catch (err: any) {
@@ -471,7 +490,6 @@ export function GitPanel({ cwd }: Props) {
   // Commit history files reader loader (6A)
   const fetchCommitFiles = useCallback(async (commitHash: string) => {
     setSelectedCommitHash(commitHash);
-    setActiveHistoryDiffFile(null); // Reset detail diff on hash change
     setDiffData(null);
     setCommitDetailsFiles([]);
     setCommitFilesLoading(true);
@@ -557,7 +575,7 @@ export function GitPanel({ cwd }: Props) {
           statusLabel = "已删除";
         }
 
-        const isDoubleClicked = selectedDiffFile === file.file;
+        const isDoubleClicked = selectedDiffFile === file.file && !historicalDiffHash;
 
         return (
           <div
@@ -864,7 +882,7 @@ export function GitPanel({ cwd }: Props) {
             </div>
 
             {/* Tree View changes list (7A) */}
-            <div style={{ flex: selectedDiffFile ? 0.45 : 1, minHeight: 90, overflowY: "auto", padding: "6px 4px" }}>
+            <div style={{ flex: 1, overflowY: "auto", padding: "6px 4px" }}>
               {loading && gitState === null ? (
                 <div style={{ padding: 12, fontSize: 11.5, color: "var(--text-dim)", fontStyle: "italic" }} className="animate-pulse">正在解析本地文件夹树并加载修改文件...</div>
               ) : gitState?.isClean ? (
@@ -903,77 +921,6 @@ export function GitPanel({ cwd }: Props) {
                   {committing ? "提交中..." : "保存提交"}
                 </button>
               </form>
-            )}
-
-            {/* Split Dual view Embedded Diff rendering bottom zone (4C) */}
-            {selectedDiffFile && (
-              <div style={{ flex: 0.55, borderTop: "2px solid var(--border)", display: "flex", flexDirection: "column", background: "var(--bg)", overflow: "hidden" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--bg-panel)", padding: "4px 8px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-                  <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text)" }}>
-                    对比差异 (Diff): {selectedDiffFile}
-                  </span>
-                  <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                    {gitState?.modifiedFiles.find((f) => f.file === selectedDiffFile)?.isConflict && (
-                      <>
-                        <button
-                          onClick={() => handleConflictResolve(selectedDiffFile, "mine")}
-                          style={{ padding: "2px 6px", fontSize: 9.5, background: "#22c55e", border: "none", color: "#fff", borderRadius: 3, cursor: "pointer" }}
-                        >
-                          保留我的修改
-                        </button>
-                        <button
-                          onClick={() => handleConflictResolve(selectedDiffFile, "theirs")}
-                          style={{ padding: "2px 6px", fontSize: 9.5, background: "var(--accent)", border: "none", color: "#fff", borderRadius: 3, cursor: "pointer" }}
-                        >
-                          保留对方修改
-                        </button>
-                      </>
-                    )}
-                    <button
-                      onClick={() => setSelectedDiffFile(null)}
-                      style={{ padding: "2px 5px", fontSize: 12, border: "none", background: "none", color: "var(--text-dim)", cursor: "pointer" }}
-                    >
-                      ×
-                    </button>
-                  </div>
-                </div>
-
-                {/* Diff comparative code list viewport */}
-                <div style={{ flex: 1, overflowY: "auto", padding: "4px", background: "var(--bg)", fontFamily: "var(--font-mono)", fontSize: 10.5, lineHeight: 1.4 }}>
-                  {diffLoading ? (
-                    <div style={{ padding: 12, color: "var(--text-dim)", fontStyle: "italic" }} className="animate-pulse">正在比对行级代码 Diff 差异...</div>
-                  ) : computedDiffLines.length === 0 ? (
-                    <div style={{ padding: 12, color: "var(--text-dim)", fontStyle: "italic" }}>未发现变化（或者是新加文件、二进制文件等）</div>
-                  ) : (
-                    computedDiffLines.map((line, idx) => {
-                      let lineBg = "transparent";
-                      let sign = " ";
-                      let color = "var(--text-muted)";
-                      
-                      if (line.type === "add") {
-                        lineBg = "rgba(34,197,94,0.08)";
-                        sign = "+";
-                        color = "#22c55e";
-                      } else if (line.type === "del") {
-                        lineBg = "rgba(239,68,68,0.08)";
-                        sign = "-";
-                        color = "#ef4444";
-                      }
-
-                      return (
-                        <div key={idx} style={{ display: "flex", background: lineBg, borderBottom: "1px solid rgba(120,120,120,0.02)", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
-                          <span style={{ width: 22, color: "var(--text-dim)", userSelect: "none", textVariantNumeric: "tabular-nums", borderRight: "1px solid var(--border)", paddingRight: 4, display: "inline-block", textAlign: "right" }}>
-                            {line.num}
-                          </span>
-                          <span style={{ color, paddingLeft: 4, fontWeight: line.type !== "same" ? "bold" : "normal" }}>
-                            {sign} {line.text}
-                          </span>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
             )}
           </div>
         )}
@@ -1162,7 +1109,7 @@ export function GitPanel({ cwd }: Props) {
         {activeSubTab === "history" && (
           <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
             {/* 6A: History Log list Viewport (Top half) */}
-            <div style={{ flex: selectedCommitHash ? 0.4 : 1, minHeight: 90, overflowY: "auto", borderBottom: selectedCommitHash ? "2px solid var(--border)" : "none", padding: "6px" }}>
+            <div style={{ flex: 1, minHeight: 90, overflowY: "auto", padding: "6px" }}>
               {loading && gitState === null ? (
                 <div style={{ padding: 12, fontSize: 11.5, color: "var(--text-dim)", fontStyle: "italic" }} className="animate-pulse">正在获取提交树日志...</div>
               ) : (
@@ -1208,15 +1155,29 @@ export function GitPanel({ cwd }: Props) {
               )}
             </div>
 
-            {/* 6A: Commit Details view showing altered files list (Bottom half) */}
+            {/* 6A: Commit Details view showing altered files list (Bottom half, height adjustable split) */}
             {selectedCommitHash && (
-              <div style={{ flex: 0.6, display: "flex", flexDirection: "column", background: "var(--bg)", overflow: "hidden" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--bg-panel)", padding: "6px 8px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+              <div style={{ height: historySplitHeight, display: "flex", flexDirection: "column", background: "var(--bg)", overflow: "hidden", borderTop: "3px double var(--border)" }}>
+                {/* Drag Handle splitter line */}
+                <div
+                  onMouseDown={handleSplitMouseDown}
+                  style={{
+                    height: 5,
+                    cursor: "row-resize",
+                    background: "var(--bg-panel)",
+                    borderTop: "1px solid var(--border)",
+                    borderBottom: "1px solid var(--border)",
+                    zIndex: 200,
+                  }}
+                  title="可上下拖拽拉伸下方细节面板比例"
+                />
+
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--bg-panel)", padding: "4px 8px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
                   <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-muted)" }}>
-                    改动文件 (双击看内容): <strong style={{ color: "var(--accent)", fontFamily: "var(--font-mono)" }}>{selectedCommitHash}</strong>
+                    改动文件 (双击查看比对内容): <strong style={{ color: "var(--accent)", fontFamily: "var(--font-mono)" }}>{selectedCommitHash}</strong>
                   </span>
                   <button
-                    onClick={() => { setSelectedCommitHash(null); setActiveHistoryDiffFile(null); }}
+                    onClick={() => { setSelectedCommitHash(null); }}
                     style={{ padding: "1px 4px", fontSize: 12, border: "none", background: "none", color: "var(--text-dim)", cursor: "pointer" }}
                   >
                     ×
@@ -1224,7 +1185,7 @@ export function GitPanel({ cwd }: Props) {
                 </div>
 
                 {/* Left modifications tree list */}
-                <div style={{ flex: activeHistoryDiffFile ? 0.45 : 1, overflowY: "auto", padding: "6px" }}>
+                <div style={{ flex: 1, overflowY: "auto", padding: "6px" }}>
                   {commitFilesLoading ? (
                     <div style={{ padding: 12, color: "var(--text-dim)", fontStyle: "italic" }} className="animate-pulse">Loading commit file list...</div>
                   ) : commitDetailsFiles.length === 0 ? (
@@ -1246,8 +1207,6 @@ export function GitPanel({ cwd }: Props) {
                         chLabel = "删除";
                       }
 
-                      const fileIsSelected = activeHistoryDiffFile === file.file;
-
                       return (
                         <div
                           key={idx}
@@ -1260,11 +1219,9 @@ export function GitPanel({ cwd }: Props) {
                             fontSize: 11,
                             borderRadius: 4,
                             cursor: "pointer",
-                            background: fileIsSelected ? "rgba(37,99,235,0.06)" : "transparent",
-                            border: fileIsSelected ? "1px solid rgba(37,99,235,0.18)" : "1px solid transparent",
                           }}
-                          onMouseEnter={(e) => { if (!fileIsSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                          onMouseLeave={(e) => { if (!fileIsSelected) e.currentTarget.style.background = "none"; }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = "var(--bg-hover)"}
+                          onMouseLeave={(e) => e.currentTarget.style.background = "none"}
                           title="双击查看该次提交的文件改动变化 Details"
                         >
                           <span style={{ width: 28, fontWeight: 700, fontSize: 10, color }}>
@@ -1278,50 +1235,165 @@ export function GitPanel({ cwd }: Props) {
                     })
                   )}
                 </div>
-
-                {/* Right/Bottom active historical Diff panel */}
-                {activeHistoryDiffFile && (
-                  <div style={{ flex: 0.55, borderTop: "2px solid var(--border)", display: "flex", flexDirection: "column", background: "var(--bg)", overflow: "hidden" }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--bg-panel)", padding: "4px 8px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-                      <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text)" }}>
-                        🔍 差异: {activeHistoryDiffFile}
-                      </span>
-                      <button
-                        onClick={() => setActiveHistoryDiffFile(null)}
-                        style={{ padding: "1px 4px", fontSize: 11, border: "none", background: "none", color: "var(--text-dim)", cursor: "pointer" }}
-                      >
-                        ×
-                      </button>
-                    </div>
-
-                    <div style={{ flex: 1, overflowY: "auto", padding: "4px", background: "var(--bg)", fontFamily: "var(--font-mono)", fontSize: 10, lineHeight: 1.4 }}>
-                      {diffLoading ? (
-                        <div style={{ padding: 12, color: "var(--text-dim)", fontStyle: "italic" }} className="animate-pulse">Loading diff...</div>
-                      ) : computedDiffLines.map((line, idx) => {
-                        let lineBg = "transparent";
-                        let sign = " ";
-                        let color = "var(--text-muted)";
-                        if (line.type === "add") { lineBg = "rgba(34,197,94,0.08)"; sign = "+"; color = "#22c55e"; }
-                        else if (line.type === "del") { lineBg = "rgba(239,68,68,0.08)"; sign = "-"; color = "#ef4444"; }
-                        return (
-                          <div key={idx} style={{ display: "flex", background: lineBg, borderBottom: "1px solid rgba(120,120,120,0.02)" }}>
-                            <span style={{ width: 22, color: "var(--text-dim)", userSelect: "none", borderRight: "1px solid var(--border)", paddingRight: 4, display: "inline-block", textAlign: "right" }}>
-                              {line.num}
-                            </span>
-                            <span style={{ color, paddingLeft: 4 }}>
-                              {sign} {line.text}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
           </div>
         )}
       </div>
+
+      {/* ── BROAD FLUID SCREEN POPUP DIFF VIEW DIALOG (完美复刻 IDEA 的高密度、宽阔全画副 Diff 比对框，支持完美纵横拖拉阅读) ── */}
+      {selectedDiffFile && diffData && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1000,
+            background: "rgba(0,0,0,0.5)",
+            backdropFilter: "blur(2px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setSelectedDiffFile(null); }}
+        >
+          <div
+            style={{
+              width: "min(1200px, 95vw)",
+              height: "85vh",
+              background: "var(--bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 12,
+              display: "flex",
+              flexDirection: "column",
+              boxShadow: "0 12px 36px rgba(0,0,0,0.25)",
+              overflow: "hidden",
+            }}
+          >
+            {/* Dialog Header */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "10px 18px",
+                borderBottom: "1px solid var(--border)",
+                background: "var(--bg-panel)",
+                flexShrink: 0,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>
+                  {historicalDiffHash ? `📜 历史提交 Diff 对比 (${historicalDiffHash})` : "✏️ 本地工作区 Diff 编辑比对"}
+                </span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontFamily: "var(--font-mono)",
+                    background: "var(--bg)",
+                    border: "1px solid var(--border)",
+                    padding: "2px 8px",
+                    borderRadius: 4,
+                    color: "var(--accent)",
+                    fontWeight: 600,
+                  }}
+                >
+                  {selectedDiffFile}
+                </span>
+              </div>
+
+              <div style={{ display: "flex", gap: 8 }}>
+                {/* Conflict resolves side tool and checkout resets */}
+                {gitState?.modifiedFiles.find((f) => f.file === selectedDiffFile)?.isConflict && !historicalDiffHash && (
+                  <>
+                    <button
+                      onClick={() => handleConflictResolve(selectedDiffFile, "mine")}
+                      style={{ padding: "4px 10px", fontSize: 11, background: "#22c55e", fontWeight: "bold", border: "none", color: "#fff", borderRadius: 5, cursor: "pointer" }}
+                    >
+                      保留我的修改 (Keep Ours)
+                    </button>
+                    <button
+                      onClick={() => handleConflictResolve(selectedDiffFile, "theirs")}
+                      style={{ padding: "4px 10px", fontSize: 11, background: "var(--accent)", fontWeight: "bold", border: "none", color: "#fff", borderRadius: 5, cursor: "pointer" }}
+                    >
+                      保留对方修改 (Keep Theirs)
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => setSelectedDiffFile(null)}
+                  style={{
+                    background: "var(--bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 5,
+                    width: 24,
+                    height: 24,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    fontSize: 16,
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            {/* Dialog comparative Content side list (Myers Diff lines rendering) */}
+            <div
+              style={{
+                flex: 1,
+                overflowY: "auto",
+                padding: 12,
+                background: "var(--bg)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 11.5,
+                lineHeight: 1.5,
+              }}
+            >
+              {completedDiffLinesCompiler(diffData.oldContent, diffData.newContent).map((line, idx) => {
+                let lineBg = "transparent";
+                let sign = " ";
+                let color = "var(--text-muted)";
+                
+                if (line.type === "add") {
+                  lineBg = "rgba(34,197,94,0.07)";
+                  sign = "+";
+                  color = "#22c55e";
+                } else if (line.type === "del") {
+                  lineBg = "rgba(239,68,68,0.07)";
+                  sign = "-";
+                  color = "#ef4444";
+                }
+
+                return (
+                  <div key={idx} style={{ display: "flex", background: lineBg, borderBottom: "1px solid rgba(120,120,120,0.02)" }}>
+                    <span
+                      style={{
+                        width: 36,
+                        color: "var(--text-dim)",
+                        userSelect: "none",
+                        borderRight: "1px solid var(--border)",
+                        paddingRight: 8,
+                        display: "inline-block",
+                        textAlign: "right",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {line.num}
+                    </span>
+                    <span style={{ color, paddingLeft: 12, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+                      {sign} {line.text}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* FOOTER ACTION STATUS BAR */}
       {actionSuccess && (
@@ -1345,4 +1417,25 @@ export function GitPanel({ cwd }: Props) {
       )}
     </div>
   );
+}
+
+// Lightweight Side-by-Side lines parser
+function completedDiffLinesCompiler(oldText: string, newContent: string) {
+  const oldLines = oldText.split("\n");
+  const newLines = newContent.split("\n");
+  const out: { type: "add" | "del" | "same"; text: string; num?: number }[] = [];
+  let i = 0, j = 0;
+  while (i < oldLines.length || j < newLines.length) {
+    if (i < oldLines.length && j < newLines.length && oldLines[i] === newLines[j]) {
+      out.push({ type: "same", text: oldLines[i], num: j + 1 });
+      i++; j++;
+    } else if (i < oldLines.length && (j >= newLines.length || oldLines[i] !== newLines[j])) {
+      out.push({ type: "del", text: oldLines[i], num: i + 1 });
+      i++;
+    } else if (j < newLines.length && (i >= oldLines.length || oldLines[i] !== newLines[j])) {
+      out.push({ type: "add", text: newLines[j], num: j + 1 });
+      j++;
+    }
+  }
+  return out;
 }

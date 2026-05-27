@@ -54,9 +54,11 @@ export async function POST(req: Request) {
         const statusOut = execSync("git status -s", { cwd, encoding: "utf8" });
         const modifiedFiles = statusOut
           .split("\n")
-          .map((line) => line.trim())
           .filter(Boolean)
           .map((line) => {
+            // git status -s prints exactly 2 characters for status, a space, then the filepath.
+            // Do NOT trim before slicing, because a leading space e.g. " M package.json" has 1 leading space.
+            // If we trim first, " M package.json" becomes "M package.json", shifting slice offsets!
             const statusType = line.slice(0, 2);
             const file = line.slice(3).trim().replace(/^"|"$/g, ""); // strip quotes
             const isConflict = statusType === "UU" || statusType === "AA" || statusType === "UD" || statusType === "DU";
