@@ -122,7 +122,8 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
       const clientH = scrollEl.clientHeight;
       const scrollable = totalH - clientH;
 
-      setVisible(scrollable > 20);
+      // 无论内容多高，缩图面板框架必须要保持渲染挂载状态，确保收起展开功能永远可见且不销毁框架！
+      setVisible(true);
       if (scrollable <= 0) {
         setScrollRatio(0);
         setViewportRatio(1);
