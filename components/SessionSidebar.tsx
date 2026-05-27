@@ -48,11 +48,10 @@ function formatRelativeTime(dateStr: string): string {
 }
 
 const RECENT_CWDS_STORAGE_KEY = "pi-recent-cwds";
-const RECENT_CWDS_LIMIT = 5;
+const RECENT_CWDS_LIMIT = 20;
 
-/** Return the 5 most recently active cwds across all sessions */
 function getRecentCwds(sessions: SessionInfo[]): string[] {
-  const latestByCwd = new Map<string, string>(); // cwd -> most recent modified
+  const latestByCwd = new Map<string, string>();
   for (const s of sessions) {
     if (!s.cwd) continue;
     const prev = latestByCwd.get(s.cwd);
@@ -84,10 +83,7 @@ function shortenCwd(cwd: string, homeDir?: string): string {
   const sep = path.includes("/") ? "/" : "\\";
   const parts = path.split(sep).filter(Boolean);
   if (parts.length === 0) return path;
-  // Always return the folder name (last part) + optional full path or shorter structure inside Title,
-  // let's display folder name clearly and fallback to path if needed.
-  const folderName = parts[parts.length - 1];
-  return folderName;
+  return parts[parts.length - 1];
 }
 
 function getParentPath(path: string): string | null {
@@ -104,8 +100,6 @@ function getParentPath(path: string): string | null {
   return parent || null;
 }
 
-
-
 interface SessionTreeNode {
   session: SessionInfo;
   children: SessionTreeNode[];
@@ -117,18 +111,16 @@ function buildSessionTree(sessions: SessionInfo[]): SessionTreeNode[] {
     byId.set(s.id, { session: s, children: [] });
   }
 
-  // Build a map of parentSessionId chains so we can resolve missing ancestors
   const parentOf = new Map<string, string>();
   for (const s of sessions) {
     if (s.parentSessionId) parentOf.set(s.id, s.parentSessionId);
   }
 
-  // Walk up the parentSessionId chain to find the nearest ancestor that exists in byId
   function resolveAncestor(id: string): string | null {
     let cur = parentOf.get(id);
     const visited = new Set<string>();
     while (cur) {
-      if (visited.has(cur)) return null; // cycle guard
+      if (visited.has(cur)) return null;
       visited.add(cur);
       if (byId.has(cur)) return cur;
       cur = parentOf.get(cur);
@@ -146,7 +138,6 @@ function buildSessionTree(sessions: SessionInfo[]): SessionTreeNode[] {
     }
   }
 
-  // Sort each level by modified desc
   const sort = (nodes: SessionTreeNode[]) => {
     nodes.sort((a, b) => b.session.modified.localeCompare(a.session.modified));
     nodes.forEach((n) => sort(n.children));
@@ -232,7 +223,7 @@ function PiAgentTitle() {
       onClick={handleClick}
       style={{
         background: "none", border: "none", padding: 0, cursor: "default",
-        fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em",
+        fontWeight: 700, fontSize: 13, letterSpacing: "-0.01em",
         color: showVersion ? "var(--accent)" : "var(--text)",
         fontFamily: "var(--font-mono)",
         minWidth: "6ch",
@@ -250,9 +241,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [storedRecentCwds, setStoredRecentCwds] = useState<string[]>([]);
   const [homeDir, setHomeDir] = useState<string>("");
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [customPathOpen, setCustomPathOpen] = useState(false);
-  const [customPathValue, setCustomPathValue] = useState("");
   const [browseOpen, setBrowseOpen] = useState(false);
   const [browsePath, setBrowsePath] = useState<string | null>(null);
   const [browseEntries, setBrowseEntries] = useState<BrowseDirEntry[]>([]);
@@ -261,19 +249,149 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [browseSearch, setBrowseSearch] = useState("");
   const [browseIsEditingPath, setBrowseIsEditingPath] = useState(false);
   const [browsePathInputVal, setBrowsePathInputVal] = useState("");
-  const customPathInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [explorerKey, setExplorerKey] = useState(0);
-  // Explorer height as fraction (0–1) of the available space below the header
   const [explorerFraction, setExplorerFraction] = useState(0.5);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
-  const headerHeightRef = useRef(0);
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Hidden project paths state helper
+  const [hiddenCwds, setHiddenCwds] = useState<Record<string, boolean>>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem("pi-hidden-cwds");
+        if (stored) return JSON.parse(stored);
+      } catch {}
+    }
+    return {};
+  });
+
+  const hideProjectCwd = useCallback((cwd: string) => {
+    setHiddenCwds((prev) => {
+      const next = { ...prev, [cwd]: true };
+      try {
+        localStorage.setItem("pi-hidden-cwds", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    if (selectedCwd === cwd) {
+      const nextOptions = buildRecentCwdOptions(getRecentCwds(allSessions), storedRecentCwds, RECENT_CWDS_LIMIT)
+        .filter(({ cwd: c }) => c !== cwd);
+      
+      if (nextOptions.length > 0) {
+        setSelectedCwd(nextOptions[0].cwd);
+        lastSelectedCwdRef.current = nextOptions[0].cwd;
+      } else {
+        setSelectedCwd(null);
+        lastSelectedCwdRef.current = null;
+      }
+    }
+  }, [selectedCwd, allSessions, storedRecentCwds]);
+
+  const rememberCwd = useCallback((cwd: string) => {
+    const trimmed = cwd.trim();
+    if (!trimmed) return;
+
+    setHiddenCwds((prev) => {
+      if (!prev[trimmed]) return prev;
+      const next = { ...prev };
+      delete next[trimmed];
+      try {
+        localStorage.setItem("pi-hidden-cwds", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    setStoredRecentCwds((prev) => {
+      const next = [trimmed, ...prev.filter((item) => item !== trimmed)].slice(0, RECENT_CWDS_LIMIT);
+      persistStoredRecentCwds(next);
+      return next;
+    });
+  }, []);
+
+  const forgetStoredCwd = useCallback((cwd: string) => {
+    setStoredRecentCwds((prev) => {
+      const next = removeStoredRecentCwd(prev, cwd);
+      persistStoredRecentCwds(next);
+      return next;
+    });
+    setBrowseOpen(false);
+    setBrowseError(null);
+
+    setHiddenCwds((prev) => {
+      if (!prev[cwd]) return prev;
+      const next = { ...prev };
+      delete next[cwd];
+      try {
+        localStorage.setItem("pi-hidden-cwds", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    if (selectedCwd === cwd) {
+      const nextOptions = buildRecentCwdOptions(getRecentCwds(allSessions), storedRecentCwds.filter(c => c !== cwd), RECENT_CWDS_LIMIT);
+      if (nextOptions.length > 0) {
+        setSelectedCwd(nextOptions[0].cwd);
+        lastSelectedCwdRef.current = nextOptions[0].cwd;
+      } else {
+        setSelectedCwd(null);
+        lastSelectedCwdRef.current = null;
+      }
+    }
+  }, [selectedCwd, allSessions, storedRecentCwds]);
+
+  const loadBrowseEntries = useCallback(async (path?: string | null) => {
+    try {
+      setBrowseLoading(true);
+      setBrowseError(null);
+      const query = path ? `?path=${encodeURIComponent(path)}` : "";
+      const res = await fetch(`/api/browse-dirs${query}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as BrowseDirResponse;
+      const resolvedPath = data.path ?? path ?? null;
+      setBrowsePath(resolvedPath);
+      setBrowsePathInputVal(resolvedPath ?? "");
+      setBrowseSearch("");
+      setBrowseIsEditingPath(false);
+      setBrowseEntries(data.entries ?? []);
+      if (data.valid === false && data.error) {
+        setBrowseError(data.error);
+      }
+    } catch (e) {
+      setBrowseError(String(e));
+      setBrowseEntries([]);
+    } finally {
+      setBrowseLoading(false);
+    }
+  }, []);
+
+  const commitSelectedCwd = useCallback(async (candidatePath: string) => {
+    const result = await selectCwdWithValidation(candidatePath, async (path) => {
+      const res = await fetch(`/api/browse-dirs?path=${encodeURIComponent(path)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json() as BrowseDirResponse;
+    });
+
+    if (!result.ok) {
+      setBrowseError(result.error);
+      if (result.fallbackPath && result.fallbackPath !== browsePath) {
+        await loadBrowseEntries(result.fallbackPath);
+      }
+      return false;
+    }
+
+    setBrowseError(null);
+    rememberCwd(result.cwd);
+    setSelectedCwd(result.cwd);
+    setBrowseOpen(false);
+    return true;
+  }, [browsePath, loadBrowseEntries, rememberCwd]);
 
   // Drag-to-resize between session list and explorer
   useEffect(() => {
@@ -341,12 +459,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onCwdChange?.(selectedCwd);
   }, [selectedCwd, onCwdChange]);
 
-  // Auto-select cwd and restore session from URL on first load
+  // Handle URL restore & sync active CWD
   useEffect(() => {
     if (allSessions.length === 0) return;
 
     if (selectedCwd === null) {
-      // If restoring a session, set cwd to match that session
       if (initialSessionId && !restoredRef.current) {
         restoredRef.current = true;
         const target = allSessions.find((s) => s.id === initialSessionId);
@@ -356,7 +473,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           onSelectSession(target, true);
           return;
         }
-        // Session not found — notify parent so it can show the placeholder
         onInitialRestoreDone?.();
       }
       const cwds = getRecentCwds(allSessions);
@@ -373,9 +489,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       return;
     }
 
-    // Only auto-restore sessions of a new folder IF the selectedCwd has actually changed
-    // (i.e. we switched folders). If it's the same folder, and selectedSessionId is null,
-    // we want to stay in "New Session" mode.
     if (lastSelectedCwdRef.current !== selectedCwd) {
       lastSelectedCwdRef.current = selectedCwd;
       const target = pickSessionForCwd(allSessions, selectedCwd);
@@ -388,114 +501,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const persistStoredRecentCwds = useCallback((next: string[]) => {
     try {
       window.localStorage.setItem(RECENT_CWDS_STORAGE_KEY, JSON.stringify(next));
-    } catch {
-      // ignore localStorage failures
-    }
-  }, []);
-
-  const rememberCwd = useCallback((cwd: string) => {
-    const trimmed = cwd.trim();
-    if (!trimmed) return;
-    setStoredRecentCwds((prev) => {
-      const next = [trimmed, ...prev.filter((item) => item !== trimmed)].slice(0, RECENT_CWDS_LIMIT);
-      persistStoredRecentCwds(next);
-      return next;
-    });
-  }, [persistStoredRecentCwds]);
-
-  const forgetStoredCwd = useCallback((cwd: string) => {
-    setStoredRecentCwds((prev) => {
-      const next = removeStoredRecentCwd(prev, cwd);
-      persistStoredRecentCwds(next);
-      return next;
-    });
-    setBrowseOpen(false);
-    setBrowseError(null);
-    setCustomPathOpen(false);
-    setCustomPathValue("");
-    if (selectedCwd === cwd) {
-      setSelectedCwd(null);
-    }
-  }, [persistStoredRecentCwds, selectedCwd]);
-
-  const loadBrowseEntries = useCallback(async (path?: string | null) => {
-    try {
-      setBrowseLoading(true);
-      setBrowseError(null);
-      const query = path ? `?path=${encodeURIComponent(path)}` : "";
-      const res = await fetch(`/api/browse-dirs${query}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as BrowseDirResponse;
-      const resolvedPath = data.path ?? path ?? null;
-      setBrowsePath(resolvedPath);
-      setBrowsePathInputVal(resolvedPath ?? "");
-      setBrowseSearch("");
-      setBrowseIsEditingPath(false);
-      setBrowseEntries(data.entries ?? []);
-      if (data.valid === false && data.error) {
-        setBrowseError(data.error);
-      }
-    } catch (e) {
-      setBrowseError(String(e));
-      setBrowseEntries([]);
-    } finally {
-      setBrowseLoading(false);
-    }
-  }, []);
-
-  const commitSelectedCwd = useCallback(async (candidatePath: string) => {
-    const result = await selectCwdWithValidation(candidatePath, async (path) => {
-      const res = await fetch(`/api/browse-dirs?path=${encodeURIComponent(path)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json() as BrowseDirResponse;
-    });
-
-    if (!result.ok) {
-      setBrowseError(result.error);
-      if (result.fallbackPath && result.fallbackPath !== browsePath) {
-        await loadBrowseEntries(result.fallbackPath);
-      }
-      return false;
-    }
-
-    setBrowseError(null);
-    rememberCwd(result.cwd);
-    setSelectedCwd(result.cwd);
-    setBrowseOpen(false);
-    setCustomPathOpen(false);
-    setCustomPathValue("");
-    setDropdownOpen(false);
-    return true;
-  }, [browsePath, loadBrowseEntries, rememberCwd]);
-
-  const commitCustomPath = useCallback(() => {
-    const path = customPathValue.trim();
-    if (path) {
-      commitSelectedCwd(path).catch((e) => setBrowseError(String(e)));
-      return;
-    }
-    setCustomPathOpen(false);
-    setCustomPathValue("");
-    setDropdownOpen(false);
-  }, [commitSelectedCwd, customPathValue]);
-
-  const handleDefaultCwd = useCallback(async () => {
-    try {
-      const res = await fetch("/api/default-cwd", { method: "POST" });
-      const data = await res.json() as { cwd?: string; error?: string };
-      if (data.cwd) {
-        rememberCwd(data.cwd);
-        setSelectedCwd(data.cwd);
-        setDropdownOpen(false);
-      }
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, []);
 
   const handleBrowseFolder = useCallback(async () => {
-    setCustomPathOpen(false);
-    setCustomPathValue("");
     setBrowseOpen(true);
     await loadBrowseEntries(selectedCwdProp ?? selectedCwd ?? null);
   }, [loadBrowseEntries, selectedCwd, selectedCwdProp]);
@@ -504,9 +513,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
-        setCustomPathOpen(false);
-        setCustomPathValue("");
         setBrowseOpen(false);
         setBrowseError(null);
       }
@@ -516,14 +522,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }, []);
 
   const handleNewSession = useCallback(() => {
-    if (!selectedCwd) return;
-    // Generate a temporary UUID client-side — no backend call needed.
-    // Pi will be spawned lazily when the user sends the first message.
+    const targetCwd = selectedCwdProp ?? selectedCwd;
+    if (!targetCwd) return;
     const tempId = typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
       : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
-    onNewSession?.(tempId, selectedCwd);
-  }, [selectedCwd, onNewSession]);
+    onNewSession?.(tempId, targetCwd);
+  }, [selectedCwd, selectedCwdProp, onNewSession]);
 
   const recentCwdOptions = buildRecentCwdOptions(getRecentCwds(allSessions), storedRecentCwds, RECENT_CWDS_LIMIT);
   const browseParentPath = browsePath ? getParentPath(browsePath) : null;
@@ -534,7 +539,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     const parts = browsePath.split(/[\\/]+/).filter(Boolean);
     const crumbs: { name: string; path: string }[] = [];
 
-    if (isWin && parts[0] && /^[a-zA-Z]:$/.test(parts[0])) {
+    if (isWin && parts[0] && /^[a-zA-Z]:/.test(parts[0])) {
       const drive = parts[0];
       crumbs.push({ name: drive, path: drive + "\\" });
       let current = drive + "\\";
@@ -561,12 +566,38 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     const q = browseSearch.toLowerCase();
     return browseEntries.filter((entry) => entry.name.toLowerCase().includes(q));
   }, [browseEntries, browseSearch]);
-  const filteredSessions = selectedCwd
-    ? allSessions.filter((s) => s.cwd === selectedCwd)
-    : allSessions;
 
-  // Build parent-child tree within the filtered set
-  const sessionTree = buildSessionTree(filteredSessions);
+  const activeProjectCwd = selectedCwdProp ?? selectedCwd;
+
+  // Construct a nested grouping: projects map to session trees
+  const projectList = useMemo(() => {
+    return recentCwdOptions.map(({ cwd }) => {
+      const sessionsForCwd = allSessions.filter((s) => s.cwd === cwd);
+      const tree = buildSessionTree(sessionsForCwd);
+      return { cwd, tree };
+    }).filter(p => !hiddenCwds[p.cwd] && (p.tree.length > 0 || p.cwd === selectedCwdProp || p.cwd === selectedCwd));
+  }, [recentCwdOptions, allSessions, selectedCwd, selectedCwdProp, hiddenCwds]);
+
+  // Expanded/collapsed state of each project folder node
+  const [collapsedCwds, setCollapsedCwds] = useState<Record<string, boolean>>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem("pi-collapsed-cwds");
+        if (stored) return JSON.parse(stored);
+      } catch {}
+    }
+    return {};
+  });
+
+  const toggleCwdCollapse = useCallback((cwd: string) => {
+    setCollapsedCwds((prev) => {
+      const next = { ...prev, [cwd]: !prev[cwd] };
+      try {
+        localStorage.setItem("pi-collapsed-cwds", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, []);
 
   return (
     <div ref={sidebarRef} style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -582,15 +613,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <PiAgentTitle />
           <div style={{ display: "flex", gap: 6 }}>
+            {/* New Session Button */}
             <button
               onClick={handleNewSession}
-              disabled={!selectedCwd}
+              disabled={!(selectedCwdProp ?? selectedCwd)}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
                 background: "var(--bg-hover)",
                 border: "1px solid var(--border)",
-                color: selectedCwd ? "var(--text-muted)" : "var(--text-dim)",
-                cursor: selectedCwd ? "pointer" : "not-allowed",
+                color: (selectedCwdProp ?? selectedCwd) ? "var(--text-muted)" : "var(--text-dim)",
+                cursor: (selectedCwdProp ?? selectedCwd) ? "pointer" : "not-allowed",
                 height: 32,
                 paddingLeft: 10,
                 paddingRight: 12,
@@ -601,16 +633,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 flexShrink: 0,
                 transition: "background 0.12s, color 0.12s, border-color 0.12s",
               }}
-              title={selectedCwd ? `New session in ${selectedCwd}` : "Select a project first"}
+              title={(selectedCwdProp ?? selectedCwd) ? `New session in ${shortenCwd(selectedCwdProp ?? selectedCwd!, homeDir)}` : "Select a project first"}
               onMouseEnter={(e) => {
-                if (!selectedCwd) return;
+                if (!(selectedCwdProp ?? selectedCwd)) return;
                 e.currentTarget.style.background = "var(--bg-selected)";
                 e.currentTarget.style.color = "var(--accent)";
                 e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.background = "var(--bg-hover)";
-                e.currentTarget.style.color = selectedCwd ? "var(--text-muted)" : "var(--text-dim)";
+                e.currentTarget.style.color = (selectedCwdProp ?? selectedCwd) ? "var(--text-muted)" : "var(--text-dim)";
                 e.currentTarget.style.borderColor = "var(--border)";
               }}
             >
@@ -620,6 +652,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               </svg>
               New
             </button>
+            {/* Refresh Sessions Button */}
             <button
               onClick={() => loadSessions(false)}
               style={{
@@ -633,18 +666,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 padding: 0,
                 flexShrink: 0,
                 transition: "background 0.3s, color 0.3s, border-color 0.3s",
-              }}
-              onMouseEnter={(e) => {
-                if (sessionRefreshDone) return;
-                e.currentTarget.style.background = "var(--bg-selected)";
-                e.currentTarget.style.color = "var(--accent)";
-                e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
-              }}
-              onMouseLeave={(e) => {
-                if (sessionRefreshDone) return;
-                e.currentTarget.style.background = "var(--bg-hover)";
-                e.currentTarget.style.color = "var(--text-muted)";
-                e.currentTarget.style.borderColor = "var(--border)";
               }}
               title="Refresh"
             >
@@ -662,46 +683,45 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           </div>
         </div>
 
-        {/* CWD picker */}
-        <div ref={dropdownRef} style={{ position: "relative" }}>
+        {/* Minimalist Add Project Trigger */}
+        <div style={{ marginTop: 8, position: "relative" }}>
           <button
-            onClick={() => setDropdownOpen((v) => !v)}
-            title={selectedCwd ?? ""}
+            onClick={() => handleBrowseFolder()}
             style={{
               width: "100%",
               display: "flex",
               alignItems: "center",
+              justifyContent: "center",
+              gap: 5,
               padding: "6px 10px",
-              background: selectedCwd ? "var(--bg-hover)" : "rgba(37,99,235,0.06)",
-              border: selectedCwd ? "1px solid var(--border)" : "1px solid rgba(37,99,235,0.4)",
+              background: "var(--bg-hover)",
+              border: "1px solid var(--border)",
               borderRadius: 7,
               cursor: "pointer",
-              fontSize: 12,
-              color: "var(--text)",
-              textAlign: "left",
+              fontSize: 11,
+              fontWeight: 600,
+              color: "var(--text-muted)",
               transition: "border-color 0.15s, background 0.15s",
             }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "var(--accent)";
+              e.currentTarget.style.color = "var(--text)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "var(--border)";
+              e.currentTarget.style.color = "var(--text-muted)";
+            }}
           >
-            <span
-              style={{
-                flex: 1,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                fontWeight: 600,
-                fontSize: 12,
-                color: selectedCwd ? "var(--text)" : "var(--text-dim)",
-                display: "flex",
-                alignItems: "center",
-                gap: 5,
-              }}
-            >
-              📊 {selectedCwd ? (shortenCwd(selectedCwd, homeDir) + ` (${selectedCwd})`) : (initialSessionId && !restoredRef.current ? "" : "Select project…")}
-            </span>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}>
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            <span>Add Project Directory…</span>
           </button>
 
-          {dropdownOpen && (
+          {browseOpen && (
             <div
+              ref={dropdownRef}
               style={{
                 position: "absolute",
                 top: "calc(100% + 4px)",
@@ -711,546 +731,286 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 background: "var(--bg)",
                 border: "1px solid var(--border)",
                 borderRadius: 8,
-                boxShadow: "0 6px 20px rgba(0,0,0,0.10)",
+                boxShadow: "0 6px 20px rgba(0,0,0,0.12)",
                 overflow: "hidden",
+                padding: "8px",
               }}
             >
-              {recentCwdOptions.map(({ cwd, removable }) => (
-                <div
-                  key={cwd}
-                  style={{
-                    display: "flex",
-                    alignItems: "stretch",
-                    borderBottom: "1px solid var(--border)",
-                    background: cwd === selectedCwd ? "var(--bg-selected)" : "none",
-                  }}
-                  title={cwd}
-                >
-                  <button
-                    onClick={() => {
-                      setSelectedCwd(cwd);
-                      setCustomPathOpen(false);
-                      setCustomPathValue("");
-                      setBrowseOpen(false);
-                      setBrowseError(null);
-                      setDropdownOpen(false);
-                    }}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 7,
-                      flex: 1,
-                      minWidth: 0,
-                      padding: "8px 10px",
-                      background: "none",
-                      border: "none",
-                      color: cwd === selectedCwd ? "var(--text)" : "var(--text-muted)",
-                      cursor: "pointer",
-                      textAlign: "left",
-                      fontSize: 11,
-                      fontFamily: "var(--font-mono)",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {cwd === selectedCwd && (
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                        <polyline points="1.5 5 4 7.5 8.5 2.5" />
-                      </svg>
-                    )}
-                    {cwd !== selectedCwd && <span style={{ width: 10, flexShrink: 0 }} />}
-                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📁 {shortenCwd(cwd, homeDir)} <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: 4 }}>({cwd})</span></span>
-                  </button>
-                  {removable && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        forgetStoredCwd(cwd);
-                      }}
-                      title={`Remove ${cwd}`}
-                      aria-label={`Remove ${cwd}`}
-                      style={{
-                        width: 30,
-                        flexShrink: 0,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: "none",
-                        border: "none",
-                        color: "var(--text-dim)",
-                        cursor: "pointer",
-                      }}
-                    >
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
-                        <line x1="2" y1="2" x2="8" y2="8" />
-                        <line x1="8" y1="2" x2="2" y2="8" />
-                      </svg>
-                    </button>
-                  )}
-                </div>
-              ))}
-
-              {/* Default cwd shortcut */}
-              {!customPathOpen && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                 <button
-                  onClick={(e) => { e.stopPropagation(); handleDefaultCwd(); }}
+                  onClick={() => { if (browseParentPath && !browseLoading) loadBrowseEntries(browseParentPath).catch(() => {}); }}
+                  disabled={!browseParentPath || browseLoading}
                   style={{
+                    width: 24,
+                    height: 24,
+                    padding: 0,
+                    borderRadius: 5,
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-hover)",
                     display: "flex",
                     alignItems: "center",
-                    gap: 7,
-                    width: "100%",
-                    padding: "8px 10px",
-                    background: "none",
-                    border: "none",
-                    borderTop: recentCwdOptions.length > 0 ? "1px solid var(--border)" : "none",
-                    color: "var(--text-muted)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    fontSize: 11,
+                    justifyContent: "center",
+                    fontSize: 12,
+                    cursor: browseParentPath && !browseLoading ? "pointer" : "not-allowed",
                   }}
+                  title={browseParentPath ? `Up to ${browseParentPath}` : "Already at root"}
                 >
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                    <path d="M1 3A1 1 0 0 1 2 2H4L5 3.5H8.5a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-.5.5h-7A.5.5 0 0 1 1 8V3Z" />
-                  </svg>
-                  <span>Use default directory</span>
+                  ↑
                 </button>
-              )}
-
-              {!customPathOpen && !browseOpen && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleBrowseFolder(); }}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 7,
-                    width: "100%",
-                    padding: "8px 10px",
-                    background: "none",
-                    border: "none",
-                    borderTop: "1px solid var(--border)",
-                    color: "var(--accent)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    fontSize: 11,
-                    fontWeight: 500,
-                  }}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                    <line x1="12" y1="11" x2="12" y2="17" />
-                    <line x1="9" y1="14" x2="15" y2="14" />
-                  </svg>
-                  <span>Browse folder…</span>
-                </button>
-              )}
-
-              {browseOpen ? (
-                <div style={{ padding: "6px 8px", borderTop: recentCwdOptions.length > 0 ? "none" : undefined }}>
-                  {/* Path segment breadcrumbs or direct path input */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                    <button
-                      onClick={() => {
-                        if (!browseParentPath || browseLoading) return;
-                        loadBrowseEntries(browseParentPath).catch(() => {});
-                      }}
-                      disabled={!browseParentPath || browseLoading}
-                      style={{
-                        width: 24,
-                        height: 24,
-                        padding: 0,
-                        borderRadius: 5,
-                        border: "1px solid var(--border)",
-                        background: "var(--bg-hover)",
-                        color: browseParentPath && !browseLoading ? "var(--text-muted)" : "var(--text-dim)",
-                        cursor: browseParentPath && !browseLoading ? "pointer" : "not-allowed",
-                        flexShrink: 0,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 12,
-                      }}
-                      title={browseParentPath ? `Up to ${browseParentPath}` : "Already at root"}
-                    >
-                      ↑
-                    </button>
-                    {browseIsEditingPath ? (
-                      <input
-                        type="text"
-                        value={browsePathInputVal}
-                        onChange={(e) => setBrowsePathInputVal(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            loadBrowseEntries(browsePathInputVal).catch((err) => setBrowseError(String(err)));
-                          } else if (e.key === "Escape") {
-                            setBrowseIsEditingPath(false);
-                            setBrowsePathInputVal(browsePath ?? "");
-                          }
-                        }}
-                        onBlur={() => {
-                          setTimeout(() => {
-                            setBrowseIsEditingPath(false);
-                            setBrowsePathInputVal(browsePath ?? "");
-                          }, 250);
-                        }}
-                        autoFocus
-                        style={{
-                          flex: 1,
-                          minWidth: 0,
-                          fontSize: 11,
-                          fontFamily: "var(--font-mono)",
-                          color: "var(--text)",
-                          padding: "5px 8px",
-                          border: "1px solid var(--accent)",
-                          borderRadius: 5,
-                          background: "var(--bg)",
-                          outline: "none",
-                        }}
-                      />
-                    ) : (
-                      <div
-                        onDoubleClick={() => {
-                          setBrowseIsEditingPath(true);
-                        }}
-                        style={{
-                          flex: 1,
-                          minWidth: 0,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 2,
-                          padding: "4px 6px",
-                          border: "1px solid var(--border)",
-                          borderRadius: 5,
-                          background: "var(--bg-hover)",
-                          overflowX: "auto",
-                          scrollbarWidth: "none",
-                          whiteSpace: "nowrap",
-                          cursor: "text",
-                        }}
-                        title="Double-click to edit path directly"
-                      >
-                        <div style={{ display: "flex", alignItems: "center" }}>
-                          {browseBreadcrumbs.map((crumb: { name: string; path: string }, idx: number) => (
-                            <span key={crumb.path} style={{ display: "inline-flex", alignItems: "center" }}>
-                              {idx > 0 && <span style={{ color: "var(--text-dim)", fontSize: 10, margin: "0 2px", userSelect: "none" }}>/</span>}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  loadBrowseEntries(crumb.path).catch(() => {});
-                                }}
-                                style={{
-                                  background: "none",
-                                  border: "none",
-                                  padding: "2px 4px",
-                                  borderRadius: 3,
-                                  fontSize: 11,
-                                  fontFamily: "var(--font-mono)",
-                                  color: (idx === browseBreadcrumbs.length - 1) ? "var(--text)" : "var(--accent)",
-                                  cursor: "pointer",
-                                  fontWeight: (idx === browseBreadcrumbs.length - 1) ? "bold" : "normal",
-                                  transition: "background 0.15s, color 0.15s",
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.background = "rgba(100,116,139,0.12)"}
-                                onMouseLeave={(e) => e.currentTarget.style.background = "none"}
-                              >
-                                {crumb.name}
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setBrowseIsEditingPath(true);
-                          }}
-                          style={{
-                            marginLeft: "auto",
-                            background: "none",
-                            border: "none",
-                            padding: "4px",
-                            cursor: "pointer",
-                            color: "var(--text-dim)",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            borderRadius: 4,
-                            flexShrink: 0,
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.color = "var(--text)"}
-                          onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-dim)"}
-                          title="Edit path directly"
-                        >
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                          </svg>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Instant search filter bar */}
-                  <div style={{ position: "relative", marginBottom: 6 }}>
-                    <input
-                      type="text"
-                      className="search-input"
-                      value={browseSearch}
-                      onChange={(e) => setBrowseSearch(e.target.value)}
-                      placeholder="Filter folders..."
-                      style={{
-                        width: "100%",
-                        fontSize: 11,
-                        padding: "5px 24px 5px 8px",
-                        border: "1px solid var(--border)",
-                        borderRadius: 5,
-                        background: "var(--bg-hover)",
-                        color: "var(--text)",
-                        outline: "none",
-                        boxSizing: "border-box",
-                      }}
-                    />
-                    {browseSearch ? (
-                      <button
-                        onClick={() => setBrowseSearch("")}
-                        style={{
-                          position: "absolute",
-                          right: 6,
-                          top: "50%",
-                          transform: "translateY(-50%)",
-                          background: "none",
-                          border: "none",
-                          color: "var(--text-dim)",
-                          cursor: "pointer",
-                          padding: 0,
-                          display: "flex",
-                          alignItems: "center",
-                          fontSize: 12,
-                        }}
-                      >
-                        ×
-                      </button>
-                    ) : (
-                      <svg
-                        width="10"
-                        height="10"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.5"
-                        style={{
-                          position: "absolute",
-                          right: 8,
-                          top: "50%",
-                          transform: "translateY(-50%)",
-                          color: "var(--text-dim)",
-                          pointerEvents: "none",
-                        }}
-                      >
-                        <circle cx="11" cy="11" r="8" />
-                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                      </svg>
-                    )}
-                  </div>
-
-                  <div style={{ maxHeight: 200, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-hover)" }}>
-                    {browseLoading ? (
-                      <div style={{ padding: "10px 8px", fontSize: 11, color: "var(--text-muted)" }}>Loading folders...</div>
-                    ) : browseError ? (
-                      <div style={{ padding: "10px 8px", fontSize: 11, color: "#f87171" }}>{browseError}</div>
-                    ) : filteredBrowseEntries.length === 0 ? (
-                      <div style={{ padding: "10px 8px", fontSize: 11, color: "var(--text-muted)" }}>
-                        {browseSearch ? "No matching folders" : "No subfolders"}
-                      </div>
-                    ) : (
-                      filteredBrowseEntries.map((entry: BrowseDirEntry) => (
-                        <button
-                          key={entry.path}
-                          onClick={() => loadBrowseEntries(entry.path).catch(() => {})}
-                          style={{
-                            width: "100%",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 7,
-                            padding: "6px 8px",
-                            background: "none",
-                            border: "none",
-                            borderBottom: "1px solid var(--border)",
-                            textAlign: "left",
-                            cursor: "pointer",
-                            color: "var(--text-muted)",
-                            fontSize: 11,
-                            transition: "background 0.1s, color 0.1s",
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.background = "var(--bg-selected)";
-                            e.currentTarget.style.color = "var(--text)";
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = "none";
-                            e.currentTarget.style.color = "var(--text-muted)";
-                          }}
-                          title={entry.path}
-                        >
-                          <svg
-                            width="11"
-                            height="11"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2.1"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            style={{ flexShrink: 0, color: "var(--accent)" }}
-                          >
-                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                          </svg>
-                          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.name}</span>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                  <div style={{ display: "flex", gap: 5, marginTop: 5 }}>
-                    <button
-                      onClick={() => {
-                        if (!browsePath || browseLoading) return;
-                        commitSelectedCwd(browsePath).catch((e) => setBrowseError(String(e)));
-                      }}
-                      disabled={!browsePath || browseLoading}
-                      style={{
-                        flex: 1,
-                        padding: "4px 0",
-                        background: "var(--accent)",
-                        border: "none",
-                        borderRadius: 5,
-                        color: "#fff",
-                        fontSize: 11,
-                        fontWeight: 600,
-                        cursor: !browsePath || browseLoading ? "not-allowed" : "pointer",
-                        opacity: !browsePath || browseLoading ? 0.6 : 1,
-                      }}
-                    >
-                      Select this folder
-                    </button>
-                    <button
-                      onClick={() => {
-                        setBrowseOpen(false);
-                        setBrowseError(null);
-                      }}
-                      style={{
-                        flex: 1,
-                        padding: "4px 0",
-                        background: "var(--bg-hover)",
-                        border: "1px solid var(--border)",
-                        borderRadius: 5,
-                        color: "var(--text-muted)",
-                        fontSize: 11,
-                        cursor: "pointer",
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : !customPathOpen ? (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setBrowseOpen(false);
-                    setBrowseError(null);
-                    setCustomPathOpen(true);
-                    setTimeout(() => customPathInputRef.current?.focus(), 0);
-                  }}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 7,
-                    width: "100%",
-                    padding: "8px 10px",
-                    background: "none",
-                    border: "none",
-                    color: "var(--text-muted)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    fontSize: 11,
-                  }}
-                >
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" style={{ flexShrink: 0 }}>
-                    <line x1="5" y1="1" x2="5" y2="9" />
-                    <line x1="1" y1="5" x2="9" y2="5" />
-                  </svg>
-                  <span>Custom path…</span>
-                </button>
-              ) : (
-                <div style={{ padding: "6px 8px", borderTop: recentCwdOptions.length > 0 ? "none" : undefined }}>
+                {browseIsEditingPath ? (
                   <input
-                    ref={customPathInputRef}
-                    value={customPathValue}
-                    onChange={(e) => setCustomPathValue(e.target.value)}
+                    type="text"
+                    value={browsePathInputVal}
+                    onChange={(e) => setBrowsePathInputVal(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter") commitCustomPath();
-                      if (e.key === "Escape") {
-                        setCustomPathOpen(false);
-                        setCustomPathValue("");
+                      if (e.key === "Enter") {
+                        loadBrowseEntries(browsePathInputVal).catch((err) => setBrowseError(String(err)));
+                      } else if (e.key === "Escape") {
+                        setBrowseIsEditingPath(false);
+                        setBrowsePathInputVal(browsePath ?? "");
                       }
                     }}
-                    placeholder="/path/to/project"
+                    onBlur={() => {
+                      setTimeout(() => {
+                        setBrowseIsEditingPath(false);
+                        setBrowsePathInputVal(browsePath ?? "");
+                      }, 250);
+                    }}
+                    autoFocus
                     style={{
-                      width: "100%",
+                      flex: 1,
+                      minWidth: 0,
                       fontSize: 11,
                       fontFamily: "var(--font-mono)",
+                      color: "var(--text)",
                       padding: "5px 8px",
                       border: "1px solid var(--accent)",
                       borderRadius: 5,
-                      outline: "none",
                       background: "var(--bg)",
-                      color: "var(--text)",
-                      boxSizing: "border-box",
+                      outline: "none",
                     }}
                   />
-                  <div style={{ display: "flex", gap: 5, marginTop: 5 }}>
+                ) : (
+                  <div
+                    onDoubleClick={() => {
+                      setBrowseIsEditingPath(true);
+                    }}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 2,
+                      padding: "4px 6px",
+                      border: "1px solid var(--border)",
+                      borderRadius: 5,
+                      background: "var(--bg-hover)",
+                      overflowX: "auto",
+                      scrollbarWidth: "none",
+                      whiteSpace: "nowrap",
+                      cursor: "text",
+                    }}
+                    title="Double-click to edit path directly"
+                  >
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      {browseBreadcrumbs.map((crumb: { name: string; path: string }, idx: number) => (
+                        <span key={crumb.path} style={{ display: "inline-flex", alignItems: "center" }}>
+                          {idx > 0 && <span style={{ color: "var(--text-dim)", fontSize: 10, margin: "0 2px", userSelect: "none" }}>/</span>}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              loadBrowseEntries(crumb.path).catch(() => {});
+                            }}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              padding: "2px 4px",
+                              borderRadius: 3,
+                              fontSize: 11,
+                              fontFamily: "var(--font-mono)",
+                              color: (idx === browseBreadcrumbs.length - 1) ? "var(--text)" : "var(--accent)",
+                              cursor: "pointer",
+                              fontWeight: (idx === browseBreadcrumbs.length - 1) ? "bold" : "normal",
+                              transition: "background 0.15s, color 0.15s",
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = "rgba(100,116,139,0.12)"}
+                            onMouseLeave={(e) => e.currentTarget.style.background = "none"}
+                          >
+                            {crumb.name}
+                          </button>
+                        </span>
+                      ))}
+                    </div>
                     <button
-                      onClick={commitCustomPath}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setBrowseIsEditingPath(true);
+                      }}
                       style={{
-                        flex: 1,
-                        padding: "4px 0",
-                        background: "var(--accent)",
+                        marginLeft: "auto",
+                        background: "none",
                         border: "none",
-                        borderRadius: 5,
-                        color: "#fff",
-                        fontSize: 11,
-                        fontWeight: 600,
+                        padding: "4px",
                         cursor: "pointer",
+                        color: "var(--text-dim)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        borderRadius: 4,
+                        flexShrink: 0,
                       }}
+                      onMouseEnter={(e) => e.currentTarget.style.color = "var(--text)"}
+                      onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-dim)"}
+                      title="Edit path directly"
                     >
-                      Open
-                    </button>
-                    <button
-                      onClick={() => { setCustomPathOpen(false); setCustomPathValue(""); }}
-                      style={{
-                        flex: 1,
-                        padding: "4px 0",
-                        background: "var(--bg-hover)",
-                        border: "1px solid var(--border)",
-                        borderRadius: 5,
-                        color: "var(--text-muted)",
-                        fontSize: 11,
-                        cursor: "pointer",
-                      }}
-                    >
-                      Cancel
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                      </svg>
                     </button>
                   </div>
+                )}
+              </div>
+
+              {browseError && (
+                <div style={{ color: "#f87171", fontSize: 10, padding: "4px 8px", background: "rgba(239,68,68,0.06)", borderRadius: 5, marginBottom: 6 }}>
+                  {browseError}
                 </div>
               )}
+
+              {/* Instant search filter bar */}
+              <div style={{ margin: "6px 0" }}>
+                <input
+                  type="text"
+                  placeholder="Filter directory entries..."
+                  value={browseSearch}
+                  onChange={(e) => setBrowseSearch(e.target.value)}
+                  style={{
+                    width: "100%",
+                    fontSize: 11,
+                    padding: "5px 8px",
+                    border: "1px solid var(--border)",
+                    borderRadius: 5,
+                    outline: "none",
+                    background: "var(--bg)",
+                    color: "var(--text)",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+
+              <div style={{ maxHeight: 150, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-hover)", marginBottom: 6, scrollbarWidth: "thin" }}>
+                {browseLoading ? (
+                  <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-dim)", fontStyle: "italic" }}>
+                    Loading folder entries...
+                  </div>
+                ) : filteredBrowseEntries.length === 0 ? (
+                  <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-dim)", fontStyle: "italic" }}>
+                    No matching sub-directories
+                  </div>
+                ) : (
+                  filteredBrowseEntries.map((entry) => (
+                    <button
+                      key={entry.path}
+                      onClick={() => {
+                        loadBrowseEntries(entry.path).catch(() => {});
+                      }}
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "6px 8px",
+                        background: "none",
+                        border: "none",
+                        borderBottom: "1px solid var(--border)",
+                        textAlign: "left",
+                        fontSize: 11,
+                        color: "var(--text-muted)",
+                        cursor: "pointer",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        transition: "background 0.1s, color 0.1s",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "var(--bg-selected)";
+                        e.currentTarget.style.color = "var(--text)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "none";
+                        e.currentTarget.style.color = "var(--text-muted)";
+                      }}
+                      title={entry.path}
+                    >
+                      <svg
+                        width="11"
+                        height="11"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.1"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        style={{ flexShrink: 0, color: "var(--accent)" }}
+                      >
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                      </svg>
+                      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.name}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 5 }}>
+                <button
+                  onClick={() => {
+                    if (!browsePath || browseLoading) return;
+                    commitSelectedCwd(browsePath).catch((e) => setBrowseError(String(e)));
+                  }}
+                  disabled={!browsePath || browseLoading}
+                  style={{
+                    flex: 1,
+                    padding: "4px 0",
+                    background: "var(--accent)",
+                    border: "none",
+                    borderRadius: 5,
+                    color: "#fff",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    cursor: !browsePath || browseLoading ? "not-allowed" : "pointer",
+                    opacity: !browsePath || browseLoading ? 0.6 : 1,
+                  }}
+                >
+                  Add Project
+                </button>
+                <button
+                  onClick={() => {
+                    setBrowseOpen(false);
+                    setBrowseError(null);
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "4px 0",
+                    background: "var(--bg-hover)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 5,
+                    color: "var(--text-muted)",
+                    fontSize: 11,
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Session list */}
-      <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? `${1 - explorerFraction} 1 0` : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}>
+      {/* Structured "Project - Session" Folders List */}
+      <div style={{ flex: explorerOpen && activeProjectCwd ? `${1 - explorerFraction} 1 0` : "1 1 auto", overflowY: "auto", padding: "6px 2px", minHeight: 80 }}>
         {loading && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
-            Loading...
+            Loading Project Workspaces...
           </div>
         )}
         {error && (
@@ -1258,25 +1018,117 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {error}
           </div>
         )}
-        {!loading && !error && filteredSessions.length === 0 && (
+        {!loading && !error && projectList.length === 0 && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
-            No sessions found
+            No sessions or project workspaces found
           </div>
         )}
-        {sessionTree.map((node) => (
-          <SessionTreeItem
-            key={node.session.id}
-            node={node}
-            selectedSessionId={selectedSessionId}
-            onSelectSession={onSelectSession}
-            onRenamed={loadSessions}
-            onSessionDeleted={(id) => {
-              onSessionDeleted?.(id);
-              loadSessions();
-            }}
-            depth={0}
-          />
-        ))}
+        {projectList.map(({ cwd, tree }) => {
+          const isCollapsed = !!collapsedCwds[cwd];
+          const isActiveProject = cwd === activeProjectCwd;
+          const shortName = shortenCwd(cwd, homeDir);
+
+          return (
+            <div key={cwd} style={{ marginBottom: 12 }}>
+              {/* CWD Folder Group Header */}
+              <div
+                onClick={() => {
+                  setSelectedCwd(cwd);
+                  toggleCwdCollapse(cwd);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "5px 6px",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                  background: isActiveProject ? "rgba(37,99,235,0.06)" : "transparent",
+                  border: isActiveProject ? "1px solid rgba(37,99,235,0.18)" : "1px solid transparent",
+                  transition: "background 0.12s",
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActiveProject) e.currentTarget.style.background = "var(--bg-hover)";
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActiveProject) e.currentTarget.style.background = "transparent";
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0, paddingLeft: 2 }}>
+                  <svg
+                    width="7" height="7" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="2.2"
+                    style={{
+                      transform: isCollapsed ? "none" : "rotate(90deg)",
+                      transition: "transform 0.12s",
+                      color: isActiveProject ? "var(--accent)" : "var(--text-dim)",
+                      flexShrink: 0
+                    }}
+                  >
+                    <polyline points="3 2 7 5 3 8" />
+                  </svg>
+                  <span
+                    style={{
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                      color: isActiveProject ? "var(--text)" : "var(--text-muted)",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap"
+                    }}
+                    title={cwd}
+                  >
+                    {shortName}
+                  </span>
+                  <span style={{ fontSize: 9, color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginLeft: 2, opacity: 0.8 }}>
+                    ({cwd})
+                  </span>
+                </div>
+
+                {/* Hide Workspace action */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    hideProjectCwd(cwd);
+                  }}
+                  title="Hide this project from workspace"
+                  style={{
+                    background: "none", border: "none", width: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", cursor: "pointer", borderRadius: 3
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; e.currentTarget.style.background = "rgba(239, 68, 68, 0.08)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* Collapsible sessions tree children box */}
+              {!isCollapsed && (
+                <div style={{ paddingLeft: 10, marginTop: 4, borderLeft: "1px dashed var(--border)", marginLeft: 4 }}>
+                  {tree.length === 0 ? (
+                    <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)", fontStyle: "italic" }}>
+                      No active sessions. Click "New" above to start one.
+                    </div>
+                  ) : (
+                    tree.map((node) => (
+                      <SessionTreeItem
+                        key={node.session.id}
+                        node={node}
+                        selectedSessionId={selectedSessionId}
+                        onSelectSession={onSelectSession}
+                        onRenamed={loadSessions}
+                        onSessionDeleted={(id) => {
+                          onSessionDeleted?.(id);
+                          loadSessions();
+                        }}
+                        depth={0}
+                      />
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Drag handle between session list and explorer */}
@@ -1576,7 +1428,7 @@ function SessionItem({
   }, []);
 
   // Fixed-height outer wrapper — content swaps in place so the list never reflows
-  const ITEM_HEIGHT = 54;
+  const ITEM_HEIGHT = 44;
 
   return (
     <div
@@ -1587,7 +1439,7 @@ function SessionItem({
         height: ITEM_HEIGHT,
         display: "flex",
         alignItems: "center",
-        paddingLeft: depth > 0 ? depth * 12 + 14 : 14,
+        paddingLeft: depth > 0 ? depth * 12 + 6 : 6,
         paddingRight: 8,
         cursor: confirmDelete || renaming ? "default" : "pointer",
         background: confirmDelete
@@ -1772,10 +1624,7 @@ function SessionItem({
                 }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="3 6 5 6 21 6" />
-                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                  <path d="M10 11v6M14 11v6" />
-                  <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                  <polyline points="3 6 5 6 21 6" /><path d="M19 6V20a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                 </svg>
               </button>
             </div>
