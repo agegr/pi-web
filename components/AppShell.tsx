@@ -634,12 +634,12 @@ export function AppShell() {
                   onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.color = activeFileTabId === "file:git" && rightPanelOpen ? "var(--text)" : "var(--text-muted)"; }}
                 >
-                  <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--accent)", flexShrink: 0 }}>
-                    <circle cx="5" cy="6.5" r="1.2" />
-                    <circle cx="9" cy="6.5" r="1.2" />
-                    <circle cx="5" cy="10" r="1.2" />
-                    <path d="M5 7.7V8.8" />
-                    <path d="M9 7.7v.5A2 2 0 0 1 7 10.2H6" />
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--accent)", flexShrink: 0 }}>
+                    <circle cx="7" cy="10" r="2.5" />
+                    <circle cx="17" cy="10" r="2.5" />
+                    <circle cx="7" cy="18" r="2.5" />
+                    <path d="M7 12.5V15.5" />
+                    <path d="M17 12.5v.5a5 5 0 0 1-5 5h-2" />
                   </svg>
                   <span>Git</span>
                 </button>

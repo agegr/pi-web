@@ -104,7 +104,7 @@ export async function POST(req: Request) {
           .split("\n")
           .map((b) => b.trim())
           .filter(Boolean)
-          .filter((b) => !b.includes("/HEAD"));
+          .filter((b) => !b.includes("/HEAD") && b.includes("/"));
 
         return NextResponse.json({ local: localBranches, remote: remoteBranches });
       } catch (err: any) {
