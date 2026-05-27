@@ -188,7 +188,6 @@ export function GitPanel({ cwd }: Props) {
   const [pushing, setPushing] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [fetching, setFetching] = useState(false);
-  const [generatingMessage, setGeneratingMessage] = useState(false);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [showForcePushBtn, setShowForcePushBtn] = useState(false);
 
@@ -334,19 +333,6 @@ export function GitPanel({ cwd }: Props) {
     try { await api("commit", { commitMessage }); showNotification(`成功保存提交: "${commitMessage}"`); setCommitMessage(""); setSelectedDiffFile(null); await fetchGitStatus(); }
     catch (err: any) { setError(err?.message || String(err)); }
     finally { setCommiting(false); }
-  };
-
-  const handleGenerateMessage = async () => {
-    if (!cwd) return;
-    setGeneratingMessage(true);
-    try {
-      const res = await fetch("/api/generate-commit-message", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cwd }) });
-      const data = await res.json();
-      if (data.error) { setError(data.error); return; }
-      setCommitMessage(data.message || "");
-      if (data.truncated) showNotification("提交日志可能被截断，建议手动补充");
-    } catch (err: any) { setError(err?.message || String(err)); }
-    finally { setGeneratingMessage(false); }
   };
 
   const handleRollbackSelected = async () => {
@@ -631,9 +617,6 @@ export function GitPanel({ cwd }: Props) {
                 <input type="text" placeholder={`提交日志 (${fileCheckedCount}个)...`} value={commitMessage} required disabled={committing || fileCheckedCount === 0}
                   onChange={(e) => setCommitMessage(e.target.value)}
                   style={{ flex: 1, fontSize: 11, padding: "4px 8px", border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg)", color: "var(--text)", outline: "none", minWidth: 0 }} />
-                <button type="button" onClick={handleGenerateMessage} disabled={generatingMessage || committing || fileCheckedCount === 0} title="AI 生成提交日志"
-                  style={{ fontSize: 14, padding: "0 6px", background: "none", border: "1px solid var(--border)", borderRadius: 4, cursor: "pointer", color: generatingMessage ? "var(--text-dim)" : "var(--accent)", display: "flex", alignItems: "center", opacity: fileCheckedCount === 0 ? 0.5 : 1 }}
-                >{generatingMessage ? "⋯" : "✦"}</button>
                 <button type="submit" disabled={committing || fileCheckedCount === 0 || !commitMessage.trim()}
                   style={{ fontSize: 11, fontWeight: 700, padding: "0 10px", background: "var(--accent)", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", opacity: fileCheckedCount === 0 ? 0.5 : 1 }}
                 >{committing ? "..." : "Commit"}</button>
