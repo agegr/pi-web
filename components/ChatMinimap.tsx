@@ -112,6 +112,9 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
       const el = refs?.[refIndex];
       refIndex++;
 
+      // 仅保留用户提问的节点（msg.role === "user"）作为縮略图锚线点，彻底过滤掉 AI 助理回复的节点
+      if (msg.role !== "user") continue;
+
       if (!hasTextContent(msg)) continue;
 
       if (el && totalH > 0) {
