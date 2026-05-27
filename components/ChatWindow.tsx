@@ -100,11 +100,12 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     isNew,
     isAborting,
     sseState,
+    loopWarning,
     messagesEndRef, scrollContainerRef,
     lastUserMsgRef,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handleAbortCompaction,
-    handleToolPresetChange, handleThinkingLevelChange, handleAgentEventRef,
+    handleToolPresetChange, handleThinkingLevelChange, handleAgentEventRef, clearLoopWarning,
   } = useAgentSession({
     session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange,
@@ -437,6 +438,28 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       </div>
 
       <div className="relative">
+        {loopWarning && (
+          <div
+            className={`flex items-center gap-3 px-4 py-2.5 text-sm transition-all ${
+              loopWarning.level === "hard"
+                ? "bg-red-500/15 text-red-400 border-t border-red-500/30"
+                : loopWarning.level === "strong"
+                ? "bg-yellow-500/15 text-yellow-400 border-t border-yellow-500/30"
+                : "bg-blue-500/10 text-blue-400 border-t border-blue-500/20"
+            }`}
+          >
+            <span className="flex-1">{loopWarning.message}</span>
+            <span className="text-xs opacity-60">重复 {loopWarning.count} 次</span>
+            {loopWarning.level === "hard" && (
+              <button
+                onClick={clearLoopWarning}
+                className="ml-2 rounded px-2 py-0.5 text-xs hover:bg-white/10"
+              >
+                知道了
+              </button>
+            )}
+          </div>
+        )}
         {chatInputElement}
       </div>
       </>

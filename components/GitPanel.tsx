@@ -882,15 +882,18 @@ function computeDiff(oldText: string, newText: string): DiffSegment[] {
           }
         }
         while (cx > 0 && cy > 0) { cx--; cy--; edits.unshift({ type: "keep", oldIdx: cx, newIdx: cy }); }
+        // Handle remaining deletions when cy === 0
+        while (cx > 0) { cx--; edits.unshift({ type: "del", oldIdx: cx }); }
 
         const segments: DiffSegment[] = [];
         let i = 0;
         while (i < edits.length) {
           const e = edits[i];
           if (e.type === "keep") { segments.push({ type: "equal", oldLine: e.oldIdx! + 1, newLine: e.newIdx! + 1, text: oldLines[e.oldIdx!] }); i++; }
-          else if (e.type === "del" && i + 1 < edits.length && edits[i + 1].type === "add") { segments.push({ type: "replace", oldLine: e.oldIdx! + 1, newLine: edits[i + 1].newIdx! + 1, oldText: oldLines[e.oldIdx!], newText: newLines[edits[i + 1].newIdx!] }); i += 2; }
+          else if (e.type === "del" && i + 1 < edits.length && edits[i + 1].type === "add" && edits[i + 1].newIdx! >= 0) { segments.push({ type: "replace", oldLine: e.oldIdx! + 1, newLine: edits[i + 1].newIdx! + 1, oldText: oldLines[e.oldIdx!], newText: newLines[edits[i + 1].newIdx!] }); i += 2; }
           else if (e.type === "del") { segments.push({ type: "del", oldLine: e.oldIdx! + 1, text: oldLines[e.oldIdx!] }); i++; }
-          else { segments.push({ type: "add", newLine: e.newIdx! + 1, text: newLines[e.newIdx!] }); i++; }
+          else if (e.type === "add" && e.newIdx! >= 0) { segments.push({ type: "add", newLine: e.newIdx! + 1, text: newLines[e.newIdx!] }); i++; }
+          else { i++; } // Skip invalid add operations with negative newIdx
         }
         return segments;
       }
@@ -999,7 +1002,8 @@ function DiffModal({
           </div>
         );
       }
-      return <div key={`${side}-${idx}`} style={{ display: "flex", height: lineH, background: "rgba(234,234,234,0.03)" }}><span style={{ width: 48 }} /><span style={{ flex: 1 }} /></div>;
+      // Right side: show empty placeholder with same height
+      return <div key={`${side}-${idx}`} style={{ display: "flex", height: lineH, background: "rgba(234,234,234,0.03)" }}><span style={{ width: 48, flexShrink: 0 }} /><span style={{ flex: 1 }} /></div>;
     }
     if (seg.type === "add") {
       if (side === "right") {
@@ -1010,7 +1014,7 @@ function DiffModal({
           </div>
         );
       }
-      return <div key={`${side}-${idx}`} style={{ display: "flex", height: lineH, background: "rgba(234,234,234,0.03)" }}><span style={{ width: 48 }} /><span style={{ flex: 1 }} /></div>;
+      return <div key={`${side}-${idx}`} style={{ display: "flex", height: lineH, background: "rgba(234,234,234,0.03)" }}><span style={{ width: 48, flexShrink: 0 }} /><span style={{ flex: 1 }} /></div>;
     }
     // replace
     const isLeft = side === "left";
@@ -1081,6 +1085,10 @@ function DiffModal({
           <div ref={rightRef} onScroll={() => handleScroll("right")} style={{ flex: 1, overflow: "auto", fontFamily: "var(--font-mono)", fontSize: 12, lineHeight: `${lineH}px`, ...scrollStyle }}>
             {hunks.map((hunk, hi) => {
               const isCollapsed = hunk.type === "equal" && collapsedEqual.has(hi);
+              const isChange = hunk.type !== "equal";
+              const hunkTexts = isChange ? getHunkTexts(hunk) : null;
+              // Show spacer to match left side rollback bar - must match same condition as left side
+              const showSpacer = isChange && isWorkingCopy && hunkTexts && hunkTexts.newText;
               return (
                 <React.Fragment key={hi}>
                   {isCollapsed ? (
@@ -1094,7 +1102,7 @@ function DiffModal({
                   ) : (
                     hunk.segments.map((seg, si) => renderSegRow(seg, "right", si))
                   )}
-                  {hunk.type !== "equal" && isWorkingCopy && (
+                  {showSpacer && (
                     <div style={{ height: 24 }} /> /* spacer to match left side rollback bar */
                   )}
                 </React.Fragment>

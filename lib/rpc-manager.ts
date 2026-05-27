@@ -3,6 +3,18 @@ import { cacheSessionPath } from "./session-reader";
 import type { AgentSessionLike, ToolInfo } from "./pi-types";
 
 // ============================================================================
+// Loop Detection Constants
+// ============================================================================
+
+/** Thresholds for loop detection */
+const LOOP_SOFT_WARNING_THRESHOLD = 3;   // First warning: inject hint for model to reflect
+const LOOP_STRONG_WARNING_THRESHOLD = 5; // Second warning: stronger hint
+const LOOP_HARD_STOP_THRESHOLD = 10;     // Hard stop: abort and notify user
+
+/** Similarity threshold for thinking content (0-1) */
+const THINKING_SIMILARITY_THRESHOLD = 0.85;
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -25,6 +37,14 @@ export class AgentSessionWrapper {
   private onDestroyCallback: (() => void) | null = null;
   private _alive = true;
 
+  // Loop detection state
+  private loopDetection = {
+    recentThinkings: [] as string[],
+    consecutiveSimilar: 0,
+    lastWarningLevel: 0, // 0=none, 1=soft, 2=strong
+    isDisabled: false,   // Temporarily disable after user intervention
+  };
+
   constructor(public readonly inner: AgentSessionLike) {}
 
   get sessionId(): string {
@@ -42,6 +62,7 @@ export class AgentSessionWrapper {
   start(): void {
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
       this.resetIdleTimer();
+      this.detectLoop(event);
       for (const l of this.listeners) l(event);
     });
     this.resetIdleTimer();
@@ -50,6 +71,180 @@ export class AgentSessionWrapper {
   private resetIdleTimer(): void {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => this.destroy(), 10 * 60 * 1000);
+  }
+
+  /**
+   * Detect potential infinite loops by monitoring thinking content repetition.
+   * Uses soft interrupts (hints) first, then hard stop if pattern continues.
+   */
+  private detectLoop(event: AgentEvent): void {
+    // Only check assistant messages with thinking content
+    if (event.type !== "message") return;
+    const msg = event.message as Record<string, unknown> | undefined;
+    if (!msg || msg.role !== "assistant") return;
+    
+    const content = msg.content as Array<Record<string, unknown>> | undefined;
+    if (!Array.isArray(content)) return;
+    
+    // Extract thinking content
+    const thinkingBlock = content.find((c) => c.type === "thinking");
+    if (!thinkingBlock || typeof thinkingBlock.thinking !== "string") return;
+    
+    const currentThinking = thinkingBlock.thinking as string;
+    
+    // Skip if loop detection is temporarily disabled
+    if (this.loopDetection.isDisabled) return;
+    
+    // Check similarity with recent thinkings
+    const { recentThinkings } = this.loopDetection;
+    let maxSimilarity = 0;
+    
+    for (const prev of recentThinkings) {
+      const similarity = this.calculateSimilarity(currentThinking, prev);
+      if (similarity > maxSimilarity) {
+        maxSimilarity = similarity;
+      }
+    }
+    
+    // Update recent thinkings (keep last 5)
+    recentThinkings.push(currentThinking);
+    if (recentThinkings.length > 5) {
+      recentThinkings.shift();
+    }
+    
+    // Check if similar enough to count as repetition
+    if (maxSimilarity >= THINKING_SIMILARITY_THRESHOLD) {
+      this.loopDetection.consecutiveSimilar++;
+    } else {
+      // Reset counter if thinking is significantly different
+      this.loopDetection.consecutiveSimilar = 0;
+      this.loopDetection.lastWarningLevel = 0;
+    }
+    
+    // Take action based on repetition count
+    const count = this.loopDetection.consecutiveSimilar;
+    
+    if (count >= LOOP_HARD_STOP_THRESHOLD) {
+      this.handleHardStop();
+    } else if (count >= LOOP_STRONG_WARNING_THRESHOLD && this.loopDetection.lastWarningLevel < 2) {
+      this.handleStrongWarning();
+    } else if (count >= LOOP_SOFT_WARNING_THRESHOLD && this.loopDetection.lastWarningLevel < 1) {
+      this.handleSoftWarning();
+    }
+  }
+
+  /**
+   * Calculate similarity between two strings using simple token overlap.
+   * Returns a value between 0 (completely different) and 1 (identical).
+   */
+  private calculateSimilarity(a: string, b: string): number {
+    if (a === b) return 1;
+    if (a.length < 10 || b.length < 10) return 0; // Too short to compare meaningfully
+    
+    // Normalize and tokenize
+    const tokenize = (s: string) => {
+      return s.toLowerCase()
+        .replace(/[\n\r]+/g, ' ')
+        .split(/\s+/)
+        .filter(t => t.length > 1);
+    };
+    
+    const tokensA = tokenize(a);
+    const tokensB = tokenize(b);
+    
+    if (tokensA.length === 0 || tokensB.length === 0) return 0;
+    
+    // Count overlapping tokens
+    const setB = new Set(tokensB);
+    let matches = 0;
+    for (const t of tokensA) {
+      if (setB.has(t)) matches++;
+    }
+    
+    // Jaccard-like similarity
+    const union = new Set([...tokensA, ...tokensB]).size;
+    return union > 0 ? matches / union : 0;
+  }
+
+  /**
+   * Soft warning: emit a hint event for the frontend to display.
+   * The model may or may not respond to this.
+   */
+  private handleSoftWarning(): void {
+    this.loopDetection.lastWarningLevel = 1;
+    
+    // Emit a warning event for the frontend
+    const warningEvent: AgentEvent = {
+      type: "loop_detection",
+      level: "soft",
+      message: "检测到可能的重复循环。如果任务已完成，请总结并停止；如果需要继续，请说明原因。",
+      count: this.loopDetection.consecutiveSimilar,
+    };
+    
+    for (const l of this.listeners) l(warningEvent);
+  }
+
+  /**
+   * Strong warning: emit a more urgent warning.
+   */
+  private handleStrongWarning(): void {
+    this.loopDetection.lastWarningLevel = 2;
+    
+    const warningEvent: AgentEvent = {
+      type: "loop_detection",
+      level: "strong",
+      message: "⚠️ 检测到明显的重复循环模式！请立即停止当前操作，总结已完成的工作。",
+      count: this.loopDetection.consecutiveSimilar,
+    };
+    
+    for (const l of this.listeners) l(warningEvent);
+  }
+
+  /**
+   * Hard stop: abort the current generation and notify user.
+   */
+  private handleHardStop(): void {
+    // Emit hard stop event
+    const stopEvent: AgentEvent = {
+      type: "loop_detection",
+      level: "hard",
+      message: "🚫 检测到死循环，已自动中断。请检查任务状态后手动继续。",
+      count: this.loopDetection.consecutiveSimilar,
+    };
+    
+    for (const l of this.listeners) l(stopEvent);
+    
+    // Abort current generation
+    this.inner.abort().catch(() => {});
+    
+    // Reset detection state
+    this.loopDetection.consecutiveSimilar = 0;
+    this.loopDetection.lastWarningLevel = 0;
+    this.loopDetection.recentThinkings = [];
+  }
+
+  /**
+   * Reset loop detection state (call when user sends a new message).
+   */
+  resetLoopDetection(): void {
+    this.loopDetection.consecutiveSimilar = 0;
+    this.loopDetection.lastWarningLevel = 0;
+    this.loopDetection.recentThinkings = [];
+    this.loopDetection.isDisabled = false;
+  }
+
+  /**
+   * Temporarily disable loop detection (e.g., when user explicitly confirms continuation).
+   */
+  disableLoopDetection(): void {
+    this.loopDetection.isDisabled = true;
+  }
+
+  /**
+   * Re-enable loop detection.
+   */
+  enableLoopDetection(): void {
+    this.loopDetection.isDisabled = false;
   }
 
   onEvent(listener: EventListener): () => void {
@@ -70,6 +265,8 @@ export class AgentSessionWrapper {
 
     switch (type) {
       case "prompt": {
+        // Reset loop detection when user sends a new message
+        this.resetLoopDetection();
         // Fire and forget — events come via subscribe
         const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
         this.inner.prompt(command.message as string, promptImages?.length ? { images: promptImages } : undefined).catch(() => {});

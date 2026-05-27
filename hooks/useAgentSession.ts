@@ -116,6 +116,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [agentPhase, setAgentPhase] = useState<AgentPhase>(null);
   const [isAborting, setIsAborting] = useState(false);
   const [sseState, setSseState] = useState<"connecting" | "connected" | "disconnected">("disconnected");
+  const [loopWarning, setLoopWarning] = useState<{ level: "soft" | "strong" | "hard"; message: string; count: number } | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
@@ -363,6 +364,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           }
         }
         break;
+      case "loop_detection": {
+        const level = event.level as "soft" | "strong" | "hard";
+        const message = event.message as string;
+        const count = event.count as number;
+        setLoopWarning({ level, message, count });
+        
+        // Auto-clear soft warnings after 5 seconds
+        if (level === "soft") {
+          setTimeout(() => setLoopWarning(null), 5000);
+        }
+        // Auto-clear strong warnings after 10 seconds
+        if (level === "strong") {
+          setTimeout(() => setLoopWarning(null), 10000);
+        }
+        // Hard warnings stay until user dismisses
+        break;
+      }
     }
   }, [loadSession, onAgentEnd]);
   handleAgentEventRef.current = handleAgentEvent;
@@ -615,6 +633,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // Load session on mount
   useEffect(() => {
     if (session) {
+      // Don't reload if we already have this session loaded (prevents overwriting user messages on new session creation)
+      if (sessionIdRef.current === session.id && messages.length > 0) {
+        return;
+      }
       sessionIdRef.current = session.id;
       loadSession(session.id, true, true).then((agentState) => {
         if (agentState?.running) {
@@ -701,6 +723,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     return () => clearTimeout(t);
   }, [compactError]);
 
+  const clearLoopWarning = useCallback(() => {
+    setLoopWarning(null);
+  }, []);
+
   return {
     // State
     data, loading, error, activeLeafId, messages, entryIds, streamState,
@@ -711,6 +737,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     isNew,
     isAborting,
     sseState,
+    loopWarning,
     // Refs
     sessionIdRef, eventSourceRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
@@ -718,7 +745,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handleAbortCompaction,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, setActiveLeafId, setData, setMessages,
-    dispatch, setAgentRunning, setForkingEntryId,
+    dispatch, setAgentRunning, setForkingEntryId, clearLoopWarning,
     // Subscriptions
     handleAgentEventRef,
   };
