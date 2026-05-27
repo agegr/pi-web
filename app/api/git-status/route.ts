@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { execSync } from "child_process";
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
-    const { cwd, action, commitMessage, branchName, targetBranch, filePath, rollbackFiles, resolveConflictMode } = (await req.json()) as {
+    const { cwd, action, commitMessage, branchName, targetBranch, filePath, rollbackFiles, resolveConflictMode, commitHash, forcePush } = (await req.json()) as {
       cwd?: string;
       action?: string;
       commitMessage?: string;
@@ -15,24 +15,39 @@ export async function POST(req: Request) {
       filePath?: string;
       rollbackFiles?: string[];
       resolveConflictMode?: "mine" | "theirs";
+      commitHash?: string;
+      forcePush?: boolean;
     };
 
     if (!cwd || !existsSync(cwd)) {
       return NextResponse.json({ error: "Invalid project path/CWD" }, { status: 400 });
     }
 
-    // 1. Get overall state (Local Changes tree, status, branch, logs)
+    // 1. Get overall state (Local Changes tree, status, branch, ahead/behind, logs)
     if (action === "status") {
       try {
         const branchCmd = "git rev-parse --abbrev-ref HEAD";
         const branch = execSync(branchCmd, { cwd, encoding: "utf8" }).trim();
+
+        // Safe fetch ahead/behind counts vs upstream
+        let ahead = 0;
+        let behind = 0;
+        try {
+          const revListOut = execSync("git rev-list --left-right --count @{u}...HEAD", { cwd, encoding: "utf8" }).trim();
+          const parts = revListOut.split(/\s+/);
+          if (parts.length === 2) {
+            behind = parseInt(parts[0], 10);
+            ahead = parseInt(parts[1], 10);
+          }
+        } catch {
+          // Fallback if no upstream/remote tracking is set up
+        }
 
         // Check if there's merge conflicts
         let isMerging = false;
         try {
           execSync("git rev-parse --merge-filter", { cwd, stdio: "ignore" });
         } catch {
-          // If .git/MERGE_HEAD exists, we are merging and might have conflicts
           isMerging = existsSync(`${cwd}/.git/MERGE_HEAD`);
         }
 
@@ -61,6 +76,8 @@ export async function POST(req: Request) {
 
         return NextResponse.json({
           branch,
+          ahead,
+          behind,
           modifiedFiles,
           history,
           isMerging,
@@ -80,7 +97,6 @@ export async function POST(req: Request) {
         const localOut = execSync("git branch --format='%(refname:short)'", { cwd, encoding: "utf8" });
         const localBranches = localOut.split("\n").map((b) => b.trim()).filter(Boolean);
 
-        // Fetch remote branches (filter out HEAD pointer)
         const remoteOut = execSync("git branch -r --format='%(refname:short)'", { cwd, encoding: "utf8" });
         const remoteBranches = remoteOut
           .split("\n")
@@ -116,7 +132,6 @@ export async function POST(req: Request) {
         const out = execSync(`git merge ${targetBranch}`, { cwd, encoding: "utf8" });
         return NextResponse.json({ success: true, message: out.trim() });
       } catch (err: any) {
-        // If merge failed due to conflicts, send conflict status to UI
         const errMessage = err?.message || "";
         if (errMessage.toLowerCase().includes("conflict") || errMessage.toLowerCase().includes("failed")) {
           return NextResponse.json({
@@ -151,7 +166,6 @@ export async function POST(req: Request) {
       }
       try {
         for (const file of rollbackFiles) {
-          // Checkout file from HEAD to discard edits
           execSync(`git checkout HEAD -- "${file}"`, { cwd });
           try {
             execSync(`git reset HEAD -- "${file}"`, { cwd });
@@ -166,7 +180,8 @@ export async function POST(req: Request) {
     // 7. Push / Fetch / Pull
     if (action === "push") {
       try {
-        const out = execSync("git push", { cwd, encoding: "utf8" });
+        const flag = forcePush ? " -f" : "";
+        const out = execSync(`git push${flag}`, { cwd, encoding: "utf8" });
         return NextResponse.json({ success: true, message: out.trim() });
       } catch (err: any) {
         return NextResponse.json({ error: "Push failed", details: err?.message }, { status: 500 });
@@ -201,7 +216,6 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "filePath and resolveConflictMode required" }, { status: 400 });
       }
       try {
-        // Resolve using checkout --ours or --theirs
         const sideFlag = resolveConflictMode === "mine" ? "--ours" : "--theirs";
         execSync(`git checkout ${sideFlag} -- "${filePath}"`, { cwd });
         execSync(`git add "${filePath}"`, { cwd });
@@ -211,7 +225,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // 9. Read uncommitted file diff vs HEAD (Inline Diff API)
+    // 9. Read uncommitted file diff vs HEAD (Inline Diff API) OR Commit vs Commit-parent Diff
     if (action === "diff") {
       if (!filePath) {
         return NextResponse.json({ error: "filePath required" }, { status: 400 });
@@ -222,19 +236,27 @@ export async function POST(req: Request) {
           return NextResponse.json({ oldContent: "二进制文件无法预览 Diff\n(Binary file changes cannot be compared textually)", newContent: "二进制文件无法预览 Diff\n(Binary file)", filePath });
         }
 
-        // Fetch original from HEAD
         let oldContent = "";
-        try {
-          oldContent = execSync(`git show HEAD:"${filePath}"`, { cwd, encoding: "utf8" });
-        } catch {
-          // File might be newly created untracked, thus empty under HEAD
-        }
-
         let newContent = "";
-        try {
-          newContent = readFileSync(`${cwd}/${filePath}`, "utf8");
-        } catch {
-          // File might be deleted locally
+
+        if (commitHash) {
+          // DIFF OF A SPECIFIC HISTORICAL COMMIT (commitHash vs compile parentHash)
+          try {
+            oldContent = execSync(`git show ${commitHash}~1:"${filePath}"`, { cwd, encoding: "utf8" });
+          } catch {
+            // Might be first commit, older state doesn't exist
+          }
+          try {
+            newContent = execSync(`git show ${commitHash}:"${filePath}"`, { cwd, encoding: "utf8" });
+          } catch {}
+        } else {
+          // DIFF OF CURRENT LOCAL CHANGES
+          try {
+            oldContent = execSync(`git show HEAD:"${filePath}"`, { cwd, encoding: "utf8" });
+          } catch {}
+          try {
+            newContent = readFileSync(`${cwd}/${filePath}`, "utf8");
+          } catch {}
         }
 
         return NextResponse.json({ oldContent, newContent, filePath });
@@ -251,7 +273,6 @@ export async function POST(req: Request) {
       try {
         const out = execSync(`git show --name-status --oneline ${branchName}`, { cwd, encoding: "utf8" });
         const lines = out.split("\n").filter(Boolean);
-        // Skip first line representing commit title
         const list = lines.slice(1).map((line) => {
           const parts = line.split(/\s+/);
           return { status: parts[0], file: parts.slice(1).join(" ") };
@@ -259,6 +280,32 @@ export async function POST(req: Request) {
         return NextResponse.json({ files: list });
       } catch (err: any) {
         return NextResponse.json({ error: "Failed to load files for this commit", details: err?.message }, { status: 500 });
+      }
+    }
+
+    // 11. Delete Local branch
+    if (action === "delete-branch") {
+      if (!branchName) {
+        return NextResponse.json({ error: "Branch name is required to delete" }, { status: 400 });
+      }
+      try {
+        const out = execSync(`git branch -D ${branchName}`, { cwd, encoding: "utf8" });
+        return NextResponse.json({ success: true, message: out.trim() });
+      } catch (err: any) {
+        return NextResponse.json({ error: "Delete branch failed", details: err?.message }, { status: 500 });
+      }
+    }
+
+    // 12. Create local branch
+    if (action === "create-branch") {
+      if (!branchName) {
+        return NextResponse.json({ error: "New branch name is required" }, { status: 400 });
+      }
+      try {
+        const out = execSync(`git checkout -b ${branchName}`, { cwd, encoding: "utf8" });
+        return NextResponse.json({ success: true, message: out.trim() });
+      } catch (err: any) {
+        return NextResponse.json({ error: "Create branch failed", details: err?.message }, { status: 500 });
       }
     }
 
