@@ -21,8 +21,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No changes to describe" }, { status: 400 });
     }
 
-    // Truncate diff if too long (keep first ~12K chars)
-    const maxLen = 12000;
+    // Truncate diff if too long (keep first ~30K chars)
+    const maxLen = 30000;
     const truncated = diff.length > maxLen ? diff.slice(0, maxLen) + "\n... (truncated)" : diff;
 
     // Read models config
@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
             content: `Generate a commit message for this diff:\n\n${truncated}`,
           },
         ],
-        max_tokens: 300,
+        max_tokens: 800,
         temperature: 0.3,
       }),
     });
@@ -89,10 +89,16 @@ export async function POST(req: NextRequest) {
     }
 
     const data = await res.json();
-    const message = data.choices?.[0]?.message?.content?.trim() || "";
+    const choice = data.choices?.[0];
+    const message = choice?.message?.content?.trim() || "";
+    const finishReason = choice?.finish_reason;
 
     if (!message) {
       return NextResponse.json({ error: "LLM returned empty response" }, { status: 500 });
+    }
+    if (finishReason === "length") {
+      // Response was truncated — still return it but flag it
+      return NextResponse.json({ message, truncated: true });
     }
 
     return NextResponse.json({ message });

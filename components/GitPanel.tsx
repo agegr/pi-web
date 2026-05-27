@@ -344,6 +344,7 @@ export function GitPanel({ cwd }: Props) {
       const data = await res.json();
       if (data.error) { setError(data.error); return; }
       setCommitMessage(data.message || "");
+      if (data.truncated) showNotification("提交日志可能被截断，建议手动补充");
     } catch (err: any) { setError(err?.message || String(err)); }
     finally { setGeneratingMessage(false); }
   };
