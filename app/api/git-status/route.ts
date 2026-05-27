@@ -217,6 +217,11 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "filePath required" }, { status: 400 });
       }
       try {
+        const isBinary = filePath.endsWith(".png") || filePath.endsWith(".jpg") || filePath.endsWith(".jpeg") || filePath.endsWith(".gif") || filePath.endsWith(".webp") || filePath.endsWith(".ico") || filePath.endsWith(".mp3") || filePath.endsWith(".wav");
+        if (isBinary) {
+          return NextResponse.json({ oldContent: "二进制文件无法预览 Diff\n(Binary file changes cannot be compared textually)", newContent: "二进制文件无法预览 Diff\n(Binary file)", filePath });
+        }
+
         // Fetch original from HEAD
         let oldContent = "";
         try {

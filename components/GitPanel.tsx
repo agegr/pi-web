@@ -5,9 +5,6 @@ import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 interface Props {
   cwd: string;
   inline?: boolean;
-  isOpen?: boolean;
-  onClose?: () => void;
-  containerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 interface GitFileInfo {
@@ -29,7 +26,6 @@ interface GitState {
   isClean: boolean;
 }
 
-// Simple Tree representation helper for Local folder files list (7A)
 interface FileTreeNode {
   name: string;
   fullPath: string; // original git path e.g. "components/AppShell.tsx"
@@ -63,7 +59,7 @@ function buildFileTree(files: GitFileInfo[]): FileTreeNode {
   return root;
 }
 
-export function GitPanel({ cwd, inline = true }: Props) {
+export function GitPanel({ cwd }: Props) {
   const [activeSubTab, setActiveSubTab] = useState<"changes" | "branches" | "history">("changes");
   const [gitState, setGitState] = useState<GitState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -112,7 +108,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
         body: JSON.stringify({ cwd, action: "status" }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to load Git status");
+      if (!res.ok) throw new Error(data.error || "获取 Git 状态失败");
       
       if (data.error) {
         setError(data.error);
@@ -126,7 +122,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
           const next = { ...prev };
           for (const f of data.modifiedFiles as GitFileInfo[]) {
             if (next[f.file] === undefined) {
-              next[f.file] = true; // checked by default
+              next[f.file] = true; // Checked by default
             }
           }
           return next;
@@ -151,7 +147,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
         body: JSON.stringify({ cwd, action: "list-branches" }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to load branches");
+      if (!res.ok) throw new Error(data.error || "获取分支列表失败");
       setLocalBranches(data.local || []);
       setRemoteBranches(data.remote || []);
     } catch (err: any) {
@@ -209,8 +205,8 @@ export function GitPanel({ cwd, inline = true }: Props) {
         body: JSON.stringify({ cwd, action: "checkout", branchName: branch }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Checkout failed");
-      showNotification(`Successfully checked out to branch: ${branch}`);
+      if (!res.ok) throw new Error(data.error || "切换分支失败");
+      showNotification(`成功切换至分支: ${branch}`);
       setSelectedBranchForAction(null);
       await fetchGitStatus();
       await fetchBranches();
@@ -223,7 +219,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
 
   const handleMergeBranch = async (branch: string) => {
     if (!cwd) return;
-    if (!window.confirm(`Merge "${branch}" branches into current "${gitState?.branch}" branch?`)) return;
+    if (!window.confirm(`确认将分支 "${branch}" 合并到当前分支 "${gitState?.branch}" 吗？`)) return;
     setBranchLoading(true);
     setError(null);
     try {
@@ -234,11 +230,11 @@ export function GitPanel({ cwd, inline = true }: Props) {
       });
       const data = await res.json();
       if (data.conflicted) {
-        setError("Merge Conflict Occurred! Resolve manually under Changes tab.");
+        setError("发生合并冲突！请在「变更」标签下双击冲突文件进行手动解决。");
         await fetchGitStatus();
       } else {
-        if (!res.ok) throw new Error(data.error || "Merge failed");
-        showNotification(`Merge from "${branch}" successful!`);
+        if (!res.ok) throw new Error(data.error || "合并失败");
+        showNotification(`成功从 "${branch}" 分支合并！`);
         setSelectedBranchForAction(null);
         await fetchGitStatus();
       }
@@ -260,8 +256,8 @@ export function GitPanel({ cwd, inline = true }: Props) {
         body: JSON.stringify({ cwd, action: "fetch" }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Fetch failed");
-      showNotification("Fetch successful! Remote indexes updated.");
+      if (!res.ok) throw new Error(data.error || "拉取失败");
+      showNotification("拉取索引(Fetch)成功！远端索引已同步。");
       if (activeSubTab === "branches") await fetchBranches();
     } catch (err: any) {
       setError(err?.message || String(err));
@@ -281,8 +277,8 @@ export function GitPanel({ cwd, inline = true }: Props) {
         body: JSON.stringify({ cwd, action: "pull" }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Pull failed");
-      showNotification("Pull from upstream repository completed successfully!");
+      if (!res.ok) throw new Error(data.error || "更新(Pull)失败");
+      showNotification("保存到本地并更新成功！");
       await fetchGitStatus();
     } catch (err: any) {
       setError(err?.message || String(err));
@@ -302,8 +298,8 @@ export function GitPanel({ cwd, inline = true }: Props) {
         body: JSON.stringify({ cwd, action: "push" }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Push failed");
-      showNotification("Push complete! Branches synchronized with origin.");
+      if (!res.ok) throw new Error(data.error || "推送(Push)失败");
+      showNotification("成功推送到远程仓库分支！");
     } catch (err: any) {
       setError(err?.message || String(err));
     } finally {
@@ -318,7 +314,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
     // Check which files are checked to build stage
     const selectedFiles = Object.keys(checkedFiles).filter((f) => checkedFiles[f]);
     if (selectedFiles.length === 0) {
-      alert("Please select at least one file to commit");
+      alert("请至少勾选一个要提交的文件");
       return;
     }
 
@@ -331,9 +327,9 @@ export function GitPanel({ cwd, inline = true }: Props) {
         body: JSON.stringify({ cwd, action: "commit", commitMessage }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Commit failed");
+      if (!res.ok) throw new Error(data.error || "提交失败");
 
-      showNotification(`Saved commit: "${commitMessage}" successfully!`);
+      showNotification(`成功保存提交: "${commitMessage}"！`);
       setCommitMessage("");
       setSelectedDiffFile(null);
       await fetchGitStatus();
@@ -348,7 +344,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
   const handleRollbackSelected = async () => {
     const selectedFiles = Object.keys(checkedFiles).filter((f) => checkedFiles[f]);
     if (selectedFiles.length === 0) return;
-    if (!window.confirm(`Discard all local unstaged changes for the ${selectedFiles.length} selected files?`)) return;
+    if (!window.confirm(`确认舍弃这 ${selectedFiles.length} 个勾选文件的本地修改吗？此操作无法恢复！`)) return;
 
     setLoading(true);
     setError(null);
@@ -359,8 +355,8 @@ export function GitPanel({ cwd, inline = true }: Props) {
         body: JSON.stringify({ cwd, action: "rollback", rollbackFiles: selectedFiles }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Discard changes failed");
-      showNotification("Selected alterations rolled back successfully!");
+      if (!res.ok) throw new Error(data.error || "撤销修改失败");
+      showNotification("选中的本地更改已全部舍弃！");
       setSelectedDiffFile(null);
       setCheckedFiles({});
       await fetchGitStatus();
@@ -383,8 +379,8 @@ export function GitPanel({ cwd, inline = true }: Props) {
         body: JSON.stringify({ cwd, action: "diff", filePath }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Diff load failed");
-      setDiffData({ oldContent: data.oldContent || "", newContent: data.newContent || "" });
+      if (!res.ok) throw new Error(data.error || "获取对比差异失败");
+      setDiffData({ oldContent: data.oldContent ?? "", newContent: data.newContent ?? "" });
     } catch (err: any) {
       console.error(err);
     } finally {
@@ -402,8 +398,8 @@ export function GitPanel({ cwd, inline = true }: Props) {
         body: JSON.stringify({ cwd, action: "resolve-conflict", filePath, resolveConflictMode: mode }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Conflict resolution failed");
-      showNotification(`Conflict in ${filePath} resolved!`);
+      if (!res.ok) throw new Error(data.error || "冲突自动解决失败");
+      showNotification(`文件冲突已成功解决！已选择保留${mode === "mine" ? "我的修改" : "对方的修改"}`);
       // Update Diff details
       await triggerDiffView(filePath);
       await fetchGitStatus();
@@ -424,7 +420,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
         body: JSON.stringify({ cwd, action: "commit-files", branchName: commitHash }), // reuse name
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Commit files load failed");
+      if (!res.ok) throw new Error(data.error || "获取历史提交文件清单失败");
       setCommitDetailsFiles(data.files || []);
     } catch (err) {
       console.error(err);
@@ -460,11 +456,11 @@ export function GitPanel({ cwd, inline = true }: Props) {
               onMouseEnter={(e) => e.currentTarget.style.background = "var(--bg-hover)"}
               onMouseLeave={(e) => e.currentTarget.style.background = "none"}
             >
-              {/* Triangle toggle */}
+              {/* Folder angle toggle arrow */}
               <span
                 style={{
                   fontSize: 8,
-                  marginRight: 4,
+                  marginRight: 6,
                   transform: isExpanded ? "rotate(90deg)" : "none",
                   transition: "transform 0.1s",
                   display: "inline-block",
@@ -481,12 +477,22 @@ export function GitPanel({ cwd, inline = true }: Props) {
       } else {
         const file = child.fileEntry!;
         const isChecked = !!checkedFiles[file.file];
-        const statusType = file.status.trim().toUpperCase();
+        const rawStatus = file.status.trim();
+        const statusType = rawStatus.toUpperCase();
         
         let statusColor = "var(--text-dim)";
-        if (statusType.includes("M")) statusColor = "#eab308";
-        else if (statusType.includes("A") || statusType.includes("??")) statusColor = "#22c55e";
-        else if (statusType.includes("D")) statusColor = "#ef4444";
+        let statusLabel = rawStatus;
+
+        if (statusType === "M") {
+          statusColor = "#eab308";
+          statusLabel = "已修改";
+        } else if (statusType === "A" || statusType === "??") {
+          statusColor = "#22c55e";
+          statusLabel = "未追踪";
+        } else if (statusType === "D") {
+          statusColor = "#ef4444";
+          statusLabel = "已删除";
+        }
 
         const isDoubleClicked = selectedDiffFile === file.file;
 
@@ -508,7 +514,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
             }}
             onMouseEnter={(e) => { if (!isDoubleClicked) e.currentTarget.style.background = "var(--bg-hover)"; }}
             onMouseLeave={(e) => { if (!isDoubleClicked) e.currentTarget.style.background = "none"; }}
-            title="Double click to review inline changes diff (对比)"
+            title="双击进行行级 Diff 代码差异比对"
           >
             {/* Checked Box */}
             <input
@@ -519,8 +525,8 @@ export function GitPanel({ cwd, inline = true }: Props) {
               style={{ marginRight: 6, width: 12, height: 12, cursor: "pointer" }}
             />
             {/* Status symbol badge */}
-            <span style={{ fontSize: 10, fontWeight: 700, width: 18, color: statusColor, marginRight: 2 }}>
-              {file.isConflict ? "⚠️" : file.status}
+            <span style={{ fontSize: 9.5, fontWeight: 700, width: 36, color: statusColor, marginRight: 2, textTransform: "uppercase" }}>
+              {file.isConflict ? "冲突" : statusLabel}
             </span>
             <span style={{ flex: 1, fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text)" }}>
               {child.name}
@@ -585,7 +591,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
             cursor: "pointer",
           }}
         >
-          📝 Changes
+          变更清单
         </button>
         <button
           onClick={() => setActiveSubTab("branches")}
@@ -600,7 +606,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
             cursor: "pointer",
           }}
         >
-          🌿 Branches
+          分支管理
         </button>
         <button
           onClick={() => setActiveSubTab("history")}
@@ -615,7 +621,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
             cursor: "pointer",
           }}
         >
-          📜 History
+          提交日志
         </button>
 
         {/* Global pull triggers in header bar */}
@@ -623,7 +629,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
           <button
             onClick={fetchGitStatus}
             disabled={loading}
-            title="Refresh Git State"
+            title="刷新 Git 状态"
             style={{
               padding: "2px 5px", fontSize: 10, background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", borderRadius: 3
             }}
@@ -661,13 +667,13 @@ export function GitPanel({ cwd, inline = true }: Props) {
                   color: "var(--text-muted)",
                 }}
               >
-                {filesCheckedCount === (gitState?.modifiedFiles.length ?? 0) ? "Deselect All" : "Select All"}
+                {filesCheckedCount === (gitState?.modifiedFiles.length ?? 0) ? "取消全选" : "全选文件"}
               </button>
 
               <button
                 onClick={handleRollbackSelected}
                 disabled={filesCheckedCount === 0 || loading}
-                title="Discard uncommitted deletions/edits in checked files"
+                title="舍弃勾选文件本轮发生的所有代码修改"
                 style={{
                   fontSize: 10.5,
                   padding: "3px 6px",
@@ -678,24 +684,24 @@ export function GitPanel({ cwd, inline = true }: Props) {
                   color: "#ef4444",
                 }}
               >
-                Rollback({filesCheckedCount})
+                撤销修改({filesCheckedCount})
               </button>
 
               <div style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-dim)", fontWeight: 500 }}>
-                {gitState?.branch && <span>branch: <strong style={{ color: "var(--accent)" }}>{gitState.branch}</strong></span>}
+                {gitState?.branch && <span>当前分支: <strong style={{ color: "var(--accent)" }}>{gitState.branch}</strong></span>}
               </div>
             </div>
 
             {/* Tree View changes list (7A) */}
             <div style={{ flex: selectedDiffFile ? 0.4 : 1, minHeight: 90, overflowY: "auto", padding: "6px 4px" }}>
               {loading && gitState === null ? (
-                <div style={{ padding: 12, fontSize: 11, color: "var(--text-dim)", fontStyle: "italic" }} className="animate-pulse">Loading modified files tree...</div>
+                <div style={{ padding: 12, fontSize: 11, color: "var(--text-dim)", fontStyle: "italic" }} className="animate-pulse">正在解析本地文件夹树并加载修改文件...</div>
               ) : gitState?.isClean ? (
                 <div style={{ padding: 18, textAlign: "center", display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" />
                   </svg>
-                  <span style={{ fontSize: 11.5, color: "var(--text-dim)" }}>Working tree completely clean!</span>
+                  <span style={{ fontSize: 11.5, color: "var(--text-dim)" }}>本地没有任何改动，干净！</span>
                 </div>
               ) : (
                 renderTreeNodes(fileTreeRoot)
@@ -707,7 +713,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
               <form onSubmit={handleCommit} style={{ padding: "6px 8px", borderTop: "1px solid var(--border)", display: "flex", gap: 4, background: "var(--bg-panel)", flexShrink: 0 }}>
                 <input
                   type="text"
-                  placeholder={`Commit ${filesCheckedCount} files...`}
+                  placeholder={`提交勾选的 ${filesCheckedCount} 个文件...`}
                   value={commitMessage}
                   required
                   disabled={committing || filesCheckedCount === 0}
@@ -723,7 +729,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
                     fontSize: 11, fontWeight: 700, padding: "0 10px", background: "var(--accent)", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", opacity: filesCheckedCount === 0 ? 0.5 : 1
                   }}
                 >
-                  {committing ? "..." : "Commit"}
+                  {committing ? "..." : "保存提交"}
                 </button>
               </form>
             )}
@@ -733,7 +739,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
               <div style={{ flex: 0.6, borderTop: "2px solid var(--border)", display: "flex", flexDirection: "column", background: "var(--bg)", overflow: "hidden" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--bg-panel)", padding: "4px 8px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
                   <span style={{ fontSize: 10.5, fontFamily: "var(--font-mono)", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text)" }}>
-                    ✏️ Diff: {selectedDiffFile}
+                    对比差异 (Diff): {selectedDiffFile}
                   </span>
                   <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                     {gitState?.modifiedFiles.find((f) => f.file === selectedDiffFile)?.isConflict && (
@@ -742,13 +748,13 @@ export function GitPanel({ cwd, inline = true }: Props) {
                           onClick={() => handleConflictResolve(selectedDiffFile, "mine")}
                           style={{ padding: "2px 6px", fontSize: 9.5, background: "#22c55e", border: "none", color: "#fff", borderRadius: 3, cursor: "pointer" }}
                         >
-                          🟢 KEEP OURS (我的)
+                          保留我的修改
                         </button>
                         <button
                           onClick={() => handleConflictResolve(selectedDiffFile, "theirs")}
                           style={{ padding: "2px 6px", fontSize: 9.5, background: "var(--accent)", border: "none", color: "#fff", borderRadius: 3, cursor: "pointer" }}
                         >
-                          🔵 KEEP THEIRS (他们的)
+                          保留对方修改
                         </button>
                       </>
                     )}
@@ -764,9 +770,9 @@ export function GitPanel({ cwd, inline = true }: Props) {
                 {/* Diff comparative code list viewport */}
                 <div style={{ flex: 1, overflowY: "auto", padding: "4px", background: "var(--bg)", fontFamily: "var(--font-mono)", fontSize: 10.5, lineHeight: 1.4 }}>
                   {diffLoading ? (
-                    <div style={{ padding: 12, color: "var(--text-dim)", fontStyle: "italic" }} className="animate-pulse">Loading diff lines comparison...</div>
+                    <div style={{ padding: 12, color: "var(--text-dim)", fontStyle: "italic" }} className="animate-pulse">正在比对行级代码 Diff 差异...</div>
                   ) : computedDiffLines.length === 0 ? (
-                    <div style={{ padding: 12, color: "var(--text-dim)", fontStyle: "italic" }}>No diff line content changed. Maybe newly added file.</div>
+                    <div style={{ padding: 12, color: "var(--text-dim)", fontStyle: "italic" }}>未发现变化（或者是新加文件、二进制文件等）</div>
                   ) : (
                     computedDiffLines.map((line, idx) => {
                       let lineBg = "transparent";
@@ -806,7 +812,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
           <div style={{ display: "flex", flexDirection: "column", height: "100%", overflowY: "auto", padding: "8px 10px" }}>
             
             {/* Quick action bar */}
-            <div style={{ display: "flex", gap: 5, marginBottom: 12 }} title="Upstream Pull, Fetch and Push commands">
+            <div style={{ display: "flex", gap: 5, marginBottom: 12 }} title="远程仓库同步拉取与推送更新">
               <button
                 onClick={handlePull}
                 disabled={pulling || pushing || fetching}
@@ -814,7 +820,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
                   flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 3, padding: "6px 0", fontSize: 11, border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg-hover)", color: "var(--text)", cursor: "pointer"
                 }}
               >
-                ⬇️ Pull
+                拉取更新 (Pull)
               </button>
               <button
                 onClick={handleFetch}
@@ -823,7 +829,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
                   flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 3, padding: "6px 0", fontSize: 11, border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg-hover)", color: "var(--text)", cursor: "pointer"
                 }}
               >
-                🔄 Fetch
+                获取远端 (Fetch)
               </button>
               <button
                 onClick={handlePush}
@@ -832,29 +838,29 @@ export function GitPanel({ cwd, inline = true }: Props) {
                   flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 3, padding: "6px 0", fontSize: 11, border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg-hover)", color: "var(--text)", cursor: "pointer"
                 }}
               >
-                ⬆️ Push
+                推送更改 (Push)
               </button>
             </div>
 
             {/* Merge Conflict Warning Banner */}
             {gitState?.isMerging && (
               <div style={{ padding: "8px 10px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 6, marginBottom: 10 }}>
-                <div style={{ fontSize: 11, fontWeight: "bold", color: "#ef4444" }}>⚠️ Active Merge Conflict!</div>
+                <div style={{ fontSize: 11, fontWeight: "bold", color: "#ef4444" }}>⚠️ 当前存在未合并冲突！</div>
                 <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
-                  Go to Changes tab, double click conflicted files and click ours/theirs flags to resolve them.
+                  请前往「变更清单」，双击冲突中的文件，点击“保留我的修改”或“保留对方修改”来秒解决冲突。
                 </div>
               </div>
             )}
 
             {branchLoading ? (
-              <div style={{ padding: 12, fontSize: 11, color: "var(--text-dim)", fontStyle: "italic" }} className="animate-pulse">Fetching branches topology list...</div>
+              <div style={{ padding: 12, fontSize: 11, color: "var(--text-dim)", fontStyle: "italic" }} className="animate-pulse">Loading branches...</div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 
                 {/* Local Branches list */}
                 <div>
                   <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-muted)", marginBottom: 4 }}>
-                    Local Branch列表 ({localBranches.length})
+                    本地分支 ({localBranches.length})
                   </div>
                   {localBranches.map((lbl) => {
                     const isCurrent = lbl === gitState?.branch;
@@ -890,13 +896,13 @@ export function GitPanel({ cwd, inline = true }: Props) {
                               onClick={(e) => { e.stopPropagation(); handleCheckoutBranch(lbl); }}
                               style={{ padding: "2px 6px", fontSize: 9.5, background: "var(--accent)", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}
                             >
-                              Checkout
+                              切换分支 Checkout
                             </button>
                             <button
                               onClick={(e) => { e.stopPropagation(); handleMergeBranch(lbl); }}
                               style={{ padding: "2px 6px", fontSize: 9.5, background: "var(--bg-hover)", border: "1px solid var(--border)", color: "var(--text)", borderRadius: 4, cursor: "pointer" }}
                             >
-                              Merge into Current
+                              合并到当前分支 Merge
                             </button>
                           </div>
                         )}
@@ -908,7 +914,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
                 {/* Remote Branches list */}
                 <div>
                   <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-muted)", marginBottom: 4 }}>
-                    Remotes/Origin ({remoteBranches.length})
+                    远程分支列表 ({remoteBranches.length})
                   </div>
                   {remoteBranches.map((rbl) => {
                     const isRemoteFocused = selectedBranchForAction === rbl;
@@ -937,7 +943,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
                             onClick={(e) => { e.stopPropagation(); handleCheckoutBranch(rbl); }}
                             style={{ padding: "2px 6px", fontSize: 9.5, background: "var(--accent)", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer" }}
                           >
-                            Checkout Local
+                            获取到本地分支
                           </button>
                         )}
                       </div>
@@ -955,7 +961,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
             {/* 6A: History Log list Viewport (Top half) */}
             <div style={{ flex: selectedCommitHash ? 0.45 : 1, minHeight: 90, overflowY: "auto", borderBottom: selectedCommitHash ? "2px solid var(--border)" : "none", padding: "6px" }}>
               {loading && gitState === null ? (
-                <div style={{ padding: 12, fontSize: 11, color: "var(--text-dim)", fontStyle: "italic" }} className="animate-pulse">Loading commits stream...</div>
+                <div style={{ padding: 12, fontSize: 11, color: "var(--text-dim)", fontStyle: "italic" }} className="animate-pulse">Loading commits...</div>
               ) : (
                 gitState?.history.map((commit, i) => {
                   const isFocused = selectedCommitHash === commit.hash;
@@ -1004,7 +1010,7 @@ export function GitPanel({ cwd, inline = true }: Props) {
               <div style={{ flex: 0.55, display: "flex", flexDirection: "column", background: "var(--bg)", overflow: "hidden" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--bg-panel)", padding: "4px 8px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
                   <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-muted)" }}>
-                    📦 Commit files: <strong style={{ color: "var(--accent)", fontFamily: "var(--font-mono)" }}>{selectedCommitHash}</strong>
+                    提交所改动的文件清单: <strong style={{ color: "var(--accent)", fontFamily: "var(--font-mono)" }}>{selectedCommitHash}</strong>
                   </span>
                   <button
                     onClick={() => setSelectedCommitHash(null)}
@@ -1018,14 +1024,23 @@ export function GitPanel({ cwd, inline = true }: Props) {
                   {commitFilesLoading ? (
                     <div style={{ padding: 12, color: "var(--text-dim)", fontStyle: "italic" }} className="animate-pulse">Loading commit file list...</div>
                   ) : commitDetailsFiles.length === 0 ? (
-                    <div style={{ padding: 12, color: "var(--text-dim)", fontStyle: "italic" }}>No details found for this commit</div>
+                    <div style={{ padding: 12, color: "var(--text-dim)", fontStyle: "italic" }}>对应历史提交未发现修改文件</div>
                   ) : (
                     commitDetailsFiles.map((file, idx) => {
                       const stat = file.status.trim().toUpperCase();
                       let color = "var(--text-muted)";
-                      if (stat.includes("M")) color = "#eab308";
-                      else if (stat.includes("A")) color = "#22c55e";
-                      else if (stat.includes("D")) color = "#ef4444";
+                      let chLabel = file.status;
+
+                      if (stat === "M") {
+                        color = "#eab308";
+                        chLabel = "已修改";
+                      } else if (stat === "A") {
+                        color = "#22c55e";
+                        chLabel = "已新增";
+                      } else if (stat === "D") {
+                        color = "#ef4444";
+                        chLabel = "已删除";
+                      }
 
                       return (
                         <div
@@ -1039,8 +1054,8 @@ export function GitPanel({ cwd, inline = true }: Props) {
                             fontFamily: "var(--font-mono)",
                           }}
                         >
-                          <span style={{ width: 18, fontWeight: 700, fontSize: 10, color }}>
-                            {file.status}
+                          <span style={{ width: 36, fontWeight: 700, fontSize: 10, color }}>
+                            {chLabel}
                           </span>
                           <span style={{ color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={file.file}>
                             {file.file}
