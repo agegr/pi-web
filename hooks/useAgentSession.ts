@@ -214,10 +214,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [setToolPresetState]);
 
+  const sseReconnectAttemptRef = useRef<number>(0);
+  const sseReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const connectEvents = useCallback((sid: string) => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
+    }
+    if (sseReconnectTimerRef.current) {
+      clearTimeout(sseReconnectTimerRef.current);
+      sseReconnectTimerRef.current = null;
     }
     setSseState("connecting");
     const es = new EventSource(`/api/agent/${encodeURIComponent(sid)}/events`);
@@ -225,6 +232,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
     es.onopen = () => {
       setSseState("connected");
+      sseReconnectAttemptRef.current = 0; // 重置重连计数器
     };
 
     es.onmessage = (e) => {
@@ -237,13 +245,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
     es.onerror = () => {
       setSseState("disconnected");
-      if (eventSourceRef.current === es && agentRunningRef.current) {
+      if (eventSourceRef.current === es) {
         es.close();
         eventSourceRef.current = null;
-        setSseState("connecting");
-        setTimeout(() => {
-          if (agentRunningRef.current) connectEvents(sid);
-        }, 1000);
+
+        // 仅当 agent 处于运行状态，或者虽然暂时连接不上但我们希望主动保活（例如未显式结束的流）时进行指数退避重连
+        if (agentRunningRef.current) {
+          const attempt = sseReconnectAttemptRef.current;
+          // 采用指数退避：1s, 2s, 4s, 8s, 16s... 最大延迟 16 秒
+          const delay = Math.min(1000 * Math.pow(2, attempt), 16000);
+          
+          sseReconnectAttemptRef.current += 1;
+          setSseState("connecting");
+
+          sseReconnectTimerRef.current = setTimeout(() => {
+            if (agentRunningRef.current) connectEvents(sid);
+          }, delay);
+        }
       }
     };
   }, []);

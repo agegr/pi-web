@@ -11,6 +11,7 @@ interface Props {
 }
 
 const MINIMAP_WIDTH = 36;
+const COLLAPSED_MINIMAP_WIDTH = 12;
 const TOOLTIP_HEIGHT = 44; // Adjusted for double-line layout
 
 function getMessagePreview(msg: AgentMessage | Partial<AgentMessage>): string {
@@ -73,10 +74,33 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
   const [nodes, setNodes] = useState<NodeInfo[]>([]);
   const [minimapHovered, setMinimapHovered] = useState(false);
   const [mouseYRatio, setMouseYRatio] = useState<number | null>(null);
+
+  // Persistent user preference for closing/collapsing minimap list
+  const [expanded, setExpanded] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem("pi-minimap-expanded");
+        return stored !== "false"; // Default true
+      } catch {}
+    }
+    return true;
+  });
+
   const draggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const nodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const nodeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastUpdateNodesRef = useRef<number>(0);
+  const scrollUpdateFrameRef = useRef<number | null>(null);
+
+  const toggleMinimap = useCallback(() => {
+    setExpanded((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("pi-minimap-expanded", String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
 
   const allMessages = useMemo(
     () => (streamingMessage ? [...messages, streamingMessage] : messages) as (AgentMessage | Partial<AgentMessage>)[],
@@ -85,23 +109,28 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
   const allMessagesRef = useRef(allMessages);
   allMessagesRef.current = allMessages;
 
-  // 1. FAST scroll state synchronizer (No layout thrashing / bounding box triggers)
+  // 1. FAST scroll state synchronizer inside requestAnimationFrame (Lag prevention!)
   const updateScrollState = useCallback(() => {
-    const scrollEl = scrollContainer.current;
-    if (!scrollEl) return;
+    if (scrollUpdateFrameRef.current !== null) return;
 
-    const totalH = scrollEl.scrollHeight;
-    const clientH = scrollEl.clientHeight;
-    const scrollable = totalH - clientH;
+    scrollUpdateFrameRef.current = requestAnimationFrame(() => {
+      scrollUpdateFrameRef.current = null;
+      const scrollEl = scrollContainer.current;
+      if (!scrollEl) return;
 
-    setVisible(scrollable > 20);
-    if (scrollable <= 0) {
-      setScrollRatio(0);
-      setViewportRatio(1);
-    } else {
-      setScrollRatio(scrollEl.scrollTop / scrollable);
-      setViewportRatio(clientH / totalH);
-    }
+      const totalH = scrollEl.scrollHeight;
+      const clientH = scrollEl.clientHeight;
+      const scrollable = totalH - clientH;
+
+      setVisible(scrollable > 20);
+      if (scrollable <= 0) {
+        setScrollRatio(0);
+        setViewportRatio(1);
+      } else {
+        setScrollRatio(scrollEl.scrollTop / scrollable);
+        setViewportRatio(clientH / totalH);
+      }
+    });
   }, [scrollContainer]);
 
   // 2. SLOW node measurer throttled/debounced to keep the browser responsive, especially during message streams
@@ -192,6 +221,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
       el.removeEventListener("scroll", handleScroll);
       ro.disconnect();
       if (nodeTimeoutRef.current) clearTimeout(nodeTimeoutRef.current);
+      if (scrollUpdateFrameRef.current) cancelAnimationFrame(scrollUpdateFrameRef.current);
     };
   }, [scrollContainer, updateScrollState, throttleUpdateNodes]);
 
@@ -211,7 +241,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
   }, [scrollContainer, viewportRatio]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!visible) return;
+    if (!visible || !expanded) return;
 
     const el = scrollContainer.current;
     if (!el) return;
@@ -258,7 +288,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [visible, scrollContainer]);
+  }, [visible, expanded, scrollContainer]);
 
   if (!visible) return null;
 
@@ -282,11 +312,12 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
       onMouseEnter={() => setMinimapHovered(true)}
       onMouseLeave={() => { setMinimapHovered(false); setMouseYRatio(null); }}
       onMouseMove={(e) => {
+        if (!expanded) return;
         const rect = e.currentTarget.getBoundingClientRect();
         setMouseYRatio((e.clientY - rect.top) / rect.height);
       }}
       style={{
-        width: MINIMAP_WIDTH,
+        width: expanded ? MINIMAP_WIDTH : COLLAPSED_MINIMAP_WIDTH,
         flexShrink: 0,
         position: "relative",
         cursor: "default",
@@ -294,159 +325,203 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
         borderLeft: "1px solid var(--border)",
         background: "var(--bg-panel)",
         overflow: "visible",
+        transition: "width 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
       }}
     >
-      {/* Viewport indicator */}
-      <div
+      {/* Absolute Fold/Unfolds Floating Button */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleMinimap();
+        }}
+        title={expanded ? "收起缩略图 (Hide Minimap)" : "展开缩略图 (Show Minimap)"}
         style={{
           position: "absolute",
-          left: 0,
-          right: 0,
-          top: `${viewportBoxTop}%`,
-          height: `${viewportBoxHeight}%`,
-          background: "rgba(100, 100, 100, 0.12)",
-          borderTop: "1px solid rgba(100, 100, 100, 0.25)",
-          borderBottom: "1px solid rgba(100, 100, 100, 0.25)",
-          pointerEvents: "none",
-          zIndex: 1,
+          top: 6,
+          left: "50%",
+          transform: "translateX(-50%)",
+          width: 14,
+          height: 14,
+          borderRadius: 3,
+          background: "var(--bg-hover)",
+          border: "1px solid var(--border)",
+          color: "var(--text-dim)",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 8,
+          zIndex: 10,
+          opacity: minimapHovered ? 0.9 : 0.2,
+          transition: "opacity 0.15s, background 0.1s",
         }}
-      />
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "var(--bg-selected)";
+          e.currentTarget.style.color = "var(--text-muted)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "var(--bg-hover)";
+          e.currentTarget.style.color = "var(--text-dim)";
+        }}
+      >
+        {expanded ? "→" : "←"}
+      </button>
 
-      {/* Message nodes */}
-      {nodes.map((node) => {
-        const color = getNodeColor(node.msg);
-        const isNearest = minimapHovered && nearestIndex === node.index;
-        const isUser = node.msg.role === "user";
-        const dotTop = node.topRatio * 100;
-
-        return (
+      {expanded && (
+        <>
+          {/* Viewport indicator */}
           <div
-            key={node.index}
-            onMouseDown={(e) => {
-              // Click dot directly to scroll smoothly to center of that message
-              e.stopPropagation();
-              e.preventDefault();
-              const el = messageRefs.current?.[node.refIndex];
-              if (el) {
-                el.scrollIntoView({ behavior: "smooth", block: "center" });
-              }
-            }}
             style={{
               position: "absolute",
-              top: `${dotTop}%`,
-              transform: "translate(-50%, -50%)",
-              left: "50%",
-              width: "16px",
-              height: "16px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              zIndex: 3,
+              left: 0,
+              right: 0,
+              top: `${viewportBoxTop}%`,
+              height: `${viewportBoxHeight}%`,
+              background: "rgba(100, 100, 100, 0.12)",
+              borderTop: "1px solid rgba(100, 100, 100, 0.25)",
+              borderBottom: "1px solid rgba(100, 100, 100, 0.25)",
+              pointerEvents: "none",
+              zIndex: 1,
             }}
-          >
-            {/* Dot */}
-            <div
-              style={{
-                width: isUser ? 8 : 6,
-                height: isUser ? 8 : 6,
-                borderRadius: isUser ? 2 : "50%",
-                background: isNearest ? color.border : color.bg + "44", // Semi-transparent when not nearest, beautifully highlighting hierarchy
-                border: `1.5px solid ${color.border}`,
-                flexShrink: 0,
-                transition: "transform 0.15s, background-color 0.15s",
-                transform: isNearest ? "scale(1.5)" : "scale(1)",
-                boxShadow: isNearest ? "0 0 6px var(--accent)" : "none",
-              }}
-            />
-          </div>
-        );
-      })}
+          />
 
-      {/* Center vertical gutter line */}
-      <div
-        style={{
-          position: "absolute",
-          left: "50%",
-          top: 0,
-          bottom: 0,
-          width: 1,
-          background: "var(--border)",
-          transform: "translateX(-50%)",
-          zIndex: 0,
-          opacity: 0.5,
-        }}
-      />
+          {/* Message nodes */}
+          {nodes.map((node) => {
+            const color = getNodeColor(node.msg);
+            const isNearest = minimapHovered && nearestIndex === node.index;
+            const isUser = node.msg.role === "user";
+            const dotTop = node.topRatio * 100;
 
-      {/* Single, non-overlapping active hover tooltip */}
-      {minimapHovered && nearestNode && (
-        (() => {
-          const preview = getMessagePreview(nearestNode.msg);
-          if (!preview) return null;
-          const color = getNodeColor(nearestNode.msg);
-          const isUser = nearestNode.msg.role === "user";
-
-          // Calculate precise pixel location matching mouse view height and constrain to bounds
-          const idealTopPx = nearestNode.topRatio * minimapHeightPx - TOOLTIP_HEIGHT / 2;
-          const constrainedTopPx = Math.max(0, Math.min(minimapHeightPx - TOOLTIP_HEIGHT - 12, idealTopPx));
-
-          return (
-            <div
-              style={{
-                position: "absolute",
-                top: constrainedTopPx,
-                right: "100%",
-                marginRight: 8,
-                background: "var(--bg)",
-                borderTop: "1px solid var(--border)",
-                borderRight: "1px solid var(--border)",
-                borderBottom: "1px solid var(--border)",
-                borderLeft: `3px solid ${color.border}`,
-                borderRadius: 6,
-                padding: "6px 10px",
-                width: 220,
-                zIndex: 100,
-                pointerEvents: "none",
-                opacity: 1,
-                boxShadow: "0 4px 12px rgba(0,0,0,0.16), 0 2px 4px rgba(0,0,0,0.08)",
-                display: "flex",
-                flexDirection: "column",
-                gap: 3,
-                minHeight: TOOLTIP_HEIGHT,
-              }}
-            >
+            return (
               <div
+                key={node.index}
+                onMouseDown={(e) => {
+                  // Click dot directly to scroll smoothly to center of that message
+                  e.stopPropagation();
+                  e.preventDefault();
+                  const el = messageRefs.current?.[node.refIndex];
+                  if (el) {
+                    el.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }
+                }}
                 style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: isUser ? "var(--accent)" : "var(--text)",
+                  position: "absolute",
+                  top: `${dotTop}%`,
+                  transform: "translate(-50%, -50%)",
+                  left: "50%",
+                  width: "16px",
+                  height: "16px",
                   display: "flex",
                   alignItems: "center",
-                  gap: 4,
-                  lineHeight: 1.2,
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  zIndex: 3,
                 }}
               >
-                <span>{isUser ? "🙋 用户提问" : "🤖 助理回答"}</span>
+                {/* Dot */}
+                <div
+                  style={{
+                    width: isUser ? 8 : 6,
+                    height: isUser ? 8 : 6,
+                    borderRadius: isUser ? 2 : "50%",
+                    background: isNearest ? color.border : color.bg + "44", // Semi-transparent when not nearest, beautifully highlighting hierarchy
+                    border: `1.5px solid ${color.border}`,
+                    flexShrink: 0,
+                    transition: "transform 0.15s, background-color 0.15s",
+                    transform: isNearest ? "scale(1.5)" : "scale(1)",
+                    boxShadow: isNearest ? "0 0 6px var(--accent)" : "none",
+                  }}
+                />
               </div>
-              <div
-                style={{
-                  fontSize: 10,
-                  color: "var(--text-muted)",
-                  lineHeight: 1.4,
-                  whiteSpace: "normal",
-                  wordBreak: "break-all",
-                  display: "-webkit-box",
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: "vertical",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-              >
-                {preview}
-              </div>
-            </div>
-          );
-        })()
+            );
+          })}
+
+          {/* Center vertical gutter line */}
+          <div
+            style={{
+              position: "absolute",
+              left: "50%",
+              top: 0,
+              bottom: 0,
+              width: 1,
+              background: "var(--border)",
+              transform: "translateX(-50%)",
+              zIndex: 0,
+              opacity: 0.5,
+            }}
+          />
+
+          {/* Single, non-overlapping active hover tooltip */}
+          {minimapHovered && nearestNode && (
+            (() => {
+              const preview = getMessagePreview(nearestNode.msg);
+              if (!preview) return null;
+              const color = getNodeColor(nearestNode.msg);
+              const isUser = nearestNode.msg.role === "user";
+
+              // Calculate precise pixel location matching mouse view height and constrain to bounds
+              const idealTopPx = nearestNode.topRatio * minimapHeightPx - TOOLTIP_HEIGHT / 2;
+              const constrainedTopPx = Math.max(0, Math.min(minimapHeightPx - TOOLTIP_HEIGHT - 12, idealTopPx));
+
+              return (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: constrainedTopPx,
+                    right: "100%",
+                    marginRight: 8,
+                    background: "var(--bg)",
+                    borderTop: "1px solid var(--border)",
+                    borderRight: "1px solid var(--border)",
+                    borderBottom: "1px solid var(--border)",
+                    borderLeft: `3px solid ${color.border}`,
+                    borderRadius: 6,
+                    padding: "6px 10px",
+                    width: 220,
+                    zIndex: 100,
+                    pointerEvents: "none",
+                    opacity: 1,
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.16), 0 2px 4px rgba(0,0,0,0.08)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 3,
+                    minHeight: TOOLTIP_HEIGHT,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: isUser ? "var(--accent)" : "var(--text)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    <span>{isUser ? "🙋 用户提问" : "🤖 助理回答"}</span>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: "var(--text-muted)",
+                      lineHeight: 1.4,
+                      whiteSpace: "normal",
+                      wordBreak: "break-all",
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {preview}
+                  </div>
+                </div>
+              );
+            })()
+          )}
+        </>
       )}
     </div>
   );
