@@ -73,7 +73,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   isAborting = false,
   sseState,
 }: Props, ref) {
-  const [value, setValue] = useState("");
+  const storageKey = `pi-web:draft:${cwd}`;
+  const [value, setValue] = useState(() => {
+    try { return localStorage.getItem(storageKey) ?? ""; } catch { return ""; }
+  });
+
+  // Persist draft to localStorage on change, clear on send
+  useEffect(() => {
+    try {
+      if (value) localStorage.setItem(storageKey, value);
+      else localStorage.removeItem(storageKey);
+    } catch { /* noop */ }
+  }, [value, storageKey]);
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modelDropdownRect, setModelDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);

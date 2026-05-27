@@ -51,7 +51,7 @@ export async function POST(req: Request) {
           isMerging = existsSync(`${cwd}/.git/MERGE_HEAD`);
         }
 
-        const statusOut = execSync("git status -s", { cwd, encoding: "utf8" });
+        const statusOut = execSync("git -c core.quotePath=false status -s", { cwd, encoding: "utf8" });
         const modifiedFiles = statusOut
           .split("\n")
           .filter(Boolean)
@@ -65,7 +65,7 @@ export async function POST(req: Request) {
             return { status: statusType, file, isConflict };
           });
 
-        const logOut = execSync("git log --oneline -n 30", { cwd, encoding: "utf8" });
+        const logOut = execSync("git -c core.quotePath=false log --oneline -n 30", { cwd, encoding: "utf8" });
         const history = logOut
           .split("\n")
           .map((line) => line.trim())
@@ -244,17 +244,17 @@ export async function POST(req: Request) {
         if (commitHash) {
           // DIFF OF A SPECIFIC HISTORICAL COMMIT (commitHash vs compile parentHash)
           try {
-            oldContent = execSync(`git show ${commitHash}~1:"${filePath}"`, { cwd, encoding: "utf8" });
+            oldContent = execSync(`git -c core.quotePath=false show ${commitHash}~1:"${filePath}"`, { cwd, encoding: "utf8" });
           } catch {
             // Might be first commit, older state doesn't exist
           }
           try {
-            newContent = execSync(`git show ${commitHash}:"${filePath}"`, { cwd, encoding: "utf8" });
+            newContent = execSync(`git -c core.quotePath=false show ${commitHash}:"${filePath}"`, { cwd, encoding: "utf8" });
           } catch {}
         } else {
           // DIFF OF CURRENT LOCAL CHANGES
           try {
-            oldContent = execSync(`git show HEAD:"${filePath}"`, { cwd, encoding: "utf8" });
+            oldContent = execSync(`git -c core.quotePath=false show HEAD:"${filePath}"`, { cwd, encoding: "utf8" });
           } catch {}
           try {
             newContent = readFileSync(`${cwd}/${filePath}`, "utf8");
@@ -273,7 +273,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Commit hash is required" }, { status: 400 });
       }
       try {
-        const out = execSync(`git show --name-status --oneline ${branchName}`, { cwd, encoding: "utf8" });
+        const out = execSync(`git -c core.quotePath=false show --name-status --oneline ${branchName}`, { cwd, encoding: "utf8" });
         const lines = out.split("\n").filter(Boolean);
         const list = lines.slice(1).map((line) => {
           const parts = line.split(/\s+/);
@@ -308,6 +308,21 @@ export async function POST(req: Request) {
         return NextResponse.json({ success: true, message: out.trim() });
       } catch (err: any) {
         return NextResponse.json({ error: "Create branch failed", details: err?.message }, { status: 500 });
+      }
+    }
+
+    // 13. Write file content (for per-hunk rollback)
+    if (action === "write-file") {
+      const { filePath: writePath, content } = (await req.json()) as { filePath?: string; content?: string };
+      if (!writePath || content === undefined) {
+        return NextResponse.json({ error: "filePath and content required" }, { status: 400 });
+      }
+      try {
+        const fullPath = `${cwd}/${writePath}`;
+        require("fs").writeFileSync(fullPath, content, "utf8");
+        return NextResponse.json({ success: true });
+      } catch (err: any) {
+        return NextResponse.json({ error: "Write failed", details: err?.message }, { status: 500 });
       }
     }
 

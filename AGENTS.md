@@ -122,26 +122,44 @@ A full-featured Git visualizer docked as a right-side tab via virtual file path 
 - **Activation**: `FileViewer.tsx` intercepts `filePath === "git"` and renders `<GitPanel cwd={cwd} />` instead of a file viewer.
 - **Navigation**: `AppShell.tsx` adds a "Git" button in the global header that pushes a virtual tab `{ id: "file:git", label: "Git", filePath: "git" }` and opens the right panel.
 - **API bridge**: All git operations go through `POST /api/git-status` with action field.
+- **cwd resolution**: `FileViewer` receives `currentCwd` (not `activeCwd`) from `AppShell` — this includes session cwd, ensuring the Git panel follows project switches.
 
-### Three collapsible sections (matching EXPLORER chevron style)
-1. **CHANGES (变更清单)**: File tree with checkboxes, stage/commit workflow, diff on double-click.
-2. **BRANCHES (分支管理)**: Branch list with checkout/merge/delete.
-3. **HISTORY (提交日志)**: Commit log with expandable file detail panel.
+### Tab layout (three tabs, not stacked sections)
+1. **CHANGES (变更清单)**: File tree with parent-child checkbox cascading, stage/commit workflow, diff on double-click.
+2. **BRANCHES (分支管理)**: Local/Remote branch list with checkout/merge/delete. Current branch highlighted with blue left border + `HEAD` badge.
+3. **HISTORY (提交日志)**: Commit log with resizable file detail panel (drag handle at top).
+
+### File tree (`buildFileTree`)
+Uses `ensureFolder(path)` recursive insert with `Map<string, FileTreeNode>` for dedup. Each file path is normalized (backslash → forward slash, strip quotes) before processing. **Do NOT use `Record<string, FileTreeNode>` + `parent.find()` — causes same-name folder conflicts at different depths.**
+
+The tree renderer (`renderNode`) mirrors `FileExplorer.tsx`:
+- Folder row: `<span onClick={toggle}>` (chevron) + `<input type=checkbox>` (cascading) + `<FolderIcon>` + name
+- File row: `<span width=10>` (spacer) + `<input type=checkbox>` + `<FileIcon>` + name
+- Indent: `paddingLeft: 8 + depth * 14` for all rows
+
+### Diff modal (side-by-side)
+- Myers diff algorithm computes aligned `DiffSegment[]` (equal/del/add/replace)
+- Segments grouped into hunks; equal hunks auto-collapse with 3 lines context
+- Per-hunk rollback buttons ("回滚此段") + whole-file rollback in header
+- Synchronized scrolling between left/right panels
+- `write-file` API action for partial file writes (hunk rollback)
 
 ### Key design rules
 - **No emojis** — all visual indicators use SVG icons (`IconGitBranch`, `Chevi`, `IconRefresh`) matching the rest of the app.
 - **No nested `<button>`** — section headers use `<div>` wrapper to avoid React hydration errors.
-- **Flex-balanced sections** — CHANGES flex 2, BRANCHES flex 1, HISTORY flex 2. Each collapses to `0 0 auto` when folded.
 - **Folder count badge** — right-aligned number on folder rows (count = recursive leaf files).
-- **Tree indentation** — `8 + depth * 16` px left padding; files get an extra 13px below the chevron/folder gap.
-- **Diff modal** — fixed full-viewport overlay (95vw × 82vh) with simple line-by-line diff.
 - **All tooltips in Chinese** (`title="双击查看 Diff"`).
 
+### Input draft persistence
+Chat input text is saved to `localStorage` per project (`pi-web:draft:{cwd}`) so it survives project switches. Cleared on send.
+
 ### Common pitfalls
-- **Hydration**: The "+ 新建" create-branch button must NOT be nested inside the section's toggle `<button>`. Wrap both in a `<div>`.
-- **Section flex**: When a section is collapsed (secOpen.* = false), set its container to `flex: "0 0 auto"` to avoid leaving empty space.
+- **CJK filenames (中文路径)**: `git status -s` quotes non-ASCII paths with octal escapes (`\346\216\245...`). **Always use `git -c core.quotePath=false`** on all commands that output file paths (`status`, `log`, `show --name-status`, `show HEAD:"path"`). Without this, Chinese filenames become unreadable and the file tree breaks.
 - **Status label**: `git status -s` first 2 chars are the status prefix (` M`, `??`). **Do not `.trim()` before slicing** — truncates filenames by 1 char.
 - **Binary files**: The API route detects `.png/.jpg/.webp/.gif/.mp3/.mp4` extensions and returns `{ binary: true }` instead of attempting to diff.
+- **checkedFiles staleness**: `fetchGitStatus` must rebuild `checkedFiles` from scratch (only keeping files still in `modifiedFiles`), not append. Otherwise old entries accumulate and the count drifts.
+- **Section flex**: When a section is collapsed (secOpen.* = false), set its container to `flex: "0 0 auto"` to avoid leaving empty space.
+- **History panel height**: Fixed `height: 160` causes cramped view. Use `minHeight: 60` + drag handle instead.
 
 ---
 
