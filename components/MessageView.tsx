@@ -47,22 +47,30 @@ function formatTime(ts?: number): string | null {
   return `${date} ${time}`;
 }
 
-function copyText(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    return navigator.clipboard.writeText(text);
-  }
+async function copyText(text: string): Promise<boolean> {
   try {
-    const ta = document.createElement("textarea");
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall back below when browser clipboard permissions reject writeText().
+  }
+
+  let ta: HTMLTextAreaElement | null = null;
+  try {
+    ta = document.createElement("textarea");
     ta.value = text;
     ta.style.position = "fixed";
     ta.style.opacity = "0";
     document.body.appendChild(ta);
+    ta.focus();
     ta.select();
-    document.execCommand("copy");
-    document.body.removeChild(ta);
-    return Promise.resolve();
+    return document.execCommand("copy");
   } catch {
-    return Promise.reject();
+    return false;
+  } finally {
+    if (ta) document.body.removeChild(ta);
   }
 }
 
@@ -110,7 +118,8 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
   const canNavigate = !!prevAssistantEntryId && !!onNavigate;
 
   const copyContent = () => {
-    copyText(content).then(() => {
+    copyText(content).then((ok) => {
+      if (!ok) return;
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
@@ -336,7 +345,8 @@ function AssistantMessageView({
     .join("\n");
 
   const copyContent = () => {
-    copyText(textContent).then(() => {
+    copyText(textContent).then((ok) => {
+      if (!ok) return;
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
@@ -615,17 +625,16 @@ function ThinkingBlock({ block, duration }: { block: ThinkingContent; duration?:
 
 function ToolCallBlock({ block, result, isRunning, duration }: { block: ToolCallContent; result?: ToolResultMessage; isRunning?: boolean; duration?: number }) {
   const [expanded, setExpanded] = useState(false);
-  const [copiedCommand, setCopiedCommand] = useState(false);
+  const [copiedToolInput, setCopiedToolInput] = useState(false);
   const inputStr = JSON.stringify(block.input, null, 2);
-  // Extract command string for tools that accept a "command" input field
-  const command = typeof block.input?.command === "string" ? block.input.command : null;
+  const copyableToolInput = getToolCopyText(block);
 
-  // Copy the command to clipboard and briefly show a checkmark
-  const copyCommand = () => {
-    if (!command) return;
-    copyText(command).then(() => {
-      setCopiedCommand(true);
-      setTimeout(() => setCopiedCommand(false), 1500);
+  const copyToolInput = () => {
+    if (!copyableToolInput) return;
+    copyText(copyableToolInput).then((ok) => {
+      if (!ok) return;
+      setCopiedToolInput(true);
+      setTimeout(() => setCopiedToolInput(false), 1500);
     });
   };
 
@@ -681,12 +690,12 @@ function ToolCallBlock({ block, result, isRunning, duration }: { block: ToolCall
             {getToolPreview(block)}
           </span>
         </button>
-        {command && (
+        {copyableToolInput && (
           <button
             type="button"
-            onClick={copyCommand}
-            aria-label={copiedCommand ? "Command copied" : "Copy command"}
-            title={copiedCommand ? "Copied" : "Copy command"}
+            onClick={copyToolInput}
+            aria-label={copiedToolInput ? "Tool input copied" : "Copy tool input"}
+            title={copiedToolInput ? "Copied" : "Copy tool input"}
             style={{
               width: 26,
               height: 26,
@@ -697,12 +706,12 @@ function ToolCallBlock({ block, result, isRunning, duration }: { block: ToolCall
               flexShrink: 0,
               border: "none",
               borderRadius: 5,
-              background: copiedCommand ? "rgba(34,197,94,0.14)" : "transparent",
-              color: copiedCommand ? "#16a34a" : "var(--text-dim)",
+              background: copiedToolInput ? "rgba(34,197,94,0.14)" : "transparent",
+              color: copiedToolInput ? "#16a34a" : "var(--text-dim)",
               cursor: "pointer",
             }}
           >
-            {copiedCommand ? (
+            {copiedToolInput ? (
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <polyline points="3.25 8.5 6.25 11.5 12.75 4.5" />
               </svg>
@@ -826,6 +835,22 @@ function getToolPreview(block: ToolCallContent): string {
   return String(first).slice(0, 120);
 }
 
+function getToolCopyText(block: ToolCallContent): string | null {
+  const input = block.input;
+  if (!input || typeof input !== "object") return null;
+
+  const priorityKeys = ["command", "path", "file_path", "pattern", "query"];
+  for (const key of priorityKeys) {
+    const value = input[key];
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+
+  const firstKey = Object.keys(input)[0];
+  if (!firstKey) return null;
+  const first = input[firstKey];
+  return typeof first === "string" && first.length > 0 ? first : null;
+}
+
 function formatUsage(usage: {
   input: number;
   output: number;
@@ -848,7 +873,8 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
   const [copied, setCopied] = useState(false);
 
   const copy = () => {
-    copyText(code).then(() => {
+    copyText(code).then((ok) => {
+      if (!ok) return;
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
@@ -911,4 +937,3 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
     </div>
   );
 }
-
