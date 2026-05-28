@@ -196,6 +196,22 @@ function AddSkillPanel({
   const [scope, setScope] = useState<"global" | "project">("global");
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Heuristic: does the query look like a direct package reference?
+  // Supports: owner/repo  or  owner/repo/skill
+  const looksLikePackage = useCallback((q: string) => {
+    return /^[\w.\-]+\/[\w.\-]+(?:\/[\w.\-]+)?$/.test(q.trim());
+  }, []);
+
+  // Parse "owner/repo/skill" into { package: "owner/repo", skill?: "skill" }
+  const parsePackage = useCallback((q: string) => {
+    const trimmed = q.trim();
+    const parts = trimmed.split("/");
+    if (parts.length >= 3) {
+      return { package: `${parts[0]}/${parts[1]}`, skill: parts.slice(2).join("/") };
+    }
+    return { package: trimmed };
+  }, []);
+
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
@@ -229,14 +245,14 @@ function AddSkillPanel({
   }, []);
 
   const install = useCallback(
-    async (pkg: string) => {
+    async (pkg: string, skill?: string) => {
       setInstalling(pkg);
       setInstallError(null);
       try {
         const res = await fetch("/api/skills/install", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ package: pkg, scope, cwd }),
+          body: JSON.stringify({ package: pkg, scope, cwd, skill }),
         });
         const d = (await res.json()) as { success?: boolean; error?: string };
         if (!res.ok || d.error) {
@@ -281,9 +297,16 @@ function AddSkillPanel({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") search(query);
+              if (e.key === "Enter") {
+                if (looksLikePackage(query)) {
+                  const parsed = parsePackage(query);
+                  install(parsed.package, parsed.skill);
+                } else {
+                  search(query);
+                }
+              }
             }}
-            placeholder="e.g. react, testing, deploy"
+            placeholder="Search or type owner/repo/skill"
             style={{
               flex: 1,
               padding: "7px 10px",
@@ -297,7 +320,7 @@ function AddSkillPanel({
           />
           <button
             onClick={() => search(query)}
-            disabled={searching || !query.trim()}
+            disabled={searching || installing !== null || !query.trim()}
             style={{
               padding: "7px 16px",
               fontSize: 13,
@@ -305,12 +328,34 @@ function AddSkillPanel({
               border: "none",
               background: "var(--accent)",
               color: "#fff",
-              cursor: searching || !query.trim() ? "not-allowed" : "pointer",
-              opacity: searching || !query.trim() ? 0.5 : 1,
+              cursor: searching || installing !== null || !query.trim() ? "not-allowed" : "pointer",
+              opacity: searching || installing !== null || !query.trim() ? 0.5 : 1,
               flexShrink: 0,
             }}
           >
             {searching ? "Searching…" : "Search"}
+          </button>
+          <button
+            onClick={() => {
+              const parsed = parsePackage(query.trim());
+              install(parsed.package, parsed.skill);
+            }}
+            disabled={installing !== null || !looksLikePackage(query)}
+            title={looksLikePackage(query) ? "Install directly without searching" : "Enter a package like owner/repo or owner/repo/skill"}
+            style={{
+              padding: "7px 16px",
+              fontSize: 13,
+              borderRadius: 6,
+              border: "none",
+              background: installing !== null && looksLikePackage(query) ? "var(--accent)" : "var(--bg-hover)",
+              color: installing !== null && looksLikePackage(query) ? "#fff" : looksLikePackage(query) ? "var(--text)" : "var(--text-dim)",
+              cursor: installing !== null || !looksLikePackage(query) ? "not-allowed" : "pointer",
+              opacity: installing !== null || !looksLikePackage(query) ? 0.5 : 1,
+              flexShrink: 0,
+              transition: "all 0.15s",
+            }}
+          >
+            {installing !== null && looksLikePackage(query) ? "Adding…" : "Add"}
           </button>
         </div>
 

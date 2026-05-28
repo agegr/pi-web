@@ -8,12 +8,13 @@ const ANSI_RE = /\x1B\[[0-9;]*m/g;
 // POST /api/skills/install  body: { package: string; scope: "global" | "project"; cwd?: string }
 export async function POST(req: Request) {
   try {
-    const { package: pkg, scope, cwd } = await req.json() as { package?: string; scope?: string; cwd?: string };
+    const { package: pkg, scope, cwd, skill } = await req.json() as { package?: string; scope?: string; cwd?: string; skill?: string };
     if (!pkg?.trim()) return NextResponse.json({ error: "package required" }, { status: 400 });
 
     const isGlobal = scope !== "project";
     const args = ["skills", "add", pkg.trim(), "-y", "--agent", "pi"];
     if (isGlobal) args.push("-g");
+    if (skill?.trim()) args.push("--skill", skill.trim());
 
     console.log(`[skills/install] running: npx ${args.join(" ")}`);
     const { stdout, stderr } = await runNpx(args, {
