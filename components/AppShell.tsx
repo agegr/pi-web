@@ -607,43 +607,6 @@ export function AppShell() {
                 </svg>
                 <span>System</span>
               </button>
-              {currentCwd && (
-                <button
-                  data-git-btn
-                  onClick={() => {
-                    // 追加或激活右侧 Git 独立大页签
-                    const gitTabId = "file:git";
-                    setFileTabs((prev) => {
-                      if (prev.find((t) => t.id === gitTabId)) return prev;
-                      return [...prev, { id: gitTabId, label: "Git", filePath: "git" }];
-                    });
-                    setActiveFileTabId(gitTabId);
-                    setRightPanelOpen(true);
-                  }}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 6,
-                    height: "100%", padding: "0 12px",
-                    background: activeFileTabId === "file:git" && rightPanelOpen ? "var(--bg-selected)" : "none",
-                    border: "none",
-                    borderTop: activeFileTabId === "file:git" && rightPanelOpen ? "2px solid var(--accent)" : "2px solid transparent",
-                    borderRight: "1px solid var(--border)",
-                    cursor: "pointer",
-                    color: activeFileTabId === "file:git" && rightPanelOpen ? "var(--text)" : "var(--text-muted)",
-                    fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = activeFileTabId === "file:git" && rightPanelOpen ? "var(--text)" : "var(--text-muted)"; }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--accent)", flexShrink: 0 }}>
-                    <circle cx="7" cy="10" r="2.5" />
-                    <circle cx="17" cy="10" r="2.5" />
-                    <circle cx="7" cy="18" r="2.5" />
-                    <path d="M7 12.5V15.5" />
-                    <path d="M17 12.5v.5a5 5 0 0 1-5 5h-2" />
-                  </svg>
-                  <span>Git</span>
-                </button>
-              )}
             </div>
           )}
           {/* Session stats — right-aligned in top bar */}
@@ -892,6 +855,40 @@ export function AppShell() {
         <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
       </svg>
     </button>
+    {/* Git button — next to file panel toggle */}
+    {currentCwd && (
+      <button
+        onClick={() => {
+          const gitTabId = "file:git";
+          setFileTabs((prev) => {
+            if (prev.find((t) => t.id === gitTabId)) return prev;
+            return [...prev, { id: gitTabId, label: "Git", filePath: "git" }];
+          });
+          setActiveFileTabId(gitTabId);
+          setRightPanelOpen(true);
+        }}
+        title="Git"
+        style={{
+          position: "fixed", top: 0, right: 36, zIndex: 300,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          width: 36, height: 36, padding: 0,
+          background: activeFileTabId === "file:git" && rightPanelOpen ? "var(--bg-selected)" : "var(--bg-panel)",
+          border: "none", borderLeft: "1px solid var(--border)", borderBottom: "1px solid var(--border)",
+          color: activeFileTabId === "file:git" && rightPanelOpen ? "var(--text)" : "var(--text-muted)",
+          cursor: "pointer", transition: "color 0.12s",
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.color = activeFileTabId === "file:git" && rightPanelOpen ? "var(--text)" : "var(--text-muted)"; }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="7" cy="10" r="2.5" />
+          <circle cx="17" cy="10" r="2.5" />
+          <circle cx="7" cy="18" r="2.5" />
+          <path d="M7 12.5V15.5" />
+          <path d="M17 12.5v.5a5 5 0 0 1-5 5h-2" />
+        </svg>
+      </button>
+    )}
     {modelsConfigOpen && <ModelsConfig onClose={() => { setModelsConfigOpen(false); setModelsRefreshKey((k) => k + 1); }} />}
     {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
       <SkillsConfig cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!} onClose={() => setSkillsConfigOpen(false)} />

@@ -37,7 +37,6 @@ yarn-error.log*
 .vercel
 
 # agents
-.agents/
 skills-lock.json
 
 # IDE
