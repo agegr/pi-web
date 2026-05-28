@@ -341,6 +341,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       timestamp: Date.now(),
     };
     setMessages((prev) => [...prev, userMsg]);
+    setError(null);
     setAgentRunning(true);
     setAgentPhase({ kind: "waiting_model" });
     dispatch({ type: "start" });
@@ -367,7 +368,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             ...(thinkingLevel !== "auto" ? { thinkingLevel } : {}),
           }),
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          let detail = `HTTP ${res.status}`;
+          try {
+            const errorBody = await res.json() as { error?: string };
+            if (errorBody.error) detail = errorBody.error;
+          } catch {
+            // Keep the status-only error if the response is not JSON.
+          }
+          throw new Error(detail);
+        }
         const result = await res.json() as { sessionId: string };
         const realId = result.sessionId;
         sessionIdRef.current = realId;
@@ -392,6 +402,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     } catch (e) {
       console.error("Failed to send message:", e);
+      setError(e instanceof Error ? e.message : String(e));
       setAgentRunning(false);
       setAgentPhase(null);
       dispatch({ type: "end" });

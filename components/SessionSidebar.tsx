@@ -38,6 +38,7 @@ function getRecentCwds(sessions: SessionInfo[]): string[] {
   const latestByCwd = new Map<string, string>(); // cwd -> most recent modified
   for (const s of sessions) {
     if (!s.cwd) continue;
+    if (s.cwdExists === false) continue;
     const prev = latestByCwd.get(s.cwd);
     if (!prev || s.modified > prev) {
       latestByCwd.set(s.cwd, s.modified);
@@ -261,6 +262,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   useEffect(() => {
     if (allSessions.length === 0) return;
 
+    const cwds = getRecentCwds(allSessions);
+
+    if (selectedCwd && !cwds.includes(selectedCwd) && allSessions.some((s) => s.cwd === selectedCwd && s.cwdExists === false)) {
+      setSelectedCwd(cwds[0] ?? null);
+      return;
+    }
+
     if (selectedCwd === null) {
       // If restoring a session, set cwd to match that session
       if (initialSessionId && !restoredRef.current) {
@@ -274,7 +282,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         // Session not found — notify parent so it can show the placeholder
         onInitialRestoreDone?.();
       }
-      const cwds = getRecentCwds(allSessions);
       if (cwds.length > 0) setSelectedCwd(cwds[0]);
     }
   }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone]);

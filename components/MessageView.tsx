@@ -615,7 +615,19 @@ function ThinkingBlock({ block, duration }: { block: ThinkingContent; duration?:
 
 function ToolCallBlock({ block, result, isRunning, duration }: { block: ToolCallContent; result?: ToolResultMessage; isRunning?: boolean; duration?: number }) {
   const [expanded, setExpanded] = useState(false);
+  const [copiedCommand, setCopiedCommand] = useState(false);
   const inputStr = JSON.stringify(block.input, null, 2);
+  // Extract command string for tools that accept a "command" input field
+  const command = typeof block.input?.command === "string" ? block.input.command : null;
+
+  // Copy the command to clipboard and briefly show a checkmark
+  const copyCommand = () => {
+    if (!command) return;
+    copyText(command).then(() => {
+      setCopiedCommand(true);
+      setTimeout(() => setCopiedCommand(false), 1500);
+    });
+  };
 
   // Result display
   const resultText = result
@@ -635,36 +647,100 @@ function ToolCallBlock({ block, result, isRunning, duration }: { block: ToolCall
       }}
     >
       {/* ── Tool call header ── */}
-      <button
-        onClick={() => setExpanded((v) => !v)}
+      <div
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 7,
           width: "100%",
-          padding: "6px 10px",
           background: "none",
           border: "none",
-          color: "var(--text-muted)",
-          cursor: "pointer",
-          fontSize: 12,
-          textAlign: "left",
           minWidth: 0,
         }}
       >
-        <span style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
-          {block.toolName}
-        </span>
-        <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-          {getToolPreview(block)}
-        </span>
-        {duration !== undefined && (
-          <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 7,
+            flex: 1,
+            minWidth: 0,
+            padding: "6px 4px 6px 10px",
+            background: "none",
+            border: "none",
+            color: "var(--text-muted)",
+            cursor: "pointer",
+            fontSize: 12,
+            textAlign: "left",
+          }}
+        >
+          <span style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
+            {block.toolName}
+          </span>
+          <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
+            {getToolPreview(block)}
+          </span>
+        </button>
+        {command && (
+          <button
+            type="button"
+            onClick={copyCommand}
+            aria-label={copiedCommand ? "Command copied" : "Copy command"}
+            title={copiedCommand ? "Copied" : "Copy command"}
+            style={{
+              width: 26,
+              height: 26,
+              padding: 0,
+              marginRight: 2,
+              display: "grid",
+              placeItems: "center",
+              flexShrink: 0,
+              border: "none",
+              borderRadius: 5,
+              background: copiedCommand ? "rgba(34,197,94,0.14)" : "transparent",
+              color: copiedCommand ? "#16a34a" : "var(--text-dim)",
+              cursor: "pointer",
+            }}
+          >
+            {copiedCommand ? (
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="3.25 8.5 6.25 11.5 12.75 4.5" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="5.25" y="2.75" width="7.5" height="9.5" rx="1.25" />
+                <path d="M3.25 5.25v7.25c0 .69.56 1.25 1.25 1.25h5.25" />
+              </svg>
+            )}
+          </button>
         )}
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
-          <polyline points="2 3.5 5 6.5 8 3.5" />
-        </svg>
-      </button>
+        {duration !== undefined && (
+          <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums", padding: "0 6px" }}>{duration}s</span>
+        )}
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-label={expanded ? "Collapse tool call" : "Expand tool call"}
+          style={{
+            width: 24,
+            height: 26,
+            padding: 0,
+            marginRight: 6,
+            display: "grid",
+            placeItems: "center",
+            flexShrink: 0,
+            border: "none",
+            borderRadius: 5,
+            background: "transparent",
+            color: "var(--text-dim)",
+            cursor: "pointer",
+          }}
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} aria-hidden="true">
+            <polyline points="2 3.5 5 6.5 8 3.5" />
+          </svg>
+        </button>
+      </div>
 
       {/* ── Expanded: input args ── */}
       {expanded && (
@@ -835,5 +911,4 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
     </div>
   );
 }
-
 
