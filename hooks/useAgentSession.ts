@@ -310,6 +310,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const completed = event.message as AgentMessage | undefined;
         if (completed) {
           setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
+          
+          // 检测到可重试的错误时自动发送"继续"
+          if (
+            completed.role === "assistant" &&
+            completed.stopReason === "error" &&
+            completed.errorMessage &&
+            /Provider finish_reason: error/i.test(completed.errorMessage)
+          ) {
+            console.log("Detected provider error, auto-retrying with '继续'");
+            setTimeout(() => {
+              handleSend("继续");
+            }, 1000);
+          }
         }
         dispatch({ type: "reset" });
         setAgentPhase({ kind: "waiting_model" });
