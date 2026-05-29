@@ -643,10 +643,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     container.scrollTo({ top: elAbsTop - 16, behavior: "smooth" });
   }, []);
 
-  // Load session on mount
+  // Load session when session changes
   useEffect(() => {
     if (session) {
-      // Don't reload if we already have this session loaded (prevents overwriting user messages on new session creation)
+      // Avoid clobbering in-memory messages when a just-created session re-renders.
       if (sessionIdRef.current === session.id && messages.length > 0) {
         return;
       }
@@ -654,15 +654,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       loadSession(session.id, true, true).then((agentState) => {
         if (agentState?.running) {
           loadTools(session.id);
-          // BUG FIX: Even if not actively streaming at this microsecond, we must establish connectEvents so we can stream later!
-          connectEvents(session.id);
           if (agentState.state?.isStreaming) {
             setAgentRunning(true);
             setAgentPhase({ kind: "waiting_model" });
+            connectEvents(session.id);
           }
-        } else {
-          // Robust Event Source listener active for sending inputs later
-          connectEvents(session.id);
         }
         if (agentState?.state) {
           if (agentState.state.isCompacting !== undefined) setIsCompacting(agentState.state.isCompacting);

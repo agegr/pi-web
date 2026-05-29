@@ -189,3 +189,50 @@ Location: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
 --accent --user-bg --tool-bg
 --font-mono
 ```
+
+---
+
+## 调试经验教训
+
+### SSE 连接管理
+
+**关键规则**：SSE 连接应该只在需要时建立，不要无条件调用 `connectEvents`。
+
+**错误示例**（会导致连接重复建立）：
+```javascript
+// 无论 agent 是否在运行都调用 connectEvents
+connectEvents(session.id);
+} else {
+  connectEvents(session.id);  // 错误！
+}
+```
+
+**正确示例**（只在 streaming 时连接）：
+```javascript
+if (agentState.state?.isStreaming) {
+  setAgentRunning(true);
+  setAgentPhase({ kind: "waiting_model" });
+  connectEvents(session.id);  // 只在这里连接
+}
+```
+
+**为什么**：
+- 无条件调用 `connectEvents` 会导致 SSE 连接重复建立
+- 事件会被发送到错误的连接实例
+- 导致 "Waiting for model..." 卡住
+
+### 调试流程
+
+1. **先 `git diff`**：遇到问题第一件事是查看最近改了什么
+2. **对比原版**：如果原版没问题，问题就在 diff 里
+3. **逐个排除**：每次只改一处，测试确认后再改下一处
+4. **立即回滚**：修复引入新问题时，立即回滚到上一个可用状态
+
+### 常见陷阱
+
+- **假设症因**：看到症状就假设原因，没有先验证
+- **修修补补**：修复引入新问题后继续修补，越改越远
+- **过度工程化**：原设计是合理的，不需要拆分成多步
+- **不看 diff**：问题往往在变更中
+
+详细调试方法论见 `.agents/skills/debugging-lessons/SKILL.md`
