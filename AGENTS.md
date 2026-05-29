@@ -1,238 +1,190 @@
-# Pi Agent Web - Development Notes
+# Pi Agent Web - Agent-Facing Deep Architecture, lifecycle, & Crash-Avoidance Manual 🛡️
 
-## Quick Start
+This document is a highly concentrated, single-source technical reference covering system design, critical React state machines, underlying IPC lifecycles, core algorithms, and development-specific traps. It serves as the primary guidance for AI coding agents and core developers looking to understand or modify the `pi-web` codebase.
+
+---
+
+## 🚀 1. Quick Start & Developer Sandbox
 
 ```bash
-npm run dev   # port 3030
+# Start local Next.js development server (port 3030)
+npm run dev
+
+# strict type checking (Run before pushing or making layout edits)
+node_modules/.bin/tsc --noEmit
+
+# lint checking 
+node node_modules/next/dist/bin/next lint
 ```
 
-Typecheck: `node_modules/.bin/tsc --noEmit`  
-Lint: `node node_modules/next/dist/bin/next lint`  
-**Never run `next build` during dev** — pollutes `.next/` and breaks `npm run dev`.
+> ⚠️ **CRITICAL DEV WARNING:** Never execute `next build` inside a dynamic local workspace development sandbox. It populates `.next/` with raw standalone output, breaking hot reloading triggers and generating phantom bundler path collisions.
 
 ---
 
-## Architecture
+## 🏛 2. Communication & Session Lifecycle Architecture
 
 ```
-Browser                Next.js Server              AgentSession (in-process)
-  │                        │                               │
-  ├─ GET /api/sessions ────▶ reads ~/.pi/agent/sessions/   │
-  ├─ GET /api/sessions/[id] reads .jsonl file directly     │
-  │                        │                               │
-  ├─ send message ─────────▶ POST /api/agent/[id]          │
-  │                        │   startRpcSession() ─────────▶│ createAgentSession()
-  │                        │   session.send(cmd) ─────────▶│ session.prompt()
-  │                        │                               │
-  ├─ SSE connect ──────────▶ GET /api/agent/[id]/events    │
-  │                        │   session.onEvent() ◀─────────│ session.subscribe()
-  │◀── data: {...} ─────────│                               │
+Browser (Visual Client)     Next.js Host-Server API           AgentSession (In-Process Runtime)
+     │                                │                                │
+     ├─ GET /api/sessions ────────────┼─▶ Read ~/.pi/agent/sessions/   │ (No session created
+     ├─ GET /api/sessions/[id] ───────┼─▶ Reads .jsonl file directly   │  for static browsing)
+     │                                │                                │
+     ├─ POST /api/agent/[id]  ────────┼─▶ startRpcSession() ───────────┼─▶ createAgentSession()
+     │  (Message Payload)             │   (Checks singleton locks)     │   instantiates actual Pi
+     │                                │   session.send(cmd) ──────────▶│   session.prompt() loop
+     │                                │                                │
+     └─ GET /api/agent/[id]/events ───┼─▶ Establishes SSE stream  ◀────┼─▶ session.subscribe()
+                                      │   (Converts events to SSE)     │
 ```
 
-**Session browsing** (read-only): reads `.jsonl` files directly via `lib/session-reader.ts` — no AgentSession created.  
-**Sending a message**: `startRpcSession()` in `lib/rpc-manager.ts` creates an AgentSession in-process.
+There are two operation modes depending on user action:
+1. **Browse-Only Mode (Read-Only)**: Interrogating past branches, loading historical logs, and path navigations are totally stateless. The Host-Server API directly deserializes `.jsonl` lines using high-speed buffered IO via `lib/session-reader.ts`. **No active agent process is spawned.**
+2. **Interactive Dialogue Mode (Active)**: Initiated by `/api/agent/new` or `/api/agent/[id]`. A full in-memory Node.js runner process `AgentSession` is hydrated and linked.
 
 ---
 
-## File Map
+## ⚡ 3. Critical Implementation Traps & Safeguards
 
-```
-app/api/
-  sessions/route.ts               GET  list all sessions
-  sessions/[id]/route.ts          GET/PATCH/DELETE session
-  sessions/[id]/context/route.ts  GET ?leafId= — context for a specific leaf
-  sessions/new/route.ts           returns 410 (no longer used)
-  agent/new/route.ts              POST { cwd, message, toolNames?, provider?, modelId? }
-  agent/[id]/route.ts             GET state | POST any command
-  agent/[id]/events/route.ts      GET SSE stream
-  files/[...path]/route.ts        GET file contents for viewer
-  models/route.ts                 GET { models, modelList, defaultModel }
-  models-config/route.ts          GET/POST — read/write ~/.pi/agent/models.json
-  git-status/route.ts             POST git operations (status, diff, commit, push, etc.)
+### A. The In-Process Global Object Lifecycle Lock (`lib/rpc-manager.ts`)
+* **The Problem**: Node.js module-level variables or standard React Maps are instantly erased or initialized during Next.js Hot Component Rebuilds.
+* **The Solution**: Live wrappers (`AgentSessionWrapper`) must be pinned directly onto `globalThis.__piSessions`. This keeps active agent execution loops intact through hot-reloads.
+* **Timeout Boundary**: If an active session is left untouched, a background timer frees up the memory by destroying the session exactly **10 minutes** after idle.
+* **Concurrency Protection**: During SSE reconnection, multiple POST/GET calls can enter concurrently. To prevent double-instantiation, `globalThis.__piStartLocks` manages a single atomic lock promise. Never bypass this lock.
 
-lib/
-  rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
-  session-reader.ts   parse .jsonl; getModelNameMap/getModelList/getDefaultModel
-  types.ts            shared TypeScript types
-  normalize.ts        normalizeToolCalls() — field name mismatch between file format and our types
-  system-prompt-off.ts  minimal system prompt when all tools are disabled
+### B. Immediate Destruction Registry Policy on Session Forking
+* **The Trap**: When a user clicks the "Fork" button on an assistant message, the backend calls `AgentSession.fork()`. **This inbounds a mutation of the wrapper’s inner state in-place**, replacing its identifier with the newly split sub-session ID. Any residual cached session pointer registered under the parent ID inside the global map will now contain a corrupted parent session link, causing cascade splits!
+* **The Fix**: The moment `send("fork")` return value is fetched inside the RPC loop, **`this.destroy()` must be immediately called** to scrub the outdated session from the registry. The next interaction with either the parent or the child session will safely reload a fresh, pristine instance from the correct `.jsonl` file.
 
-components/
-  AppShell.tsx        layout + URL state + tab management
-  SessionSidebar.tsx  session tree + FileExplorer
-  ChatWindow.tsx      messages + streaming + SSE + fork/navigate logic
-  ChatInput.tsx       input bar + model/thinking/tools/compact controls
-  MessageView.tsx     renders one message (user/assistant/toolCall/toolResult)
-  BranchNavigator.tsx in-session branch switcher
-  ChatMinimap.tsx     scroll minimap alongside the message list
-  ToolPanel.tsx       exports PRESET_NONE/DEFAULT/FULL + getPresetFromTools
-  ModelsConfig.tsx    modal for editing models.json (opened from sidebar bottom)
-  FileExplorer.tsx    file tree inside sidebar
-  FileViewer.tsx      file content in a tab
-  GitPanel.tsx        Git visualizer panel (changes, branches, history, diff modal)
-  TabBar.tsx          tab bar (Chat + open file tabs)
-```
+### C. Multi-Branch Divergences (Fork vs. In-Session Branching)
+Never conflate the two completely distinct tree-routing state machines:
+
+| Machine Dimension | 🍴 Forking System (New File) | 🌿 In-Session Branching (Node Switching) |
+| :--- | :--- | :--- |
+| **Physical File** | Creates a **brand new independent** `.jsonl` file. | Appends new entries with matching `parentId`s to the **same** `.jsonl`. |
+| **Sidebar Hierarchy** | Displayed as a sub-node in the sidebar via the `parentSession` header field value. | Kept under a single, unified project row item. |
+| **Workspace Routing** | Switches the active file path to the new branch. | Emits a `/api/sessions/[id]/context?leafId=` query to prune/reconstruct the local timeline path. |
+
+### D. Checked Files Synchronization Drifts in Git Panel
+* **The Trap**: When fetching a new git status (`git status -s`), if you aggressively reconstruct or blindly copy the `checkedFiles` set directly over from the previous mount, entries for files that are already committed or reverted will hang around in the selection memory. The checkboxes will drift, causing unwanted rollback side effects.
+* **The Guardrail**: On every git status fetch, `fetchGitStatus` must completely rebuild `checkedFiles` by doing a filter-intersection: keep only the files that are still present in the newly resolved `modifiedFiles` file-list.
+
+### E. Chinese Filename (CJK Path) Octal Quote Escaping
+* **The Trap**: On non-English environments, `git status -s` quotes Chinese paths using octal escapes (e.g., `"\346\216\245\345\217\245.md"`). This breaks the workspace tree-node compiler and creates unreadable file explorer structures.
+* **The Fix**: Every invocation to the local OS Shell must explicitly disable core path quoting:
+  ```bash
+  git -c core.quotePath=false status -s
+  ```
+  Never strip, trim, or alter characters from `git status` output before evaluating status prefix codes (such as ` M` or `??`). The first two characters of row responses represent vital file metadata. Trimming prematurely corrupts the first character of the path.
 
 ---
 
-## Key Design Decisions & Traps
+## 🧮 4. Advanced High-UX Algorithms
 
-### AgentSession lifecycle (`lib/rpc-manager.ts`)
-- One `AgentSessionWrapper` per session id, keyed in `globalThis.__piSessions`
-- `globalThis` survives Next.js hot-reload; plain module-level Map does not
-- Idle timeout: 10 minutes. Concurrent `startRpcSession()` calls share a single start Promise (`globalThis.__piStartLocks`)
+### A. Minimap Fisheye Lens & Displaced Tooltip Spreading
+To provide an interactive scrolling minimap on ultra-long, dense conversations, a high-performance linear expansion and dynamic physical positioning algorithm is implemented:
 
-### Fork must destroy the wrapper immediately
-`AgentSession.fork()` **mutates the wrapper's inner state in-place** — after fork, `inner.sessionId` is the *new* session's id. If the wrapper stays alive in the registry under the old id, the next request gets the already-forked state and subsequent forks produce a corrupt `parentSession` chain.
+```typescript
+// For every dot inside the ChatMinimap corresponding to message node i:
+const yRatio = item.offsetY / parentHeight;
+const delta = Math.abs(yRatio - mouseHoverYRatio);
 
-**Fix**: `send("fork")` captures `newSessionId`, then calls `this.destroy()` before returning. The next request for the original session reloads a clean AgentSession from the original file.
-
-### Two kinds of branching — don't confuse them
-- **Fork** (Fork button on user message): creates a new independent `.jsonl` file. Shown as a child in the sidebar tree via `parentSession` header field.
-- **In-session branch** (Continue button / BranchNavigator): calls `navigate_tree` within the same file. Multiple entries share the same `parentId`. Switching between them calls `/api/sessions/[id]/context?leafId=`.
-
-### Session files can be fully rewritten
-`parentSession` in the header is **display metadata only** — has zero effect on chat content. Safe to `writeFileSync` the entire file (pi does this itself during migrations). Used when cascade-reparenting children on delete.
-
-### ToolCall field normalization
-Pi stores toolCall blocks as `{type:"toolCall", id, name, arguments}` but `ToolCallContent` uses `{toolCallId, toolName, input}`. `normalizeToolCalls()` in `lib/normalize.ts` handles this — called in both `session-reader.ts` (file load) and `ChatWindow.handleAgentEvent()` (streaming).
-
-### New session tool preset
-Tool names are passed at session creation (`POST /api/agent/new` → `toolNames[]`). For existing sessions, the active preset is inferred on mount via `get_tools` → `getPresetFromTools()`. When tools are fully disabled (`toolNames = []`), `rpc-manager.ts` injects a minimal system prompt via `system-prompt-off.ts` + `DefaultResourceLoader`.
-
-### Model defaults for new sessions
-`GET /api/models` returns `defaultModel` read from `~/.pi/agent/settings.json`. `ChatWindow` pre-selects this on mount for new sessions.
-
-### SSE reconnect on page refresh mid-stream
-On `ChatWindow` mount, `GET /api/agent/[id]` is called. If `state.isStreaming === true`, SSE is reconnected automatically. `thinkingLevel` and `isCompacting` are also synced from this response.
-
-### Compaction SSE events
-Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `auto_compaction_start` / `auto_compaction_end`. `handleAgentEvent` accepts both sets to keep `isCompacting` in sync. Manual compact is a blocking POST — the button stays disabled until the response returns.
-
-### Orphaned sessions
-Sessions whose first line can't be parsed as a valid header are marked `orphaned: true` in the API response — displayed with an "incomplete" badge in the sidebar and not clickable.
-
----
-
-## Git Panel (`components/GitPanel.tsx`)
-
-A full-featured Git visualizer docked as a right-side tab via virtual file path `"git"`.
-
-### Architecture
-- **Activation**: `FileViewer.tsx` intercepts `filePath === "git"` and renders `<GitPanel cwd={cwd} />` instead of a file viewer.
-- **Navigation**: `AppShell.tsx` adds a "Git" button in the global header that pushes a virtual tab `{ id: "file:git", label: "Git", filePath: "git" }` and opens the right panel.
-- **API bridge**: All git operations go through `POST /api/git-status` with action field.
-- **cwd resolution**: `FileViewer` receives `currentCwd` (not `activeCwd`) from `AppShell` — this includes session cwd, ensuring the Git panel follows project switches.
-
-### Tab layout (three tabs, not stacked sections)
-1. **CHANGES (变更清单)**: File tree with parent-child checkbox cascading, stage/commit workflow, diff on double-click.
-2. **BRANCHES (分支管理)**: Local/Remote branch list with checkout/merge/delete. Current branch highlighted with blue left border + `HEAD` badge.
-3. **HISTORY (提交日志)**: Commit log with resizable file detail panel (drag handle at top).
-
-### File tree (`buildFileTree`)
-Uses `ensureFolder(path)` recursive insert with `Map<string, FileTreeNode>` for dedup. Each file path is normalized (backslash → forward slash, strip quotes) before processing. **Do NOT use `Record<string, FileTreeNode>` + `parent.find()` — causes same-name folder conflicts at different depths.**
-
-The tree renderer (`renderNode`) mirrors `FileExplorer.tsx`:
-- Folder row: `<span onClick={toggle}>` (chevron) + `<input type=checkbox>` (cascading) + `<FolderIcon>` + name
-- File row: `<span width=10>` (spacer) + `<input type=checkbox>` + `<FileIcon>` + name
-- Indent: `paddingLeft: 8 + depth * 14` for all rows
-
-### Diff modal (side-by-side)
-- Myers diff algorithm computes aligned `DiffSegment[]` (equal/del/add/replace)
-- Segments grouped into hunks; equal hunks auto-collapse with 3 lines context
-- Per-hunk rollback buttons ("回滚此段") + whole-file rollback in header
-- Synchronized scrolling between left/right panels
-- `write-file` API action for partial file writes (hunk rollback)
-
-### Key design rules
-- **No emojis** — all visual indicators use SVG icons (`IconGitBranch`, `Chevi`, `IconRefresh`) matching the rest of the app.
-- **No nested `<button>`** — section headers use `<div>` wrapper to avoid React hydration errors.
-- **Folder count badge** — right-aligned number on folder rows (count = recursive leaf files).
-- **All tooltips in Chinese** (`title="双击查看 Diff"`).
-
-### Input draft persistence
-Chat input text is saved to `localStorage` per project (`pi-web:draft:{cwd}`) so it survives project switches. Cleared on send.
-
-### Common pitfalls
-- **CJK filenames (中文路径)**: `git status -s` quotes non-ASCII paths with octal escapes (`\346\216\245...`). **Always use `git -c core.quotePath=false`** on all commands that output file paths (`status`, `log`, `show --name-status`, `show HEAD:"path"`). Without this, Chinese filenames become unreadable and the file tree breaks.
-- **Status label**: `git status -s` first 2 chars are the status prefix (` M`, `??`). **Do not `.trim()` before slicing** — truncates filenames by 1 char.
-- **Binary files**: The API route detects `.png/.jpg/.webp/.gif/.mp3/.mp4` extensions and returns `{ binary: true }` instead of attempting to diff.
-- **checkedFiles staleness**: `fetchGitStatus` must rebuild `checkedFiles` from scratch (only keeping files still in `modifiedFiles`), not append. Otherwise old entries accumulate and the count drifts.
-- **Section flex**: When a section is collapsed (secOpen.* = false), set its container to `flex: "0 0 auto"` to avoid leaving empty space.
-- **History panel height**: Fixed `height: 160` causes cramped view. Use `minHeight: 60` + drag handle instead.
-
----
-
-## Pi Session File Format
-
-Location: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
-
-```jsonl
-{"type":"session","version":3,"id":"<uuid>","timestamp":"...","cwd":"/path","parentSession":"/abs/path/to/parent.jsonl"}
-{"type":"model_change","id":"<8hex>","parentId":null,"provider":"zenmux","modelId":"claude-sonnet-4-6","timestamp":"..."}
-{"type":"message","id":"<8hex>","parentId":"<8hex>","message":{"role":"user","content":"..."}}
-{"type":"message","id":"<8hex>","parentId":"<8hex>","message":{"role":"assistant","content":[...],...}}
-{"type":"message","id":"<8hex>","parentId":"<8hex>","message":{"role":"toolResult","toolCallId":"...","content":[...]}}
-{"type":"compaction","id":"<8hex>","parentId":"<8hex>","summary":"...","firstKeptEntryId":"<8hex>","tokensBefore":N}
-{"type":"session_info","id":"...","parentId":"...","name":"user-defined name"}
-```
-
-`entryIds[]` in `SessionContext` is a parallel array to `messages[]` — maps each displayed message back to its `.jsonl` entry id, used for fork and navigate_tree calls.
-
----
-
-## CSS Variables (`app/globals.css`)
-
-```
---bg --bg-panel --bg-hover --bg-selected --border
---text --text-muted --text-dim
---accent --user-bg --tool-bg
---font-mono
-```
-
----
-
-## 调试经验教训
-
-### SSE 连接管理
-
-**关键规则**：SSE 连接应该只在需要时建立，不要无条件调用 `connectEvents`。
-
-**错误示例**（会导致连接重复建立）：
-```javascript
-// 无论 agent 是否在运行都调用 connectEvents
-connectEvents(session.id);
-} else {
-  connectEvents(session.id);  // 错误！
+// Proximity range set to 15% viewport height
+if (delta < 0.15) {
+  // Gaussian-like push factor
+  const force = Math.pow((0.15 - delta) / 0.15, 2);
+  const scale = 1.0 + force * 0.8; // Scales up exactly up to 1.8x
+  const dispY = (yRatio > mouseHoverYRatio ? 12 : -12) * force; // Push adjacent dots outwards
+  
+  // Apply visual-coordinates
+  applyStyle(dot, {
+    transform: `translateY(${dispY}px) scale(${scale})`,
+    transition: 'transform 0.1s cubic-bezier(0.16, 1, 0.3, 1)',
+    zIndex: 10
+  });
 }
 ```
+The tooltip calculates its floating Y-coordinate absolute offset based on this translated `dispY` variable so they never overlap or drift off-center.
 
-**正确示例**（只在 streaming 时连接）：
-```javascript
-if (agentState.state?.isStreaming) {
-  setAgentRunning(true);
-  setAgentPhase({ kind: "waiting_model" });
-  connectEvents(session.id);  // 只在这里连接
+### B. Caret-Aware Non-Destructive Slash Trigger Split
+In `ChatInput.tsx`, slash triggers can be summoned in place for inline Skill execution, breaking the traditional constraint of "slash must be the absolute first character of the textarea":
+
+```typescript
+// Trigger extraction formula
+const selectionStart = textarea.selectionStart;
+const textBeforeCursor = fullVal.slice(0, selectionStart);
+
+// Match at start of line OR after whitespace
+const hasSlashMatch = /(^|\s)\/$/.test(textBeforeCursor) || /(^|\s)\/\w+$/.test(textBeforeCursor);
+
+if (hasSlashMatch) {
+  const match = textBeforeCursor.match(/\/(\w*)$/);
+  const filterQuery = match ? match[1] : "";
+  triggerMenu(filterQuery);
 }
+
+// Precision replacement when a Skill is selected
+const preText = fullVal.slice(0, slashIndex); // Preserve prefix text exactly
+const postText = fullVal.slice(selectionStart); // Preserve suffix text exactly
+setTextAreaValue(`${preText}/${selectedSkill}${postText}`);
 ```
 
-**为什么**：
-- 无条件调用 `connectEvents` 会导致 SSE 连接重复建立
-- 事件会被发送到错误的连接实例
-- 导致 "Waiting for model..." 卡住
+### C. Safe Viewport Buffer & Resonant Autoscroll
+To ensure long texts and multi-line code cards keep their top edge readable (in-viewport), the autoscroll engine is balanced using a flexible buffer:
 
-### 调试流程
+* **Traditional issue**: Immediate `scrollTop = scrollHeight` pushes the beginning of long code blocks out of view, forcing the user to fight the scroller.
+* **The Buffer System**: We append a permanent `180px` air cushion footer (`safe-scrolling-spacer`) at the bottom of the chat view.
+* When appending streaming tokens:
+  ```typescript
+  const clientHeight = chatViewport.clientHeight;
+  const currentScroll = chatViewport.scrollTop;
+  const totalHeight = chatViewport.scrollHeight;
+  const distanceToBottom = totalHeight - (currentScroll + clientHeight);
 
-1. **先 `git diff`**：遇到问题第一件事是查看最近改了什么
-2. **对比原版**：如果原版没问题，问题就在 diff 里
-3. **逐个排除**：每次只改一处，测试确认后再改下一处
-4. **立即回滚**：修复引入新问题时，立即回滚到上一个可用状态
+  // Auto-scrolling is only invoked if the user was already sitting comfortably near the bottom
+  if (distanceToBottom < 300) {
+    chatViewport.scrollTo({
+      top: totalHeight - clientHeight - 120, // Keeps the active writing zone center-aligned
+      behavior: "smooth"
+    });
+  }
+  ```
 
-### 常见陷阱
+---
 
-- **假设症因**：看到症状就假设原因，没有先验证
-- **修修补补**：修复引入新问题后继续修补，越改越远
-- **过度工程化**：原设计是合理的，不需要拆分成多步
-- **不看 diff**：问题往往在变更中
+## 🏗️ 5. Next.js Host-Server API Reference
 
-详细调试方法论见 `.agents/skills/debugging-lessons/SKILL.md`
+| Endpoint | Method | Payload / Queries | Expected JSON Response |
+| :--- | :--- | :--- | :--- |
+| `/api/sessions` | `GET` | — | `SessionMetadata[]` (grouped and indexed by normalized CWD paths) |
+| `/api/sessions/[id]` | `GET` | — | The compiled active linear chat nodes matching resolved branches. |
+| `/api/sessions/[id]` | `PATCH` | `{ parentSession?: string, name?: string }` | Success confirmation. |
+| `/api/sessions/[id]/context` | `GET` | `?leafId=XXXX` | Full reconstructed timeline context of the selected file tree branch. |
+| `/api/agent/new` | `POST` | `{ cwd, message, toolNames[], provider?, modelId? }` | `{ id: SessionId }` |
+| `/api/agent/[id]` | `GET` | — | Return active execution flags: `{ isStreaming, thinkingLevel, isCompacting }` |
+| `/api/agent/[id]` | `POST` | Dialogue control JSON primitives | Emits synchronous control triggers. |
+| `/api/agent/[id]/events` | `GET` | — | Standard Server-Sent Events (SSE) stream pipe loop. |
+| `/api/git-status` | `POST` | Action parameter `{ action: "status"\|"diff"\|"commit" }` | Unified Git payloads. |
+
+---
+
+## 🎨 6. Tailwind & CSS Global Variables (`app/globals.css`)
+
+Always strictly map styles to the unified Design Tokens:
+- **`--bg`**: Core canvas background color.
+- **`--bg-panel`**: Container/sidebar/visual-panel overlays.
+- **`--bg-hover`**: Snug row hovers, navigation lines (`22px` height line states).
+- **`--bg-selected`**: Highlighting active files/tabs.
+- **`--accent`**: Interactive highlights.
+- **`--font-mono`**: Raw code segments & tree status codes.
+- **`--border`**: Clean dividing rules. No shadows, minimal 1px borders.
+- **`--text-dim`**: Used to mark auxiliary hints (e.g., deleted diff line markings).
+
+---
+
+## 🧩 7. Integration: Tauri Desktop Client Packaging & Sidecars
+
+This web application operates as a standalone Desktop Client on native OS when wrapped with Rust Tauri:
+* **The Client Shell (Tauri)**: Acts as a pure sandboxed native browser frame. Direct hardware commands (such as file reads/writes, child processes, local compilers spawning) are disabled inside the frontend.
+* **The Standalone Sidecar (pkg & standalone Next)**: Next.js is compiled to standalone mode (`output: "standalone"`). It is bundled into a single binary (`pi-web-backend.exe`) using `@vercel/pkg`.
+* **Port Discovery**: Tauri scans for an available local port (starting from `30141`), spawns the Next.js backend binary as an OS sidecar process with `PORT=XXXX`, and points its local WebView instance to `http://localhost:XXXX`.
+* **Zombie Interception**: When Tauri exits, Rust kills the OS child process handle. As a fail-safe, the Node.js backend actively monitors its parent process handle and immediately performs a self-terminate `process.exit(0)` if it detects an orphaned IPC connection.
