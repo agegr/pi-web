@@ -23,76 +23,72 @@ interface FileTreeNode {
   fileEntry?: GitFileInfo;
 }
 
+function normalizeGitPath(path: string): string {
+  return path.replace(/"/g, "").replace(/\\/g, "/").replace(/\/+/g, "/");
+}
+
+function splitGitPath(path: string): string[] {
+  return normalizeGitPath(path).split("/").filter(Boolean);
+}
+
 function buildFileTree(files: GitFileInfo[]): FileTreeNode[] {
-  // Dedup: full folder path → node. Ensures each folder is created exactly once.
-  const folders = new Map<string, FileTreeNode>();
+  type BuildNode = FileTreeNode & { childMap: Map<string, BuildNode> };
 
-  function ensureFolder(path: string): FileTreeNode {
-    let node = folders.get(path);
-    if (node) return node;
-    const segments = path.split("/");
-    const name = segments[segments.length - 1];
-    node = { name, fullPath: path, isFolder: true, children: [] };
-    folders.set(path, node);
-    // Link to parent
-    if (segments.length > 1) {
-      const parentPath = segments.slice(0, -1).join("/");
-      const parent = ensureFolder(parentPath);
-      if (!parent.children.some((c) => c.name === name && c.isFolder)) {
-        parent.children.push(node);
-      }
-    }
-    return node;
-  }
-
-  const roots: FileTreeNode[] = [];
-  const rootFolderAdded = new Set<string>();
+  const root: BuildNode = {
+    name: "",
+    fullPath: "",
+    isFolder: true,
+    children: [],
+    childMap: new Map(),
+  };
 
   for (const f of files) {
-    // Normalize path: replace backslashes, strip quotes
-    const normalized = f.file.replace(/"/g, "").replace(/\\/g, "/");
-    const parts = normalized.split("/");
-    const fileName = parts[parts.length - 1];
+    const parts = splitGitPath(f.file);
+    if (parts.length === 0) continue;
 
-    const fileNode: FileTreeNode = {
-      name: fileName,
-      fullPath: normalized,
-      isFolder: false,
-      children: [],
-      fileEntry: f,
-    };
+    let current = root;
+    let currentPath = "";
 
-    if (parts.length === 1) {
-      // Root-level file
-      roots.push(fileNode);
-    } else {
-      // Ensure parent folder chain exists, add file
-      const parentPath = parts.slice(0, -1).join("/");
-      const parent = ensureFolder(parentPath);
-      parent.children.push(fileNode);
+    for (let i = 0; i < parts.length; i++) {
+      const segment = parts[i];
+      const isLast = i === parts.length - 1;
+      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
 
-      // Track top-level folder
-      const rootFolder = parts[0];
-      if (!rootFolderAdded.has(rootFolder)) {
-        rootFolderAdded.add(rootFolder);
-        roots.push(folders.get(rootFolder)!);
+      let next = current.childMap.get(segment);
+      if (!next) {
+        next = {
+          name: segment,
+          fullPath: currentPath,
+          isFolder: !isLast,
+          children: [],
+          childMap: new Map(),
+          ...(isLast ? { fileEntry: f } : {}),
+        };
+        current.childMap.set(segment, next);
       }
+
+      current = next;
     }
   }
 
-  // Sort: folders first, then files, alphabetically — recursive
-  function sortTree(nodes: FileTreeNode[]) {
-    nodes.sort((a, b) => {
+  const toSortedTree = (node: BuildNode): FileTreeNode[] => {
+    const children = Array.from(node.childMap.values()).map((child) => ({
+      name: child.name,
+      fullPath: child.fullPath,
+      isFolder: child.isFolder,
+      children: toSortedTree(child),
+      ...(child.fileEntry ? { fileEntry: child.fileEntry } : {}),
+    }));
+
+    children.sort((a, b) => {
       if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
-    for (const n of nodes) {
-      if (n.isFolder) sortTree(n.children);
-    }
-  }
-  sortTree(roots);
 
-  return roots;
+    return children;
+  };
+
+  return toSortedTree(root);
 }
 
 /** Collect all leaf file paths under a node */
@@ -112,6 +108,16 @@ function countLeafFiles(node: FileTreeNode): number {
     if (ch.isFolder) c += countLeafFiles(ch); else c += 1;
   }
   return c;
+}
+
+/** Collect all folder paths so we can expand/collapse the whole tree at once. */
+function collectFolderPaths(nodes: FileTreeNode[]): string[] {
+  const out: string[] = [];
+  for (const node of nodes) {
+    if (!node.isFolder) continue;
+    out.push(node.fullPath, ...collectFolderPaths(node.children));
+  }
+  return out;
 }
 
 /* ─── SVG icon helpers ─── */
@@ -240,6 +246,8 @@ export function GitPanel({ cwd }: Props) {
   useEffect(() => { fetchGitStatus(); fetchBranches(); }, [cwd, fetchGitStatus, fetchBranches]);
 
   const fileTreeRoots = useMemo(() => buildFileTree(gitState?.modifiedFiles ?? []), [gitState?.modifiedFiles]);
+  const allFolderPaths = useMemo(() => collectFolderPaths(fileTreeRoots), [fileTreeRoots]);
+  const isAllExpanded = allFolderPaths.length > 0 && allFolderPaths.every((path) => expandedFolders.has(path));
 
   // Auto-expand all parent folders when files load
   useEffect(() => {
@@ -247,7 +255,7 @@ export function GitPanel({ cwd }: Props) {
     setExpandedFolders((prev) => {
       const next = new Set(prev);
       for (const f of gitState.modifiedFiles) {
-        const parts = f.file.split(/[/\\]/);
+        const parts = splitGitPath(f.file);
         let acc = "";
         for (let i = 0; i < parts.length - 1; i++) {
           acc = acc ? `${acc}/${parts[i]}` : parts[i];
@@ -409,10 +417,14 @@ export function GitPanel({ cwd }: Props) {
     setCheckedFiles(next);
   };
 
+  const toggleAllFolders = () => {
+    setExpandedFolders(isAllExpanded ? new Set() : new Set(allFolderPaths));
+  };
+
   /** Render a single tree node (folder or file) — same structure as FileExplorer's TreeNode */
   const renderNode = (node: FileTreeNode, depth: number): React.ReactNode => {
     const isOpen = expandedFolders.has(node.fullPath);
-    const rowH = 24;
+    const rowH = 22;
     const indent = 8 + depth * 14;
 
     if (node.isFolder) {
@@ -436,8 +448,9 @@ export function GitPanel({ cwd }: Props) {
             style={{
               position: "relative",
               display: "flex", alignItems: "center", gap: 4,
-              paddingLeft: indent, paddingRight: 8,
+              paddingLeft: indent, paddingRight: 6,
               height: rowH, userSelect: "none",
+              borderRadius: 4,
             }}
             onMouseEnter={(e) => e.currentTarget.style.background = "var(--bg-hover)"}
             onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
@@ -486,9 +499,10 @@ export function GitPanel({ cwd }: Props) {
         style={{
           position: "relative",
           display: "flex", alignItems: "center", gap: 4,
-          paddingLeft: indent, paddingRight: 8,
+          paddingLeft: indent, paddingRight: 6,
           height: rowH, cursor: "pointer",
           background: isSel ? "var(--bg-selected)" : "transparent",
+          borderRadius: 4,
         }}
         onMouseEnter={(e) => { if (!isSel) e.currentTarget.style.background = "var(--bg-hover)"; }}
         onMouseLeave={(e) => { if (!isSel) e.currentTarget.style.background = "transparent"; }}
@@ -502,7 +516,7 @@ export function GitPanel({ cwd }: Props) {
         <span style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>
           {getFileIcon(node.name, 14)}
         </span>
-        <span style={{ fontSize: 12, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--font-mono)" }}>{node.name}</span>
+        <span style={{ fontSize: 12, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{node.name}</span>
         <span style={{ fontSize: 10, fontWeight: 700, color: statusColor, minWidth: 14, textAlign: "center", fontFamily: "var(--font-mono)", flexShrink: 0 }}>{statusLabel}</span>
       </div>
     );
@@ -598,6 +612,10 @@ export function GitPanel({ cwd }: Props) {
                   </div>
                 )}
               </div>
+
+              <button onClick={toggleAllFolders} disabled={allFolderPaths.length === 0}
+                style={{ marginLeft: "auto", fontSize: 10, padding: "2px 6px", background: "var(--bg-hover)", border: "1px solid var(--border)", borderRadius: 4, cursor: "pointer", color: "var(--text-muted)", fontWeight: 600 }}
+              >{isAllExpanded ? "折叠" : "展开"}</button>
             </div>
 
             {/* file tree */}
