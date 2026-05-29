@@ -34,8 +34,8 @@
 ### 4. 专属组织级品牌定制与打包 (Private Brand Customization & Production Build)
 
 * **独立包装**：
-  * 已将元数据更改为专属自研项目 **`my-agent-web`** 模块，版本起航至发布级标杆 `1.0.0`。
-  * 本地 CLI 启动脚本更新为可以直接使用 **`my-agent-web --port <30141>`** 命令启动宿主服务，完成了完整的项目品牌、名称以及标题归宿净化。
+  * 已将元数据更改为专属自研项目 **`pi-web`** 模块，版本起航至发布级标杆 `1.0.0`。
+  * 本地 CLI 启动脚本更新为可以直接使用 **`pi-web --port <30141>`** 命令启动宿主服务，完成了完整的项目品牌、名称以及标题归宿净化。
   * `package.json` 的打包流程已兼容 Webpack 与 Turbopack 环境调试，确保在任何复杂环境中均可顺畅打包通过。
 
 ### 5. 宿主原生终端一键唤醒机制 (Native System Terminal Spawner)

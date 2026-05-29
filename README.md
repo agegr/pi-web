@@ -1,6 +1,6 @@
-# my-agent-web
+# pi-web
 
-**my-agent-web**（前身为 Pi Agent Web）是专为智能体对话、会话管理、文件预览精心二次开发和重构的独立、高体验专属网页后台。
+**pi-web** 是专为智能体对话、会话管理、文件预览精心二次开发和重构的独立、高体验专属网页后台。
 
 ## 🚀 最新重磅功能与亮点更新
 
@@ -31,23 +31,23 @@
 **无需安装，直接运行：**
 
 ```bash
-npx my-agent-web
+npx pi-web
 ```
 
 **或作为专属 CLI 全局安装使用：**
 
 ```bash
 npm install -g .
-my-agent-web --port 30141
+pi-web --port 30141
 ```
 
 启动后打开 [http://localhost:30141](http://localhost:30141)。
 
 **制作离线分发安装包：**
 
-运行 `npm pack` 会打包出 `my-agent-web-1.0.0.tgz`。你可以将此压缩包拷贝给团队中任何其他机器运行全局一键安装：
+运行 `npm pack` 会打包出 `pi-web-1.0.0.tgz`。你可以将此压缩包拷贝给团队中任何其他机器运行全局一键安装：
 ```bash
-npm install -g ./my-agent-web-1.0.0.tgz
+npm install -g ./pi-web-1.0.0.tgz
 ```
 
 ## 功能介绍

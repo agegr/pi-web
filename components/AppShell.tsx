@@ -102,7 +102,7 @@ export function AppShell() {
   const [rightPanelWidth, setRightPanelWidth] = useState(() => {
     if (typeof window !== "undefined") {
       try {
-        const stored = localStorage.getItem("my-agent-web:right-panel-width");
+        const stored = localStorage.getItem("pi-web:right-panel-width");
         if (stored) return parseInt(stored, 10);
       } catch {}
     }
@@ -148,7 +148,7 @@ export function AppShell() {
       document.body.style.userSelect = "";
       setRightPanelWidth(localWidth);
       try {
-        localStorage.setItem("my-agent-web:right-panel-width", String(localWidth));
+        localStorage.setItem("pi-web:right-panel-width", String(localWidth));
       } catch {}
     };
 
