@@ -668,10 +668,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // Load session when session changes
   useEffect(() => {
     if (session) {
-      // Avoid clobbering in-memory messages when a just-created session re-renders.
-      if (sessionIdRef.current === session.id && messages.length > 0) {
-        return;
-      }
       sessionIdRef.current = session.id;
       loadSession(session.id, true, true).then((agentState) => {
         if (agentState?.running) {
@@ -701,7 +697,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session]);
+  }, []);
 
   useEffect(() => {
     onSystemPromptChange?.(systemPrompt);
