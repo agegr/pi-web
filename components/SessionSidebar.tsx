@@ -509,17 +509,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     await loadBrowseEntries(selectedCwdProp ?? selectedCwd ?? null);
   }, [loadBrowseEntries, selectedCwd, selectedCwdProp]);
 
-  // Close dropdown on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setBrowseOpen(false);
-        setBrowseError(null);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
 
   const handleNewSession = useCallback(() => {
     const targetCwd = selectedCwdProp ?? selectedCwd;
@@ -684,7 +673,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         </div>
 
         {/* Minimalist Add Project Trigger */}
-        <div style={{ marginTop: 8, position: "relative" }}>
+        <div style={{ marginTop: 8 }}>
           <button
             onClick={() => handleBrowseFolder()}
             style={{
@@ -718,40 +707,69 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             </svg>
             <span>Add Project Directory…</span>
           </button>
+        </div>
 
-          {browseOpen && (
+        {/* Browse Directory Modal */}
+        {browseOpen && (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 500,
+              background: "rgba(0,0,0,0.45)",
+              backdropFilter: "blur(4px)",
+              pointerEvents: "none",
+            }}
+          >
             <div
               ref={dropdownRef}
               style={{
                 position: "absolute",
-                top: "calc(100% + 4px)",
-                left: 0,
-                right: 0,
-                zIndex: 100,
+                top: 40,
+                left: 40,
+                width: 720,
+                maxHeight: "calc(100vh - 80px)",
+                display: "flex",
+                flexDirection: "column",
                 background: "var(--bg)",
                 border: "1px solid var(--border)",
-                borderRadius: 8,
-                boxShadow: "0 6px 20px rgba(0,0,0,0.12)",
+                borderRadius: 10,
+                boxShadow: "0 16px 48px rgba(0,0,0,0.25)",
                 overflow: "hidden",
-                padding: "8px",
+                pointerEvents: "auto",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+              {/* Modal header */}
+              <div
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px 10px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}
+              >
+                <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>Add Project Directory</span>
+                <button
+                  onClick={() => { setBrowseOpen(false); setBrowseError(null); }}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    width: 24, height: 24, border: "none", background: "none",
+                    color: "var(--text-dim)", cursor: "pointer", borderRadius: 4,
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                </button>
+              </div>
+
+              {/* Path bar */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
                 <button
                   onClick={() => { if (browseParentPath && !browseLoading) loadBrowseEntries(browseParentPath).catch(() => {}); }}
                   disabled={!browseParentPath || browseLoading}
                   style={{
-                    width: 24,
-                    height: 24,
-                    padding: 0,
-                    borderRadius: 5,
-                    border: "1px solid var(--border)",
-                    background: "var(--bg-hover)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 12,
+                    width: 28, height: 28, padding: 0, borderRadius: 6,
+                    border: "1px solid var(--border)", background: "var(--bg-hover)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 14, flexShrink: 0,
                     cursor: browseParentPath && !browseLoading ? "pointer" : "not-allowed",
+                    opacity: browseParentPath ? 1 : 0.4,
                   }}
                   title={browseParentPath ? `Up to ${browseParentPath}` : "Already at root"}
                 >
@@ -778,32 +796,26 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     }}
                     autoFocus
                     style={{
-                      flex: 1,
-                      minWidth: 0,
-                      fontSize: 11,
+                      flex: 1, minWidth: 0,
+                      fontSize: 12,
                       fontFamily: "var(--font-mono)",
                       color: "var(--text)",
-                      padding: "5px 8px",
+                      padding: "6px 10px",
                       border: "1px solid var(--accent)",
-                      borderRadius: 5,
+                      borderRadius: 6,
                       background: "var(--bg)",
                       outline: "none",
                     }}
                   />
                 ) : (
                   <div
-                    onDoubleClick={() => {
-                      setBrowseIsEditingPath(true);
-                    }}
+                    onDoubleClick={() => setBrowseIsEditingPath(true)}
                     style={{
-                      flex: 1,
-                      minWidth: 0,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 2,
-                      padding: "4px 6px",
+                      flex: 1, minWidth: 0,
+                      display: "flex", alignItems: "center", gap: 2,
+                      padding: "5px 8px",
                       border: "1px solid var(--border)",
-                      borderRadius: 5,
+                      borderRadius: 6,
                       background: "var(--bg-hover)",
                       overflowX: "auto",
                       scrollbarWidth: "none",
@@ -815,23 +827,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     <div style={{ display: "flex", alignItems: "center" }}>
                       {browseBreadcrumbs.map((crumb: { name: string; path: string }, idx: number) => (
                         <span key={crumb.path} style={{ display: "inline-flex", alignItems: "center" }}>
-                          {idx > 0 && <span style={{ color: "var(--text-dim)", fontSize: 10, margin: "0 2px", userSelect: "none" }}>/</span>}
+                          {idx > 0 && <span style={{ color: "var(--text-dim)", fontSize: 11, margin: "0 3px", userSelect: "none" }}>/</span>}
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               loadBrowseEntries(crumb.path).catch(() => {});
                             }}
                             style={{
-                              background: "none",
-                              border: "none",
-                              padding: "2px 4px",
-                              borderRadius: 3,
-                              fontSize: 11,
+                              background: "none", border: "none",
+                              padding: "2px 5px", borderRadius: 4,
+                              fontSize: 12,
                               fontFamily: "var(--font-mono)",
                               color: (idx === browseBreadcrumbs.length - 1) ? "var(--text)" : "var(--accent)",
                               cursor: "pointer",
                               fontWeight: (idx === browseBreadcrumbs.length - 1) ? "bold" : "normal",
-                              transition: "background 0.15s, color 0.15s",
+                              transition: "background 0.15s",
                             }}
                             onMouseEnter={(e) => e.currentTarget.style.background = "rgba(100,116,139,0.12)"}
                             onMouseLeave={(e) => e.currentTarget.style.background = "none"}
@@ -842,28 +852,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       ))}
                     </div>
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setBrowseIsEditingPath(true);
-                      }}
+                      onClick={(e) => { e.stopPropagation(); setBrowseIsEditingPath(true); }}
                       style={{
-                        marginLeft: "auto",
-                        background: "none",
-                        border: "none",
-                        padding: "4px",
-                        cursor: "pointer",
-                        color: "var(--text-dim)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        borderRadius: 4,
-                        flexShrink: 0,
+                        marginLeft: "auto", background: "none", border: "none",
+                        padding: "4px", cursor: "pointer",
+                        color: "var(--text-dim)", display: "flex", alignItems: "center",
+                        justifyContent: "center", borderRadius: 4, flexShrink: 0,
                       }}
                       onMouseEnter={(e) => e.currentTarget.style.color = "var(--text)"}
                       onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-dim)"}
                       title="Edit path directly"
                     >
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
                       </svg>
                     </button>
@@ -871,65 +871,127 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 )}
               </div>
 
-              {browseError && (
-                <div style={{ color: "#f87171", fontSize: 10, padding: "4px 8px", background: "rgba(239,68,68,0.06)", borderRadius: 5, marginBottom: 6 }}>
-                  {browseError}
+              {/* Body: left-right layout */}
+              <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
+
+                {/* Left panel — Recent paths */}
+                <div style={{ width: 220, flexShrink: 0, borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                  <div style={{ padding: "10px 12px 6px", fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.05em", flexShrink: 0 }}>
+                    Recent Projects
+                  </div>
+                  <div style={{ flex: 1, overflowY: "auto", scrollbarWidth: "thin", padding: "0 6px" }}>
+                    {recentCwdOptions.length === 0 ? (
+                      <div style={{ padding: "12px 8px", fontSize: 11, color: "var(--text-dim)", fontStyle: "italic" }}>
+                        No recent projects
+                      </div>
+                    ) : (
+                      recentCwdOptions.slice(0, 12).map(({ cwd }) => {
+                        const short = shortenCwd(cwd, homeDir);
+                        return (
+                          <button
+                            key={cwd}
+                            onClick={() => loadBrowseEntries(cwd).catch(() => {})}
+                            style={{
+                              width: "100%",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              padding: "7px 8px",
+                              background: "none",
+                              border: "none",
+                              borderRadius: 5,
+                              textAlign: "left",
+                              fontSize: 12,
+                              color: "var(--text-muted)",
+                              cursor: "pointer",
+                              transition: "background 0.1s, color 0.1s",
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = "var(--bg-selected)";
+                              e.currentTarget.style.color = "var(--text)";
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = "none";
+                              e.currentTarget.style.color = "var(--text-muted)";
+                            }}
+                            title={cwd}
+                          >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: "var(--text-dim)" }}>
+                              <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+                            </svg>
+                            <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
+                              <span style={{ fontWeight: 600, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{short}</span>
+                              <span style={{ fontSize: 10, color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cwd}</span>
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
-              )}
 
-              {/* Instant search filter bar */}
-              <div style={{ margin: "6px 0" }}>
-                <input
-                  type="text"
-                  placeholder="Filter directory entries..."
-                  value={browseSearch}
-                  onChange={(e) => setBrowseSearch(e.target.value)}
-                  style={{
-                    width: "100%",
-                    fontSize: 11,
-                    padding: "5px 8px",
-                    border: "1px solid var(--border)",
-                    borderRadius: 5,
-                    outline: "none",
-                    background: "var(--bg)",
-                    color: "var(--text)",
-                    boxSizing: "border-box",
-                  }}
-                />
-              </div>
+                {/* Right panel — File browser */}
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
+                  {/* Error */}
+                  {browseError && (
+                    <div style={{ margin: "8px 12px 0", color: "#f87171", fontSize: 11, padding: "6px 10px", background: "rgba(239,68,68,0.06)", borderRadius: 6, border: "1px solid rgba(239,68,68,0.12)" }}>
+                      {browseError}
+                    </div>
+                  )}
 
-              <div style={{ maxHeight: 150, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-hover)", marginBottom: 6, scrollbarWidth: "thin" }}>
+                  {/* Search filter */}
+                  <div style={{ padding: "8px 12px", flexShrink: 0 }}>
+                    <input
+                      type="text"
+                      placeholder="Filter directories..."
+                      value={browseSearch}
+                      onChange={(e) => setBrowseSearch(e.target.value)}
+                      style={{
+                        width: "100%",
+                        fontSize: 12,
+                        padding: "7px 10px",
+                        border: "1px solid var(--border)",
+                        borderRadius: 6,
+                        outline: "none",
+                        background: "var(--bg)",
+                        color: "var(--text)",
+                        boxSizing: "border-box",
+                      }}
+                    />
+                  </div>
+
+                  {/* File list */}
+                  <div style={{ flex: 1, minHeight: 0, overflowY: "auto", scrollbarWidth: "thin", padding: "0 12px" }}>
                 {browseLoading ? (
-                  <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-dim)", fontStyle: "italic" }}>
+                  <div style={{ padding: "16px 0", fontSize: 12, color: "var(--text-dim)", fontStyle: "italic" }}>
                     Loading folder entries...
                   </div>
                 ) : filteredBrowseEntries.length === 0 ? (
-                  <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-dim)", fontStyle: "italic" }}>
+                  <div style={{ padding: "16px 0", fontSize: 12, color: "var(--text-dim)", fontStyle: "italic" }}>
                     No matching sub-directories
                   </div>
                 ) : (
                   filteredBrowseEntries.map((entry) => (
                     <button
                       key={entry.path}
-                      onClick={() => {
-                        loadBrowseEntries(entry.path).catch(() => {});
-                      }}
+                      onClick={() => loadBrowseEntries(entry.path).catch(() => {})}
                       style={{
                         width: "100%",
                         display: "flex",
                         alignItems: "center",
-                        gap: 6,
-                        padding: "6px 8px",
+                        gap: 8,
+                        padding: "8px 10px",
                         background: "none",
                         border: "none",
                         borderBottom: "1px solid var(--border)",
                         textAlign: "left",
-                        fontSize: 11,
+                        fontSize: 12,
                         color: "var(--text-muted)",
                         cursor: "pointer",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
+                        borderRadius: 0,
                         transition: "background 0.1s, color 0.1s",
                       }}
                       onMouseEnter={(e) => {
@@ -943,14 +1005,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       title={entry.path}
                     >
                       <svg
-                        width="11"
-                        height="11"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.1"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+                        width="14" height="14"
+                        viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
                         style={{ flexShrink: 0, color: "var(--accent)" }}
                       >
                         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
@@ -959,8 +1016,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     </button>
                   ))
                 )}
+                  </div>
+                </div>
               </div>
-              <div style={{ display: "flex", gap: 5 }}>
+
+              {/* Footer actions */}
+              <div style={{ display: "flex", gap: 8, padding: "12px 16px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
                 <button
                   onClick={() => {
                     if (!browsePath || browseLoading) return;
@@ -969,15 +1030,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   disabled={!browsePath || browseLoading}
                   style={{
                     flex: 1,
-                    padding: "4px 0",
+                    padding: "8px 0",
                     background: "var(--accent)",
                     border: "none",
-                    borderRadius: 5,
+                    borderRadius: 6,
                     color: "#fff",
-                    fontSize: 11,
-                    fontWeight: 600,
+                    fontSize: 12,
+                    fontWeight: 700,
                     cursor: !browsePath || browseLoading ? "not-allowed" : "pointer",
                     opacity: !browsePath || browseLoading ? 0.6 : 1,
+                    transition: "opacity 0.15s",
                   }}
                 >
                   Add Project
@@ -989,21 +1051,23 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   }}
                   style={{
                     flex: 1,
-                    padding: "4px 0",
+                    padding: "8px 0",
                     background: "var(--bg-hover)",
                     border: "1px solid var(--border)",
-                    borderRadius: 5,
+                    borderRadius: 6,
                     color: "var(--text-muted)",
-                    fontSize: 11,
+                    fontSize: 12,
+                    fontWeight: 500,
                     cursor: "pointer",
+                    transition: "background 0.15s",
                   }}
                 >
                   Cancel
                 </button>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Structured "Project - Session" Folders List */}
