@@ -782,6 +782,28 @@ function TextFileViewer({ filePath, cwd }: Props) {
             </button>
           </div>
         )}
+
+        {/* Markdown print button */}
+        {isMarkdown && previewMode && (
+          <button
+            onClick={() => window.print()}
+            title="Print preview"
+            style={{
+              padding: "2px 8px", fontSize: 11, cursor: "pointer",
+              background: "var(--bg-hover)",
+              color: "var(--text-muted)",
+              border: "1px solid var(--border)", borderRadius: 5,
+              display: "flex", alignItems: "center", gap: 4,
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 6 2 18 2 18 9" />
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+              <rect x="6" y="14" width="12" height="8" />
+            </svg>
+            Print
+          </button>
+        )}
       </div>
 
       {/* Content area */}
@@ -797,7 +819,7 @@ function TextFileViewer({ filePath, cwd }: Props) {
           />
         ) : isMarkdown && previewMode ? (
           <div
-            className="markdown-body markdown-file-preview"
+            className="markdown-body markdown-file-preview print-markdown-area"
             style={{ padding: "24px 32px", maxWidth: 800 }}
           >
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.content}</ReactMarkdown>

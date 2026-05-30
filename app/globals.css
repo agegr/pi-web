@@ -324,3 +324,69 @@ span.linenumber {
 }
 
 
+
+/* Print styles for Markdown preview */
+@media print {
+  /* Hide everything by default */
+  body * {
+    visibility: hidden;
+  }
+
+  /* Show only the markdown preview content */
+  .print-markdown-area,
+  .print-markdown-area * {
+    visibility: visible;
+  }
+
+  /* Position the markdown content at the top-left for print layout */
+  .print-markdown-area {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    max-width: none;
+    padding: 20px 24px;
+    margin: 0;
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* Ensure markdown body uses print-friendly colors */
+  .print-markdown-area h1,
+  .print-markdown-area h2,
+  .print-markdown-area h3,
+  .print-markdown-area h4,
+  .print-markdown-area h5,
+  .print-markdown-area h6,
+  .print-markdown-area p,
+  .print-markdown-area li,
+  .print-markdown-area td,
+  .print-markdown-area th {
+    color: #000 !important;
+  }
+
+  .print-markdown-area a {
+    color: #000 !important;
+    text-decoration: underline;
+  }
+
+  .print-markdown-area pre,
+  .print-markdown-area code {
+    background: #f5f5f5 !important;
+    border-color: #ddd !important;
+    color: #000 !important;
+  }
+
+  .print-markdown-area blockquote {
+    border-left-color: #ccc !important;
+    color: #333 !important;
+  }
+
+  .print-markdown-area table th {
+    background: #f0f0f0 !important;
+  }
+
+  .print-markdown-area hr {
+    border-top-color: #ccc !important;
+  }
+}
