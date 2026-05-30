@@ -269,7 +269,16 @@ export class AgentSessionWrapper {
         this.resetLoopDetection();
         // Fire and forget — events come via subscribe
         const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        this.inner.prompt(command.message as string, promptImages?.length ? { images: promptImages } : undefined).catch(() => {});
+        this.inner.prompt(command.message as string, promptImages?.length ? { images: promptImages } : undefined).catch((err) => {
+          // prompt() 在产生任何事件前失败时（如模型/网络错误），必须把错误暴露给前端，
+          // 否则 SSE 流会静默空等到超时，表现为"聊天没反应"。
+          console.error("[rpc-manager] prompt failed:", err);
+          const errorEvent: AgentEvent = {
+            type: "error",
+            message: err instanceof Error ? err.message : String(err),
+          };
+          for (const l of this.listeners) l(errorEvent);
+        });
         return null;
       }
 

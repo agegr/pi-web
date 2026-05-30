@@ -505,6 +505,12 @@ function AssistantMessageView({
         ))}
       </div>
 
+      {/* 模型返回错误（余额不足、限流、网络等）时，pi 协议会带 stopReason:"error" + errorMessage。
+          AssistantMessageView 默认只渲染 content blocks，必须在此显式展示错误，否则用户只看到一条空白消息。 */}
+      {!isStreaming && message.stopReason === "error" && message.errorMessage && (
+        <ErrorBanner rawMessage={message.errorMessage} />
+      )}
+
       <div style={{
         display: "flex", alignItems: "center", gap: 8, marginTop: 4,
       }}>
@@ -549,6 +555,49 @@ function AssistantMessageView({
         {time && !isStreaming && (
           <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ErrorBanner({ rawMessage }: { rawMessage: string }) {
+  // 把底层错误归类成用户能看懂的中文提示；保留原始信息供排查。
+  const lower = rawMessage.toLowerCase();
+  let hint: string;
+  if (/insufficient|balance|quota|credit|payment|余额|额度|欠费|arrears|402/.test(lower) || rawMessage.includes("余额")) {
+    hint = "当前模型账户余额不足或额度用尽，请充值后重试，或在右上角切换到其它可用模型。";
+  } else if (/rate.?limit|too many requests|429/.test(lower)) {
+    hint = "请求过于频繁，已被服务方限流。请稍候片刻再试。";
+  } else if (/unauthor|invalid.*key|api.?key|forbidden|401|403/.test(lower)) {
+    hint = "鉴权失败，API Key 可能无效或已过期。请在模型配置中检查密钥。";
+  } else if (/timeout|timed out|econnreset|network|fetch failed|enotfound/.test(lower)) {
+    hint = "网络异常或请求超时，请检查网络后重试。";
+  } else {
+    hint = "模型请求失败。";
+  }
+
+  return (
+    <div
+      style={{
+        marginTop: 4,
+        padding: "10px 12px",
+        borderRadius: 8,
+        background: "rgba(239,68,68,0.08)",
+        border: "1px solid rgba(239,68,68,0.35)",
+        color: "#ef4444",
+        fontSize: 13,
+        lineHeight: 1.6,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, marginBottom: 4 }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+        请求失败
+      </div>
+      <div style={{ color: "var(--text)" }}>{hint}</div>
+      <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-dim)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+        {rawMessage}
       </div>
     </div>
   );

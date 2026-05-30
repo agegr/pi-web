@@ -382,7 +382,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const message = event.message as string;
         const count = event.count as number;
         setLoopWarning({ level, message, count });
-        
+
         // Auto-clear soft warnings after 5 seconds
         if (level === "soft") {
           setTimeout(() => setLoopWarning(null), 5000);
@@ -392,6 +392,28 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           setTimeout(() => setLoopWarning(null), 10000);
         }
         // Hard warnings stay until user dismisses
+        break;
+      }
+      case "error": {
+        // prompt() 在产生任何消息前失败（模型/网络错误等）时，后端会推此事件。
+        // 必须复位运行状态，否则界面会一直卡在"运行中"且用户看不到原因。
+        const errMsg = (event.message as string) || "未知错误";
+        setAgentRunning(false);
+        setIsAborting(false);
+        setAgentPhase(null);
+        dispatch({ type: "end" });
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: [{ type: "text", text: `⚠️ 模型请求失败：${errMsg}` }],
+            model: currentModel?.modelId ?? "",
+            provider: currentModel?.provider ?? "",
+            stopReason: "error",
+            errorMessage: errMsg,
+            timestamp: Date.now(),
+          } as AgentMessage,
+        ]);
         break;
       }
     }
