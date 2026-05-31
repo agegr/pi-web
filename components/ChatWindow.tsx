@@ -273,14 +273,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                   <Typewriter phrases={TYPEWRITER_PHRASES} />
                 </span>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  web <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
-                </span>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  pi <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
-                </span>
-              </div>
+              <VersionDisplay />
             </div>
             {chatInputElement}
           </div>
@@ -381,6 +374,27 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       </div>
       </>
       )}
+    </div>
+  );
+}
+
+// Dynamic version display — reads from /api/version at runtime
+function VersionDisplay() {
+  const [versions, setVersions] = useState({ appVersion: "0.0.0", piVersion: "0.0.0" });
+  useEffect(() => {
+    fetch("/api/version")
+      .then(r => r.json())
+      .then(v => setVersions(v))
+      .catch(() => {});
+  }, []);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
+      <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+        web <span style={{ color: "var(--text)" }}>v{versions.appVersion}</span>
+      </span>
+      <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+        pi <span style={{ color: "var(--text)" }}>v{versions.piVersion}</span>
+      </span>
     </div>
   );
 }

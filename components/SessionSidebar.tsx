@@ -156,9 +156,18 @@ function useScramble(target: string, running: boolean): string {
 function PiAgentTitle() {
   const [showVersion, setShowVersion] = useState(false);
   const [scrambling, setScrambling] = useState(false);
+  const [versions, setVersions] = useState({ appVersion: "0.0.0", piVersion: "0.0.0" });
   const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const target = showVersion ? `${process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}p${process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}` : "Pi Agent Web";
+  // Fetch versions at runtime (not build-time baked)
+  useEffect(() => {
+    fetch("/api/version")
+      .then(r => r.json())
+      .then(v => setVersions(v))
+      .catch(() => {});
+  }, []);
+
+  const target = showVersion ? `${versions.appVersion}p${versions.piVersion}` : "Pi Agent Web";
   const display = useScramble(target, scrambling);
 
   const triggerScramble = useCallback((toVersion: boolean) => {
