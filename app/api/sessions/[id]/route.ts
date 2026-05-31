@@ -23,7 +23,6 @@ export async function GET(
 
     const sm = SessionManager.open(filePath);
     const entries = sm.getEntries() as never;
-    const tree = sm.getTree();
     const leafId = sm.getLeafId();
     const context = buildSessionContext(entries, leafId);
 
@@ -66,7 +65,6 @@ export async function GET(
       sessionId: id,
       filePath,
       info,
-      tree,
       leafId,
       context,
       ...(agentState !== undefined ? { agentState } : {}),
