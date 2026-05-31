@@ -14,11 +14,13 @@ export const PRESET_DEFAULT: string[] = ["read", "bash", "edit", "write"];
 export const PRESET_FULL: string[] = ["bash", "read", "edit", "write", "grep", "find", "ls"];
 
 export function getPresetFromTools(tools: ToolEntry[]): ToolPreset {
-  const active = tools.filter(t => t.active).map(t => t.name).sort().join(",");
-  if (active === "") return "none";
-  if (active === [...PRESET_DEFAULT].sort().join(",")) return "default";
-  if (active === [...PRESET_FULL].sort().join(",")) return "full";
-  return "default"; // closest match
+  const active = new Set(tools.filter(t => t.active).map(t => t.name));
+  if (active.size === 0) return "none";
+  // Check superset: all "full" tools active -> High
+  if (PRESET_FULL.every(t => active.has(t))) return "full";
+  // All "default" tools active (but not all "full") -> Low
+  if (PRESET_DEFAULT.every(t => active.has(t))) return "default";
+  return "none";
 }
 
 interface Props {

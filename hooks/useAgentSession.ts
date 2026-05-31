@@ -352,8 +352,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (isNew && newSessionCwd) {
         const selectedModel = newSessionModel;
         if (selectedModel) setPendingModel(selectedModel);
-        const { PRESET_NONE, PRESET_DEFAULT, PRESET_FULL } = await import("@/components/ToolPanel");
-        const toolNames = toolPreset === "none" ? PRESET_NONE : toolPreset === "default" ? PRESET_DEFAULT : PRESET_FULL;
+        // Read saved tool config if available, otherwise use preset
+        let toolNames: string[];
+        try {
+          const savedRes = await fetch("/api/tools");
+          const saved = await savedRes.json() as { config?: { activeTools?: string[] } };
+          if (saved.config?.activeTools && saved.config.activeTools.length > 0) {
+            toolNames = saved.config.activeTools;
+          } else {
+            throw new Error("no saved config");
+          }
+        } catch {
+          const { PRESET_NONE, PRESET_DEFAULT, PRESET_FULL } = await import("@/components/ToolPanel");
+          toolNames = toolPreset === "none" ? PRESET_NONE : toolPreset === "default" ? PRESET_DEFAULT : PRESET_FULL;
+        }
         const res = await fetch("/api/agent/new", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
