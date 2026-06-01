@@ -165,6 +165,18 @@ export function AppShell() {
     setExplorerRefreshKey((k) => k + 1);
   }, []);
 
+  const handleTitleGenerated = useCallback((sessionId: string, title: string) => {
+    // Refresh sidebar to pick up the new title
+    setRefreshKey((k) => k + 1);
+    // Update the selected session's name locally for immediate feedback
+    setSelectedSession((prev) => {
+      if (prev?.id === sessionId) {
+        return { ...prev, name: title };
+      }
+      return prev;
+    });
+  }, []);
+
   const handleSessionForked = useCallback((newSessionId: string) => {
     setRefreshKey((k) => k + 1);
     setSessionKey((k) => k + 1);
@@ -566,6 +578,7 @@ export function AppShell() {
               onSystemPromptChange={handleSystemPromptChange}
               onSessionStatsChange={handleSessionStatsChange}
               onContextUsageChange={handleContextUsageChange}
+              onTitleGenerated={handleTitleGenerated}
             />
           ) : showPlaceholder ? (
             activeCwd ? (
