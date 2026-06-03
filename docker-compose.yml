@@ -1,0 +1,25 @@
+version: "3.9"
+
+services:
+  pi-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: agegr/pi-web:latest
+    container_name: pi-web
+    ports:
+      - "30141:30141"
+    volumes:
+      # Persist pi agent sessions, config, and models across restarts
+      - pi-agent-data:/home/piweb/.pi/agent
+    environment:
+      - PORT=30141
+      - HOSTNAME=0.0.0.0
+      - NODE_ENV=production
+    restart: unless-stopped
+    # Optional: mount local config files for customization
+    # - ~/.pi/agent/settings.json:/home/piweb/.pi/agent/settings.json:ro
+    # - ~/.pi/agent/models.json:/home/piweb/.pi/agent/models.json:ro
+
+volumes:
+  pi-agent-data:

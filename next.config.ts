@@ -10,6 +10,8 @@ try {
 } catch { /* package not found, use default */ }
 
 const nextConfig: NextConfig = {
+  // Enable standalone output for Docker builds (set NEXT_OUTPUT=standalone)
+  output: process.env.NEXT_OUTPUT === 'standalone' ? 'standalone' : undefined,
   serverExternalPackages: ["@earendil-works/pi-coding-agent", "@earendil-works/pi-ai"],
   allowedDevOrigins: ['192.168.*.*'],
   env: {

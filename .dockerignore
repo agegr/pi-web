@@ -1,0 +1,11 @@
+.next
+node_modules
+.git
+.gitignore
+*.md
+*.log
+.eslintrc*
+.prettierrc*
+.env*
+.DS_Store
+*.map
