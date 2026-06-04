@@ -179,6 +179,12 @@ export function LockFileIcon({ size = 14 }: IconProps) {
     </svg>
   );
 }
+export function DocFileIcon({ size = 14 }: IconProps) {
+  return <LabelFileIcon label="DOC" size={size} />;
+}
+export function PdfFileIcon({ size = 14 }: IconProps) {
+  return <LabelFileIcon label="PDF" size={size} />;
+}
 export function ConfigIcon({ size = 14 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 14 14" fill="none">
@@ -235,6 +241,8 @@ export function getFileIcon(name: string, size = 14): React.ReactNode {
     case "gql":     return <GraphqlIcon size={size} />;
     case "tf":
     case "hcl":     return <TerraformIcon size={size} />;
+    case "docx":    return <DocFileIcon size={size} />;
+    case "pdf":     return <PdfFileIcon size={size} />;
     case "lock":    return <LockFileIcon size={size} />;
     default:        return <GenericFileIcon size={size} />;
   }

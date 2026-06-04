@@ -13,6 +13,7 @@ const IGNORED_SUFFIXES = [".pyc"];
 
 const TEXT_PREVIEW_MAX_BYTES = 256 * 1024;
 const IMAGE_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
+const DOCX_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
 
 const IMAGE_EXT_TO_MIME: Record<string, string> = {
   png: "image/png",
@@ -39,6 +40,11 @@ const AUDIO_EXT_TO_MIME: Record<string, string> = {
   webm: "audio/webm",
 };
 
+const DOCUMENT_EXT_TO_MIME: Record<string, string> = {
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+};
+
 function getExt(filePath: string): string {
   const ext = path.basename(filePath).toLowerCase().split(".").pop() ?? "";
   return ext;
@@ -50,6 +56,10 @@ function getImageMime(filePath: string): string | null {
 
 function getAudioMime(filePath: string): string | null {
   return AUDIO_EXT_TO_MIME[getExt(filePath)] ?? null;
+}
+
+function getDocumentMime(filePath: string): string | null {
+  return DOCUMENT_EXT_TO_MIME[getExt(filePath)] ?? null;
 }
 
 const EXT_TO_LANGUAGE: Record<string, string> = {
@@ -64,6 +74,7 @@ const EXT_TO_LANGUAGE: Record<string, string> = {
   sql: "sql", graphql: "graphql", gql: "graphql",
   dockerfile: "dockerfile", tf: "hcl", hcl: "hcl",
   env: "bash", gitignore: "bash", txt: "text",
+  pdf: "pdf", docx: "word",
 };
 
 function getLanguage(filePath: string): string {
@@ -187,11 +198,24 @@ function createFileBodyStream(filePath: string, range?: { start: number; end: nu
   });
 }
 
+function encodeHeaderValue(value: string): string {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (ch) =>
+    `%${ch.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+}
+
+function getContentDisposition(filePath: string): string {
+  const fileName = path.basename(filePath);
+  const fallback = fileName.replace(/[^\x20-\x7E]|["\\;\r\n]/g, "_") || "download";
+  return `inline; filename="${fallback}"; filename*=UTF-8''${encodeHeaderValue(fileName)}`;
+}
+
 function streamFile(filePath: string, stat: fs.Stats, contentType: string, rangeHeader: string | null): Response {
   const headers = {
     "Content-Type": contentType,
     "Cache-Control": "no-cache",
     "Accept-Ranges": "bytes",
+    "Content-Disposition": getContentDisposition(filePath),
   };
 
   if (!rangeHeader) {
@@ -244,6 +268,71 @@ function streamFile(filePath: string, stat: fs.Stats, contentType: string, range
   });
 }
 
+function documentPreviewKind(filePath: string): "pdf" | "docx" | null {
+  const ext = getExt(filePath);
+  if (ext === "pdf") return "pdf";
+  if (ext === "docx") return "docx";
+  return null;
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function wrapDocxPreviewHtml(bodyHtml: string, fileName: string): string {
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: light; }
+  html, body { margin: 0; min-height: 100%; background: #eef1f5; color: #171717; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 28px; }
+  main {
+    box-sizing: border-box;
+    max-width: 840px;
+    min-height: calc(100vh - 56px);
+    margin: 0 auto;
+    padding: 56px 64px;
+    background: #fff;
+    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.14);
+  }
+  .file-title {
+    margin: 0 0 28px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e5e7eb;
+    color: #6b7280;
+    font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    word-break: break-word;
+  }
+  h1, h2, h3, h4, h5, h6 { line-height: 1.3; margin: 1.1em 0 0.45em; color: #111827; }
+  p { margin: 0.65em 0; line-height: 1.7; }
+  table { border-collapse: collapse; max-width: 100%; margin: 1em 0; }
+  th, td { border: 1px solid #d1d5db; padding: 6px 9px; vertical-align: top; }
+  img { max-width: 100%; height: auto; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  a { color: #2563eb; }
+  @media (max-width: 720px) {
+    body { padding: 0; background: #fff; }
+    main { min-height: 100vh; padding: 28px 22px; box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+<main>
+<div class="file-title">${escapeHtml(fileName)}</div>
+${bodyHtml}
+</main>
+</body>
+</html>`;
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
@@ -280,12 +369,62 @@ export async function GET(
       if (audioMime) {
         return streamFile(filePath, stat, audioMime, request.headers.get("range"));
       }
+      const documentMime = getDocumentMime(filePath);
+      if (documentMime) {
+        return streamFile(filePath, stat, documentMime, request.headers.get("range"));
+      }
       if (stat.size > TEXT_PREVIEW_MAX_BYTES) {
         return NextResponse.json({ error: "File too large for preview (>256KB)" }, { status: 413 });
       }
       const content = fs.readFileSync(filePath, "utf-8");
       const language = getLanguage(filePath);
       return NextResponse.json({ content, language, size: stat.size });
+    }
+
+    if (type === "meta") {
+      if (!stat.isFile()) {
+        return NextResponse.json({ error: "Not a file" }, { status: 400 });
+      }
+      const imageMime = getImageMime(filePath);
+      const audioMime = getAudioMime(filePath);
+      const documentMime = getDocumentMime(filePath);
+      return NextResponse.json({
+        size: stat.size,
+        language: getLanguage(filePath),
+        mime: imageMime || audioMime || documentMime || "text/plain",
+        previewKind: documentPreviewKind(filePath),
+      });
+    }
+
+    if (type === "preview") {
+      if (!stat.isFile()) {
+        return NextResponse.json({ error: "Not a file" }, { status: 400 });
+      }
+      if (getExt(filePath) !== "docx") {
+        return NextResponse.json({ error: "Preview not available for this file type" }, { status: 400 });
+      }
+      if (stat.size > DOCX_PREVIEW_MAX_BYTES) {
+        return NextResponse.json({ error: "DOCX too large for preview (>10MB)" }, { status: 413 });
+      }
+
+      const mammoth = await import("mammoth");
+      const result = await mammoth.convertToHtml(
+        { path: filePath },
+        {
+          externalFileAccess: false,
+          convertImage: mammoth.images.dataUri,
+        }
+      );
+      const html = wrapDocxPreviewHtml(result.value, path.basename(filePath));
+      return new Response(html, {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-cache",
+          "Content-Security-Policy": "default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+          "Referrer-Policy": "no-referrer",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
     }
 
     if (type === "watch") {
