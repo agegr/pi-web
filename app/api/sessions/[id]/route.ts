@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
+import type { SessionTreeNode } from "@/lib/types";
 import {
   resolveSessionPath,
   invalidateSessionPathCache,
@@ -9,6 +10,26 @@ import {
   listAllSessions,
 } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-manager";
+
+/**
+ * Collapse consecutive single-child nodes into their parent to avoid
+ * JSON.stringify call stack overflow on 2000+ message linear sessions.
+ * After compression, tree depth = number of branching points, not total
+ * message count, which keeps JSON.stringify well within safe limits.
+ */
+function compressTree(nodes: SessionTreeNode[]): SessionTreeNode[] {
+  function walk(node: SessionTreeNode): SessionTreeNode {
+    if (node.children.length === 0) return node;
+    if (node.children.length === 1) {
+      // Linear chain: skip the single child, adopt its (compressed) children
+      const collapsed = walk(node.children[0]);
+      return { ...node, children: collapsed.children };
+    }
+    // Branching point: preserve all branches
+    return { ...node, children: node.children.map(walk) };
+  }
+  return nodes.map(walk);
+}
 
 export async function GET(
   req: Request,
@@ -24,6 +45,7 @@ export async function GET(
     const sm = SessionManager.open(filePath);
     const entries = sm.getEntries() as never;
     const leafId = sm.getLeafId();
+    const tree = compressTree(sm.getTree());
     const context = buildSessionContext(entries, leafId);
 
     const header = sm.getHeader();
@@ -66,6 +88,7 @@ export async function GET(
       filePath,
       info,
       leafId,
+      tree,
       context,
       ...(agentState !== undefined ? { agentState } : {}),
     });
