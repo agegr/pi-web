@@ -1,22 +1,22 @@
 # ============================================
-# Stage 1: Build (bun)
+# Stage 1: Build
 # ============================================
-FROM docker.m.daocloud.io/oven/bun:1.3 AS builder
+FROM docker.m.daocloud.io/node:22-alpine AS builder
 WORKDIR /app
 
-# Install dependencies (faster with bun)
+# Install dependencies
 COPY package.json package-lock.json ./
-RUN bun install --frozen-lockfile
+RUN npm ci
 
 # Copy source code
 COPY . .
 
 # Build with standalone output
 ENV NEXT_OUTPUT=standalone
-RUN bun run build
+RUN npm run build
 
 # ============================================
-# Stage 2: Runtime (node, for max compatibility)
+# Stage 2: Runtime
 # ============================================
 FROM docker.m.daocloud.io/node:22-alpine AS runner
 WORKDIR /app
@@ -25,8 +25,9 @@ ENV NODE_ENV=production
 ENV PORT=30141
 ENV HOSTNAME=0.0.0.0
 
-# pi agent stores sessions and config at $HOME/.pi/agent/
-RUN addgroup --system --gid 1001 piweb && \
+# Install git + gh for agent use
+RUN apk add --no-cache git openssh su-exec && \
+    addgroup --system --gid 1001 piweb && \
     adduser --system --uid 1001 piweb && \
     mkdir -p /home/piweb/.pi/agent && \
     chown -R piweb:piweb /app /home/piweb
@@ -34,8 +35,7 @@ RUN addgroup --system --gid 1001 piweb && \
 # Copy standalone server
 COPY --from=builder /app/.next/standalone ./
 
-# Standalone's minimal node_modules misses some transitive deps (e.g. undici).
-# Overwrite with the full node_modules to ensure everything is available.
+# Copy full node_modules (standalone's minimal set misses some deps like undici)
 COPY --from=builder /app/node_modules ./node_modules
 
 # Copy static assets
@@ -44,9 +44,6 @@ COPY --from=builder /app/.next/static ./.next/static
 # Copy public files
 COPY --from=builder /app/public ./public
 
-# Use non-root user
-USER piweb
-
 VOLUME /home/piweb/.pi/agent
 
 EXPOSE 30141
@@ -54,4 +51,12 @@ EXPOSE 30141
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:30141/api/models || exit 1
 
+# Entrypoint: fix volume permissions as root, then drop to piweb
+COPY --chmod=755 <<'EOF' /entrypoint.sh
+#!/bin/sh
+chown -R piweb:piweb /home/piweb/.pi/agent
+exec su-exec piweb "$@"
+EOF
+
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["node", "server.js"]

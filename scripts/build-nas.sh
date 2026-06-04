@@ -1,20 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+DOCKER_USER="zackdk"
 IMAGE_NAME="z-ai"
-OUTPUT_FILE="${IMAGE_NAME}-x86_64.tar.gz"
+TAG="${DOCKER_USER}/${IMAGE_NAME}:latest"
 
 echo "=== Building ${IMAGE_NAME} for linux/amd64 ==="
 docker buildx build \
   --platform linux/amd64 \
-  -t "${IMAGE_NAME}" \
+  -t "${TAG}" \
   --load \
   .
 
 echo ""
-echo "=== Exporting to ${OUTPUT_FILE} ==="
-docker save "${IMAGE_NAME}" | gzip > "${OUTPUT_FILE}"
+echo "=== Pushing to Docker Hub ==="
+docker push "${TAG}"
 
 echo ""
-echo "Done! File: ${OUTPUT_FILE}"
-ls -lh "${OUTPUT_FILE}"
+echo "Done! Image pushed: ${TAG}"
+echo ""
+echo "On NAS, run:"
+echo "  docker pull ${TAG}"
+echo "  docker run -d --name z-ai -p 30141:30141 ${TAG}"

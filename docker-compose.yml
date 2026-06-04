@@ -1,16 +1,18 @@
 version: "3.9"
 
 services:
-  pi-web:
+  z-ai:
     build:
       context: .
       dockerfile: Dockerfile
-    image: z-ai:latest
-    container_name: pi-web
+    image: zackdk/z-ai:latest
+    container_name: z-ai
     ports:
+      # 宿主机端口 : 容器端口
       - "30141:30141"
     volumes:
-      - pi-agent-data:/home/piweb/.pi/agent
+      # 宿主机目录              : 容器内目录
+      - /path/to/your/data:/home/piweb/.pi/agent
     environment:
       - PORT=30141
       - HOSTNAME=0.0.0.0
