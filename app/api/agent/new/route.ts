@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { existsSync } from "fs";
 import { startRpcSession } from "@/lib/rpc-manager";
+import { normalizeCwd } from "@/lib/cwd";
 
 // POST /api/agent/new  body: { cwd: string; type: string; message: string; ... }
 // Spawns a brand-new pi session and immediately sends the first command.
@@ -13,7 +14,8 @@ export async function POST(req: Request) {
     if (!cwd || typeof cwd !== "string") {
       return NextResponse.json({ error: "cwd is required" }, { status: 400 });
     }
-    if (!existsSync(cwd)) {
+    const normalizedCwd = normalizeCwd(cwd);
+    if (!existsSync(normalizedCwd)) {
       return NextResponse.json({ error: `Directory does not exist: ${cwd}` }, { status: 400 });
     }
 
@@ -21,12 +23,12 @@ export async function POST(req: Request) {
     const { provider, modelId, toolNames, thinkingLevel, ...promptCommand } = command as { provider?: string; modelId?: string; toolNames?: string[]; thinkingLevel?: string; [key: string]: unknown };
 
     const tempKey = `__new__${Date.now()}`;
-    const { session, realSessionId } = await startRpcSession(tempKey, "", cwd, toolNames);
+    const { session, realSessionId } = await startRpcSession(tempKey, "", normalizedCwd, toolNames);
 
     // Keep the files-route allowed-roots cache (see app/api/files/[...path]/route.ts)
     // in sync so the new cwd is immediately readable via /api/files. Without this,
     // a file request under a brand-new cwd would 403 for up to the cache TTL.
-    globalThis.__piAllowedRootsCache?.roots.add(cwd);
+    globalThis.__piAllowedRootsCache?.roots.add(normalizedCwd);
 
     // Apply pre-selected model before sending the prompt
     if (provider && modelId) {

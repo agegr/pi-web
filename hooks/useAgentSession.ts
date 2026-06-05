@@ -77,9 +77,12 @@ export interface ChatInputHandle {
 }
 
 export interface AttachedImage {
+  kind: "image" | "audio";
   data: string;
   mimeType: string;
   previewUrl: string;
+  name: string;
+  size: number;
 }
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
@@ -335,11 +338,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (!message.trim() && !images?.length) return;
     if (agentRunning) return;
 
-    const imageBlocks = images?.map((img) => ({ type: "image" as const, source: { type: "base64" as const, media_type: img.mimeType, data: img.data } }));
+    const mediaBlocks = images?.map((img) => img.kind === "audio"
+      ? { type: "audio" as const, source: { type: "base64" as const, media_type: img.mimeType, data: img.data }, name: img.name }
+      : { type: "image" as const, source: { type: "base64" as const, media_type: img.mimeType, data: img.data } });
     const userMsg: AgentMessage = {
       role: "user",
-      content: imageBlocks?.length
-        ? [...(message.trim() ? [{ type: "text" as const, text: message }] : []), ...imageBlocks]
+      content: mediaBlocks?.length
+        ? [...(message.trim() ? [{ type: "text" as const, text: message }] : []), ...mediaBlocks]
         : message,
       timestamp: Date.now(),
     };
@@ -349,7 +354,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     dispatch({ type: "start" });
     pendingScrollToUserRef.current = true;
 
-    const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
+    const piImages = images?.map((img) => ({
+      type: img.kind,
+      data: img.data,
+      mimeType: img.mimeType,
+      ...(img.kind === "audio" ? { name: img.name } : {}),
+    }));
 
     try {
       if (isNew && newSessionCwd) {
@@ -483,7 +493,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current;
     if (!sid) return;
     setMessages((prev) => [...prev, { role: "user", content: `[steer] ${message}`, timestamp: Date.now() } as AgentMessage]);
-    const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
+    const piImages = images?.map((img) => ({
+      type: img.kind,
+      data: img.data,
+      mimeType: img.mimeType,
+      ...(img.kind === "audio" ? { name: img.name } : {}),
+    }));
     try {
       await sendAgentCommand(sid, {
         type: "steer",
@@ -499,7 +514,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current;
     if (!sid) return;
     setMessages((prev) => [...prev, { role: "user", content: message, timestamp: Date.now() } as AgentMessage]);
-    const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
+    const piImages = images?.map((img) => ({
+      type: img.kind,
+      data: img.data,
+      mimeType: img.mimeType,
+      ...(img.kind === "audio" ? { name: img.name } : {}),
+    }));
     try {
       await sendAgentCommand(sid, {
         type: "follow_up",

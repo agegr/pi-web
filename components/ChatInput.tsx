@@ -3,9 +3,12 @@
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 
 export interface AttachedImage {
+  kind: "image" | "audio";
   data: string;   // base64, no prefix
   mimeType: string;
   previewUrl: string; // object URL for display
+  name: string;
+  size: number;
 }
 
 interface ModelOption {
@@ -119,15 +122,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       });
     },
     addImages(files: File[]) {
-      processImageFiles(files);
+      processMediaFiles(files);
     },
   }));
 
-  const processImageFiles = useCallback(async (files: File[]) => {
-    const imageFiles = files.filter((f) => f.type.startsWith("image/"));
-    if (!imageFiles.length) return;
-    const newImages = await Promise.all(
-      imageFiles.map(
+  const processMediaFiles = useCallback(async (files: File[]) => {
+    const mediaFiles = files.filter((f) => f.type.startsWith("image/") || f.type.startsWith("audio/"));
+    if (!mediaFiles.length) return;
+    const newMedia = await Promise.all(
+      mediaFiles.map(
         (file) =>
           new Promise<AttachedImage>((resolve, reject) => {
             const reader = new FileReader();
@@ -135,14 +138,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               const result = reader.result as string;
               // result is "data:<mime>;base64,<data>"
               const base64 = result.split(",")[1];
-              resolve({ data: base64, mimeType: file.type, previewUrl: URL.createObjectURL(file) });
+              resolve({
+                kind: file.type.startsWith("audio/") ? "audio" : "image",
+                data: base64,
+                mimeType: file.type,
+                previewUrl: URL.createObjectURL(file),
+                name: file.name,
+                size: file.size,
+              });
             };
             reader.onerror = reject;
             reader.readAsDataURL(file);
           })
       )
     );
-    setAttachedImages((prev) => [...prev, ...newImages]);
+    setAttachedImages((prev) => [...prev, ...newMedia]);
   }, []);
 
   const removeImage = useCallback((index: number) => {
@@ -226,8 +236,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (!imageItems.length) return;
     e.preventDefault();
     const files = imageItems.map((item) => item.getAsFile()).filter((f): f is File => f !== null);
-    processImageFiles(files);
-  }, [processImageFiles]);
+    processMediaFiles(files);
+  }, [processMediaFiles]);
 
 
 
@@ -290,12 +300,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,audio/*"
         multiple
         style={{ display: "none" }}
         onChange={(e) => {
           const files = Array.from(e.target.files ?? []);
-          processImageFiles(files);
+          processMediaFiles(files);
           e.target.value = "";
         }}
       />
@@ -315,17 +325,42 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             Retrying ({retryInfo.attempt}/{retryInfo.maxAttempts})…{retryInfo.errorMessage && <span style={{ opacity: 0.7, marginLeft: 4 }}>— {retryInfo.errorMessage}</span>}
           </div>
         )}
-        {/* Image previews */}
+        {/* Attachment previews */}
         {attachedImages.length > 0 && (
           <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
             {attachedImages.map((img, i) => (
               <div key={i} style={{ position: "relative", flexShrink: 0 }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={img.previewUrl}
-                  alt=""
-                  style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 6, border: "1px solid var(--border)", display: "block" }}
-                />
+                {img.kind === "audio" ? (
+                  <div
+                    title={img.name}
+                    style={{
+                      width: 180,
+                      height: 56,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "0 10px",
+                      borderRadius: 6,
+                      border: "1px solid var(--border)",
+                      background: "var(--bg-panel)",
+                      color: "var(--text-muted)",
+                      fontSize: 12,
+                      minWidth: 0,
+                    }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                      <path d="M12 3v10.5a3.5 3.5 0 1 1-2-3.15V6l8-2v5" />
+                    </svg>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{img.name}</span>
+                  </div>
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={img.previewUrl}
+                    alt=""
+                    style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 6, border: "1px solid var(--border)", display: "block" }}
+                  />
+                )}
                 <button
                   onClick={() => removeImage(i)}
                   style={{
@@ -486,7 +521,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={isStreaming}
-              title="Attach image"
+              title="Attach image or audio"
               style={{
                 flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                 width: 32, height: 32, padding: 0,

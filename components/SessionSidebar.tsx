@@ -109,6 +109,7 @@ function buildSessionTree(sessions: SessionInfo[]): SessionTreeNode[] {
 }
 
 const SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
+const LAST_CWD_STORAGE_KEY = "pi-web:last-cwd";
 
 function useScramble(target: string, running: boolean): string {
   const [display, setDisplay] = useState(target);
@@ -257,7 +258,24 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   useEffect(() => {
     onCwdChange?.(selectedCwd);
+    if (selectedCwd) {
+      try {
+        localStorage.setItem(LAST_CWD_STORAGE_KEY, selectedCwd);
+      } catch {
+        // ignore
+      }
+    }
   }, [selectedCwd, onCwdChange]);
+
+  useEffect(() => {
+    if (initialSessionId || selectedCwd !== null) return;
+    try {
+      const saved = localStorage.getItem(LAST_CWD_STORAGE_KEY);
+      if (saved) setSelectedCwd(saved);
+    } catch {
+      // ignore
+    }
+  }, [initialSessionId, selectedCwd]);
 
   // Auto-select cwd and restore session from URL on first load
   useEffect(() => {
@@ -277,7 +295,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         onInitialRestoreDone?.();
       }
       const cwds = getRecentCwds(allSessions);
-      if (cwds.length > 0) setSelectedCwd(cwds[0]);
+      let saved: string | null = null;
+      try {
+        saved = localStorage.getItem(LAST_CWD_STORAGE_KEY);
+      } catch {
+        saved = null;
+      }
+      if (saved) setSelectedCwd(saved);
+      else if (cwds.length > 0) setSelectedCwd(cwds[0]);
     }
   }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone]);
 

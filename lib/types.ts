@@ -31,6 +31,19 @@ export interface ImageContent {
   };
 }
 
+export interface AudioContent {
+  type: "audio";
+  data?: string;
+  mimeType?: string;
+  name?: string;
+  source?: {
+    type: "base64" | "url";
+    media_type?: string;
+    data?: string;
+    url?: string;
+  };
+}
+
 export interface ThinkingContent {
   type: "thinking";
   thinking: string;
@@ -43,11 +56,13 @@ export interface ToolCallContent {
   input: Record<string, unknown>;
 }
 
+export type UserContentBlock = TextContent | ImageContent | AudioContent;
+
 export type AssistantContentBlock = TextContent | ImageContent | ThinkingContent | ToolCallContent;
 
 export interface UserMessage {
   role: "user";
-  content: string | (TextContent | ImageContent)[];
+  content: string | UserContentBlock[];
   timestamp?: number;
 }
 
@@ -86,7 +101,7 @@ export interface ToolResultMessage {
 export interface CustomMessage {
   role: "custom";
   customType: string;
-  content: string | (TextContent | ImageContent)[];
+  content: string | UserContentBlock[];
   display: boolean;
   details?: unknown;
   timestamp?: number;
@@ -136,7 +151,7 @@ export interface CustomEntry extends SessionEntryBase {
 export interface CustomMessageEntry extends SessionEntryBase {
   type: "custom_message";
   customType: string;
-  content: string | (TextContent | ImageContent)[];
+  content: string | UserContentBlock[];
   details?: unknown;
   display: boolean;
 }

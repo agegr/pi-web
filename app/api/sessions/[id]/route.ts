@@ -10,6 +10,18 @@ import {
 } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-manager";
 
+function compressTree<T extends { children: T[] }>(nodes: T[]): T[] {
+  function walk(node: T): T {
+    if (node.children.length === 0) return node;
+    if (node.children.length === 1) {
+      const collapsed = walk(node.children[0]);
+      return { ...node, children: collapsed.children };
+    }
+    return { ...node, children: node.children.map(walk) };
+  }
+  return nodes.map(walk);
+}
+
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -23,7 +35,7 @@ export async function GET(
 
     const sm = SessionManager.open(filePath);
     const entries = sm.getEntries() as never;
-    const tree = sm.getTree();
+    const tree = compressTree(sm.getTree());
     const leafId = sm.getLeafId();
     const context = buildSessionContext(entries, leafId);
 

@@ -12,6 +12,7 @@ const { parseArgs } = require("util");
 
 const pkgDir = path.join(__dirname, "..");
 const nextDir = path.join(pkgDir, ".next");
+const buildIdFile = path.join(nextDir, "BUILD_ID");
 
 // Resolve next's CLI entry directly to avoid relying on .bin symlinks (which
 // may not exist when installed via npx).
@@ -39,12 +40,8 @@ const { values: cliArgs } = parseArgs({
 const port     = cliArgs.port     ?? process.env.PORT     ?? "30141";
 const hostname = cliArgs.hostname ?? process.env.HOSTNAME ?? null;
 
-if (!fs.existsSync(nextDir)) {
-  console.error("Build artifacts not found. Please report this issue.");
-  process.exit(1);
-}
-
-const nextArgs = ["start", "-p", port];
+const hasBuild = fs.existsSync(buildIdFile);
+const nextArgs = [hasBuild ? "start" : "dev", "-p", port];
 if (hostname) nextArgs.push("-H", hostname);
 
 // Always run next's JS entry with node directly — avoids .bin symlink issues

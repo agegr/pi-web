@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect, useMemo, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
@@ -15,6 +17,7 @@ import type {
   AssistantContentBlock,
   TextContent,
   ImageContent,
+  AudioContent,
   ToolCallContent,
   ThinkingContent,
 } from "@/lib/types";
@@ -104,6 +107,10 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
     typeof message.content === "string"
       ? []
       : message.content.filter((b): b is ImageContent => b.type === "image");
+  const audioBlocks: AudioContent[] =
+    typeof message.content === "string"
+      ? []
+      : message.content.filter((b): b is AudioContent => b.type === "audio");
 
   const time = formatTime(message.timestamp);
   const canFork = !!entryId && !!onFork;
@@ -139,7 +146,7 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
           }}
         >
           {imageBlocks.length > 0 && (
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: content ? 8 : 0 }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: content || audioBlocks.length ? 8 : 0 }}>
               {imageBlocks.map((img, i) => {
                 // lib/types.ts ImageContent uses {source:{type,data,media_type,url}}
                 // pi-ai on-disk format uses flat {data, mimeType} — handle both
@@ -159,6 +166,40 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
                     alt=""
                     style={{ maxWidth: 240, maxHeight: 240, borderRadius: 6, objectFit: "contain", display: "block", border: "1px solid rgba(59,130,246,0.15)" }}
                   />
+                );
+              })}
+            </div>
+          )}
+          {audioBlocks.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: content ? 8 : 0 }}>
+              {audioBlocks.map((audio, i) => {
+                const flat = audio as unknown as { data?: string; mimeType?: string; name?: string };
+                const src = audio.source
+                  ? audio.source.type === "base64"
+                    ? `data:${audio.source.media_type};base64,${audio.source.data}`
+                    : audio.source.url ?? ""
+                  : flat.data
+                    ? `data:${flat.mimeType};base64,${flat.data}`
+                    : "";
+                return (
+                  <div
+                    key={i}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      border: "1px solid rgba(59,130,246,0.15)",
+                      borderRadius: 6,
+                      padding: "6px 8px",
+                      background: "rgba(255,255,255,0.35)",
+                      minWidth: 240,
+                    }}
+                  >
+                    <span style={{ fontSize: 12, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 160 }}>
+                      {flat.name ?? audio.source?.media_type ?? flat.mimeType ?? "audio"}
+                    </span>
+                    {src && <audio controls src={src} style={{ height: 28, maxWidth: 220 }} />}
+                  </div>
                 );
               })}
             </div>
@@ -516,7 +557,7 @@ function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCal
     const tc = block as ToolCallContent;
     const result = toolResults?.get(tc.toolCallId);
     const duration = toolCallDurations?.get(tc.toolCallId);
-    return <ToolCallBlock block={tc} result={result} isRunning={isStreaming && !result} duration={duration} />;
+    return <ToolCallBlock block={tc} result={result} duration={duration} />;
   }
   return null;
 }
@@ -525,7 +566,8 @@ function TextBlock({ block, isStreaming }: { block: TextContent; isStreaming?: b
   return (
     <div className="markdown-body">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
         components={{
           code({ className, children, ...props }) {
             const lang = className?.replace("language-", "").toLowerCase() ?? "";
@@ -728,7 +770,7 @@ function ThinkingBlock({ block, duration }: { block: ThinkingContent; duration?:
 }
 
 
-function ToolCallBlock({ block, result, isRunning, duration }: { block: ToolCallContent; result?: ToolResultMessage; isRunning?: boolean; duration?: number }) {
+function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number }) {
   const [expanded, setExpanded] = useState(false);
   const inputStr = JSON.stringify(block.input, null, 2);
 

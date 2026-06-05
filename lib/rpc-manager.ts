@@ -71,8 +71,8 @@ export class AgentSessionWrapper {
     switch (type) {
       case "prompt": {
         // Fire and forget — events come via subscribe
-        const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        this.inner.prompt(command.message as string, promptImages?.length ? { images: promptImages } : undefined).catch(() => {});
+        const promptImages = command.images as Array<{ type: "image" | "audio"; data: string; mimeType: string }> | undefined;
+        this.inner.prompt(command.message as string, promptImages?.length ? { images: promptImages as never } : undefined).catch(() => {});
         return null;
       }
 
@@ -186,14 +186,14 @@ export class AgentSessionWrapper {
       }
 
       case "steer": {
-        const steerImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        await this.inner.steer(command.message as string, steerImages?.length ? steerImages : undefined);
+        const steerImages = command.images as Array<{ type: "image" | "audio"; data: string; mimeType: string }> | undefined;
+        await this.inner.steer(command.message as string, steerImages?.length ? steerImages as never : undefined);
         return null;
       }
 
       case "follow_up": {
-        const followImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        await this.inner.followUp(command.message as string, followImages?.length ? followImages : undefined);
+        const followImages = command.images as Array<{ type: "image" | "audio"; data: string; mimeType: string }> | undefined;
+        await this.inner.followUp(command.message as string, followImages?.length ? followImages as never : undefined);
         return null;
       }
 
