@@ -24,7 +24,7 @@
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "^0.75.5",
+    "@earendil-works/pi-ai": "^0.78.0",
     "@earendil-works/pi-coding-agent": "^0.78.0",
     "@lobehub/icons": "^5.6.0",
     "@types/react-syntax-highlighter": "^15.5.13",
