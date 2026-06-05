@@ -20,7 +20,7 @@ function readActiveTools(): string[] | null {
   try {
     const settings = JSON.parse(readFileSync(path, "utf8"));
     const tools = settings[ACTIVE_TOOLS_KEY];
-    return Array.isArray(tools) && tools.length > 0 ? tools : null;
+    return Array.isArray(tools) && tools.length > 0 ? tools : (Array.isArray(tools) ? [] : null);
   } catch {
     return null;
   }
@@ -34,11 +34,7 @@ function writeActiveTools(activeTools: string[]): void {
       settings = JSON.parse(readFileSync(path, "utf8"));
     } catch {}
   }
-  if (activeTools.length > 0) {
-    settings[ACTIVE_TOOLS_KEY] = activeTools;
-  } else {
-    delete settings[ACTIVE_TOOLS_KEY];
-  }
+  settings[ACTIVE_TOOLS_KEY] = activeTools;
   writeFileSync(path, JSON.stringify(settings, null, 2) + "\n", "utf8");
 }
 
