@@ -2,7 +2,7 @@ import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 
 export const dynamic = "force-dynamic";
 
-// Providers that use OAuth — handled separately via /api/auth/providers
+// Providers that use OAuth — handled separately via api/auth/providers
 const OAUTH_PROVIDER_IDS = new Set(["anthropic", "github-copilot", "openai-codex"]);
 
 export async function GET() {

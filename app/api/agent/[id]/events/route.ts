@@ -4,7 +4,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/agent/[id]/events - SSE stream of agent events
+// GET api/agent/[id]/events - SSE stream of agent events
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }

@@ -49,7 +49,7 @@ function DownloadLink({ filePath, label = "Download" }: { filePath: string; labe
   const encoded = encodeFilePathForApi(filePath);
   return (
     <a
-      href={`/api/files/${encoded}?type=read`}
+      href={`api/files/${encoded}?type=read`}
       download={getFileName(filePath)}
       style={{
         color: "var(--text-muted)",
@@ -326,7 +326,7 @@ function ImageViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
     }
 
     const encoded = encodeFilePathForApi(filePath);
-    const es = new EventSource(`/api/files/${encoded}?type=watch`);
+    const es = new EventSource(`api/files/${encoded}?type=watch`);
     esRef.current = es;
 
     es.addEventListener("connected", () => setWatching(true));
@@ -347,7 +347,7 @@ function ImageViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
   }, [filePath]);
 
   const encoded = encodeFilePathForApi(filePath);
-  const src = `/api/files/${encoded}?type=read${bust ? `&v=${bust}` : ""}`;
+  const src = `api/files/${encoded}?type=read${bust ? `&v=${bust}` : ""}`;
 
   const formatSizeStr = size != null ? formatSize(size) : null;
 
@@ -460,7 +460,7 @@ function AudioViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
     }
 
     const encoded = encodeFilePathForApi(filePath);
-    const es = new EventSource(`/api/files/${encoded}?type=watch`);
+    const es = new EventSource(`api/files/${encoded}?type=watch`);
     esRef.current = es;
 
     es.addEventListener("connected", () => setWatching(true));
@@ -483,7 +483,7 @@ function AudioViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
   }, [filePath]);
 
   const encoded = encodeFilePathForApi(filePath);
-  const src = `/api/files/${encoded}?type=read${bust ? `&v=${bust}` : ""}`;
+  const src = `api/files/${encoded}?type=read${bust ? `&v=${bust}` : ""}`;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -565,8 +565,8 @@ function DocumentViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
   const encoded = encodeFilePathForApi(filePath);
   const isPdf = ext === "pdf";
   const previewUrl = isPdf
-    ? `/api/files/${encoded}?type=read${bust ? `&v=${bust}` : ""}`
-    : `/api/files/${encoded}?type=preview${bust ? `&v=${bust}` : ""}`;
+    ? `api/files/${encoded}?type=read${bust ? `&v=${bust}` : ""}`
+    : `api/files/${encoded}?type=preview${bust ? `&v=${bust}` : ""}`;
 
   useEffect(() => {
     setBust(0);
@@ -579,7 +579,7 @@ function DocumentViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
       esRef.current = null;
     }
 
-    fetch(`/api/files/${encoded}?type=meta`)
+    fetch(`api/files/${encoded}?type=meta`)
       .then((r) => r.json())
       .then((d: { size?: number; error?: string }) => {
         if (d.error) setError(d.error);
@@ -592,7 +592,7 @@ function DocumentViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
       })
       .catch((e) => setError(String(e)));
 
-    const es = new EventSource(`/api/files/${encoded}?type=watch`);
+    const es = new EventSource(`api/files/${encoded}?type=watch`);
     esRef.current = es;
 
     es.addEventListener("connected", () => setWatching(true));
@@ -704,7 +704,7 @@ function TextFileViewer({ filePath, cwd }: Props) {
 
   const fetchContent = useCallback((filePath: string, isRefresh = false) => {
     const encoded = encodeFilePathForApi(filePath);
-    return fetch(`/api/files/${encoded}?type=read`)
+    return fetch(`api/files/${encoded}?type=read`)
       .then((r) => r.json())
       .then((d: FileData & { error?: string }) => {
         if (d.error) {
@@ -751,7 +751,7 @@ function TextFileViewer({ filePath, cwd }: Props) {
 
     // Set up SSE watch
     const encoded = encodeFilePathForApi(filePath);
-    const es = new EventSource(`/api/files/${encoded}?type=watch`);
+    const es = new EventSource(`api/files/${encoded}?type=watch`);
     esRef.current = es;
 
     es.addEventListener("connected", () => {

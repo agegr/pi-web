@@ -92,7 +92,7 @@ function parseInstallCount(installs: string): number {
   return value * multiplier;
 }
 
-// POST /api/skills/search  body: { query: string, limit?: number }
+// POST api/skills/search  body: { query: string, limit?: number }
 export async function POST(req: Request) {
   try {
     const { query, limit: rawLimit } = await req.json() as { query?: string; limit?: unknown };

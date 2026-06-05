@@ -206,7 +206,7 @@ function AddSkillPanel({
     setSearchError(null);
     setResults([]);
     try {
-      const res = await fetch("/api/skills/search", {
+      const res = await fetch("api/skills/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: q.trim() }),
@@ -233,7 +233,7 @@ function AddSkillPanel({
       setInstalling(pkg);
       setInstallError(null);
       try {
-        const res = await fetch("/api/skills/install", {
+        const res = await fetch("api/skills/install", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ package: pkg, scope, cwd }),
@@ -524,7 +524,7 @@ export function SkillsConfig({
   const loadSkills = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetch(`/api/skills?cwd=${encodeURIComponent(cwd)}`)
+    fetch(`api/skills?cwd=${encodeURIComponent(cwd)}`)
       .then((r) => r.json())
       .then((d: { skills?: Skill[]; error?: string }) => {
         if (d.error) {
@@ -548,7 +548,7 @@ export function SkillsConfig({
     setToggling((s) => new Set(s).add(skill.filePath));
     setSaveError(null);
     try {
-      const res = await fetch("/api/skills", {
+      const res = await fetch("api/skills", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -12,7 +12,7 @@ function getCallbackRegistry() {
   return globalThis.__piLoginCallbacks;
 }
 
-// POST /api/auth/login/[provider] — frontend sends redirect URL or auth code
+// POST api/auth/login/[provider] — frontend sends redirect URL or auth code
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ provider: string }> }
@@ -39,7 +39,7 @@ export async function POST(
   return Response.json({ ok: true, provider });
 }
 
-// GET /api/auth/login/[provider] — SSE stream for OAuth flow
+// GET api/auth/login/[provider] — SSE stream for OAuth flow
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ provider: string }> }

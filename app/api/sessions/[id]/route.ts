@@ -76,7 +76,7 @@ export async function GET(
   }
 }
 
-// PATCH /api/sessions/[id]  body: { name: string }
+// PATCH api/sessions/[id]  body: { name: string }
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -99,7 +99,7 @@ export async function PATCH(
   }
 }
 
-// DELETE /api/sessions/[id]
+// DELETE api/sessions/[id]
 export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }

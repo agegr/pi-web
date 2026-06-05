@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 const ANSI_RE = /\x1B\[[0-9;]*m/g;
 
-// POST /api/skills/install  body: { package: string; scope: "global" | "project"; cwd?: string }
+// POST api/skills/install  body: { package: string; scope: "global" | "project"; cwd?: string }
 export async function POST(req: Request) {
   try {
     const { package: pkg, scope, cwd } = await req.json() as { package?: string; scope?: string; cwd?: string };

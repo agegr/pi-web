@@ -4,7 +4,7 @@ import { DefaultResourceLoader, getAgentDir, parseFrontmatter } from "@earendil-
 
 export const dynamic = "force-dynamic";
 
-// GET /api/skills?cwd=<path>
+// GET api/skills?cwd=<path>
 // Uses DefaultResourceLoader (same logic as AgentSession startup) so settings.json
 // skill paths, package skills, and .agents/skills directories are all included.
 export async function GET(req: Request) {
@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   }
 }
 
-// PATCH /api/skills — toggle disable-model-invocation on a SKILL.md file
+// PATCH api/skills — toggle disable-model-invocation on a SKILL.md file
 export async function PATCH(req: Request) {
   try {
     const body = await req.json() as { filePath: string; disableModelInvocation: boolean };

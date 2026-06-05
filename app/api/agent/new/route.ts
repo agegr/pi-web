@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { existsSync } from "fs";
 import { startRpcSession } from "@/lib/rpc-manager";
 
-// POST /api/agent/new  body: { cwd: string; type: string; message: string; ... }
+// POST api/agent/new  body: { cwd: string; type: string; message: string; ... }
 // Spawns a brand-new pi session and immediately sends the first command.
 // Returns { sessionId, data } where sessionId is pi's real session id.
 export async function POST(req: Request) {
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
     const { session, realSessionId } = await startRpcSession(tempKey, "", cwd, toolNames);
 
     // Keep the files-route allowed-roots cache (see app/api/files/[...path]/route.ts)
-    // in sync so the new cwd is immediately readable via /api/files. Without this,
+    // in sync so the new cwd is immediately readable via api/files. Without this,
     // a file request under a brand-new cwd would 403 for up to the cache TTL.
     globalThis.__piAllowedRootsCache?.roots.add(cwd);
 
