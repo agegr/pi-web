@@ -360,7 +360,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         try {
           const savedRes = await fetch("/api/tools");
           const saved = await savedRes.json() as { config?: { activeTools?: string[] } };
-          if (saved.config?.activeTools && saved.config.activeTools.length > 0) {
+          if (saved.config?.activeTools && Array.isArray(saved.config.activeTools)) {
             toolNames = saved.config.activeTools;
           } else {
             throw new Error("no saved config");
