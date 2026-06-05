@@ -323,8 +323,8 @@ export async function startRpcSession(
         const settingsPath = join(agentDir, "settings.json");
         if (existsSync(settingsPath)) {
           const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
-          if (Array.isArray(settings.activeTools) && settings.activeTools.length > 0) {
-            toolsOption = settings.activeTools;
+          if (Array.isArray(settings.activeTools)) {
+            toolsOption = settings.activeTools.length > 0 ? settings.activeTools : [];
           }
         }
       } catch {}
