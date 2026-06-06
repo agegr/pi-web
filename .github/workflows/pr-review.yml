@@ -1,0 +1,63 @@
+name: PR Review
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pi
+        run: npm install -g @earendil-works/pi-coding-agent
+
+      - name: Get diff
+        run: |
+          curl -sL "${{ github.event.pull_request.diff_url }}" > /tmp/diff.txt
+          echo "Diff size: $(wc -c < /tmp/diff.txt) bytes"
+
+      - name: AI Review
+        id: review
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          RULES=$(cat .github/pr-review-prompt.md 2>/dev/null || echo "")
+          DIFF=$(cat /tmp/diff.txt)
+
+          PROMPT="Review this pull request diff. \
+            Point out bugs, security issues, logic errors, and style problems. \
+            Give actionable suggestions. \
+            Be concise but thorough.\n\n"
+
+          if [ -n "$RULES" ]; then
+            PROMPT="${PROMPT}## Project Rules\n\n$RULES\n\n"
+          fi
+
+          PROMPT="${PROMPT}## Diff\n\n\`\`\`diff\n$DIFF\n\`\`\`"
+
+          echo "$PROMPT" | pi -p \
+            --provider deepseek \
+            --model deepseek-v4-flash \
+            --no-session \
+            --no-builtin-tools 2>&1 | tee /tmp/review.txt
+
+      - name: Post comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const review = fs.readFileSync('/tmp/review.txt', 'utf8').trim();
+            if (!review) {
+              console.log('Review empty, skipping comment');
+              return;
+            }
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.issue.number,
+              body: `## 🤖 AI Review\n\n${review}`
+            });
