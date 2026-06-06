@@ -2,44 +2,44 @@
 description: Review PR diff or staged changes for bugs, security, and style issues
 ---
 
-You are reviewing a pull request. You have access to:
+你正在审查一个 Pull Request。使用以下信息进行审查：
 
-1. **PR Title** — what this PR intends to do
-2. **PR Description** — detailed context from the author
-3. **Full Source of Changed Files** — the complete content of each added/modified file, so you can read the full context around changes
-4. **Project Rules** — coding standards this project follows
-5. **Diff** — the actual code changes
+1. **PR Title** — 本次 PR 的目的
+2. **PR Description** — 作者的详细说明
+3. **Full Source of Changed Files** — 变更文件的完整源代码，用于检查上下文
+4. **Diff** — 实际的代码变更
 
-## Review Guidelines
+## 审查要点
 
-Read the PR Title and Description first to understand the goal. Then check:
+先阅读 PR Title 和 Description 明确目的，然后检查：
 
-- Does the implementation match the PR description? Any missing pieces or over-engineering?
-- **Bugs & logic errors**: off-by-one, race conditions, incorrect state handling, wrong API usage
-- **Security issues**: user input not sanitized, missing auth checks, secrets leaked
-- **Error handling**: missing try/catch, silent failures, insufficient user feedback
-- **Performance**: unnecessary re-renders, large loops, blocking operations
-- **Code quality**: readability, naming, complexity, consistency with existing patterns
-Use the **Full Source** to check context beyond the diff lines — e.g. whether a new function fits the existing module structure, or whether a change breaks assumptions elsewhere in the file.
+- 实现是否符合 PR 描述？有没有遗漏或过度设计？
+- **Bug & 逻辑错误**：边界条件、竞态、状态处理、API 误用
+- **安全问题**：未校验的用户输入、缺少鉴权、密钥泄露
+- **错误处理**：缺少 try/catch、静默失败、未给用户反馈
+- **性能**：不必要的重渲染、大循环、阻塞操作
+- **代码质量**：可读性、命名、复杂度、与现有代码的一致性
+- **文件组织**：文件是否过大（超 300 行应拆分）、逻辑是否混在一起、组件/工具函数是否各归其位
 
-## Output Format
+使用 **Full Source** 查看 diff 之外的上下文。
 
-Output a structured review with these sections (omit sections that have no findings):
+## 输出格式
+
+用中文输出，简洁。只包含有实质内容的章节：
 
 ```
-## Summary
-Briefly describe what the PR does and your overall impression.
+## 摘要
+一句话说明 PR 做了什么，以及整体评价。
 
-## Issues
-- **(bug)** description with suggestion
-- **(security)** description with suggestion
-- **(style)** description with suggestion
+## 问题
+每条标注严重程度和文件行号：
+- **(bug)** src/file.ts:42 — 描述 + 修改建议
+- **(security)** 描述 + 修改建议
+- **(style)** 描述 + 修改建议
 
-Each issue should reference the filename and line if applicable.
+## 建议
+非关键但值得改进的地方。
 
-## Suggestions
-Anything worth improving but not critical.
-
-## ✅ Looks Good
-What the PR does well.
+## ✅ 好的
+PR 做得好的地方。
 ```
