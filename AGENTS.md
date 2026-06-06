@@ -133,14 +133,14 @@ Location: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
 ## Code Rules
 
 ### File Organization
-- 一个文件不超过 300 行。超过必须拆分为多个文件
-- 组件、hooks、工具函数各归其位，不要把所有逻辑塞到一个文件里
-- /components/ 下只放 UI 组件，业务逻辑放 /lib/ 或 /hooks/
-- 可复用的 UI 片段应抽取为独立组件，不要父组件里写一大段 JSX
+- Max 300 lines per file. Split into multiple files if exceeded
+- Components, hooks, and utilities each belong in their own directory. Don't cram everything into one file
+- UI components go in /components/, business logic in /lib/ or /hooks/
+- Extract reusable UI fragments into standalone components. Don't write large JSX blocks in the parent
 
 ### Imports
-- 使用 `@/` 路径别名，不要用相对路径 `../../`
-- 外部依赖放第一组，本地依赖放第二组，中间空一行
+- Use `@/` path alias, not relative paths like `../../`
+- External deps first group, local deps second group, separated by a blank line
 
 ---
 
