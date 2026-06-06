@@ -1,7 +1,9 @@
 name: PR Review
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened]
+  issue_comment:
+    types: [created]
 
 jobs:
   review:
@@ -9,6 +11,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    if: github.event_name == 'pull_request' || (github.event_name == 'issue_comment' && github.event.comment.body == '/review' && github.event.issue.pull_request)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,17 +36,27 @@ jobs:
             const fs = require('fs');
             fs.writeFileSync('/tmp/pr-title.txt', pr.title || '');
             fs.writeFileSync('/tmp/pr-body.txt', pr.body || '');
+            fs.writeFileSync('/tmp/pr-head-ref.txt', pr.head.ref);
+            fs.writeFileSync('/tmp/pr-head-sha.txt', pr.head.sha);
+            fs.writeFileSync('/tmp/pr-base-ref.txt', pr.base.ref);
+            fs.writeFileSync('/tmp/pr-diff-url.txt', pr.diff_url);
             core.exportVariable('PR_TITLE', pr.title || '');
             core.exportVariable('PR_BODY', pr.body || '');
 
       - name: Checkout PR branch & collect context
         run: |
+          # Read PR info from files (saved by previous step)
+          HEAD_REF=$(cat /tmp/pr-head-ref.txt)
+          HEAD_SHA=$(cat /tmp/pr-head-sha.txt)
+          BASE_REF=$(cat /tmp/pr-base-ref.txt)
+          DIFF_URL=$(cat /tmp/pr-diff-url.txt)
+
           # Fetch and checkout the PR head branch
-          git fetch origin "${{ github.event.pull_request.head.ref }}"
-          git checkout "${{ github.event.pull_request.head.sha }}"
+          git fetch origin "$HEAD_REF"
+          git checkout "$HEAD_SHA"
 
           # Save diff with HTTP status check
-          HTTP_CODE=$(curl -sL -w "%{http_code}" -o /tmp/diff.txt "${{ github.event.pull_request.diff_url }}")
+          HTTP_CODE=$(curl -sL -w "%{http_code}" -o /tmp/diff.txt "$DIFF_URL")
           if [ "$HTTP_CODE" != "200" ]; then
             echo "Error: diff fetch returned HTTP $HTTP_CODE"
             echo "Request failed" > /tmp/diff.txt
@@ -52,11 +65,10 @@ jobs:
           echo "Diff size: $(wc -c < /tmp/diff.txt) bytes"
 
           # Fetch base branch for comparison
-          BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
-          git fetch origin "$BASE_BRANCH"
+          git fetch origin "$BASE_REF"
 
           # List changed source files (exclude generated/lock files)
-          git diff --name-only "origin/$BASE_BRANCH...HEAD" | grep -E '\.(ts|tsx|js|jsx|css|json|md|yml|yaml)$' \
+          git diff --name-only "origin/$BASE_REF...HEAD" | grep -E '\.(ts|tsx|js|jsx|css|json|md|yml|yaml)$' \
             | grep -v 'node_modules/' \
             | grep -v '\.next/' \
             | grep -v 'package-lock.json' \
