@@ -1,0 +1,155 @@
+name: PR Review
+on:
+  pull_request:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    if: github.event_name == 'pull_request' || (github.event_name == 'issue_comment' && github.event.comment.body == '/review' && github.event.issue.pull_request)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pi
+        run: npm install -g @earendil-works/pi-coding-agent
+
+      - name: Get PR context
+        id: pr-context
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              ...context.repo,
+              pull_number: context.issue.number,
+            });
+            const fs = require('fs');
+            fs.writeFileSync('/tmp/pr-title.txt', pr.title || '');
+            fs.writeFileSync('/tmp/pr-body.txt', pr.body || '');
+            fs.writeFileSync('/tmp/pr-head-ref.txt', pr.head.ref);
+            fs.writeFileSync('/tmp/pr-head-sha.txt', pr.head.sha);
+            fs.writeFileSync('/tmp/pr-base-ref.txt', pr.base.ref);
+            fs.writeFileSync('/tmp/pr-diff-url.txt', pr.diff_url);
+            core.exportVariable('PR_TITLE', pr.title || '');
+            core.exportVariable('PR_BODY', pr.body || '');
+
+      - name: Checkout PR branch & collect context
+        run: |
+          # Read PR info from files (saved by previous step)
+          HEAD_REF=$(cat /tmp/pr-head-ref.txt)
+          HEAD_SHA=$(cat /tmp/pr-head-sha.txt)
+          BASE_REF=$(cat /tmp/pr-base-ref.txt)
+          DIFF_URL=$(cat /tmp/pr-diff-url.txt)
+
+          # Fetch and checkout the PR head branch
+          git fetch origin "$HEAD_REF"
+          git checkout "$HEAD_SHA"
+
+          # Save diff with HTTP status check
+          HTTP_CODE=$(curl -sL -w "%{http_code}" -o /tmp/diff.txt "$DIFF_URL")
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Error: diff fetch returned HTTP $HTTP_CODE"
+            echo "Request failed" > /tmp/diff.txt
+            exit 1
+          fi
+          echo "Diff size: $(wc -c < /tmp/diff.txt) bytes"
+
+          # Fetch base branch for comparison
+          git fetch origin "$BASE_REF"
+
+          # List changed source files (exclude generated/lock files)
+          git diff --name-only "origin/$BASE_REF...HEAD" | grep -E '\.(ts|tsx|js|jsx|css|json|md|yml|yaml)$' \
+            | grep -v 'node_modules/' \
+            | grep -v '\.next/' \
+            | grep -v 'package-lock.json' \
+            | grep -v 'pnpm-lock' \
+            | head -15 > /tmp/changed-files.txt
+
+          echo "Changed source files: $(wc -l < /tmp/changed-files.txt)"
+          cat /tmp/changed-files.txt
+
+      - name: AI Review
+        id: review
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          # Strip YAML frontmatter (--- ... ---) from review.md
+          REVIEW_INSTRUCTION=$(cat .pi/prompts/review.md 2>/dev/null | sed '1{/^---$/!q};/^---$/,/^---$/d' || echo "")
+          DIFF=$(cat /tmp/diff.txt)
+          CHANGED_FILES=$(cat /tmp/changed-files.txt 2>/dev/null || echo "")
+
+          PROMPT="${REVIEW_INSTRUCTION}\n\n"
+          PROMPT="${PROMPT}## PR Title\n\n${PR_TITLE}\n\n"
+
+          if [ -n "$PR_BODY" ]; then
+            PROMPT="${PROMPT}## PR Description\n\n${PR_BODY}\n\n"
+          fi
+
+          # Append full source of changed files (limited size)
+          SOURCE_BLOCK=""
+          TOTAL_SOURCE=0
+          while IFS= read -r file; do
+            if [ -z "$file" ]; then continue; fi
+            if [ ! -f "$file" ]; then continue; fi
+            SIZE=$(wc -c < "$file")
+            # Skip files larger than 50KB
+            if [ "$SIZE" -gt 50000 ]; then
+              SOURCE_BLOCK="${SOURCE_BLOCK}\n\`\`\`${file##*.}\n[File too large: $SIZE bytes, skipped]\n\`\`\`\n"
+              continue
+            fi
+            # Stop if total source exceeds 200KB
+            if [ $((TOTAL_SOURCE + SIZE)) -gt 200000 ]; then
+              SOURCE_BLOCK="${SOURCE_BLOCK}\n[Remaining files skipped due to size limit]\n"
+              break
+            fi
+            CONTENT=$(cat "$file")
+            SOURCE_BLOCK="${SOURCE_BLOCK}\n### $file\n\n\`\`\`${file##*.}\n$CONTENT\n\`\`\`\n"
+            TOTAL_SOURCE=$((TOTAL_SOURCE + SIZE))
+          done <<< "$CHANGED_FILES"
+
+          if [ -n "$SOURCE_BLOCK" ]; then
+            PROMPT="${PROMPT}## Full Source of Changed Files\n\n$SOURCE_BLOCK\n\n"
+          fi
+
+          PROMPT="${PROMPT}## Diff\n\n\`\`\`diff\n$DIFF\n\`\`\`"
+
+          REVIEW_EXIT_CODE=0
+          echo "$PROMPT" | pi -p \
+            --provider deepseek \
+            --model deepseek-v4-flash \
+            --no-session \
+            --no-builtin-tools > /tmp/review.txt 2>/tmp/review-err.txt || REVIEW_EXIT_CODE=$?
+
+          if [ "$REVIEW_EXIT_CODE" -ne 0 ]; then
+            echo "pi exited with code $REVIEW_EXIT_CODE"
+            echo "stderr:" >&2
+            cat /tmp/review-err.txt >&2
+            # Post error as comment so user knows something went wrong
+            echo "Review failed (exit code $REVIEW_EXIT_CODE): $(cat /tmp/review-err.txt)" > /tmp/review.txt
+          fi
+
+      - name: Post comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const review = fs.readFileSync('/tmp/review.txt', 'utf8').trim();
+            if (!review || review === 'Request failed') {
+              console.log('Review empty, skipping comment');
+              return;
+            }
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.issue.number,
+              body: `## 🤖 AI Review\n\n${review}`
+            });

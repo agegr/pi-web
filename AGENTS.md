@@ -130,6 +130,20 @@ Location: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
 
 ---
 
+## Code Rules
+
+### File Organization
+- Max 300 lines per file. Split into multiple files if exceeded
+- Components, hooks, and utilities each belong in their own directory. Don't cram everything into one file
+- UI components go in /components/, business logic in /lib/ or /hooks/
+- Extract reusable UI fragments into standalone components. Don't write large JSX blocks in the parent
+
+### Imports
+- Use `@/` path alias, not relative paths like `../../`
+- External deps first group, local deps second group, separated by a blank line
+
+---
+
 ## CSS Variables (`app/globals.css`)
 
 ```
