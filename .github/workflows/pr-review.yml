@@ -6,8 +6,13 @@ on:
 jobs:
   review:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -40,6 +45,9 @@ jobs:
           # Save diff
           curl -sL "${{ github.event.pull_request.diff_url }}" > /tmp/diff.txt
           echo "Diff size: $(wc -c < /tmp/diff.txt) bytes"
+
+          # Fetch base branch for comparison
+          git fetch origin main
 
           # List changed source files (exclude generated/lock files)
           git diff --name-only origin/main...HEAD | grep -E '\.(ts|tsx|js|jsx|css|json|md|yml|yaml)$' \
