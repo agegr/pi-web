@@ -1,5 +1,6 @@
 import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
 import { cacheSessionPath } from "./session-reader";
+import { getGitHubToken } from "@/lib/github-auth";
 import type { AgentSessionLike, ToolInfo } from "./pi-types";
 
 // ============================================================================
@@ -288,6 +289,21 @@ export async function startRpcSession(
   const starting = (async () => {
     const { SessionManager, getAgentDir } = await import("@earendil-works/pi-coding-agent");
     const agentDir = getAgentDir();
+
+    // Set GH_TOKEN from stored token so agent child processes (bash/gh) can use it.
+    // Always re-read from settings.json each session start so logout takes effect
+    // on the next session, not before. This is the only place agent processes
+    // pick up the token — clone route uses its own mechanism via credential helper.
+    try {
+      const token = getGitHubToken();
+      if (token) {
+        process.env.GH_TOKEN = token;
+      } else {
+        delete process.env.GH_TOKEN;
+      }
+    } catch {
+      // ignore
+    }
 
     const sessionManager = sessionFile
       ? SessionManager.open(sessionFile, undefined)

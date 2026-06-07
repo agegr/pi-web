@@ -253,6 +253,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   const restoredRef = useRef(false);
 
+  // Sync selectedCwdProp into internal state when it changes externally (e.g. clone)
+  useEffect(() => {
+    if (selectedCwdProp !== undefined && selectedCwdProp !== selectedCwd) {
+      setSelectedCwd(selectedCwdProp);
+    }
+  }, [selectedCwdProp]);
+
   useEffect(() => {
     onCwdChange?.(selectedCwd);
   }, [selectedCwd, onCwdChange]);

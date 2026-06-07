@@ -8,6 +8,8 @@ import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
+import { SettingsConfig } from "./SettingsConfig";
+import { CloneRepoModal } from "./CloneRepoModal";
 import { BranchNavigator } from "./BranchNavigator";
 import { useTheme } from "@/hooks/useTheme";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
@@ -26,6 +28,8 @@ export function AppShell() {
   const [modelsConfigOpen, setModelsConfigOpen] = useState(false);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
+  const [settingsConfigOpen, setSettingsConfigOpen] = useState(false);
+  const [cloneModalOpen, setCloneModalOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
@@ -228,6 +232,53 @@ export function AppShell() {
 
   const sidebarContent = (
     <>
+      {/* Top bar with branding, clone, settings */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 4,
+        padding: "6px 10px", flexShrink: 0,
+        borderBottom: "1px solid var(--border)",
+      }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", flex: 1 }}>
+          z-ai
+        </div>
+        <button
+          onClick={() => setCloneModalOpen(true)}
+          title="Clone GitHub repo"
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: 28, height: 28, padding: 0,
+            background: "none", border: "none",
+            borderRadius: 6, color: "var(--text-muted)",
+            cursor: "pointer", transition: "color 0.12s, background 0.12s",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "var(--text-muted)"; }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+            <polyline points="8 11 12 15 16 11" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
+        </button>
+        <button
+          onClick={() => setSettingsConfigOpen(true)}
+          title="Settings"
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: 28, height: 28, padding: 0,
+            background: "none", border: "none",
+            borderRadius: 6, color: "var(--text-muted)",
+            cursor: "pointer", transition: "color 0.12s, background 0.12s",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "var(--text-muted)"; }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+        </button>
+      </div>
       <SessionSidebar
         selectedSessionId={selectedSession?.id ?? null}
         onSelectSession={handleSelectSession}
@@ -648,6 +699,23 @@ export function AppShell() {
     {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
       <SkillsConfig cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!} onClose={() => setSkillsConfigOpen(false)} />
     )}
+    {cloneModalOpen && (
+      <CloneRepoModal
+        onCloned={(path) => {
+          setNewSessionCwd(path);
+          setSelectedSession(null);
+          setSessionKey((k) => k + 1);
+          setBranchTree([]);
+          setBranchActiveLeafId(null);
+          setSystemPrompt(null);
+          setActiveTopPanel(null);
+          setExplorerRefreshKey((k) => k + 1);
+          router.replace("/", { scroll: false });
+        }}
+        onClose={() => setCloneModalOpen(false)}
+      />
+    )}
+    {settingsConfigOpen && <SettingsConfig onClose={() => setSettingsConfigOpen(false)} />}
     </>
   );
 }
