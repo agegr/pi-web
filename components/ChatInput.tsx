@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
+import { useSpeechRecognition } from "@/lib/use-speech-recognition";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -158,6 +159,44 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     });
   }, []);
 
+  const handleSpeechResult = useCallback((text: string) => {
+    const ta = textareaRef.current;
+    if (!ta) {
+      setValue((v) => v + (v ? " " : "") + text);
+      return;
+    }
+    const start = ta.selectionStart ?? ta.value.length;
+    const end = ta.selectionEnd ?? ta.value.length;
+    const before = ta.value.slice(0, start);
+    const after = ta.value.slice(end);
+    const sep = before.length > 0 && !before.endsWith(" ") ? " " : "";
+    const newVal = before + sep + text + after;
+    setValue(newVal);
+    requestAnimationFrame(() => {
+      if (!ta) return;
+      const pos = start + sep.length + text.length;
+      ta.setSelectionRange(pos, pos);
+      ta.focus();
+      ta.style.height = "auto";
+      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+    });
+  }, []);
+
+  const { isListening, isSupported, error: speechError, startListening, stopListening } = useSpeechRecognition(handleSpeechResult);
+  const micPressedRef = useRef(false);
+
+  // Global mouseup for hold-to-talk: stop when mouse released anywhere after pressing mic
+  useEffect(() => {
+    const handler = () => {
+      if (micPressedRef.current) {
+        micPressedRef.current = false;
+        stopListening();
+      }
+    };
+    document.addEventListener("mouseup", handler);
+    return () => document.removeEventListener("mouseup", handler);
+  }, [stopListening]);
+
   const handleSend = useCallback(() => {
     const msg = value.trim();
     if (!msg && !attachedImages.length) return;
@@ -188,14 +227,20 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
         e.preventDefault();
         if (isStreaming && (onSteer || onFollowUp)) {
-          // Default Enter sends as steer if available, else followup
           sendQueued(onSteer ? "steer" : "followup");
         } else {
           handleSend();
         }
+        return;
+      }
+      // Alt+V / ⌥V — toggle voice input
+      if (e.altKey && e.key === "v") {
+        e.preventDefault();
+        if (isListening) stopListening();
+        else startListening();
       }
     },
-    [isStreaming, onSteer, onFollowUp, sendQueued, handleSend]
+    [isStreaming, onSteer, onFollowUp, sendQueued, handleSend, isListening, startListening, stopListening]
   );
 
   const handleInput = useCallback(() => {
@@ -264,12 +309,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   return (
     <div
-      style={{
-        flexShrink: 0,
-        background: "transparent",
-        padding: "0 16px 8px",
-        paddingRight: 52, // 16px base + 36px for ChatMinimap alignment
-      }}
+      className="flex-shrink-0 bg-transparent px-4 pb-2 sm:pr-[52px]"
+      style={{ paddingTop: 0 }}
     >
       {/* Hidden file input */}
       <input
@@ -337,13 +378,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             gap: 8,
             alignItems: "center",
             background: "var(--bg)",
-            border: `1px solid ${isStreaming && (onSteer || onFollowUp)
-              ? "rgba(234,179,8,0.4)"
-              : "color-mix(in srgb, var(--border) 70%, transparent)"}`,
+            border: `1px solid ${
+              isListening
+                ? "rgba(239,68,68,0.55)"
+                : isStreaming && (onSteer || onFollowUp)
+                ? "rgba(234,179,8,0.4)"
+                : "color-mix(in srgb, var(--border) 70%, transparent)"
+            }`,
             borderRadius: 14,
             padding: "10px 10px 10px 14px",
-            boxShadow: "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
+            boxShadow: isListening
+              ? "0 0 0 3px rgba(239,68,68,0.15)"
+              : "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
             transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
+            animation: isListening ? "mic-recording 1.5s ease-in-out infinite" : "none",
+            WebkitAnimation: isListening ? "mic-recording 1.5s ease-in-out infinite" : "none",
           } as React.CSSProperties}
         >
           <textarea
@@ -426,24 +475,23 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 </button>
               )}
             </div>
-          ) : (
+          ) : (value.trim() || attachedImages.length) ? (
             <button
               onClick={handleSend}
-              disabled={!value.trim() && !attachedImages.length}
               style={{
                 flexShrink: 0,
                 alignSelf: "flex-end",
                 display: "flex", alignItems: "center", gap: 6,
                 padding: "7px 14px",
-                background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
+                background: "var(--accent)",
                 border: "none",
                 borderRadius: 8,
-                color: (value.trim() || attachedImages.length) ? "#fff" : "var(--text-dim)",
-                cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
+                color: "#fff",
+                cursor: "pointer",
                 fontSize: 13,
                 fontWeight: 600,
                 letterSpacing: "-0.01em",
-                boxShadow: (value.trim() || attachedImages.length) ? "0 1px 3px rgba(37,99,235,0.25)" : "none",
+                boxShadow: "0 1px 3px rgba(37,99,235,0.25)",
                 transition: "background 0.15s, box-shadow 0.15s",
               }}
             >
@@ -453,8 +501,116 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </svg>
               Send
             </button>
+          ) : (
+            <button
+              onMouseDown={() => {
+                if (!isStreaming && !isListening) {
+                  micPressedRef.current = true;
+                  startListening();
+                }
+              }}
+              onMouseUp={() => {
+                if (!isStreaming && micPressedRef.current) {
+                  micPressedRef.current = false;
+                  stopListening();
+                }
+              }}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                if (!isStreaming && !isListening) {
+                  micPressedRef.current = true;
+                  startListening();
+                }
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                if (!isStreaming && micPressedRef.current) {
+                  micPressedRef.current = false;
+                  stopListening();
+                }
+              }}
+              disabled={isStreaming}
+              title={
+                speechError ? speechError :
+                isListening ? "松手停止" :
+                !isSupported ? "当前浏览器不支持语音识别" :
+                "按住说话"
+              }
+              style={{
+                flexShrink: 0,
+                alignSelf: "flex-end",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: 44, height: 44, padding: 0,
+                background: speechError ? "rgba(234,179,8,0.1)" : isListening ? "rgba(239,68,68,0.12)" : "var(--bg-panel)",
+                border: speechError ? "1px solid rgba(234,179,8,0.25)" : isListening ? "2px solid rgba(239,68,68,0.35)" : `1px solid color-mix(in srgb, var(--border) 70%, transparent)`,
+                borderRadius: "50%",
+                color: speechError ? "rgba(180,130,0,0.85)" : isListening ? "#ef4444" : "var(--text-muted)",
+                cursor: isStreaming ? "not-allowed" : (isSupported ? "pointer" : "default"),
+                opacity: (isStreaming || !isSupported) ? 0.5 : 1,
+                animation: isListening ? "mic-recording 1.5s ease-in-out infinite" : "none",
+                WebkitAnimation: isListening ? "mic-recording 1.5s ease-in-out infinite" : "none",
+                transition: "background 0.15s, color 0.15s, border-color 0.15s",
+              }}
+              onMouseEnter={(e) => {
+                if (!isSupported) return;
+                e.currentTarget.style.background = isListening ? "rgba(239,68,68,0.2)" : "var(--bg-hover)";
+                e.currentTarget.style.color = isListening ? "#ef4444" : "var(--text)";
+                e.currentTarget.style.borderColor = isListening ? "rgba(239,68,68,0.5)" : "var(--border)";
+              }}
+              onMouseLeave={(e) => {
+                if (!isSupported) return;
+                e.currentTarget.style.background = isListening ? "rgba(239,68,68,0.12)" : "var(--bg-panel)";
+                e.currentTarget.style.color = isListening ? "#ef4444" : "var(--text-muted)";
+                e.currentTarget.style.borderColor = isListening ? "rgba(239,68,68,0.35)" : `color-mix(in srgb, var(--border) 70%, transparent)`;
+              }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: !isSupported ? 0.6 : 1 }}>
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+                <line x1="19" y1="10" x2="19" y2="12a7 7 0 0 1-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="22" />
+              </svg>
+            </button>
           )}
         </div>
+
+        {/* Recording / error indicator */}
+        {(isListening || speechError) && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "6px 14px 0",
+            fontSize: 12,
+            color: speechError ? "rgba(180,130,0,0.9)" : "#ef4444",
+            minHeight: 20,
+          }}>
+            {isListening && (
+              <>
+                <span style={{
+                  display: "inline-block",
+                  width: 7, height: 7, borderRadius: "50%",
+                  background: "#ef4444",
+                  animation: "pulse 1s ease-in-out infinite",
+                  flexShrink: 0,
+                }} />
+                <span style={{ animation: "pulse 1.5s ease-in-out infinite" }}>录音中…</span>
+                <span style={{ color: "var(--text-dim)", marginLeft: "auto", fontSize: 11 }}>
+                  松手即发送
+                </span>
+              </>
+            )}
+            {speechError && !isListening && (
+              <span style={{
+                display: "flex", alignItems: "center", gap: 6,
+              }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                {speechError}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Bottom bar: left | center (context) | right */}
         <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>

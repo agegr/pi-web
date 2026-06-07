@@ -368,12 +368,14 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             <div ref={messagesEndRef} />
           </div>
         </div>
-        <ChatMinimap
-          messages={messages}
-          streamingMessage={streamState.streamingMessage}
-          scrollContainer={scrollContainerRef}
-          messageRefs={messageRefs}
-        />
+        <div className="hidden sm:block">
+          <ChatMinimap
+            messages={messages}
+            streamingMessage={streamState.streamingMessage}
+            scrollContainer={scrollContainerRef}
+            messageRefs={messageRefs}
+          />
+        </div>
       </div>
 
       <div className="relative">

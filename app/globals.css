@@ -233,6 +233,16 @@ span.linenumber {
   to   { stroke-dashoffset: 0;  opacity: 1; }
 }
 
+@keyframes mic-recording {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+  }
+}
+
 /* Desktop sidebar: animate width */
 @media (min-width: 641px) {
   .sidebar-overlay-backdrop {

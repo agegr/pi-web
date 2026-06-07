@@ -13,7 +13,7 @@ const nextConfig: NextConfig = {
   // Enable standalone output for Docker builds (set NEXT_OUTPUT=standalone)
   output: process.env.NEXT_OUTPUT === 'standalone' ? 'standalone' : undefined,
   serverExternalPackages: ["@earendil-works/pi-coding-agent", "@earendil-works/pi-ai"],
-  allowedDevOrigins: ['192.168.*.*'],
+  allowedDevOrigins: ['192.168.*.*', '*.loca.lt'],
   env: {
     NEXT_PUBLIC_APP_VERSION: version,
     NEXT_PUBLIC_PI_VERSION: piVersion,
