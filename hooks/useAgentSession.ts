@@ -70,6 +70,8 @@ export interface UseAgentSessionOptions {
 
 export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
+const SCROLL_BOTTOM_THRESHOLD_PX = 96;
+
 export interface ChatInputHandle {
   insertText: (text: string) => void;
   insertIfEmpty: (content: string) => void;
@@ -114,14 +116,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [isCompacting, setIsCompacting] = useState(false);
   const [compactError, setCompactError] = useState<string | null>(null);
   const [agentPhase, setAgentPhase] = useState<AgentPhase>(null);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
   const agentRunningRef = useRef(false);
+  const shouldAutoScrollToBottomRef = useRef(true);
   const handleAgentEventRef = useRef<((event: AgentEvent) => void) | null>(null);
   const initialScrollDoneRef = useRef(false);
-  const lastUserMsgRef = useRef<HTMLDivElement | null>(null);
-  const pendingScrollToUserRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -347,7 +349,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setAgentRunning(true);
     setAgentPhase({ kind: "waiting_model" });
     dispatch({ type: "start" });
-    pendingScrollToUserRef.current = true;
+    shouldAutoScrollToBottomRef.current = true;
 
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
 
@@ -546,16 +548,31 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [setToolPresetState]);
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    messagesEndRef.current?.scrollIntoView({ behavior });
+  const measureScrollPosition = useCallback((syncAutoFollow: boolean) => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const hiddenBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    const isScrollable = container.scrollHeight - container.clientHeight > SCROLL_BOTTOM_THRESHOLD_PX;
+    const isNearBottom = hiddenBottom <= SCROLL_BOTTOM_THRESHOLD_PX;
+
+    if (syncAutoFollow) {
+      shouldAutoScrollToBottomRef.current = isNearBottom;
+    }
+
+    setShowScrollToBottom(isScrollable && !isNearBottom && !shouldAutoScrollToBottomRef.current);
   }, []);
 
-  const scrollUserMsgToTop = useCallback(() => {
-    const container = scrollContainerRef.current;
-    const el = lastUserMsgRef.current;
-    if (!container || !el) return;
-    const elAbsTop = el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
-    container.scrollTo({ top: elAbsTop - 16, behavior: "smooth" });
+  const updateScrollToBottomAffordance = useCallback(() => {
+    measureScrollPosition(false);
+  }, [measureScrollPosition]);
+
+  const handleScrollPositionChange = useCallback(() => {
+    measureScrollPosition(true);
+  }, [measureScrollPosition]);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    messagesEndRef.current?.scrollIntoView({ behavior });
+    shouldAutoScrollToBottomRef.current = true;
   }, []);
 
   // Load session on mount
@@ -596,19 +613,40 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [data?.tree, activeLeafId, handleLeafChange, onBranchDataChange]);
 
   useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    updateScrollToBottomAffordance();
+    container.addEventListener("scroll", handleScrollPositionChange, { passive: true });
+    const resizeObserver = new ResizeObserver(updateScrollToBottomAffordance);
+    resizeObserver.observe(container);
+    return () => {
+      container.removeEventListener("scroll", handleScrollPositionChange);
+      resizeObserver.disconnect();
+    };
+  }, [loading, data?.sessionId, handleScrollPositionChange, updateScrollToBottomAffordance]);
+
+  useEffect(() => {
     if (messages.length > 0) {
-      if (pendingScrollToUserRef.current) {
-        pendingScrollToUserRef.current = false;
-        initialScrollDoneRef.current = true;
-        scrollUserMsgToTop();
-      } else if (!initialScrollDoneRef.current) {
+      if (!initialScrollDoneRef.current) {
         initialScrollDoneRef.current = true;
         scrollToBottom("instant");
-      } else if (!agentRunningRef.current) {
-        scrollToBottom("smooth");
+      } else if (shouldAutoScrollToBottomRef.current) {
+        scrollToBottom(agentRunningRef.current ? "instant" : "smooth");
+      } else {
+        requestAnimationFrame(updateScrollToBottomAffordance);
       }
     }
-  }, [messages.length, agentRunning, scrollToBottom, scrollUserMsgToTop]);
+  }, [messages.length, agentRunning, scrollToBottom, updateScrollToBottomAffordance]);
+
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      if (shouldAutoScrollToBottomRef.current) {
+        scrollToBottom("instant");
+      } else {
+        updateScrollToBottomAffordance();
+      }
+    });
+  }, [agentRunning, streamState.streamingMessage, scrollToBottom, updateScrollToBottomAffordance]);
 
   // Load model list
   useEffect(() => {
@@ -643,15 +681,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunning, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, currentModel, displayModel, sessionStats,
-    agentPhase,
+    agentPhase, showScrollToBottom,
     isNew,
     // Refs
     sessionIdRef, eventSourceRef, messagesEndRef, scrollContainerRef,
-    lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
+    initialScrollDoneRef,
     // Actions
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handleAbortCompaction,
-    handleToolPresetChange, handleThinkingLevelChange, loadTools, setActiveLeafId, setData, setMessages,
+    handleToolPresetChange, handleThinkingLevelChange, scrollToBottom, loadTools, setActiveLeafId, setData, setMessages,
     dispatch, setAgentRunning, setForkingEntryId,
     // Subscriptions
     handleAgentEventRef,

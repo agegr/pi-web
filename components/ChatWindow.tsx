@@ -96,13 +96,12 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     agentRunning, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, displayModel: displayModelValue, sessionStats,
-    agentPhase,
+    agentPhase, showScrollToBottom,
     isNew,
     messagesEndRef, scrollContainerRef,
-    lastUserMsgRef,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handleAbortCompaction,
-    handleToolPresetChange, handleThinkingLevelChange, handleAgentEventRef,
+    handleToolPresetChange, handleThinkingLevelChange, scrollToBottom, handleAgentEventRef,
   } = useAgentSession({
     session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange,
@@ -298,10 +297,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                   toolResultsMap.set((msg as import("@/lib/types").ToolResultMessage).toolCallId, msg as import("@/lib/types").ToolResultMessage);
                 }
               }
-              let lastUserIdx = -1;
-              for (let i = messages.length - 1; i >= 0; i--) {
-                if (messages[i].role === "user") { lastUserIdx = i; break; }
-              }
               let refIdx = 0;
               return messages.map((msg, idx) => {
                 const prevAssistantEntryId =
@@ -343,7 +338,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 return (
                   <div key={idx} ref={(el) => {
                     messageRefs.current[currentRefIdx] = el;
-                    if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
                   }}>
                     {view}
                   </div>
@@ -361,10 +355,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               </div>
             )}
 
-            {agentRunning && (
-              <div style={{ height: scrollContainerRef.current ? scrollContainerRef.current.clientHeight : "80vh" }} />
-            )}
-
             <div ref={messagesEndRef} />
           </div>
         </div>
@@ -374,6 +364,46 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           scrollContainer={scrollContainerRef}
           messageRefs={messageRefs}
         />
+        {showScrollToBottom && (
+          <button
+            type="button"
+            onClick={() => scrollToBottom("smooth")}
+            title="Scroll to latest message"
+            aria-label="Scroll to latest message"
+            style={{
+              position: "absolute",
+              left: "50%",
+              bottom: 16,
+              transform: "translateX(-50%)",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 38,
+              height: 38,
+              padding: 0,
+              color: "var(--text)",
+              background: "var(--bg-panel)",
+              border: "1px solid var(--border)",
+              borderRadius: 9999,
+              cursor: "pointer",
+              transition: "background 0.15s ease, border-color 0.15s ease, color 0.15s ease",
+              zIndex: 20,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "var(--bg-hover)";
+              e.currentTarget.style.borderColor = "var(--text-dim)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "var(--bg-panel)";
+              e.currentTarget.style.borderColor = "var(--border)";
+            }}
+          >
+            <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 4v16" />
+              <path d="m5 13 7 7 7-7" />
+            </svg>
+          </button>
+        )}
       </div>
 
       <div className="relative">
