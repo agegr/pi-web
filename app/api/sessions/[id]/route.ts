@@ -11,16 +11,18 @@ import {
 import { getRpcSession } from "@/lib/rpc-manager";
 
 /**
- * Collapse consecutive single-child nodes into their parent to avoid
- * JSON.stringify call stack overflow on 2000+ message linear sessions.
+ * Compress linear single-child chains to prevent JSON.stringify stack overflow.
+ * Uses iterative descent for linear chains (no recursion) and preserves
+ * terminal leaf nodes so BranchNavigator can still resolve activeLeafId.
  */
 function compressTree<T extends { children: T[] }>(nodes: T[]): T[] {
   function walk(node: T): T {
-    if (node.children.length === 0) return node;
-    if (node.children.length === 1) {
-      const collapsed = walk(node.children[0]);
-      return { ...node, children: collapsed.children };
+    // Follow linear chain iteratively — no stack growth on long sessions
+    while (node.children.length === 1) {
+      node = node.children[0];
     }
+    if (node.children.length === 0) return node;
+    // Branch point: recurse on each child
     return { ...node, children: node.children.map(walk) };
   }
   return nodes.map(walk);
