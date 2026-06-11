@@ -2,6 +2,8 @@ import { SessionManager, buildSessionContext as piBuildSessionContext, getAgentD
 import type { SessionEntry, SessionInfo, SessionContext, SessionTreeNode, AssistantMessage } from "./types";
 import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } from "@earendil-works/pi-coding-agent";
 import { normalizeToolCalls } from "./normalize";
+import { readdir, readFile, stat } from "fs/promises";
+import { dirname, join } from "path";
 
 export { getAgentDir };
 
@@ -9,49 +11,187 @@ export function getSessionsDir(): string {
   return `${getAgentDir()}/sessions`;
 }
 
-export async function listAllSessions(): Promise<SessionInfo[]> {
-  const piSessions: PiSessionInfo[] = await SessionManager.listAll();
-  const pathToId = new Map<string, string>();
-  for (const s of piSessions) pathToId.set(s.path, s.id);
-
-  const cache = getPathCache();
-  return piSessions.map((s) => {
-    // Populate path cache so resolveSessionPath works without a full scan
-    cache.set(s.id, s.path);
-    return {
-      path: s.path,
-      id: s.id,
-      cwd: s.cwd,
-      name: s.name,
-      created: s.created instanceof Date ? s.created.toISOString() : String(s.created),
-      modified: s.modified instanceof Date ? s.modified.toISOString() : String(s.modified),
-      messageCount: s.messageCount,
-      firstMessage: s.firstMessage || "(no messages)",
-      parentSessionId: s.parentSessionPath ? pathToId.get(s.parentSessionPath) : undefined,
-    };
-  });
-}
-
 // ============================================================================
-// Session path cache: sessionId → absolute file path
-// Stored in globalThis for hot-reload safety
+// Session caches: stored in globalThis for hot-reload safety
 // ============================================================================
 declare global {
-  var __piSessionPathCache: Map<string, string> | undefined;
+  var __piSessionPathCache: Map<string, string> | undefined; // sessionId -> file path
+  var __piSessionsCache: { sessions: SessionInfo[]; timestamp: number } | undefined; // listAllSessions result
 }
+
+const SESSIONS_CACHE_TTL_MS = 5_000;
 
 function getPathCache(): Map<string, string> {
   if (!globalThis.__piSessionPathCache) globalThis.__piSessionPathCache = new Map();
   return globalThis.__piSessionPathCache;
 }
 
+function getSessionsCache(): { sessions: SessionInfo[]; timestamp: number } | undefined {
+  return globalThis.__piSessionsCache;
+}
+
+function setSessionsCache(sessions: SessionInfo[]): void {
+  globalThis.__piSessionsCache = { sessions, timestamp: Date.now() };
+}
+
+export async function listAllSessions(): Promise<SessionInfo[]> {
+  const pathCache = getPathCache();
+  const sessionsCache = getSessionsCache();
+  const now = Date.now();
+
+  // Return cached result if still valid
+  if (sessionsCache && now - sessionsCache.timestamp < SESSIONS_CACHE_TTL_MS) {
+    return sessionsCache.sessions;
+  }
+
+  let sessions: SessionInfo[] = [];
+
+  try {
+    const piSessions = await SessionManager.listAll();
+    const pathToId = new Map<string, string>();
+    for (const s of piSessions) pathToId.set(s.path, s.id);
+
+    sessions = piSessions.map((s) => {
+      const info: SessionInfo = {
+        path: s.path,
+        id: s.id,
+        cwd: s.cwd,
+        name: s.name,
+        created: s.created instanceof Date ? s.created.toISOString() : String(s.created),
+        modified: s.modified instanceof Date ? s.modified.toISOString() : String(s.modified),
+        messageCount: s.messageCount,
+        firstMessage: s.firstMessage || "(no messages)",
+        parentSessionId: s.parentSessionPath ? pathToId.get(s.parentSessionPath) : undefined,
+      };
+      pathCache.set(s.id, s.path); // keep path cache in sync
+      return info;
+    });
+  } catch (error) {
+    console.error("[pi-web] SessionManager.listAll() failed, falling back to safe manual scan:", error);
+    try {
+      sessions = await safeManualScan();
+    } catch (fallbackErr) {
+      console.error("[pi-web] Safe manual scan also failed:", fallbackErr);
+      sessions = [];
+    }
+    // Populate path cache from manual scan results
+    for (const s of sessions) {
+      pathCache.set(s.id, s.path);
+    }
+  }
+
+  setSessionsCache(sessions);
+  return sessions;
+}
+
+// Fallback scanner that walks the sessions directory and reads headers only.
+async function safeManualScan(): Promise<SessionInfo[]> {
+  const sessionsDir = getSessionsDir();
+  const result: SessionInfo[] = [];
+  const pathToId = new Map<string, string>();
+  const visitedDirs = new Set<string>(); // avoid symlink loops
+
+  async function walk(dir: string): Promise<void> {
+    if (visitedDirs.has(dir)) return;
+    visitedDirs.add(dir);
+    try {
+      const entries = await readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          await walk(fullPath);
+        } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+          try {
+            const content = await readFile(fullPath, "utf8");
+            const lines = content.split("\n");
+            if (lines.length === 0) continue;
+            const header = JSON.parse(lines[0]) as any;
+            if (header.type !== "session") continue;
+
+            const sessionId = header.id || `fallback-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            // Extract encoded cwd from parent directory name
+            const parentDir = dirname(fullPath);
+            const parts = parentDir.split(/[\\/]/);
+            const encodedCwd = parts[parts.length - 1] || "";
+            let cwd = "";
+            try {
+              cwd = decodeURIComponent(encodedCwd);
+            } catch {
+              cwd = encodedCwd;
+            }
+
+            const created = header.timestamp ? new Date(header.timestamp).toISOString() : new Date().toISOString();
+            let modified: string;
+            try {
+              const stats = await stat(fullPath);
+              modified = stats.mtime.toISOString();
+            } catch {
+              modified = created;
+            }
+
+            const info: SessionInfo = {
+              path: fullPath,
+              id: sessionId,
+              cwd,
+              name: undefined,
+              created,
+              modified,
+              messageCount: 0,
+              firstMessage: "(unreadable)",
+            };
+            result.push(info);
+            pathToId.set(fullPath, sessionId);
+          } catch {
+            // Skip corrupted file
+            continue;
+          }
+        }
+      }
+    } catch {
+      // ignore unreadable directory
+    }
+  }
+
+  await walk(sessionsDir);
+
+  // Second pass: assign parentSessionId by reading header.parentSession (absolute path)
+  for (const info of result) {
+    try {
+      const content = await readFile(info.path, "utf8");
+      const firstLine = content.split("\n")[0];
+      const header = JSON.parse(firstLine) as { type?: string; parentSession?: string };
+      if (header.type === "session" && header.parentSession) {
+        const parentId = pathToId.get(header.parentSession);
+        if (parentId) {
+          info.parentSessionId = parentId;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return result;
+}
+
 export async function resolveSessionPath(sessionId: string): Promise<string | null> {
-  const cached = getPathCache().get(sessionId);
+  const pathCache = getPathCache();
+  const cached = pathCache.get(sessionId);
   if (cached) return cached;
+
+  // Try to get from sessions cache first
+  const sessionsCache = getSessionsCache();
+  if (sessionsCache) {
+    const found = sessionsCache.sessions.find((s) => s.id === sessionId);
+    if (found) {
+      pathCache.set(sessionId, found.path);
+      return found.path;
+    }
+  }
 
   // Cache miss: scan all sessions to populate cache, then retry
   await listAllSessions();
-  return getPathCache().get(sessionId) ?? null;
+  return pathCache.get(sessionId) ?? null;
 }
 
 export function cacheSessionPath(sessionId: string, filePath: string): void {
@@ -187,6 +327,3 @@ export function getLeafId(entries: SessionEntry[]): string | null {
   if (entries.length === 0) return null;
   return entries[entries.length - 1].id;
 }
-
-
-
