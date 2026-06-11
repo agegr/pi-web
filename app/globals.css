@@ -303,6 +303,7 @@ span.linenumber {
 
 /* Mobile sidebar: slide in/out as overlay */
 @media (max-width: 640px) {
+.typewriter-hint {    display: none !important;  }
   .chat-stats-center {
     display: none !important;
   }
