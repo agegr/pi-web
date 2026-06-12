@@ -50,7 +50,7 @@ async function enumerateTools(cwd: string) {
     sessionManager,
   });
 
-  const allTools: { name: string; description: string; active: boolean }[] = [];
+  const allTools: { name: string; description: string; active: boolean; sourceInfo?: { source?: string; scope?: string; path?: string; baseDir?: string } }[] = [];
   const toolEntries = session.getAllTools?.() ?? [];
   const savedActive = readActiveTools();
   const activeSet = savedActive
@@ -62,6 +62,7 @@ async function enumerateTools(cwd: string) {
       name: t.name,
       description: t.description ?? "",
       active: activeSet.has(t.name),
+      sourceInfo: t.sourceInfo,
     });
   }
 
@@ -75,7 +76,7 @@ export async function GET(req: Request) {
   const cwd = searchParams.get("cwd");
 
   const activeTools = readActiveTools();
-  let tools: { name: string; description: string; active: boolean }[] = [];
+  let tools: { name: string; description: string; active: boolean; sourceInfo?: { source?: string; scope?: string; path?: string; baseDir?: string } }[] = [];
 
   if (cwd) {
     try {

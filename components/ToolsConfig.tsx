@@ -39,6 +39,9 @@ export function ToolsConfig({ cwd, onClose }: Props) {
   // Group tools by category
   const builtinTools = tools.filter(t => ["read", "bash", "edit", "write", "grep", "find", "ls"].includes(t.name));
   const extensionTools = tools.filter(t => !["read", "bash", "edit", "write", "grep", "find", "ls"].includes(t.name));
+  const systemExtensions = extensionTools.filter(t => t.sourceInfo?.scope === "user");
+  const projectExtensions = extensionTools.filter(t => t.sourceInfo?.scope === "project");
+  const otherTools = extensionTools.filter(t => t.sourceInfo?.scope !== "user" && t.sourceInfo?.scope !== "project");
 
   const toggle = (name: string) => {
     setActive(prev => {
@@ -173,12 +176,32 @@ export function ToolsConfig({ cwd, onClose }: Props) {
                   ))}
                 </>
               )}
-              {extensionTools.length > 0 && (
+              {systemExtensions.length > 0 && (
                 <>
                   <div style={{ padding: "12px 18px 4px", fontSize: 11, color: "var(--text-dim)", fontWeight: 600 }}>
-                    Extensions
+                    Extensions · System
                   </div>
-                  {extensionTools.map(tool => (
+                  {systemExtensions.map(tool => (
+                    <ToolRow key={tool.name} tool={tool} active={active.has(tool.name)} onToggle={toggle} />
+                  ))}
+                </>
+              )}
+              {projectExtensions.length > 0 && (
+                <>
+                  <div style={{ padding: "12px 18px 4px", fontSize: 11, color: "var(--text-dim)", fontWeight: 600 }}>
+                    Extensions · Project
+                  </div>
+                  {projectExtensions.map(tool => (
+                    <ToolRow key={tool.name} tool={tool} active={active.has(tool.name)} onToggle={toggle} />
+                  ))}
+                </>
+              )}
+              {otherTools.length > 0 && (
+                <>
+                  <div style={{ padding: "12px 18px 4px", fontSize: 11, color: "var(--text-dim)", fontWeight: 600 }}>
+                    Extensions · Other
+                  </div>
+                  {otherTools.map(tool => (
                     <ToolRow key={tool.name} tool={tool} active={active.has(tool.name)} onToggle={toggle} />
                   ))}
                 </>

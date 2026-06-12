@@ -6,6 +6,12 @@ export interface ToolEntry {
   name: string;
   description: string;
   active: boolean;
+  sourceInfo?: {
+    source?: string;
+    scope?: string;
+    path?: string;
+    baseDir?: string;
+  };
 }
 
 export type ToolPreset = "none" | "default" | "full";
