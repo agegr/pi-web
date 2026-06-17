@@ -33,7 +33,7 @@ function formatRelativeTime(dateStr: string): string {
   return date.toLocaleDateString();
 }
 
-/** Return the 5 most recently active cwds across all sessions */
+/** Return all recently active cwds across all sessions, most recent first */
 function getRecentCwds(sessions: SessionInfo[]): string[] {
   const latestByCwd = new Map<string, string>(); // cwd -> most recent modified
   for (const s of sessions) {
@@ -45,7 +45,6 @@ function getRecentCwds(sessions: SessionInfo[]): string[] {
   }
   return [...latestByCwd.entries()]
     .sort((a, b) => b[1].localeCompare(a[1]))
-    .slice(0, 5)
     .map(([cwd]) => cwd);
 }
 
@@ -497,7 +496,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 border: "1px solid var(--border)",
                 borderRadius: 8,
                 boxShadow: "0 6px 20px rgba(0,0,0,0.10)",
-                overflow: "hidden",
+                overflowY: "auto",
+                overflowX: "hidden",
+                maxHeight: 320,
               }}
             >
               {recentCwds.map((cwd) => (
