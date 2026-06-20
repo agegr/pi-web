@@ -29,53 +29,81 @@ Browser                Next.js Server              AgentSession (in-process)
   │◀── data: {...} ─────────│                               │
 ```
 
-**Session browsing** (read-only): reads `.jsonl` files directly via `lib/session-reader.ts` — no AgentSession created.  
-**Sending a message**: `startRpcSession()` in `lib/rpc-manager.ts` creates an AgentSession in-process.
+**Session browsing** (read-only): reads `.jsonl` files directly via `lib/session/session-reader.ts` — no AgentSession created.  
+**Sending a message**: `startRpcSession()` in `lib/agent/rpc-manager.ts` creates an AgentSession in-process.
 
 ---
 
 ## File Map
 
 ```
-app/api/
-  sessions/route.ts               GET  list all sessions
-  sessions/[id]/route.ts          GET/PATCH/DELETE session
-  sessions/[id]/context/route.ts  GET ?leafId= — context for a specific leaf
-  sessions/new/route.ts           returns 410 (no longer used)
-  agent/new/route.ts              POST { cwd, message, toolNames?, provider?, modelId? }
-  agent/[id]/route.ts             GET state | POST any command
-  agent/[id]/events/route.ts      GET SSE stream
-  files/[...path]/route.ts        GET file contents for viewer
-  models/route.ts                 GET { models, modelList, defaultModel }
-  models-config/route.ts          GET/POST — read/write ~/.pi/agent/models.json
+src/
+  app/api/
+    sessions/route.ts               GET  list all sessions
+    sessions/[id]/route.ts          GET/PATCH/DELETE session
+    sessions/[id]/context/route.ts  GET ?leafId= — context for a specific leaf
+    sessions/[id]/export/route.ts   GET — export session as markdown
+    sessions/archive-batch/route.ts POST — batch archive sessions
+    sessions/delete-batch/route.ts  POST — batch delete sessions
+    sessions/unarchive-batch/route.ts POST — batch unarchive sessions
+    sessions/archived/route.ts      GET — list archived sessions
+    agent/new/route.ts              POST { cwd, message, toolNames?, provider?, modelId? }
+    agent/[id]/route.ts             GET state | POST any command
+    agent/[id]/events/route.ts      GET SSE stream
+    files/[...path]/route.ts        GET file contents for viewer
+    models/route.ts                 GET { models, modelList, defaultModel }
+    models-config/route.ts          GET/POST — read/write ~/.pi/agent/models.json
+    skills/search/route.ts          GET — search installable skills
+    skills/install/route.ts         POST — install a skill
 
-lib/
-  rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
-  session-reader.ts   parse .jsonl; getModelNameMap/getModelList/getDefaultModel
-  types.ts            shared TypeScript types
-  normalize.ts        normalizeToolCalls() — field name mismatch between file format and our types
-  system-prompt-off.ts  minimal system prompt when all tools are disabled
+  lib/
+    agent/
+      rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
+      agent-client.ts     sendAgentCommand() — client-side helper for agent API
+      pi-types.ts         type shims for @earendil-works/pi-coding-agent
+    session/
+      session-reader.ts   parse .jsonl; getModelNameMap/getModelList/getDefaultModel
+      session-utils.ts    deleteSession, archiveSession, unarchiveSession, renameSession
+      normalize.ts        normalizeToolCalls() — field name mismatch between file format and our types
+      file-paths.ts       encodeFilePathForApi, getFileName, getRelativeFilePath
+    shared/
+      types.ts            shared TypeScript types
+      npx.ts              runNpx() — spawn npx with output streaming
 
-components/
-  AppShell.tsx        layout + URL state + tab management
-  SessionSidebar.tsx  session tree + FileExplorer
-  ChatWindow.tsx      messages + streaming + SSE + fork/navigate logic
-  ChatInput.tsx       input bar + model/thinking/tools/compact controls
-  MessageView.tsx     renders one message (user/assistant/toolCall/toolResult)
-  BranchNavigator.tsx in-session branch switcher
-  ChatMinimap.tsx     scroll minimap alongside the message list
-  ToolPanel.tsx       exports PRESET_NONE/DEFAULT/FULL + getPresetFromTools
-  ModelsConfig.tsx    modal for editing models.json (opened from sidebar bottom)
-  FileExplorer.tsx    file tree inside sidebar
-  FileViewer.tsx      file content in a tab
-  TabBar.tsx          tab bar (Chat + open file tabs)
+  components/
+    layout/
+      AppShell.tsx        layout + URL state + tab management
+    chat/
+      ChatWindow.tsx      messages + streaming + SSE + fork/navigate logic
+      ChatInput.tsx       input bar + model/thinking/tools/compact controls
+      MessageView.tsx     renders one message (user/assistant/toolCall/toolResult)
+      BranchNavigator.tsx in-session branch switcher
+      ChatMinimap.tsx     scroll minimap alongside the message list
+    session/
+      SessionSidebar.tsx  session tree + FileExplorer + batch actions
+      FileExplorer.tsx    file tree inside sidebar
+      FileViewer.tsx      file content in a tab
+      TabBar.tsx          tab bar (Chat + open file tabs)
+      FileIcons.tsx       file-type icon mapping
+    settings/
+      ToolPanel.tsx       exports PRESET_NONE/DEFAULT/FULL + getPresetFromTools
+      ModelsConfig.tsx    modal for editing models.json (opened from sidebar bottom)
+      SkillsConfig.tsx    skill search & install modal
+    shared/
+      MarkdownBody.tsx    markdown renderer with syntax highlighting
+
+  hooks/
+    useAgentSession.ts    session state, SSE streaming, tool presets
+    useAudio.ts           notification sound on agent response
+    useDragDrop.ts        drag-and-drop file upload
+    useTheme.ts           theme toggle (light/dark)
 ```
 
 ---
 
 ## Key Design Decisions & Traps
 
-### AgentSession lifecycle (`lib/rpc-manager.ts`)
+### AgentSession lifecycle (`lib/agent/rpc-manager.ts`)
 - One `AgentSessionWrapper` per session id, keyed in `globalThis.__piSessions`
 - `globalThis` survives Next.js hot-reload; plain module-level Map does not
 - Idle timeout: 10 minutes. Concurrent `startRpcSession()` calls share a single start Promise (`globalThis.__piStartLocks`)
@@ -93,10 +121,10 @@ components/
 `parentSession` in the header is **display metadata only** — has zero effect on chat content. Safe to `writeFileSync` the entire file (pi does this itself during migrations). Used when cascade-reparenting children on delete.
 
 ### ToolCall field normalization
-Pi stores toolCall blocks as `{type:"toolCall", id, name, arguments}` but `ToolCallContent` uses `{toolCallId, toolName, input}`. `normalizeToolCalls()` in `lib/normalize.ts` handles this — called in both `session-reader.ts` (file load) and `ChatWindow.handleAgentEvent()` (streaming).
+Pi stores toolCall blocks as `{type:"toolCall", id, name, arguments}` but `ToolCallContent` uses `{toolCallId, toolName, input}`. `normalizeToolCalls()` in `lib/session/normalize.ts` handles this — called in both `session-reader.ts` (file load) and `ChatWindow.handleAgentEvent()` (streaming).
 
 ### New session tool preset
-Tool names are passed at session creation (`POST /api/agent/new` → `toolNames[]`). For existing sessions, the active preset is inferred on mount via `get_tools` → `getPresetFromTools()`. When tools are fully disabled (`toolNames = []`), `rpc-manager.ts` injects a minimal system prompt via `system-prompt-off.ts` + `DefaultResourceLoader`.
+Tool names are passed at session creation (`POST /api/agent/new` → `toolNames[]`). For existing sessions, the active preset is inferred on mount via `get_tools` → `getPresetFromTools()`. When tools are fully disabled (`toolNames = []`), `rpc-manager.ts` injects a minimal system prompt via `DefaultResourceLoader`.
 
 ### Model defaults for new sessions
 `GET /api/models` returns `defaultModel` read from `~/.pi/agent/settings.json`. `ChatWindow` pre-selects this on mount for new sessions.
@@ -130,7 +158,7 @@ Location: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
 
 ---
 
-## CSS Variables (`app/globals.css`)
+## CSS Variables (`src/app/globals.css`)
 
 ```
 --bg --bg-panel --bg-hover --bg-selected --border

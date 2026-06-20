@@ -23,6 +23,9 @@
     "lint": "eslint .",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
   },
+  "simple-git-hooks": {
+    "pre-commit": "npm run check"
+  },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.79.0",
     "@earendil-works/pi-coding-agent": "^0.79.0",

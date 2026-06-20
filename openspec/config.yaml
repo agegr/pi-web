@@ -1,0 +1,29 @@
+schema: spec-driven
+
+# Project context — shown to AI when creating artifacts.
+context: |
+  Tech stack: Next.js 16 (App Router, webpack), React 19, TypeScript 6, Tailwind 4
+  Backend: in-process AgentSession via @earendil-works/pi-coding-agent + pi-ai
+  Data source: read/write ~/.pi/agent/sessions/*.jsonl
+  AI tools: opencode (primary), Claude Code, Trae, pi agent
+  Package: npm, ESLint 9 (eslint-config-next)
+  Code style: functional React, no `any`, no `// @ts-ignore`
+  Single source of truth for AI rules: AGENTS.md + docs/ai-rules/
+  Workflow: OpenSpec (proposal → design → tasks → apply → archive)
+
+  Domain: web UI for the pi coding agent. Server-side IPC, SSE streaming,
+  fork/navigate_tree branching, file viewer tabs, tool calls/result rendering.
+
+# Per-artifact rules
+rules:
+  proposal:
+    - Keep proposals under 800 words
+    - Always include "Why" / "What" / "Non-Goals" / "Affected Files" sections
+    - Always estimate risk level (Low / Medium / High)
+  design:
+    - Include module dependency graph for refactors
+    - Specify verification steps that are manually runnable
+  tasks:
+    - Break into atomic chunks, each ≤ 30 minutes
+    - Every task must end with "run npm run check" if it touches code
+    - Final task must include a manual smoke-test checklist
