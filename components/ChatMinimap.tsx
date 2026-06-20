@@ -160,7 +160,8 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
     if (scrollable <= 0) return;
     const clamped = Math.max(0, Math.min(1 - viewportRatio, viewportTopRatio));
     el.scrollTop = (clamped / (1 - viewportRatio)) * scrollable;
-  }, [scrollContainer, viewportRatio]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewportRatio]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!visible) return;
