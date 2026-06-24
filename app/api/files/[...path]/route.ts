@@ -43,6 +43,8 @@ const AUDIO_EXT_TO_MIME: Record<string, string> = {
 const DOCUMENT_EXT_TO_MIME: Record<string, string> = {
   pdf: "application/pdf",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  xls: "application/vnd.ms-excel",
 };
 
 function getExt(filePath: string): string {
@@ -74,7 +76,7 @@ const EXT_TO_LANGUAGE: Record<string, string> = {
   sql: "sql", graphql: "graphql", gql: "graphql",
   dockerfile: "dockerfile", tf: "hcl", hcl: "hcl",
   env: "bash", gitignore: "bash", txt: "text",
-  pdf: "pdf", docx: "word",
+  pdf: "pdf", docx: "word", xlsx: "excel", xls: "excel",
 };
 
 function getLanguage(filePath: string): string {
@@ -268,10 +270,13 @@ function streamFile(filePath: string, stat: fs.Stats, contentType: string, range
   });
 }
 
-function documentPreviewKind(filePath: string): "pdf" | "docx" | null {
+const EXCEL_EXTS = new Set(["xlsx", "xls"]);
+
+function documentPreviewKind(filePath: string): "pdf" | "docx" | "xlsx" | null {
   const ext = getExt(filePath);
   if (ext === "pdf") return "pdf";
   if (ext === "docx") return "docx";
+  if (EXCEL_EXTS.has(ext)) return "xlsx";
   return null;
 }
 
@@ -400,31 +405,56 @@ export async function GET(
       if (!stat.isFile()) {
         return NextResponse.json({ error: "Not a file" }, { status: 400 });
       }
-      if (getExt(filePath) !== "docx") {
+      const ext = getExt(filePath);
+      if (ext !== "docx" && !EXCEL_EXTS.has(ext)) {
         return NextResponse.json({ error: "Preview not available for this file type" }, { status: 400 });
       }
       if (stat.size > DOCX_PREVIEW_MAX_BYTES) {
-        return NextResponse.json({ error: "DOCX too large for preview (>10MB)" }, { status: 413 });
+        return NextResponse.json({ error: "File too large for preview (>10MB)" }, { status: 413 });
       }
 
-      const mammoth = await import("mammoth");
-      const result = await mammoth.convertToHtml(
-        { path: filePath },
-        {
-          externalFileAccess: false,
-          convertImage: mammoth.images.dataUri,
-        }
-      );
-      const html = wrapDocxPreviewHtml(result.value, path.basename(filePath));
-      return new Response(html, {
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          "Cache-Control": "no-cache",
-          "Content-Security-Policy": "default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
-          "Referrer-Policy": "no-referrer",
-          "X-Content-Type-Options": "nosniff",
-        },
-      });
+      if (ext === "docx") {
+        const mammoth = await import("mammoth");
+        const result = await mammoth.convertToHtml(
+          { path: filePath },
+          {
+            externalFileAccess: false,
+            convertImage: mammoth.images.dataUri,
+          }
+        );
+        const html = wrapDocxPreviewHtml(result.value, path.basename(filePath));
+        return new Response(html, {
+          headers: {
+            "Content-Type": "text/html; charset=utf-8",
+            "Cache-Control": "no-cache",
+            "Content-Security-Policy": "default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+            "Referrer-Policy": "no-referrer",
+            "X-Content-Type-Options": "nosniff",
+          },
+        });
+      }
+
+      if (EXCEL_EXTS.has(ext)) {
+        const XLSX = await import("xlsx");
+        const workbook = XLSX.readFile(filePath);
+        const sheetsHtml = workbook.SheetNames.map((name: string) => {
+          const sheet = workbook.Sheets[name];
+          const htmlTable = XLSX.utils.sheet_to_html(sheet, { id: `sheet-${name}` });
+          return `<h2 style="margin-top:1.5em">${escapeHtml(name)}</h2>\n${htmlTable}`;
+        }).join("\n");
+        const html = wrapDocxPreviewHtml(sheetsHtml, path.basename(filePath));
+        return new Response(html, {
+          headers: {
+            "Content-Type": "text/html; charset=utf-8",
+            "Cache-Control": "no-cache",
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+            "Referrer-Policy": "no-referrer",
+            "X-Content-Type-Options": "nosniff",
+          },
+        });
+      }
+
+      return NextResponse.json({ error: "Preview not available for this file type" }, { status: 400 });
     }
 
     if (type === "watch") {

@@ -22,8 +22,8 @@ interface FileData {
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif"]);
 const AUDIO_EXTS = new Set(["mp3", "wav", "ogg", "oga", "opus", "m4a", "aac", "flac", "weba", "webm"]);
-const DOCUMENT_PREVIEW_EXTS = new Set(["pdf", "docx"]);
-const DOCX_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
+const DOCUMENT_PREVIEW_EXTS = new Set(["pdf", "docx", "xlsx", "xls"]);
+const DOCUMENT_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
 
 function isImagePath(filePath: string): boolean {
   const base = getFileName(filePath);
@@ -585,8 +585,8 @@ function DocumentViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
         if (d.error) setError(d.error);
         if (typeof d.size === "number") {
           setSize(d.size);
-          if (!isPdf && d.size > DOCX_PREVIEW_MAX_BYTES) {
-            setError("DOCX too large for preview (>10MB)");
+          if (!isPdf && d.size > DOCUMENT_PREVIEW_MAX_BYTES) {
+            setError("File too large for preview (>10MB)");
           }
         }
       })
@@ -601,8 +601,8 @@ function DocumentViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
         const d = JSON.parse((e as MessageEvent).data) as { size?: number };
         if (typeof d.size === "number") {
           setSize(d.size);
-          if (!isPdf && d.size > DOCX_PREVIEW_MAX_BYTES) {
-            setError("DOCX too large for preview (>10MB)");
+          if (!isPdf && d.size > DOCUMENT_PREVIEW_MAX_BYTES) {
+            setError("File too large for preview (>10MB)");
             return;
           }
         }
