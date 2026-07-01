@@ -19,6 +19,31 @@ interface Props {
   onAtMention?: (relativePath: string) => void;
 }
 
+const UNREAD_SESSIONS_STORAGE_KEY = "pi-web:unread-session-ids";
+
+function loadUnreadSessionIds(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(UNREAD_SESSIONS_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) return new Set(parsed.filter((id): id is string => typeof id === "string"));
+    return new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function saveUnreadSessionIds(ids: Set<string>): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (ids.size === 0) window.localStorage.removeItem(UNREAD_SESSIONS_STORAGE_KEY);
+    else window.localStorage.setItem(UNREAD_SESSIONS_STORAGE_KEY, JSON.stringify([...ids]));
+  } catch {
+    // ignore storage quota / privacy-mode errors
+  }
+}
+
 function formatRelativeTime(dateStr: string): string {
   const date = new Date(dateStr);
   const now = new Date();
@@ -213,6 +238,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [explorerKey, setExplorerKey] = useState(0);
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
+  const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
+  const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
+  const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -221,8 +249,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       if (showLoading) setLoading(true);
       const res = await fetch("/api/sessions");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as { sessions: SessionInfo[] };
+      const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[] };
       setAllSessions(data.sessions);
+      setRunningSessionIds(new Set(data.runningSessionIds ?? []));
+      // Drop unread markers for sessions that no longer exist (e.g. deleted).
+      const existingIds = new Set(data.sessions.map((s) => s.id));
+      setUnreadSessionIds((prev) => {
+        if (prev.size === 0) return prev;
+        const next = new Set([...prev].filter((id) => existingIds.has(id)));
+        return next.size === prev.size ? prev : next;
+      });
       setError(null);
       if (!showLoading) {
         setSessionRefreshDone(true);
@@ -242,6 +278,59 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     initialLoadDone.current = true;
     loadSessions(isFirst);
   }, [loadSessions, refreshKey]);
+
+  // Persist unread markers so they survive a browser refresh before the user
+  // has actually opened the completed session.
+  useEffect(() => {
+    saveUnreadSessionIds(unreadSessionIds);
+  }, [unreadSessionIds]);
+
+  useEffect(() => {
+    // Live running status via SSE — no polling. The server pushes the current
+    // set of running session ids whenever any session starts/stops working.
+    const source = new EventSource("/api/agent/running/events");
+
+    source.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data) as { type?: string; runningSessionIds?: string[] };
+        if (data.type === "running") {
+          setRunningSessionIds(new Set(data.runningSessionIds ?? []));
+        }
+      } catch {
+        // ignore malformed frames
+      }
+    };
+
+    // On error EventSource auto-reconnects; keep the last known state meanwhile.
+    return () => source.close();
+  }, []);
+
+  useEffect(() => {
+    const previous = previousRunningSessionIdsRef.current;
+    const completedInBackground = [...previous].filter((id) => !runningSessionIds.has(id) && id !== selectedSessionId);
+    const newlyRunning = [...runningSessionIds];
+
+    if (completedInBackground.length > 0 || newlyRunning.length > 0) {
+      setUnreadSessionIds((prev) => {
+        const next = new Set(prev);
+        newlyRunning.forEach((id) => next.delete(id));
+        completedInBackground.forEach((id) => next.add(id));
+        return next;
+      });
+    }
+
+    previousRunningSessionIdsRef.current = runningSessionIds;
+  }, [runningSessionIds, selectedSessionId]);
+
+  useEffect(() => {
+    if (!selectedSessionId) return;
+    setUnreadSessionIds((prev) => {
+      if (!prev.has(selectedSessionId)) return prev;
+      const next = new Set(prev);
+      next.delete(selectedSessionId);
+      return next;
+    });
+  }, [selectedSessionId]);
 
   useEffect(() => {
     if (explorerRefreshKey !== undefined) setExplorerKey((k) => k + 1);
@@ -704,6 +793,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             key={node.session.id}
             node={node}
             selectedSessionId={selectedSessionId}
+            runningSessionIds={runningSessionIds}
+            unreadSessionIds={unreadSessionIds}
             onSelectSession={onSelectSession}
             onRenamed={loadSessions}
             onSessionDeleted={(id) => {
@@ -809,6 +900,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 function SessionTreeItem({
   node,
   selectedSessionId,
+  runningSessionIds,
+  unreadSessionIds,
   onSelectSession,
   onRenamed,
   onSessionDeleted,
@@ -816,6 +909,8 @@ function SessionTreeItem({
 }: {
   node: SessionTreeNode;
   selectedSessionId: string | null;
+  runningSessionIds: Set<string>;
+  unreadSessionIds: Set<string>;
   onSelectSession: (s: SessionInfo) => void;
   onRenamed?: () => void;
   onSessionDeleted?: (id: string) => void;
@@ -841,6 +936,8 @@ function SessionTreeItem({
         <SessionItem
           session={node.session}
           isSelected={node.session.id === selectedSessionId}
+          isRunning={runningSessionIds.has(node.session.id)}
+          isUnread={unreadSessionIds.has(node.session.id)}
           onClick={() => onSelectSession(node.session)}
           onRenamed={onRenamed}
           onDeleted={(id) => onSessionDeleted?.(id)}
@@ -857,6 +954,8 @@ function SessionTreeItem({
               key={child.session.id}
               node={child}
               selectedSessionId={selectedSessionId}
+              runningSessionIds={runningSessionIds}
+              unreadSessionIds={unreadSessionIds}
               onSelectSession={onSelectSession}
               onRenamed={onRenamed}
               onSessionDeleted={onSessionDeleted}
@@ -869,9 +968,67 @@ function SessionTreeItem({
   );
 }
 
+function RunningSessionIndicator() {
+  return (
+    <span
+      title="Agent running…"
+      aria-label="Agent running"
+      style={{
+        width: 14,
+        height: 14,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        color: "var(--accent)",
+      }}
+    >
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style={{ display: "block" }}>
+        <circle cx="7" cy="7" r="3" fill="currentColor" opacity="0.25">
+          <animate attributeName="r" values="3;6;3" dur="1.3s" repeatCount="indefinite" />
+          <animate attributeName="opacity" values="0.35;0;0.35" dur="1.3s" repeatCount="indefinite" />
+        </circle>
+        <circle cx="7" cy="7" r="3" fill="currentColor">
+          <animate attributeName="opacity" values="1;0.55;1" dur="1.3s" repeatCount="indefinite" />
+        </circle>
+      </svg>
+    </span>
+  );
+}
+
+function UnreadSessionIndicator() {
+  return (
+    <span
+      title="Completed while you were away"
+      aria-label="Unread completed session"
+      style={{
+        width: 14,
+        height: 14,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        color: "#eab308",
+      }}
+    >
+      <span
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: "50%",
+          background: "currentColor",
+          boxShadow: "0 0 0 2px rgba(234,179,8,0.14)",
+        }}
+      />
+    </span>
+  );
+}
+
 function SessionItem({
   session,
   isSelected,
+  isRunning,
+  isUnread,
   onClick,
   onRenamed,
   onDeleted,
@@ -882,6 +1039,8 @@ function SessionItem({
 }: {
   session: SessionInfo;
   isSelected: boolean;
+  isRunning?: boolean;
+  isUnread?: boolean;
   onClick: () => void;
   onRenamed?: () => void;
   onDeleted?: (id: string) => void;
@@ -1051,17 +1210,21 @@ function SessionItem({
           <div style={{ flex: 1, minWidth: 0 }}>
             <div
               style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                minWidth: 0,
                 fontSize: 12,
                 fontWeight: isSelected ? 500 : 400,
                 lineHeight: 1.4,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
                 color: "var(--text)",
               }}
-              title={title}
+              title={isRunning ? `${title} · Agent running…` : isUnread ? `${title} · Completed while you were away` : title}
             >
-              {title}
+              {isRunning ? <RunningSessionIndicator /> : isUnread ? <UnreadSessionIndicator /> : null}
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                {title}
+              </span>
             </div>
             <div style={{ marginTop: 2, display: "flex", gap: 8, color: "var(--text-dim)", fontSize: 11 }}>
               <span title={session.modified}>{formatRelativeTime(session.modified)}</span>
