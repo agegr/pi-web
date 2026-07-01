@@ -52,14 +52,13 @@ export class AgentSessionWrapper {
   private extensionStatuses = new Map<string, string>();
   private extensionWidgets = new Map<string, ExtensionWidgetItem>();
   private promptRunning = false;
+  private extensionsBound = false;
   private unsubscribe: (() => void) | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private onDestroyCallback: (() => void) | null = null;
   private _alive = true;
 
-  constructor(public readonly inner: AgentSessionLike) {
-    this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
-  }
+  constructor(public readonly inner: AgentSessionLike) {}
 
   get sessionId(): string {
     return this.inner.sessionId;
@@ -79,6 +78,23 @@ export class AgentSessionWrapper {
       this.emit(event);
     });
     this.resetIdleTimer();
+  }
+
+  async bindExtensions(): Promise<void> {
+    if (this.extensionsBound || !this._alive) return;
+    try {
+      const session = this.inner as AgentSessionLike & {
+        bindExtensions(b: { uiContext: ExtensionUiContextLike; mode: "rpc" }): Promise<void>;
+      };
+      await session.bindExtensions({
+        uiContext: this.createExtensionUiContext(),
+        mode: "rpc",
+      });
+      this.extensionsBound = true;
+      console.log(`[pi-web] session_start dispatched to extensions for session ${this.inner.sessionId}`);
+    } catch (err) {
+      console.error(`[pi-web] failed to dispatch session_start to extensions:`, err instanceof Error ? err.message : err);
+    }
   }
 
   private emit(event: AgentEvent): void {
@@ -596,6 +612,7 @@ export async function startRpcSession(
 
     const wrapper = new AgentSessionWrapper(inner);
     wrapper.start();
+    await wrapper.bindExtensions();
 
     const realSessionId = inner.sessionId as string;
     const realSessionFile = inner.sessionFile as string | undefined;
