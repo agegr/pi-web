@@ -2,6 +2,7 @@
 
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, SlashCommandInfo } from "@/hooks/useAgentSession";
+import { clearDraft, getDraft, setDraft } from "@/lib/draft-store";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -45,6 +46,9 @@ interface Props {
   onBuiltinCommand?: (message: string) => Promise<BuiltinSlashCommandResult>;
   soundEnabled?: boolean;
   onSoundToggle?: () => void;
+  // Stable key used to persist the unsent draft across session switches
+  // (ChatWindow is fully remounted when switching sessions).
+  draftKey?: string;
 }
 
 export interface ChatInputHandle {
@@ -131,8 +135,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onBuiltinCommand,
   soundEnabled, onSoundToggle,
   onPromptWithStreamingBehavior,
+  draftKey,
 }: Props, ref) {
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey) : ""));
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modelDropdownRect, setModelDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
@@ -232,11 +237,27 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const clearInput = useCallback(() => {
     setValue("");
+    if (draftKey) clearDraft(draftKey);
     clearImages();
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
-  }, [clearImages]);
+  }, [clearImages, draftKey]);
+
+  // Persist the unsent draft so it survives session switches (remounts).
+  useEffect(() => {
+    if (!draftKey) return;
+    setDraft(draftKey, value);
+  }, [draftKey, value]);
+
+  // On mount, size the textarea to fit a restored multi-line draft.
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta || !value) return;
+    ta.style.height = "auto";
+    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSend = useCallback(async () => {
     const msg = value.trim();
