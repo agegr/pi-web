@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { SessionInfo } from "@/lib/types";
-import type { WorktreeInfo } from "@/lib/types";
+
 import type { WorktreeMeta } from "@/lib/types";
 import { FileExplorer } from "./FileExplorer";
 
@@ -199,6 +199,19 @@ function PiAgentTitle() {
   );
 }
 
+function findWorktreeMeta(cwd: string | undefined, meta: Record<string, WorktreeMeta>): WorktreeMeta | undefined {
+  if (!cwd) return undefined;
+  const clean = (p: string) => p.toLowerCase().replace(/\/+$/, "").replace(/^\/private/, "");
+  const target = clean(cwd);
+  if (meta[cwd]) return meta[cwd];
+  for (const key of Object.keys(meta)) {
+    if (clean(key) === target) {
+      return meta[key];
+    }
+  }
+  return undefined;
+}
+
 export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention }: Props) {
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -210,14 +223,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [customPathValue, setCustomPathValue] = useState("");
   const [customPathError, setCustomPathError] = useState<string | null>(null);
   const [customPathValidating, setCustomPathValidating] = useState(false);
-  const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
   const [worktreeMeta, setWorktreeMeta] = useState<Record<string, WorktreeMeta>>({});
-  const [wtDialogOpen, setWtDialogOpen] = useState(false);
-  const [wtBranch, setWtBranch] = useState("");
-  const [wtBase, setWtBase] = useState<string>("");
-  const [wtBranches, setWtBranches] = useState<string[]>([]);
-  const [wtCreating, setWtCreating] = useState(false);
-  const [wtError, setWtError] = useState<string | null>(null);
   const customPathInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -228,7 +234,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const effectiveCwd = useCallback(
     (s: SessionInfo): string | null => {
       if (!s.cwd) return null;
-      return worktreeMeta[s.cwd]?.mainRepo ?? s.cwd;
+      return findWorktreeMeta(s.cwd, worktreeMeta)?.mainRepo ?? s.cwd;
     },
     [worktreeMeta]
   );
@@ -333,41 +339,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }
   }, [customPathValue, customPathValidating]);
 
-  // Validate an arbitrary path (worktree dir), allowlist it, then select it.
-  const selectCwdPath = useCallback(async (path: string) => {
-    try {
-      const res = await fetch("/api/cwd/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: path }),
-      });
-      const data = await res.json().catch(() => ({})) as { cwd?: string; error?: string };
-      if (!res.ok || data.error) return;
-      setSelectedCwd(data.cwd ?? path);
-      setCustomPathOpen(false);
-      setCustomPathValue("");
-      setCustomPathError(null);
-      setDropdownOpen(false);
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  // Discover git worktrees for the selected cwd. Degrades to empty for
-  // non-git dirs. Fetched whenever the selected cwd changes so the
-  // "new worktree" button reflects whether this cwd is a git repo.
-  useEffect(() => {
-    if (!selectedCwd) { setWorktrees([]); return; }
-    let cancelled = false;
-    fetch(`/api/worktrees?cwd=${encodeURIComponent(selectedCwd)}`)
-      .then((r) => r.json())
-      .then((d: { worktrees?: WorktreeInfo[] }) => {
-        if (!cancelled) setWorktrees(d.worktrees ?? []);
-      })
-      .catch(() => { if (!cancelled) setWorktrees([]); });
-    return () => { cancelled = true; };
-  }, [selectedCwd]);
-
   const handleDefaultCwd = useCallback(async () => {
     try {
       const res = await fetch("/api/default-cwd", { method: "POST" });
@@ -407,86 +378,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
     onNewSession?.(tempId, selectedCwd);
   }, [selectedCwd, onNewSession]);
-
-  const startSessionInCwd = useCallback((cwd: string) => {
-    const tempId = typeof crypto.randomUUID === "function"
-      ? crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
-    onNewSession?.(tempId, cwd);
-  }, [onNewSession]);
-
-  // Open the "new worktree session" dialog: prefill a default branch name and
-  // load the base-branch list for the current repo.
-  const openWorktreeDialog = useCallback(async () => {
-    if (!selectedCwd) return;
-    const ts = new Date();
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const stamp = `${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}`;
-    setWtBranch(`pi/${stamp}`);
-    setWtError(null);
-    setWtBranches([]);
-    setWtBase("");
-    setWtDialogOpen(true);
-    setDropdownOpen(false);
-    try {
-      const res = await fetch(`/api/worktrees/branches?cwd=${encodeURIComponent(selectedCwd)}`);
-      const data = await res.json() as { branches?: string[]; defaultBase?: string | null };
-      setWtBranches(data.branches ?? []);
-      setWtBase(data.defaultBase ?? "");
-    } catch {
-      // leave base empty -> git forks from current HEAD
-    }
-  }, [selectedCwd]);
-
-  // Create the worktree, then start a session in it.
-  const createWorktreeSession = useCallback(async () => {
-    if (!selectedCwd || wtCreating) return;
-    const branch = wtBranch.trim();
-    if (!branch) { setWtError("Branch name is required"); return; }
-    setWtCreating(true);
-    setWtError(null);
-    try {
-      const res = await fetch("/api/worktrees", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: selectedCwd, branch, base: wtBase || undefined }),
-      });
-      const data = await res.json().catch(() => ({})) as { worktreePath?: string; branch?: string; mainRepo?: string; error?: string };
-      if (!res.ok || data.error || !data.worktreePath) {
-        setWtError(data.error ?? `HTTP ${res.status}`);
-        return;
-      }
-      // Allowlist the worktree path for the file viewer.
-      await fetch("/api/cwd/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: data.worktreePath }),
-      }).catch(() => {});
-      // Merge the new worktree meta immediately so effectiveCwd maps this
-      // session under its main repo without waiting for the next /api/sessions.
-      if (data.branch && data.mainRepo) {
-        setWorktreeMeta((prev) => ({
-          ...prev,
-          [data.worktreePath!]: {
-            branch: data.branch!,
-            worktreePath: data.worktreePath!,
-            mainRepo: data.mainRepo!,
-            createdAt: new Date().toISOString(),
-          },
-        }));
-      }
-      // Keep the sidebar on the main repo so the new session lists there;
-      // the session itself runs in the worktree cwd.
-      setSelectedCwd(data.mainRepo ?? selectedCwd);
-      setWtDialogOpen(false);
-      startSessionInCwd(data.worktreePath);
-      loadSessions();
-    } catch (e) {
-      setWtError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setWtCreating(false);
-    }
-  }, [selectedCwd, wtBranch, wtBase, wtCreating, startSessionInCwd, loadSessions]);
 
   const recentCwds = getRecentCwds(allSessions, effectiveCwd);
   const filteredSessions = selectedCwd
@@ -546,39 +437,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 <line x1="1" y1="6" x2="11" y2="6" />
               </svg>
               New
-            </button>
-            <button
-              onClick={() => { void openWorktreeDialog(); }}
-              disabled={!selectedCwd || worktrees.length === 0}
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "center",
-                background: "var(--bg-hover)",
-                border: "1px solid var(--border)",
-                color: (selectedCwd && worktrees.length > 0) ? "var(--text-muted)" : "var(--text-dim)",
-                cursor: (selectedCwd && worktrees.length > 0) ? "pointer" : "not-allowed",
-                width: 32, height: 32,
-                borderRadius: 7,
-                padding: 0,
-                flexShrink: 0,
-                transition: "background 0.12s, color 0.12s, border-color 0.12s",
-              }}
-              title={worktrees.length === 0 ? "Not a git repository" : "New session in a new worktree"}
-              onMouseEnter={(e) => {
-                if (!selectedCwd || worktrees.length === 0) return;
-                e.currentTarget.style.background = "var(--bg-selected)";
-                e.currentTarget.style.color = "var(--accent)";
-                e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "var(--bg-hover)";
-                e.currentTarget.style.color = (selectedCwd && worktrees.length > 0) ? "var(--text-muted)" : "var(--text-dim)";
-                e.currentTarget.style.borderColor = "var(--border)";
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="4" cy="4" r="1.8" /><circle cx="4" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" />
-                <path d="M4 5.8v4.4M4 12h4a4 4 0 0 0 4-4V6" />
-              </svg>
             </button>
             <button
               onClick={() => loadSessions(false)}
@@ -711,69 +569,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortenCwd(cwd, homeDir)}</span>
                 </button>
               ))}
-
-              {/* Git worktrees for the current repo (read-only discovery) */}
-              {worktrees.length > 1 && (
-                <div>
-                  <div
-                    style={{
-                      padding: "6px 10px 4px",
-                      fontSize: 9.5,
-                      textTransform: "uppercase",
-                      letterSpacing: 0.5,
-                      color: "var(--text-dim)",
-                      borderTop: "1px solid var(--border)",
-                    }}
-                  >
-                    Worktrees
-                  </div>
-                  {worktrees.map((wt) => {
-                    const isSel = wt.path === selectedCwd;
-                    return (
-                      <button
-                        key={wt.path}
-                        onClick={() => { void selectCwdPath(wt.path); }}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 7,
-                          width: "100%",
-                          padding: "8px 10px",
-                          background: isSel ? "var(--bg-selected)" : "none",
-                          border: "none",
-                          borderBottom: "1px solid var(--border)",
-                          color: isSel ? "var(--text)" : "var(--text-muted)",
-                          cursor: "pointer",
-                          textAlign: "left",
-                          fontSize: 11,
-                          overflow: "hidden",
-                        }}
-                        title={wt.path}
-                      >
-                        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.8 }}>
-                          <circle cx="4" cy="4" r="1.8" /><circle cx="4" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" />
-                          <path d="M4 5.8v4.4M4 12h4a4 4 0 0 0 4-4V6" />
-                        </svg>
-                        <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }}>
-                            {wt.detached ? "(detached)" : (wt.branch ?? "(no branch)")}
-                            {wt.isMain && <span style={{ color: "var(--text-dim)", fontWeight: 400 }}> · main</span>}
-                            {wt.current && <span style={{ color: "var(--accent)", fontWeight: 400 }}> · current</span>}
-                          </span>
-                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-dim)" }}>
-                            {shortenCwd(wt.path, homeDir)}
-                          </span>
-                        </span>
-                        {isSel && (
-                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                            <polyline points="1.5 5 4 7.5 8.5 2.5" />
-                          </svg>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
 
               {/* Default cwd shortcut */}
               {!customPathOpen && (
@@ -916,102 +711,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           )}
         </div>
       </div>
-
-      {/* New worktree session dialog */}
-      {wtDialogOpen && (
-        <div
-          onClick={() => { if (!wtCreating) setWtDialogOpen(false); }}
-          style={{
-            position: "fixed", inset: 0, zIndex: 200,
-            background: "rgba(0,0,0,0.35)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: 380, maxWidth: "90vw",
-              background: "var(--bg)",
-              border: "1px solid var(--border)",
-              borderRadius: 10,
-              boxShadow: "0 12px 40px rgba(0,0,0,0.25)",
-              padding: 18,
-            }}
-          >
-            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>
-              New worktree session
-            </div>
-            <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 14 }}>
-              Creates a git worktree under <code style={{ fontFamily: "var(--font-mono)" }}>.pi/worktrees/</code> and starts a session there.
-            </div>
-
-            <label style={{ display: "block", fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Branch name</label>
-            <input
-              value={wtBranch}
-              onChange={(e) => setWtBranch(e.target.value)}
-              autoFocus
-              spellCheck={false}
-              style={{
-                width: "100%", boxSizing: "border-box",
-                padding: "7px 9px", marginBottom: 12,
-                background: "var(--bg-hover)",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                color: "var(--text)",
-                fontSize: 12, fontFamily: "var(--font-mono)",
-              }}
-            />
-
-            <label style={{ display: "block", fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Base branch</label>
-            <select
-              value={wtBase}
-              onChange={(e) => setWtBase(e.target.value)}
-              style={{
-                width: "100%", boxSizing: "border-box",
-                padding: "7px 9px", marginBottom: 14,
-                background: "var(--bg-hover)",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                color: "var(--text)",
-                fontSize: 12, fontFamily: "var(--font-mono)",
-              }}
-            >
-              {wtBranches.length === 0 && <option value="">(current HEAD)</option>}
-              {wtBranches.map((b) => <option key={b} value={b}>{b}</option>)}
-            </select>
-
-            {wtError && (
-              <div style={{ fontSize: 11, color: "#f87171", marginBottom: 12, wordBreak: "break-word" }}>{wtError}</div>
-            )}
-
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={() => { void createWorktreeSession(); }}
-                disabled={wtCreating || !wtBranch.trim()}
-                style={{
-                  flex: 1, padding: "7px 0",
-                  background: "var(--accent)", border: "none", borderRadius: 6,
-                  color: "#fff", fontSize: 12, fontWeight: 600,
-                  cursor: (wtCreating || !wtBranch.trim()) ? "not-allowed" : "pointer",
-                  opacity: (wtCreating || !wtBranch.trim()) ? 0.65 : 1,
-                }}
-              >
-                {wtCreating ? "Creating…" : "Create & start"}
-              </button>
-              <button
-                onClick={() => { if (!wtCreating) setWtDialogOpen(false); }}
-                style={{
-                  flex: 1, padding: "7px 0",
-                  background: "var(--bg-hover)", border: "1px solid var(--border)", borderRadius: 6,
-                  color: "var(--text-muted)", fontSize: 12, cursor: "pointer",
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Session list */}
       <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}>
@@ -1157,7 +856,7 @@ function SessionTreeItem({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const hasChildren = node.children.length > 0;
-  const worktreeBranch = node.session.cwd ? worktreeMeta[node.session.cwd]?.branch : undefined;
+  const worktreeBranch = findWorktreeMeta(node.session.cwd, worktreeMeta)?.branch;
 
   return (
     <div>

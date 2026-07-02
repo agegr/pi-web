@@ -1,6 +1,7 @@
 import { execFile } from "child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "fs";
-import { join } from "path";
+import { existsSync, mkdirSync } from "fs";
+import { homedir } from "os";
+import { basename, join } from "path";
 import { normalizeCwd } from "@/lib/cwd";
 import type { WorktreeInfo } from "@/lib/types";
 
@@ -148,10 +149,38 @@ export interface CreateWorktreeResult {
   error?: string;
 }
 
+export interface CreateLocalBranchResult {
+  ok: boolean;
+  branch?: string;
+  error?: string;
+}
+
+/** Create and switch to a local branch in the selected working tree. */
+export async function createLocalBranch(
+  cwd: string,
+  opts: { branch: string; base?: string }
+): Promise<CreateLocalBranchResult> {
+  const normalized = normalizeCwd(cwd);
+  const branch = opts.branch.trim();
+  if (!branch) return { ok: false, error: "Branch name is required" };
+
+  const check = await runGit(normalized, ["check-ref-format", "--branch", branch]);
+  if (!check.ok) return { ok: false, error: `Invalid branch name: ${branch}` };
+
+  const args = ["switch", "-c", branch];
+  if (opts.base) args.push(opts.base);
+  const res = await runGit(normalized, args);
+  if (!res.ok) return { ok: false, error: (res.stderr || "git switch failed").trim() };
+
+  return { ok: true, branch };
+}
+
 /**
  * Create a new worktree with a new branch, forked from `base`.
- * Places it under <repoRoot>/.pi/worktrees/<slug> and adds that dir to
- * .git/info/exclude so the repo working tree stays clean.
+ *
+ * Following codex's design, worktrees live entirely outside the user's repo,
+ * under ~/.pi/worktrees/<branch-slug>/<repo-name>/. This keeps the original
+ * working tree 100% clean — no .gitignore or .git/info/exclude hacks needed.
  */
 export async function createWorktree(
   cwd: string,
@@ -165,28 +194,27 @@ export async function createWorktree(
   const check = await runGit(normalized, ["check-ref-format", "--branch", branch]);
   if (!check.ok) return { ok: false, error: `Invalid branch name: ${branch}` };
 
-  // Resolve the main worktree root; worktrees always nest under it.
+  // Resolve the main worktree root (used as metadata + repo-name source).
   const cdup = await runGit(normalized, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
   if (!cdup.ok) return { ok: false, error: "Not a git repository" };
   const commonGitDir = cdup.stdout.trim();
   // commonGitDir is <mainRepo>/.git ; its parent is the main repo root.
-  const mainRepo = commonGitDir.replace(/\/\.git\/?$/, "").replace(/\/\.git$/, "");
+  const mainRepo = commonGitDir.replace(/\/\.git\/?$/, "");
+  const repoName = basename(mainRepo) || "repo";
 
-  const worktreesDir = join(mainRepo, ".pi", "worktrees");
-  const worktreePath = join(worktreesDir, branchSlug(branch));
+  // Worktrees live under ~/.pi/worktrees/<slug>/<repo-name>/, outside the repo.
+  const containerDir = join(homedir(), ".pi", "worktrees", branchSlug(branch));
+  const worktreePath = join(containerDir, repoName);
 
   if (existsSync(worktreePath)) {
     return { ok: false, error: `Target directory already exists: ${worktreePath}` };
   }
 
   try {
-    mkdirSync(worktreesDir, { recursive: true });
+    mkdirSync(containerDir, { recursive: true });
   } catch (e) {
     return { ok: false, error: `Cannot create worktrees dir: ${e instanceof Error ? e.message : String(e)}` };
   }
-
-  // Keep .pi/ out of the user's working tree via .git/info/exclude (not .gitignore).
-  addToGitExclude(commonGitDir, "/.pi/");
 
   const args = ["worktree", "add", "-b", branch, worktreePath];
   if (opts.base) args.push(opts.base);
@@ -196,19 +224,4 @@ export async function createWorktree(
   }
 
   return { ok: true, worktreePath, branch, mainRepo };
-}
-
-/** Append a pattern to .git/info/exclude if not already present. */
-function addToGitExclude(commonGitDir: string, pattern: string): void {
-  try {
-    const excludePath = join(commonGitDir, "info", "exclude");
-    let existing = "";
-    if (existsSync(excludePath)) existing = readFileSync(excludePath, "utf8");
-    if (existing.split("\n").some((l) => l.trim() === pattern)) return;
-    mkdirSync(join(commonGitDir, "info"), { recursive: true });
-    const prefix = existing && !existing.endsWith("\n") ? "\n" : "";
-    appendFileSync(excludePath, `${prefix}${pattern}\n`);
-  } catch {
-    // Non-fatal: worktree still works, the dir just shows as untracked.
-  }
 }
