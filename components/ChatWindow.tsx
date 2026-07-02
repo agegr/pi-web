@@ -227,6 +227,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       onBuiltinCommand={handleBuiltinSlashCommand}
       soundEnabled={soundEnabled}
       onSoundToggle={onSoundToggle}
+      draftKey={session?.id ?? (newSessionCwd ? `new:${newSessionCwd}` : undefined)}
     />
   );
 
