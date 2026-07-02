@@ -71,7 +71,11 @@ export function AppShell() {
     setSidebarResizing(true);
     const startX = e.clientX;
     const startWidth = sidebarWidth;
+    // Prevent text from being selected/highlighted across the app while dragging.
+    document.body.classList.add("resizing-col");
+    window.getSelection?.()?.removeAllRanges();
     const onMove = (ev: MouseEvent) => {
+      window.getSelection?.()?.removeAllRanges();
       const next = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, startWidth + (ev.clientX - startX)));
       setSidebarWidth(next);
     };
@@ -79,8 +83,7 @@ export function AppShell() {
       setSidebarResizing(false);
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
+      document.body.classList.remove("resizing-col");
       setSidebarWidth((w) => {
         localStorage.setItem("pi-sidebar-width", String(w));
         return w;
@@ -88,8 +91,6 @@ export function AppShell() {
     };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
   }, [sidebarWidth]);
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
   // is visible on load. Runs once the breakpoint resolves after hydration.

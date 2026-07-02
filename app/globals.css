@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+/* While dragging a column resize handle, suppress text selection app-wide
+   and force the resize cursor everywhere. */
+body.resizing-col,
+body.resizing-col * {
+  cursor: col-resize !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  user-select: none !important;
+}
+
 @theme {
   --color-bg: var(--bg);
   --color-bg-panel: var(--bg-panel);
