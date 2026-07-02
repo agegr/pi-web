@@ -201,7 +201,13 @@ function PiAgentTitle() {
 
 function findWorktreeMeta(cwd: string | undefined, meta: Record<string, WorktreeMeta>): WorktreeMeta | undefined {
   if (!cwd) return undefined;
-  const clean = (p: string) => p.toLowerCase().replace(/\/+$/, "").replace(/^\/private/, "");
+  // Normalize for tolerant matching across platforms:
+  // - unify backslashes to forward slashes (Windows)
+  // - lowercase (Windows is case-insensitive; macOS/APFS usually too)
+  // - strip trailing slashes
+  // - drop a leading /private (macOS resolves /var -> /private/var etc.)
+  const clean = (p: string) =>
+    p.replace(/\\/g, "/").toLowerCase().replace(/\/+$/, "").replace(/^\/private/, "");
   const target = clean(cwd);
   if (meta[cwd]) return meta[cwd];
   for (const key of Object.keys(meta)) {

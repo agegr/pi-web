@@ -199,7 +199,9 @@ export async function createWorktree(
   if (!cdup.ok) return { ok: false, error: "Not a git repository" };
   const commonGitDir = cdup.stdout.trim();
   // commonGitDir is <mainRepo>/.git ; its parent is the main repo root.
-  const mainRepo = commonGitDir.replace(/\/\.git\/?$/, "");
+  // git emits forward slashes on all platforms, but accept a trailing
+  // backslash-form too just in case.
+  const mainRepo = commonGitDir.replace(/[/\\]\.git[/\\]?$/, "");
   const repoName = basename(mainRepo) || "repo";
 
   // Worktrees live under ~/.pi/worktrees/<slug>/<repo-name>/, outside the repo.
