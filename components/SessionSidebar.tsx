@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { SessionInfo } from "@/lib/types";
 import type { WorktreeInfo } from "@/lib/types";
+import type { WorktreeMeta } from "@/lib/types";
 import { FileExplorer } from "./FileExplorer";
 
 interface Props {
@@ -35,13 +36,14 @@ function formatRelativeTime(dateStr: string): string {
 }
 
 /** Return the 5 most recently active cwds across all sessions */
-function getRecentCwds(sessions: SessionInfo[]): string[] {
+function getRecentCwds(sessions: SessionInfo[], effectiveCwd: (s: SessionInfo) => string | null): string[] {
   const latestByCwd = new Map<string, string>(); // cwd -> most recent modified
   for (const s of sessions) {
-    if (!s.cwd) continue;
-    const prev = latestByCwd.get(s.cwd);
+    const cwd = effectiveCwd(s);
+    if (!cwd) continue;
+    const prev = latestByCwd.get(cwd);
     if (!prev || s.modified > prev) {
-      latestByCwd.set(s.cwd, s.modified);
+      latestByCwd.set(cwd, s.modified);
     }
   }
   return [...latestByCwd.entries()]
@@ -209,8 +211,27 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [customPathError, setCustomPathError] = useState<string | null>(null);
   const [customPathValidating, setCustomPathValidating] = useState(false);
   const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
+  const [worktreeMeta, setWorktreeMeta] = useState<Record<string, WorktreeMeta>>({});
+  const [wtDialogOpen, setWtDialogOpen] = useState(false);
+  const [wtBranch, setWtBranch] = useState("");
+  const [wtBase, setWtBase] = useState<string>("");
+  const [wtBranches, setWtBranches] = useState<string[]>([]);
+  const [wtCreating, setWtCreating] = useState(false);
+  const [wtError, setWtError] = useState<string | null>(null);
   const customPathInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // A worktree session's cwd is the worktree path, but in the sidebar it should
+  // group under its main repo (users think of it as "a session of this project"
+  // that happens to run in a worktree). Resolve cwd -> main repo when the cwd is
+  // a known worktree; otherwise use the cwd as-is.
+  const effectiveCwd = useCallback(
+    (s: SessionInfo): string | null => {
+      if (!s.cwd) return null;
+      return worktreeMeta[s.cwd]?.mainRepo ?? s.cwd;
+    },
+    [worktreeMeta]
+  );
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [explorerKey, setExplorerKey] = useState(0);
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
@@ -223,8 +244,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       if (showLoading) setLoading(true);
       const res = await fetch("/api/sessions");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as { sessions: SessionInfo[] };
+      const data = await res.json() as { sessions: SessionInfo[]; worktrees?: Record<string, WorktreeMeta> };
       setAllSessions(data.sessions);
+      setWorktreeMeta(data.worktrees ?? {});
       setError(null);
       if (!showLoading) {
         setSessionRefreshDone(true);
@@ -271,17 +293,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         restoredRef.current = true;
         const target = allSessions.find((s) => s.id === initialSessionId);
         if (target) {
-          setSelectedCwd(target.cwd);
+          setSelectedCwd(effectiveCwd(target));
           onSelectSession(target, true);
           return;
         }
         // Session not found — notify parent so it can show the placeholder
         onInitialRestoreDone?.();
       }
-      const cwds = getRecentCwds(allSessions);
+      const cwds = getRecentCwds(allSessions, effectiveCwd);
       if (cwds.length > 0) setSelectedCwd(cwds[0]);
     }
-  }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone]);
+  }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone, effectiveCwd]);
 
   const commitCustomPath = useCallback(async () => {
     const path = customPathValue.trim();
@@ -332,9 +354,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }, []);
 
   // Discover git worktrees for the selected cwd. Degrades to empty for
-  // non-git dirs; only fetched while the dropdown is open to avoid churn.
+  // non-git dirs. Fetched whenever the selected cwd changes so the
+  // "new worktree" button reflects whether this cwd is a git repo.
   useEffect(() => {
-    if (!dropdownOpen || !selectedCwd) { setWorktrees([]); return; }
+    if (!selectedCwd) { setWorktrees([]); return; }
     let cancelled = false;
     fetch(`/api/worktrees?cwd=${encodeURIComponent(selectedCwd)}`)
       .then((r) => r.json())
@@ -343,7 +366,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       })
       .catch(() => { if (!cancelled) setWorktrees([]); });
     return () => { cancelled = true; };
-  }, [dropdownOpen, selectedCwd]);
+  }, [selectedCwd]);
 
   const handleDefaultCwd = useCallback(async () => {
     try {
@@ -385,9 +408,89 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onNewSession?.(tempId, selectedCwd);
   }, [selectedCwd, onNewSession]);
 
-  const recentCwds = getRecentCwds(allSessions);
+  const startSessionInCwd = useCallback((cwd: string) => {
+    const tempId = typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+    onNewSession?.(tempId, cwd);
+  }, [onNewSession]);
+
+  // Open the "new worktree session" dialog: prefill a default branch name and
+  // load the base-branch list for the current repo.
+  const openWorktreeDialog = useCallback(async () => {
+    if (!selectedCwd) return;
+    const ts = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const stamp = `${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}`;
+    setWtBranch(`pi/${stamp}`);
+    setWtError(null);
+    setWtBranches([]);
+    setWtBase("");
+    setWtDialogOpen(true);
+    setDropdownOpen(false);
+    try {
+      const res = await fetch(`/api/worktrees/branches?cwd=${encodeURIComponent(selectedCwd)}`);
+      const data = await res.json() as { branches?: string[]; defaultBase?: string | null };
+      setWtBranches(data.branches ?? []);
+      setWtBase(data.defaultBase ?? "");
+    } catch {
+      // leave base empty -> git forks from current HEAD
+    }
+  }, [selectedCwd]);
+
+  // Create the worktree, then start a session in it.
+  const createWorktreeSession = useCallback(async () => {
+    if (!selectedCwd || wtCreating) return;
+    const branch = wtBranch.trim();
+    if (!branch) { setWtError("Branch name is required"); return; }
+    setWtCreating(true);
+    setWtError(null);
+    try {
+      const res = await fetch("/api/worktrees", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: selectedCwd, branch, base: wtBase || undefined }),
+      });
+      const data = await res.json().catch(() => ({})) as { worktreePath?: string; branch?: string; mainRepo?: string; error?: string };
+      if (!res.ok || data.error || !data.worktreePath) {
+        setWtError(data.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      // Allowlist the worktree path for the file viewer.
+      await fetch("/api/cwd/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: data.worktreePath }),
+      }).catch(() => {});
+      // Merge the new worktree meta immediately so effectiveCwd maps this
+      // session under its main repo without waiting for the next /api/sessions.
+      if (data.branch && data.mainRepo) {
+        setWorktreeMeta((prev) => ({
+          ...prev,
+          [data.worktreePath!]: {
+            branch: data.branch!,
+            worktreePath: data.worktreePath!,
+            mainRepo: data.mainRepo!,
+            createdAt: new Date().toISOString(),
+          },
+        }));
+      }
+      // Keep the sidebar on the main repo so the new session lists there;
+      // the session itself runs in the worktree cwd.
+      setSelectedCwd(data.mainRepo ?? selectedCwd);
+      setWtDialogOpen(false);
+      startSessionInCwd(data.worktreePath);
+      loadSessions();
+    } catch (e) {
+      setWtError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setWtCreating(false);
+    }
+  }, [selectedCwd, wtBranch, wtBase, wtCreating, startSessionInCwd, loadSessions]);
+
+  const recentCwds = getRecentCwds(allSessions, effectiveCwd);
   const filteredSessions = selectedCwd
-    ? allSessions.filter((s) => s.cwd === selectedCwd)
+    ? allSessions.filter((s) => effectiveCwd(s) === selectedCwd)
     : allSessions;
 
   // Build parent-child tree within the filtered set
@@ -443,6 +546,39 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 <line x1="1" y1="6" x2="11" y2="6" />
               </svg>
               New
+            </button>
+            <button
+              onClick={() => { void openWorktreeDialog(); }}
+              disabled={!selectedCwd || worktrees.length === 0}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: "var(--bg-hover)",
+                border: "1px solid var(--border)",
+                color: (selectedCwd && worktrees.length > 0) ? "var(--text-muted)" : "var(--text-dim)",
+                cursor: (selectedCwd && worktrees.length > 0) ? "pointer" : "not-allowed",
+                width: 32, height: 32,
+                borderRadius: 7,
+                padding: 0,
+                flexShrink: 0,
+                transition: "background 0.12s, color 0.12s, border-color 0.12s",
+              }}
+              title={worktrees.length === 0 ? "Not a git repository" : "New session in a new worktree"}
+              onMouseEnter={(e) => {
+                if (!selectedCwd || worktrees.length === 0) return;
+                e.currentTarget.style.background = "var(--bg-selected)";
+                e.currentTarget.style.color = "var(--accent)";
+                e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "var(--bg-hover)";
+                e.currentTarget.style.color = (selectedCwd && worktrees.length > 0) ? "var(--text-muted)" : "var(--text-dim)";
+                e.currentTarget.style.borderColor = "var(--border)";
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="4" cy="4" r="1.8" /><circle cx="4" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" />
+                <path d="M4 5.8v4.4M4 12h4a4 4 0 0 0 4-4V6" />
+              </svg>
             </button>
             <button
               onClick={() => loadSessions(false)}
@@ -781,6 +917,102 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         </div>
       </div>
 
+      {/* New worktree session dialog */}
+      {wtDialogOpen && (
+        <div
+          onClick={() => { if (!wtCreating) setWtDialogOpen(false); }}
+          style={{
+            position: "fixed", inset: 0, zIndex: 200,
+            background: "rgba(0,0,0,0.35)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 380, maxWidth: "90vw",
+              background: "var(--bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+              boxShadow: "0 12px 40px rgba(0,0,0,0.25)",
+              padding: 18,
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>
+              New worktree session
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 14 }}>
+              Creates a git worktree under <code style={{ fontFamily: "var(--font-mono)" }}>.pi/worktrees/</code> and starts a session there.
+            </div>
+
+            <label style={{ display: "block", fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Branch name</label>
+            <input
+              value={wtBranch}
+              onChange={(e) => setWtBranch(e.target.value)}
+              autoFocus
+              spellCheck={false}
+              style={{
+                width: "100%", boxSizing: "border-box",
+                padding: "7px 9px", marginBottom: 12,
+                background: "var(--bg-hover)",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                color: "var(--text)",
+                fontSize: 12, fontFamily: "var(--font-mono)",
+              }}
+            />
+
+            <label style={{ display: "block", fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Base branch</label>
+            <select
+              value={wtBase}
+              onChange={(e) => setWtBase(e.target.value)}
+              style={{
+                width: "100%", boxSizing: "border-box",
+                padding: "7px 9px", marginBottom: 14,
+                background: "var(--bg-hover)",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                color: "var(--text)",
+                fontSize: 12, fontFamily: "var(--font-mono)",
+              }}
+            >
+              {wtBranches.length === 0 && <option value="">(current HEAD)</option>}
+              {wtBranches.map((b) => <option key={b} value={b}>{b}</option>)}
+            </select>
+
+            {wtError && (
+              <div style={{ fontSize: 11, color: "#f87171", marginBottom: 12, wordBreak: "break-word" }}>{wtError}</div>
+            )}
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => { void createWorktreeSession(); }}
+                disabled={wtCreating || !wtBranch.trim()}
+                style={{
+                  flex: 1, padding: "7px 0",
+                  background: "var(--accent)", border: "none", borderRadius: 6,
+                  color: "#fff", fontSize: 12, fontWeight: 600,
+                  cursor: (wtCreating || !wtBranch.trim()) ? "not-allowed" : "pointer",
+                  opacity: (wtCreating || !wtBranch.trim()) ? 0.65 : 1,
+                }}
+              >
+                {wtCreating ? "Creating…" : "Create & start"}
+              </button>
+              <button
+                onClick={() => { if (!wtCreating) setWtDialogOpen(false); }}
+                style={{
+                  flex: 1, padding: "7px 0",
+                  background: "var(--bg-hover)", border: "1px solid var(--border)", borderRadius: 6,
+                  color: "var(--text-muted)", fontSize: 12, cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Session list */}
       <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}>
         {loading && (
@@ -803,6 +1035,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             key={node.session.id}
             node={node}
             selectedSessionId={selectedSessionId}
+            worktreeMeta={worktreeMeta}
             onSelectSession={onSelectSession}
             onRenamed={loadSessions}
             onSessionDeleted={(id) => {
@@ -908,6 +1141,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 function SessionTreeItem({
   node,
   selectedSessionId,
+  worktreeMeta,
   onSelectSession,
   onRenamed,
   onSessionDeleted,
@@ -915,6 +1149,7 @@ function SessionTreeItem({
 }: {
   node: SessionTreeNode;
   selectedSessionId: string | null;
+  worktreeMeta: Record<string, WorktreeMeta>;
   onSelectSession: (s: SessionInfo) => void;
   onRenamed?: () => void;
   onSessionDeleted?: (id: string) => void;
@@ -922,6 +1157,7 @@ function SessionTreeItem({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const hasChildren = node.children.length > 0;
+  const worktreeBranch = node.session.cwd ? worktreeMeta[node.session.cwd]?.branch : undefined;
 
   return (
     <div>
@@ -940,6 +1176,7 @@ function SessionTreeItem({
         <SessionItem
           session={node.session}
           isSelected={node.session.id === selectedSessionId}
+          worktreeBranch={worktreeBranch}
           onClick={() => onSelectSession(node.session)}
           onRenamed={onRenamed}
           onDeleted={(id) => onSessionDeleted?.(id)}
@@ -956,6 +1193,7 @@ function SessionTreeItem({
               key={child.session.id}
               node={child}
               selectedSessionId={selectedSessionId}
+              worktreeMeta={worktreeMeta}
               onSelectSession={onSelectSession}
               onRenamed={onRenamed}
               onSessionDeleted={onSessionDeleted}
@@ -971,6 +1209,7 @@ function SessionTreeItem({
 function SessionItem({
   session,
   isSelected,
+  worktreeBranch,
   onClick,
   onRenamed,
   onDeleted,
@@ -981,6 +1220,7 @@ function SessionItem({
 }: {
   session: SessionInfo;
   isSelected: boolean;
+  worktreeBranch?: string;
   onClick: () => void;
   onRenamed?: () => void;
   onDeleted?: (id: string) => void;
@@ -1162,9 +1402,26 @@ function SessionItem({
             >
               {title}
             </div>
-            <div style={{ marginTop: 2, display: "flex", gap: 8, color: "var(--text-dim)", fontSize: 11 }}>
+            <div style={{ marginTop: 2, display: "flex", gap: 8, alignItems: "center", color: "var(--text-dim)", fontSize: 11 }}>
               <span title={session.modified}>{formatRelativeTime(session.modified)}</span>
               <span>{session.messageCount} msgs</span>
+              {worktreeBranch && (
+                <span
+                  title={`Worktree branch: ${worktreeBranch}`}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 3,
+                    maxWidth: 120, overflow: "hidden",
+                    color: "var(--accent)",
+                    fontFamily: "var(--font-mono)", fontSize: 10,
+                  }}
+                >
+                  <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <circle cx="4" cy="4" r="1.8" /><circle cx="4" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" />
+                    <path d="M4 5.8v4.4M4 12h4a4 4 0 0 0 4-4V6" />
+                  </svg>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{worktreeBranch}</span>
+                </span>
+              )}
             </div>
           </div>
 

@@ -292,6 +292,14 @@ export interface WorktreeInfo {
   isMain: boolean;
 }
 
+// Metadata for worktrees created via the UI (see lib/worktree-sessions.ts)
+export interface WorktreeMeta {
+  branch: string;
+  worktreePath: string;
+  mainRepo: string;
+  createdAt: string;
+}
+
 // RPC types
 export interface RpcSessionState {
   model?: { provider: string; id: string; contextWindow?: number };
