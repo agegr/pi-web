@@ -288,6 +288,8 @@ export interface WorktreeInfo {
   bare: boolean;
   /** True for the worktree that contains the requested cwd. */
   current: boolean;
+  /** True for the repository's main (non-linked) worktree. */
+  isMain: boolean;
 }
 
 // RPC types

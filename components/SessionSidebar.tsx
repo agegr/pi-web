@@ -621,7 +621,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                         <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }}>
                             {wt.detached ? "(detached)" : (wt.branch ?? "(no branch)")}
-                            {wt.current && <span style={{ color: "var(--text-dim)", fontWeight: 400 }}> · current</span>}
+                            {wt.isMain && <span style={{ color: "var(--text-dim)", fontWeight: 400 }}> · main</span>}
+                            {wt.current && <span style={{ color: "var(--accent)", fontWeight: 400 }}> · current</span>}
                           </span>
                           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-dim)" }}>
                             {shortenCwd(wt.path, homeDir)}

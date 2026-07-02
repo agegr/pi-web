@@ -32,12 +32,12 @@ function runGit(cwd: string, args: string[]): Promise<{ ok: boolean; stdout: str
  * `worktree <path>` line, optionally followed by `HEAD <sha>`, `branch <ref>`,
  * `detached`, or `bare`.
  */
-function parsePorcelain(stdout: string): Omit<WorktreeInfo, "current">[] {
-  const worktrees: Omit<WorktreeInfo, "current">[] = [];
+function parsePorcelain(stdout: string): Omit<WorktreeInfo, "current" | "isMain">[] {
+  const worktrees: Omit<WorktreeInfo, "current" | "isMain">[] = [];
   // With -z, attributes are NUL-separated and records are separated by an
   // extra NUL (i.e. a blank field). Split on NUL and walk the fields.
   const fields = stdout.split("\0");
-  let cur: Omit<WorktreeInfo, "current"> | null = null;
+  let cur: Omit<WorktreeInfo, "current" | "isMain"> | null = null;
 
   const flush = () => {
     if (cur) worktrees.push(cur);
@@ -91,8 +91,10 @@ export async function listWorktrees(cwd: string): Promise<WorktreeListResult> {
   if (!list.ok) return { currentWorktreeRoot, worktrees: [] };
 
   const parsed = parsePorcelain(list.stdout);
-  const worktrees: WorktreeInfo[] = parsed.map((w) => ({
+  // git lists the main worktree first; linked worktrees follow.
+  const worktrees: WorktreeInfo[] = parsed.map((w, i) => ({
     ...w,
+    isMain: i === 0,
     current: currentWorktreeRoot !== null && w.path === currentWorktreeRoot,
   }));
 
