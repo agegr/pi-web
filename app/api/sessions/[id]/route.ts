@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
-import { readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   resolveSessionPath,
   invalidateSessionPathCache,
   buildSessionContext,
+  buildTree,
+  getLeafId,
   listAllSessions,
 } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-manager";
@@ -117,8 +119,62 @@ export async function GET(
   const { id } = await params;
   try {
     const filePath = await resolveSessionPath(id);
-    if (!filePath) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    // resolveSessionPath may return a cached path whose file is not on disk yet
+    // (pi computes the .jsonl path on session creation but only writes it once
+    // the first assistant message arrives). Treat a missing file as "no file"
+    // and fall back to the live in-memory session, otherwise SessionManager.open
+    // would create a brand-new session with a different id.
+    if (!filePath || !existsSync(filePath)) {
+      // No file on disk yet. pi does not flush a new session until the first
+      // assistant message, so fall back to the live in-memory session if the
+      // agent runtime is still holding it.
+      const rpc = getRpcSession(id);
+      const detail = rpc?.isAlive() ? rpc.getMemorySessionDetail() : null;
+      if (!detail) {
+        return NextResponse.json({ error: "Session not found" }, { status: 404 });
+      }
+
+      const entries = detail.entries as never;
+      const leafId = getLeafId(entries);
+      const tree = projectTreeForResponse(buildTree(entries));
+      const context = buildSessionContext(entries, leafId);
+
+      const now = new Date().toISOString();
+      const parentSessionId = detail.header.parentSession
+        ? (await listAllSessions()).find((s) => s.path === detail.header.parentSession)?.id
+        : undefined;
+      const info = {
+        path: "",
+        id: detail.header.id,
+        cwd: detail.header.cwd,
+        name: detail.name,
+        created: detail.header.timestamp ?? now,
+        modified: now,
+        messageCount: context.messages.length,
+        firstMessage: context.messages.find((m) => m.role === "user")
+          ? (() => {
+              const msg = context.messages.find((m) => m.role === "user")!;
+              const c = (msg as { content: unknown }).content;
+              return typeof c === "string" ? c : (Array.isArray(c) ? (c.find((b: { type: string }) => b.type === "text") as { text: string } | undefined)?.text ?? "" : "") || "(no messages)";
+            })()
+          : "(no messages)",
+        parentSessionId,
+      };
+
+      const url = new URL(req.url);
+      const agentState = url.searchParams.has("includeState")
+        ? { running: true, state: await rpc!.send({ type: "get_state" }) }
+        : undefined;
+
+      return NextResponse.json({
+        sessionId: id,
+        filePath: "",
+        info,
+        leafId,
+        tree,
+        context,
+        ...(agentState !== undefined ? { agentState } : {}),
+      });
     }
 
     const sm = SessionManager.open(filePath);
@@ -207,7 +263,15 @@ export async function DELETE(
   const { id } = await params;
   try {
     const filePath = await resolveSessionPath(id);
-    if (!filePath) {
+    if (!filePath || !existsSync(filePath)) {
+      // No file on disk (session not flushed yet). If a live in-memory session
+      // exists, destroying its runtime discards it — nothing to unlink.
+      const rpc = getRpcSession(id);
+      if (rpc?.isAlive()) {
+        rpc.destroy();
+        invalidateSessionPathCache(id);
+        return NextResponse.json({ ok: true });
+      }
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 

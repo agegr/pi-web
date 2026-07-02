@@ -14,6 +14,28 @@ export interface AgentEvent {
   [key: string]: unknown;
 }
 
+// SessionInfo snapshot derived from an in-memory (not-yet-flushed) session.
+// parentSessionPath is the raw header path; callers map it to a session id.
+export interface MemorySessionInfo {
+  path: string;
+  id: string;
+  cwd: string;
+  name?: string;
+  created: string;
+  modified: string;
+  messageCount: number;
+  firstMessage: string;
+  parentSessionPath?: string;
+}
+
+// Full in-memory session detail for the session-detail endpoint.
+export interface MemorySessionDetail {
+  header: { id: string; cwd: string; timestamp: string; parentSession?: string };
+  name?: string;
+  entries: unknown[];
+  leafId: string | null;
+}
+
 type EventListener = (event: AgentEvent) => void;
 
 type PendingUiResponse = {
@@ -75,6 +97,68 @@ export class AgentSessionWrapper {
 
   isRunning(): boolean {
     return this._alive && (this.promptRunning || this.inner.isStreaming || this.inner.isCompacting);
+  }
+
+  /**
+   * Build a SessionInfo snapshot from the in-memory SessionManager.
+   * Used for sessions that pi has not flushed to disk yet (pi only writes the
+   * .jsonl file once the first assistant message arrives), so /api/sessions can
+   * still surface a brand-new session the moment the user sends a message.
+   */
+  getMemorySessionInfo(): MemorySessionInfo | null {
+    const sm = this.inner.sessionManager;
+    const header = sm.getHeader();
+    if (!header) return null;
+    const entries = sm.getEntries();
+
+    let messageCount = 0;
+    let firstMessage = "(no messages)";
+    let firstMessageFound = false;
+    for (const e of entries) {
+      if (e.type !== "message") continue;
+      const msg = (e as { message?: { role?: string; content?: unknown } }).message;
+      if (!msg) continue;
+      messageCount += 1;
+      if (!firstMessageFound && msg.role === "user") {
+        firstMessageFound = true;
+        const c = msg.content;
+        if (typeof c === "string") {
+          firstMessage = c || "(no messages)";
+        } else if (Array.isArray(c)) {
+          const textBlock = c.find((b: { type?: string }) => b?.type === "text") as { text?: string } | undefined;
+          firstMessage = textBlock?.text || "(no messages)";
+        }
+      }
+    }
+
+    const timestamp = header.timestamp ?? new Date().toISOString();
+    return {
+      path: sm.getSessionFile() ?? "",
+      id: header.id,
+      cwd: header.cwd ?? sm.getCwd() ?? "",
+      name: sm.getSessionName(),
+      created: timestamp,
+      modified: new Date().toISOString(),
+      messageCount,
+      firstMessage,
+      parentSessionPath: header.parentSession,
+    };
+  }
+
+  /**
+   * Full detail snapshot (entries + leaf + header) from the in-memory session,
+   * for /api/sessions/[id] to serve a session whose file is not on disk yet.
+   */
+  getMemorySessionDetail(): MemorySessionDetail | null {
+    const sm = this.inner.sessionManager;
+    const header = sm.getHeader();
+    if (!header) return null;
+    return {
+      header: { id: header.id, cwd: header.cwd ?? sm.getCwd() ?? "", timestamp: header.timestamp, parentSession: header.parentSession },
+      name: sm.getSessionName(),
+      entries: sm.getEntries() as unknown[],
+      leafId: sm.getLeafId(),
+    };
   }
 
   start(): void {
@@ -566,6 +650,27 @@ export function getRunningRpcSessionIds(): string[] {
     if (session.isRunning()) ids.add(session.sessionId || sessionId);
   }
   return [...ids];
+}
+
+/**
+ * SessionInfo snapshots for every live in-memory session. pi does not flush a
+ * new session's .jsonl file until the first assistant message, so /api/sessions
+ * (which scans files) can't see a just-created session. Merging these snapshots
+ * in makes a new session appear the moment the user sends — no client-side
+ * optimistic placeholder, no file-not-yet-on-disk inconsistencies.
+ */
+export function getLiveSessionInfos(): MemorySessionInfo[] {
+  const infos: MemorySessionInfo[] = [];
+  for (const session of getRegistry().values()) {
+    if (!session.isAlive()) continue;
+    try {
+      const info = session.getMemorySessionInfo();
+      if (info) infos.push(info);
+    } catch {
+      // Ignore snapshot failures for individual sessions.
+    }
+  }
+  return infos;
 }
 
 // ----------------------------------------------------------------------------

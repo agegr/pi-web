@@ -13,7 +13,6 @@ interface Props {
   initialSessionId?: string | null;
   onInitialRestoreDone?: () => void;
   refreshKey?: number;
-  optimisticSessions?: Record<string, SessionInfo>;
   onSessionDeleted?: (sessionId: string) => void;
   selectedCwd?: string | null;
   onCwdChange?: (cwd: string | null) => void;
@@ -244,7 +243,7 @@ function findWorktreeMeta(cwd: string | undefined, meta: Record<string, Worktree
   return undefined;
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, onInitialRestoreDone, refreshKey, optimisticSessions, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention }: Props) {
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -484,20 +483,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }, [selectedCwd, onNewSession]);
 
   const recentCwds = getRecentCwds(allSessions, effectiveCwd);
-
-  // Merge optimistic new-session records in until the real /api/sessions
-  // fetch includes them. Keeps sidebar entries visible from the moment the
-  // user hits send, without waiting for the model to respond.
-  const realSessionIds = new Set(allSessions.map((s) => s.id));
-  const pendingOptimisticSessions = Object.values(optimisticSessions ?? {})
-    .filter((s) => !realSessionIds.has(s.id));
-  const mergedSessions = pendingOptimisticSessions.length > 0
-    ? [...pendingOptimisticSessions, ...allSessions]
-    : allSessions;
-
   const filteredSessions = selectedCwd
-    ? mergedSessions.filter((s) => effectiveCwd(s) === selectedCwd)
-    : mergedSessions;
+    ? allSessions.filter((s) => effectiveCwd(s) === selectedCwd)
+    : allSessions;
 
   // Build parent-child tree within the filtered set
   const sessionTree = buildSessionTree(filteredSessions);
