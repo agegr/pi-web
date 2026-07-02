@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+/* While dragging a column resize handle, suppress text selection app-wide
+   and force the resize cursor everywhere. */
+body.resizing-col,
+body.resizing-col * {
+  cursor: col-resize !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  user-select: none !important;
+}
+
 @theme {
   --color-bg: var(--bg);
   --color-bg-panel: var(--bg-panel);
@@ -486,9 +496,13 @@ span.linenumber {
     overflow: hidden;
     transition: width 0.2s ease, min-width 0.2s ease;
   }
+  /* Disable width transition while actively dragging the resize handle */
+  .sidebar-container.sidebar-resizing {
+    transition: none;
+  }
   .sidebar-container.sidebar-open {
-    width: 260px;
-    min-width: 260px;
+    width: var(--sidebar-width, 260px);
+    min-width: var(--sidebar-width, 260px);
   }
   .sidebar-container.sidebar-closed {
     width: 0;
@@ -496,9 +510,39 @@ span.linenumber {
     border-right: none !important;
   }
   /* keep inner content at fixed width so it doesn't reflow during animation */
-  .sidebar-container > * {
-    width: 260px;
-    min-width: 260px;
+  .sidebar-container > *:not(.sidebar-resize-handle) {
+    width: var(--sidebar-width, 260px);
+    min-width: var(--sidebar-width, 260px);
+  }
+  /* Drag handle for resizing the sidebar.
+     Wide invisible hit area (easy to grab) + thin visible line drawn via ::after. */
+  .sidebar-resize-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 8px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 210;
+    background: transparent;
+    touch-action: none;
+    outline: none;
+  }
+  .sidebar-resize-handle::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 1px;
+    height: 100%;
+    background: var(--accent);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .sidebar-resize-handle:hover::after,
+  .sidebar-resize-handle:focus-visible::after,
+  .sidebar-resize-handle.sidebar-resize-active::after {
+    opacity: 0.6;
   }
 }
 
