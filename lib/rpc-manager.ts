@@ -161,6 +161,11 @@ export class AgentSessionWrapper {
     };
   }
 
+  /** Rename the in-memory session (used when the .jsonl file is not on disk yet). */
+  setMemorySessionName(name: string): void {
+    this.inner.setSessionName(name);
+  }
+
   start(): void {
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
       this.resetIdleTimer();

@@ -244,7 +244,14 @@ export async function PATCH(
       return NextResponse.json({ error: "name is required" }, { status: 400 });
     }
     const filePath = await resolveSessionPath(id);
-    if (!filePath) {
+    if (!filePath || !existsSync(filePath)) {
+      // File not flushed to disk yet — rename the live in-memory session so we
+      // don't let SessionManager.open mint a new session under a stale path.
+      const rpc = getRpcSession(id);
+      if (rpc?.isAlive()) {
+        rpc.setMemorySessionName(name.trim());
+        return NextResponse.json({ ok: true });
+      }
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
     const sm = SessionManager.open(filePath);
