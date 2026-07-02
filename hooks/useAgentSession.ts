@@ -782,6 +782,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
         if (existingSid) {
           sentSessionId = existingSid;
+          // Show the session in the sidebar immediately — before the model responds.
+          promoteNewSession(1, message, effectiveNewCwd);
           if (selectedModel) {
             setPendingModel(selectedModel);
             await sendAgentCommand(existingSid, { type: "set_model", provider: selectedModel.provider, modelId: selectedModel.modelId });
@@ -792,7 +794,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             message,
             ...(piImages?.length ? { images: piImages } : {}),
           });
-          promoteNewSession(1, message, effectiveNewCwd);
         } else {
           if (selectedModel) setPendingModel(selectedModel);
           const { PRESET_NONE, PRESET_DEFAULT, PRESET_FULL } = await import("@/components/ToolPanel");
@@ -813,13 +814,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const realId = result.sessionId;
           sessionIdRef.current = realId;
           sentSessionId = realId;
+          // Show the session in the sidebar immediately — before the model responds.
+          promoteNewSession(1, message, effectiveNewCwd);
           await connectEvents(realId);
           await sendAgentCommand(realId, {
             type: "prompt",
             message,
             ...(piImages?.length ? { images: piImages } : {}),
           });
-          promoteNewSession(1, message, effectiveNewCwd);
         }
       } else if (session) {
         sentSessionId = session.id;

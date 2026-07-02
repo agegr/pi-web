@@ -51,6 +51,9 @@ export function AppShell() {
   const { isDark, toggleTheme } = useTheme();
   const isMobile = useIsMobile();
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
+  // Newly-created sessions shown optimistically in the sidebar before
+  // /api/sessions reflects them (see handleSessionCreated).
+  const [optimisticSessions, setOptimisticSessions] = useState<Record<string, SessionInfo>>({});
   // When user clicks +, we only store the cwd — no fake session id
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -322,6 +325,11 @@ export function AppShell() {
   const handleSessionCreated = useCallback((session: SessionInfo) => {
     setNewSessionCwd(null);
     setSelectedSession(session);
+    // Show the session in the sidebar immediately, even before pi has
+    // persisted any content to the .jsonl file (which only happens once the
+    // model responds). The next /api/sessions fetch will replace this with the
+    // real record.
+    setOptimisticSessions((prev) => ({ ...prev, [session.id]: session }));
     setRefreshKey((k) => k + 1);
     router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
   }, [router]);
@@ -353,6 +361,12 @@ export function AppShell() {
 
   const handleSessionDeleted = useCallback((sessionId: string) => {
     setRefreshKey((k) => k + 1);
+    setOptimisticSessions((prev) => {
+      if (!prev[sessionId]) return prev;
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
     if (selectedSession?.id === sessionId) {
       const cwd = selectedSession.cwd;
       setSelectedSession(null);
@@ -413,6 +427,7 @@ export function AppShell() {
         initialSessionId={initialSessionId}
         onInitialRestoreDone={handleInitialRestoreDone}
         refreshKey={refreshKey}
+        optimisticSessions={optimisticSessions}
         onSessionDeleted={handleSessionDeleted}
         selectedCwd={selectedSession?.cwd ?? newSessionCwd ?? null}
         onCwdChange={handleCwdChange}
