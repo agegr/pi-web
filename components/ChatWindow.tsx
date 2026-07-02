@@ -14,6 +14,7 @@ import type { SessionStatsInfo } from "@/lib/pi-types";
 interface Props {
   session: SessionInfo | null;
   newSessionCwd: string | null;
+  onNewSessionCwdChange?: (cwd: string) => void;
   onAgentEnd?: () => void;
   onSessionCreated?: (session: SessionInfo) => void;
   onSessionForked?: (newSessionId: string) => void;
@@ -98,7 +99,10 @@ function Typewriter({ phrases }: { phrases: string[] }) {
   );
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange }: Props) {
+export function ChatWindow({ session, newSessionCwd, onNewSessionCwdChange, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange }: Props) {
+  const localNewSessionCwdRef = useRef<string | null>(newSessionCwd);
+  if (newSessionCwd && !localNewSessionCwdRef.current) localNewSessionCwdRef.current = newSessionCwd;
+
   const {
     loading, error, messages, entryIds, streamState,
     agentRunning, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
@@ -225,6 +229,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       slashCommandsLoading={slashCommandsLoading}
       onLoadSlashCommands={loadSlashCommands}
       onBuiltinCommand={handleBuiltinSlashCommand}
+      newSessionCwd={isEmptyNew ? newSessionCwd : null}
+      newSessionLocalCwd={isEmptyNew ? localNewSessionCwdRef.current : null}
+      onNewSessionCwdChange={onNewSessionCwdChange}
       soundEnabled={soundEnabled}
       onSoundToggle={onSoundToggle}
       draftKey={session?.id ?? (newSessionCwd ? `new:${newSessionCwd}` : undefined)}

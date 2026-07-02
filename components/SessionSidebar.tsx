@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { SessionInfo } from "@/lib/types";
+
+import type { WorktreeMeta } from "@/lib/types";
 import { FileExplorer } from "./FileExplorer";
 
 interface Props {
@@ -59,13 +61,14 @@ function formatRelativeTime(dateStr: string): string {
 }
 
 /** Return the 5 most recently active cwds across all sessions */
-function getRecentCwds(sessions: SessionInfo[]): string[] {
+function getRecentCwds(sessions: SessionInfo[], effectiveCwd: (s: SessionInfo) => string | null): string[] {
   const latestByCwd = new Map<string, string>(); // cwd -> most recent modified
   for (const s of sessions) {
-    if (!s.cwd) continue;
-    const prev = latestByCwd.get(s.cwd);
+    const cwd = effectiveCwd(s);
+    if (!cwd) continue;
+    const prev = latestByCwd.get(cwd);
     if (!prev || s.modified > prev) {
-      latestByCwd.set(s.cwd, s.modified);
+      latestByCwd.set(cwd, s.modified);
     }
   }
   return [...latestByCwd.entries()]
@@ -221,6 +224,25 @@ function PiAgentTitle() {
   );
 }
 
+function findWorktreeMeta(cwd: string | undefined, meta: Record<string, WorktreeMeta>): WorktreeMeta | undefined {
+  if (!cwd) return undefined;
+  // Normalize for tolerant matching across platforms:
+  // - unify backslashes to forward slashes (Windows)
+  // - lowercase (Windows is case-insensitive; macOS/APFS usually too)
+  // - strip trailing slashes
+  // - drop a leading /private (macOS resolves /var -> /private/var etc.)
+  const clean = (p: string) =>
+    p.replace(/\\/g, "/").toLowerCase().replace(/\/+$/, "").replace(/^\/private/, "");
+  const target = clean(cwd);
+  if (meta[cwd]) return meta[cwd];
+  for (const key of Object.keys(meta)) {
+    if (clean(key) === target) {
+      return meta[key];
+    }
+  }
+  return undefined;
+}
+
 export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention }: Props) {
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -232,8 +254,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [customPathValue, setCustomPathValue] = useState("");
   const [customPathError, setCustomPathError] = useState<string | null>(null);
   const [customPathValidating, setCustomPathValidating] = useState(false);
+  const [worktreeMeta, setWorktreeMeta] = useState<Record<string, WorktreeMeta>>({});
   const customPathInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // A worktree session's cwd is the worktree path, but in the sidebar it should
+  // group under its main repo (users think of it as "a session of this project"
+  // that happens to run in a worktree). Resolve cwd -> main repo when the cwd is
+  // a known worktree; otherwise use the cwd as-is.
+  const effectiveCwd = useCallback(
+    (s: SessionInfo): string | null => {
+      if (!s.cwd) return null;
+      return findWorktreeMeta(s.cwd, worktreeMeta)?.mainRepo ?? s.cwd;
+    },
+    [worktreeMeta]
+  );
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [explorerKey, setExplorerKey] = useState(0);
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
@@ -252,8 +287,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       if (showLoading) setLoading(true);
       const res = await fetch("/api/sessions");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[] };
+      const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[]; worktrees?: Record<string, WorktreeMeta> };
       setAllSessions(data.sessions);
+      setWorktreeMeta(data.worktrees ?? {});
       // Treat the fetched running set as an initial fallback only. Once SSE is
       // live it owns this state, so a slow fetch can't revive a stale snapshot.
       if (!sseAuthoritativeRef.current) {
@@ -366,17 +402,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         restoredRef.current = true;
         const target = allSessions.find((s) => s.id === initialSessionId);
         if (target) {
-          setSelectedCwd(target.cwd);
+          setSelectedCwd(effectiveCwd(target));
           onSelectSession(target, true);
           return;
         }
         // Session not found — notify parent so it can show the placeholder
         onInitialRestoreDone?.();
       }
-      const cwds = getRecentCwds(allSessions);
+      const cwds = getRecentCwds(allSessions, effectiveCwd);
       if (cwds.length > 0) setSelectedCwd(cwds[0]);
     }
-  }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone]);
+  }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone, effectiveCwd]);
 
   const commitCustomPath = useCallback(async () => {
     const path = customPathValue.trim();
@@ -446,9 +482,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onNewSession?.(tempId, selectedCwd);
   }, [selectedCwd, onNewSession]);
 
-  const recentCwds = getRecentCwds(allSessions);
+  const recentCwds = getRecentCwds(allSessions, effectiveCwd);
   const filteredSessions = selectedCwd
-    ? allSessions.filter((s) => s.cwd === selectedCwd)
+    ? allSessions.filter((s) => effectiveCwd(s) === selectedCwd)
     : allSessions;
 
   // Build parent-child tree within the filtered set
@@ -803,6 +839,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             selectedSessionId={selectedSessionId}
             runningSessionIds={runningSessionIds}
             unreadSessionIds={unreadSessionIds}
+            worktreeMeta={worktreeMeta}
             onSelectSession={onSelectSession}
             onRenamed={loadSessions}
             onSessionDeleted={(id) => {
@@ -910,6 +947,7 @@ function SessionTreeItem({
   selectedSessionId,
   runningSessionIds,
   unreadSessionIds,
+  worktreeMeta,
   onSelectSession,
   onRenamed,
   onSessionDeleted,
@@ -919,6 +957,7 @@ function SessionTreeItem({
   selectedSessionId: string | null;
   runningSessionIds: Set<string>;
   unreadSessionIds: Set<string>;
+  worktreeMeta: Record<string, WorktreeMeta>;
   onSelectSession: (s: SessionInfo) => void;
   onRenamed?: () => void;
   onSessionDeleted?: (id: string) => void;
@@ -926,6 +965,7 @@ function SessionTreeItem({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const hasChildren = node.children.length > 0;
+  const worktreeBranch = findWorktreeMeta(node.session.cwd, worktreeMeta)?.branch;
 
   return (
     <div>
@@ -946,6 +986,7 @@ function SessionTreeItem({
           isSelected={node.session.id === selectedSessionId}
           isRunning={runningSessionIds.has(node.session.id)}
           isUnread={unreadSessionIds.has(node.session.id)}
+          worktreeBranch={worktreeBranch}
           onClick={() => onSelectSession(node.session)}
           onRenamed={onRenamed}
           onDeleted={(id) => onSessionDeleted?.(id)}
@@ -964,6 +1005,7 @@ function SessionTreeItem({
               selectedSessionId={selectedSessionId}
               runningSessionIds={runningSessionIds}
               unreadSessionIds={unreadSessionIds}
+              worktreeMeta={worktreeMeta}
               onSelectSession={onSelectSession}
               onRenamed={onRenamed}
               onSessionDeleted={onSessionDeleted}
@@ -1037,6 +1079,7 @@ function SessionItem({
   isSelected,
   isRunning,
   isUnread,
+  worktreeBranch,
   onClick,
   onRenamed,
   onDeleted,
@@ -1049,6 +1092,7 @@ function SessionItem({
   isSelected: boolean;
   isRunning?: boolean;
   isUnread?: boolean;
+  worktreeBranch?: string;
   onClick: () => void;
   onRenamed?: () => void;
   onDeleted?: (id: string) => void;
@@ -1234,9 +1278,26 @@ function SessionItem({
                 {title}
               </span>
             </div>
-            <div style={{ marginTop: 2, display: "flex", gap: 8, color: "var(--text-dim)", fontSize: 11 }}>
+            <div style={{ marginTop: 2, display: "flex", gap: 8, alignItems: "center", color: "var(--text-dim)", fontSize: 11 }}>
               <span title={session.modified}>{formatRelativeTime(session.modified)}</span>
               <span>{session.messageCount} msgs</span>
+              {worktreeBranch && (
+                <span
+                  title={`Worktree branch: ${worktreeBranch}`}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 3,
+                    maxWidth: 120, overflow: "hidden",
+                    color: "var(--accent)",
+                    fontFamily: "var(--font-mono)", fontSize: 10,
+                  }}
+                >
+                  <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <circle cx="4" cy="4" r="1.8" /><circle cx="4" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" />
+                    <path d="M4 5.8v4.4M4 12h4a4 4 0 0 0 4-4V6" />
+                  </svg>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{worktreeBranch}</span>
+                </span>
+              )}
             </div>
           </div>
 

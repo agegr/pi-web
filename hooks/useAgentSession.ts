@@ -410,14 +410,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [setToolPresetState]);
 
-  const promoteNewSession = useCallback((messageCount = 0, firstMessage = "(no messages)") => {
+  const promoteNewSession = useCallback((messageCount = 0, firstMessage = "(no messages)", cwdOverride?: string) => {
     const sid = sessionIdRef.current;
-    if (!isNew || !newSessionCwd || !sid || newSessionPromotedRef.current) return;
+    const cwd = cwdOverride ?? newSessionCwd;
+    if (!isNew || !cwd || !sid || newSessionPromotedRef.current) return;
     newSessionPromotedRef.current = true;
     onSessionCreated?.({
       id: sid,
       path: "",
-      cwd: newSessionCwd,
+      cwd,
       name: undefined,
       created: new Date().toISOString(),
       modified: new Date().toISOString(),
@@ -426,9 +427,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     });
   }, [isNew, newSessionCwd, onSessionCreated]);
 
-  const ensureNewSession = useCallback(async () => {
+  const ensureNewSession = useCallback(async (cwdOverride?: string) => {
     if (sessionIdRef.current) return sessionIdRef.current;
-    if (!isNew || !newSessionCwd) return sessionIdRef.current;
+    const cwd = cwdOverride ?? newSessionCwd;
+    if (!isNew || !cwd) return sessionIdRef.current;
     if (ensuringNewSessionRef.current) return ensuringNewSessionRef.current;
 
     const promise = (async () => {
@@ -440,7 +442,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          cwd: newSessionCwd,
+          cwd,
           type: "ensure_session",
           toolNames,
           ...(selectedModel ? { provider: selectedModel.provider, modelId: selectedModel.modelId } : {}),
@@ -745,10 +747,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [addNotice, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, onAgentEnd]);
   handleAgentEventRef.current = handleAgentEvent;
 
-  const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
+  const handleSend = useCallback(async (message: string, images?: AttachedImage[], cwdOverride?: string) => {
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return;
     if (agentRunning) return;
+    const effectiveNewCwd = cwdOverride ?? newSessionCwd;
     const isSlashCommandPrompt = !images?.length && trimmedMessage.startsWith("/");
     const promptRunId = promptRunIdRef.current + 1;
 
@@ -773,7 +776,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
     try {
       let sentSessionId: string | null = null;
-      if (isNew && newSessionCwd) {
+      if (isNew && effectiveNewCwd) {
         const selectedModel = newSessionModel;
         const existingSid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
 
@@ -789,7 +792,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             message,
             ...(piImages?.length ? { images: piImages } : {}),
           });
-          promoteNewSession(1, message);
+          promoteNewSession(1, message, effectiveNewCwd);
         } else {
           if (selectedModel) setPendingModel(selectedModel);
           const { PRESET_NONE, PRESET_DEFAULT, PRESET_FULL } = await import("@/components/ToolPanel");
@@ -798,7 +801,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              cwd: newSessionCwd,
+              cwd: effectiveNewCwd,
               type: "ensure_session",
               toolNames,
               ...(selectedModel ? { provider: selectedModel.provider, modelId: selectedModel.modelId } : {}),
@@ -816,7 +819,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             message,
             ...(piImages?.length ? { images: piImages } : {}),
           });
-          promoteNewSession(1, message);
+          promoteNewSession(1, message, effectiveNewCwd);
         }
       } else if (session) {
         sentSessionId = session.id;
@@ -928,14 +931,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [isCompacting, loadSession]);
 
-  const handleBuiltinSlashCommand = useCallback(async (text: string): Promise<BuiltinSlashCommandResult> => {
+  const handleBuiltinSlashCommand = useCallback(async (text: string, cwdOverride?: string): Promise<BuiltinSlashCommandResult> => {
     if (!text.startsWith("/")) return { handled: false };
     const match = text.match(/^\/([^\s]+)(?:\s+([\s\S]*))?$/);
     if (!match) return { handled: false };
 
     const [, commandName, rawArgs = ""] = match;
     const args = rawArgs.trim();
-    const sid = sessionIdRef.current ?? await ensureNewSession();
+    const sid = sessionIdRef.current ?? await ensureNewSession(cwdOverride);
     const complete = (result: BuiltinSlashCommandResult): BuiltinSlashCommandResult => {
       if (!result.handled) return result;
       if (result.error) {

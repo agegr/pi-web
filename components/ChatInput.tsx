@@ -18,7 +18,7 @@ interface ModelOption {
 }
 
 interface Props {
-  onSend: (message: string, images?: AttachedImage[]) => void;
+  onSend: (message: string, images?: AttachedImage[], cwdOverride?: string) => void;
   onAbort: () => void;
   onSteer?: (message: string, images?: AttachedImage[]) => void;
   onFollowUp?: (message: string, images?: AttachedImage[]) => void;
@@ -44,7 +44,10 @@ interface Props {
   slashCommands?: SlashCommandInfo[];
   slashCommandsLoading?: boolean;
   onLoadSlashCommands?: () => Promise<SlashCommandInfo[]> | SlashCommandInfo[];
-  onBuiltinCommand?: (message: string) => Promise<BuiltinSlashCommandResult>;
+  onBuiltinCommand?: (message: string, cwdOverride?: string) => Promise<BuiltinSlashCommandResult>;
+  newSessionCwd?: string | null;
+  newSessionLocalCwd?: string | null;
+  onNewSessionCwdChange?: (cwd: string) => void;
   soundEnabled?: boolean;
   onSoundToggle?: () => void;
   // Stable key used to persist the unsent draft across session switches
@@ -134,6 +137,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   retryInfo,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
+  newSessionCwd, newSessionLocalCwd, onNewSessionCwdChange,
   soundEnabled, onSoundToggle,
   onPromptWithStreamingBehavior,
   draftKey,
@@ -148,12 +152,31 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [slashActiveIndex, setSlashActiveIndex] = useState(0);
+  const [sessionLocationMode, setSessionLocationMode] = useState<"local" | "worktree">("local");
+  const [selectedBaseBranch, setSelectedBaseBranch] = useState("");
+  const [branchOptions, setBranchOptions] = useState<string[]>([]);
+  const [worktreeDialogOpen, setWorktreeDialogOpen] = useState(false);
+  const [worktreeBranch, setWorktreeBranch] = useState("");
+  const [worktreeCreating, setWorktreeCreating] = useState(false);
+  const [worktreeError, setWorktreeError] = useState<string | null>(null);
+  const [worktreeDisplayBranch, setWorktreeDisplayBranch] = useState<string | null>(null);
+  const [localBranchDialogOpen, setLocalBranchDialogOpen] = useState(false);
+  const [localBranchName, setLocalBranchName] = useState("");
+  const [localBranchCreating, setLocalBranchCreating] = useState(false);
+  const [localBranchError, setLocalBranchError] = useState<string | null>(null);
+
+  const [pendingWorktreeBranchName, setPendingWorktreeBranchName] = useState<string | null>(null);
+
+  const [locationDropdownOpen, setLocationDropdownOpen] = useState(false);
+  const [baseBranchDropdownOpen, setBaseBranchDropdownOpen] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownPanelRef = useRef<HTMLDivElement>(null);
   const toolDropdownRef = useRef<HTMLDivElement>(null);
   const thinkingDropdownRef = useRef<HTMLDivElement>(null);
+  const locationDropdownRef = useRef<HTMLDivElement>(null);
+  const baseBranchDropdownRef = useRef<HTMLDivElement>(null);
   const controlsMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isComposingRef = useRef(false);
@@ -263,20 +286,70 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const ensureCwdReady = useCallback(async (): Promise<{ ok: boolean; cwd?: string }> => {
+    if (sessionLocationMode !== "worktree" || !pendingWorktreeBranchName) {
+      return { ok: true };
+    }
+    if (!newSessionLocalCwd || !onNewSessionCwdChange || worktreeCreating) {
+      return { ok: false };
+    }
+    setWorktreeCreating(true);
+    setWorktreeError(null);
+    try {
+      const res = await fetch("/api/worktrees", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cwd: newSessionLocalCwd,
+          branch: pendingWorktreeBranchName,
+          base: selectedBaseBranch || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({})) as { worktreePath?: string; branch?: string; error?: string };
+      if (!res.ok || data.error || !data.worktreePath) {
+        const errMsg = data.error ?? `HTTP ${res.status}`;
+        setWorktreeError(errMsg);
+        alert(`Failed to create worktree: ${errMsg}`);
+        return { ok: false };
+      }
+      await fetch("/api/cwd/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: data.worktreePath }),
+      }).catch(() => {});
+
+      setWorktreeDisplayBranch(data.branch ?? pendingWorktreeBranchName);
+      setPendingWorktreeBranchName(null);
+      onNewSessionCwdChange(data.worktreePath);
+      return { ok: true, cwd: data.worktreePath };
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      setWorktreeError(errMsg);
+      alert(`Failed to create worktree: ${errMsg}`);
+      return { ok: false };
+    } finally {
+      setWorktreeCreating(false);
+    }
+  }, [sessionLocationMode, pendingWorktreeBranchName, newSessionLocalCwd, onNewSessionCwdChange, worktreeCreating, selectedBaseBranch]);
+
   const handleSend = useCallback(async () => {
     const msg = value.trim();
     if (!msg && !attachedImages.length) return;
     if (isStreaming) return;
+
+    const ready = await ensureCwdReady();
+    if (!ready.ok) return;
+
     if (!attachedImages.length && msg.startsWith("/") && onBuiltinCommand) {
-      const result = await onBuiltinCommand(msg);
+      const result = await onBuiltinCommand(msg, ready.cwd);
       if (result.handled) {
         if (!result.error) clearInput();
         return;
       }
     }
-    onSend(msg, attachedImages.length ? attachedImages : undefined);
+    onSend(msg, attachedImages.length ? attachedImages : undefined, ready.cwd);
     clearInput();
-  }, [value, attachedImages, isStreaming, onBuiltinCommand, onSend, clearInput]);
+  }, [value, attachedImages, isStreaming, onBuiltinCommand, onSend, clearInput, ensureCwdReady]);
 
   const slashQuery = value.startsWith("/") && !/\s/.test(value.slice(1))
     ? value.slice(1).toLowerCase()
@@ -331,9 +404,89 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     });
   }, []);
 
-  const sendQueued = useCallback((mode: "steer" | "followup") => {
+  const isNewSessionInput = !!newSessionCwd && !!newSessionLocalCwd && !!onNewSessionCwdChange;
+
+  useEffect(() => {
+    if (!isNewSessionInput || !newSessionLocalCwd) return;
+    let cancelled = false;
+    fetch(`/api/worktrees/branches?cwd=${encodeURIComponent(newSessionLocalCwd)}`)
+      .then((res) => res.json())
+      .then((data: { branches?: string[]; defaultBase?: string | null }) => {
+        if (cancelled) return;
+        const branches = data.branches ?? [];
+        setBranchOptions(branches);
+        setSelectedBaseBranch(data.defaultBase ?? branches[0] ?? "");
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBranchOptions([]);
+          setSelectedBaseBranch("");
+        }
+      });
+    return () => { cancelled = true; };
+  }, [isNewSessionInput, newSessionLocalCwd]);
+
+  const defaultBranchName = useCallback((prefix: string) => {
+    const ts = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${prefix}/${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}`;
+  }, []);
+
+  const openWorktreeDialog = useCallback(() => {
+    setWorktreeBranch(defaultBranchName("pi"));
+    setWorktreeError(null);
+    setWorktreeDialogOpen(true);
+  }, [defaultBranchName]);
+
+  const openLocalBranchDialog = useCallback(() => {
+    setLocalBranchName(defaultBranchName("pi"));
+    setLocalBranchError(null);
+    setLocalBranchDialogOpen(true);
+  }, [defaultBranchName]);
+
+  const createWorktreeForNewSession = useCallback(() => {
+    const branch = worktreeBranch.trim();
+    if (!branch) { setWorktreeError("Branch name is required"); return; }
+    setPendingWorktreeBranchName(branch);
+    setWorktreeDisplayBranch(branch);
+    setSessionLocationMode("worktree");
+    setWorktreeDialogOpen(false);
+  }, [worktreeBranch]);
+
+  const createLocalBranchForNewSession = useCallback(async () => {
+    if (!newSessionLocalCwd || localBranchCreating) return;
+    const branch = localBranchName.trim();
+    if (!branch) { setLocalBranchError("Branch name is required"); return; }
+    setLocalBranchCreating(true);
+    setLocalBranchError(null);
+    try {
+      const res = await fetch("/api/worktrees/local-branch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: newSessionLocalCwd, branch, base: selectedBaseBranch || undefined }),
+      });
+      const data = await res.json().catch(() => ({})) as { branch?: string; error?: string };
+      if (!res.ok || data.error) {
+        setLocalBranchError(data.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      setSelectedBaseBranch(data.branch ?? branch);
+      setBranchOptions((prev) => prev.includes(data.branch ?? branch) ? prev : [...prev, data.branch ?? branch]);
+      setLocalBranchDialogOpen(false);
+    } catch (e) {
+      setLocalBranchError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLocalBranchCreating(false);
+    }
+  }, [newSessionLocalCwd, selectedBaseBranch, localBranchName, localBranchCreating]);
+
+  const sendQueued = useCallback(async (mode: "steer" | "followup") => {
     const msg = value.trim();
     if (!msg && !attachedImages.length) return;
+
+    const ready = await ensureCwdReady();
+    if (!ready.ok) return;
+
     const streamingBehavior = mode === "steer" ? "steer" : "followUp";
     if (msg.startsWith("/") && onPromptWithStreamingBehavior) {
       onPromptWithStreamingBehavior(msg, streamingBehavior, attachedImages.length ? attachedImages : undefined);
@@ -350,7 +503,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     setValue("");
     clearImages();
     if (textareaRef.current) textareaRef.current.style.height = "auto";
-  }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearImages]);
+  }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearImages, ensureCwdReady]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = filteredSlashCommands.length - 1;
@@ -480,13 +633,17 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
     setSlashMenuOpen(true);
     setSlashActiveIndex(0);
-    if (!slashCommandsRequestedRef.current && onLoadSlashCommands) {
+    // In worktree mode the worktree isn't created until the first message is sent
+    // (create-on-send). Loading slash commands would eagerly create the session in
+    // the wrong (main repo) cwd, so defer it until the worktree exists.
+    const worktreePending = sessionLocationMode === "worktree" && !!pendingWorktreeBranchName;
+    if (!worktreePending && !slashCommandsRequestedRef.current && onLoadSlashCommands) {
       slashCommandsRequestedRef.current = true;
       Promise.resolve(onLoadSlashCommands()).catch(() => {
         slashCommandsRequestedRef.current = false;
       });
     }
-  }, [slashQuery, onLoadSlashCommands]);
+  }, [slashQuery, onLoadSlashCommands, sessionLocationMode, pendingWorktreeBranchName]);
 
   useEffect(() => {
     if (slashActiveIndex >= filteredSlashCommands.length) {
@@ -558,6 +715,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       }
       if (thinkingDropdownRef.current && !thinkingDropdownRef.current.contains(e.target as Node)) {
         setThinkingDropdownOpen(false);
+      }
+      if (locationDropdownRef.current && !locationDropdownRef.current.contains(e.target as Node)) {
+        setLocationDropdownOpen(false);
+      }
+      if (baseBranchDropdownRef.current && !baseBranchDropdownRef.current.contains(e.target as Node)) {
+        setBaseBranchDropdownOpen(false);
       }
       if (controlsMenuRef.current && !controlsMenuRef.current.contains(e.target as Node)) {
         setControlsMenuOpen(false);
@@ -1069,6 +1232,231 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   })()}
                 </div>
             )}
+            {isNewSessionInput && (
+              <>
+                {/* Location Dropdown */}
+                <div ref={locationDropdownRef} style={{ position: "relative" }}>
+                  <button
+                    type="button"
+                    onClick={() => setLocationDropdownOpen((v) => !v)}
+                    title="Choose where this task will run"
+                    style={{
+                      display: "flex", alignItems: "center", gap: 5,
+                      padding: "0 8px",
+                      height: 32,
+                      background: locationDropdownOpen ? "var(--bg-hover)" : "none",
+                      border: "none",
+                      borderRadius: 9,
+                      color: "var(--text-muted)",
+                      cursor: "pointer",
+                      fontSize: 12,
+                      transition: "background 0.12s, color 0.12s",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "var(--bg-hover)";
+                      e.currentTarget.style.color = "var(--text)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = locationDropdownOpen ? "var(--bg-hover)" : "none";
+                      e.currentTarget.style.color = "var(--text-muted)";
+                    }}
+                  >
+                    {sessionLocationMode === "local" ? (
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                        <line x1="8" y1="21" x2="16" y2="21" />
+                        <line x1="12" y1="17" x2="12" y2="21" />
+                      </svg>
+                    ) : (
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="4" cy="4" r="1.8" /><circle cx="4" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" />
+                        <path d="M4 5.8v4.4M4 12h4a4 4 0 0 0 4-4V6" />
+                      </svg>
+                    )}
+                    <span>{sessionLocationMode === "local" ? "Local" : "Worktree"}</span>
+                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7 }}>
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </button>
+                  {locationDropdownOpen && (
+                    <div style={{
+                      position: "absolute", bottom: "calc(100% + 6px)", left: 0,
+                      zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
+                      borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
+                      overflow: "hidden", minWidth: 120,
+                    }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLocationDropdownOpen(false);
+                          setSessionLocationMode("local");
+                          if (newSessionLocalCwd && onNewSessionCwdChange) onNewSessionCwdChange(newSessionLocalCwd);
+                          setPendingWorktreeBranchName(null);
+                          setWorktreeDisplayBranch(null);
+                        }}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 8,
+                          width: "100%", padding: "7px 12px",
+                          background: sessionLocationMode === "local" ? "var(--bg-selected)" : "none",
+                          border: "none",
+                          color: sessionLocationMode === "local" ? "var(--text)" : "var(--text-muted)",
+                          cursor: "pointer", fontSize: 12, textAlign: "left",
+                        }}
+                        onMouseEnter={(e) => { if (sessionLocationMode !== "local") e.currentTarget.style.background = "var(--bg-hover)"; }}
+                        onMouseLeave={(e) => { if (sessionLocationMode !== "local") e.currentTarget.style.background = "none"; }}
+                      >
+                        Local
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLocationDropdownOpen(false);
+                          openWorktreeDialog();
+                        }}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 8,
+                          width: "100%", padding: "7px 12px",
+                          background: sessionLocationMode === "worktree" ? "var(--bg-selected)" : "none",
+                          border: "none",
+                          color: sessionLocationMode === "worktree" ? "var(--text)" : "var(--text-muted)",
+                          cursor: "pointer", fontSize: 12, textAlign: "left",
+                        }}
+                        onMouseEnter={(e) => { if (sessionLocationMode !== "worktree") e.currentTarget.style.background = "var(--bg-hover)"; }}
+                        onMouseLeave={(e) => { if (sessionLocationMode !== "worktree") e.currentTarget.style.background = "none"; }}
+                      >
+                        Worktree
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Base Branch Dropdown */}
+                <div ref={baseBranchDropdownRef} style={{ position: "relative" }}>
+                  <button
+                    type="button"
+                    onClick={() => setBaseBranchDropdownOpen((v) => !v)}
+                    disabled={branchOptions.length === 0 && sessionLocationMode !== "local"}
+                    title={sessionLocationMode === "worktree" ? "Which branch should this task start from?" : "Base branch"}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 5,
+                      padding: "0 8px",
+                      height: 32,
+                      background: baseBranchDropdownOpen ? "var(--bg-hover)" : "none",
+                      border: "none",
+                      borderRadius: 9,
+                      color: "var(--text-muted)",
+                      cursor: (branchOptions.length === 0 && sessionLocationMode !== "local") ? "not-allowed" : "pointer",
+                      fontSize: 12,
+                      opacity: (branchOptions.length === 0 && sessionLocationMode !== "local") ? 0.5 : 1,
+                      transition: "background 0.12s, color 0.12s",
+                    }}
+                    onMouseEnter={(e) => {
+                      if (branchOptions.length === 0 && sessionLocationMode !== "local") return;
+                      e.currentTarget.style.background = "var(--bg-hover)";
+                      e.currentTarget.style.color = "var(--text)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = baseBranchDropdownOpen ? "var(--bg-hover)" : "none";
+                      e.currentTarget.style.color = "var(--text-muted)";
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="6" y1="3" x2="6" y2="15" />
+                      <circle cx="18" cy="6" r="3" />
+                      <circle cx="6" cy="18" r="3" />
+                      <path d="M18 9a9 9 0 0 1-9 9" />
+                    </svg>
+                    <span style={{ maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {selectedBaseBranch || "HEAD"}
+                    </span>
+                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7 }}>
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </button>
+                  {baseBranchDropdownOpen && (
+                    <div style={{
+                      position: "absolute", bottom: "calc(100% + 6px)", left: 0,
+                      zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
+                      borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
+                      overflow: "hidden", minWidth: 160, display: "flex", flexDirection: "column",
+                    }}>
+                      <div style={{ maxHeight: 180, overflowY: "auto" }}>
+                        {branchOptions.length === 0 && (
+                          <button
+                            type="button"
+                            onClick={() => { setBaseBranchDropdownOpen(false); setSelectedBaseBranch(""); }}
+                            style={{
+                              display: "flex", alignItems: "center", gap: 8,
+                              width: "100%", padding: "7px 12px",
+                              background: !selectedBaseBranch ? "var(--bg-selected)" : "none",
+                              border: "none",
+                              color: !selectedBaseBranch ? "var(--text)" : "var(--text-muted)",
+                              cursor: "pointer", fontSize: 12, textAlign: "left",
+                            }}
+                          >
+                            current HEAD
+                          </button>
+                        )}
+                        {branchOptions.map((branch) => {
+                          const isActive = selectedBaseBranch === branch;
+                          return (
+                            <button
+                              key={branch}
+                              type="button"
+                              onClick={() => {
+                                setBaseBranchDropdownOpen(false);
+                                setSelectedBaseBranch(branch);
+                              }}
+                              style={{
+                                display: "flex", alignItems: "center", gap: 8,
+                                width: "100%", padding: "7px 12px",
+                                background: isActive ? "var(--bg-selected)" : "none",
+                                border: "none",
+                                color: isActive ? "var(--text)" : "var(--text-muted)",
+                                cursor: "pointer", fontSize: 12, textAlign: "left",
+                              }}
+                              onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
+                              onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
+                            >
+                              {branch}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {sessionLocationMode === "local" && (
+                        <div style={{ flexShrink: 0, borderTop: "1px solid var(--border)", background: "var(--bg)" }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBaseBranchDropdownOpen(false);
+                              openLocalBranchDialog();
+                            }}
+                            style={{
+                              display: "flex", alignItems: "center", gap: 8,
+                              width: "100%", padding: "7px 12px",
+                              background: "none",
+                              border: "none",
+                              color: "var(--text-muted)",
+                              cursor: "pointer", fontSize: 12, textAlign: "left",
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = "none"; }}
+                          >
+                            ＋ New branch…
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {sessionLocationMode === "worktree" && worktreeDisplayBranch && (
+                  <span style={{ fontSize: 11, color: "var(--text-dim)", maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    wt: {worktreeDisplayBranch}
+                  </span>
+                )}
+              </>
+            )}
           </div>
 
           {/* spacer */}
@@ -1480,7 +1868,159 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           </div>
 
         </div>
+
+
       </div>
+
+      {localBranchDialogOpen && (
+        <div
+          onClick={() => { if (!localBranchCreating) setLocalBranchDialogOpen(false); }}
+          style={{
+            position: "fixed", inset: 0, zIndex: 200,
+            background: "rgba(0,0,0,0.35)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 380, maxWidth: "90vw",
+              background: "var(--bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+              boxShadow: "0 12px 40px rgba(0,0,0,0.25)",
+              padding: 18,
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>Create local branch</div>
+            <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 14 }}>
+              Creates and switches the selected project to a new branch based on <code style={{ fontFamily: "var(--font-mono)" }}>{selectedBaseBranch || "current HEAD"}</code>.
+            </div>
+
+            <label style={{ display: "block", fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Branch name</label>
+            <input
+              value={localBranchName}
+              onChange={(e) => setLocalBranchName(e.target.value)}
+              autoFocus
+              spellCheck={false}
+              style={{
+                width: "100%", boxSizing: "border-box",
+                padding: "7px 9px", marginBottom: 12,
+                background: "var(--bg-hover)",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                color: "var(--text)",
+                fontSize: 12, fontFamily: "var(--font-mono)",
+              }}
+            />
+
+            {localBranchError && (
+              <div style={{ fontSize: 11, color: "#f87171", marginBottom: 12, wordBreak: "break-word" }}>{localBranchError}</div>
+            )}
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => { void createLocalBranchForNewSession(); }}
+                disabled={localBranchCreating || !localBranchName.trim()}
+                style={{
+                  flex: 1, padding: "7px 0",
+                  background: "var(--accent)", border: "none", borderRadius: 6,
+                  color: "#fff", fontSize: 12, fontWeight: 600,
+                  cursor: (localBranchCreating || !localBranchName.trim()) ? "not-allowed" : "pointer",
+                  opacity: (localBranchCreating || !localBranchName.trim()) ? 0.65 : 1,
+                }}
+              >
+                {localBranchCreating ? "Creating…" : "Create branch"}
+              </button>
+              <button
+                onClick={() => { if (!localBranchCreating) setLocalBranchDialogOpen(false); }}
+                style={{
+                  flex: 1, padding: "7px 0",
+                  background: "var(--bg-hover)", border: "1px solid var(--border)", borderRadius: 6,
+                  color: "var(--text-muted)", fontSize: 12, cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {worktreeDialogOpen && (
+        <div
+          onClick={() => { if (!worktreeCreating) setWorktreeDialogOpen(false); }}
+          style={{
+            position: "fixed", inset: 0, zIndex: 200,
+            background: "rgba(0,0,0,0.35)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 380, maxWidth: "90vw",
+              background: "var(--bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+              boxShadow: "0 12px 40px rgba(0,0,0,0.25)",
+              padding: 18,
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>Create worktree</div>
+            <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 14 }}>
+              This new session will run in an isolated checkout under <code style={{ fontFamily: "var(--font-mono)" }}>~/.pi/worktrees</code>.
+            </div>
+
+            <label style={{ display: "block", fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Branch name</label>
+            <input
+              value={worktreeBranch}
+              onChange={(e) => setWorktreeBranch(e.target.value)}
+              autoFocus
+              spellCheck={false}
+              style={{
+                width: "100%", boxSizing: "border-box",
+                padding: "7px 9px", marginBottom: 12,
+                background: "var(--bg-hover)",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                color: "var(--text)",
+                fontSize: 12, fontFamily: "var(--font-mono)",
+              }}
+            />
+
+            {worktreeError && (
+              <div style={{ fontSize: 11, color: "#f87171", marginBottom: 12, wordBreak: "break-word" }}>{worktreeError}</div>
+            )}
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={createWorktreeForNewSession}
+                disabled={!worktreeBranch.trim()}
+                style={{
+                  flex: 1, padding: "7px 0",
+                  background: "var(--accent)", border: "none", borderRadius: 6,
+                  color: "#fff", fontSize: 12, fontWeight: 600,
+                  cursor: (worktreeCreating || !worktreeBranch.trim()) ? "not-allowed" : "pointer",
+                  opacity: (worktreeCreating || !worktreeBranch.trim()) ? 0.65 : 1,
+                }}
+              >
+                {worktreeCreating ? "Creating…" : "Use worktree"}
+              </button>
+              <button
+                onClick={() => { if (!worktreeCreating) { setWorktreeDialogOpen(false); setSessionLocationMode("local"); } }}
+                style={{
+                  flex: 1, padding: "7px 0",
+                  background: "var(--bg-hover)", border: "1px solid var(--border)", borderRadius: 6,
+                  color: "var(--text-muted)", fontSize: 12, cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 });

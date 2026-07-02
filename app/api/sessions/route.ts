@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { listAllSessions } from "@/lib/session-reader";
 import { getRunningRpcSessionIds } from "@/lib/rpc-manager";
+import { getWorktreeMeta } from "@/lib/worktree-sessions";
 
 export async function GET() {
   try {
     const sessions = await listAllSessions();
-    return NextResponse.json({ sessions, runningSessionIds: getRunningRpcSessionIds() });
+    return NextResponse.json({ sessions, runningSessionIds: getRunningRpcSessionIds(), worktrees: getWorktreeMeta() });
   } catch (error) {
     return NextResponse.json(
       { error: String(error) },

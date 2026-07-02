@@ -227,6 +227,11 @@ export function AppShell() {
     router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
   }, [router]);
 
+  const handleNewSessionCwdChange = useCallback((cwd: string) => {
+    setNewSessionCwd(cwd);
+    setExplorerRefreshKey((k) => k + 1);
+  }, []);
+
   const handleAgentEnd = useCallback(() => {
     setRefreshKey((k) => k + 1);
     setExplorerRefreshKey((k) => k + 1);
@@ -943,6 +948,7 @@ export function AppShell() {
               key={sessionKey}
               session={selectedSession}
               newSessionCwd={effectiveNewSessionCwd}
+              onNewSessionCwdChange={handleNewSessionCwdChange}
               onAgentEnd={handleAgentEnd}
               onSessionCreated={handleSessionCreated}
               onSessionForked={handleSessionForked}

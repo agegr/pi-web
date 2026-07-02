@@ -279,6 +279,27 @@ export interface SessionContext {
   model: { provider: string; modelId: string } | null;
 }
 
+// Git worktree discovery (see lib/worktrees.ts + /api/worktrees)
+export interface WorktreeInfo {
+  path: string;
+  branch: string | null;
+  head: string | null;
+  detached: boolean;
+  bare: boolean;
+  /** True for the worktree that contains the requested cwd. */
+  current: boolean;
+  /** True for the repository's main (non-linked) worktree. */
+  isMain: boolean;
+}
+
+// Metadata for worktrees created via the UI (see lib/worktree-sessions.ts)
+export interface WorktreeMeta {
+  branch: string;
+  worktreePath: string;
+  mainRepo: string;
+  createdAt: string;
+}
+
 // RPC types
 export interface RpcSessionState {
   model?: { provider: string; id: string; contextWindow?: number };
