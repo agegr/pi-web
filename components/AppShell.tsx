@@ -54,6 +54,43 @@ export function AppShell() {
   const [pluginsConfigOpen, setPluginsConfigOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
+  // Sidebar width (desktop only) — persisted to localStorage and drag-resizable.
+  const SIDEBAR_MIN_WIDTH = 200;
+  const SIDEBAR_MAX_WIDTH = 600;
+  const SIDEBAR_DEFAULT_WIDTH = 260;
+  const [sidebarWidth, setSidebarWidth] = useState<number>(SIDEBAR_DEFAULT_WIDTH);
+  const [sidebarResizing, setSidebarResizing] = useState(false);
+  useEffect(() => {
+    const stored = Number(localStorage.getItem("pi-sidebar-width"));
+    if (stored && stored >= SIDEBAR_MIN_WIDTH && stored <= SIDEBAR_MAX_WIDTH) {
+      setSidebarWidth(stored);
+    }
+  }, []);
+  const handleSidebarResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setSidebarResizing(true);
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+    const onMove = (ev: MouseEvent) => {
+      const next = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, startWidth + (ev.clientX - startX)));
+      setSidebarWidth(next);
+    };
+    const onUp = () => {
+      setSidebarResizing(false);
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      setSidebarWidth((w) => {
+        localStorage.setItem("pi-sidebar-width", String(w));
+        return w;
+      });
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, [sidebarWidth]);
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
   // is visible on load. Runs once the breakpoint resolves after hydration.
   useEffect(() => {
@@ -477,7 +514,7 @@ export function AppShell() {
 
       {/* Left sidebar */}
       <div
-        className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
+        className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${sidebarResizing ? " sidebar-resizing" : ""}`}
         style={{
           background: "var(--bg-panel)",
           borderRight: "1px solid var(--border)",
@@ -485,9 +522,21 @@ export function AppShell() {
           flexDirection: "column",
           flexShrink: 0,
           zIndex: 200,
+          ["--sidebar-width" as string]: `${sidebarWidth}px`,
         }}
       >
         {sidebarContent}
+        {/* Drag handle — desktop only (hidden on mobile via CSS overlay layout) */}
+        {!isMobile && sidebarOpen && (
+          <div
+            className={`sidebar-resize-handle${sidebarResizing ? " sidebar-resize-active" : ""}`}
+            onMouseDown={handleSidebarResizeStart}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize sidebar"
+            title="Drag to resize sidebar"
+          />
+        )}
       </div>
 
       {/* Center: chat */}
