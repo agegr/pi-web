@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { SessionInfo } from "@/lib/types";
+import type { WorktreeInfo } from "@/lib/types";
 import { FileExplorer } from "./FileExplorer";
 
 interface Props {
@@ -207,6 +208,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [customPathValue, setCustomPathValue] = useState("");
   const [customPathError, setCustomPathError] = useState<string | null>(null);
   const [customPathValidating, setCustomPathValidating] = useState(false);
+  const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
   const customPathInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [explorerOpen, setExplorerOpen] = useState(true);
@@ -308,6 +310,40 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       setCustomPathValidating(false);
     }
   }, [customPathValue, customPathValidating]);
+
+  // Validate an arbitrary path (worktree dir), allowlist it, then select it.
+  const selectCwdPath = useCallback(async (path: string) => {
+    try {
+      const res = await fetch("/api/cwd/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: path }),
+      });
+      const data = await res.json().catch(() => ({})) as { cwd?: string; error?: string };
+      if (!res.ok || data.error) return;
+      setSelectedCwd(data.cwd ?? path);
+      setCustomPathOpen(false);
+      setCustomPathValue("");
+      setCustomPathError(null);
+      setDropdownOpen(false);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Discover git worktrees for the selected cwd. Degrades to empty for
+  // non-git dirs; only fetched while the dropdown is open to avoid churn.
+  useEffect(() => {
+    if (!dropdownOpen || !selectedCwd) { setWorktrees([]); return; }
+    let cancelled = false;
+    fetch(`/api/worktrees?cwd=${encodeURIComponent(selectedCwd)}`)
+      .then((r) => r.json())
+      .then((d: { worktrees?: WorktreeInfo[] }) => {
+        if (!cancelled) setWorktrees(d.worktrees ?? []);
+      })
+      .catch(() => { if (!cancelled) setWorktrees([]); });
+    return () => { cancelled = true; };
+  }, [dropdownOpen, selectedCwd]);
 
   const handleDefaultCwd = useCallback(async () => {
     try {
@@ -539,6 +575,68 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortenCwd(cwd, homeDir)}</span>
                 </button>
               ))}
+
+              {/* Git worktrees for the current repo (read-only discovery) */}
+              {worktrees.length > 1 && (
+                <div>
+                  <div
+                    style={{
+                      padding: "6px 10px 4px",
+                      fontSize: 9.5,
+                      textTransform: "uppercase",
+                      letterSpacing: 0.5,
+                      color: "var(--text-dim)",
+                      borderTop: "1px solid var(--border)",
+                    }}
+                  >
+                    Worktrees
+                  </div>
+                  {worktrees.map((wt) => {
+                    const isSel = wt.path === selectedCwd;
+                    return (
+                      <button
+                        key={wt.path}
+                        onClick={() => { void selectCwdPath(wt.path); }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 7,
+                          width: "100%",
+                          padding: "8px 10px",
+                          background: isSel ? "var(--bg-selected)" : "none",
+                          border: "none",
+                          borderBottom: "1px solid var(--border)",
+                          color: isSel ? "var(--text)" : "var(--text-muted)",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          fontSize: 11,
+                          overflow: "hidden",
+                        }}
+                        title={wt.path}
+                      >
+                        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.8 }}>
+                          <circle cx="4" cy="4" r="1.8" /><circle cx="4" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" />
+                          <path d="M4 5.8v4.4M4 12h4a4 4 0 0 0 4-4V6" />
+                        </svg>
+                        <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }}>
+                            {wt.detached ? "(detached)" : (wt.branch ?? "(no branch)")}
+                            {wt.current && <span style={{ color: "var(--text-dim)", fontWeight: 400 }}> · current</span>}
+                          </span>
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-dim)" }}>
+                            {shortenCwd(wt.path, homeDir)}
+                          </span>
+                        </span>
+                        {isSel && (
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                            <polyline points="1.5 5 4 7.5 8.5 2.5" />
+                          </svg>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Default cwd shortcut */}
               {!customPathOpen && (
