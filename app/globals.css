@@ -525,6 +525,8 @@ span.linenumber {
     cursor: col-resize;
     z-index: 210;
     background: transparent;
+    touch-action: none;
+    outline: none;
   }
   .sidebar-resize-handle::after {
     content: "";
@@ -538,6 +540,7 @@ span.linenumber {
     transition: opacity 0.15s ease;
   }
   .sidebar-resize-handle:hover::after,
+  .sidebar-resize-handle:focus-visible::after,
   .sidebar-resize-handle.sidebar-resize-active::after {
     opacity: 0.6;
   }

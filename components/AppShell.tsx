@@ -18,6 +18,14 @@ import type { SessionStatsInfo } from "@/lib/pi-types";
 
 type SessionCopyField = "file" | "id";
 
+const SIDEBAR_MIN_WIDTH = 200;
+const SIDEBAR_MAX_WIDTH = 600;
+const SIDEBAR_DEFAULT_WIDTH = 260;
+
+function clampSidebarWidth(width: number) {
+  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width));
+}
+
 function copyText(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
     return navigator.clipboard.writeText(text);
@@ -55,43 +63,96 @@ export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
   // Sidebar width (desktop only) — persisted to localStorage and drag-resizable.
-  const SIDEBAR_MIN_WIDTH = 200;
-  const SIDEBAR_MAX_WIDTH = 600;
-  const SIDEBAR_DEFAULT_WIDTH = 260;
   const [sidebarWidth, setSidebarWidth] = useState<number>(SIDEBAR_DEFAULT_WIDTH);
+  const sidebarWidthRef = useRef(SIDEBAR_DEFAULT_WIDTH);
   const [sidebarResizing, setSidebarResizing] = useState(false);
+  const sidebarResizeCleanupRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    sidebarWidthRef.current = sidebarWidth;
+  }, [sidebarWidth]);
   useEffect(() => {
     const stored = Number(localStorage.getItem("pi-sidebar-width"));
     if (stored && stored >= SIDEBAR_MIN_WIDTH && stored <= SIDEBAR_MAX_WIDTH) {
-      setSidebarWidth(stored);
+      const clamped = clampSidebarWidth(stored);
+      sidebarWidthRef.current = clamped;
+      setSidebarWidth(clamped);
     }
   }, []);
-  const handleSidebarResizeStart = useCallback((e: React.MouseEvent) => {
+  useEffect(() => {
+    return () => {
+      sidebarResizeCleanupRef.current?.();
+    };
+  }, []);
+  const updateSidebarWidth = useCallback((width: number) => {
+    const next = clampSidebarWidth(width);
+    sidebarWidthRef.current = next;
+    setSidebarWidth(next);
+    return next;
+  }, []);
+  const persistSidebarWidth = useCallback(() => {
+    localStorage.setItem("pi-sidebar-width", String(sidebarWidthRef.current));
+  }, []);
+  const handleSidebarResizeStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
-    setSidebarResizing(true);
+    sidebarResizeCleanupRef.current?.();
+
+    const handle = e.currentTarget;
+    const pointerId = e.pointerId;
     const startX = e.clientX;
-    const startWidth = sidebarWidth;
-    // Prevent text from being selected/highlighted across the app while dragging.
+    const startWidth = sidebarWidthRef.current;
+    let finished = false;
+
+    const cleanup = (ev?: PointerEvent | Event) => {
+      if (ev && "pointerId" in ev && ev.pointerId !== pointerId) return;
+      if (finished) return;
+      finished = true;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", cleanup);
+      window.removeEventListener("pointercancel", cleanup);
+      window.removeEventListener("blur", cleanup);
+      document.body.classList.remove("resizing-col");
+      try {
+        if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
+      } catch {
+        // Ignore release failures from interrupted gestures.
+      }
+      setSidebarResizing(false);
+      persistSidebarWidth();
+      sidebarResizeCleanupRef.current = null;
+    };
+
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      window.getSelection?.()?.removeAllRanges();
+      updateSidebarWidth(startWidth + (ev.clientX - startX));
+    };
+
+    setSidebarResizing(true);
     document.body.classList.add("resizing-col");
     window.getSelection?.()?.removeAllRanges();
-    const onMove = (ev: MouseEvent) => {
-      window.getSelection?.()?.removeAllRanges();
-      const next = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, startWidth + (ev.clientX - startX)));
-      setSidebarWidth(next);
-    };
-    const onUp = () => {
-      setSidebarResizing(false);
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      document.body.classList.remove("resizing-col");
-      setSidebarWidth((w) => {
-        localStorage.setItem("pi-sidebar-width", String(w));
-        return w;
-      });
-    };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }, [sidebarWidth]);
+    try {
+      handle.setPointerCapture(pointerId);
+    } catch {
+      // Pointer capture can fail if the pointer is already gone; global listeners still handle cleanup.
+    }
+    sidebarResizeCleanupRef.current = cleanup;
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", cleanup);
+    window.addEventListener("pointercancel", cleanup);
+    window.addEventListener("blur", cleanup);
+  }, [persistSidebarWidth, updateSidebarWidth]);
+  const handleSidebarResizeKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    let delta = 0;
+    if (e.key === "ArrowLeft") delta = e.shiftKey ? -40 : -10;
+    else if (e.key === "ArrowRight") delta = e.shiftKey ? 40 : 10;
+    else if (e.key === "Home") delta = SIDEBAR_MIN_WIDTH - sidebarWidthRef.current;
+    else if (e.key === "End") delta = SIDEBAR_MAX_WIDTH - sidebarWidthRef.current;
+    else return;
+
+    e.preventDefault();
+    updateSidebarWidth(sidebarWidthRef.current + delta);
+    persistSidebarWidth();
+  }, [persistSidebarWidth, updateSidebarWidth]);
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
   // is visible on load. Runs once the breakpoint resolves after hydration.
   useEffect(() => {
@@ -531,10 +592,15 @@ export function AppShell() {
         {!isMobile && sidebarOpen && (
           <div
             className={`sidebar-resize-handle${sidebarResizing ? " sidebar-resize-active" : ""}`}
-            onMouseDown={handleSidebarResizeStart}
+            onPointerDown={handleSidebarResizeStart}
+            onKeyDown={handleSidebarResizeKeyDown}
             role="separator"
+            tabIndex={0}
             aria-orientation="vertical"
             aria-label="Resize sidebar"
+            aria-valuemin={SIDEBAR_MIN_WIDTH}
+            aria-valuemax={SIDEBAR_MAX_WIDTH}
+            aria-valuenow={sidebarWidth}
             title="Drag to resize sidebar"
           />
         )}
