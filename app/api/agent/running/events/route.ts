@@ -13,9 +13,8 @@ export async function GET(req: Request) {
         controller.enqueue(new TextEncoder().encode(text));
       };
 
-      // Initial snapshot so the client renders the correct state immediately.
-      encode({ type: "running", runningSessionIds: getRunningRpcSessionIds() });
-
+      // Subscribe BEFORE taking the initial snapshot so no state change can slip
+      // through the gap between snapshot and subscription.
       const unsubscribe = subscribeRunningSessions((ids) => {
         try {
           encode({ type: "running", runningSessionIds: ids });
@@ -23,6 +22,10 @@ export async function GET(req: Request) {
           // controller already closed
         }
       });
+
+      // Initial snapshot so the client renders the correct state immediately.
+      // (A duplicate frame here is harmless: the client just sets the same set.)
+      encode({ type: "running", runningSessionIds: getRunningRpcSessionIds() });
 
       // Heartbeat to keep the connection alive through proxies/timeouts.
       const heartbeat = setInterval(() => {

@@ -241,6 +241,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
+  // Once the SSE stream has delivered a frame it is the source of truth for
+  // running state; late /api/sessions responses must not overwrite it.
+  const sseAuthoritativeRef = useRef(false);
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -251,7 +254,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[] };
       setAllSessions(data.sessions);
-      setRunningSessionIds(new Set(data.runningSessionIds ?? []));
+      // Treat the fetched running set as an initial fallback only. Once SSE is
+      // live it owns this state, so a slow fetch can't revive a stale snapshot.
+      if (!sseAuthoritativeRef.current) {
+        setRunningSessionIds(new Set(data.runningSessionIds ?? []));
+      }
       // Drop unread markers for sessions that no longer exist (e.g. deleted).
       const existingIds = new Set(data.sessions.map((s) => s.id));
       setUnreadSessionIds((prev) => {
@@ -294,6 +301,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       try {
         const data = JSON.parse(e.data) as { type?: string; runningSessionIds?: string[] };
         if (data.type === "running") {
+          sseAuthoritativeRef.current = true;
           setRunningSessionIds(new Set(data.runningSessionIds ?? []));
         }
       } catch {
