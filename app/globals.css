@@ -504,21 +504,32 @@ span.linenumber {
     width: var(--sidebar-width, 260px);
     min-width: var(--sidebar-width, 260px);
   }
-  /* Drag handle for resizing the sidebar */
+  /* Drag handle for resizing the sidebar.
+     Wide invisible hit area (easy to grab) + thin visible line drawn via ::after. */
   .sidebar-resize-handle {
     position: absolute;
     top: 0;
     right: 0;
-    width: 6px;
+    width: 8px;
     height: 100%;
     cursor: col-resize;
     z-index: 210;
     background: transparent;
-    transition: background 0.15s ease;
   }
-  .sidebar-resize-handle:hover,
-  .sidebar-resize-handle.sidebar-resize-active {
+  .sidebar-resize-handle::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 1px;
+    height: 100%;
     background: var(--accent);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .sidebar-resize-handle:hover::after,
+  .sidebar-resize-handle.sidebar-resize-active::after {
+    opacity: 0.6;
   }
 }
 
