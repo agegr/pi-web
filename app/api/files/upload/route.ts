@@ -1,12 +1,55 @@
+import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
-import { resolve, relative, normalize } from "path";
+import { resolve, relative } from "path";
 import { existsSync } from "fs";
-import { getAllowedFileRoots, isFilePathAllowed } from "@/lib/file-access";
+import { getAllowedFileRoots } from "@/lib/file-access";
 
 export const runtime = "nodejs";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+
+// Windows reserved filenames (case-insensitive)
+const RESERVED_NAMES = new Set([
+  "con", "prn", "aux", "nul",
+  "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
+  "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+]);
+
+function sanitizeFilename(name: string): string | null {
+  // Strip path separators
+  let sanitized = name.replace(/[/\\]/g, "_");
+
+  // Remove null bytes and control characters
+  sanitized = sanitized.replace(/[\x00-\x1f]/g, "");
+
+  if (!sanitized) return null;
+
+  // Reject dot-only names (., ..)
+  if (/^\.+$/.test(sanitized)) return null;
+
+  // Reject Windows reserved names (check without extension)
+  const nameWithoutExt = sanitized.includes(".") ? sanitized.split(".")[0] : sanitized;
+  if (RESERVED_NAMES.has(nameWithoutExt.toLowerCase())) return null;
+
+  // Limit filename length (255 bytes is common max)
+  const encoder = new TextEncoder();
+  if (encoder.encode(sanitized).length > 255) {
+    // Truncate to 255 bytes, preserving extension
+    const extIdx = sanitized.lastIndexOf(".");
+    if (extIdx > 0) {
+      const base = sanitized.substring(0, extIdx);
+      const ext = sanitized.substring(extIdx);
+      const maxBase = 255 - encoder.encode(ext).length;
+      if (maxBase <= 0) return null;
+      sanitized = base.substring(0, maxBase) + ext;
+    } else {
+      sanitized = sanitized.substring(0, 255);
+    }
+  }
+
+  return sanitized;
+}
 
 export async function POST(request: Request) {
   try {
@@ -18,15 +61,12 @@ export async function POST(request: Request) {
 
     // Size check
     if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json(
-        { error: `File too large (${file.size} bytes). Maximum is 50MB.` },
-        { status: 413 }
-      );
+      return NextResponse.json({ error: "File too large. Maximum is 50MB." }, { status: 413 });
     }
 
-    // Sanitize filename: strip path separators, keep only basename
-    const rawName = file.name.replace(/[/\\]/g, "_");
-    if (!rawName) {
+    // Sanitize filename
+    const safeName = sanitizeFilename(file.name);
+    if (!safeName) {
       return NextResponse.json({ error: "Invalid filename" }, { status: 400 });
     }
 
@@ -34,7 +74,7 @@ export async function POST(request: Request) {
     const allowedRoots = await getAllowedFileRoots();
     const roots = Array.from(allowedRoots);
     if (roots.length === 0) {
-      return NextResponse.json({ error: "No allowed file roots configured" }, { status: 500 });
+      return NextResponse.json({ error: "Upload not available" }, { status: 500 });
     }
     const root = roots[0];
 
@@ -43,20 +83,21 @@ export async function POST(request: Request) {
     await mkdir(uploadDir, { recursive: true });
 
     // Resolve target path and check path traversal
-    let targetPath = resolve(uploadDir, rawName);
-    if (!targetPath.startsWith(uploadDir)) {
+    let targetPath = resolve(uploadDir, safeName);
+    const rel = relative(uploadDir, targetPath);
+    if (rel.startsWith("..")) {
       return NextResponse.json({ error: "Invalid path" }, { status: 400 });
     }
 
-    // Handle name collision: append timestamp
+    // Handle name collision: append UUID suffix
     if (existsSync(targetPath)) {
-      const extIdx = rawName.lastIndexOf(".");
+      const extIdx = safeName.lastIndexOf(".");
       if (extIdx > 0) {
-        const base = rawName.substring(0, extIdx);
-        const ext = rawName.substring(extIdx);
-        targetPath = resolve(uploadDir, `${base}-${Date.now()}${ext}`);
+        const base = safeName.substring(0, extIdx);
+        const ext = safeName.substring(extIdx);
+        targetPath = resolve(uploadDir, `${base}-${randomUUID().slice(0, 8)}${ext}`);
       } else {
-        targetPath = resolve(uploadDir, `${rawName}-${Date.now()}`);
+        targetPath = resolve(uploadDir, `${safeName}-${randomUUID().slice(0, 8)}`);
       }
     }
 
@@ -64,10 +105,11 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(await file.arrayBuffer());
     await writeFile(targetPath, buffer);
 
-    // Return relative path from root
-    const relativePath = relative(root, targetPath);
-    return NextResponse.json({ path: normalize(relativePath).replace(/\\/g, "/") });
+    // Return path relative to root (includes .uploads/ prefix)
+    const relativePath = relative(root, targetPath).replace(/\\/g, "/");
+    return NextResponse.json({ path: relativePath });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    console.error("Upload failed:", error);
+    return NextResponse.json({ error: "Upload failed" }, { status: 500 });
   }
 }

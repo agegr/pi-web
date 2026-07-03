@@ -207,6 +207,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? getDraft(draftKey)?.images.map(draftImageToAttachedImage) ?? [] : []
   ));
@@ -876,13 +877,62 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
         multiple
         disabled={isStreaming}
         style={{ display: "none" }}
-        onChange={(e) => {
+        onChange={async (e) => {
           const files = Array.from(e.target.files ?? []);
-          processImageFiles(files);
+          const imageFiles = files.filter((f) => f.type.startsWith("image/"));
+          const otherFiles = files.filter((f) => !f.type.startsWith("image/"));
+
+          if (imageFiles.length > 0) {
+            processImageFiles(imageFiles);
+          }
+
+          if (otherFiles.length > 0) {
+            setIsUploading(true);
+            setUploadError(null);
+            const paths: string[] = [];
+            try {
+              for (const file of otherFiles) {
+                const fd = new FormData();
+                fd.append("file", file);
+                const res = await fetch("/api/files/upload", { method: "POST", body: fd });
+                if (!res.ok) {
+                  const err = await res.json().catch(() => ({ error: "Upload failed" }));
+                  setUploadError(err.error || "Upload failed");
+                  continue;
+                }
+                const data = await res.json();
+                if (data.path) paths.push(data.path);
+              }
+              if (paths.length > 0) {
+                const text = paths.join(" ");
+                const ta = textareaRef.current;
+                if (ta) {
+                  const start = ta.selectionStart ?? ta.value.length;
+                  const before = ta.value.slice(0, start);
+                  const after = ta.value.slice(start);
+                  const sep = before.length > 0 && !before.endsWith(" ") ? " " : "";
+                  const newVal = before + sep + text + after;
+                  setValue(newVal);
+                  requestAnimationFrame(() => {
+                    if (!ta) return;
+                    const pos = start + sep.length + text.length;
+                    ta.setSelectionRange(pos, pos);
+                    ta.focus();
+                    ta.style.height = "auto";
+                    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+                  });
+                } else {
+                  setValue((v) => v + (v ? " " : "") + text);
+                }
+              }
+            } finally {
+              setIsUploading(false);
+            }
+          }
+
           e.target.value = "";
         }}
       />
@@ -981,6 +1031,19 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               <polyline points="20 6 9 17 4 12" />
             </svg>
             {compactResultText}
+          </div>
+        )}
+        {uploadError && (
+          <div style={{
+            marginBottom: 8, padding: "5px 10px",
+            background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)",
+            borderRadius: 6, fontSize: 12, color: "rgba(220,38,38,0.9)",
+            display: "flex", alignItems: "center", gap: 6,
+          }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" />
+            </svg>
+            Upload error: {uploadError}
           </div>
         )}
         {/* Image previews */}
