@@ -521,7 +521,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const promise = (async () => {
       const selectedModel = newSessionModel ?? newSessionDefaultModel;
       if (selectedModel) setPendingModel(selectedModel);
-      const toolNames = getToolNamesForPreset(toolPreset);
+      let toolNames: string[];
+      try {
+        const savedRes = await fetch("/api/tools");
+        const saved = await savedRes.json() as { config?: { activeTools?: string[] } };
+        toolNames = saved.config?.activeTools && Array.isArray(saved.config.activeTools)
+          ? saved.config.activeTools
+          : getToolNamesForPreset(toolPreset);
+      } catch {
+        toolNames = getToolNamesForPreset(toolPreset);
+      }
       const res = await fetch("/api/agent/new", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
