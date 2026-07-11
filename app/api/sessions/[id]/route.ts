@@ -8,6 +8,8 @@ import {
   invalidateSessionPathCache,
   buildSessionContext,
   readSessionHeader,
+  buildFullHistory,
+  listAllSessions,
 } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-manager";
 

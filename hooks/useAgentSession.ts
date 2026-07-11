@@ -22,6 +22,7 @@ export interface SessionData {
   context: {
     messages: AgentMessage[];
     entryIds: string[];
+    entryIndex?: Record<string, import("@/lib/types").EntryMeta>;
     thinkingLevel: string;
     model: { provider: string; modelId: string } | null;
   };
@@ -159,7 +160,7 @@ const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
 const PROMPT_SETTLE_POLL_MS = 600;
 const PROMPT_SETTLE_MAX_MS = 20_000;
 const AGENT_STATE_RECONCILE_MS = 15_000;
-const EVENT_STREAM_CONNECT_TIMEOUT_MS = 5_000;
+const EVENT_STREAM_CONNECT_TIMEOUT_MS = 30_000;
 const MAX_NOTICES = 5;
 const NOTICE_VISIBLE_MS = 5000;
 const NOTICE_EXIT_ANIMATION_MS = 180;
@@ -180,6 +181,7 @@ class EventStreamConnectionError extends Error {
     this.name = "EventStreamConnectionError";
   }
 }
+
 
 function createNoticeId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -332,6 +334,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [activeLeafId, setActiveLeafId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [entryIds, setEntryIds] = useState<string[]>([]);
+  const [entryIndex, setEntryIndex] = useState<Record<string, import("@/lib/types").EntryMeta>>({});
   const [streamState, dispatch] = useReducer(streamReducer, { isStreaming: false, streamingMessage: null });
   const [agentRunning, setAgentRunning] = useState(false);
   const [modelNames, setModelNames] = useState<Record<string, string>>({});
@@ -445,6 +448,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setActiveLeafId(d.leafId);
       setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
+      setEntryIndex(d.context.entryIndex ?? {});
       setCurrentModelOverride(null);
       setError(null);
       if (d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
@@ -492,11 +496,39 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const url = `/api/sessions/${encodeURIComponent(sid)}/context?${params}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[] } };
+      const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[]; entryIndex?: Record<string, import("@/lib/types").EntryMeta> } };
       setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
+      setEntryIndex(d.context.entryIndex ?? {});
     } catch (e) {
       console.error("Failed to load context:", e);
+    }
+  }, []);
+
+  const loadFullHistory = useCallback(async (sid: string, leafId: string | null, offset = 0, limit = 200, replace = false) => {
+    try {
+      const url = leafId
+        ? `/api/sessions/${encodeURIComponent(sid)}/history?leafId=${encodeURIComponent(leafId)}&offset=${offset}&limit=${limit}`
+        : `/api/sessions/${encodeURIComponent(sid)}/history?offset=${offset}&limit=${limit}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[]; total: number } };
+      // buildFullHistory already includes any compaction summaries that fall
+      // inside its path slice (in path order, matching the entryIds), so we
+      // don't need to splice in the previous leading summary — doing so would
+      // duplicate the summary and mis-align messages from entryIds.
+      if (replace || offset === 0) {
+        setMessages(d.context.messages);
+        setEntryIds(d.context.entryIds ?? []);
+      } else {
+        // Prepend older page (lower offset) to the existing list.
+        setMessages(prev => [...d.context.messages, ...prev]);
+        setEntryIds(prev => [...(d.context.entryIds ?? []), ...prev]);
+      }
+      return d.context.total;
+    } catch (e) {
+      console.error("Failed to load full history:", e);
+      return 0;
     }
   }, []);
 
@@ -613,9 +645,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       };
       es.onerror = () => {
         if (es.readyState === EventSource.CLOSED) {
-          // Fatal error (404/500/content-type mismatch): browser won't
-          // auto-reconnect. Settle the Promise and manually reconnect for
-          // already-running sessions.
           settle("closed");
           if (eventSourceRef.current === es && agentRunningRef.current) {
             eventSourceRef.current = null;
@@ -624,9 +653,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             }, 1000);
           }
         }
-        // Recoverable errors (CONNECTING): let EventSource auto-reconnect.
-        // The timeout above resolves only to let callers decide whether this
-        // connection must be ready before they continue.
       };
     });
   }, []);
@@ -1528,7 +1554,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   return {
     // State
-    data, loading, error, activeLeafId, messages, entryIds, streamState,
+    data, loading, error, activeLeafId, messages, entryIds, entryIndex, streamState,
     agentRunning, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, sessionStats,
@@ -1543,7 +1569,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // Actions
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
-    handleRecallQueue,
+    loadFullHistory, handleRecallQueue,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
     dispatch, setAgentRunning, setForkingEntryId,
