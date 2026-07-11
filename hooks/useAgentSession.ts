@@ -11,6 +11,13 @@ import type {
 } from "@/lib/types";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
+
+/** Normalize tool call blocks in messages loaded from the API.
+ * The API returns blocks with id/name/arguments, but components expect
+ * toolCallId/toolName/input. Without this, isEditToolName() crashes on undefined. */
+function normalizeMessages(msgs: AgentMessage[]): AgentMessage[] {
+  return msgs.map(normalizeToolCalls);
+}
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 
@@ -443,7 +450,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const d = await res.json() as SessionData & { agentState?: { running: boolean; state?: AgentStateResponse } };
       setData(d);
       setActiveLeafId(d.leafId);
-      setMessages(d.context.messages);
+      setMessages(normalizeMessages(d.context.messages));
       setEntryIds(d.context.entryIds ?? []);
       setCurrentModelOverride(null);
       setError(null);
@@ -478,7 +485,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[] } };
-      setMessages(d.context.messages);
+      setMessages(normalizeMessages(d.context.messages));
       setEntryIds(d.context.entryIds ?? []);
     } catch (e) {
       console.error("Failed to load context:", e);
