@@ -6,6 +6,7 @@ import {
   resolveSessionPath,
   invalidateSessionPathCache,
   buildSessionContext,
+  buildFullHistory,
   listAllSessions,
 } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-manager";

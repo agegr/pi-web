@@ -153,7 +153,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   }, [onAgentEnd]);
 
   const {
-    loading, error, messages, entryIds, streamState,
+    loading, error, messages, entryIds, activeLeafId, streamState,
     agentRunning, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
@@ -166,7 +166,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     lastUserMsgRef,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
-    handleRecallQueue,
+    loadFullHistory, reloadTrimmedContext, handleRecallQueue,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands,
   } = useAgentSession({
@@ -218,6 +218,28 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   }, [agentRunning, chatInputRef]);
 
   const { isDragOver, handleDragEnter, handleDragOver, handleDragLeave, handleDrop } = useDragDrop(onDrop);
+  const [fullHistoryMode, setFullHistoryMode] = useState<"off" | "loading" | "loaded">("off");
+  const [fullHistoryOffset, setFullHistoryOffset] = useState(0);
+  const [fullHistoryTotal, setFullHistoryTotal] = useState(0);
+  const [fullHistoryEditInput, setFullHistoryEditInput] = useState(false);
+  const [fullHistoryInputValue, setFullHistoryInputValue] = useState("");
+  const BATCH = 500;
+  const fullHistoryReqIdRef = useRef(0);
+
+  // Track whether the session originally had compaction (persists across message replacements)
+  const hadCompactionRef = useRef(false);
+  if (messages.some(m => m.role === "user" && typeof m.content === "string" && m.content.includes("compacted into the following summary"))) {
+    hadCompactionRef.current = true;
+  }
+  const hasCompaction = hadCompactionRef.current;
+
+  // Reset full history state when session or leaf changes
+  useEffect(() => {
+    hadCompactionRef.current = false;
+    setFullHistoryMode("off");
+    setFullHistoryOffset(0);
+    setFullHistoryTotal(0);
+  }, [sessionStats?.sessionId, activeLeafId]);
 
   const visibleMessages = messages.filter((m) => m.role === "user" || m.role === "assistant");
   const messageRefs = useMessageRefs(visibleMessages.length);
@@ -402,6 +424,156 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               <ExtensionStatusBar statuses={extensionStatuses} />
               <ExtensionWidgets widgets={aboveEditorWidgets} />
 
+              {/* Full history toolbar */}
+              {fullHistoryMode === "loaded" && (
+                <div className="sticky top-0 z-10 flex items-center justify-center gap-2 py-2 px-4 bg-zinc-950/90 backdrop-blur-sm border-b border-zinc-800/50">
+                  {/* Up arrow: older messages (offset decreases) */}
+                  <button
+                    onClick={async () => {
+                      const target = Math.max(0, fullHistoryOffset - BATCH);
+                      const reqId = ++fullHistoryReqIdRef.current;
+                      setFullHistoryMode("loading");
+                      const total = await loadFullHistory(sessionStats!.sessionId, activeLeafId, target, BATCH, true);
+                      if (reqId !== fullHistoryReqIdRef.current) return;
+                      if (total <= 0) { setFullHistoryMode("loaded"); return; }
+                      setFullHistoryTotal(total);
+                      setFullHistoryOffset(target);
+                      setFullHistoryMode("loaded");
+                      scrollContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    disabled={fullHistoryOffset === 0}
+                    className="p-1.5 rounded-md text-zinc-400 hover:text-sky-300 hover:bg-sky-900/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Older messages"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 10L8 6L12 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </button>
+
+                  {/* Status: first - last / total */}
+                  {fullHistoryEditInput ? (
+                    <input
+                      autoFocus
+                      type="text"
+                      value={fullHistoryInputValue}
+                      onChange={(e) => setFullHistoryInputValue(e.target.value)}
+                      onKeyDown={async (e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          const val = parseInt(fullHistoryInputValue, 10);
+                          if (!isNaN(val) && val >= 1) {
+                            const target = Math.max(0, Math.min(val - 1, Math.max(0, fullHistoryTotal - BATCH)));
+                            const reqId = ++fullHistoryReqIdRef.current;
+                            setFullHistoryEditInput(false);
+                            setFullHistoryMode("loading");
+                            const total = await loadFullHistory(sessionStats!.sessionId, activeLeafId, target, BATCH, true);
+                            if (reqId !== fullHistoryReqIdRef.current) return;
+                            if (total <= 0) { setFullHistoryMode("loaded"); return; }
+                            setFullHistoryTotal(total);
+                            setFullHistoryOffset(target);
+                            setFullHistoryMode("loaded");
+                            scrollContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+                          }
+                        } else if (e.key === "Escape") {
+                          setFullHistoryEditInput(false);
+                        }
+                      }}
+                      onBlur={() => setFullHistoryEditInput(false)}
+                      className="w-16 text-xs text-sky-300 bg-zinc-800 border border-zinc-600 rounded px-1 py-0.5 text-center outline-none"
+                    />
+                  ) : (
+                    <span
+                      className="text-xs text-zinc-400 tabular-nums min-w-[120px] text-center cursor-pointer hover:text-sky-300 transition-colors px-1"
+                      onClick={() => {
+                        setFullHistoryInputValue(String(fullHistoryOffset + 1));
+                        setFullHistoryEditInput(true);
+                      }}
+                      title="Click to jump to message number"
+                    >
+                      {fullHistoryTotal === 0 ? "0 / 0" : `${fullHistoryOffset + 1} - ${Math.min(fullHistoryOffset + BATCH, fullHistoryTotal)} / ${fullHistoryTotal}`}
+                    </span>
+                  )}
+
+                  {/* Down arrow: newer messages (offset increases) */}
+                  <button
+                    onClick={async () => {
+                      const target = Math.min(fullHistoryOffset + BATCH, Math.max(0, fullHistoryTotal - BATCH));
+                      const reqId = ++fullHistoryReqIdRef.current;
+                      setFullHistoryMode("loading");
+                      const total = await loadFullHistory(sessionStats!.sessionId, activeLeafId, target, BATCH, true);
+                      if (reqId !== fullHistoryReqIdRef.current) return;
+                      if (total <= 0) { setFullHistoryMode("loaded"); return; }
+                      setFullHistoryTotal(total);
+                      setFullHistoryOffset(target);
+                      setFullHistoryMode("loaded");
+                      scrollContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    disabled={fullHistoryOffset + BATCH >= fullHistoryTotal}
+                    className="p-1.5 rounded-md text-zinc-400 hover:text-sky-300 hover:bg-sky-900/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Newer messages"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </button>
+
+                  {/* Separator */}
+                  <div className="w-px h-4 bg-zinc-700 mx-1" />
+
+                  {/* Go to earliest */}
+                  <button
+                    onClick={async () => {
+                      const reqId = ++fullHistoryReqIdRef.current;
+                      setFullHistoryMode("loading");
+                      const total = await loadFullHistory(sessionStats!.sessionId, activeLeafId, 0, BATCH, true);
+                      if (reqId !== fullHistoryReqIdRef.current) return;
+                      if (total <= 0) { setFullHistoryMode("loaded"); return; }
+                      setFullHistoryTotal(total);
+                      setFullHistoryOffset(0);
+                      setFullHistoryMode("loaded");
+                      scrollContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    disabled={fullHistoryOffset === 0}
+                    className="p-1.5 rounded-md text-zinc-400 hover:text-sky-300 hover:bg-sky-900/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Go to earliest"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3H5V13H3V3ZM7 8L13 3V13L7 8Z" fill="currentColor"/></svg>
+                  </button>
+
+                  {/* Go to latest */}
+                  <button
+                    onClick={async () => {
+                      const reqId = ++fullHistoryReqIdRef.current;
+                      setFullHistoryMode("loading");
+                      // First get the total count
+                      const total = await loadFullHistory(sessionStats!.sessionId, activeLeafId, 0, 1, true);
+                      if (reqId !== fullHistoryReqIdRef.current) return;
+                      if (total <= 0) { setFullHistoryMode("loaded"); return; }
+                      setFullHistoryTotal(total);
+                      // Then load the last batch
+                      const startOffset = Math.max(0, total - BATCH);
+                      await loadFullHistory(sessionStats!.sessionId, activeLeafId, startOffset, BATCH, true);
+                      if (reqId !== fullHistoryReqIdRef.current) return;
+                      setFullHistoryOffset(startOffset);
+                      setFullHistoryMode("loaded");
+                      requestAnimationFrame(() => {
+                        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+                      });
+                    }}
+                    disabled={fullHistoryOffset + BATCH >= fullHistoryTotal}
+                    className="p-1.5 rounded-md text-zinc-400 hover:text-sky-300 hover:bg-sky-900/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Go to latest"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M11 3H13V13H11V3ZM9 8L3 3V13L9 8Z" fill="currentColor"/></svg>
+                  </button>
+
+                  {/* Minimize button */}
+                  <button
+                    onClick={() => setFullHistoryMode("off")}
+                    className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50 transition-colors"
+                    title="Hide toolbar"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 11L11 3M11 3H5M11 3V9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </button>
+                </div>
+              )}
+
             {(() => {
               const toolResultsMap = new Map<string, ToolResultMessage>();
               for (const msg of messages) {
@@ -477,12 +649,23 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 );
               };
 
+              // Detect compaction message (user role with compacted summary content)
+              const firstCompactedIdx = messages.findIndex(
+                (m) => m.role === "user" && typeof m.content === "string" && m.content.includes("compacted into the following summary")
+              );
+
               const rendered: ReactNode[] = [];
               for (let idx = 0; idx < messages.length;) {
                 const msg = messages[idx];
                 if (msg.role !== "user") {
                   rendered.push(renderMessage(idx));
                   idx += 1;
+                  continue;
+                }
+
+                // Skip compaction messages in full history mode
+                if (fullHistoryMode === "loaded" && idx === firstCompactedIdx) {
+                  idx = firstCompactedIdx + 1;
                   continue;
                 }
 
@@ -579,6 +762,47 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             </div>
           </div>
         </div>
+        {/* Floating toolbar toggle button */}
+        {(fullHistoryMode === "off" || fullHistoryMode === "loaded") && hasCompaction && (
+          <button
+            onClick={() => {
+              if (fullHistoryMode === "off") {
+                // Enter full history mode
+                (async () => {
+                  const reqId = ++fullHistoryReqIdRef.current;
+                  setFullHistoryMode("loading");
+                  // First get the total count (limit=1 is enough)
+                  const total = await loadFullHistory(sessionStats!.sessionId, activeLeafId, 0, 1, true);
+                  if (reqId !== fullHistoryReqIdRef.current) return;
+                  if (total <= 0) { setFullHistoryMode("loaded"); return; }
+                  setFullHistoryTotal(total);
+                  // Then load the last batch
+                  const startOffset = Math.max(0, total - BATCH);
+                  await loadFullHistory(sessionStats!.sessionId, activeLeafId, startOffset, BATCH, true);
+                  if (reqId !== fullHistoryReqIdRef.current) return;
+                  setFullHistoryOffset(startOffset);
+                  setFullHistoryMode("loaded");
+                })();
+              } else {
+                // Already loaded → hide toolbar
+                setFullHistoryMode("off");
+              }
+            }}
+            className="fixed right-6 top-1/2 -translate-y-1/2 z-50 p-3 rounded-full bg-zinc-800/90 backdrop-blur-sm border border-zinc-700/60 text-sky-300 hover:bg-zinc-700/90 hover:text-sky-200 shadow-lg transition-all group"
+            title={fullHistoryMode === "loaded" ? "Hide toolbar" : "Show full history"}
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M6 12L10 8L14 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M6 8L10 4L14 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.5"/>
+            </svg>
+            {fullHistoryMode === "loaded" && (
+              <span className="absolute -top-8 right-0 px-2 py-0.5 text-[10px] text-zinc-300 bg-zinc-800 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity">
+                {fullHistoryTotal === 0 ? "" : `${fullHistoryOffset + 1} - ${Math.min(fullHistoryOffset + BATCH, fullHistoryTotal)} / ${fullHistoryTotal}`}
+              </span>
+            )}
+          </button>
+        )}
+
         {isMobile ? null : (
           <ChatMinimap
             messages={messages}

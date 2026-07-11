@@ -286,9 +286,17 @@ export interface SessionInfo {
   worktreeBranch?: string;
 }
 
+export interface EntryMeta {
+  id: string;
+  type: string;
+  parentId: string | null;
+  childIds: string[];
+}
+
 export interface SessionContext {
   messages: AgentMessage[];
   entryIds: string[]; // parallel to messages — the session entry id for each message
+  entryIndex?: Record<string, EntryMeta>; // lightweight metadata for all entries
   thinkingLevel: string;
   model: { provider: string; modelId: string } | null;
 }

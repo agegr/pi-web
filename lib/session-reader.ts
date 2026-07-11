@@ -75,26 +75,47 @@ export function getSessionEntries(filePath: string): SessionEntry[] {
   return entries as unknown as SessionEntry[];
 }
 
+// Types that produce messages in the UI
+const MESSAGE_PRODUCING_TYPES = new Set(["message", "compaction", "branch_summary", "custom_message"]);
+
 export function buildSessionContext(entries: SessionEntry[], leafId?: string | null): SessionContext {
   const byId = new Map<string, SessionEntry>();
   for (const e of entries) byId.set(e.id, e);
 
+  // ── Step 1: Use pi-coding-agent for trimmed messages + settings ──
   const piEntries = entries as unknown as PiSessionEntry[];
   const piCtx = piBuildSessionContext(piEntries, leafId, byId as unknown as Map<string, PiSessionEntry>);
 
-  // Build entryIds: parallel array to messages[], mapping each message back to its entry id.
-  // Needed for fork and navigate_tree calls from the UI.
+  // ── Step 2: Build lightweight entryIndex (no string parsing) ──
+  const childMap = new Map<string, string[]>();
+  for (const e of entries) {
+    const p = e.parentId ?? "__root__";
+    if (!childMap.has(p)) childMap.set(p, []);
+    childMap.get(p)!.push(e.id);
+  }
+  const entryIndex: Record<string, import("./types").EntryMeta> = {};
+  for (const e of entries) {
+    entryIndex[e.id] = {
+      id: e.id,
+      type: e.type,
+      parentId: e.parentId ?? null,
+      childIds: childMap.get(e.id) ?? [],
+    };
+  }
+
+  // ── Step 3: Build entryIds aligned to piCtx.messages ──
+  // Walk path from leaf to root, collect entries that produce UI messages
   let targetLeaf: SessionEntry | undefined;
   if (leafId === null) {
-    return { messages: [], entryIds: [], thinkingLevel: piCtx.thinkingLevel, model: piCtx.model };
+    return { messages: [], entryIds: [], entryIndex, thinkingLevel: piCtx.thinkingLevel, model: piCtx.model };
   }
   if (leafId) targetLeaf = byId.get(leafId);
   if (!targetLeaf) targetLeaf = entries[entries.length - 1];
   if (!targetLeaf) {
-    return { messages: [], entryIds: [], thinkingLevel: piCtx.thinkingLevel, model: piCtx.model };
+    return { messages: [], entryIds: [], entryIndex, thinkingLevel: piCtx.thinkingLevel, model: piCtx.model };
   }
 
-  // Walk path from target leaf to root
+  // Walk path from leaf to root
   const path: SessionEntry[] = [];
   let cur: SessionEntry | undefined = targetLeaf;
   while (cur) {
@@ -102,27 +123,125 @@ export function buildSessionContext(entries: SessionEntry[], leafId?: string | n
     cur = cur.parentId ? byId.get(cur.parentId) : undefined;
   }
 
-  // Build UI history from the FULL branch path (root to leaf), without trimming.
-  // pi's buildSessionContext targets LLM context: it drops everything before the last
-  // compaction's firstKeptEntryId. Correct for the model, but it would hide compacted
-  // history from the UI. We keep piCtx only for thinkingLevel/model, and render every
-  // displayable entry on the path ourselves; compaction/branch_summary entries become
-  // inline summary messages so the user still sees where context was compressed.
-  const messages: AgentMessage[] = [];
-  const entryIds: string[] = [];
+  // Collect entries that produce UI messages (root → leaf order)
+  // Only count entries where entryToUiMessage returns non-null
+  const convertibleEntries: { entry: SessionEntry; entryId: string }[] = [];
   for (const e of path) {
-    const m = entryToUiMessage(e);
-    if (m) {
-      messages.push(m);
-      entryIds.push(e.id);
+    if (!MESSAGE_PRODUCING_TYPES.has(e.type)) continue;
+    // Check if entry actually produces a UI message
+    const testMsg = entryToUiMessage(e);
+    if (testMsg) {
+      convertibleEntries.push({ entry: e, entryId: e.id });
     }
   }
+
+  // Align: take the last N convertible entries where N = piCtx.messages.length
+  // This handles compaction trimming from the front
+  const trimCount = convertibleEntries.length - piCtx.messages.length;
+  const entryIds = trimCount > 0
+    ? convertibleEntries.slice(trimCount).map((c) => c.entryId)
+    : convertibleEntries.map((c) => c.entryId);
+
+  // Fallback: if alignment fails, use legacy full traversal
+  if (piCtx.messages.length === 0 && convertibleEntries.length > 0) {
+    console.warn("[buildSessionContext] piCtx.messages empty, falling back to legacy");
+    const messages: AgentMessage[] = [];
+    const legacyEntryIds: string[] = [];
+    for (const { entry, entryId } of convertibleEntries) {
+      const m = entryToUiMessage(entry);
+      if (m) {
+        messages.push(m);
+        legacyEntryIds.push(entryId);
+      }
+    }
+    return { messages, entryIds: legacyEntryIds, entryIndex, thinkingLevel: piCtx.thinkingLevel, model: piCtx.model };
+  }
+
+  // Convert compactionSummary role to user message (pi injects it but MessageView doesn't handle the role)
+  const messages = (piCtx.messages as unknown as AgentMessage[]).map((m) => {
+    if ((m as { role?: string }).role === "compactionSummary") {
+      const raw = m as unknown as Record<string, unknown>;
+      return {
+        role: "user" as const,
+        content: `*The conversation history before this point was compacted into the following summary:*\n\n${raw.summary ?? ""}`,
+        timestamp: raw.timestamp as number | undefined,
+      };
+    }
+    return m;
+  });
 
   return {
     messages,
     entryIds,
+    entryIndex,
     thinkingLevel: piCtx.thinkingLevel,
     model: piCtx.model,
+  };
+}
+
+/**
+ * Build paginated full history (root → leaf) with all message-producing entries.
+ * offset: skip first N message-producing entries; limit: return at most N entries.
+ * Returns { messages, entryIds, total } where total is the full count of message-producing entries.
+ */
+export function buildFullHistory(
+  entries: SessionEntry[],
+  leafId?: string | null,
+  offset = 0,
+  limit = 200
+): { messages: AgentMessage[]; entryIds: string[]; total: number } {
+  // Build byId index
+  const byId = new Map<string, SessionEntry>();
+  for (const e of entries) byId.set(e.id, e);
+
+  // Find target leaf
+  let targetLeaf: SessionEntry | undefined;
+  if (leafId === null) {
+    return { messages: [], entryIds: [], total: 0 };
+  }
+  if (leafId) targetLeaf = byId.get(leafId);
+  if (!targetLeaf) targetLeaf = entries[entries.length - 1];
+  if (!targetLeaf) {
+    return { messages: [], entryIds: [], total: 0 };
+  }
+
+  // Walk path from leaf to root (same as buildSessionContext)
+  const path: SessionEntry[] = [];
+  let cur: SessionEntry | undefined = targetLeaf;
+  while (cur) {
+    path.unshift(cur);
+    cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+  }
+
+  // Single pass: collect all convertible messages, then paginate
+  const allMessages: { msg: AgentMessage; entryId: string }[] = [];
+  for (const e of path) {
+    if (!MESSAGE_PRODUCING_TYPES.has(e.type)) continue;
+    const m = entryToUiMessage(e);
+    if (!m) continue; // skip entries that don't produce UI messages
+    // Convert compaction to user message (same as buildSessionContext)
+    if (m.role === "custom" && (m as { customType?: string }).customType === "compaction") {
+      const raw = m as unknown as Record<string, unknown>;
+      const summary = (raw.content as string) ?? (raw.summary as string) ?? "";
+      allMessages.push({
+        msg: {
+          role: "user" as const,
+          content: `*The conversation history before this point was compacted into the following summary:*\n\n${summary}`,
+          timestamp: raw.timestamp as number | undefined,
+        },
+        entryId: e.id,
+      });
+    } else {
+      allMessages.push({ msg: m, entryId: e.id });
+    }
+  }
+
+  const total = allMessages.length;
+  const page = allMessages.slice(offset, offset + limit);
+  return {
+    messages: page.map((p) => p.msg),
+    entryIds: page.map((p) => p.entryId),
+    total,
   };
 }
 
