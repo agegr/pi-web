@@ -5,7 +5,7 @@ interface DisplayOptions {
 }
 
 export function isEmptyThinkingBlock(block: AssistantContentBlock, options: DisplayOptions = {}): block is ThinkingContent {
-  return block.type === "thinking" && !options.isStreaming && block.thinking.trim() === "";
+  return block.type === "thinking" && !block.deferred && !options.isStreaming && block.thinking.trim() === "";
 }
 
 export function getDisplayableAssistantBlocks(

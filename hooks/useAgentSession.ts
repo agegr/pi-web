@@ -423,13 +423,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } satisfies SessionStatsInfo;
   })();
 
-  const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
+  const loadSession = useCallback(async (
+    sid: string,
+    showLoading = false,
+    includeState = false,
+    deferThinking = true,
+  ) => {
+    let messagesLoaded = false;
     try {
       if (showLoading) setLoading(true);
-      const url = includeState
-        ? `/api/sessions/${encodeURIComponent(sid)}?includeState`
-        : `/api/sessions/${encodeURIComponent(sid)}`;
-      const res = await fetch(url);
+      const sessionUrl = `/api/sessions/${encodeURIComponent(sid)}${deferThinking ? "?deferThinking" : ""}`;
+      const res = await fetch(sessionUrl);
       if (res.status === 404) {
         if (showLoading) {
           setData(null);
@@ -440,41 +444,57 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         return null;
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json() as SessionData & { agentState?: { running: boolean; state?: AgentStateResponse } };
+      const d = await res.json() as SessionData;
+      if (sessionIdRef.current !== sid) return null;
       setData(d);
       setActiveLeafId(d.leafId);
       setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
       setCurrentModelOverride(null);
       setError(null);
-      const liveState = d.agentState?.state;
-      if (liveState) {
-        if (liveState.contextUsage !== undefined) setContextUsage(liveState.contextUsage ?? null);
-        if (liveState.systemPrompt !== undefined) setSystemPrompt(liveState.systemPrompt ?? null);
-        if (liveState.thinkingLevel !== undefined) setThinkingLevel((liveState.thinkingLevel as ThinkingLevelOption) ?? "auto");
-        if (liveState.extensionStatuses !== undefined) setExtensionStatuses(liveState.extensionStatuses ?? []);
-        if (liveState.extensionWidgets !== undefined) setExtensionWidgets(liveState.extensionWidgets ?? []);
-        if (liveState.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(liveState.queuedMessages));
-      }
-      else if (d.agentState && !d.agentState.running) setQueuedMessages({ steering: [], followUp: [] });
-      // If no live agent state, fall back to thinking level from session file
-      if (!liveState?.thinkingLevel && d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
+      if (d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
         setThinkingLevel(d.context.thinkingLevel as ThinkingLevelOption);
       }
-      return d.agentState ?? null;
+
+      // Show persisted messages immediately; live agent state may block on RPC.
+      messagesLoaded = true;
+      if (showLoading) setLoading(false);
+      if (!includeState) return null;
+
+      try {
+        const stateRes = await fetch(`/api/sessions/${encodeURIComponent(sid)}/state`);
+        if (!stateRes.ok) throw new Error(`HTTP ${stateRes.status}`);
+        const agentState = await stateRes.json() as { running: boolean; state?: AgentStateResponse };
+        if (sessionIdRef.current !== sid) return null;
+        const liveState = agentState.state;
+        if (liveState) {
+          if (liveState.contextUsage !== undefined) setContextUsage(liveState.contextUsage ?? null);
+          if (liveState.systemPrompt !== undefined) setSystemPrompt(liveState.systemPrompt ?? null);
+          if (liveState.thinkingLevel !== undefined) setThinkingLevel((liveState.thinkingLevel as ThinkingLevelOption) ?? "auto");
+          if (liveState.extensionStatuses !== undefined) setExtensionStatuses(liveState.extensionStatuses ?? []);
+          if (liveState.extensionWidgets !== undefined) setExtensionWidgets(liveState.extensionWidgets ?? []);
+          if (liveState.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(liveState.queuedMessages));
+        } else if (!agentState.running) {
+          setQueuedMessages({ steering: [], followUp: [] });
+        }
+        return agentState;
+      } catch (e) {
+        console.error("Failed to load agent state:", e);
+        return null;
+      }
     } catch (e) {
       setError(String(e));
       return null;
     } finally {
-      if (showLoading) setLoading(false);
+      if (showLoading && !messagesLoaded) setLoading(false);
     }
   }, []);
 
   const loadContext = useCallback(async (sid: string, leafId: string | null) => {
     try {
-      const url = leafId
-        ? `/api/sessions/${encodeURIComponent(sid)}/context?leafId=${encodeURIComponent(leafId)}`
-        : `/api/sessions/${encodeURIComponent(sid)}/context`;
+      const params = new URLSearchParams({ deferThinking: "1" });
+      if (leafId) params.set("leafId", leafId);
+      const url = `/api/sessions/${encodeURIComponent(sid)}/context?${params}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[] } };
@@ -1390,7 +1410,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   useEffect(() => {
     if (session) {
       sessionIdRef.current = session.id;
-      loadSession(session.id, true, true).then((agentState) => {
+      loadSession(session.id, true, true, true).then((agentState) => {
         if (agentState?.running) {
           loadTools(session.id);
           if (agentState.state?.isStreaming || agentState.state?.isPromptRunning) {

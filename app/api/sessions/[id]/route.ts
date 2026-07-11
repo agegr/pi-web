@@ -4,9 +4,11 @@ import { join } from "path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   resolveSessionPath,
+  resolveSessionIdByPath,
   invalidateSessionPathCache,
   buildSessionContext,
-  listAllSessions,
+  readSessionHeader,
+  readSessionSnapshot,
 } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-manager";
 
@@ -121,22 +123,22 @@ export async function GET(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const sm = SessionManager.open(filePath);
-    const entries = sm.getEntries() as never;
-    const leafId = sm.getLeafId();
-    const tree = projectTreeForResponse(sm.getTree());
-    const context = buildSessionContext(entries, leafId);
+    const snapshot = await readSessionSnapshot(filePath);
+    const { header, leafId } = snapshot;
+    const tree = projectTreeForResponse(snapshot.tree);
+    const deferThinking = new URL(req.url).searchParams.has("deferThinking");
+    const context = buildSessionContext(snapshot.branch, leafId, { deferThinking });
 
-    const header = sm.getHeader();
     let modified = header?.timestamp ?? new Date().toISOString();
     try { modified = statSync(filePath).mtime.toISOString(); } catch { /* use header timestamp */ }
-    const allSessions = await listAllSessions();
-    const parentSessionId = allSessions.find((s) => s.id === id)?.parentSessionId;
+    const parentSessionId = header?.parentSession
+      ? await resolveSessionIdByPath(header.parentSession)
+      : undefined;
     const info = header ? {
       path: filePath,
       id: header.id,
       cwd: header.cwd ?? "",
-      name: sm.getSessionName(),
+      name: snapshot.name,
       created: header.timestamp,
       modified,
       messageCount: context.messages.length,
@@ -150,18 +152,6 @@ export async function GET(
       parentSessionId,
     } : null;
 
-    const url = new URL(req.url);
-    let agentState: { running: boolean; state?: unknown } | undefined;
-    if (url.searchParams.has("includeState")) {
-      const rpc = getRpcSession(id);
-      if (rpc?.isAlive()) {
-        const state = await rpc.send({ type: "get_state" });
-        agentState = { running: true, state };
-      } else {
-        agentState = { running: false };
-      }
-    }
-
     return NextResponse.json({
       sessionId: id,
       filePath,
@@ -169,7 +159,6 @@ export async function GET(
       leafId,
       tree,
       context,
-      ...(agentState !== undefined ? { agentState } : {}),
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
@@ -211,13 +200,11 @@ export async function DELETE(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    // Read header before deleting to get parentSession path
-    const firstLine = readFileSync(filePath, "utf8").split("\n")[0];
+    // Read only the small header before deleting.
     let parentSessionPath: string | undefined;
     try {
-      const header = JSON.parse(firstLine) as { type?: string; parentSession?: string };
-      if (header.type === "session") parentSessionPath = header.parentSession;
-    } catch { /* ignore */ }
+      parentSessionPath = readSessionHeader(filePath)?.parentSession;
+    } catch { /* ignore malformed header */ }
 
     // Re-attach all direct children to this session's parent (cascade re-parent)
     // Scan sibling files in the same directory

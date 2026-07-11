@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { resolveSessionPath, buildSessionContext } from "@/lib/session-reader";
+import { resolveSessionPath, buildSessionContext, readSessionSnapshot } from "@/lib/session-reader";
 
 export async function GET(
   req: Request,
@@ -9,6 +8,7 @@ export async function GET(
   const { id } = await params;
   const url = new URL(req.url);
   const leafId = url.searchParams.get("leafId") ?? undefined;
+  const deferThinking = url.searchParams.has("deferThinking");
 
   try {
     const filePath = await resolveSessionPath(id);
@@ -16,8 +16,8 @@ export async function GET(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const sm = SessionManager.open(filePath);
-    const context = buildSessionContext(sm.getEntries() as never, leafId);
+    const snapshot = await readSessionSnapshot(filePath, leafId, false);
+    const context = buildSessionContext(snapshot.branch, leafId, { deferThinking });
 
     return NextResponse.json({ context });
   } catch (error) {
