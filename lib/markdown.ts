@@ -14,7 +14,7 @@ const markdownSanitizeSchema = {
   strip: [...(defaultSchema.strip || []), "iframe", "object", "style", "form"],
 };
 
-export const markdownRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [remarkGfm, remarkMath];
+export const markdownRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [remarkGfm, [remarkMath, { singleDollarTextMath: false }]];
 export const markdownPreviewRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [remarkGfm];
 
 export const markdownRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
