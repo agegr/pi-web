@@ -164,13 +164,22 @@ export function getSessionEntries(filePath: string): SessionEntry[] {
 // session_info, and the extension-only "custom" entry — which the SDK does
 // NOT route into LLM context).
 const MESSAGE_PRODUCING_TYPES = new Set(["message", "compaction", "branch_summary", "custom_message"]);
-// Check whether an entry produces a UI message without paying for full
-// conversion. branch_summary is only produced when it actually carries a
-// summary string.
-function producesUiMessage(entry: SessionEntry): boolean {
+
+// Single truth source for "does this entry produce a UI message?".
+// Both producesUiMessage (cheap Phase-1 check) and entryToUiMessage
+// (full conversion) derive their filter from the same predicate so the
+// two-phase pagination cannot drift.
+function entryProducesMessage(entry: SessionEntry): boolean {
   if (!MESSAGE_PRODUCING_TYPES.has(entry.type)) return false;
+  // branch_summary only produces a message when it carries actual text
   if (entry.type === "branch_summary") return !!entry.summary;
   return true;
+}
+
+// Check whether an entry produces a UI message without paying for full
+// conversion. Delegates to common predicate.
+function producesUiMessage(entry: SessionEntry): boolean {
+  return entryProducesMessage(entry);
 }
 
 // Walk entries from a target leaf up to the root, returning the path in
@@ -462,6 +471,10 @@ function entryToUiMessage(
   entry: SessionEntry,
   options?: { deferThinking?: boolean; deferToolResultImages?: boolean },
 ): AgentMessage | null {
+  // Shared predicate guards Phase-1 / Phase-2 consistency.
+  // If this returns null, producesUiMessage also returns false.
+  if (!entryProducesMessage(entry)) return null;
+
   switch (entry.type) {
     case "message": {
       const message = options?.deferToolResultImages
