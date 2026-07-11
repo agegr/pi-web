@@ -342,21 +342,74 @@ function parseEntryTimestamp(timestamp: string): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function embeddedImageInfo(block: unknown): { mime?: string; bytes: number } | null {
+  if (!isRecord(block) || block.type !== "image") return null;
+
+  const flatData = block.data;
+  if (typeof flatData === "string" && flatData.length > 0) {
+    return {
+      mime: typeof block.mimeType === "string" ? block.mimeType : undefined,
+      bytes: Math.round(flatData.length * 3 / 4),
+    };
+  }
+
+  const source = block.source;
+  if (!isRecord(source) || source.type !== "base64") return null;
+  const sourceData = source.data;
+  if (typeof sourceData !== "string" || sourceData.length === 0) return null;
+  return {
+    mime: typeof source.media_type === "string" ? source.media_type : undefined,
+    bytes: Math.round(sourceData.length * 3 / 4),
+  };
+}
+
+function omitHistoricalEmbeddedImages(message: AgentMessage): AgentMessage {
+  const rawContent = (message as { content?: unknown }).content;
+  if (!Array.isArray(rawContent)) return message;
+
+  let omitted = 0;
+  let bytes = 0;
+  const mimes = new Set<string>();
+  const content = rawContent.filter((block) => {
+    const image = embeddedImageInfo(block);
+    if (!image) return true;
+    omitted += 1;
+    bytes += image.bytes;
+    if (image.mime) mimes.add(image.mime);
+    return false;
+  });
+
+  if (omitted === 0) return message;
+  content.push({
+    type: "text",
+    text: `[${omitted} embedded image${omitted === 1 ? "" : "s"} omitted from pi-web history payload${mimes.size ? `: ${[...mimes].join(", ")}` : ""}, ~${bytes.toLocaleString()} bytes]`,
+  });
+  return { ...message, content } as AgentMessage;
+}
+
 // Convert a session entry on the active branch into a UI message.
 // Returns null for entries that do not map to chat history (metadata, non-message types).
 function entryToUiMessage(entry: SessionEntry, deferThinking: boolean): AgentMessage | null {
   switch (entry.type) {
     case "message": {
       const message = normalizeToolCalls(entry.message);
-      if (!deferThinking || message.role !== "assistant") return message;
-      return {
-        ...message,
-        content: message.content.map((block) => (
-          block.type === "thinking"
-            ? { ...block, thinking: "", deferred: true }
-            : block
-        )),
-      };
+      if (deferThinking) {
+        const deferred = omitHistoricalEmbeddedImages(message);
+        if (deferred.role !== "assistant") return deferred;
+        return {
+          ...deferred,
+          content: deferred.content.map((block) => (
+            block.type === "thinking"
+              ? { ...block, thinking: "", deferred: true }
+              : block
+          )),
+        };
+      }
+      return message;
     }
     case "compaction":
       return {
