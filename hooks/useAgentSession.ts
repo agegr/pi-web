@@ -11,11 +11,6 @@ import type {
 } from "@/lib/types";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
-
-/** Normalize tool call blocks in messages loaded from the API (which use id/name/arguments instead of toolCallId/toolName/input). */
-function normalizeMessages(msgs: AgentMessage[]): AgentMessage[] {
-  return msgs.map(normalizeToolCalls);
-}
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 
@@ -451,7 +446,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const d = await res.json() as SessionData & { agentState?: { running: boolean; state?: AgentStateResponse } };
       setData(d);
       setActiveLeafId(d.leafId);
-      setMessages(normalizeMessages(d.context.messages));
+      setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
       setEntryIndex(d.context.entryIndex ?? {});
       setCurrentModelOverride(null);
@@ -487,7 +482,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[]; entryIndex?: Record<string, import("@/lib/types").EntryMeta> } };
-      setMessages(normalizeMessages(d.context.messages));
+      setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
       setEntryIndex(d.context.entryIndex ?? {});
     } catch (e) {
@@ -503,7 +498,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[]; entryIndex?: Record<string, import("@/lib/types").EntryMeta> } };
-      setMessages(normalizeMessages(d.context.messages));
+      setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
       setEntryIndex(d.context.entryIndex ?? {});
     } catch (e) {
@@ -519,21 +514,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[]; total: number } };
-      const normalized = normalizeMessages(d.context.messages);
+      const messages = d.context.messages;
       if (replace || offset === 0) {
         // In replace mode, preserve the compaction summary from the existing trimmed context
-        if (replace && normalized.length > 0 && limit >= 500) {
+        if (replace && messages.length > 0 && limit >= 500) {
           setMessages(prev => {
             const first = prev[0];
             const isCompactionSummary = first && first.role === "user" && typeof first.content === "string" && first.content.includes("compacted into the following summary");
-            return isCompactionSummary ? [first, ...normalized] : normalized;
+            return isCompactionSummary ? [first, ...messages] : messages;
           });
         } else {
-          setMessages(normalized);
+          setMessages(messages);
         }
         setEntryIds(d.context.entryIds ?? []);
       } else {
-        setMessages(prev => [...normalized, ...prev]);
+        setMessages(prev => [...messages, ...prev]);
         setEntryIds(prev => [...d.context.entryIds, ...prev]);
       }
       return d.context.total;

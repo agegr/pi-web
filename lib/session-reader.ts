@@ -158,16 +158,20 @@ export function buildSessionContext(entries: SessionEntry[], leafId?: string | n
   }
 
   // Convert compactionSummary role to user message (pi injects it but MessageView doesn't handle the role)
+  // Also normalize tool call blocks (pi returns id/name/arguments, we need toolCallId/toolName/input)
   const messages = (piCtx.messages as unknown as AgentMessage[]).map((m) => {
-    if ((m as { role?: string }).role === "compactionSummary") {
-      const raw = m as unknown as Record<string, unknown>;
+    // Normalize tool call blocks first
+    let normalized = normalizeToolCalls(m);
+    // Convert compactionSummary to user message
+    if ((normalized as { role?: string }).role === "compactionSummary") {
+      const raw = normalized as unknown as Record<string, unknown>;
       return {
         role: "user" as const,
         content: `*The conversation history before this point was compacted into the following summary:*\n\n${raw.summary ?? ""}`,
         timestamp: raw.timestamp as number | undefined,
       };
     }
-    return m;
+    return normalized;
   });
 
   return {
