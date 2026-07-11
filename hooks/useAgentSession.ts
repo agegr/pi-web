@@ -490,22 +490,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, []);
 
-  const reloadTrimmedContext = useCallback(async (sid: string, leafId: string | null) => {
-    try {
-      const url = leafId
-        ? `/api/sessions/${encodeURIComponent(sid)}/context?leafId=${encodeURIComponent(leafId)}`
-        : `/api/sessions/${encodeURIComponent(sid)}/context`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[]; entryIndex?: Record<string, import("@/lib/types").EntryMeta> } };
-      setMessages(d.context.messages);
-      setEntryIds(d.context.entryIds ?? []);
-      setEntryIndex(d.context.entryIndex ?? {});
-    } catch (e) {
-      console.error("Failed to reload trimmed context:", e);
-    }
-  }, []);
-
   const loadFullHistory = useCallback(async (sid: string, leafId: string | null, offset = 0, limit = 200, replace = false) => {
     try {
       const url = leafId
@@ -514,22 +498,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[]; total: number } };
-      const messages = d.context.messages;
+      // buildFullHistory already includes any compaction summaries that fall
+      // inside its path slice (in path order, matching the entryIds), so we
+      // don't need to splice in the previous leading summary — doing so would
+      // duplicate the summary and mis-align messages from entryIds.
       if (replace || offset === 0) {
-        // In replace mode, preserve the compaction summary from the existing trimmed context
-        if (replace && messages.length > 0 && limit >= 500) {
-          setMessages(prev => {
-            const first = prev[0];
-            const isCompactionSummary = first && first.role === "user" && typeof first.content === "string" && first.content.includes("compacted into the following summary");
-            return isCompactionSummary ? [first, ...messages] : messages;
-          });
-        } else {
-          setMessages(messages);
-        }
+        setMessages(d.context.messages);
         setEntryIds(d.context.entryIds ?? []);
       } else {
-        setMessages(prev => [...messages, ...prev]);
-        setEntryIds(prev => [...d.context.entryIds, ...prev]);
+        // Prepend older page (lower offset) to the existing list.
+        setMessages(prev => [...d.context.messages, ...prev]);
+        setEntryIds(prev => [...(d.context.entryIds ?? []), ...prev]);
       }
       return d.context.total;
     } catch (e) {
@@ -1575,7 +1554,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // Actions
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
-    loadFullHistory, reloadTrimmedContext, handleRecallQueue,
+    loadFullHistory, handleRecallQueue,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
     dispatch, setAgentRunning, setForkingEntryId,

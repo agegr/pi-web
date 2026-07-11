@@ -15,6 +15,15 @@ interface MarkdownBodyProps {
   isStreaming?: boolean;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
+  /**
+   * Set to true for messages that render pi compaction summary text.
+   * These summaries may contain pi-internal pseudo-HTML tags
+   * (`<docId>`, `<read-files>`, `<modified-files>`, `<new-summary>`) that
+   * would otherwise confuse rehype-raw. Stripping is intentionally scoped to
+   * compaction bodies so user-authored markdown (which can legitimately
+   * discuss those tag names) is left untouched. See stripInternalTags.
+   */
+  isCompaction?: boolean;
 }
 
 function copyText(text: string): Promise<void> {
@@ -59,11 +68,14 @@ function stripInternalTags(md: string): string {
     .replace(/<modified-files>[\s\S]*?<\/modified-files>/gi, "");
 }
 
-export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile }: MarkdownBodyProps) {
+export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, isCompaction }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => {
-    const stripped = stripInternalTags(children);
+    // Only compaction summaries carry pi-internal pseudo-HTML tags; stripping
+    // every message's markdown would cost CPU and could mangle user text that
+    // legitimately mentions those tag names. Scope the strip accordingly.
+    const stripped = isCompaction ? stripInternalTags(children) : children;
     return normalizeDisplayMath(stripped);
-  }, [children]);
+  }, [children, isCompaction]);
 
   return (
     <div className={["markdown-body", className].filter(Boolean).join(" ")}>

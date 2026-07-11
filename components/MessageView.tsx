@@ -62,6 +62,11 @@ export function MessageView({ message, isStreaming, toolResults, modelNames, cwd
   }
   if (message.role === "custom") {
     if ((message as CustomMessage).customType === "compaction") {
+      // Renders the compaction summary as a folded card with the file metadata
+      // list extracted by parseCompactionSummary. entryToUiMessage keeps the
+      // upstream `custom|compaction` role shape; buildSessionContext and
+      // buildFullHistory both go through it, so this branch is live in both
+      // the trimmed default view and the paginated full-history view.
       return <CompactionMessageView message={message as CustomMessage} />;
     }
     return <CustomMessageView message={message as CustomMessage} cwd={cwd} onOpenFile={onOpenFile} />;
@@ -96,6 +101,12 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
       ? []
       : message.content.filter((b): b is ImageContent => b.type === "image");
 
+  // Compaction summaries are NOT user-role messages: entryToUiMessage keeps
+  // them as `custom|compaction` so CompactionMessageView renders the folded
+  // card UI. branch_summary entries are user-role and use the user-message
+  // layout, but they never carry pi-internal pseudo-HTML tags, so we don't
+  // enable isCompaction strip here. The fixed italic prefix detection was
+  // only needed while an earlier iteration emitted compaction as user role.
   const time = formatTime(message.timestamp);
   const canFork = !!entryId && !!onFork;
   const canNavigate = !!prevAssistantEntryId && !!onNavigate;
@@ -990,8 +1001,12 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
           <div style={{ marginTop: 3, marginBottom: 10, color: "var(--text)", fontSize: 14, lineHeight: 1.5 }}>
             The conversation history before this point was compacted into the following summary:
           </div>
+          {/* isCompaction=true scopes stripInternalTags to THIS body only, so
+              pi-internal `<read-files>` / `<modified-files>` tags that
+              parseCompactionSummary already extracted don't confuse rehype-raw
+              with stray HTML elements. Ordinary user messages are untouched. */}
           {parsedSummary.body ? (
-            <MarkdownBody className="markdown-compaction-message">{parsedSummary.body}</MarkdownBody>
+            <MarkdownBody className="markdown-compaction-message" isCompaction>{parsedSummary.body}</MarkdownBody>
           ) : (
             <span style={{ color: "var(--text-dim)", fontSize: 12 }}>(no summary)</span>
           )}

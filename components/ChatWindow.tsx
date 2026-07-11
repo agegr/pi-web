@@ -166,7 +166,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     lastUserMsgRef,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
-    loadFullHistory, reloadTrimmedContext, handleRecallQueue,
+    loadFullHistory, handleRecallQueue,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands,
   } = useAgentSession({
@@ -226,9 +226,12 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const BATCH = 500;
   const fullHistoryReqIdRef = useRef(0);
 
-  // Track whether the session originally had compaction (persists across message replacements)
+  // Track whether the session originally had compaction (persists across message replacements).
+  // Compaction summaries are `custom|compaction` messages (see entryToUiMessage in
+  // lib/session-reader.ts); the earlier user-prefix detection only worked while an
+  // obsolete iteration of this PR emitted compaction as a user-role message.
   const hadCompactionRef = useRef(false);
-  if (messages.some(m => m.role === "user" && typeof m.content === "string" && m.content.includes("compacted into the following summary"))) {
+  if (messages.some(m => m.role === "custom" && (m as { customType?: string }).customType === "compaction")) {
     hadCompactionRef.current = true;
   }
   const hasCompaction = hadCompactionRef.current;
@@ -649,23 +652,22 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 );
               };
 
-              // Detect compaction message (user role with compacted summary content)
-              const firstCompactedIdx = messages.findIndex(
-                (m) => m.role === "user" && typeof m.content === "string" && m.content.includes("compacted into the following summary")
-              );
-
+              // Compaction summaries from buildSessionContext are emitted as
+              // user messages with a fixed italic prefix (see entryToUiMessage
+              // in lib/session-reader.ts). In the default trimmed view the
+              // leading summary is the first message; in full-history mode
+              // buildFullHistory emits every on-path summary in path order.
+              // We render all of them so the user can see when compaction
+              // happened (no longer skipping the first one — that was a
+              // workaround for a duplicated summary that no longer happens
+              // now that loadFullHistory refuses to splice the previous
+              // leading summary onto the new page).
               const rendered: ReactNode[] = [];
               for (let idx = 0; idx < messages.length;) {
                 const msg = messages[idx];
                 if (msg.role !== "user") {
                   rendered.push(renderMessage(idx));
                   idx += 1;
-                  continue;
-                }
-
-                // Skip compaction messages in full history mode
-                if (fullHistoryMode === "loaded" && idx === firstCompactedIdx) {
-                  idx = firstCompactedIdx + 1;
                   continue;
                 }
 
