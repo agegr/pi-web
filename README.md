@@ -35,6 +35,14 @@ pi-web -p 8080 -H 127.0.0.1     # combine options
 PORT=8080 pi-web                # environment variable is also supported
 ```
 
+If you expose pi-web on a public network, set `PI_WEB_PASS` to enable the password screen:
+
+```bash
+PI_WEB_PASS='your-strong-password' pi-web
+```
+
+For local-only use, leaving `PI_WEB_PASS` unset keeps the current no-password behavior.
+
 ## Features
 
 - **Pick work back up**: browse previous pi conversations by project without digging through terminal history or session paths.
@@ -52,6 +60,7 @@ PORT=8080 pi-web                # environment variable is also supported
 - **File access**: file browsing and preview are scoped to the selected project directory and working directories that appear in sessions.
 - **Git worktrees**: see [Worktrees in pi-web](./docs/worktrees.md) for when the switcher appears, how new worktrees are created, and what removal does.
 - **Forks vs in-session branches**: Fork creates a new `.jsonl` file. "Edit from here" creates another branch inside the same session file.
+- **Public deployments**: if pi-web is reachable from the public internet, set `PI_WEB_PASS` so the web UI requires a password before access.
 
 ## Development
 
