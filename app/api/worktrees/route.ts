@@ -20,10 +20,12 @@ export async function GET(req: Request) {
     if (!cwd) {
       return NextResponse.json({ error: "cwd is required" }, { status: 400 });
     }
-    const denied = await checkCwdAllowed(cwd);
+    const [denied, project] = await Promise.all([
+      checkCwdAllowed(cwd),
+      resolveProject(cwd),
+    ]);
     if (denied) return denied;
 
-    const project = await resolveProject(cwd);
     let worktrees: Awaited<ReturnType<typeof listWorktrees>> = [];
     let isGit = true;
     try {
