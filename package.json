@@ -59,7 +59,7 @@
     "eslint-config-next": "16.2.9",
     "jiti": "^2.7.0",
     "postcss": "^8",
-    "tailwindcss": "^4.2.2",
+    "tailwindcss": "^4.3.2",
     "typescript": "^5"
   }
 }

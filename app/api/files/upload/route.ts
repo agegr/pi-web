@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import { resolve, relative } from "path";
 import { existsSync } from "fs";
-import { getAllowedFileRoots } from "@/lib/file-access";
 
 export const runtime = "nodejs";
 
@@ -70,13 +69,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid filename" }, { status: 400 });
     }
 
-    // Resolve save directory: first allowed root (typically cwd)
-    const allowedRoots = await getAllowedFileRoots();
-    const roots = Array.from(allowedRoots);
-    if (roots.length === 0) {
-      return NextResponse.json({ error: "Upload not available" }, { status: 500 });
-    }
-    const root = roots[0];
+    // Resolve save directory: current working directory (where pi-web-dev.js was started)
+    const root = process.cwd();
 
     // Ensure uploads directory exists
     const uploadDir = resolve(root, ".uploads");

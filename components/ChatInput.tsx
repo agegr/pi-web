@@ -881,59 +881,64 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         disabled={isStreaming}
         style={{ display: "none" }}
         onChange={async (e) => {
-          const files = Array.from(e.target.files ?? []);
-          const imageFiles = files.filter((f) => f.type.startsWith("image/"));
-          const otherFiles = files.filter((f) => !f.type.startsWith("image/"));
+          try {
+            const files = Array.from(e.target.files ?? []);
+            if (files.length === 0) return;
+            const imageFiles = files.filter((f) => f.type.startsWith("image/"));
+            const otherFiles = files.filter((f) => !f.type.startsWith("image/"));
 
-          if (imageFiles.length > 0) {
-            processImageFiles(imageFiles);
-          }
-
-          if (otherFiles.length > 0) {
-            setIsUploading(true);
-            setUploadError(null);
-            const paths: string[] = [];
-            try {
-              for (const file of otherFiles) {
-                const fd = new FormData();
-                fd.append("file", file);
-                const res = await fetch("/api/files/upload", { method: "POST", body: fd });
-                if (!res.ok) {
-                  const err = await res.json().catch(() => ({ error: "Upload failed" }));
-                  setUploadError(err.error || "Upload failed");
-                  continue;
-                }
-                const data = await res.json();
-                if (data.path) paths.push(data.path);
-              }
-              if (paths.length > 0) {
-                const text = paths.join(" ");
-                const ta = textareaRef.current;
-                if (ta) {
-                  const start = ta.selectionStart ?? ta.value.length;
-                  const before = ta.value.slice(0, start);
-                  const after = ta.value.slice(start);
-                  const sep = before.length > 0 && !before.endsWith(" ") ? " " : "";
-                  const newVal = before + sep + text + after;
-                  setValue(newVal);
-                  requestAnimationFrame(() => {
-                    if (!ta) return;
-                    const pos = start + sep.length + text.length;
-                    ta.setSelectionRange(pos, pos);
-                    ta.focus();
-                    ta.style.height = "auto";
-                    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
-                  });
-                } else {
-                  setValue((v) => v + (v ? " " : "") + text);
-                }
-              }
-            } finally {
-              setIsUploading(false);
+            if (imageFiles.length > 0) {
+              processImageFiles(imageFiles).catch(() => {});
             }
-          }
 
-          e.target.value = "";
+            if (otherFiles.length > 0) {
+              setIsUploading(true);
+              setUploadError(null);
+              const paths: string[] = [];
+              try {
+                for (const file of otherFiles) {
+                  const fd = new FormData();
+                  fd.append("file", file);
+                  const res = await fetch("/api/files/upload", { method: "POST", body: fd });
+                  if (!res.ok) {
+                    const err = await res.json().catch(() => ({ error: "Upload failed" }));
+                    setUploadError(err.error || "Upload failed");
+                    continue;
+                  }
+                  const data = await res.json();
+                  if (data.path) paths.push(data.path);
+                }
+                if (paths.length > 0) {
+                  const text = paths.join(" ");
+                  const ta = textareaRef.current;
+                  if (ta) {
+                    const start = ta.selectionStart ?? ta.value.length;
+                    const before = ta.value.slice(0, start);
+                    const after = ta.value.slice(start);
+                    const sep = before.length > 0 && !before.endsWith(" ") ? " " : "";
+                    const newVal = before + sep + text + after;
+                    setValue(newVal);
+                    requestAnimationFrame(() => {
+                      if (!ta) return;
+                      const pos = start + sep.length + text.length;
+                      ta.setSelectionRange(pos, pos);
+                      ta.focus();
+                      ta.style.height = "auto";
+                      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+                    });
+                  } else {
+                    setValue((v) => v + (v ? " " : "") + text);
+                  }
+                }
+              } finally {
+                setIsUploading(false);
+              }
+            }
+          } catch (err) {
+            setUploadError("File handling error");
+          } finally {
+            e.target.value = "";
+          }
         }}
       />
       <div style={{ maxWidth: 820, margin: "0 auto" }}>
