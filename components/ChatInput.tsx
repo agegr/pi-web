@@ -731,6 +731,30 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }
       }
 
+      // Esc stops the agent when no slash/@ menu is open
+      if (e.key === "Escape" && isStreaming && onAbort) {
+        e.preventDefault();
+        onAbort();
+        return;
+      }
+
+      // Shift+Enter -> browser inserts newline naturally
+      if (e.key === "Enter" && e.shiftKey) return;
+
+      // Ctrl+Enter / Meta+Enter -> programmatic newline (browser default doesn't do it)
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        const ta = e.currentTarget;
+        const start = ta.selectionStart;
+        const end = ta.selectionEnd;
+        const newVal = value.slice(0, start) + "\n" + value.slice(end);
+        setValue(newVal);
+        // Restore cursor position after React re-render
+        requestAnimationFrame(() => {
+          ta.selectionStart = ta.selectionEnd = start + 1;
+        });
+        return;
+      }
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         if (isStreaming && (onSteer || onFollowUp)) {
