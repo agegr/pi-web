@@ -899,6 +899,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 for (const file of otherFiles) {
                   const fd = new FormData();
                   fd.append("file", file);
+                  if (cwd) fd.append("cwd", cwd);
                   const res = await fetch("/api/files/upload", { method: "POST", body: fd });
                   if (!res.ok) {
                     const err = await res.json().catch(() => ({ error: "Upload failed" }));

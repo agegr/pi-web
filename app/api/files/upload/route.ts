@@ -28,8 +28,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid filename" }, { status: 400 });
     }
 
-    // Resolve save directory: current working directory (where pi-web-dev.js was started)
-    const root = process.cwd();
+    // Resolve save directory: use session cwd if provided, else fall back to server cwd
+    const sessionCwd = formData.get("cwd") as string | null;
+    const root = sessionCwd ? resolve(sessionCwd) : process.cwd();
 
     // Ensure uploads directory exists
     const uploadDir = resolve(root, ".uploads");
