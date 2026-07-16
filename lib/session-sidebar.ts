@@ -73,9 +73,31 @@ export function buildSessionTree(sessions: SessionInfo[]): SessionTreeNode[] {
     return null;
   }
 
+  // Resolve each node's nearest existing ancestor up front so we can break
+  // cycles before attaching. Without this, a parent cycle (a→b→a, both present)
+  // leaves every node with a parent and produces ZERO roots, so the whole
+  // sub-forest silently vanishes from the sidebar.
+  const resolvedParent = new Map<string, string | null>();
+  for (const node of byId.values()) {
+    resolvedParent.set(node.session.id, resolveAncestor(node.session.id));
+  }
+
+  // Break cycles in the resolved-parent graph: if walking parents from a node
+  // loops back to that same node, demote it to a root so the cycle is severed
+  // while every node stays reachable.
+  for (const id of byId.keys()) {
+    let cur: string | null = id;
+    while (cur) {
+      const parent: string | null = resolvedParent.get(cur) ?? null;
+      if (parent === null) break; // reached a root — chain is acyclic
+      if (parent === id) { resolvedParent.set(id, null); break; } // cycle back to id
+      cur = parent;
+    }
+  }
+
   const roots: SessionTreeNode[] = [];
   for (const node of byId.values()) {
-    const ancestor = resolveAncestor(node.session.id);
+    const ancestor = resolvedParent.get(node.session.id) ?? null;
     if (ancestor) {
       byId.get(ancestor)!.children.push(node);
     } else {
