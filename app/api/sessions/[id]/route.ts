@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
-import { join } from "path";
+import { dirname, join } from "path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { normalizeSlashes } from "@/lib/file-access";
 import {
   resolveSessionPath,
   resolveSessionIdByPath,
@@ -210,16 +211,24 @@ export async function DELETE(
 
     // Re-attach all direct children to this session's parent (cascade re-parent)
     // Scan sibling files in the same directory
-    const dir = filePath.replace(/\\/g, "/").split("/").slice(0, -1).join("/");
+    const normTarget = normalizeSlashes(filePath).toLowerCase();
+    const dir = dirname(filePath);
     try {
-      const files = readdirSync(dir).filter((f) => f.endsWith(".jsonl") && join(dir, f) !== filePath);
+      const files = readdirSync(dir).filter((f) => {
+        const full = join(dir, f);
+        return f.endsWith(".jsonl") && normalizeSlashes(full).toLowerCase() !== normTarget;
+      });
       for (const file of files) {
         const childPath = join(dir, file);
         try {
           const content = readFileSync(childPath, "utf8");
           const lines = content.split("\n");
           const header = JSON.parse(lines[0]) as { type?: string; parentSession?: string };
-          if (header.type === "session" && header.parentSession === filePath) {
+          if (
+            header.type === "session" &&
+            header.parentSession &&
+            normalizeSlashes(header.parentSession).toLowerCase() === normTarget
+          ) {
             // Rewrite header with new parentSession
             header.parentSession = parentSessionPath;
             lines[0] = JSON.stringify(header);
