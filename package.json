@@ -29,7 +29,10 @@
     "build": "next build --webpack",
     "start": "next start -p 30141",
     "lint": "eslint .",
-    "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
+    "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public",
+    "desktop:dev": "npm run build && electron .",
+    "desktop:pack": "npm run build && electron-builder --dir",
+    "desktop:dist": "npm run build && electron-builder"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.81.0",
@@ -62,6 +65,36 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "tailwindcss": "^4.2.2",
-    "typescript": "^5"
+    "typescript": "^5",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.0.12"
+  },
+  "main": "electron/main.cjs",
+  "build": {
+    "appId": "dev.pi-web.desktop",
+    "productName": "Pi Web",
+    "asar": false,
+    "files": [
+      ".next/**",
+      "public/**",
+      "next.config.ts",
+      "package.json",
+      "electron/**",
+      "vendor/mini-bash/**",
+      "node_modules/**"
+    ],
+    "directories": {
+      "output": "dist-desktop"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    }
   }
 }

@@ -69,6 +69,25 @@ npm run lint
 
 开发时不要运行 `next build` / `npm run build`，它会写入 `.next/`，容易影响正在运行的 dev server。发布流程再执行构建。
 
+## 桌面端打包
+
+Pi Web 也可以作为可选 Electron 桌面应用打包：
+
+```bash
+npm install
+npm run desktop:dist
+```
+
+Windows 产物会写入 `dist-desktop/`。桌面壳会在本地启动现有 Next.js 服务，并在 Electron 窗口中打开；Web/CLI 运行方式不变。
+
+桌面版数据目录行为：
+
+- 默认使用 Electron `userData` 下的独立 pi agent 目录（`<userData>/agent`），而不是 `~/.pi/agent`。
+- 可通过 `--agent-dir <路径>` 指定 pi agent 目录。
+- 可通过 `--portable` 使用 exe 同目录下的 `data/agent`。
+
+Windows 桌面版可以携带 `vendor/mini-bash`。如果存在，启动器会把 `vendor/mini-bash/usr/bin` 放到服务进程 PATH 最前面，并在桌面版 agent `settings.json` 中没有有效 `shellPath` 时初始化为内置 `bash.exe`。这样即使没有安装 Git Bash，bash tool 也能工作；但 Git/worktree 功能仍需要系统 PATH 中有 Git，技能安装/搜索仍可能需要 Node.js/npm/npx。
+
 ## 项目结构
 
 ```

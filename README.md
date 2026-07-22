@@ -73,6 +73,25 @@ npm run lint
 
 Avoid running `next build` / `npm run build` during local development. It writes to `.next/` and can interfere with the dev server; leave builds for release work.
 
+## Desktop packaging
+
+Pi Web can also be packaged as an optional Electron desktop app:
+
+```bash
+npm install
+npm run desktop:dist
+```
+
+The Windows artifact is written to `dist-desktop/`. The desktop wrapper starts the existing Next.js server locally and opens it in an Electron window; the web/CLI runtime is unchanged.
+
+Desktop data directory behavior:
+
+- By default, desktop builds use an app-controlled pi agent directory under Electron `userData` (`<userData>/agent`) instead of `~/.pi/agent`.
+- Pass `--agent-dir <path>` to use a specific pi agent directory.
+- Pass `--portable` to store data beside the executable under `data/agent`.
+
+Windows desktop builds may include `vendor/mini-bash`. When present, the launcher prepends `vendor/mini-bash/usr/bin` to the server PATH and initializes the desktop agent `settings.json` `shellPath` to the bundled `bash.exe` if no valid shell path exists. This makes the bash tool work without requiring Git Bash, but Git/worktree operations still require Git on PATH, and skill installation/search may still require Node.js/npm/npx.
+
 ## Project Structure
 
 ```text
