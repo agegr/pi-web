@@ -2,6 +2,7 @@
 
 import { memo, useState, useRef, useEffect, useMemo } from "react";
 import { MarkdownBody } from "./MarkdownBody";
+import { Avatar } from "./Avatar";
 import { copyText } from "@/lib/clipboard";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { isEmptyThinkingBlock } from "@/lib/message-display";
@@ -180,7 +181,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "85%" }}>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 8, maxWidth: "85%" }}>
         <div
           style={{
             flex: 1,
@@ -223,6 +224,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
           {content && <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{content}</MarkdownBody>}
         </div>
 
+        <Avatar role="user" title="User" />
       </div>
 
       {/* Bottom row: action buttons + timestamp */}
@@ -471,10 +473,12 @@ function AssistantMessageView({
 
   return (
     <div
-      style={{ marginBottom: 16 }}
+      style={{ marginBottom: 16, display: "flex", alignItems: "flex-start", gap: 8 }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
+      <Avatar role="assistant" title="Assistant" />
+      <div style={{ flex: 1, minWidth: 0 }}>
       {/* Model label */}
       <div
         style={{
@@ -573,6 +577,7 @@ function AssistantMessageView({
         {time && !isStreaming && (
           <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>
         )}
+      </div>
       </div>
     </div>
   );
@@ -721,6 +726,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
           minWidth: 0,
         }}
       >
+        <Avatar role="tool" title="Tool" />
         <span style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
           {block.toolName}
         </span>
