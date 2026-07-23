@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   AVATAR_CONFIG_ROLES,
-  createEmptyAvatarConfig,
   normalizeAvatarConfig,
   type AvatarConfig,
   type AvatarConfigRole,
@@ -91,6 +90,7 @@ interface RoleCardProps {
   uploadError: string | null;
   onUpload: (file: File) => void;
   onClearDraft: () => void;
+  onReset: () => void;
 }
 
 function RoleCard({
@@ -101,12 +101,13 @@ function RoleCard({
   uploadError,
   onUpload,
   onClearDraft,
+  onReset,
 }: RoleCardProps) {
   const label = ROLE_LABELS[role];
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const hasDraft = draftSource !== null && draftSource !== savedSource;
+  const hasDraft = draftSource !== savedSource;
   const hasSaved = Boolean(savedSource);
-  const source = draftSource ?? savedSource;
+  const source = draftSource;
   const hasCustomSource = Boolean(source);
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -212,6 +213,25 @@ function RoleCard({
             Revert
           </button>
         )}
+        {hasSaved && (
+          <button
+            type="button"
+            onClick={onReset}
+            disabled={uploading}
+            data-avatar-reset-button={role}
+            style={{
+              padding: "5px 10px",
+              background: "none",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              color: "var(--text-muted)",
+              cursor: uploading ? "not-allowed" : "pointer",
+              fontSize: 12,
+            }}
+          >
+            Reset
+          </button>
+        )}
       </div>
       {uploadError && (
         <div
@@ -246,9 +266,9 @@ export function AvatarsConfig({
   const { config: savedConfig, setConfig: setSavedConfig } = useAvatarConfig();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [draftConfig, setDraftConfig] = useState<AvatarConfig>(() =>
-    createEmptyAvatarConfig(),
-  );
+  const [draftConfig, setDraftConfig] = useState<AvatarConfig>(() => ({
+    ...savedConfig,
+  }));
   const [uploadingRole, setUploadingRole] = useState<AvatarConfigRole | null>(null);
   const [uploadErrors, setUploadErrors] = useState<Record<AvatarConfigRole, string | null>>({
     user: null,
@@ -312,6 +332,11 @@ export function AvatarsConfig({
 
   const handleClearDraft = (role: AvatarConfigRole) => {
     setDraftConfig((prev) => ({ ...prev, [role]: savedConfig[role] }));
+    setUploadErrors((prev) => ({ ...prev, [role]: null }));
+  };
+
+  const handleReset = (role: AvatarConfigRole) => {
+    setDraftConfig((prev) => ({ ...prev, [role]: null }));
     setUploadErrors((prev) => ({ ...prev, [role]: null }));
   };
 
@@ -489,6 +514,7 @@ export function AvatarsConfig({
                 uploadError={uploadErrors[role]}
                 onUpload={(file) => void handleUpload(role, file)}
                 onClearDraft={() => handleClearDraft(role)}
+                onReset={() => handleReset(role)}
               />
             ))}
           </div>

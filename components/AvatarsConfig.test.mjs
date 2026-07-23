@@ -9,13 +9,21 @@ const jiti = createJiti(import.meta.url, {
   tsconfigPaths: true,
 });
 const { AvatarsConfig } = await jiti.import("./AvatarsConfig.tsx");
+const { AvatarConfigProvider } = await jiti.import("./AvatarConfigProvider.tsx");
 
-function renderModal() {
+function renderModal(initialConfig = null) {
+  const modal = React.createElement(AvatarsConfig, {
+    cwd: "/work/example-project",
+    onClose() {},
+  });
+  if (!initialConfig) return renderToStaticMarkup(modal);
+  // `initialConfig` seeds context for SSR tests without running the provider's fetch effect.
   return renderToStaticMarkup(
-    React.createElement(AvatarsConfig, {
-      cwd: "/work/example-project",
-      onClose() {},
-    }),
+    React.createElement(
+      AvatarConfigProvider,
+      { cwd: "/work/example-project", initialConfig },
+      modal,
+    ),
   );
 }
 
@@ -71,9 +79,20 @@ test("exposes a disabled Save button until the user edits a role", () => {
   assert.match(saveButtonMatch[0], /disabled=""/);
 });
 
-test("does not yet expose ticket 4 reset controls", () => {
+test("reset controls are conditional on a saved custom avatar", () => {
   const html = renderModal();
-
   assert.doesNotMatch(html, /data-avatar-reset-button/);
-  assert.doesNotMatch(html, />Reset</);
+});
+
+test("renders reset controls for saved custom avatars", () => {
+  const html = renderModal({
+    user: "data:image/png;base64,dXNlcg==",
+    assistant: null,
+    tool: null,
+  });
+
+  assert.match(html, /data-avatar-reset-button="user"/);
+  assert.doesNotMatch(html, /data-avatar-reset-button="assistant"/);
+  assert.doesNotMatch(html, /data-avatar-reset-button="tool"/);
+  assert.match(html, /data-avatar-source="custom"/);
 });

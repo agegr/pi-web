@@ -114,6 +114,30 @@ test("GET rejects an absolute cwd outside allowed roots", async (t) => {
 
 // PUT tests ---
 
+test("PUT clears one role while preserving the other custom roles", async (t) => {
+  resetAllowedRoots();
+  const cwd = createProject(t);
+  allowFileRoot(cwd);
+  await PUT(makePutRequest(cwd, {
+    user: SAMPLE_USER,
+    assistant: SAMPLE_ASSISTANT,
+    tool: SAMPLE_TOOL,
+  }));
+
+  const response = await PUT(makePutRequest(cwd, { user: null }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await getJson(response), {
+    user: null,
+    assistant: SAMPLE_ASSISTANT,
+    tool: SAMPLE_TOOL,
+  });
+  assert.deepEqual(readAvatarConfig(cwd), {
+    user: null,
+    assistant: SAMPLE_ASSISTANT,
+    tool: SAMPLE_TOOL,
+  });
+});
+
 test("PUT writes a complete three-role record to the project avatars.json", async (t) => {
   resetAllowedRoots();
   const cwd = createProject(t);
