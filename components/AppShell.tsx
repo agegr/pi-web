@@ -10,6 +10,7 @@ import { TabBar, type Tab } from "./TabBar";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
+import { AvatarsConfig } from "./AvatarsConfig";
 import { BranchNavigator } from "./BranchNavigator";
 import { useTheme } from "@/hooks/useTheme";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -48,6 +49,7 @@ export function AppShell() {
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [pluginsConfigOpen, setPluginsConfigOpen] = useState(false);
+  const [avatarsConfigOpen, setAvatarsConfigOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
@@ -412,6 +414,9 @@ export function AppShell() {
     );
   }, [selectedSession]);
 
+  const effectiveProjectCwd = activeCwd ?? selectedSession?.cwd ?? newSessionCwd;
+  const settingsButtonCount = effectiveProjectCwd ? 4 : 3;
+  const compactSettingsButtons = settingsButtonCount > 3;
   // Show chat area if a session is selected, or if we have a cwd to start a new session in
   const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
   const showChat = selectedSession !== null || effectiveNewSessionCwd !== null;
@@ -452,7 +457,7 @@ export function AppShell() {
         onAtMention={handleAtMention}
         onAtMentions={handleAtMentions}
       />
-      <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
+      <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: compactSettingsButtons ? 2 : 4 }}>
         {([
           {
             label: "Models",
@@ -468,6 +473,18 @@ export function AppShell() {
               </svg>
             ),
           },
+          ...(effectiveProjectCwd ? [{
+            label: "Avatars",
+            onClick: () => setAvatarsConfigOpen(true),
+            disabled: false,
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="8" r="3" />
+                <path d="M5 21a7 7 0 0 1 14 0" />
+                <circle cx="12" cy="12" r="10" />
+              </svg>
+            ),
+          }] : []),
           {
             label: "Skills",
             onClick: () => setSkillsConfigOpen(true),
@@ -500,10 +517,10 @@ export function AppShell() {
             disabled={disabled}
             title={label}
             style={{
-              flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: compactSettingsButtons ? 3 : 6,
               height: 32, padding: 0, background: "none", border: "none",
               borderRadius: 9, color: "var(--text-muted)", cursor: disabled ? "default" : "pointer",
-              fontSize: 12, opacity: disabled ? 0.35 : 1,
+              fontSize: compactSettingsButtons ? 11 : 12, whiteSpace: "nowrap", opacity: disabled ? 0.35 : 1,
               transition: "background 0.12s, color 0.12s",
             }}
             onMouseEnter={(e) => { if (!disabled) { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text)"; } }}
@@ -1274,12 +1291,15 @@ export function AppShell() {
       </svg>
     </button>
     {modelsConfigOpen && <ModelsConfig onClose={() => { setModelsConfigOpen(false); setModelsRefreshKey((k) => k + 1); }} />}
-    {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
-      <SkillsConfig cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!} onClose={() => setSkillsConfigOpen(false)} />
+    {avatarsConfigOpen && effectiveProjectCwd && (
+      <AvatarsConfig cwd={effectiveProjectCwd} onClose={() => setAvatarsConfigOpen(false)} />
     )}
-    {pluginsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
+    {skillsConfigOpen && effectiveProjectCwd && (
+      <SkillsConfig cwd={effectiveProjectCwd} onClose={() => setSkillsConfigOpen(false)} />
+    )}
+    {pluginsConfigOpen && effectiveProjectCwd && (
       <PluginsConfig
-        cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!}
+        cwd={effectiveProjectCwd}
         sessionId={selectedSession?.id ?? null}
         onClose={() => setPluginsConfigOpen(false)}
         onReloaded={() => setSessionKey((k) => k + 1)}
