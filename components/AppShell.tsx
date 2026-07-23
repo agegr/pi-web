@@ -11,6 +11,7 @@ import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
 import { AvatarsConfig } from "./AvatarsConfig";
+import { AvatarConfigProvider } from "./AvatarConfigProvider";
 import { BranchNavigator } from "./BranchNavigator";
 import { useTheme } from "@/hooks/useTheme";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -535,7 +536,7 @@ export function AppShell() {
   );
 
   return (
-    <>
+    <AvatarConfigProvider cwd={effectiveProjectCwd}>
     <style>{`
       @keyframes session-info-pop {
         0% {
@@ -1305,6 +1306,6 @@ export function AppShell() {
         onReloaded={() => setSessionKey((k) => k + 1)}
       />
     )}
-    </>
+    </AvatarConfigProvider>
   );
 }

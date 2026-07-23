@@ -2,7 +2,8 @@
 
 import { memo, useState, useRef, useEffect, useMemo } from "react";
 import { MarkdownBody } from "./MarkdownBody";
-import { Avatar } from "./Avatar";
+import { Avatar, type AvatarRole } from "./Avatar";
+import { useAvatarSrc } from "./AvatarConfigProvider";
 import { copyText } from "@/lib/clipboard";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { isEmptyThinkingBlock } from "@/lib/message-display";
@@ -69,6 +70,11 @@ interface Props {
   showTimestamp?: boolean;
   prevTimestamp?: number;
   sessionId?: string;
+}
+
+function RoleAvatar({ role, title }: { role: AvatarRole; title: string }) {
+  const src = useAvatarSrc(role);
+  return <Avatar role={role} title={title} src={src} />;
 }
 
 function formatTime(ts?: number): string | null {
@@ -224,7 +230,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
           {content && <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{content}</MarkdownBody>}
         </div>
 
-        <Avatar role="user" title="User" />
+        <RoleAvatar role="user" title="User" />
       </div>
 
       {/* Bottom row: action buttons + timestamp */}
@@ -477,7 +483,7 @@ function AssistantMessageView({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <Avatar role="assistant" title="Assistant" />
+      <RoleAvatar role="assistant" title="Assistant" />
       <div style={{ flex: 1, minWidth: 0 }}>
       {/* Model label */}
       <div
@@ -726,7 +732,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
           minWidth: 0,
         }}
       >
-        <Avatar role="tool" title="Tool" />
+        <RoleAvatar role="tool" title="Tool" />
         <span style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
           {block.toolName}
         </span>

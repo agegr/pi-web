@@ -3,6 +3,16 @@ export const AVATAR_CONFIG_ROLES = ["user", "assistant", "tool"] as const;
 export type AvatarConfigRole = (typeof AVATAR_CONFIG_ROLES)[number];
 export type AvatarConfig = Record<AvatarConfigRole, string | null>;
 
+/** Image MIME types accepted by the upload boundary. SVG and other formats
+ *  are intentionally excluded; ticket #5 will tighten this further. */
+export const AVATAR_DATA_URL_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
+export type AvatarDataUrlMime = (typeof AVATAR_DATA_URL_MIME_TYPES)[number];
+
+/** Loose canonical form: `data:image/<png|jpeg|webp>;base64,<payload>`.
+ *  Whitespace inside the base64 payload is tolerated; ticket #5 adds tighter
+ *  payload-size and decoding checks. */
+const AVATAR_DATA_URL_RE = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=\s]+)$/i;
+
 export function createEmptyAvatarConfig(): AvatarConfig {
   return {
     user: null,
@@ -39,4 +49,68 @@ export function parseAvatarConfig(source: string | null | undefined): AvatarConf
   } catch {
     return createEmptyAvatarConfig();
   }
+}
+
+export interface AvatarDataUrlValidationOk {
+  ok: true;
+  mime: AvatarDataUrlMime;
+  /** Base64 payload with whitespace stripped. */
+  base64: string;
+}
+
+export interface AvatarDataUrlValidationFail {
+  ok: false;
+  reason: string;
+}
+
+export type AvatarDataUrlValidation = AvatarDataUrlValidationOk | AvatarDataUrlValidationFail;
+
+/**
+ * Validate that a value is a supported PNG/JPEG/WebP data URL. Returns a
+ * discriminated result rather than throwing so the upload boundary can
+ * surface a clear error to the UI without crashing the request.
+ */
+export function validateAvatarDataUrl(value: unknown): AvatarDataUrlValidation {
+  if (typeof value !== "string") {
+    return { ok: false, reason: "avatar value must be a string" };
+  }
+  const match = AVATAR_DATA_URL_RE.exec(value);
+  if (!match) {
+    return { ok: false, reason: "avatar must be a data:image/(png|jpeg|webp);base64 URL" };
+  }
+  const mime = `image/${match[1].toLowerCase()}` as AvatarDataUrlMime;
+  const base64 = match[2].replace(/\s+/g, "");
+  if (base64.length === 0) {
+    return { ok: false, reason: "avatar data URL payload is empty" };
+  }
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
+    return { ok: false, reason: "avatar data URL base64 payload is malformed" };
+  }
+  return { ok: true, mime, base64 };
+}
+
+/**
+ * Validate a full three-role payload as it arrives at the persistence
+ * boundary. Throws on the first invalid role so the server returns a clear
+ * 400 with the offending role key.
+ */
+export function validateAvatarConfigPayload(value: unknown): AvatarConfig {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("avatar config must be a JSON object");
+  }
+  const candidate = value as Record<string, unknown>;
+  const result = createEmptyAvatarConfig();
+  for (const role of AVATAR_CONFIG_ROLES) {
+    const roleValue = candidate[role];
+    if (roleValue === null) {
+      result[role] = null;
+      continue;
+    }
+    const validation = validateAvatarDataUrl(roleValue);
+    if (!validation.ok) {
+      throw new Error(`avatar "${role}" is invalid: ${validation.reason}`);
+    }
+    result[role] = `data:${validation.mime};base64,${validation.base64}`;
+  }
+  return result;
 }

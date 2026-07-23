@@ -24,6 +24,8 @@ test("renders a blue U by default for the user role", () => {
   // default size for non-tool roles is 28
   assert.match(html, /width:28/);
   assert.match(html, /height:28/);
+  // default source marker
+  assert.match(html, /data-avatar-source="default"/);
 });
 
 test("renders a purple A by default for the assistant role", () => {
@@ -66,4 +68,31 @@ test("allows overriding the accessibility label", () => {
   const html = render({ role: "assistant", title: "Claude" });
   assert.match(html, /aria-label="Claude"/);
   assert.match(html, /title="Claude"/);
+});
+
+test("overlays a custom image source when src is provided", () => {
+  const src = "data:image/png;base64,abc";
+  const html = render({ role: "user", src });
+  // Source marker flips to custom.
+  assert.match(html, /data-avatar-source="custom"/);
+  // Underlying letter is still rendered (hidden via aria-hidden on the inner
+  // span) so screen readers fall back gracefully on broken images.
+  assert.match(html, />U</);
+  // The image overlay is rendered with the supplied src.
+  assert.match(html, new RegExp(`<img src="${src.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+  assert.match(html, /border-radius:50%/);
+  // Image is positioned absolutely to cover the letter circle.
+  assert.match(html, /position:absolute/);
+});
+
+test("treats an empty-string src the same as no src", () => {
+  const html = render({ role: "user", src: "" });
+  assert.match(html, /data-avatar-source="default"/);
+  assert.doesNotMatch(html, /<img /);
+});
+
+test("treats a null src the same as no src", () => {
+  const html = render({ role: "user", src: null });
+  assert.match(html, /data-avatar-source="default"/);
+  assert.doesNotMatch(html, /<img /);
 });
