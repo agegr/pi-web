@@ -4,13 +4,19 @@ export type AvatarConfigRole = (typeof AVATAR_CONFIG_ROLES)[number];
 export type AvatarConfig = Record<AvatarConfigRole, string | null>;
 
 /** Image MIME types accepted by the upload boundary. SVG and other formats
- *  are intentionally excluded; ticket #5 will tighten this further. */
+ *  are intentionally excluded: SVG can carry active content and is parsed
+ *  differently by image decoders, so it is not a safe upload format here. */
 export const AVATAR_DATA_URL_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
 export type AvatarDataUrlMime = (typeof AVATAR_DATA_URL_MIME_TYPES)[number];
 
+/** Maximum encoded avatar data URL size in bytes (2 MB). The data URL is
+ *  stored verbatim inside `<cwd>/.pi/avatars.json`, so capping the encoded
+ *  payload keeps the on-disk file small and rejects oversized persisted data. */
+export const AVATAR_DATA_URL_MAX_BYTES = 2 * 1024 * 1024;
+
 /** Loose canonical form: `data:image/<png|jpeg|webp>;base64,<payload>`.
- *  Whitespace inside the base64 payload is tolerated; ticket #5 adds tighter
- *  payload-size and decoding checks. */
+ *  Whitespace inside the base64 payload is tolerated. Size and decoding
+ *  checks live outside the regex so they can fail fast on huge inputs. */
 const AVATAR_DATA_URL_RE = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=\s]+)$/i;
 
 export function createEmptyAvatarConfig(): AvatarConfig {
@@ -69,10 +75,19 @@ export type AvatarDataUrlValidation = AvatarDataUrlValidationOk | AvatarDataUrlV
  * Validate that a value is a supported PNG/JPEG/WebP data URL. Returns a
  * discriminated result rather than throwing so the upload boundary can
  * surface a clear error to the UI without crashing the request.
+ *
+ * The size check runs before the regex match so oversized payloads are
+ * rejected without paying for a full-string scan.
  */
 export function validateAvatarDataUrl(value: unknown): AvatarDataUrlValidation {
   if (typeof value !== "string") {
     return { ok: false, reason: "avatar value must be a string" };
+  }
+  if (value.length > AVATAR_DATA_URL_MAX_BYTES) {
+    return {
+      ok: false,
+      reason: `avatar data URL exceeds ${AVATAR_DATA_URL_MAX_BYTES}-byte limit`,
+    };
   }
   const match = AVATAR_DATA_URL_RE.exec(value);
   if (!match) {

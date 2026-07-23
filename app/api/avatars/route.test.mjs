@@ -305,3 +305,137 @@ test("PUT does not write the file when validation fails", async (t) => {
     false,
   );
 });
+
+// --- ticket #5: oversized payload, project isolation, saved-state untouched ---
+
+test("PUT rejects a role whose data URL exceeds the 2 MB encoded limit", async (t) => {
+  resetAllowedRoots();
+  const cwd = createProject(t);
+  allowFileRoot(cwd);
+  const huge = "data:image/png;base64," + "A".repeat(3 * 1024 * 1024);
+
+  const response = await PUT(
+    makePutRequest(cwd, { user: huge, assistant: null, tool: null }),
+  );
+
+  assert.equal(response.status, 400);
+  const body = await getJson(response);
+  assert.match(body.error, /exceeds|2097152/);
+  // The on-disk file must not have been written.
+  assert.equal(
+    (await import("node:fs")).existsSync(getAvatarConfigPath(cwd)),
+    false,
+  );
+});
+
+test("PUT merges with existing valid roles and still rejects an oversized one", async (t) => {
+  resetAllowedRoots();
+  const cwd = createProject(t);
+  allowFileRoot(cwd);
+  // Seed a valid user avatar via the same API.
+  await PUT(makePutRequest(cwd, {
+    user: SAMPLE_USER,
+    assistant: null,
+    tool: null,
+  }));
+
+  const huge = "data:image/png;base64," + "A".repeat(3 * 1024 * 1024);
+  const response = await PUT(
+    makePutRequest(cwd, { assistant: huge }),
+  );
+
+  assert.equal(response.status, 400);
+  assert.match((await getJson(response)).error, /exceeds/);
+  // The previously saved user avatar must remain intact on disk.
+  assert.deepEqual(readAvatarConfig(cwd), {
+    user: SAMPLE_USER,
+    assistant: null,
+    tool: null,
+  });
+});
+
+test("Project A and Project B do not share avatar config", async (t) => {
+  resetAllowedRoots();
+  const projectA = createProject(t);
+  const projectB = createProject(t);
+  allowFileRoot(projectA);
+  allowFileRoot(projectB);
+
+  // Write a complete three-role config into project A.
+  const writeA = await PUT(
+    makePutRequest(projectA, {
+      user: SAMPLE_USER,
+      assistant: SAMPLE_ASSISTANT,
+      tool: SAMPLE_TOOL,
+    }),
+  );
+  assert.equal(writeA.status, 200);
+
+  // Project B must still read the default all-null record even though both
+  // roots are allowed.
+  const readB = await GET(
+    new Request(`http://localhost/api/avatars?cwd=${encodeURIComponent(projectB)}`),
+  );
+  assert.equal(readB.status, 200);
+  assert.deepEqual(await getJson(readB), {
+    user: null,
+    assistant: null,
+    tool: null,
+  });
+
+  // And project A must still see its own saved record.
+  const readA = await GET(
+    new Request(`http://localhost/api/avatars?cwd=${encodeURIComponent(projectA)}`),
+  );
+  assert.equal(readA.status, 200);
+  assert.deepEqual(await getJson(readA), {
+    user: SAMPLE_USER,
+    assistant: SAMPLE_ASSISTANT,
+    tool: SAMPLE_TOOL,
+  });
+
+  // The on-disk files must live under each project's own .pi directory.
+  const { existsSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  assert.equal(existsSync(getAvatarConfigPath(projectA)), true);
+  assert.equal(existsSync(getAvatarConfigPath(projectB)), false);
+  assert.equal(existsSync(join(projectB, ".pi")), false);
+});
+
+test("GET returns an explicit project cwd's avatars.json without leaking data from other roots", async (t) => {
+  resetAllowedRoots();
+  const projectA = createProject(t);
+  const projectB = createProject(t);
+  allowFileRoot(projectA);
+  allowFileRoot(projectB);
+  await PUT(makePutRequest(projectA, { user: SAMPLE_USER, assistant: null, tool: null }));
+
+  // Reading without a cwd still fails.
+  const noCwd = await GET(new Request("http://localhost/api/avatars"));
+  assert.equal(noCwd.status, 400);
+
+  // Reading with a cwd outside the allowed set still fails.
+  const outside = createProject(t);
+  const denied = await GET(
+    new Request(`http://localhost/api/avatars?cwd=${encodeURIComponent(outside)}`),
+  );
+  assert.equal(denied.status, 403);
+
+  // Reading with project A's cwd returns A's data; project B's cwd is empty.
+  const readA = await GET(
+    new Request(`http://localhost/api/avatars?cwd=${encodeURIComponent(projectA)}`),
+  );
+  const readB = await GET(
+    new Request(`http://localhost/api/avatars?cwd=${encodeURIComponent(projectB)}`),
+  );
+  assert.deepEqual(await getJson(readA), {
+    user: SAMPLE_USER,
+    assistant: null,
+    tool: null,
+  });
+  assert.deepEqual(await getJson(readB), {
+    user: null,
+    assistant: null,
+    tool: null,
+  });
+});

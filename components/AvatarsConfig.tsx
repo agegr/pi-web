@@ -12,6 +12,7 @@ import {
   AVATAR_IMAGE_MAX_SIZE,
   resizeAvatarDataUrl,
 } from "@/lib/avatar-image";
+import { processAvatarUpload } from "@/lib/avatar-upload";
 import { responseError } from "@/lib/response-error";
 import { useAvatarConfig } from "./AvatarConfigProvider";
 import { Avatar } from "./Avatar";
@@ -21,12 +22,6 @@ const ROLE_LABELS: Record<AvatarConfigRole, string> = {
   assistant: "Assistant",
   tool: "Tool",
 };
-
-const ACCEPTED_MIME_TYPES = [
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-] as const;
 
 function displayConfigPath(cwd: string): string {
   const shortened = cwd
@@ -51,9 +46,8 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
-async function readFileAndResize(file: File): Promise<string> {
-  const dataUrl = await readFileAsDataUrl(file);
-  return await resizeAvatarDataUrl(dataUrl, AVATAR_IMAGE_MAX_SIZE);
+function resizeAvatar(dataUrl: string): Promise<string> {
+  return resizeAvatarDataUrl(dataUrl, AVATAR_IMAGE_MAX_SIZE);
 }
 
 function AvatarPreview({
@@ -164,7 +158,7 @@ function RoleCard({
       <input
         ref={fileInputRef}
         type="file"
-        accept={ACCEPTED_MIME_TYPES.join(",")}
+        accept="image/png,image/jpeg,image/webp"
         onChange={handleFileChange}
         data-avatar-upload-input={role}
         style={{ display: "none" }}
@@ -312,16 +306,29 @@ export function AvatarsConfig({
     return AVATAR_CONFIG_ROLES.some((role) => draftConfig[role] !== savedConfig[role]);
   }, [draftConfig, savedConfig]);
 
+  /**
+   * Validate and apply an uploaded avatar for a single role. The pure
+   * `processAvatarUpload` helper guarantees:
+   * - SVG / unsupported MIME files are rejected before the draft changes.
+   * - Undecodable images are rejected before the draft changes.
+   * - Encoded data URLs over the 2 MB limit are rejected before the draft
+   *   changes.
+   * On any rejection the draft (and therefore the saved config on disk)
+   * remain unchanged - only the per-role error string is updated.
+   */
   const handleUpload = async (role: AvatarConfigRole, file: File) => {
     setUploadingRole(role);
     setUploadErrors((prev) => ({ ...prev, [role]: null }));
     try {
-      const accepted = ACCEPTED_MIME_TYPES as readonly string[];
-      if (!accepted.includes(file.type)) {
-        throw new Error(`Unsupported file type: ${file.type || "unknown"}`);
+      const result = await processAvatarUpload(file, {
+        readDataUrl: readFileAsDataUrl,
+        resizeDataUrl: resizeAvatar,
+      });
+      if (!result.ok) {
+        setUploadErrors((prev) => ({ ...prev, [role]: result.reason }));
+        return;
       }
-      const dataUrl = await readFileAndResize(file);
-      setDraftConfig((prev) => ({ ...prev, [role]: dataUrl }));
+      setDraftConfig((prev) => ({ ...prev, [role]: result.dataUrl }));
     } catch (uploadError) {
       const message = uploadError instanceof Error ? uploadError.message : String(uploadError);
       setUploadErrors((prev) => ({ ...prev, [role]: message }));
