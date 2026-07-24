@@ -333,6 +333,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [customPathValue, setCustomPathValue] = useState("");
   const [customPathError, setCustomPathError] = useState<string | null>(null);
   const [customPathValidating, setCustomPathValidating] = useState(false);
+  const [recentCwds, setRecentCwds] = useState<string[]>([]);
+  const lastRecordedCwdRef = useRef<string | null>(null);
   const customPathInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   // Worktree switcher state
@@ -463,6 +465,42 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       if (d.home) setHomeDir(d.home);
     }).catch(() => {});
   }, []);
+
+  // Load recent cwds
+  useEffect(() => {
+    fetch("/api/cwd/recent").then((r) => r.json()).then((d: { recent?: string[] }) => {
+      if (d.recent) setRecentCwds(d.recent);
+    }).catch(() => {});
+  }, []);
+
+  // Record selected cwd as recent whenever it changes
+  const recordRecentCwd = useCallback(async (cwd: string) => {
+    if (cwd === lastRecordedCwdRef.current) return;
+    lastRecordedCwdRef.current = cwd;
+    try {
+      const res = await fetch("/api/cwd/recent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd }),
+      });
+      if (res.ok) {
+        const data = await res.json() as { recent?: string[] };
+        if (data.recent) setRecentCwds(data.recent);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // Auto-record on selectedCwd change, debounced to avoid recording the
+  // initial auto-selected project alongside the user's later pick.
+  const pendingRecordRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!selectedCwd) return;
+    if (pendingRecordRef.current) clearTimeout(pendingRecordRef.current);
+    pendingRecordRef.current = setTimeout(() => {
+      recordRecentCwd(selectedCwd!);
+    }, 500);
+    return () => { if (pendingRecordRef.current) clearTimeout(pendingRecordRef.current); };
+  }, [selectedCwd, recordRecentCwd]);
 
   const restoredRef = useRef(false);
 
@@ -1002,6 +1040,63 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-dim)" }}>No matching projects</div>
                 )}
               </div>
+
+              {/* Recent paths — only show when not filtering */}
+              {!projectFilter.trim() && recentCwds.length > 0 && (() => {
+                const recentToShow = recentCwds.filter((p) => !visibleProjects.includes(p)).slice(0, 5);
+                if (recentToShow.length === 0) return null;
+                return (
+                  <>
+                    <div style={{
+                      padding: "6px 10px 4px",
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: "var(--text-dim)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.07em",
+                      borderTop: visibleProjects.length > 0 ? "1px solid var(--border)" : "none",
+                    }}>
+                      Recent
+                    </div>
+                    {recentToShow.map((path) => (
+                      <button
+                        key={path}
+                        onClick={() => {
+                          setSelectedCwd(path);
+                          setProjectFilter("");
+                          setCustomPathOpen(false);
+                          setCustomPathValue("");
+                          setCustomPathError(null);
+                          setDropdownOpen(false);
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 7,
+                          width: "100%",
+                          padding: "7px 10px",
+                          background: "none",
+                          border: "none",
+                          color: path === selectedCwd ? "var(--text)" : "var(--text-muted)",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          fontSize: 11,
+                          fontFamily: "var(--font-mono)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={path}
+                      >
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" style={{ flexShrink: 0 }}>
+                          <path d="M8.5 2.5H4L2.5 1h-1A.5.5 0 0 0 1 1.5v7a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5v-6a.5.5 0 0 0-.5-.5Z" />
+                        </svg>
+                        <PathLabel text={displayCwd(path, homeDir)} style={{ flex: 1 }} />
+                      </button>
+                    ))}
+                  </>
+                );
+              })()}
 
               {/* Default cwd shortcut */}
               {!customPathOpen && (
