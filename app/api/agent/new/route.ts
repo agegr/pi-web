@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { existsSync } from "fs";
+import { randomUUID } from "crypto";
 import { allowFileRoot } from "@/lib/file-access";
 import { invalidateSessionListCache } from "@/lib/session-reader";
 import { startRpcSession } from "@/lib/rpc-manager";
@@ -19,10 +20,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `Directory does not exist: ${cwd}` }, { status: 400 });
     }
 
-    // Use a one-time key so startRpcSession's lock doesn't conflict with real session ids
     const { provider, modelId, toolNames, thinkingLevel, ...promptCommand } = command as { provider?: string; modelId?: string; toolNames?: string[]; thinkingLevel?: string; [key: string]: unknown };
 
-    const tempKey = `__new__${Date.now()}`;
+    // Use a unique one-time key so startRpcSession's in-flight lock never
+    // coalesces two independent new-session requests. Date.now() has only
+    // millisecond resolution, so concurrent calls in the same millisecond
+    // would otherwise share one lock key and be merged into a single pi
+    // session (see issue #227). randomUUID() guarantees per-request isolation.
+    const tempKey = `__new__${randomUUID()}`;
     const { session, realSessionId } = await startRpcSession(tempKey, "", cwd, toolNames);
 
     // Keep the files-route allowed-roots cache (see app/api/files/[...path]/route.ts)
