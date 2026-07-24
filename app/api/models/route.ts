@@ -47,6 +47,21 @@ async function loadModels(cwd: string): Promise<ModelsData> {
 
   const agentDir = getAgentDir();
   const services = await createAgentSessionServices({ cwd, agentDir });
+
+  // Only config-level errors (schema/parse) prevent model loading;
+  // provider-level errors like "Availability refresh" or composition
+  // issues should still allow partial results.
+  const runtimeError = services.modelRuntime.getError();
+  const isConfigError = runtimeError && (
+    runtimeError.startsWith("Invalid models.json schema:") ||
+    runtimeError.startsWith("Failed to parse models.json:")
+  );
+  if (isConfigError) {
+    const lines = runtimeError!.split("\n").filter((l) => l.startsWith("  - "));
+    const formatted = lines.map((l) => l.replace(/^\s*-\s*/, "").replace(/: must not have fewer than 1 characters$/, " must not be empty"));
+    return { models: {}, modelList: [], defaultModel: null, thinkingLevels: {}, thinkingLevelMaps: {}, configError: formatted.join("\n") || runtimeError! };
+  }
+
   const available = await services.modelRuntime.getAvailable();
   const settings: SettingsManager = services.settingsManager;
   const enabledModels = settings.getEnabledModels();
