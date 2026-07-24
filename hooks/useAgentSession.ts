@@ -314,7 +314,6 @@ type ModelsResponse = {
   defaultModel?: SelectedModel | null;
   thinkingLevels?: Record<string, string[]>;
   thinkingLevelMaps?: Record<string, Record<string, string | null>>;
-  configError?: string;
 };
 
 type SlashCommandsResponse = {

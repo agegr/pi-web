@@ -372,13 +372,7 @@ export class AgentSessionWrapper {
 
       case "set_model": {
         const { provider, modelId } = command as { provider: string; modelId: string };
-        await this.inner.modelRuntime.reloadConfig();
-        let model = this.inner.modelRuntime.getModel(provider, modelId);
-        if (!model) {
-          // If still not found, try refreshing available models (dynamic providers)
-          await this.inner.modelRuntime.refresh({ allowNetwork: false });
-          model = this.inner.modelRuntime.getModel(provider, modelId);
-        }
+        const model = this.inner.modelRuntime.getModel(provider, modelId);
         if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
         await this.inner.setModel(model);
         invalidateModelsCache();
