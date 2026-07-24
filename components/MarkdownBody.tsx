@@ -19,7 +19,7 @@ interface MarkdownBodyProps {
 }
 
 export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile }: MarkdownBodyProps) {
-  const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
+  const normalizedMarkdown = useMemo(() => normalizeMathDelimiters(children), [children]);
 
   return (
     <div className={["markdown-body", className].filter(Boolean).join(" ")}>
@@ -92,10 +92,11 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
   );
 }
 
-function normalizeDisplayMath(markdown: string): string {
+export function normalizeMathDelimiters(markdown: string): string {
   const lineBreak = markdown.includes("\r\n") ? "\r\n" : "\n";
   const lines = markdown.split(/\r?\n/);
   let fence: { marker: string; size: number } | null = null;
+  let bracketDisplayIndent: string | null = null;
 
   return lines
     .map((line) => {
@@ -110,15 +111,76 @@ function normalizeDisplayMath(markdown: string): string {
 
       if (fence) return line;
 
+      if (bracketDisplayIndent !== null) {
+        if (/^[ \t]{0,3}\\\][ \t]*$/.test(line)) {
+          const indent = bracketDisplayIndent;
+          bracketDisplayIndent = null;
+          return `${indent}$$`;
+        }
+        return line;
+      }
+
+      const bracketDisplayOneLine = line.match(/^([ \t]{0,3})\\\[\s*(.+?)\s*\\\][ \t]*$/);
+      if (bracketDisplayOneLine) {
+        return `${bracketDisplayOneLine[1]}$$${lineBreak}${bracketDisplayOneLine[2]}${lineBreak}${bracketDisplayOneLine[1]}$$`;
+      }
+
+      const bracketDisplayStart = line.match(/^([ \t]{0,3})\\\[[ \t]*$/);
+      if (bracketDisplayStart) {
+        bracketDisplayIndent = bracketDisplayStart[1];
+        return `${bracketDisplayIndent}$$`;
+      }
+
       const displayMathMatch = line.match(/^([ \t]{0,3})\$\$(.+)\$\$[ \t]*$/);
-      if (!displayMathMatch) return line;
+      if (displayMathMatch) {
+        const math = displayMathMatch[2].trim();
+        if (math) {
+          return `${displayMathMatch[1]}$$${lineBreak}${math}${lineBreak}${displayMathMatch[1]}$$`;
+        }
+      }
 
-      const math = displayMathMatch[2].trim();
-      if (!math) return line;
-
-      return `${displayMathMatch[1]}$$${lineBreak}${math}${lineBreak}${displayMathMatch[1]}$$`;
+      return normalizeInlineMathDelimiters(line);
     })
     .join(lineBreak);
+}
+
+function normalizeInlineMathDelimiters(line: string): string {
+  let result = "";
+  let cursor = 0;
+  let inCode = false;
+  let codeMarkerSize = 0;
+
+  while (cursor < line.length) {
+    if (line[cursor] === "`") {
+      let end = cursor + 1;
+      while (line[end] === "`") end++;
+      const markerSize = end - cursor;
+      if (!inCode) {
+        inCode = true;
+        codeMarkerSize = markerSize;
+      } else if (markerSize === codeMarkerSize) {
+        inCode = false;
+        codeMarkerSize = 0;
+      }
+      result += line.slice(cursor, end);
+      cursor = end;
+      continue;
+    }
+
+    if (!inCode && line.startsWith("\\(", cursor)) {
+      const closing = line.indexOf("\\)", cursor + 2);
+      if (closing !== -1) {
+        result += `$${line.slice(cursor + 2, closing)}$`;
+        cursor = closing + 2;
+        continue;
+      }
+    }
+
+    result += line[cursor];
+    cursor++;
+  }
+
+  return result;
 }
 
 function MermaidBlock({ code, isStreaming }: { code: string; isStreaming?: boolean }) {
