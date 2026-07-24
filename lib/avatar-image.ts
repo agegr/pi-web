@@ -60,9 +60,6 @@ const BROWSER_DEPS: ResizeDeps = {
     });
   },
   createCanvas: (width, height) => {
-    if (typeof OffscreenCanvas !== "undefined") {
-      return new OffscreenCanvas(width, height) as unknown as ResizeCanvas;
-    }
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
