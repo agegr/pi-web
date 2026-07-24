@@ -11,6 +11,7 @@ import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
 import { BranchNavigator } from "./BranchNavigator";
+import { CodeReviewPanel } from "./CodeReviewPanel";
 import { useTheme } from "@/hooks/useTheme";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { copyText } from "@/lib/clipboard";
@@ -20,6 +21,7 @@ import { getInitialNavigation } from "@/lib/initial-navigation";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import type { GitReviewResponse } from "@/lib/git-types";
 
 type SessionCopyField = "file" | "id";
 type AutoNameStatus =
@@ -146,10 +148,17 @@ export function AppShell() {
     return () => ro.disconnect();
   }, [activeTopPanel]);
 
-  // Right panel — file tabs only
+  // Right panel — file tabs plus prompt-scoped code review.
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const [rightPanelMode, setRightPanelMode] = useState<"files" | "review">("files");
+  const [codeReview, setCodeReview] = useState<GitReviewResponse | null>(null);
+  const [reviewLifecycleError, setReviewLifecycleError] = useState<{ message: string; runId: number; retryFinish: boolean } | null>(null);
+  const reviewRunsRef = useRef(new Map<number, { reviewId: string; scopeRevision: number }>());
+  const reviewScopeRevisionRef = useRef(0);
+  const visibleReviewIdRef = useRef<string | null>(null);
+  const finishingReviewRunsRef = useRef(new Set<number>());
 
   // Same @mention format as the chat input's @ autocomplete, so the agent's
   // read tool resolves it the same way (it strips the @ prefix).
@@ -168,6 +177,23 @@ export function AppShell() {
   const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !initialSessionId);
   // Suppresses sessionKey bump in handleCwdChange during the initial URL restore
   const suppressCwdBumpRef = useRef(false);
+
+  const clearReviewScope = useCallback(() => {
+    reviewScopeRevisionRef.current += 1;
+    for (const { reviewId } of reviewRunsRef.current.values()) {
+      void fetch("/api/git/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel", reviewId }),
+      }).catch(() => {});
+    }
+    reviewRunsRef.current.clear();
+    finishingReviewRunsRef.current.clear();
+    visibleReviewIdRef.current = null;
+    setCodeReview(null);
+    setReviewLifecycleError(null);
+    setRightPanelMode("files");
+  }, []);
 
   useEffect(() => {
     const requestedCwd = initialNavigation.requestedCwd;
@@ -221,6 +247,7 @@ export function AppShell() {
     }
     // Close any session that belongs to a different project — it no longer
     // matches the selected project directory.
+    clearReviewScope();
     setSelectedSession(null);
     setNewSessionCwd((prev) => {
       if (prev && prev !== cwd) return null;
@@ -232,9 +259,10 @@ export function AppShell() {
     setSystemPrompt(null);
     setActiveTopPanel(null);
     router.replace("/", { scroll: false });
-  }, [router, selectedSession]);
+  }, [clearReviewScope, router, selectedSession]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
+    if (selectedSession?.id !== session.id) clearReviewScope();
     setNewSessionCwd(null);
     setSelectedSession(session);
     setSessionKey((k) => k + 1);
@@ -252,9 +280,10 @@ export function AppShell() {
     if (!isRestore) {
       router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
     }
-  }, [router, isMobile]);
+  }, [clearReviewScope, router, isMobile, selectedSession?.id]);
 
   const handleNewSession = useCallback((_sessionId: string, cwd: string) => {
+    clearReviewScope();
     setSelectedSession(null);
     setNewSessionCwd(cwd);
     setSessionKey((k) => k + 1);
@@ -264,7 +293,7 @@ export function AppShell() {
     setActiveTopPanel(null);
     if (isMobile) setSidebarOpen(false);
     router.replace("/", { scroll: false });
-  }, [router, isMobile]);
+  }, [clearReviewScope, router, isMobile]);
 
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
   useGlobalKeyboardShortcuts({
@@ -296,9 +325,112 @@ export function AppShell() {
     router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
   }, [router, hydrateSelectedSession]);
 
-  const handleAgentEnd = useCallback(() => {
+  const handlePromptStart = useCallback(async (runId: number) => {
+    const cwd = selectedSession?.cwd ?? newSessionCwd ?? activeCwd;
+    if (!cwd) return;
+    const scopeRevision = reviewScopeRevisionRef.current;
+    for (const [olderRunId, { reviewId }] of reviewRunsRef.current) {
+      reviewRunsRef.current.delete(olderRunId);
+      void fetch("/api/git/review", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel", reviewId }),
+      }).catch(() => {});
+    }
+    visibleReviewIdRef.current = null;
+    setCodeReview(null);
+    setReviewLifecycleError(null);
+    if (rightPanelMode === "review") setRightPanelMode("files");
+    try {
+      const response = await fetch("/api/git/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "start", cwd, runId }),
+      });
+      const body = await response.json() as { supported?: boolean; reviewId?: string; reason?: string; error?: string };
+      if (!response.ok || !body.supported || !body.reviewId) throw new Error(body.error || body.reason || `HTTP ${response.status}`);
+      if (scopeRevision !== reviewScopeRevisionRef.current) {
+        void fetch("/api/git/review", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "cancel", reviewId: body.reviewId }),
+        }).catch(() => {});
+        return;
+      }
+      reviewRunsRef.current.set(runId, { reviewId: body.reviewId, scopeRevision });
+    } catch (error) {
+      if (scopeRevision === reviewScopeRevisionRef.current) {
+        setReviewLifecycleError({ message: error instanceof Error ? error.message : String(error), runId, retryFinish: false });
+      }
+    }
+  }, [activeCwd, newSessionCwd, rightPanelMode, selectedSession?.cwd]);
+
+  const handlePromptAccepted = useCallback(async (runId: number) => {
+    const entry = reviewRunsRef.current.get(runId);
+    if (!entry || entry.scopeRevision !== reviewScopeRevisionRef.current) return;
+    try {
+      const response = await fetch("/api/git/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "activate", reviewId: entry.reviewId }),
+      });
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+    } catch (error) {
+      if (reviewRunsRef.current.get(runId)?.reviewId === entry.reviewId) {
+        setReviewLifecycleError({ message: error instanceof Error ? error.message : String(error), runId, retryFinish: false });
+      }
+    }
+  }, []);
+
+  const handlePromptCancel = useCallback((runId: number) => {
+    const entry = reviewRunsRef.current.get(runId);
+    reviewRunsRef.current.delete(runId);
+    if (!entry) return;
+    void fetch("/api/git/review", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "cancel", reviewId: entry.reviewId }),
+    }).catch(() => {});
+  }, []);
+
+  const finishReviewForRun = useCallback(async (runId: number) => {
+    const entry = reviewRunsRef.current.get(runId);
+    if (!entry || entry.scopeRevision !== reviewScopeRevisionRef.current || finishingReviewRunsRef.current.has(runId)) return;
+    finishingReviewRunsRef.current.add(runId);
+    try {
+      const response = await fetch("/api/git/review", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "finish", reviewId: entry.reviewId }),
+      });
+      const body = await response.json() as GitReviewResponse & { error?: string };
+      if (!response.ok) {
+        throw Object.assign(new Error(body.error || `HTTP ${response.status}`), { retryable: response.status === 409 || response.status >= 500 });
+      }
+      const current = reviewRunsRef.current.get(runId);
+      if (!current || current.reviewId !== entry.reviewId || current.scopeRevision !== reviewScopeRevisionRef.current || body.runId !== runId) return;
+      setReviewLifecycleError(null);
+      if (body.files.length === 0) return;
+      visibleReviewIdRef.current = body.id;
+      setCodeReview(body);
+      setRightPanelMode("review");
+      setRightPanelOpen(true);
+    } catch (error) {
+      if (entry.scopeRevision === reviewScopeRevisionRef.current && reviewRunsRef.current.get(runId)?.reviewId === entry.reviewId) {
+        const retryable = !(typeof error === "object" && error && "retryable" in error) || error.retryable === true;
+        setReviewLifecycleError({ message: error instanceof Error ? error.message : String(error), runId, retryFinish: retryable });
+      }
+    } finally {
+      finishingReviewRunsRef.current.delete(runId);
+    }
+  }, []);
+
+  const handleAgentEnd = useCallback((runId: number) => {
     setRefreshKey((k) => k + 1);
     setExplorerRefreshKey((k) => k + 1);
+    void finishReviewForRun(runId);
+  }, [finishReviewForRun]);
+
+  const handleReviewChange = useCallback((next: GitReviewResponse) => {
+    if (visibleReviewIdRef.current !== next.id) return;
+    setCodeReview((current) => current?.id === next.id && next.revision >= current.revision ? next : current);
   }, []);
 
   const handleAutoName = useCallback(async () => {
@@ -342,6 +474,7 @@ export function AppShell() {
   }, []);
 
   const handleSessionForked = useCallback((newSessionId: string) => {
+    clearReviewScope();
     setRefreshKey((k) => k + 1);
     setSessionKey((k) => k + 1);
     setNewSessionCwd(null);
@@ -351,7 +484,7 @@ export function AppShell() {
     }));
     hydrateSelectedSession(newSessionId);
     router.replace(`?session=${encodeURIComponent(newSessionId)}`, { scroll: false });
-  }, [router, hydrateSelectedSession]);
+  }, [clearReviewScope, router, hydrateSelectedSession]);
 
   const handleInitialRestoreDone = useCallback(() => {
     setInitialSessionRestored(true);
@@ -360,6 +493,7 @@ export function AppShell() {
   const handleSessionDeleted = useCallback((sessionId: string) => {
     setRefreshKey((k) => k + 1);
     if (selectedSession?.id === sessionId) {
+      clearReviewScope();
       const cwd = selectedSession.cwd;
       setSelectedSession(null);
       setNewSessionCwd(cwd ?? null);
@@ -370,7 +504,7 @@ export function AppShell() {
       setActiveTopPanel(null);
       router.replace("/", { scroll: false });
     }
-  }, [selectedSession, router]);
+  }, [clearReviewScope, selectedSession, router]);
 
   const handleOpenFile = useCallback((filePath: string, fileName: string, sourceSessionId?: string | null) => {
     const tabId = `file:${filePath}`;
@@ -381,6 +515,7 @@ export function AppShell() {
       return prev.map((t) => t.id === tabId ? { ...t, sourceSessionId } : t);
     });
     setActiveFileTabId(tabId);
+    setRightPanelMode("files");
     setRightPanelOpen(true);
     // On mobile the file panel is full-screen; close the drawer so it shows.
     if (isMobile) setSidebarOpen(false);
@@ -393,7 +528,7 @@ export function AppShell() {
   const handleCloseFileTab = useCallback((tabId: string) => {
     setFileTabs((prev) => {
       const next = prev.filter((t) => t.id !== tabId);
-      if (next.length === 0) setRightPanelOpen(false);
+      if (next.length === 0 && !codeReview) setRightPanelOpen(false);
       return next;
     });
     setActiveFileTabId((cur) => {
@@ -401,7 +536,7 @@ export function AppShell() {
       const remaining = fileTabs.filter((t) => t.id !== tabId);
       return remaining.length > 0 ? remaining[remaining.length - 1].id : null;
     });
-  }, [fileTabs]);
+  }, [codeReview, fileTabs]);
 
   const handleViewFullHistory = useCallback(() => {
     if (!selectedSession) return;
@@ -1153,6 +1288,9 @@ export function AppShell() {
               session={selectedSession}
               newSessionCwd={effectiveNewSessionCwd}
               onAgentEnd={handleAgentEnd}
+              onPromptStart={handlePromptStart}
+              onPromptAccepted={handlePromptAccepted}
+              onPromptCancel={handlePromptCancel}
               onSessionCreated={handleSessionCreated}
               onSessionForked={handleSessionForked}
               modelsRefreshKey={modelsRefreshKey}
@@ -1220,20 +1358,51 @@ export function AppShell() {
       >
         {/* Right panel tab bar */}
         <div style={{ display: "flex", alignItems: "center", flexShrink: 0, background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", height: 36 }}>
-          <div style={{ flex: 1, overflow: "hidden" }}>
-            <TabBar
-              tabs={fileTabs}
-              activeTabId={activeFileTabId ?? ""}
-              onSelectTab={setActiveFileTabId}
-              onCloseTab={handleCloseFileTab}
-            />
+          <div style={{ flex: 1, minWidth: 0, overflow: "hidden", display: "flex" }}>
+            {(codeReview || reviewLifecycleError) && (
+              <button
+                type="button"
+                className="review-tab-button"
+                aria-pressed={rightPanelMode === "review"}
+                style={{ background: rightPanelMode === "review" ? "var(--bg)" : "var(--bg-panel)", color: rightPanelMode === "review" ? "var(--text)" : "var(--text-muted)" }}
+                onClick={() => { setRightPanelMode("review"); setRightPanelOpen(true); }}
+                title={reviewLifecycleError ? "Code review needs attention" : "Review changes from the latest prompt"}
+              >
+                <span aria-hidden="true">±</span>
+                <span>Review</span>
+                <span className="review-tab-count">{reviewLifecycleError ? "!" : codeReview?.files.length ?? 0}</span>
+              </button>
+            )}
+            <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
+              <TabBar
+                tabs={fileTabs}
+                activeTabId={rightPanelMode === "files" ? activeFileTabId ?? "" : ""}
+                onSelectTab={(id) => { setActiveFileTabId(id); setRightPanelMode("files"); }}
+                onCloseTab={handleCloseFileTab}
+              />
+            </div>
           </div>
 
         </div>
 
         {/* File content */}
         <div style={{ flex: 1, overflow: "hidden" }}>
-          {activeFileTab?.filePath ? (
+          {rightPanelMode === "review" && codeReview ? (
+            <CodeReviewPanel
+              review={codeReview}
+              onReviewChange={handleReviewChange}
+              onClose={() => setRightPanelOpen(false)}
+              onFilesChanged={() => setExplorerRefreshKey((key) => key + 1)}
+            />
+          ) : rightPanelMode === "review" && reviewLifecycleError ? (
+            <div className="review-lifecycle-error" role="alert">
+              <strong>Code review unavailable</strong>
+              <span>{reviewLifecycleError.message}</span>
+              {reviewLifecycleError.retryFinish && (
+                <button type="button" onClick={() => void finishReviewForRun(reviewLifecycleError.runId)}>Retry review</button>
+              )}
+            </div>
+          ) : activeFileTab?.filePath ? (
             <FileViewer
               filePath={activeFileTab.filePath}
               cwd={activeCwd ?? undefined}
@@ -1255,9 +1424,12 @@ export function AppShell() {
     </div>
     {/* File panel toggle — always visible at top-right */}
     <button
-      onClick={() => setRightPanelOpen((v) => !v)}
-      title={rightPanelOpen ? "Hide file panel" : "Show file panel"}
-      aria-label={rightPanelOpen ? "Hide file panel" : "Show file panel"}
+      onClick={() => setRightPanelOpen((open) => {
+        if (!open && (codeReview || reviewLifecycleError)) setRightPanelMode("review");
+        return !open;
+      })}
+      title={rightPanelOpen ? "Hide right panel" : codeReview || reviewLifecycleError ? "Show code review panel" : "Show file panel"}
+      aria-label={rightPanelOpen ? "Hide right panel" : codeReview || reviewLifecycleError ? "Show code review panel" : "Show file panel"}
       style={{
         position: "fixed", top: 0, right: 0, zIndex: 300,
         display: "flex", alignItems: "center", justifyContent: "center",
@@ -1272,6 +1444,9 @@ export function AppShell() {
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
       </svg>
+      {(codeReview || reviewLifecycleError) && !rightPanelOpen && (
+        <span className="review-reopen-badge" aria-label="Code review available">{reviewLifecycleError ? "!" : codeReview?.files.length}</span>
+      )}
     </button>
     {modelsConfigOpen && <ModelsConfig onClose={() => { setModelsConfigOpen(false); setModelsRefreshKey((k) => k + 1); }} />}
     {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (

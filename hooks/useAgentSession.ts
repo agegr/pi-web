@@ -77,6 +77,7 @@ type AgentStateResponse = {
   extensionStatuses?: ExtensionStatusItem[];
   extensionWidgets?: ExtensionWidgetItem[];
   queuedMessages?: { steering?: string[]; followUp?: string[] } | null;
+  activeRunId?: number | null;
 };
 
 export interface QueuedMessages {
@@ -141,7 +142,10 @@ export type BuiltinSlashCommandResult =
 export interface UseAgentSessionOptions {
   session: SessionInfo | null;
   newSessionCwd: string | null;
-  onAgentEnd?: () => void;
+  onAgentEnd?: (runId: number) => void;
+  onPromptStart?: (runId: number) => Promise<void>;
+  onPromptAccepted?: (runId: number) => Promise<void>;
+  onPromptCancel?: (runId: number) => void;
   onSessionCreated?: (session: SessionInfo) => void;
   onSessionForked?: (newSessionId: string) => void;
   modelsRefreshKey?: number;
@@ -322,7 +326,7 @@ type SlashCommandsResponse = {
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
-    session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked,
+    session, newSessionCwd, onAgentEnd, onPromptStart, onPromptAccepted, onPromptCancel, onSessionCreated, onSessionForked,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   } = opts;
 
@@ -740,14 +744,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [addNotice, opts.chatInputRef]);
 
-  const finishPromptWithoutStream = useCallback(async (sid: string | null = sessionIdRef.current, runId?: number) => {
+  const finishPromptWithoutStream = useCallback(async (sid: string | null = sessionIdRef.current, runId = promptRunIdRef.current) => {
     // Bail out before loadSession too: a stale finish for a previous run
     // must not overwrite the messages of the run currently streaming.
-    if (runId !== undefined && promptRunIdRef.current !== runId) return;
+    if (promptRunIdRef.current !== runId) return;
     try {
       if (sid) await loadSession(sid);
     } finally {
-      if (runId !== undefined && promptRunIdRef.current !== runId) return;
+      if (promptRunIdRef.current !== runId) return;
       optimisticUserMessageKeyRef.current = null;
       if (!agentRunningRef.current) return;
       agentRunningRef.current = false;
@@ -755,7 +759,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       setRetryInfo(null);
       dispatch({ type: "end" });
-      onAgentEnd?.();
+      onAgentEnd?.(runId);
     }
   }, [loadSession, onAgentEnd]);
 
@@ -827,6 +831,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // flight) — everything in it is stale, drop it.
       if (promptRunIdRef.current !== runId) return;
       const state = data.state;
+      if (typeof state?.activeRunId === "number" && state.activeRunId !== runId) return;
       // Mirror compaction state unconditionally: a missed compaction_end
       // would otherwise leave the "Stop compaction" UI stuck. No state
       // (wrapper destroyed) means nothing is compacting.
@@ -883,10 +888,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setAgentPhase({ kind: "waiting_model" });
         dispatch({ type: "start" });
         break;
-      case "agent_end":
-        // A late agent_end can arrive over SSE after reconcileAgentState
-        // already finished this run — don't re-trigger completion.
-        if (!agentRunningRef.current) break;
+      case "agent_end": {
+        const eventRunId = typeof event.runId === "number" ? event.runId : promptRunIdRef.current;
+        // A server-tagged run prevents a buffered completion from run A
+        // from finishing a newer run B.
+        if (eventRunId !== promptRunIdRef.current || !agentRunningRef.current) break;
         agentRunningRef.current = false;
         setAgentRunning(false);
         setAgentPhase(null);
@@ -907,12 +913,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             })
             .catch(() => {});
         }
-        onAgentEnd?.();
+        onAgentEnd?.(eventRunId);
         break;
-      case "prompt_done":
-        if (!agentRunningRef.current) break;
-        void finishPromptWithoutStream(sessionIdRef.current);
+      }
+      case "prompt_done": {
+        const eventRunId = typeof event.runId === "number" ? event.runId : promptRunIdRef.current;
+        if (eventRunId !== promptRunIdRef.current || !agentRunningRef.current) break;
+        void finishPromptWithoutStream(sessionIdRef.current, eventRunId);
         break;
+      }
       case "prompt_error":
         addNotice({ type: "error", message: (event.errorMessage as string | undefined) ?? "Command failed" });
         break;
@@ -1040,7 +1049,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return;
     }
 
-    const promptRunId = promptRunIdRef.current + 1;
+    // Use a wall-clock floor as well as local monotonicity so a remount or a
+    // second browser tab cannot easily reuse an old run id still buffered in SSE.
+    const promptRunId = Math.max(promptRunIdRef.current + 1, Date.now());
 
     const imageBlocks = images?.map((img) => ({ type: "image" as const, source: { type: "base64" as const, media_type: img.mimeType, data: img.data } }));
     const userMsg: AgentMessage = {
@@ -1062,7 +1073,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
 
+    let promptAccepted = false;
     try {
+      // The review baseline must exist before the prompt can execute tools.
+      // The callback resolves quietly when Git review is unavailable.
+      await onPromptStart?.(promptRunId);
       let sentSessionId: string | null = null;
       if (isNew && newSessionCwd) {
         const selectedModel = newSessionModel;
@@ -1082,7 +1097,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             type: "prompt",
             message,
             ...(piImages?.length ? { images: piImages } : {}),
+            runId: promptRunId,
           });
+          promptAccepted = true;
+          try { await onPromptAccepted?.(promptRunId); }
+          catch (error) { console.error("Failed to activate code review:", error); }
           promoteNewSession(1, message);
         }
       } else if (session) {
@@ -1092,12 +1111,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           type: "prompt",
           message,
           ...(piImages?.length ? { images: piImages } : {}),
+          runId: promptRunId,
         });
+        promptAccepted = true;
+        try { await onPromptAccepted?.(promptRunId); }
+        catch (error) { console.error("Failed to activate code review:", error); }
       }
+      if (!promptAccepted) throw new Error("Unable to start the prompt");
       if (isSlashCommandPrompt && sentSessionId) {
         void waitForPromptSettlement(sentSessionId, promptRunId);
       }
     } catch (e) {
+      if (!promptAccepted) onPromptCancel?.(promptRunId);
       console.error("Failed to send message:", e);
       if (e instanceof EventStreamConnectionError) {
         const optimisticKey = optimisticUserMessageKeyRef.current;
@@ -1117,7 +1142,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, onPromptStart, onPromptAccepted, onPromptCancel]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;

@@ -113,6 +113,7 @@ export class AgentSessionWrapper {
   private extensionStatuses = new Map<string, string>();
   private extensionWidgets = new Map<string, ExtensionWidgetItem>();
   private promptRunning = false;
+  private activePromptRunId: number | null = null;
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
   private extensionBindingError: unknown = null;
@@ -146,7 +147,8 @@ export class AgentSessionWrapper {
       if (event.type === "agent_end") {
         invalidateSessionListCache();
       }
-      this.emit(event);
+      const taggedEvent = this.activePromptRunId === null ? event : { ...event, runId: this.activePromptRunId };
+      this.emit(taggedEvent);
       // Streaming / compaction / tool events flow through here; re-broadcast
       // the running-status snapshot so the sidebar can update live.
       notifyRunningChange();
@@ -308,12 +310,17 @@ export class AgentSessionWrapper {
 
     switch (type) {
       case "prompt": {
-        if (this.inner.isBashRunning) {
-          throw new Error("Cannot send a prompt while a shell command is running");
+        const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
+        if (!streamingBehavior && (this.promptRunning || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning)) {
+          throw new Error("Cannot send a prompt while the session is busy");
         }
         // Fire and forget — events come via subscribe
         const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
+        const requestedRunId = command.runId;
+        if (!streamingBehavior && typeof requestedRunId === "number" && Number.isSafeInteger(requestedRunId)) {
+          this.activePromptRunId = requestedRunId;
+        }
+        const runId = this.activePromptRunId;
         this.promptRunning = true;
         notifyRunningChange();
         this.inner.prompt(command.message as string, {
@@ -322,16 +329,19 @@ export class AgentSessionWrapper {
           source: "rpc",
         }).then(() => {
           this.promptRunning = false;
-          if (!streamingBehavior) this.emit({ type: "prompt_done" });
+          if (!streamingBehavior) this.emit({ type: "prompt_done", runId });
+          if (!streamingBehavior && this.activePromptRunId === runId) this.activePromptRunId = null;
           notifyRunningChange();
         }).catch((error) => {
           this.promptRunning = false;
           invalidateSessionListCache();
           this.emit({
             type: "prompt_error",
+            runId,
             errorMessage: error instanceof Error ? error.message : String(error),
           });
-          if (!streamingBehavior) this.emit({ type: "prompt_done" });
+          if (!streamingBehavior) this.emit({ type: "prompt_done", runId });
+          if (!streamingBehavior && this.activePromptRunId === runId) this.activePromptRunId = null;
           notifyRunningChange();
         });
         return null;
@@ -347,6 +357,7 @@ export class AgentSessionWrapper {
         return {
           sessionId: this.inner.sessionId,
           sessionFile: this.inner.sessionFile ?? "",
+          activeRunId: this.activePromptRunId,
           isStreaming: this.inner.isStreaming,
           isPromptRunning: this.promptRunning,
           isBashRunning: this.inner.isBashRunning,
