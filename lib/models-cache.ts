@@ -4,6 +4,7 @@ export interface ModelsData {
   defaultModel: { provider: string; modelId: string } | null;
   thinkingLevels: Record<string, string[]>;
   thinkingLevelMaps: Record<string, Record<string, string | null>>;
+  configError?: string;
 }
 
 interface ModelsCacheState {
