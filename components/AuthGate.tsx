@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 
 type AuthStatus = { initialized: boolean; authenticated: boolean };
 
@@ -10,9 +11,10 @@ type AuthStatus = { initialized: boolean; authenticated: boolean };
  * @returns 认证分流界面。
  */
 export function AuthGate({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const pathname = usePathname();
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
 
   async function refreshStatus() {
     const response = await fetch("/api/auth/status", { cache: "no-store" });
@@ -24,44 +26,13 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     refreshStatus().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "认证状态读取失败"));
   }, []);
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    const values = Object.fromEntries(new FormData(event.currentTarget));
-    const endpoint = status?.initialized ? "/api/auth/login" : "/api/auth/setup";
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(values),
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({})) as { error?: string };
-        throw new Error(body.error ?? "认证失败");
-      }
-      await refreshStatus();
-      if (endpoint === "/api/auth/setup") window.history.replaceState(null, "", "/login");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "认证失败");
-    } finally {
-      setBusy(false);
-    }
-  }
+  useEffect(() => {
+    if (!status || status.authenticated) return;
+    const target = status.initialized ? "/login" : "/setup";
+    if (pathname !== target) router.replace(target);
+  }, [pathname, router, status]);
 
   if (status?.authenticated) return children;
-  if (!status) return <main style={{ padding: 24 }}>Loading...</main>;
-
-  return (
-    <main style={{ maxWidth: 420, margin: "12vh auto", padding: 24 }}>
-      <h1>{status.initialized ? "Sign in to Pi Web" : "Set up Pi Web"}</h1>
-      <form onSubmit={submit} style={{ display: "grid", gap: 12 }}>
-        {!status.initialized && <input name="token" type="password" placeholder="Setup token" required />}
-        <input name="password" type="password" placeholder="Password" required />
-        {!status.initialized && <input name="confirmPassword" type="password" placeholder="Confirm password" required />}
-        {error && <p role="alert">{error}</p>}
-        <button type="submit" disabled={busy}>{busy ? "Please wait..." : status.initialized ? "Sign in" : "Initialize"}</button>
-      </form>
-    </main>
-  );
+  if (error) return <main className="auth-page"><p className="auth-form-error" role="alert">认证状态读取失败，请刷新页面重试</p></main>;
+  return <main className="auth-page"><p>正在跳转...</p></main>;
 }

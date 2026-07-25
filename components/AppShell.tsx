@@ -59,6 +59,8 @@ export function AppShell() {
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
   const [projectTrustBusy, setProjectTrustBusy] = useState(false);
   const [projectTrustError, setProjectTrustError] = useState<string | null>(null);
+  const [authSettingsOpen, setAuthSettingsOpen] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
@@ -476,6 +478,17 @@ export function AppShell() {
     );
   }, [selectedSession]);
 
+  async function handleLogout() {
+    setAuthError(null);
+    try {
+      const response = await fetch("/api/auth/logout", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      if (!response.ok) throw new Error("退出登录失败");
+      router.replace("/login");
+    } catch {
+      setAuthError("退出登录失败，请稍后再试");
+    }
+  }
+
   // Show chat area if a session is selected, or if we have a cwd to start a new session in
   const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
   const showChat = selectedSession !== null || effectiveNewSessionCwd !== null;
@@ -623,6 +636,10 @@ export function AppShell() {
             {label}
           </button>
         ))}
+      </div>
+      <div style={{ display: "flex", gap: 4, padding: "0 8px 8px" }}>
+        <button className="auth-sidebar-action" type="button" onClick={() => setAuthSettingsOpen(true)}>修改访问密码</button>
+        <button className="auth-sidebar-action" type="button" onClick={() => void handleLogout()}>退出登录</button>
       </div>
     </>
   );
@@ -1535,6 +1552,55 @@ export function AppShell() {
         onReloaded={() => setSessionKey((k) => k + 1)}
       />
     )}
+    {authSettingsOpen && (
+      <div className="auth-settings-modal" role="dialog" aria-modal="true" aria-labelledby="auth-settings-title">
+        <div className="auth-settings-panel">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 18 }}>
+            <h2 id="auth-settings-title" style={{ margin: 0, fontSize: 18 }}>修改访问密码</h2>
+            <button type="button" aria-label="关闭" onClick={() => setAuthSettingsOpen(false)} style={{ border: 0, background: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 20 }}>×</button>
+          </div>
+          <PasswordChangeForm onSuccess={() => { void handleLogout(); }} />
+          {authError && <p className="auth-form-error" role="alert">{authError}</p>}
+        </div>
+      </div>
+    )}
     </>
+  );
+}
+
+function PasswordChangeForm({ onSuccess }: { onSuccess: () => void }) {
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const values = Object.fromEntries(new FormData(form));
+    if (values.newPassword !== values.confirmPassword) {
+      setError("两次密码不一致");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/auth/password", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(values) });
+      if (!response.ok) throw new Error(response.status === 401 ? "当前密码错误" : "密码修改失败，请稍后再试");
+      form.reset();
+      onSuccess();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "密码修改失败，请稍后再试");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="auth-form" onSubmit={submit}>
+      <label>当前密码<input name="currentPassword" type="password" autoComplete="current-password" required /></label>
+      <label>新密码<input name="newPassword" type="password" autoComplete="new-password" required /></label>
+      <label>确认新密码<input name="confirmPassword" type="password" autoComplete="new-password" required /></label>
+      {error && <p className="auth-form-error" role="alert">{error}</p>}
+      <button className="auth-form-submit" type="submit" disabled={busy}>{busy ? "处理中..." : "保存并重新登录"}</button>
+    </form>
   );
 }
