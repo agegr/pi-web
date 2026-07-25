@@ -112,6 +112,13 @@ export type RequestAccess =
 
 const PUBLIC_PATHS = new Set(["/login", "/setup", "/favicon.ico"]);
 
+function isPublicAuthPath(pathname: string): boolean {
+  return pathname === "/api/auth/status"
+    || pathname === "/api/auth/setup"
+    || pathname === "/api/auth/login"
+    || /^\/api\/auth\/login\/[^/]+$/.test(pathname);
+}
+
 /** 判断请求是否公开、已认证或需要被拒绝。
  * @param request 当前 HTTP 请求。
  * @returns 请求访问控制结果。
@@ -126,7 +133,7 @@ export function getRequestAccess(request: Request): RequestAccess {
   const publicPath = PUBLIC_PATHS.has(pathname)
     || pathname.startsWith("/_next/static/")
     || pathname === "/_next/image"
-    || pathname.startsWith("/api/auth/");
+    || isPublicAuthPath(pathname);
   if (publicPath) return { type: "public" };
 
   if (getAuthenticatedSession(request).valid) return { type: "allow" };
