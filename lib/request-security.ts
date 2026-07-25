@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import { getAuthenticatedSession } from "./pi-web-auth-route.ts";
 
 function normalizeHostname(value: string): string {
   const unbracketed = value.startsWith("[") && value.endsWith("]")
@@ -97,4 +98,37 @@ export function hasJsonContentType(request: Request): boolean {
   const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   return mediaType === "application/json"
     || Boolean(mediaType?.startsWith("application/") && mediaType.endsWith("+json"));
+}
+
+/** 请求认证分流结果。
+ * @returns 当前请求应执行的访问控制动作。
+ */
+export type RequestAccess =
+  | { type: "public" }
+  | { type: "allow" }
+  | { type: "forbidden" }
+  | { type: "unauthorized" }
+  | { type: "redirect" };
+
+const PUBLIC_PATHS = new Set(["/login", "/setup", "/favicon.ico"]);
+
+/** 判断请求是否公开、已认证或需要被拒绝。
+ * @param request 当前 HTTP 请求。
+ * @returns 请求访问控制结果。
+ */
+export function getRequestAccess(request: Request): RequestAccess {
+  const { pathname } = new URL(request.url);
+  const apiPath = pathname === "/api" || pathname.startsWith("/api/");
+  if (apiPath && !isApiRequestAllowed(request)) {
+    return { type: "forbidden" };
+  }
+
+  const publicPath = PUBLIC_PATHS.has(pathname)
+    || pathname.startsWith("/_next/static/")
+    || pathname === "/_next/image"
+    || pathname.startsWith("/api/auth/");
+  if (publicPath) return { type: "public" };
+
+  if (getAuthenticatedSession(request).valid) return { type: "allow" };
+  return apiPath ? { type: "unauthorized" } : { type: "redirect" };
 }
