@@ -61,6 +61,8 @@ npx @agegr/pi-web@latest
 
 ## Features
 
+- **Telegram bridge** — connect an allow-listed Telegram user or group to Pi. Configure the bot token, chat IDs, and working directory from the Telegram panel in the sidebar; each chat keeps an independent Pi session and supports `/new`, `/status`, and `/help`.
+
 - **Pick work back up**: browse previous pi conversations by project without digging through terminal history or session paths.
 - **Try different directions safely**: continue from an earlier message or fork a session into a separate route.
 - **Work across branches**: switch Git worktrees from the sidebar so new sessions and the Explorer follow the checkout you choose.

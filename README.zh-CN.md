@@ -57,6 +57,8 @@ npx @agegr/pi-web@latest
 
 ## 功能介绍
 
+- **Telegram 桥接**：将允许列表中的 Telegram 用户或群组连接到 Pi。在侧边栏的 Telegram 面板中配置 Bot Token、Chat ID 和工作目录；每个聊天保持独立的 Pi 会话，并支持 `/new`、`/status` 和 `/help`。
+
 - **把历史工作接回来**：打开网页就能按项目找到以前的 pi 对话，不必在终端里翻文件或记住会话路径。
 - **放心试不同方向**：可以从某条历史消息重新开始，也可以复制出一条独立的新路线，探索方案时不怕弄乱原来的对话。
 - **跨分支工作**：在侧边栏切换 Git worktree，让新会话和 Explorer 跟随你选择的 checkout。

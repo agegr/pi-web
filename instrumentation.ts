@@ -3,4 +3,7 @@ export async function register(): Promise<void> {
 
   const { configureHttpDispatcher } = await import("@/lib/http-dispatcher");
   configureHttpDispatcher();
+
+  const { startTelegramBridge } = await import("@/lib/telegram-bridge");
+  startTelegramBridge();
 }

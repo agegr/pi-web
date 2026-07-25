@@ -10,6 +10,7 @@ import { TabBar, type Tab } from "./TabBar";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
+import { TelegramConfig } from "./TelegramConfig";
 import { BranchNavigator } from "./BranchNavigator";
 import { useTheme } from "@/hooks/useTheme";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -48,6 +49,7 @@ export function AppShell() {
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [pluginsConfigOpen, setPluginsConfigOpen] = useState(false);
+  const [telegramConfigOpen, setTelegramConfigOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
@@ -490,6 +492,16 @@ export function AppShell() {
                 <path d="M15 7V2" />
                 <path d="M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0Z" />
                 <path d="M12 19v3" />
+              </svg>
+            ),
+          },
+          {
+            label: "Telegram",
+            onClick: () => setTelegramConfigOpen(true),
+            disabled: false,
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M21.8 3.6 18.5 20c-.2 1.2-.9 1.5-1.9.9l-5-3.7-2.4 2.3c-.3.3-.5.5-1 .5l.4-5.1 9.2-8.3c.4-.4-.1-.6-.6-.2L5.8 13.5.9 12c-1.1-.3-1.1-1.1.2-1.6L20.3 3c.9-.3 1.7.2 1.5.6Z" />
               </svg>
             ),
           },
@@ -1283,6 +1295,12 @@ export function AppShell() {
         sessionId={selectedSession?.id ?? null}
         onClose={() => setPluginsConfigOpen(false)}
         onReloaded={() => setSessionKey((k) => k + 1)}
+      />
+    )}
+    {telegramConfigOpen && (
+      <TelegramConfig
+        defaultCwd={activeCwd ?? selectedSession?.cwd ?? newSessionCwd}
+        onClose={() => setTelegramConfigOpen(false)}
       />
     )}
     </>
