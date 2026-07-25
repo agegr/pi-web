@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState, useCallback, useRef, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, useCallback, useRef, type CSSProperties, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 
@@ -325,6 +325,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Pinned cross-project "Recent" section (omp usage jumps between projects
+  // constantly, so the per-project grouping alone made switching painful).
+  const [recentOpen, setRecentOpen] = useState(true);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [homeDir, setHomeDir] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -773,6 +776,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   // Build parent-child tree within the filtered set
   const sessionTree = buildSessionTree(filteredSessions);
+
+  // Pinned cross-project recent list — the fastest path to jump between
+  // sessions living in different projects.
+  const recentSessions = useMemo(
+    () => [...allSessions]
+      .sort((a, b) => b.modified.localeCompare(a.modified))
+      .slice(0, 8),
+    [allSessions],
+  );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -1476,6 +1488,56 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             No sessions found
           </div>
         )}
+        {/* Pinned cross-project recent sessions — jump between projects in one click */}
+        {!loading && !error && recentSessions.length > 0 && (
+          <div style={{ borderBottom: "1px solid var(--border)", paddingBottom: 4, marginBottom: 4 }}>
+            <button
+              onClick={() => setRecentOpen((v) => !v)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                width: "100%",
+                padding: "6px 10px",
+                background: "none",
+                border: "none",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: "0.05em",
+                textTransform: "uppercase",
+                textAlign: "left",
+              }}
+            >
+              <svg
+                width="9" height="9" viewBox="0 0 10 10" fill="none"
+                stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+                style={{ transform: recentOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s", flexShrink: 0 }}
+              >
+                <polyline points="3 2 7 5 3 8" />
+              </svg>
+              Recent
+            </button>
+            {recentOpen && recentSessions.map((s) => (
+              <SessionItem
+                key={`recent-${s.id}`}
+                session={s}
+                isSelected={s.id === selectedSessionId}
+                isRunning={runningSessionIds.has(s.id)}
+                isUnread={unreadSessionIds.has(s.id)}
+                onClick={() => handleSelectSessionFromList(s)}
+                onRenamed={loadSessions}
+                onDeleted={(id) => {
+                  onSessionDeleted?.(id);
+                  loadSessions();
+                }}
+                depth={0}
+                projectLabel={projectLabelOf(s)}
+              />
+            ))}
+          </div>
+        )}
         {sessionTree.map((node) => (
           <SessionTreeItem
             key={node.session.id}
@@ -1615,6 +1677,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       )}
     </div>
   );
+}
+
+/** Short project label for cross-project session rows (recent section). */
+function projectLabelOf(s: SessionInfo): string {
+  const p = (s.projectRoot ?? s.cwd ?? "").replace(/[/\\]+$/, "");
+  if (!p) return "";
+  return p.split(/[/\\]/).pop() ?? p;
 }
 
 function SessionTreeItem({
@@ -1763,6 +1832,7 @@ function SessionItem({
   hasChildren = false,
   collapsed = false,
   onToggleCollapse,
+  projectLabel,
 }: {
   session: SessionInfo;
   isSelected: boolean;
@@ -1775,6 +1845,8 @@ function SessionItem({
   hasChildren?: boolean;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  /** Shown in the meta line — used by the cross-project recent section. */
+  projectLabel?: string;
 }) {
   const [hovered, setHovered] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -1961,6 +2033,17 @@ function SessionItem({
                 <span title={session.modified}>{formatRelativeTime(session.modified)}</span>
               )}
               <span>{session.messageCount} msgs</span>
+              {projectLabel && (
+                <span
+                  title={session.projectRoot ?? session.cwd}
+                  style={{ display: "flex", alignItems: "center", gap: 3, minWidth: 0, overflow: "hidden" }}
+                >
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                  </svg>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{projectLabel}</span>
+                </span>
+              )}
               {session.worktreeBranch && (
                 <span
                   title={`Worktree: ${session.cwd}`}
