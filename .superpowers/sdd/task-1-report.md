@@ -145,3 +145,47 @@ node --test lib/pi-web-auth.test.mjs
 
 - Node 测试仍提示 `.ts` ESM 的 `MODULE_TYPELESS_PACKAGE_JSON` warning，不影响测试结果。
 - 类型检查因 worktree 缺少依赖无法执行。
+
+## Final Reviewer Important 修复
+
+### TDD 证据
+
+#### RED
+
+新增进程重启回归测试后运行：
+
+```bash
+node --test lib/pi-web-auth.test.mjs
+```
+
+结果：19 个测试中 18 个通过、1 个失败。失败准确显示重启进程创建的 session 使用 `generation: 1`，而持久化配置和 `getAuthState()` 使用 `generation: 2`。
+
+#### GREEN
+
+同步认证代次并补充持久化代次回归测试后运行：
+
+```bash
+node --test lib/pi-web-auth.test.mjs
+```
+
+结果：19 个测试通过，0 个失败。
+
+### 修复内容
+
+- `getAuthState()` 首次读取合法配置时同步内存 `authGeneration`。
+- 新建或校验 session 前，在进程尚未初始化代次时读取并校验持久化 generation；`revokeAllSessions()` 也在提升代次前同步配置，确保相关 session 操作使用一致代次。
+- 增加模拟进程重启测试，验证持久化 `generation: 2` 时新 session 返回 `generation: 2`。
+
+### 验证
+
+- `node --test lib/pi-web-auth.test.mjs`：19 pass，0 fail。
+- `git diff --check`：通过。
+
+### Commit
+
+待提交：修复进程重启后的认证 generation 同步。
+
+### Concerns
+
+- Node 测试仍提示 `.ts` ESM 的 `MODULE_TYPELESS_PACKAGE_JSON` warning，不影响测试结果。
+- 类型检查未执行，当前 worktree 没有 `node_modules/.bin/tsc`；本次用户要求的测试和 diff 检查均已执行。

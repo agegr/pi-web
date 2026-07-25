@@ -1,5 +1,5 @@
 import { chmod, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { randomBytes, scrypt as scryptCallback, createHash, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { dirname, join } from "node:path";
@@ -135,6 +135,8 @@ export function getAuthConfigPath(): string {
 export async function getAuthState(): Promise<AuthState> {
   const config = await readConfig();
   if (!config) return { initialized: false, generation: 0 };
+  authGeneration = config.generation;
+  generationInitialized = true;
   return { initialized: true, generation: config.generation, updatedAt: config.updatedAt };
 }
 
@@ -220,6 +222,7 @@ export function getSession(token: string): SessionValidation {
  */
 export function revokeAllSessions(): void {
   sessions.clear();
+  syncGenerationFromConfig();
   bumpGeneration();
 }
 
@@ -289,7 +292,26 @@ export function recordLoginFailure(key: string): void {
 }
 
 function currentGeneration(): number {
+  if (!generationInitialized) syncGenerationFromConfig();
   return authGeneration;
+}
+
+let generationInitialized = false;
+
+function syncGenerationFromConfig(): void {
+  try {
+    const content = readFileSync(configPath(), "utf8");
+    const parsed: unknown = JSON.parse(content);
+    validateConfig(parsed);
+    authGeneration = parsed.generation;
+    generationInitialized = true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      generationInitialized = true;
+      return;
+    }
+    throw error;
+  }
 }
 
 let authGeneration = 1;
@@ -308,6 +330,7 @@ export async function resetAuthStateForTests(): Promise<void> {
   globalLoginFailures = null;
   setupToken = "setup-token";
   authGeneration = 1;
+  generationInitialized = false;
   initializationInProgress = false;
   await import("node:fs/promises").then(({ unlink }) => unlink(configPath()).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== "ENOENT") throw error;
