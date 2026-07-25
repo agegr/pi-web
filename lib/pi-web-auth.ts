@@ -222,6 +222,14 @@ export function getSession(token: string): SessionValidation {
  * @throws 认证配置读取或原子写入失败时抛出错误；失败时内存代次和 session 保持不变。
  */
 export async function revokeAllSessions(): Promise<void> {
+  const operation = revokeAllSessionsQueue.then(revokeAllSessionsNow, revokeAllSessionsNow);
+  revokeAllSessionsQueue = operation.then(() => undefined, () => undefined);
+  return operation;
+}
+
+let revokeAllSessionsQueue: Promise<void> = Promise.resolve();
+
+async function revokeAllSessionsNow(): Promise<void> {
   const previousGeneration = authGeneration;
   const previousInitialization = generationInitialized;
   const config = syncGenerationFromConfig();
@@ -355,6 +363,7 @@ export async function resetAuthStateForTests(): Promise<void> {
   authGeneration = 1;
   generationInitialized = false;
   initializationInProgress = false;
+  revokeAllSessionsQueue = Promise.resolve();
   await import("node:fs/promises").then(({ unlink }) => unlink(configPath()).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== "ENOENT") throw error;
   }));

@@ -190,6 +190,56 @@ node --test lib/pi-web-auth.test.mjs
 - Node 测试仍提示 `.ts` ESM 的 `MODULE_TYPELESS_PACKAGE_JSON` warning，不影响测试结果。
 - 类型检查未执行，当前 worktree 没有 `node_modules/.bin/tsc`；本次用户要求的测试和 diff 检查均已执行。
 
+## Final Reviewer Important 修复：并发全量吊销串行化
+
+### 根因
+
+`revokeAllSessions()` 在异步 `writeConfig()` 前没有进程内互斥。两个并发调用都可能读取相同的持久化 `generation`，并分别写入相同的下一代，导致两次吊销最终只递增一次。
+
+### TDD 证据
+
+#### RED
+
+新增并发全量吊销回归测试后运行：
+
+```bash
+node --test lib/pi-web-auth.test.mjs
+```
+
+结果：22 个测试中 21 个通过、1 个失败；并发测试实际持久化 `generation: 3`，预期为 `generation: 4`，准确复现丢失递增问题。
+
+#### GREEN
+
+增加进程内 Promise 串行化队列后运行：
+
+```bash
+node --test lib/pi-web-auth.test.mjs
+```
+
+结果：22 个测试通过，0 个失败。
+
+```bash
+git diff --check
+```
+
+结果：通过。
+
+### 修复内容
+
+- `revokeAllSessions()` 通过进程内 Promise 队列串行执行完整的读取、generation 递增、原子持久化和内存状态提交事务。
+- 队列尾部对成功和失败都恢复为已完成 Promise，因此一次写入失败会保留旧内存状态并且不会阻塞后续吊销调用。
+- 保持 `revokeAllSessions(): Promise<void>` 异步接口，调用方和后续 route 可以继续 `await`。
+- `resetAuthStateForTests()` 同步重置队列，避免测试状态泄漏。
+
+### Commit
+
+待提交。
+
+### Concerns
+
+- Node 测试仍提示 `.ts` ESM 的 `MODULE_TYPELESS_PACKAGE_JSON` warning，不影响测试结果。
+- 类型检查未执行，当前 worktree 没有 `node_modules/.bin/tsc`；本次用户要求的测试和 diff 检查均已执行。
+
 ## Final Reviewer 唯一 Important 修复：持久化全量吊销代次
 
 ### TDD 证据
