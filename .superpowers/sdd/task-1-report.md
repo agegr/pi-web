@@ -189,3 +189,43 @@ node --test lib/pi-web-auth.test.mjs
 
 - Node 测试仍提示 `.ts` ESM 的 `MODULE_TYPELESS_PACKAGE_JSON` warning，不影响测试结果。
 - 类型检查未执行，当前 worktree 没有 `node_modules/.bin/tsc`；本次用户要求的测试和 diff 检查均已执行。
+
+## Final Reviewer 唯一 Important 修复：持久化全量吊销代次
+
+### TDD 证据
+
+#### RED
+
+新增“全量吊销后重启进程使用新的持久化 generation”和“写入失败时不提交内存代次”回归测试后运行：
+
+```bash
+node --test lib/pi-web-auth.test.mjs
+```
+
+结果：21 个测试中 19 个通过、2 个失败。重启测试显示吊销后 generation 仍为旧值；写入失败场景显示旧实现先同步了路径状态但没有进入配置原子写入。
+
+#### GREEN
+
+实现持久化吊销并重新运行：
+
+```bash
+node --test lib/pi-web-auth.test.mjs
+```
+
+结果：21 个测试通过，0 个失败。
+
+### 修复内容
+
+- `revokeAllSessions()` 改为异步复用已有 `writeConfig()` 原子写入逻辑，基于磁盘配置递增 generation 并更新 `updatedAt`。
+- 只有原子写入成功后才清空 session、提交内存 generation；写入失败会恢复同步前的内存代次和初始化状态，避免内存与磁盘不一致。
+- 增加模拟重启测试，确认全量吊销后新进程创建的 session 使用新的持久化 generation。
+
+### 验证
+
+- `node --test lib/pi-web-auth.test.mjs`：21 pass，0 fail。
+- `git diff --check`：通过。
+
+### Concerns
+
+- Node 测试仍提示 `.ts` ESM 的 `MODULE_TYPELESS_PACKAGE_JSON` warning，不影响测试结果。
+- 类型检查未执行，当前 worktree 没有 `node_modules/.bin/tsc`。

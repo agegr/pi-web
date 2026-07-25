@@ -217,13 +217,35 @@ export function getSession(token: string): SessionValidation {
   return { valid: true, generation: record.generation };
 }
 
-/** 增加密码代次并使全部已有 session 失效。
- * @returns 无返回值。
+/** 增加密码代次、持久化认证配置并使全部已有 session 失效。
+ * @returns 吊销和配置写入完成的 Promise。
+ * @throws 认证配置读取或原子写入失败时抛出错误；失败时内存代次和 session 保持不变。
  */
-export function revokeAllSessions(): void {
+export async function revokeAllSessions(): Promise<void> {
+  const previousGeneration = authGeneration;
+  const previousInitialization = generationInitialized;
+  const config = syncGenerationFromConfig();
+  if (!config) {
+    sessions.clear();
+    bumpGeneration();
+    return;
+  }
+
+  const nextGeneration = config.generation + 1;
+  try {
+    await writeConfig({
+      ...config,
+      generation: nextGeneration,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    authGeneration = previousGeneration;
+    generationInitialized = previousInitialization;
+    throw error;
+  }
   sessions.clear();
-  syncGenerationFromConfig();
-  bumpGeneration();
+  authGeneration = nextGeneration;
+  generationInitialized = true;
 }
 
 /** 使指定 session 失效。
@@ -298,17 +320,18 @@ function currentGeneration(): number {
 
 let generationInitialized = false;
 
-function syncGenerationFromConfig(): void {
+function syncGenerationFromConfig(): StoredAuthConfig | null {
   try {
     const content = readFileSync(configPath(), "utf8");
     const parsed: unknown = JSON.parse(content);
     validateConfig(parsed);
     authGeneration = parsed.generation;
     generationInitialized = true;
+    return parsed;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       generationInitialized = true;
-      return;
+      return null;
     }
     throw error;
   }
