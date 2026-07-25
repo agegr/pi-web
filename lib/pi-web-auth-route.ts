@@ -1,0 +1,92 @@
+import { getSession } from "./pi-web-auth.ts";
+
+const MAX_BODY_BYTES = 16 * 1024;
+const COOKIE_NAME = "pi_web_session";
+
+/** 校验 JSON 请求头，供无 body 的认证 mutation 使用。
+ * @param request 当前 HTTP 请求。
+ * @returns 校验通过时无返回值。
+ * @throws Content-Type 或声明 body 大小不符合限制时抛出带 status 的错误。
+ */
+export function validateAuthJsonHeaders(request: Request): void {
+  if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
+    throw Object.assign(new Error("Content-Type 必须是 application/json"), { status: 415 });
+  }
+  const declaredLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+    throw Object.assign(new Error("请求体过大"), { status: 413 });
+  }
+}
+
+/** 返回统一格式的 API 错误响应。
+ * @param message 面向客户端的非敏感错误信息。
+ * @param status HTTP 状态码。
+ * @returns JSON 错误响应。
+ */
+export function authError(message: string, status: number): Response {
+  return Response.json({ error: message }, { status });
+}
+
+/** 读取并校验认证 API 的 JSON 请求体。
+ * @param request 当前 HTTP 请求。
+ * @returns 解析后的 JSON 值。
+ * @throws 请求不是 JSON 或 body 超限时抛出带 status 的错误。
+ */
+export async function readAuthJson(request: Request): Promise<Record<string, unknown>> {
+  validateAuthJsonHeaders(request);
+  const text = await request.text();
+  if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) {
+    throw Object.assign(new Error("请求体过大"), { status: 413 });
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw Object.assign(new Error("请求体必须是有效 JSON"), { status: 400 });
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw Object.assign(new Error("请求体格式无效"), { status: 400 });
+  }
+  return parsed as Record<string, unknown>;
+}
+
+/** 从请求 cookie 中提取 session token。
+ * @param request 当前 HTTP 请求。
+ * @returns 原始 session token，缺失时返回 null。
+ */
+export function getSessionToken(request: Request): string | null {
+  const cookie = request.headers.get("cookie") ?? "";
+  const match = cookie.match(/(?:^|;\s*)pi_web_session=([^;]*)/);
+  return match?.[1] || null;
+}
+
+/** 校验当前请求的认证 session。
+ * @param request 当前 HTTP 请求。
+ * @returns session token 和校验结果。
+ */
+export function getAuthenticatedSession(request: Request): { token: string; valid: boolean } {
+  const token = getSessionToken(request);
+  return { token: token ?? "", valid: token ? getSession(token).valid : false };
+}
+
+/** 生成认证 session cookie。
+ * @param request 当前 HTTP 请求。
+ * @param token cookie 值；传 null 表示清理 cookie。
+ * @returns Set-Cookie 响应头值。
+ */
+export function sessionCookie(request: Request, token: string | null): string {
+  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  const age = token ? "86400" : "0";
+  const value = token ?? "";
+  return `${COOKIE_NAME}=${value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${age}${secure}`;
+}
+
+/** 计算登录限速使用的来源 key，不把代理头作为认证身份。
+ * @param request 当前 HTTP 请求。
+ * @returns 限速桶 key。
+ */
+export function loginRateKey(request: Request): string {
+  return request.headers.get("x-forwarded-for")?.split(",", 1)[0]?.trim()
+    || request.headers.get("x-real-ip")?.trim()
+    || "anonymous";
+}

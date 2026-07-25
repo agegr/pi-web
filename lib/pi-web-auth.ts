@@ -194,6 +194,43 @@ export async function verifyPassword(password: string): Promise<boolean> {
   return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
+/** 原子更新密码并吊销全部已有 session。
+ * @param currentPassword 当前密码。
+ * @param newPassword 新密码。
+ * @returns 密码更新完成的 Promise。
+ * @throws 当前密码错误、认证未初始化或配置写入失败时抛出错误；写入失败不会改变旧密码。
+ */
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  const operation = authMutationQueue.then(
+    () => changePasswordNow(currentPassword, newPassword),
+    () => changePasswordNow(currentPassword, newPassword),
+  );
+  authMutationQueue = operation.then(() => undefined, () => undefined);
+  return operation;
+}
+
+async function changePasswordNow(currentPassword: string, newPassword: string): Promise<void> {
+  const config = await readConfig();
+  if (!config) throw new Error("认证尚未初始化");
+  const expected = Buffer.from(config.passwordHash, "hex");
+  const actual = await scrypt(currentPassword, Buffer.from(config.salt, "hex"), expected.length) as Buffer;
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+    throw new Error("当前密码错误");
+  }
+  const salt = randomBytes(16);
+  const derived = await scrypt(newPassword, salt, 64) as Buffer;
+  await writeConfig({
+    ...config,
+    passwordHash: derived.toString("hex"),
+    salt: salt.toString("hex"),
+    generation: config.generation + 1,
+    updatedAt: new Date().toISOString(),
+  });
+  sessions.clear();
+  authGeneration = config.generation + 1;
+  generationInitialized = true;
+}
+
 /** 创建一个仅以哈希形式保存在内存中的 session，并返回原始 token。
  * @returns 仅供 cookie 使用的原始随机 token。
  */
