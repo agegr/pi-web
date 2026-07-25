@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#111827" />
+  <title>Pi Web - Offline</title>
+  <style>
+    :root{color-scheme:light dark;font-family:system-ui,sans-serif}body{min-height:100dvh;margin:0;display:grid;place-items:center;background:#111827;color:#f9fafb}.card{max-width:28rem;padding:2rem;text-align:center}.icon{font-size:3rem}h1{font-size:1.25rem}p{color:#9ca3af;line-height:1.6}button{min-height:44px;padding:0 1rem;border:0;border-radius:.5rem;background:#2563eb;color:#fff;font-weight:600}
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="icon">π</div>
+    <h1>当前处于离线状态</h1>
+    <p>Pi Web 需要连接运行中的服务端才能读取会话和执行 Agent。网络恢复后请重试。</p>
+    <button type="button" onclick="location.reload()">重新连接</button>
+  </main>
+</body>
+</html>

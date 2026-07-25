@@ -101,7 +101,7 @@ Avoid running `next build` / `npm run build` during local development. It writes
 app/
   api/
     agent/          # creates/drives AgentSession and exposes SSE events
-    auth/           # OAuth and API key management
+    auth/           # OAuth, API keys, and password session authentication
     cwd/validate/   # custom working directory validation
     default-cwd/    # pi default working directory lookup
     files/          # file listing, reading, preview, and watching
@@ -113,6 +113,7 @@ app/
 components/
   AppShell.tsx        # main layout, URL state, top panels, file tabs
   SessionSidebar.tsx  # project selector, session tree, Explorer
+  PwaRegistration.tsx # service worker registration and update prompt
   ChatWindow.tsx      # messages, SSE, image drag/drop, minimap
   ChatInput.tsx       # input bar, model/tools/thinking/compact/slash controls
   MessageView.tsx     # message, thinking, tool call/result rendering
@@ -120,6 +121,9 @@ components/
   SkillsConfig.tsx    # skill management panel
   FileExplorer.tsx    # file tree
   FileViewer.tsx      # source, diff, image, audio, PDF, DOCX preview
+public/
+  sw.js                # PWA cache, offline fallback, and controlled updates
+  offline.html          # offline status page
 lib/
   http-dispatcher.ts  # HTTP(S) proxy setup for server-side fetch
   rpc-manager.ts      # AgentSessionWrapper lifecycle and global registry

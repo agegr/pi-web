@@ -1,9 +1,14 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { createContext, createElement, type ReactNode, useContext, useSyncExternalStore } from "react";
 
 // Mobile breakpoint shared with app/globals.css (max-width: 640px).
 const MOBILE_QUERY = "(max-width: 640px)";
+const InitialMobileContext = createContext(false);
+
+export function MobileInitialProvider({ value, children }: { value: boolean; children: ReactNode }) {
+  return createElement(InitialMobileContext.Provider, { value }, children);
+}
 
 function subscribe(cb: () => void): () => void {
   if (typeof window === "undefined" || !window.matchMedia) return () => {};
@@ -17,15 +22,11 @@ function getSnapshot(): boolean {
   return window.matchMedia(MOBILE_QUERY).matches;
 }
 
-function getServerSnapshot(): boolean {
-  return false;
-}
-
 /**
- * Returns true when the viewport is at or below the mobile breakpoint.
- * SSR-safe: renders as desktop (false) on the server and first client paint,
- * then syncs to the real viewport after hydration.
+ * 服务端使用请求 UA 决定首屏，hydration 后由媒体查询接管并响应窗口变化。
  */
-export function useIsMobile(): boolean {
-  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+export function useIsMobile(initialValue?: boolean): boolean {
+  const contextValue = useContext(InitialMobileContext);
+  const serverValue = initialValue ?? contextValue;
+  return useSyncExternalStore(subscribe, getSnapshot, () => serverValue);
 }

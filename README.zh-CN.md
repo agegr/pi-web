@@ -97,7 +97,7 @@ npm run lint
 app/
   api/
     agent/          # 创建/驱动 AgentSession，提供 SSE 事件流
-    auth/           # OAuth 和 API key 管理
+    auth/           # OAuth、API key 和密码会话认证
     cwd/validate/   # 自定义工作目录校验
     default-cwd/    # 获取 pi 默认工作目录
     files/          # 文件列表、读取、预览、watch
@@ -109,6 +109,7 @@ app/
 components/
   AppShell.tsx        # 主布局、URL 状态、顶部面板、文件标签
   SessionSidebar.tsx  # 项目选择、会话树、Explorer
+  PwaRegistration.tsx # Service Worker 注册和更新提示
   ChatWindow.tsx      # 消息区、SSE、拖拽图片、minimap
   ChatInput.tsx       # 输入栏、模型/工具/thinking/compact/slash controls
   MessageView.tsx     # 消息、thinking、tool call/result 渲染
@@ -116,6 +117,9 @@ components/
   SkillsConfig.tsx    # 技能管理面板
   FileExplorer.tsx    # 文件树
   FileViewer.tsx      # 源码、diff、图片、音频、PDF、DOCX 预览
+public/
+  sw.js                # PWA 缓存、离线回退和受控更新
+  offline.html          # 离线状态页
 lib/
   http-dispatcher.ts  # 服务端 fetch 的 HTTP(S) 代理配置
   rpc-manager.ts      # AgentSessionWrapper 生命周期和全局 registry

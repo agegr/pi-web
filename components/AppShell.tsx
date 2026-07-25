@@ -12,7 +12,7 @@ import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
 import { BranchNavigator } from "./BranchNavigator";
 import { useTheme } from "@/hooks/useTheme";
-import { useIsMobile } from "@/hooks/useIsMobile";
+import { MobileInitialProvider, useIsMobile } from "@/hooks/useIsMobile";
 import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText } from "@/lib/file-fuzzy";
@@ -28,12 +28,18 @@ type AutoNameStatus =
   | { kind: "success" }
   | { kind: "error"; message: string };
 
-export function AppShell() {
+export function AppShell({
+  initialIsMobile = false,
+  initialShowGetStarted = true,
+}: {
+  initialIsMobile?: boolean;
+  initialShowGetStarted?: boolean;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [initialNavigation] = useState(() => getInitialNavigation(searchParams));
   const { isDark, toggleTheme } = useTheme();
-  const isMobile = useIsMobile();
+  const isMobile = useIsMobile(initialIsMobile);
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
   // When user clicks +, we only store the cwd — no fake session id
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
@@ -48,10 +54,9 @@ export function AppShell() {
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [pluginsConfigOpen, setPluginsConfigOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
-  // On mobile the sidebar is an overlay drawer; hide it by default so the chat
-  // is visible on load. Runs once the breakpoint resolves after hydration.
+  const [sidebarOpen, setSidebarOpen] = useState(!initialIsMobile);
+  const [mobileSidebarReady, setMobileSidebarReady] = useState(initialIsMobile);
+  // 视口在 hydration 后仍可能变化，移动端默认关闭侧栏以显示主内容。
   useEffect(() => {
     if (isMobile) setSidebarOpen(false);
   }, [isMobile]);
@@ -417,7 +422,13 @@ export function AppShell() {
   const showChat = selectedSession !== null || effectiveNewSessionCwd !== null;
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat;
+  const showGetStarted = showPlaceholder && !activeCwd && initialShowGetStarted;
 
+  useEffect(() => {
+    if (!showGetStarted) return;
+    const secure = window.location.protocol === "https:" ? "; Secure" : "";
+    document.cookie = `pi-get-started-seen=1; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
+  }, [showGetStarted]);
   const activeFileTab = fileTabs.find((t) => t.id === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
   const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
@@ -518,7 +529,7 @@ export function AppShell() {
   );
 
   return (
-    <>
+    <MobileInitialProvider value={initialIsMobile}>
     <style>{`
       @keyframes session-info-pop {
         0% {
@@ -1190,7 +1201,7 @@ export function AppShell() {
               <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 15 }}>
                 Select a session from the sidebar
               </div>
-            ) : (
+            ) : showGetStarted ? (
               <div style={{ position: "absolute", top: 12, left: 12, display: "flex", alignItems: "flex-start", gap: 8, userSelect: "none", pointerEvents: "none" }}>
                 <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7, flexShrink: 0 }}>
                   <line x1="20" y1="12" x2="4" y2="12" /><polyline points="10 6 4 12 10 18" />
@@ -1203,7 +1214,7 @@ export function AppShell() {
                   </div>
                 </div>
               </div>
-            )
+            ) : null
           ) : null}
         </div>
       </div>
@@ -1285,6 +1296,6 @@ export function AppShell() {
         onReloaded={() => setSessionKey((k) => k + 1)}
       />
     )}
-    </>
+    </MobileInitialProvider>
   );
 }
