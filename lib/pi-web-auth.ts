@@ -1,4 +1,5 @@
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { randomBytes, scrypt as scryptCallback, createHash, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { dirname, join } from "node:path";
@@ -43,7 +44,7 @@ interface SessionRecord {
 
 const sessions = new Map<string, SessionRecord>();
 const loginFailures = new Map<string, { count: number; firstFailureAt: number }>();
-let setupToken = randomBytes(32).toString("hex");
+let setupToken: string | null = existsSync(configPath()) ? null : randomBytes(32).toString("hex");
 
 function configPath(): string {
   return process.env.PI_WEB_AUTH_CONFIG_PATH ?? join(process.env.HOME ?? ".", ".pi", "web-auth.json");
@@ -165,8 +166,8 @@ export function revokeSession(token: string): void {
  * @returns token 是否有效且已成功消费。
  */
 export function consumeSetupToken(token: string): boolean {
-  if (!setupToken || token !== setupToken) return false;
-  setupToken = "";
+  if (setupToken === null || token !== setupToken) return false;
+  setupToken = null;
   return true;
 }
 
