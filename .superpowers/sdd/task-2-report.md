@@ -54,3 +54,25 @@ node --test lib/pi-web-auth.test.mjs
 - 异步认证调用均使用 `await`。
 - 密码修改采用认证核心事务队列，持久化失败不会提前提交内存状态。
 - 未修改原工作区，仅修改 `/home/xiaojueshi/code/open-source-projects/pi-web-feature`。
+
+## Reviewer Important 修复：请求体边界和 media type
+
+### RED
+
+新增两组回归测试后运行 `node --test lib/pi-web-auth.test.mjs`：
+
+- `logout` 和 `password` 对无 `Content-Length` 的超大 streaming body 分别返回 `200`，而不是 `413`。
+- `application/jsonfoo` 被接受并继续解析，测试观察到 `400`，而不是 `415`。
+
+结果为 `35 pass, 2 fail`，失败原因正是待修复行为。
+
+### GREEN
+
+- `readAuthJson` 现在通过 `ReadableStreamDefaultReader` 分块消费 body，累计超过 16 KiB 时取消读取并返回 `413`，不依赖 `Content-Length`。
+- logout 和 password 都在任何 session 判断或吊销操作前调用 `readAuthJson`，实际消费并限制请求体；logout 保持接受小型 `{}` JSON 的 contract。
+- Content-Type 现在提取 media type 后执行大小写不敏感的精确比较，允许 `; charset=...` 参数，拒绝 `application/jsonfoo`。
+- 追加测试不输出密码、token 或完整请求体。
+
+最终运行 `node --test lib/pi-web-auth.test.mjs`：`37 pass, 0 fail`。
+
+最终运行 `git diff --check`：通过。

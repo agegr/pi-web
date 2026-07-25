@@ -9,12 +9,9 @@ const COOKIE_NAME = "pi_web_session";
  * @throws Content-Type 或声明 body 大小不符合限制时抛出带 status 的错误。
  */
 export function validateAuthJsonHeaders(request: Request): void {
-  if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
+  const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (mediaType !== "application/json") {
     throw Object.assign(new Error("Content-Type 必须是 application/json"), { status: 415 });
-  }
-  const declaredLength = Number(request.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
-    throw Object.assign(new Error("请求体过大"), { status: 413 });
   }
 }
 
@@ -34,10 +31,26 @@ export function authError(message: string, status: number): Response {
  */
 export async function readAuthJson(request: Request): Promise<Record<string, unknown>> {
   validateAuthJsonHeaders(request);
-  const text = await request.text();
-  if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) {
-    throw Object.assign(new Error("请求体过大"), { status: 413 });
+  const reader = request.body?.getReader();
+  let bytes = 0;
+  const chunks: Uint8Array[] = [];
+  if (reader) {
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        bytes += value.byteLength;
+        if (bytes > MAX_BODY_BYTES) {
+          await reader.cancel();
+          throw Object.assign(new Error("请求体过大"), { status: 413 });
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
   }
+  const text = new TextDecoder().decode(concatChunks(chunks, bytes));
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -48,6 +61,21 @@ export async function readAuthJson(request: Request): Promise<Record<string, unk
     throw Object.assign(new Error("请求体格式无效"), { status: 400 });
   }
   return parsed as Record<string, unknown>;
+}
+
+/** 合并已读取的请求体分块，避免在读取前分配不受限的缓冲区。
+ * @param chunks 请求体分块。
+ * @param byteLength 已读取的总字节数。
+ * @returns 合并后的请求体字节。
+ */
+function concatChunks(chunks: Uint8Array[], byteLength: number): Uint8Array {
+  const result = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return result;
 }
 
 /** 从请求 cookie 中提取 session token。

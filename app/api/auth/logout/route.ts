@@ -1,5 +1,5 @@
 import { revokeSession } from "../../../../lib/pi-web-auth.ts";
-import { getSessionToken, sessionCookie, validateAuthJsonHeaders } from "../../../../lib/pi-web-auth-route.ts";
+import { getSessionToken, readAuthJson, sessionCookie } from "../../../../lib/pi-web-auth-route.ts";
 
 /** 清理当前 web session。
  * @param request 当前 HTTP 请求。
@@ -7,7 +7,7 @@ import { getSessionToken, sessionCookie, validateAuthJsonHeaders } from "../../.
  */
 export async function POST(request: Request) {
   try {
-    validateAuthJsonHeaders(request);
+    await readAuthJson(request);
     const token = getSessionToken(request);
     if (token) revokeSession(token);
     const response = Response.json({ success: true });

@@ -1,5 +1,5 @@
 import { changePassword } from "../../../../lib/pi-web-auth.ts";
-import { authError, getAuthenticatedSession, readAuthJson, sessionCookie, validateAuthJsonHeaders } from "../../../../lib/pi-web-auth-route.ts";
+import { authError, getAuthenticatedSession, readAuthJson, sessionCookie } from "../../../../lib/pi-web-auth-route.ts";
 
 /** 修改密码并吊销全部已有 session。
  * @param request 当前 HTTP 请求。
@@ -7,10 +7,9 @@ import { authError, getAuthenticatedSession, readAuthJson, sessionCookie, valida
  */
 export async function POST(request: Request) {
   try {
-    validateAuthJsonHeaders(request);
+    const body = await readAuthJson(request);
     const session = getAuthenticatedSession(request);
     if (!session.valid) return authError("未认证", 401);
-    const body = await readAuthJson(request);
     if (typeof body.currentPassword !== "string" || typeof body.newPassword !== "string" || typeof body.confirmPassword !== "string") return authError("请求参数无效", 400);
     if (body.newPassword !== body.confirmPassword) return authError("两次密码不一致", 400);
     await changePassword(body.currentPassword, body.newPassword);
