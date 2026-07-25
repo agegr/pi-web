@@ -39,8 +39,53 @@ PI_WEB_ALLOWED_HOSTS=pi-web.internal pi-web  # 允许指定的代理或自定义
 PI_WEB_NO_OPEN=1 pi-web         # 适用于后台服务或开机自启
 ```
 
-Pi Web 没有应用层身份验证，并且可以调用高权限智能体。请勿将其暴露到互联网；仅在可信网络中使用非 loopback 监听地址。
 API 请求仅接受 loopback 名称、IP 字面量、当前监听主机名，以及 `PI_WEB_ALLOWED_HOSTS` 中以逗号分隔的精确主机名。可信反向代理使用不同的外部主机名时，请配置该变量。
+
+## 公网部署与认证
+
+Pi Web 现在默认要求认证。首次启动时，初始化 token 只会在服务端终端输出一次；打开网页后，在初始化页面输入该 token，并设置密码。token 不是密码，不能从浏览器或配置文件中恢复。
+
+- 认证配置默认保存于 `~/.pi/agent/pi-web-auth.json`，也可以用 `PI_WEB_AUTH_CONFIG_PATH` 指定路径。
+- pi Agent 的会话、模型和其他配置默认仍在 `~/.pi/agent/`；`PI_CODING_AGENT_DIR` 可以切换整个 pi Agent 目录。
+- 忘记初始化 token 时，在本机停止 Pi Web、删除认证配置文件后重新启动，再从终端获取新的 token。只有能控制运行 Pi Web 的本机账户时才应执行此恢复操作；这会清除现有认证配置，随后必须重新设置密码。
+- 登录 session 有效期为 24 小时。修改密码会立即吊销已有 session，需要使用新密码重新登录。
+- 认证 session 过期、浏览器断开连接或修改密码不会停止、销毁或中止后台 AgentSession；后台任务会继续运行，重新登录后可以查看结果。
+
+### HTTPS 与反向代理
+
+公网访问必须放在 HTTPS 反向代理之后，并让 Pi Web 只监听本机回环地址。下面的 Nginx 示例假定 TLS 证书已由你的证书管理工具配置：
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name pi.example.com;
+
+    ssl_certificate     /path/to/fullchain.pem;
+    ssl_certificate_key /path/to/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:30141;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 1h;
+    }
+}
+```
+
+启动时使用 `--hostname 127.0.0.1`，不要直接把 Pi Web 的 HTTP 端口暴露到公网：
+
+```bash
+pi-web --hostname 127.0.0.1 --port 30141 --no-open
+```
+
+Pi Web 依赖 SSE 推送 Agent 状态，因此反向代理必须支持长连接，并且不能缓冲响应。请同时限制防火墙入口、使用有效 TLS 证书，并避免把 `pi-web-auth.json`、Pi session 文件或模型 API key 暴露给 Web 服务器之外的用户。
+
+当前仓库没有内置 `Dockerfile`。如果自行制作容器镜像，必须把 Pi Agent 配置目录挂载到容器内，并通过 `PI_CODING_AGENT_DIR` 指向该挂载目录；认证配置也应使用持久化卷或显式设置 `PI_WEB_AUTH_CONFIG_PATH`，否则重建容器会丢失认证状态。不要把密码、初始化 token、session cookie 或 API key 写进镜像、Dockerfile、compose 文件或日志。
 
 ## HTTP 代理
 

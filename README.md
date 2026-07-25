@@ -41,8 +41,53 @@ PI_WEB_ALLOWED_HOSTS=pi-web.internal pi-web  # allow an exact proxy/custom hostn
 PI_WEB_NO_OPEN=1 pi-web         # useful when running as a background service
 ```
 
-Pi Web has no application-level authentication and can invoke a high-privilege agent. Do not expose it to the internet; only use non-loopback bindings on a trusted network.
 API requests accept loopback names, IP literals, the selected bind hostname, and exact comma-separated names in `PI_WEB_ALLOWED_HOSTS`. Configure that variable when a trusted reverse proxy uses a different external hostname.
+
+## Public Deployment and Authentication
+
+Pi Web requires authentication by default. On first launch, a one-time initialization token is printed to the server terminal. Enter it on the setup page and choose a password. The token is not the password and is not recoverable from the browser or config file.
+
+- Authentication is stored at `~/.pi/agent/pi-web-auth.json` by default; set `PI_WEB_AUTH_CONFIG_PATH` to choose another path.
+- Pi Agent sessions, models, and related settings remain under `~/.pi/agent/` by default. Set `PI_CODING_AGENT_DIR` to use another Pi Agent directory.
+- If the initialization token is lost, stop Pi Web locally, remove the auth config, and restart it to receive a new token in the terminal. Only the local operator should do this; it resets authentication and requires a new password.
+- Login sessions expire after 24 hours. Changing the password revokes existing sessions, so sign in again with the new password.
+- An expired auth session, a disconnected browser, or a password change does not stop, destroy, or abort a background AgentSession. Running work continues and its result is available after signing in again.
+
+### HTTPS and Reverse Proxy
+
+For public access, put Pi Web behind an HTTPS reverse proxy and bind Pi Web to loopback. The following Nginx example assumes that your certificate manager has configured the TLS certificate:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name pi.example.com;
+
+    ssl_certificate     /path/to/fullchain.pem;
+    ssl_certificate_key /path/to/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:30141;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 1h;
+    }
+}
+```
+
+Start Pi Web with `--hostname 127.0.0.1` instead of exposing its HTTP port directly:
+
+```bash
+pi-web --hostname 127.0.0.1 --port 30141 --no-open
+```
+
+Pi Web uses SSE for live Agent status, so the proxy must allow long-lived connections and disable response buffering. Restrict firewall access, use a valid TLS certificate, and keep `pi-web-auth.json`, Pi session files, and model API keys inaccessible to other users.
+
+This repository does not include a built-in `Dockerfile`. If you build a container image, mount the Pi Agent config directory into the container and set `PI_CODING_AGENT_DIR` to that mount. Put the auth config on a persistent volume or set `PI_WEB_AUTH_CONFIG_PATH`; otherwise recreating the container loses authentication state. Never put passwords, initialization tokens, session cookies, or API keys in images, Dockerfiles, compose files, or logs.
 
 ## HTTP Proxy
 
