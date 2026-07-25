@@ -279,3 +279,48 @@ node --test lib/pi-web-auth.test.mjs
 
 - Node 测试仍提示 `.ts` ESM 的 `MODULE_TYPELESS_PACKAGE_JSON` warning，不影响测试结果。
 - 类型检查未执行，当前 worktree 没有 `node_modules/.bin/tsc`。
+
+## Task 1 最终审核阻塞修复
+
+### 根因
+
+此前只有 `revokeAllSessions()` 使用 Promise 队列，`initializeAuth()` 使用独立的布尔锁。初始化原子写入完成后、内存提交前，revoke 仍可能读取旧内存代次并完成另一笔写入，造成内存和磁盘 generation 分叉。另一个偏差是 setup token 在首次消费时才生成，而 brief 要求模块首次加载时生成。
+
+### TDD 证据
+
+#### RED
+
+新增初始化与全量吊销交错、失败隔离及 setup token 加载时机回归测试后运行：
+
+```bash
+node --test lib/pi-web-auth.test.mjs
+```
+
+结果：25 个测试中 19 个通过、6 个失败。交错测试暴露认证变更未共享队列；失败测试首次运行还发现并发失败 Promise 未等待会污染后续测试路径，修正测试等待逻辑后继续实现。
+
+#### GREEN
+
+实现共享认证变更事务队列、恢复模块加载生成 setup token，并重新运行：
+
+```bash
+node --test lib/pi-web-auth.test.mjs
+```
+
+结果：25 个测试通过，0 个失败。
+
+### 修复内容
+
+- `initializeAuth()` 和 `revokeAllSessions()` 现在共享同一个 `authMutationQueue`，完整覆盖读取、原子持久化和内存状态提交，队列在失败后仍可继续处理后续请求。
+- 初始化和吊销交错成功后，磁盘、当前进程 `getAuthState()`、新 session 以及重启进程新 session 均使用同一 generation；失败路径不提交内存状态。
+- setup token 改为模块首次加载时生成；配置已存在时不生成、不接受消费。已有写入失败恢复逻辑仍保留，初始化失败后可用同一 token 重试。
+- `revokeAllSessions()` 保持 `Promise<void>`，测试和调用方均显式 `await`，避免异步持久化产生未处理 Promise。
+
+### 最终验证
+
+- `node --test lib/pi-web-auth.test.mjs`：25 pass，0 fail。
+- `git diff --check`：通过。
+
+### Concerns
+
+- Node 测试仍提示 `.ts` ESM 的 `MODULE_TYPELESS_PACKAGE_JSON` warning，不影响测试结果。
+- 类型检查未执行，当前 worktree 没有 `node_modules/.bin/tsc`。

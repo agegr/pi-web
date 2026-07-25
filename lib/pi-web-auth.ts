@@ -52,7 +52,8 @@ interface SessionRecord {
 const sessions = new Map<string, SessionRecord>();
 const loginFailures = new Map<string, { count: number; firstFailureAt: number }>();
 let globalLoginFailures: { count: number; firstFailureAt: number } | null = null;
-let setupToken: string | null = null;
+// brief 要求 token 在模块首次加载时生成；已有配置时不创建初始化凭据。
+let setupToken: string | null = hasRegularConfigFile() ? null : randomBytes(32).toString("hex");
 
 function configPath(): string {
   return process.env.PI_WEB_AUTH_CONFIG_PATH || join(
@@ -147,6 +148,12 @@ export async function getAuthState(): Promise<AuthState> {
  * @throws token 无效、认证已初始化或配置写入失败时抛出错误。
  */
 export async function initializeAuth(token: string, password: string): Promise<void> {
+  const operation = authMutationQueue.then(() => initializeAuthNow(token, password), () => initializeAuthNow(token, password));
+  authMutationQueue = operation.then(() => undefined, () => undefined);
+  return operation;
+}
+
+async function initializeAuthNow(token: string, password: string): Promise<void> {
   if (initializationInProgress) throw new Error("认证初始化进行中");
   initializationInProgress = true;
   let tokenConsumed = false;
@@ -222,12 +229,12 @@ export function getSession(token: string): SessionValidation {
  * @throws 认证配置读取或原子写入失败时抛出错误；失败时内存代次和 session 保持不变。
  */
 export async function revokeAllSessions(): Promise<void> {
-  const operation = revokeAllSessionsQueue.then(revokeAllSessionsNow, revokeAllSessionsNow);
-  revokeAllSessionsQueue = operation.then(() => undefined, () => undefined);
+  const operation = authMutationQueue.then(revokeAllSessionsNow, revokeAllSessionsNow);
+  authMutationQueue = operation.then(() => undefined, () => undefined);
   return operation;
 }
 
-let revokeAllSessionsQueue: Promise<void> = Promise.resolve();
+let authMutationQueue: Promise<void> = Promise.resolve();
 
 async function revokeAllSessionsNow(): Promise<void> {
   const previousGeneration = authGeneration;
@@ -363,7 +370,7 @@ export async function resetAuthStateForTests(): Promise<void> {
   authGeneration = 1;
   generationInitialized = false;
   initializationInProgress = false;
-  revokeAllSessionsQueue = Promise.resolve();
+  authMutationQueue = Promise.resolve();
   await import("node:fs/promises").then(({ unlink }) => unlink(configPath()).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== "ENOENT") throw error;
   }));
