@@ -15,6 +15,7 @@ export interface ContextUsage {
 export interface ModelLike {
   id: string;
   provider: string;
+  name?: string;
 }
 
 export interface ToolInfo {

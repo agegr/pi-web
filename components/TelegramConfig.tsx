@@ -7,6 +7,7 @@ type PublicConfig = {
   enabled: boolean;
   allowedChatIds: string[];
   cwd: string;
+  blockWhileRunning: boolean;
   tokenConfigured: boolean;
   tokenHint: string | null;
 };
@@ -65,6 +66,7 @@ export function TelegramConfig({ defaultCwd, onClose }: { defaultCwd: string | n
   const [token, setToken] = useState("");
   const [chatIds, setChatIds] = useState("");
   const [cwd, setCwd] = useState(defaultCwd ?? "");
+  const [blockWhileRunning, setBlockWhileRunning] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -77,6 +79,7 @@ export function TelegramConfig({ defaultCwd, onClose }: { defaultCwd: string | n
     setEnabled(data.config.enabled);
     setChatIds(data.config.allowedChatIds.join("\n"));
     setCwd(data.config.cwd || defaultCwd || "");
+    setBlockWhileRunning(data.config.blockWhileRunning);
   }, [defaultCwd]);
 
   useEffect(() => {
@@ -129,19 +132,20 @@ export function TelegramConfig({ defaultCwd, onClose }: { defaultCwd: string | n
           token: token.trim() || undefined,
           allowedChatIds: chatIds,
           cwd,
+          blockWhileRunning,
         }),
       });
       const data = await res.json() as TelegramResponse;
       if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
       applyResponse(data);
       setToken("");
-      setMessage(enabled ? "Telegram bridge saved and started." : "Telegram bridge settings saved.");
+      setMessage(enabled ? "Bridge saved and started." : "Bridge settings saved.");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
-  }, [applyResponse, chatIds, cwd, enabled, token]);
+  }, [applyResponse, blockWhileRunning, chatIds, cwd, enabled, token]);
 
   const busy = loading || saving || testing;
   const statusColor = status?.running ? "#16a34a" : status?.lastError ? "#ef4444" : "var(--text-dim)";
@@ -183,8 +187,8 @@ export function TelegramConfig({ defaultCwd, onClose }: { defaultCwd: string | n
               </svg>
             </span>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>Telegram Bridge</div>
-              <div style={{ marginTop: 2, fontSize: 11, color: "var(--text-dim)" }}>Talk to Pi from an allow-listed Telegram chat</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>Bridge Settings</div>
+              <div style={{ marginTop: 2, fontSize: 11, color: "var(--text-dim)" }}>Live Thinking, tool calls, timing, usage, and replies</div>
             </div>
           </div>
           <button onClick={onClose} aria-label="Close" style={{ border: 0, background: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 20, padding: "2px 6px" }}>×</button>
@@ -192,7 +196,7 @@ export function TelegramConfig({ defaultCwd, onClose }: { defaultCwd: string | n
 
         <div style={{ overflowY: "auto", padding: isMobile ? 15 : 20 }}>
           {loading ? (
-            <div style={{ padding: 24, textAlign: "center", color: "var(--text-muted)", fontSize: 12 }}>Loading Telegram settings...</div>
+            <div style={{ padding: 24, textAlign: "center", color: "var(--text-muted)", fontSize: 12 }}>Loading bridge settings...</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
               <div
@@ -208,8 +212,8 @@ export function TelegramConfig({ defaultCwd, onClose }: { defaultCwd: string | n
                 }}
               >
                 <div>
-                  <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>Enable Telegram bridge</div>
-                  <div style={{ color: "var(--text-dim)", fontSize: 11, marginTop: 3 }}>Starts secure long polling when Pi Web is running.</div>
+                  <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>Enable bridge</div>
+                  <div style={{ color: "var(--text-dim)", fontSize: 11, marginTop: 3 }}>Streams each Pi run by continuously updating one bot message.</div>
                 </div>
                 <button
                   type="button"
@@ -228,6 +232,43 @@ export function TelegramConfig({ defaultCwd, onClose }: { defaultCwd: string | n
                   }}
                 >
                   <span style={{ display: "block", width: 18, height: 18, borderRadius: "50%", background: "white", transform: `translateX(${enabled ? 18 : 0}px)`, transition: "transform 0.15s", boxShadow: "0 1px 3px rgba(0,0,0,.25)" }} />
+                </button>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 16,
+                  padding: "12px 14px",
+                  border: "1px solid var(--border)",
+                  borderRadius: 7,
+                  background: "var(--bg-panel)",
+                }}
+              >
+                <div>
+                  <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>Block messages while responding</div>
+                  <div style={{ color: "var(--text-dim)", fontSize: 11, marginTop: 3 }}>Rejects new messages in the same chat until the current model response finishes.</div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={blockWhileRunning}
+                  onClick={() => setBlockWhileRunning((value) => !value)}
+                  style={{
+                    width: 40,
+                    height: 22,
+                    padding: 2,
+                    border: 0,
+                    borderRadius: 12,
+                    cursor: "pointer",
+                    background: blockWhileRunning ? "#229ED9" : "var(--border)",
+                    transition: "background 0.15s",
+                    flexShrink: 0,
+                  }}
+                >
+                  <span style={{ display: "block", width: 18, height: 18, borderRadius: "50%", background: "white", transform: `translateX(${blockWhileRunning ? 18 : 0}px)`, transition: "transform 0.15s", boxShadow: "0 1px 3px rgba(0,0,0,.25)" }} />
                 </button>
               </div>
 
@@ -266,7 +307,7 @@ export function TelegramConfig({ defaultCwd, onClose }: { defaultCwd: string | n
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", marginBottom: 6 }}>Working directory</div>
                     <input value={cwd} onChange={(event) => setCwd(event.target.value)} placeholder="C:\path\to\project" style={inputStyle} />
                     <div style={{ fontSize: 10.5, lineHeight: 1.45, color: "var(--text-dim)", marginTop: 5 }}>
-                      Telegram conversations run Pi with this directory. Each allowed chat keeps its own Pi session; send /new to reset it.
+                      Bridge conversations run Pi with this directory. Each allowed chat keeps its own Pi session; send /new to reset it.
                     </div>
                   </label>
                 </div>

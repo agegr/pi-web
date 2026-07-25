@@ -7,6 +7,7 @@ export type TelegramBridgeConfig = {
   token: string;
   allowedChatIds: string[];
   cwd: string;
+  blockWhileRunning: boolean;
 };
 
 export type TelegramBridgePublicConfig = Omit<TelegramBridgeConfig, "token"> & {
@@ -19,6 +20,7 @@ const DEFAULT_CONFIG: TelegramBridgeConfig = {
   token: "",
   allowedChatIds: [],
   cwd: "",
+  blockWhileRunning: true,
 };
 
 export function normalizeAllowedChatIds(value: unknown): string[] {
@@ -47,6 +49,7 @@ export function readTelegramConfig(): TelegramBridgeConfig {
       token: typeof parsed.token === "string" ? parsed.token.trim() : "",
       allowedChatIds: normalizeAllowedChatIds(parsed.allowedChatIds),
       cwd: typeof parsed.cwd === "string" ? parsed.cwd.trim() : "",
+      blockWhileRunning: parsed.blockWhileRunning !== false,
     };
   } catch (error) {
     console.error("[pi-web] failed to read Telegram bridge config:", error);
@@ -60,6 +63,7 @@ export function toPublicTelegramConfig(config: TelegramBridgeConfig): TelegramBr
     enabled: config.enabled,
     allowedChatIds: config.allowedChatIds,
     cwd: config.cwd,
+    blockWhileRunning: config.blockWhileRunning,
     tokenConfigured: token.length > 0,
     tokenHint: token ? `••••${token.slice(-6)}` : null,
   };

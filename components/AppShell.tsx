@@ -495,16 +495,6 @@ export function AppShell() {
               </svg>
             ),
           },
-          {
-            label: "Telegram",
-            onClick: () => setTelegramConfigOpen(true),
-            disabled: false,
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M21.8 3.6 18.5 20c-.2 1.2-.9 1.5-1.9.9l-5-3.7-2.4 2.3c-.3.3-.5.5-1 .5l.4-5.1 9.2-8.3c.4-.4-.1-.6-.6-.2L5.8 13.5.9 12c-1.1-.3-1.1-1.1.2-1.6L20.3 3c.9-.3 1.7.2 1.5.6Z" />
-              </svg>
-            ),
-          },
         ] as { label: string; onClick: () => void; disabled: boolean; icon: React.ReactNode }[]).map(({ label, onClick, disabled, icon }) => (
           <button
             key={label}
@@ -856,6 +846,34 @@ export function AppShell() {
                   <line x1="8" y1="17" x2="13" y2="17" />
                 </svg>
                 {!isMobile && <span>System</span>}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTopPanel(null);
+                  setTelegramConfigOpen(true);
+                }}
+                title="Bridge settings"
+                aria-label="Bridge settings"
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  height: "100%", padding: "0 12px",
+                  background: telegramConfigOpen ? "var(--bg-selected)" : "none",
+                  border: "none",
+                  borderTop: telegramConfigOpen ? "2px solid var(--accent)" : "2px solid transparent",
+                  borderRight: "1px solid var(--border)",
+                  cursor: "pointer",
+                  color: telegramConfigOpen ? "var(--text)" : "var(--text-muted)",
+                  fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = telegramConfigOpen ? "var(--text)" : "var(--text-muted)"; }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" />
+                  <path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1" />
+                </svg>
+                {!isMobile && <span>Bridge</span>}
               </button>
             </div>
           )}

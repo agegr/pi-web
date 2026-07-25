@@ -26,6 +26,7 @@ export async function PUT(req: Request) {
       clearToken?: unknown;
       allowedChatIds?: unknown;
       cwd?: unknown;
+      blockWhileRunning?: unknown;
     };
     const current = readTelegramConfig();
     const next = {
@@ -37,6 +38,7 @@ export async function PUT(req: Request) {
           : current.token,
       allowedChatIds: normalizeAllowedChatIds(body.allowedChatIds),
       cwd: typeof body.cwd === "string" ? body.cwd.trim() : current.cwd,
+      blockWhileRunning: body.blockWhileRunning !== false,
     };
     const validationError = validateTelegramConfig(next);
     if (validationError) {

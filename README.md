@@ -61,7 +61,7 @@ npx @agegr/pi-web@latest
 
 ## Features
 
-- **Telegram bridge** — connect an allow-listed Telegram user or group to Pi. Configure the bot token, chat IDs, and working directory from the Telegram panel in the sidebar; each chat keeps an independent Pi session and supports `/new`, `/status`, and `/help`.
+- **Telegram bridge** — connect an allow-listed Telegram user or group to Pi from the top-bar **Bridge** panel. Bot messages update live with model names, Thinking, tool calls and arguments, tool duration, token/cache usage, cost, and streamed response text. An optional guard rejects new messages while the model is responding. Each chat keeps an independent Pi session and supports `/new`, `/status`, `/model`, `/stats`, `/stop`, and `/help`.
 
 - **Pick work back up**: browse previous pi conversations by project without digging through terminal history or session paths.
 - **Try different directions safely**: continue from an earlier message or fork a session into a separate route.
