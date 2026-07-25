@@ -18,12 +18,14 @@ Pi Web requires Node.js 22.19.0 or newer. Check your version with `node --versio
 npx @agegr/pi-web@latest
 ```
 
-**Or install globally:**
+**Or install the npm package globally:**
 
 ```bash
 npm install -g @agegr/pi-web
 pi-web
 ```
+
+For a local project install instead, run `npm install @agegr/pi-web` and invoke `npx pi-web`.
 
 Then open [http://127.0.0.1:30141](http://127.0.0.1:30141). The CLI will try to open the browser automatically after the server is ready. Pi Web listens on `127.0.0.1` by default.
 
@@ -71,7 +73,8 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+         proxy_set_header X-Forwarded-Proto $scheme;
+         proxy_buffering off;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_read_timeout 1h;
@@ -85,7 +88,7 @@ Start Pi Web with `--hostname 127.0.0.1` instead of exposing its HTTP port direc
 pi-web --hostname 127.0.0.1 --port 30141 --no-open
 ```
 
-Pi Web uses SSE for live Agent status, so the proxy must allow long-lived connections and disable response buffering. Restrict firewall access, use a valid TLS certificate, and keep `pi-web-auth.json`, Pi session files, and model API keys inaccessible to other users.
+Pi Web uses SSE for live Agent status, so the proxy must allow long-lived connections and disable response buffering. Restrict firewall access, use a valid TLS certificate, and keep `pi-web-auth.json`, Pi session files, and model API keys inaccessible to other users. The setup token is printed only once to the server terminal/stderr (or the service's server-side log); it is never returned in an HTTP response, browser UI, cookie, or config file.
 
 This repository does not include a built-in `Dockerfile`. If you build a container image, mount the Pi Agent config directory into the container and set `PI_CODING_AGENT_DIR` to that mount. Put the auth config on a persistent volume or set `PI_WEB_AUTH_CONFIG_PATH`; otherwise recreating the container loses authentication state. Never put passwords, initialization tokens, session cookies, or API keys in images, Dockerfiles, compose files, or logs.
 

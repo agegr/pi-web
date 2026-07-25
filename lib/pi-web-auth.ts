@@ -54,6 +54,7 @@ const loginFailures = new Map<string, { count: number; firstFailureAt: number }>
 let globalLoginFailures: { count: number; firstFailureAt: number } | null = null;
 // brief 要求 token 在模块首次加载时生成；已有配置时不创建初始化凭据。
 let setupToken: string | null = hasRegularConfigFile() ? null : randomBytes(32).toString("hex");
+let setupTokenAnnounced = false;
 
 function configPath(): string {
   return process.env.PI_WEB_AUTH_CONFIG_PATH || join(
@@ -123,6 +124,15 @@ async function writeConfig(config: StoredAuthConfig): Promise<void> {
  */
 export function getAuthConfigPath(): string {
   return configPath();
+}
+
+/** 在服务端启动输出一次性初始化 token；不会通过 HTTP 或持久化配置暴露。
+ * @returns 无返回值。
+ */
+export function announceSetupToken(): void {
+  if (setupTokenAnnounced || setupToken === null || hasRegularConfigFile()) return;
+  setupTokenAnnounced = true;
+  console.error(`[pi-web] Pi Web setup token: ${setupToken}`);
 }
 
 /** 读取认证状态；配置损坏或其他读取错误会直接抛出。
@@ -405,6 +415,7 @@ export async function resetAuthStateForTests(): Promise<void> {
   loginFailures.clear();
   globalLoginFailures = null;
   setupToken = "setup-token";
+  setupTokenAnnounced = false;
   authGeneration = 1;
   generationInitialized = false;
   initializationInProgress = false;

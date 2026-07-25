@@ -16,12 +16,14 @@ Pi Web 要求 Node.js 22.19.0 或更高版本。可通过 `node --version` 检�
 npx @agegr/pi-web@latest
 ```
 
-**或全局安装后使用：**
+**或全局安装 npm 包后使用：**
 
 ```bash
 npm install -g @agegr/pi-web
 pi-web
 ```
+
+如果只想在项目内安装，可运行 `npm install @agegr/pi-web`，然后使用 `npx pi-web`。
 
 启动后打开 [http://127.0.0.1:30141](http://127.0.0.1:30141)。命令行版本会在服务就绪后尝试自动打开浏览器。Pi Web 默认仅监听 `127.0.0.1`。
 
@@ -69,7 +71,8 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+     proxy_set_header X-Forwarded-Proto $scheme;
+     proxy_buffering off;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_read_timeout 1h;
@@ -83,7 +86,7 @@ server {
 pi-web --hostname 127.0.0.1 --port 30141 --no-open
 ```
 
-Pi Web 依赖 SSE 推送 Agent 状态，因此反向代理必须支持长连接，并且不能缓冲响应。请同时限制防火墙入口、使用有效 TLS 证书，并避免把 `pi-web-auth.json`、Pi session 文件或模型 API key 暴露给 Web 服务器之外的用户。
+Pi Web 依赖 SSE 推送 Agent 状态，因此反向代理必须支持长连接，并且不能缓冲响应。请同时限制防火墙入口、使用有效 TLS 证书，并避免把 `pi-web-auth.json`、Pi session 文件或模型 API key 暴露给 Web 服务器之外的用户。初始化 token 只会在服务端终端 stderr（或服务端日志）输出一次；不会出现在 HTTP response、浏览器、cookie 或配置文件中。
 
 当前仓库没有内置 `Dockerfile`。如果自行制作容器镜像，必须把 Pi Agent 配置目录挂载到容器内，并通过 `PI_CODING_AGENT_DIR` 指向该挂载目录；认证配置也应使用持久化卷或显式设置 `PI_WEB_AUTH_CONFIG_PATH`，否则重建容器会丢失认证状态。不要把密码、初始化 token、session cookie 或 API key 写进镜像、Dockerfile、compose 文件或日志。
 
