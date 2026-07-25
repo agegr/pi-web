@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { randomBytes, scrypt as scryptCallback, createHash, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
@@ -44,10 +44,13 @@ interface SessionRecord {
 
 const sessions = new Map<string, SessionRecord>();
 const loginFailures = new Map<string, { count: number; firstFailureAt: number }>();
-let setupToken: string | null = existsSync(configPath()) ? null : randomBytes(32).toString("hex");
+let setupToken: string | null = null;
 
 function configPath(): string {
-  return process.env.PI_WEB_AUTH_CONFIG_PATH ?? join(process.env.HOME ?? ".", ".pi", "web-auth.json");
+  return process.env.PI_WEB_AUTH_CONFIG_PATH || join(
+    process.env.PI_CODING_AGENT_DIR || join(process.env.HOME ?? ".", ".pi", "agent"),
+    "pi-web-auth.json",
+  );
 }
 
 function hashToken(token: string): string {
@@ -67,9 +70,14 @@ async function writeConfig(config: StoredAuthConfig): Promise<void> {
   const path = configPath();
   await mkdir(dirname(path), { recursive: true });
   const temporaryPath = `${path}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
-  await writeFile(temporaryPath, `${JSON.stringify(config)}\n`, { mode: 0o600 });
-  await chmod(temporaryPath, 0o600);
-  await rename(temporaryPath, path);
+  try {
+    await writeFile(temporaryPath, `${JSON.stringify(config)}\n`, { mode: 0o600 });
+    await chmod(temporaryPath, 0o600);
+    await rename(temporaryPath, path);
+  } catch (error) {
+    await unlink(temporaryPath).catch(() => {});
+    throw error;
+  }
 }
 
 /** 返回认证配置文件的实际路径。
@@ -96,17 +104,32 @@ export async function getAuthState(): Promise<AuthState> {
  * @throws token 无效、认证已初始化或配置写入失败时抛出错误。
  */
 export async function initializeAuth(token: string, password: string): Promise<void> {
-  const existing = await readConfig();
-  if (existing) throw new Error("认证已经初始化");
-  if (!consumeSetupToken(token)) throw new Error("初始化 token 无效");
-  const salt = randomBytes(16);
-  const derived = await scrypt(password, salt, 64) as Buffer;
-  await writeConfig({
-    passwordHash: derived.toString("hex"),
-    salt: salt.toString("hex"),
-    generation: 1,
-    updatedAt: new Date().toISOString(),
-  });
+  if (initializationInProgress) throw new Error("认证初始化进行中");
+  initializationInProgress = true;
+  let tokenConsumed = false;
+  try {
+    const existing = await readConfig();
+    if (existing) throw new Error("认证已经初始化");
+    if (!consumeSetupToken(token)) throw new Error("初始化 token 无效");
+    tokenConsumed = true;
+    const salt = randomBytes(16);
+    const derived = await scrypt(password, salt, 64) as Buffer;
+    // 在耗时的哈希计算后再次检查，避免并发请求覆盖已创建的配置。
+    if (await readConfig()) throw new Error("认证已经初始化");
+    await writeConfig({
+      passwordHash: derived.toString("hex"),
+      salt: salt.toString("hex"),
+      generation: authGeneration + 1,
+      updatedAt: new Date().toISOString(),
+    });
+    sessions.clear();
+    bumpGeneration();
+  } catch (error) {
+    if (tokenConsumed && !existsSync(configPath())) setupToken = token;
+    throw error;
+  } finally {
+    initializationInProgress = false;
+  }
 }
 
 /** 校验密码，认证配置不存在时返回 false，读取损坏配置时抛出错误。
@@ -151,7 +174,7 @@ export function getSession(token: string): SessionValidation {
 /** 增加密码代次并使全部已有 session 失效。 */
 export function revokeAllSessions(): void {
   sessions.clear();
-  void bumpGeneration();
+  bumpGeneration();
 }
 
 /** 使指定 session 失效。
@@ -166,6 +189,11 @@ export function revokeSession(token: string): void {
  * @returns token 是否有效且已成功消费。
  */
 export function consumeSetupToken(token: string): boolean {
+  if (existsSync(configPath())) {
+    setupToken = null;
+    return false;
+  }
+  if (setupToken === null) setupToken = randomBytes(32).toString("hex");
   if (setupToken === null || token !== setupToken) return false;
   setupToken = null;
   return true;
@@ -205,6 +233,7 @@ function currentGeneration(): number {
 }
 
 let authGeneration = 1;
+let initializationInProgress = false;
 function bumpGeneration(): void {
   authGeneration += 1;
 }
@@ -215,9 +244,17 @@ export async function resetAuthStateForTests(): Promise<void> {
   loginFailures.clear();
   setupToken = "setup-token";
   authGeneration = 1;
-  const config = await readConfig();
-  if (config) {
-    const { unlink } = await import("node:fs/promises");
-    await unlink(configPath());
-  }
+  initializationInProgress = false;
+  await import("node:fs/promises").then(({ unlink }) => unlink(configPath()).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") throw error;
+  }));
+}
+
+/** 返回当前进程中的初始化 token，仅供测试验证熵值。
+ * @returns 初始化 token。
+ */
+export function getSetupTokenForTests(): string {
+  if (existsSync(configPath())) throw new Error("认证已经初始化");
+  if (setupToken === null) setupToken = randomBytes(32).toString("hex");
+  return setupToken;
 }
