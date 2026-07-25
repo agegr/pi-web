@@ -280,6 +280,51 @@ node --test lib/pi-web-auth.test.mjs
 - Node 测试仍提示 `.ts` ESM 的 `MODULE_TYPELESS_PACKAGE_JSON` warning，不影响测试结果。
 - 类型检查未执行，当前 worktree 没有 `node_modules/.bin/tsc`。
 
+## Task 1 最终 Reviewer Critical/Important 修复
+
+### 根因
+
+- `readConfigForInitialization()` 把 `EISDIR` 和 `ENOTDIR` 错误误判为“未初始化”，导致初始化流程可能绕过配置读取失败。
+- `hasRegularConfigFile()` 捕获所有 `stat` 错误并返回 `false`，无法确认配置状态时仍可能接受 setup token。
+- `getSetupTokenForTests()` 和 `consumeSetupToken()` 在 token 已消费后会重新生成 token；初始化失败恢复也通过再次检查文件状态决定，无法严格区分写入失败与成功后的后续错误。
+- `getAuthState()` 在 mutation queue 外修改 `authGeneration` 和 `generationInitialized`，读取与认证变更交错时可能把旧配置代次写回内存，形成事务分叉。
+
+### TDD 证据
+
+#### RED
+
+新增目录配置、`stat` 错误、消费后 token 失效和读取与 mutation queue 交错回归测试后运行：
+
+```bash
+node --test lib/pi-web-auth.test.mjs
+```
+
+结果：29 个测试中 27 个通过、2 个失败。失败分别证明 `stat` 错误被吞掉，以及测试辅助在 token 消费后重新生成 token。
+
+#### GREEN
+
+实现明确的 `ENOENT` 分支、不可恢复 token 状态、写入尝试/完成标记、只读且排队的 `getAuthState()`，并避免 `createSession()` 重复 hash 后重新运行：
+
+```bash
+node --test lib/pi-web-auth.test.mjs
+git diff --check
+```
+
+结果：29 个测试通过、0 个失败；`git diff --check` 通过。
+
+### 修复内容
+
+- 初始化读取仅由底层 `readConfig()` 的明确 `ENOENT` 返回 `null`，其他读取错误原样抛出。
+- 配置文件 `stat` 仅对明确 `ENOENT` 返回 `false`，其他错误原样抛出。
+- setup token 只在模块首次加载时生成；消费后保持 `null`，测试辅助不再自动生成。只有写入尝试失败且未完成时恢复原 token，原子写入成功后永久失效。
+- `getAuthState()` 等待认证 mutation queue，只返回文件中的状态，不再修改全局 generation；补充并发回归测试。
+- 补齐 `revokeSession()` JSDoc，并在 `createSession()` 中复用一次计算出的 token hash。
+
+### Concerns
+
+- Node 测试仍提示 `.ts` ESM 的 `MODULE_TYPELESS_PACKAGE_JSON` warning，不影响测试结果。
+- 未运行类型检查；本 Task 要求的验证命令为 `node --test lib/pi-web-auth.test.mjs` 和 `git diff --check`。
+
 ## Task 1 最终审核阻塞修复
 
 ### 根因

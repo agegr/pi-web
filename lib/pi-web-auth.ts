@@ -78,12 +78,7 @@ async function readConfig(): Promise<StoredAuthConfig | null> {
 }
 
 async function readConfigForInitialization(): Promise<StoredAuthConfig | null> {
-  try {
-    return await readConfig();
-  } catch (error) {
-    if (["EISDIR", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return null;
-    throw error;
-  }
+  return await readConfig();
 }
 
 function validateConfig(value: unknown): asserts value is StoredAuthConfig {
@@ -103,8 +98,9 @@ function validateConfig(value: unknown): asserts value is StoredAuthConfig {
 function hasRegularConfigFile(): boolean {
   try {
     return statSync(configPath()).isFile();
-  } catch {
-    return false;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
   }
 }
 
@@ -134,10 +130,9 @@ export function getAuthConfigPath(): string {
  * @throws 配置文件读取失败或 JSON 损坏时抛出原始错误。
  */
 export async function getAuthState(): Promise<AuthState> {
+  await authMutationQueue;
   const config = await readConfig();
   if (!config) return { initialized: false, generation: 0 };
-  authGeneration = config.generation;
-  generationInitialized = true;
   return { initialized: true, generation: config.generation, updatedAt: config.updatedAt };
 }
 
@@ -157,6 +152,8 @@ async function initializeAuthNow(token: string, password: string): Promise<void>
   if (initializationInProgress) throw new Error("认证初始化进行中");
   initializationInProgress = true;
   let tokenConsumed = false;
+  let writeAttempted = false;
+  let configWriteCompleted = false;
   try {
     const existing = await readConfigForInitialization();
     if (existing) throw new Error("认证已经初始化");
@@ -166,16 +163,18 @@ async function initializeAuthNow(token: string, password: string): Promise<void>
     const derived = await scrypt(password, salt, 64) as Buffer;
     // 在耗时的哈希计算后再次检查，避免并发请求覆盖已创建的配置。
     if (await readConfigForInitialization()) throw new Error("认证已经初始化");
+    writeAttempted = true;
     await writeConfig({
       passwordHash: derived.toString("hex"),
       salt: salt.toString("hex"),
       generation: authGeneration + 1,
       updatedAt: new Date().toISOString(),
     });
+    configWriteCompleted = true;
     sessions.clear();
     bumpGeneration();
   } catch (error) {
-    if (tokenConsumed && !hasRegularConfigFile()) setupToken = token;
+    if (tokenConsumed && writeAttempted && !configWriteCompleted) setupToken = token;
     throw error;
   } finally {
     initializationInProgress = false;
@@ -202,8 +201,9 @@ export function createSession(): string {
   const token = randomBytes(32).toString("hex");
   const now = Date.now();
   const stateGeneration = currentGeneration();
-  sessions.set(hashToken(token), {
-    hash: hashToken(token),
+  const tokenHash = hashToken(token);
+  sessions.set(tokenHash, {
+    hash: tokenHash,
     createdAt: now,
     expiresAt: now + SESSION_TTL,
     generation: stateGeneration,
@@ -265,6 +265,8 @@ async function revokeAllSessionsNow(): Promise<void> {
 
 /** 使指定 session 失效。
  * @param token 要失效的原始 session token。
+ * @returns 无返回值。
+ * @throws 当前实现不会主动抛出异常。
  */
 export function revokeSession(token: string): void {
   sessions.delete(hashToken(token));
@@ -279,7 +281,6 @@ export function consumeSetupToken(token: string): boolean {
     setupToken = null;
     return false;
   }
-  if (setupToken === null) setupToken = randomBytes(32).toString("hex");
   if (setupToken === null || token !== setupToken) return false;
   setupToken = null;
   return true;
@@ -381,6 +382,6 @@ export async function resetAuthStateForTests(): Promise<void> {
  */
 export function getSetupTokenForTests(): string {
   if (hasRegularConfigFile()) throw new Error("认证已经初始化");
-  if (setupToken === null) setupToken = randomBytes(32).toString("hex");
+  if (setupToken === null) throw new Error("初始化 token 不可用");
   return setupToken;
 }
