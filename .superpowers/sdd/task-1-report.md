@@ -103,3 +103,45 @@ node --test lib/pi-web-auth.test.mjs
 
 - 当前 worktree 缺少 Node 依赖，类型检查无法执行；ESLint 也无法获得有效输出。
 - 仅保留并稳定 brief 已定义的认证接口；新增的 `getSetupTokenForTests()` 仅用于测试熵值验证，不作为后续 API 依赖。
+
+## Important Findings 修复
+
+### TDD 证据
+
+#### RED
+
+新增全局限速、窗口恢复、消费 token 后写入失败重试和严格配置结构测试后运行：
+
+```bash
+node --test lib/pi-web-auth.test.mjs
+```
+
+结果：18 个测试中 16 个通过、2 个失败。失败准确暴露全局失败桶缺失，以及结构化 JSON 未校验；写入失败测试已覆盖目标路径故障场景。
+
+#### GREEN
+
+实现修复后运行：
+
+```bash
+node --test lib/pi-web-auth.test.mjs
+```
+
+结果：18 个测试通过，0 个失败。
+
+### 修复内容
+
+- 增加独立全局登录失败桶；`checkLoginRateLimit()` 同时检查来源桶和全局桶，并分别清理过期窗口，轮换来源不能绕过全局限速。
+- 初始化失败恢复改为仅在目标路径不存在合法普通配置文件时恢复 token；目标路径临时为目录不会永久消耗 token，修复后可用同一 token 重试，成功落盘后 token 仍失效。
+- 对认证配置严格校验必需字段、字段类型、额外字段、hex 格式、hash/salt 长度、generation 和 UTC ISO 时间字段；损坏结构明确抛出 `认证配置结构无效`。
+- 为导出的认证接口和公开类型字段补充简体中文 JSDoc，补齐参数、返回值及适用异常说明。
+
+### 验证
+
+- `node --test lib/pi-web-auth.test.mjs`：18 pass，0 fail。
+- `git diff --check`：通过。
+- `node_modules/.bin/tsc --noEmit`：未执行成功，当前 worktree 没有 `node_modules/.bin/tsc`。
+
+### Concerns
+
+- Node 测试仍提示 `.ts` ESM 的 `MODULE_TYPELESS_PACKAGE_JSON` warning，不影响测试结果。
+- 类型检查因 worktree 缺少依赖无法执行。

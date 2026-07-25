@@ -1,5 +1,5 @@
 import { chmod, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { statSync } from "node:fs";
 import { randomBytes, scrypt as scryptCallback, createHash, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { dirname, join } from "node:path";
@@ -18,20 +18,27 @@ interface StoredAuthConfig {
 
 /** 对调用方公开的认证状态，不包含密码凭据。 */
 export interface AuthState {
+  /** 是否已经完成认证初始化。 */
   initialized: boolean;
+  /** 当前密码代次。 */
   generation: number;
+  /** 配置最后更新时间。 */
   updatedAt?: string;
 }
 
 /** Session 校验结果。 */
 export interface SessionValidation {
+  /** session 是否有效。 */
   valid: boolean;
+  /** 有效 session 使用的密码代次。 */
   generation?: number;
 }
 
 /** 登录限速判定结果。 */
 export interface RateLimitDecision {
+  /** 当前请求是否允许继续。 */
   allowed: boolean;
+  /** 被拒绝时的剩余等待时间，单位为毫秒。 */
   retryAfterMs?: number;
 }
 
@@ -44,6 +51,7 @@ interface SessionRecord {
 
 const sessions = new Map<string, SessionRecord>();
 const loginFailures = new Map<string, { count: number; firstFailureAt: number }>();
+let globalLoginFailures: { count: number; firstFailureAt: number } | null = null;
 let setupToken: string | null = null;
 
 function configPath(): string {
@@ -59,10 +67,43 @@ function hashToken(token: string): string {
 
 async function readConfig(): Promise<StoredAuthConfig | null> {
   try {
-    return JSON.parse(await readFile(configPath(), "utf8")) as StoredAuthConfig;
+    const parsed: unknown = JSON.parse(await readFile(configPath(), "utf8"));
+    validateConfig(parsed);
+    return parsed;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
+  }
+}
+
+async function readConfigForInitialization(): Promise<StoredAuthConfig | null> {
+  try {
+    return await readConfig();
+  } catch (error) {
+    if (["EISDIR", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return null;
+    throw error;
+  }
+}
+
+function validateConfig(value: unknown): asserts value is StoredAuthConfig {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("认证配置结构无效");
+  }
+  const config = value as Record<string, unknown>;
+  if (Object.keys(config).sort().join(",") !== "generation,passwordHash,salt,updatedAt" ||
+    typeof config.passwordHash !== "string" || !/^[0-9a-f]+$/i.test(config.passwordHash) || config.passwordHash.length !== 128 ||
+    typeof config.salt !== "string" || !/^[0-9a-f]+$/i.test(config.salt) || config.salt.length !== 32 ||
+    typeof config.generation !== "number" || !Number.isSafeInteger(config.generation) || config.generation < 1 ||
+    typeof config.updatedAt !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(config.updatedAt) || !Number.isFinite(Date.parse(config.updatedAt))) {
+    throw new Error("认证配置结构无效");
+  }
+}
+
+function hasRegularConfigFile(): boolean {
+  try {
+    return statSync(configPath()).isFile();
+  } catch {
+    return false;
   }
 }
 
@@ -108,14 +149,14 @@ export async function initializeAuth(token: string, password: string): Promise<v
   initializationInProgress = true;
   let tokenConsumed = false;
   try {
-    const existing = await readConfig();
+    const existing = await readConfigForInitialization();
     if (existing) throw new Error("认证已经初始化");
     if (!consumeSetupToken(token)) throw new Error("初始化 token 无效");
     tokenConsumed = true;
     const salt = randomBytes(16);
     const derived = await scrypt(password, salt, 64) as Buffer;
     // 在耗时的哈希计算后再次检查，避免并发请求覆盖已创建的配置。
-    if (await readConfig()) throw new Error("认证已经初始化");
+    if (await readConfigForInitialization()) throw new Error("认证已经初始化");
     await writeConfig({
       passwordHash: derived.toString("hex"),
       salt: salt.toString("hex"),
@@ -125,7 +166,7 @@ export async function initializeAuth(token: string, password: string): Promise<v
     sessions.clear();
     bumpGeneration();
   } catch (error) {
-    if (tokenConsumed && !existsSync(configPath())) setupToken = token;
+    if (tokenConsumed && !hasRegularConfigFile()) setupToken = token;
     throw error;
   } finally {
     initializationInProgress = false;
@@ -161,7 +202,10 @@ export function createSession(): string {
   return token;
 }
 
-/** 校验 session 的存在性、过期时间和密码代次。 */
+/** 校验 session 的存在性、过期时间和密码代次。
+ * @param token 要校验的原始 session token。
+ * @returns session 校验结果。
+ */
 export function getSession(token: string): SessionValidation {
   const record = sessions.get(hashToken(token));
   if (!record || record.expiresAt <= Date.now() || record.generation !== currentGeneration()) {
@@ -171,7 +215,9 @@ export function getSession(token: string): SessionValidation {
   return { valid: true, generation: record.generation };
 }
 
-/** 增加密码代次并使全部已有 session 失效。 */
+/** 增加密码代次并使全部已有 session 失效。
+ * @returns 无返回值。
+ */
 export function revokeAllSessions(): void {
   sessions.clear();
   bumpGeneration();
@@ -189,7 +235,7 @@ export function revokeSession(token: string): void {
  * @returns token 是否有效且已成功消费。
  */
 export function consumeSetupToken(token: string): boolean {
-  if (existsSync(configPath())) {
+  if (hasRegularConfigFile()) {
     setupToken = null;
     return false;
   }
@@ -205,18 +251,27 @@ export function consumeSetupToken(token: string): boolean {
  */
 export function checkLoginRateLimit(key: string): RateLimitDecision {
   const failure = loginFailures.get(key);
-  if (!failure || Date.now() - failure.firstFailureAt >= RATE_LIMIT_WINDOW) {
+  const now = Date.now();
+  if (!failure || now - failure.firstFailureAt >= RATE_LIMIT_WINDOW) {
     if (failure) loginFailures.delete(key);
-    return { allowed: true };
   }
-  if (failure.count >= MAX_LOGIN_FAILURES) {
-    return { allowed: false, retryAfterMs: RATE_LIMIT_WINDOW - (Date.now() - failure.firstFailureAt) };
+  const globalFailure = globalLoginFailures;
+  if (globalFailure && now - globalFailure.firstFailureAt >= RATE_LIMIT_WINDOW) {
+    globalLoginFailures = null;
+  }
+  const activeFailure = loginFailures.get(key);
+  if (activeFailure?.count >= MAX_LOGIN_FAILURES) {
+    return { allowed: false, retryAfterMs: RATE_LIMIT_WINDOW - (now - activeFailure.firstFailureAt) };
+  }
+  if (globalLoginFailures?.count >= MAX_LOGIN_FAILURES) {
+    return { allowed: false, retryAfterMs: RATE_LIMIT_WINDOW - (now - globalLoginFailures.firstFailureAt) };
   }
   return { allowed: true };
 }
 
 /** 记录一次登录失败。
  * @param key 登录来源标识。
+ * @returns 无返回值。
  */
 export function recordLoginFailure(key: string): void {
   const now = Date.now();
@@ -225,6 +280,11 @@ export function recordLoginFailure(key: string): void {
     loginFailures.set(key, { count: 1, firstFailureAt: now });
   } else {
     existing.count += 1;
+  }
+  if (!globalLoginFailures || now - globalLoginFailures.firstFailureAt >= RATE_LIMIT_WINDOW) {
+    globalLoginFailures = { count: 1, firstFailureAt: now };
+  } else {
+    globalLoginFailures.count += 1;
   }
 }
 
@@ -238,10 +298,14 @@ function bumpGeneration(): void {
   authGeneration += 1;
 }
 
-/** 清理测试状态；仅供测试使用。 */
+/** 清理测试状态；仅供测试使用。
+ * @returns 清理完成的 Promise。
+ * @throws 删除测试配置失败时抛出错误。
+ */
 export async function resetAuthStateForTests(): Promise<void> {
   sessions.clear();
   loginFailures.clear();
+  globalLoginFailures = null;
   setupToken = "setup-token";
   authGeneration = 1;
   initializationInProgress = false;
@@ -254,7 +318,7 @@ export async function resetAuthStateForTests(): Promise<void> {
  * @returns 初始化 token。
  */
 export function getSetupTokenForTests(): string {
-  if (existsSync(configPath())) throw new Error("认证已经初始化");
+  if (hasRegularConfigFile()) throw new Error("认证已经初始化");
   if (setupToken === null) setupToken = randomBytes(32).toString("hex");
   return setupToken;
 }
