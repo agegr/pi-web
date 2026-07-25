@@ -5,10 +5,12 @@ import { usePathname, useRouter } from "next/navigation";
 
 type AuthStatus = { initialized: boolean; authenticated: boolean };
 
-/** 在认证状态确认前阻止业务 UI 挂载，并提供登录或初始化表单。
+/**
+ * 在认证状态确认前阻止业务 UI 挂载，并提供登录或初始化表单。
  * @param props 组件属性。
  * @param props.children 已认证后显示的业务界面。
  * @returns 认证分流界面。
+ * @throws 认证状态请求失败时显示通用错误界面，不向调用方抛出异常。
  */
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -16,13 +18,13 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [error, setError] = useState("");
 
-  async function refreshStatus() {
-    const response = await fetch("/api/auth/status", { cache: "no-store" });
-    if (!response.ok) throw new Error("认证状态读取失败");
-    setStatus(await response.json() as AuthStatus);
-  }
-
   useEffect(() => {
+    async function refreshStatus() {
+      const response = await fetch("/api/auth/status", { cache: "no-store" });
+      if (!response.ok) throw new Error("认证状态读取失败");
+      setStatus(await response.json() as AuthStatus);
+    }
+
     refreshStatus().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "认证状态读取失败"));
   }, []);
 

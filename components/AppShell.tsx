@@ -34,6 +34,10 @@ type AutoNameStatus =
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
 const LANGUAGE_MENU_WIDTH = 176;
 
+/**
+ * 渲染 Pi Web 的主工作区及其会话、文件和认证设置。
+ * @returns 主工作区界面。
+ */
 export function AppShell() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -483,9 +487,11 @@ export function AppShell() {
     try {
       const response = await fetch("/api/auth/logout", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
       if (!response.ok) throw new Error("退出登录失败");
-      router.replace("/login");
     } catch {
       setAuthError("退出登录失败，请稍后再试");
+    } finally {
+      // 改密已经吊销当前 session，logout 网络失败也不能阻止离开受保护页面。
+      router.replace("/login");
     }
   }
 
@@ -1584,7 +1590,7 @@ function PasswordChangeForm({ onSuccess }: { onSuccess: () => void }) {
     setError(null);
     try {
       const response = await fetch("/api/auth/password", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(values) });
-      if (!response.ok) throw new Error(response.status === 401 ? "当前密码错误" : "密码修改失败，请稍后再试");
+      if (!response.ok) throw new Error("密码修改失败，请稍后再试");
       form.reset();
       onSuccess();
     } catch (reason) {

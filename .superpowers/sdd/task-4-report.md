@@ -30,3 +30,18 @@ Implemented the login, setup, password-change, and logout UI in the feature work
 
 - Typecheck and lint need to be rerun after dependencies are available.
 - Browser-level Playwright acceptance was not available; the static behavior tests are the requested fallback for this repository.
+
+## Reviewer Follow-up
+
+- 修复改密后的退出流程：改密成功后无论 logout 请求成功或失败，均在 `finally` 中导航到 `/login`。
+- 认证失败统一使用通用文案，移除 UI 中暴露“当前密码错误”等具体失败类型。
+- 将 `components/AuthForms.test.mjs` 改为可执行行为测试，覆盖 login/setup payload、确认密码短路、HTTP 失败回调和成功回调。
+- 将认证提交逻辑抽取到 `lib/auth-form.ts`，补齐涉及导出的中文 JSDoc，并将 `AuthGate` 状态请求函数放入 effect 以修正依赖问题。
+
+## Reviewer Verification
+
+- RED: 首次运行行为测试因 `lib/auth-form.ts` 尚不存在而失败。
+- GREEN: `node --test components/AuthForms.test.mjs` PASS，6/6。
+- `node --test lib/pi-web-auth.test.mjs` PASS，37/37。
+- `git diff --check` PASS。
+- TypeScript typecheck 未运行：本 worktree 没有 `node_modules/.bin/tsc`。

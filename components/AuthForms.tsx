@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { submitAuthForm } from "@/lib/auth-form";
 
 /** 认证表单的工作模式。 */
 export type AuthFormMode = "login" | "setup";
@@ -9,11 +10,6 @@ type AuthFormsProps = {
   mode: AuthFormMode;
   onSuccess: () => void;
 };
-
-function getErrorMessage(status: number): string {
-  if (status === 429) return "操作过于频繁，请稍后再试";
-  return "认证失败，请稍后再试";
-}
 
 /**
  * 渲染登录或初始化认证表单。
@@ -39,16 +35,11 @@ export function AuthForms({ mode, onSuccess }: AuthFormsProps) {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(isSetup ? "/api/auth/setup" : "/api/auth/login", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(values),
-      });
-      if (!response.ok) throw new Error(getErrorMessage(response.status));
+      const result = await submitAuthForm({ mode, values, request: fetch, onSuccess: () => {
       form.reset();
       onSuccess();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "认证失败，请稍后再试");
+      } });
+      if (!result.ok) setError(result.error);
     } finally {
       setBusy(false);
     }
