@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getFileIcon } from "./FileIcons";
 
 export interface Tab {
@@ -17,8 +17,73 @@ interface Props {
   onCloseTab: (id: string) => void;
 }
 
+interface ContextMenu {
+  x: number;
+  y: number;
+  tabIndex: number;
+}
+
 export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
   const [hoveredClose, setHoveredClose] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const closeMenu = useCallback(() => setContextMenu(null), []);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        closeMenu();
+      }
+    };
+    const cancel = () => closeMenu();
+    document.addEventListener("mousedown", handler);
+    document.addEventListener("scroll", cancel, true);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("scroll", cancel, true);
+    };
+  }, [contextMenu, closeMenu]);
+
+  const batchClose = useCallback((indices: number[]) => {
+    const ids = indices.map((i) => tabs[i].id);
+    ids.forEach((id) => onCloseTab(id));
+    closeMenu();
+  }, [tabs, onCloseTab, closeMenu]);
+
+  const menuItems: { label: string; action: () => void }[] = contextMenu
+    ? [
+        {
+          label: "关闭全部",
+          action: () => batchClose(tabs.map((_, i) => i)),
+        },
+        {
+          label: "关闭其他",
+          action: () => batchClose(tabs.filter((_, i) => i !== contextMenu.tabIndex).map((_, i) => {
+            let idx = 0;
+            for (let j = 0; j < tabs.length; j++) {
+              if (j === contextMenu.tabIndex) continue;
+              if (idx === i) return j;
+              idx++;
+            }
+            return -1;
+          }).filter((i) => i >= 0)),
+        },
+        {
+          label: "关闭左侧全部",
+          action: () => batchClose(
+            tabs.map((_, i) => i).filter((i) => i < contextMenu.tabIndex),
+          ),
+        },
+        {
+          label: "关闭右侧全部",
+          action: () => batchClose(
+            tabs.map((_, i) => i).filter((i) => i > contextMenu.tabIndex),
+          ),
+        },
+      ]
+    : [];
 
   return (
     <div
@@ -31,7 +96,7 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
         height: 36,
       }}
     >
-      {tabs.map((tab) => {
+      {tabs.map((tab, index) => {
         const isActive = tab.id === activeTabId;
         return (
           <div
@@ -45,6 +110,10 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
               e.preventDefault();
               e.stopPropagation();
               onCloseTab(tab.id);
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setContextMenu({ x: e.clientX, y: e.clientY, tabIndex: index });
             }}
             style={{
               display: "flex",
@@ -107,6 +176,42 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
           </div>
         );
       })}
+
+      {contextMenu && (
+        <div
+          ref={menuRef}
+          style={{
+            position: "fixed",
+            left: contextMenu.x,
+            top: contextMenu.y,
+            background: "var(--bg-panel)",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
+            padding: "4px 0",
+            zIndex: 9999,
+            minWidth: 140,
+          }}
+        >
+          {menuItems.map((item) => (
+            <div
+              key={item.label}
+              onClick={item.action}
+              style={{
+                padding: "6px 16px",
+                fontSize: 12,
+                color: "var(--text)",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = "var(--bg-hover)"}
+              onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+            >
+              {item.label}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
