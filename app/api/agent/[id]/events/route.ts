@@ -1,6 +1,8 @@
 import { resolveSessionPath } from "@/lib/session-reader";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { subscribeSessionInvalidation } from "@/lib/pi-web-auth";
+import { getSessionToken } from "@/lib/pi-web-auth-route";
 
 export const dynamic = "force-dynamic";
 
@@ -28,9 +30,12 @@ export async function GET(
 
   const stream = new ReadableStream({
     start(controller) {
+      let closed = false;
+      let unsubscribeAuth = () => {};
       const encode = (data: unknown) => {
+        if (closed) return;
         const text = `data: ${JSON.stringify(data)}\n\n`;
-        controller.enqueue(new TextEncoder().encode(text));
+        try { controller.enqueue(new TextEncoder().encode(text)); } catch { cleanup(); }
       };
 
       // Send initial connected event
@@ -42,6 +47,7 @@ export async function GET(
 
       // Heartbeat every 30s to prevent server/proxy timeout (Next.js default ~120-150s)
       const heartbeat = setInterval(() => {
+        if (closed) return;
         try {
           controller.enqueue(new TextEncoder().encode(":\n\n"));
         } catch {
@@ -51,10 +57,18 @@ export async function GET(
 
       // Cleanup when client disconnects
       const cleanup = () => {
+        if (closed) return;
+        closed = true;
         clearInterval(heartbeat);
         unsubscribe();
+        unsubscribeAuth();
         controller.close();
       };
+
+      const sessionToken = getSessionToken(req);
+      unsubscribeAuth = sessionToken
+        ? subscribeSessionInvalidation(sessionToken, cleanup)
+        : () => {};
 
       // Detect client disconnect via abort signal
       req.signal?.addEventListener("abort", cleanup);

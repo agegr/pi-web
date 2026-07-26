@@ -2,7 +2,8 @@ import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
 import { randomBytes } from "node:crypto";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { invalidateModelsCache } from "@/lib/models-cache";
-import { authError, getAuthenticatedSession, readAuthJson } from "@/lib/pi-web-auth-route";
+import { subscribeSessionInvalidation } from "@/lib/pi-web-auth";
+import { authError, getAuthenticatedSession, getSessionToken, readAuthJson } from "@/lib/pi-web-auth-route";
 
 export const dynamic = "force-dynamic";
 
@@ -78,6 +79,7 @@ export async function GET(
       }
 
       const registry = getCallbackRegistry();
+      const sessionToken = getSessionToken(req);
       const activeTokens = new Set<string>();
       let pendingManualRequest: { token: string; promise: Promise<string> } | undefined;
 
@@ -123,6 +125,10 @@ export async function GET(
         }
         activeTokens.clear();
       };
+
+      const unsubscribeAuth = sessionToken
+        ? subscribeSessionInvalidation(sessionToken, () => abort.abort())
+        : () => {};
 
       // Also cancel on client disconnect
       abort.signal.addEventListener("abort", cleanup);
@@ -185,6 +191,7 @@ export async function GET(
         }
       } finally {
         cleanup();
+        unsubscribeAuth();
         controller.close();
       }
     },

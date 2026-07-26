@@ -63,7 +63,10 @@ interface SessionRecord {
   generation: number;
 }
 
+type SessionInvalidationListener = () => void;
+
 const sessions = new Map<string, SessionRecord>();
+const sessionInvalidationListeners = new Map<string, Set<SessionInvalidationListener>>();
 const loginFailures = new Map<string, { count: number; firstFailureAt: number }>();
 let globalLoginFailures: { count: number; firstFailureAt: number } | null = null;
 // brief 要求 token 在模块首次加载时生成；已有配置时不创建初始化凭据。
@@ -247,6 +250,7 @@ async function initializeAuthNow(token: string, password: string): Promise<void>
     });
     configWriteCompleted = true;
     sessions.clear();
+    notifyAllSessionInvalidations();
     bumpGeneration();
   } catch (error) {
     if (tokenConsumed && writeAttempted && !configWriteCompleted) setupToken = token;
@@ -324,6 +328,7 @@ async function changePasswordNow(currentPassword: string, newPassword: string): 
     updatedAt: new Date().toISOString(),
   });
   sessions.clear();
+  notifyAllSessionInvalidations();
   authGeneration = config.generation + 1;
   generationInitialized = true;
 }
@@ -402,6 +407,7 @@ async function revokeAllSessionsNow(): Promise<void> {
     throw error;
   }
   sessions.clear();
+  notifyAllSessionInvalidations();
   authGeneration = nextGeneration;
   generationInitialized = true;
 }
@@ -412,7 +418,48 @@ async function revokeAllSessionsNow(): Promise<void> {
  * @throws 当前实现不会主动抛出异常。
  */
 export function revokeSession(token: string): void {
-  sessions.delete(hashToken(token));
+  const tokenHash = hashToken(token);
+  sessions.delete(tokenHash);
+  notifySessionInvalidation(tokenHash);
+}
+
+/** 订阅指定 Web session 的失效事件；不会触碰 AgentSession 生命周期。
+ * @param token 要监听的原始 Web session token。
+ * @param listener session 失效时调用的回调。
+ * @returns 取消订阅函数；可安全重复调用。
+ */
+export function subscribeSessionInvalidation(token: string, listener: SessionInvalidationListener): () => void {
+  const tokenHash = hashToken(token);
+  const record = sessions.get(tokenHash);
+  if (!record || record.expiresAt <= Date.now() || record.generation !== currentGeneration()) {
+    listener();
+    return () => {};
+  }
+  let listeners = sessionInvalidationListeners.get(tokenHash);
+  if (!listeners) {
+    listeners = new Set();
+    sessionInvalidationListeners.set(tokenHash, listeners);
+  }
+  listeners.add(listener);
+  const timeout = setTimeout(() => notifySessionInvalidation(tokenHash), Math.max(0, record.expiresAt - Date.now()));
+  const unsubscribe = () => {
+    clearTimeout(timeout);
+    const current = sessionInvalidationListeners.get(tokenHash);
+    current?.delete(listener);
+    if (current?.size === 0) sessionInvalidationListeners.delete(tokenHash);
+  };
+  return unsubscribe;
+}
+
+function notifySessionInvalidation(tokenHash: string): void {
+  const listeners = sessionInvalidationListeners.get(tokenHash);
+  if (!listeners) return;
+  sessionInvalidationListeners.delete(tokenHash);
+  for (const listener of listeners) listener();
+}
+
+function notifyAllSessionInvalidations(): void {
+  for (const tokenHash of sessionInvalidationListeners.keys()) notifySessionInvalidation(tokenHash);
 }
 
 /** 消费一次性初始化 token；成功后该 token 会从内存删除。
@@ -512,6 +559,7 @@ function bumpGeneration(): void {
  */
 export async function resetAuthStateForTests(): Promise<void> {
   sessions.clear();
+  notifyAllSessionInvalidations();
   loginFailures.clear();
   globalLoginFailures = null;
   setupToken = "setup-token";
