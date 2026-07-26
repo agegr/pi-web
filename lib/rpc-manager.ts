@@ -5,6 +5,7 @@ import { existsSync, writeFileSync } from "fs";
 import { validateAgentImages } from "./image-attachments";
 import { invalidateModelsCache } from "./models-cache";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
+import { projectTrustReloadOptions } from "./project-trust";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
 import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
@@ -1076,7 +1077,14 @@ export async function startRpcSession(
 
     // Build services first so extension-registered providers are available
     // before the SDK restores the saved model from the session file.
-    const services = await createAgentSessionServices({ cwd, agentDir });
+    // Gate untrusted project extensions so opening a repository does not run
+    // its .pi/extensions code automatically (see lib/project-trust.ts, #236).
+    const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
+    const services = await createAgentSessionServices({
+      cwd,
+      agentDir,
+      ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
+    });
     const { session: inner } = await createAgentSessionFromServices({
       services,
       sessionManager,
