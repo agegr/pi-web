@@ -61,27 +61,65 @@ export async function GET(
   const { provider } = await params;
 
   const encoder = new TextEncoder();
-  const send = (controller: ReadableStreamDefaultController, data: unknown) => {
-    controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-  };
-
   // AbortController propagates client disconnect into ModelRuntime.login().
   const abort = new AbortController();
   req.signal.addEventListener("abort", () => abort.abort());
+  let closed = false;
+  let controller: ReadableStreamDefaultController | undefined;
+  let cleanup = () => {
+    if (closed) return;
+    closed = true;
+    abort.abort();
+    try { controller?.close(); } catch { /* stream already closed */ }
+  };
 
   const stream = new ReadableStream({
-    async start(controller) {
-      const modelRuntime = await ModelRuntime.create();
-      if (!modelRuntime.getProvider(provider)?.auth.oauth) {
-        send(controller, { type: "error", message: `Unknown provider: ${provider}` });
-        controller.close();
-        return;
-      }
-
+    async start(streamController) {
+      controller = streamController;
+      let unsubscribeAuth = () => {};
       const registry = getCallbackRegistry();
-      const sessionToken = getSessionToken(req);
       const activeTokens = new Set<string>();
       let pendingManualRequest: { token: string; promise: Promise<string> } | undefined;
+
+      cleanup = () => {
+        if (closed) return;
+        closed = true;
+        abort.abort();
+        for (const token of activeTokens) {
+          registry.get(token)?.reject(new Error("Login cancelled"));
+          registry.delete(token);
+        }
+        activeTokens.clear();
+        unsubscribeAuth();
+        try { controller?.close(); } catch { /* stream already closed */ }
+      };
+
+      const send = (data: unknown) => {
+        if (closed) return;
+        try {
+          streamController.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          cleanup();
+        }
+      };
+
+      const sessionToken = getSessionToken(req);
+      unsubscribeAuth = sessionToken
+        ? subscribeSessionInvalidation(sessionToken, cleanup)
+        : () => {};
+      if (abort.signal.aborted) {
+        cleanup();
+        return;
+      }
+      if (closed) return;
+
+      const modelRuntime = await ModelRuntime.create();
+      if (closed) return;
+      if (!modelRuntime.getProvider(provider)?.auth.oauth) {
+        send({ type: "error", message: `Unknown provider: ${provider}` });
+        cleanup();
+        return;
+      }
 
       const createClientInputRequest = () => {
         const token = `${provider}-${Date.now()}-${randomBytes(18).toString("base64url")}`;
@@ -117,19 +155,6 @@ export async function GET(
         return pendingManualRequest;
       };
 
-      // Cleanup: remove pending token and abort any waiting promise
-      const cleanup = () => {
-        for (const token of activeTokens) {
-          registry.get(token)?.reject(new Error("Login cancelled"));
-          registry.delete(token);
-        }
-        activeTokens.clear();
-      };
-
-      const unsubscribeAuth = sessionToken
-        ? subscribeSessionInvalidation(sessionToken, () => abort.abort())
-        : () => {};
-
       // Also cancel on client disconnect
       abort.signal.addEventListener("abort", cleanup);
 
@@ -140,14 +165,14 @@ export async function GET(
               ? getManualInputRequest()
               : createClientInputRequest();
             if (prompt.type === "select") {
-              send(controller, {
+              send({
                 type: "select_request",
                 message: prompt.message,
                 options: prompt.options,
                 token: request.token,
               });
             } else {
-              send(controller, {
+              send({
                 type: "prompt_request",
                 message: prompt.message,
                 placeholder: prompt.placeholder ?? null,
@@ -159,14 +184,14 @@ export async function GET(
           notify: (event: AuthEvent) => {
             if (event.type === "auth_url") {
               const request = getManualInputRequest();
-              send(controller, {
+              send({
                 type: "auth",
                 url: event.url,
                 instructions: event.instructions ?? null,
                 token: request.token,
               });
             } else if (event.type === "device_code") {
-              send(controller, {
+              send({
                 type: "device_code",
                 userCode: event.userCode,
                 verificationUri: event.verificationUri,
@@ -174,29 +199,27 @@ export async function GET(
                 expiresInSeconds: event.expiresInSeconds ?? null,
               });
             } else {
-              send(controller, { type: "progress", message: event.message });
+              send({ type: "progress", message: event.message });
             }
           },
           signal: abort.signal,
         });
 
         invalidateModelsCache();
-        send(controller, { type: "success" });
+        send({ type: "success" });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg !== "Login cancelled") {
-          send(controller, { type: "error", message: msg });
+          send({ type: "error", message: msg });
         } else {
-          send(controller, { type: "cancelled" });
+          send({ type: "cancelled" });
         }
       } finally {
         cleanup();
-        unsubscribeAuth();
-        controller.close();
       }
     },
     cancel() {
-      abort.abort();
+      cleanup();
     },
   });
 

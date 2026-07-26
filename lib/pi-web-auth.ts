@@ -67,6 +67,7 @@ type SessionInvalidationListener = () => void;
 
 const sessions = new Map<string, SessionRecord>();
 const sessionInvalidationListeners = new Map<string, Set<SessionInvalidationListener>>();
+const sessionInvalidationTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 const loginFailures = new Map<string, { count: number; firstFailureAt: number }>();
 let globalLoginFailures: { count: number; firstFailureAt: number } | null = null;
 // brief 要求 token 在模块首次加载时生成；已有配置时不创建初始化凭据。
@@ -390,6 +391,7 @@ async function revokeAllSessionsNow(): Promise<void> {
   const config = syncGenerationFromConfig();
   if (!config) {
     sessions.clear();
+    notifyAllSessionInvalidations();
     bumpGeneration();
     return;
   }
@@ -442,16 +444,22 @@ export function subscribeSessionInvalidation(token: string, listener: SessionInv
   }
   listeners.add(listener);
   const timeout = setTimeout(() => notifySessionInvalidation(tokenHash), Math.max(0, record.expiresAt - Date.now()));
+  sessionInvalidationTimeouts.set(tokenHash, timeout);
   const unsubscribe = () => {
-    clearTimeout(timeout);
     const current = sessionInvalidationListeners.get(tokenHash);
     current?.delete(listener);
-    if (current?.size === 0) sessionInvalidationListeners.delete(tokenHash);
+    if (current?.size === 0) {
+      sessionInvalidationListeners.delete(tokenHash);
+      clearTimeout(sessionInvalidationTimeouts.get(tokenHash));
+      sessionInvalidationTimeouts.delete(tokenHash);
+    }
   };
   return unsubscribe;
 }
 
 function notifySessionInvalidation(tokenHash: string): void {
+  clearTimeout(sessionInvalidationTimeouts.get(tokenHash));
+  sessionInvalidationTimeouts.delete(tokenHash);
   const listeners = sessionInvalidationListeners.get(tokenHash);
   if (!listeners) return;
   sessionInvalidationListeners.delete(tokenHash);

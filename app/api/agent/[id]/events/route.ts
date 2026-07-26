@@ -32,6 +32,23 @@ export async function GET(
     start(controller) {
       let closed = false;
       let unsubscribeAuth = () => {};
+      let unsubscribe = () => {};
+      const heartbeat = setInterval(() => {
+        if (closed) return;
+        try {
+          controller.enqueue(new TextEncoder().encode(":\n\n"));
+        } catch {
+          cleanup();
+        }
+      }, 30_000);
+      const cleanup = () => {
+        if (closed) return;
+        closed = true;
+        if (heartbeat) clearInterval(heartbeat);
+        unsubscribe();
+        unsubscribeAuth();
+        try { controller.close(); } catch { /* stream already closed */ }
+      };
       const encode = (data: unknown) => {
         if (closed) return;
         const text = `data: ${JSON.stringify(data)}\n\n`;
@@ -40,31 +57,14 @@ export async function GET(
 
       // Send initial connected event
       encode({ type: "connected", sessionId: id });
+      if (closed) return;
 
-      const unsubscribe = session.onEvent((event) => {
+      unsubscribe = session.onEvent((event) => {
         encode(event);
       });
 
       // Heartbeat every 30s to prevent server/proxy timeout (Next.js default ~120-150s)
-      const heartbeat = setInterval(() => {
-        if (closed) return;
-        try {
-          controller.enqueue(new TextEncoder().encode(":\n\n"));
-        } catch {
-          // controller already closed
-        }
-      }, 30_000);
-
       // Cleanup when client disconnects
-      const cleanup = () => {
-        if (closed) return;
-        closed = true;
-        clearInterval(heartbeat);
-        unsubscribe();
-        unsubscribeAuth();
-        controller.close();
-      };
-
       const sessionToken = getSessionToken(req);
       unsubscribeAuth = sessionToken
         ? subscribeSessionInvalidation(sessionToken, cleanup)
