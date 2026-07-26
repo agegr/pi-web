@@ -131,7 +131,7 @@ function getScryptConfig(config: StoredAuthConfig): typeof SCRYPT_CONFIG {
 
 function validatePassword(password: string): void {
   if (password.length < PASSWORD_MIN_LENGTH || password.length > PASSWORD_MAX_LENGTH
-    || /^(.)\1+$/.test(password) || COMMON_WEAK_PASSWORDS.has(password.toLowerCase())) {
+    || /^([\s\S])\1+$/.test(password) || COMMON_WEAK_PASSWORDS.has(password.toLowerCase())) {
     throw new Error("密码格式无效");
   }
 }

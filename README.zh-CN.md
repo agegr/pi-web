@@ -58,7 +58,7 @@ Pi Web 现在默认要求认证。首次启动时，初始化 token 只会在服
 
 ### HTTPS 与反向代理
 
-公网访问必须放在 HTTPS 反向代理之后，并让 Pi Web 只监听本机回环地址。下面的 Nginx 示例假定 TLS 证书已由你的证书管理工具配置：
+公网访问必须放在 HTTPS 反向代理之后，并让 Pi Web 只监听本机回环地址。启用 `PI_WEB_TRUSTED_PROXY=true` 时，必须阻断客户端直连 Pi Web，并由可信代理覆盖而不是追加客户端提交的 `X-Forwarded-For` header。下面的 Nginx 示例假定 TLS 证书已由你的证书管理工具配置：
 
 ```nginx
 server {
@@ -73,7 +73,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_buffering off;
         proxy_set_header Upgrade $http_upgrade;

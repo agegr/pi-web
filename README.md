@@ -60,7 +60,7 @@ Login rate limiting uses one fixed anonymous source bucket by default and does n
 
 ### HTTPS and Reverse Proxy
 
-For public access, put Pi Web behind an HTTPS reverse proxy and bind Pi Web to loopback. The following Nginx example assumes that your certificate manager has configured the TLS certificate:
+For public access, put Pi Web behind an HTTPS reverse proxy and bind Pi Web to loopback. If `PI_WEB_TRUSTED_PROXY=true` is enabled, direct client access must be blocked and the trusted proxy must overwrite, not append, the client-supplied `X-Forwarded-For` header. The following Nginx example assumes that your certificate manager has configured the TLS certificate:
 
 ```nginx
 server {
@@ -75,7 +75,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_buffering off;
         proxy_set_header Upgrade $http_upgrade;
