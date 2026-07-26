@@ -53,6 +53,9 @@ export function AppShell() {
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const sidebarWidthRef = useRef(260);
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
+  const [rightPanelWidth, setRightPanelWidth] = useState(560);
+  const rightPanelWidthRef = useRef(560);
+  const [isRightPanelResizing, setIsRightPanelResizing] = useState(false);
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
   // is visible on load. Runs once the breakpoint resolves after hydration.
   useEffect(() => {
@@ -63,12 +66,20 @@ export function AppShell() {
   }, []);
   // Restore sidebar width from localStorage (desktop only)
   useEffect(() => {
-    const saved = typeof localStorage !== "undefined" ? localStorage.getItem("sidebar-width") : null;
-    if (saved) {
-      const w = parseInt(saved, 10);
+    const savedSidebar = typeof localStorage !== "undefined" ? localStorage.getItem("sidebar-width") : null;
+    if (savedSidebar) {
+      const w = parseInt(savedSidebar, 10);
       if (!isNaN(w) && w >= 180 && w <= 480) {
         setSidebarWidth(w);
         sidebarWidthRef.current = w;
+      }
+    }
+    const savedRightPanel = typeof localStorage !== "undefined" ? localStorage.getItem("right-panel-width") : null;
+    if (savedRightPanel) {
+      const w = parseInt(savedRightPanel, 10);
+      if (!isNaN(w) && w >= 300 && w <= 1200) {
+        setRightPanelWidth(w);
+        rightPanelWidthRef.current = w;
       }
     }
   }, []);
@@ -177,6 +188,38 @@ export function AppShell() {
     setSidebarWidth(260);
     sidebarWidthRef.current = 260;
     localStorage.setItem("sidebar-width", "260");
+  }, []);
+
+  const startRightPanelResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsRightPanelResizing(true);
+    const startX = e.clientX;
+    const startWidth = rightPanelWidthRef.current;
+    const onMove = (ev: MouseEvent) => {
+      // Dragging left (negative delta) increases width
+      const w = Math.max(300, Math.min(1200, startWidth - (ev.clientX - startX)));
+      rightPanelWidthRef.current = w;
+      setRightPanelWidth(w);
+    };
+    const onUp = () => {
+      setIsRightPanelResizing(false);
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      localStorage.setItem("right-panel-width", String(rightPanelWidthRef.current));
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, []);
+
+  const resetRightPanelWidth = useCallback(() => {
+    setRightPanelWidth(560);
+    rightPanelWidthRef.current = 560;
+    localStorage.setItem("right-panel-width", "560");
   }, []);
 
   useEffect(() => {
@@ -1276,15 +1319,35 @@ export function AppShell() {
         </div>
       </div>
 
+      {/* Right panel resize handle (desktop only) */}
+      {rightPanelOpen && !isMobile && (
+        <div
+          onMouseDown={startRightPanelResize}
+          onDoubleClick={resetRightPanelWidth}
+          title="Drag to resize · double-click to reset"
+          style={{
+            width: 2,
+            flexShrink: 0,
+            cursor: "col-resize",
+            background: isRightPanelResizing ? "var(--accent)" : "var(--border)",
+            zIndex: 201,
+            transition: "background 0.12s",
+          }}
+          onMouseEnter={(e) => { if (!isRightPanelResizing) e.currentTarget.style.background = "var(--accent)"; }}
+          onMouseLeave={(e) => { if (!isRightPanelResizing) e.currentTarget.style.background = "var(--border)"; }}
+        />
+      )}
+
       {/* Right panel: file viewer — always mounted, width animated via CSS */}
       <div
-        className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}`}
+        className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}${isRightPanelResizing ? " right-panel-resizing" : ""}`}
         style={{
+          "--right-panel-width": `${rightPanelWidth}px`,
           display: "flex",
           flexDirection: "column",
           borderLeft: "1px solid var(--border)",
           background: "var(--bg)",
-        }}
+        } as React.CSSProperties}
       >
         {/* Right panel tab bar */}
         <div style={{ display: "flex", alignItems: "center", flexShrink: 0, background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", height: 36 }}>

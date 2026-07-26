@@ -881,7 +881,7 @@ span.linenumber {
     flex-shrink: 0;
   }
   .right-panel-container.right-panel-open {
-    width: 42%;
+    width: var(--right-panel-width, 560px);
     min-width: 300px;
   }
   .right-panel-container.right-panel-closed {
@@ -891,8 +891,13 @@ span.linenumber {
   }
   /* keep inner content at fixed width so it doesn't reflow during animation */
   .right-panel-container > * {
-    width: 42vw;
+    width: var(--right-panel-width, 560px);
     min-width: 300px;
+  }
+  /* disable transition while actively dragging the resize handle */
+  .right-panel-container.right-panel-resizing,
+  .right-panel-container.right-panel-resizing > * {
+    transition: none !important;
   }
 }
 
