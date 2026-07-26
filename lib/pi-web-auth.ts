@@ -53,7 +53,7 @@ const sessions = new Map<string, SessionRecord>();
 const loginFailures = new Map<string, { count: number; firstFailureAt: number }>();
 let globalLoginFailures: { count: number; firstFailureAt: number } | null = null;
 // brief 要求 token 在模块首次加载时生成；已有配置时不创建初始化凭据。
-let setupToken: string | null = hasRegularConfigFile() ? null : randomBytes(32).toString("hex");
+let setupToken: string | null = configPathExists() ? null : randomBytes(32).toString("hex");
 let setupTokenAnnounced = false;
 
 function configPath(): string {
@@ -105,6 +105,16 @@ function hasRegularConfigFile(): boolean {
   }
 }
 
+function configPathExists(): boolean {
+  try {
+    statSync(configPath());
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
 async function writeConfig(config: StoredAuthConfig): Promise<void> {
   const path = configPath();
   await mkdir(dirname(path), { recursive: true });
@@ -131,8 +141,9 @@ export function getAuthConfigPath(): string {
  */
 export function announceSetupToken(): void {
   if (setupTokenAnnounced) return;
-  if (hasRegularConfigFile()) {
+  if (configPathExists()) {
     try {
+      if (!hasRegularConfigFile()) throw new Error("认证配置路径不是普通文件");
       validateConfig(JSON.parse(readFileSync(configPath(), "utf8")));
     } catch {
       setupTokenAnnounced = true;
@@ -334,7 +345,7 @@ export function revokeSession(token: string): void {
  * @returns token 是否有效且已成功消费。
  */
 export function consumeSetupToken(token: string): boolean {
-  if (hasRegularConfigFile()) {
+  if (configPathExists()) {
     setupToken = null;
     return false;
   }
@@ -439,6 +450,7 @@ export async function resetAuthStateForTests(): Promise<void> {
  * @returns 初始化 token。
  */
 export function getSetupTokenForTests(): string {
+  if (configPathExists() && !hasRegularConfigFile()) throw new Error("认证配置损坏");
   if (hasRegularConfigFile()) throw new Error("认证已经初始化");
   if (setupToken === null) throw new Error("初始化 token 不可用");
   return setupToken;

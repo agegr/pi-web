@@ -94,3 +94,31 @@
 
 - 当前工作区依赖不完整，真实 `AgentSessionWrapper` lifecycle 测试仍需在含 `jiti` 和 Pi Agent 依赖的环境重新运行；本次没有伪造通过结果，也没有安装依赖。
 - 损坏配置的恢复仍是本地人工操作，不提供公网重置接口；服务不会覆盖原文件。
+
+## 最终 reviewer 修复追加报告
+
+### Status
+
+已修复 Task 5 最终 reviewer 指出的配置隔离、非普通文件、Agent lifecycle spy、过期 SSE proxy 测试和 README Nginx 缩进问题。未修改 `lib/rpc-manager.ts` 的 Agent 生命周期语义。
+
+### RED/GREEN
+
+- RED：新增目录配置路径测试后，`consumeSetupToken("setup-token")` 错误返回 `true`，证明存在但非普通文件仍被当作未初始化；新增 lifecycle 测试在 auth 模块加载前设置临时配置路径，并移除 `resetAuthStateForTests()`。
+- GREEN：增加配置路径存在性判定，目录等非普通文件现在视为损坏，不能生成或消费 setup token；lifecycle 测试通过真实 login 失败、过期 password、proxy API/SSE 401、真实 password route 和 SSE abort 验证 wrapper 的 `send`、底层 `prompt`、`destroy`、`abort`、`shutdown` 计数不变。
+
+### 变更
+
+- `lib/pi-web-auth.ts`：区分路径不存在与路径存在但非普通文件；后者拒绝 setup token，并通过测试辅助抛出明确损坏配置错误。
+- `lib/pi-web-auth.test.mjs`：补充目录配置路径损坏回归测试。
+- `lib/rpc-manager.test.mjs`：加载 auth 模块前设置独立临时 `PI_WEB_AUTH_CONFIG_PATH`，测试结束在 `finally` 清理路径和环境变量；不再调用会删除配置的 `resetAuthStateForTests()`；增加真实 wrapper `send` spy、底层 `prompt` 计数、错误登录和过期 SSE 经 proxy 返回 401 的断言。
+- `README.md`：修正 Nginx 示例中 `proxy_set_header X-Forwarded-Proto` 和 `proxy_buffering` 的缩进。
+
+### 验证
+
+- `node --test lib/pi-web-auth.test.mjs lib/rpc-manager.test.mjs`：41 通过，1 skip，0 失败；skip 原因是当前工作区缺少 `jiti`，无法加载真实 TypeScript `AgentSessionWrapper`。
+- `git diff --check`：通过。
+- 未安装依赖，未运行 `next build`。
+
+### Concerns
+
+- 当前环境仍缺少 `jiti` 及 Pi Agent 依赖，因此 lifecycle 行为测试的真实 wrapper 分支需要在完整依赖环境再次执行；本次明确记录为 skip，未伪造通过。
