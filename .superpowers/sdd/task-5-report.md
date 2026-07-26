@@ -147,3 +147,32 @@
 ### Concerns
 
 - 当前环境的 RPC 测试运行器无法解析项目 `@/` 路径别名；未安装依赖或修改运行环境，因此无法在本地完成该测试的真实 wrapper 分支验证。
+
+## Task 5 最终验证修复追加报告
+
+### Status
+
+已修复 lifecycle 测试的 TypeScript 与 `@/` alias 加载、失败安全清理、有效配置静默验证、logout route 生命周期调用和中文 README Nginx 缩进。未修改生产 Agent lifecycle 语义。
+
+### RED/GREEN
+
+- RED：直接运行 `node --test lib/rpc-manager.test.mjs` 暴露 `@/lib/session-reader` 无法解析；启用 `tsconfigPaths` 后新增 logout 调用先以 415 暴露测试请求缺少 JSON `Content-Type`；有效配置静默断言则被 Node 的 `.ts` module warning 污染。
+- GREEN：使用项目已有 `jiti` 并开启 `{ tsconfigPaths: true }`；将真实 wrapper、原 registry、`Date.now`、临时配置和环境变量恢复放入 `finally`；补齐 logout route 的真实 JSON 请求；子进程静默断言设置 `NODE_NO_WARNINGS=1` 后通过。
+
+### 变更
+
+- `lib/rpc-manager.test.mjs`：移除缺少依赖时 skip 分支，使用项目 `jiti` 的 tsconfig paths loader；在 `finally` 中销毁真实 wrapper、恢复 registry、时间和环境；补充真实 logout route 生命周期调用。
+- `lib/pi-web-auth.test.mjs`：有效配置启动测试同时断言 stderr 为空，并排除 Node module warning 对业务输出的干扰。
+- `README.zh-CN.md`：修正 Nginx `proxy_set_header X-Forwarded-Proto` 与 `proxy_buffering` 缩进。
+
+### 验证
+
+- `node --test lib/rpc-manager.test.mjs`：1 通过，0 失败，0 skip。
+- `node --test lib/rpc-manager.test.mjs lib/pi-web-auth.test.mjs`：43 通过，0 失败，0 skip。
+- `git diff --check`：通过。
+- 未运行 `next build`，符合项目要求。
+
+### Concerns
+
+- Node 仍会对直接加载 `.ts` 模块输出一个外层 `MODULE_TYPELESS_PACKAGE_JSON` warning；该 warning 不影响测试结果，静默业务输出的子进程测试已通过 `NODE_NO_WARNINGS=1` 隔离。
+- 工作区已有未由本次任务修改的 `package-lock.json` 变更，未纳入本次提交。
