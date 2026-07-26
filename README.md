@@ -52,6 +52,7 @@ Pi Web requires authentication by default. On first launch, a one-time initializ
 - Authentication is stored at `~/.pi/agent/pi-web-auth.json` by default; set `PI_WEB_AUTH_CONFIG_PATH` to choose another path.
 - Pi Agent sessions, models, and related settings remain under `~/.pi/agent/` by default. Set `PI_CODING_AGENT_DIR` to use another Pi Agent directory.
 - If the initialization token is lost, stop Pi Web locally, remove the auth config, and restart it to receive a new token in the terminal. Only the local operator should do this; it resets authentication and requires a new password.
+- If Pi Web reports that the auth config is damaged, it will not treat the installation as uninitialized and will not reset the file. Stop the service, back up the path printed on server stderr, and repair or remove it only as an intentional local recovery action.
 - Login sessions expire after 24 hours. Changing the password revokes existing sessions, so sign in again with the new password.
 - An expired auth session, a disconnected browser, or a password change does not stop, destroy, or abort a background AgentSession. Running work continues and its result is available after signing in again.
 

@@ -25,7 +25,8 @@ export async function proxy(request: NextRequest) {
   try {
     if (!(await getAuthState()).initialized) destination = "/setup";
   } catch {
-    destination = "/setup";
+    // 损坏配置不能伪装成未初始化，否则 setup 页面无法安全恢复。
+    destination = "/login";
   }
   return NextResponse.redirect(new URL(destination, request.url));
 }

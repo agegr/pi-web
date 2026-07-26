@@ -59,3 +59,38 @@
 
 - 完整验证仍受工作区缺失依赖阻塞；未安装依赖，也未伪造 TypeScript、lint 或完整测试通过。
 - `jiti` 可用的完整依赖环境中需要重新运行 RPC 行为测试，确认真实 `AgentSessionWrapper` 类型和 Next 路由加载链路。
+
+## Remaining Important 修复
+
+### Status
+
+已处理损坏认证配置的启动恢复策略，补齐已有有效配置不生成 setup token 的测试覆盖，并将 lifecycle 测试改为真实过期 session、真实 password route、proxy API 401 和 SSE 断开路径。未修改 `rpc-manager.ts` 的 Agent 销毁语义。
+
+### RED/GREEN
+
+- RED：新增“已有有效配置不生成 token”和“损坏配置启动输出本地恢复路径”的测试；前者因测试未先创建有效配置而失败，后者因 `announceSetupToken()` 尚未报告损坏配置而失败。lifecycle 测试先验证实际过期 session 的 password route 应为 401，并改用有效 session 通过 route 改密。
+- GREEN：启动时对已有认证文件做结构校验；有效配置静默不生成 token，损坏配置只向 stderr 输出明确的损坏提示和配置路径，绝不把它当作未初始化或自动覆盖。proxy 读取认证状态异常时不再重定向到 setup，避免进入误导性的初始化流程；README 中同步记录人工恢复边界。已有有效配置测试先写入完整配置后重新启动子进程，验证不会生成 setup token。
+
+### 变更
+
+- `lib/pi-web-auth.ts`：`announceSetupToken()` 识别损坏配置并输出本地恢复提示；有效配置继续不生成或暴露初始化 token。
+- `proxy.ts`：认证状态读取失败时改为登录入口，不把损坏配置静默视为未初始化。
+- `lib/pi-web-auth.test.mjs`：修正已有配置测试名称和前置条件，增加损坏配置启动恢复测试。
+- `lib/rpc-manager.test.mjs`：通过真实过期 session 调用 password route，使用新的有效 session 通过实际 route 改密，并保留 proxy API 401、SSE abort 与 `destroy`/`abort`/`shutdown`/`send` 计数不变断言；移除绕过 route 的底层 `changePassword` 调用。Bun 可用时测试使用 Bun 原生 TypeScript loader，否则仅在缺少 `jiti` 的环境明确 skip。
+- `README.md` 和 `README.zh-CN.md`：说明损坏配置不会静默重置，以及停止服务、备份路径后由本机操作者修复或有意删除的恢复边界。
+
+### 验证
+
+- `node --test lib/pi-web-auth.test.mjs`: 40 通过，0 失败，0 skip。
+- `node --test lib/pi-web-auth.test.mjs lib/rpc-manager.test.mjs`: 40 通过，1 skip，0 失败；lifecycle skip 原因是当前工作区缺少 `jiti`，且 Node strip-only loader 不支持 `rpc-manager.ts` 的 parameter property。
+- `bun test lib/rpc-manager.test.mjs`: 无法加载真实 Agent 依赖，失败原因为缺少 `@earendil-works/pi-coding-agent`；未将该运行结果记为通过。
+- `node --test lib/*.test.mjs components/*.test.mjs`: 129 通过，7 个测试因工作区缺少 `react`、`jiti`、`@earendil-works/pi-ai` 启动失败，1 个 lifecycle 测试明确 skip。
+- `node_modules/.bin/tsc --noEmit`: 未执行，`node_modules/.bin/tsc` 不存在。
+- `npm run lint`: 未得到有效结果；当前 ESLint runner 返回 `ESLint output (JSON parse failed: EOF while parsing a value at line 1 column 0)`。
+- `git diff --check`: 通过。
+- 未运行 `npm install` 或 `next build`。
+
+### Concerns
+
+- 当前工作区依赖不完整，真实 `AgentSessionWrapper` lifecycle 测试仍需在含 `jiti` 和 Pi Agent 依赖的环境重新运行；本次没有伪造通过结果，也没有安装依赖。
+- 损坏配置的恢复仍是本地人工操作，不提供公网重置接口；服务不会覆盖原文件。

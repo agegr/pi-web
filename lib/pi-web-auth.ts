@@ -130,7 +130,17 @@ export function getAuthConfigPath(): string {
  * @returns 无返回值。
  */
 export function announceSetupToken(): void {
-  if (setupTokenAnnounced || setupToken === null || hasRegularConfigFile()) return;
+  if (setupTokenAnnounced) return;
+  if (hasRegularConfigFile()) {
+    try {
+      validateConfig(JSON.parse(readFileSync(configPath(), "utf8")));
+    } catch {
+      setupTokenAnnounced = true;
+      console.error(`[pi-web] 认证配置损坏，拒绝自动重置。请停止服务后备份或修复配置文件：${configPath()}`);
+    }
+    return;
+  }
+  if (setupToken === null) return;
   setupTokenAnnounced = true;
   console.error(`[pi-web] Pi Web setup token: ${setupToken}`);
 }
