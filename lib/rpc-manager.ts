@@ -9,6 +9,15 @@ import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
 import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS } from "./custom-ui-terminal";
+import {
+  PLAN_MODE_TOOLS,
+  SESSION_POLICY_ENTRY_TYPE,
+  createSessionPolicyExtension,
+  getSessionPolicyFromEntries,
+  getToolsForPolicyTransition,
+  normalizeSessionPolicy,
+  type SessionPolicy,
+} from "./session-policy";
 
 // ============================================================================
 // Types
@@ -118,12 +127,24 @@ export class AgentSessionWrapper {
   private extensionBindingPromise: Promise<void> | null = null;
   private extensionBindingError: unknown = null;
   private forceEmptySystemPrompt = false;
+  private policyState: { current: SessionPolicy };
   private unsubscribe: (() => void) | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private onDestroyCallback: (() => void) | null = null;
   private _alive = true;
 
-  constructor(public readonly inner: AgentSessionLike) {}
+  constructor(public readonly inner: AgentSessionLike, policyState?: { current: SessionPolicy }) {
+    this.policyState = policyState ?? { current: getSessionPolicyFromEntries(inner.sessionManager.getBranch()) };
+    this.applySessionPolicyTools();
+  }
+
+  private get sessionPolicy(): SessionPolicy {
+    return this.policyState.current;
+  }
+
+  private set sessionPolicy(policy: SessionPolicy) {
+    this.policyState.current = policy;
+  }
 
   get sessionId(): string {
     return this.inner.sessionId;
@@ -254,6 +275,29 @@ export class AgentSessionWrapper {
     }
   }
 
+  private applySessionPolicyTools(): void {
+    if (this.sessionPolicy.mode !== "plan") return;
+    this.forceEmptySystemPrompt = false;
+    this.inner.setActiveToolsByName([...PLAN_MODE_TOOLS]);
+  }
+
+  private persistSessionPolicy(policy: SessionPolicy): void {
+    this.inner.sessionManager.appendCustomEntry(SESSION_POLICY_ENTRY_TYPE, policy);
+    this.sessionPolicy = policy;
+  }
+
+  private restoreSessionPolicyFromBranch(): void {
+    const previous = this.sessionPolicy;
+    const next = getSessionPolicyFromEntries(this.inner.sessionManager.getBranch());
+    const transitionTools = getToolsForPolicyTransition(previous, next);
+    this.sessionPolicy = next;
+    if (transitionTools) {
+      this.setForceEmptySystemPrompt(next.mode !== "plan" && transitionTools.length === 0);
+      this.inner.setActiveToolsByName(transitionTools);
+      this.applyForcedEmptySystemPrompt();
+    }
+  }
+
   private emit(event: AgentEvent): void {
     for (const l of this.listeners) l(event);
   }
@@ -373,6 +417,7 @@ export class AgentSessionWrapper {
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),
+          sessionPolicy: this.sessionPolicy,
         };
       }
 
@@ -432,6 +477,7 @@ export class AgentSessionWrapper {
           throw new Error("Cannot navigate while a shell command is running");
         }
         const result = await this.inner.navigateTree(command.targetId as string, {});
+        if (!result.cancelled) this.restoreSessionPolicyFromBranch();
         return { cancelled: result.cancelled };
       }
 
@@ -541,10 +587,45 @@ export class AgentSessionWrapper {
 
       case "set_tools": {
         const toolNames = command.toolNames as string[];
+        if (this.sessionPolicy.mode === "plan") {
+          this.persistSessionPolicy({ ...this.sessionPolicy, toolsBeforePlan: withExtensionTools(this.inner, toolNames) });
+          this.applySessionPolicyTools();
+          return null;
+        }
         this.setForceEmptySystemPrompt(toolNames.length === 0);
         this.inner.setActiveToolsByName(withExtensionTools(this.inner, toolNames));
         this.applyForcedEmptySystemPrompt();
         return null;
+      }
+
+      case "set_session_goal": {
+        const policy = normalizeSessionPolicy({ ...this.sessionPolicy, goal: command.goal });
+        this.persistSessionPolicy(policy);
+        return { sessionPolicy: policy };
+      }
+
+      case "set_plan_mode": {
+        const enabled = command.enabled === true;
+        if (enabled === (this.sessionPolicy.mode === "plan")) {
+          return { sessionPolicy: this.sessionPolicy };
+        }
+        if (enabled) {
+          const policy = normalizeSessionPolicy({
+            ...this.sessionPolicy,
+            mode: "plan",
+            toolsBeforePlan: this.inner.getActiveToolNames(),
+          });
+          this.persistSessionPolicy(policy);
+          this.applySessionPolicyTools();
+        } else {
+          const toolsToRestore = [...this.sessionPolicy.toolsBeforePlan];
+          const policy = normalizeSessionPolicy({ ...this.sessionPolicy, mode: "execute", toolsBeforePlan: [] });
+          this.persistSessionPolicy(policy);
+          this.setForceEmptySystemPrompt(toolsToRestore.length === 0);
+          this.inner.setActiveToolsByName(toolsToRestore);
+          this.applyForcedEmptySystemPrompt();
+        }
+        return { sessionPolicy: this.sessionPolicy };
       }
 
       case "reload": {
@@ -556,6 +637,7 @@ export class AgentSessionWrapper {
           this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
         }
         this.applyForcedEmptySystemPrompt();
+        this.applySessionPolicyTools();
         return { success: true };
       }
 
@@ -1074,9 +1156,20 @@ export async function startRpcSession(
       toolsOption = toolNames.length === 0 ? [] : undefined;
     }
 
+    const initialPolicy = getSessionPolicyFromEntries(sessionManager.getBranch());
+
     // Build services first so extension-registered providers are available
-    // before the SDK restores the saved model from the session file.
-    const services = await createAgentSessionServices({ cwd, agentDir });
+    // before the SDK restores the saved model from the session file. The bundled
+    // policy extension injects the branch-local goal and plan instructions on
+    // every inference-producing turn without adding hidden user messages.
+    const policyState = { current: initialPolicy };
+    const services = await createAgentSessionServices({
+      cwd,
+      agentDir,
+      resourceLoaderOptions: {
+        extensionFactories: [createSessionPolicyExtension(() => policyState.current)],
+      },
+    });
     const { session: inner } = await createAgentSessionFromServices({
       services,
       sessionManager,
@@ -1090,7 +1183,7 @@ export async function startRpcSession(
       inner.setActiveToolsByName(withExtensionTools(inner, toolNames));
     }
 
-    const wrapper = new AgentSessionWrapper(inner);
+    const wrapper = new AgentSessionWrapper(inner, policyState);
     // When all tools are disabled, clear the system prompt entirely.
     // pi's buildSystemPrompt always produces a non-empty prompt even with no tools;
     // keep this forced after extension resource discovery and reloads as well.

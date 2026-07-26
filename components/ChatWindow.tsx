@@ -197,7 +197,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
-    slashCommands, slashCommandsLoading, queuedMessages,
+    slashCommands, slashCommandsLoading, queuedMessages, sessionPolicy,
     notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection,
     agentPhase,
@@ -208,7 +208,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands,
+    handleSetSessionGoal, handleSetPlanMode, handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands,
   } = useAgentSession({
     session, newSessionCwd, onAgentEnd: wrappedOnAgentEnd, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
@@ -349,6 +349,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       compactResult={compactResult}
       toolPreset={toolPreset}
       onToolPresetChange={session || isNew ? handleToolPresetChange : undefined}
+      sessionPolicy={sessionPolicy}
+      onSessionGoalChange={session || isNew ? handleSetSessionGoal : undefined}
+      onPlanModeChange={session || isNew ? handleSetPlanMode : undefined}
       thinkingLevel={thinkingLevel}
       onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}
       availableThinkingLevels={availableThinkingLevels}

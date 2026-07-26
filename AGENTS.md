@@ -75,6 +75,7 @@ lib/
   pi-types.ts          local structural types for pi SDK objects
   rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
   session-reader.ts   SessionManager wrappers + path cache + buildSessionContext adapter
+  session-policy.ts   branch-local Goal/Plan state + bundled prompt extension
   tool-presets.ts     PRESET_NONE/DEFAULT/FULL + getPresetFromTools()
   types.ts            shared TypeScript types
   normalize.ts        normalizeToolCalls() — field name mismatch between file format and our types
@@ -130,7 +131,13 @@ hooks/
 Pi stores toolCall blocks as `{type:"toolCall", id, name, arguments}` but `ToolCallContent` uses `{toolCallId, toolName, input}`. `normalizeToolCalls()` in `lib/normalize.ts` handles this — called in both `session-reader.ts` (file load) and `ChatWindow.handleAgentEvent()` (streaming).
 
 ### New session tool preset
-Tool names are passed at session creation (`POST /api/agent/new` → `toolNames[]`). For existing sessions, the active preset is inferred on mount via `get_tools` → `getPresetFromTools()`. When tools are fully disabled (`toolNames = []`), `rpc-manager.ts` passes an empty tool allow-list and forces `agent.state.systemPrompt = ""` after startup/reload/resource discovery.
+Tool names are passed at session creation (`POST /api/agent/new` → `toolNames[]`). New sessions default to `full`; the explicit `default` preset still means `read/bash/edit/write`. For existing sessions, the active preset is inferred on mount via `get_tools` → `getPresetFromTools()`. When tools are fully disabled (`toolNames = []`), `rpc-manager.ts` passes an empty tool allow-list and forces `agent.state.systemPrompt = ""` after startup/reload/resource discovery.
+
+### Session goals and plan mode
+- Goal/plan state is stored as branch-local `pi-web-session-policy` custom entries and restored from `SessionManager.getBranch()`.
+- A bundled inline extension injects the active goal and plan instructions through `before_agent_start`; do not add hidden user messages or mutate the base system prompt directly.
+- Plan mode activates only `read`, `grep`, `find`, and `ls`. It must not enable unrestricted `bash` or unknown extension tools.
+- Entering plan mode snapshots the current active tools; exiting or navigating to a non-plan branch restores that snapshot.
 
 ### Model defaults for new sessions
 `GET /api/models` returns `defaultModel` read from `~/.pi/agent/settings.json`. `ChatWindow` pre-selects this on mount for new sessions.

@@ -12,6 +12,7 @@ import {
 } from "@/lib/session-reader";
 import { sessionPathKey } from "@/lib/session-path";
 import { getRpcSession } from "@/lib/rpc-manager";
+import { getSessionPolicyFromEntries } from "@/lib/session-policy";
 
 // BranchNavigator still traverses recursively, so keep the response tree shallow.
 const MAX_PROJECTED_TREE_DEPTH = 200;
@@ -164,6 +165,7 @@ export async function GET(
       leafId,
       tree,
       context,
+      sessionPolicy: getSessionPolicyFromEntries(sm.getBranch()),
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

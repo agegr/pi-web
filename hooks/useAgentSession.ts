@@ -13,12 +13,14 @@ import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import { EMPTY_SESSION_POLICY, type SessionPolicy } from "@/lib/session-policy";
 
 export interface SessionData {
   sessionId: string;
   filePath: string;
   tree: SessionTreeNode[];
   leafId: string | null;
+  sessionPolicy?: SessionPolicy;
   context: {
     messages: AgentMessage[];
     entryIds: string[];
@@ -77,6 +79,7 @@ type AgentStateResponse = {
   extensionStatuses?: ExtensionStatusItem[];
   extensionWidgets?: ExtensionWidgetItem[];
   queuedMessages?: { steering?: string[]; followUp?: string[] } | null;
+  sessionPolicy?: SessionPolicy;
 };
 
 export interface QueuedMessages {
@@ -346,7 +349,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>({});
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
-  const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("default");
+  const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("full");
+  const [sessionPolicy, setSessionPolicy] = useState<SessionPolicy>({ ...EMPTY_SESSION_POLICY, toolsBeforePlan: [] });
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>("auto");
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
@@ -454,6 +458,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setActiveLeafId(d.leafId);
       setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
+      if (d.sessionPolicy) setSessionPolicy(d.sessionPolicy);
       setCurrentModelOverride(null);
       setError(null);
       if (d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
@@ -478,6 +483,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (liveState.extensionStatuses !== undefined) setExtensionStatuses(liveState.extensionStatuses ?? []);
           if (liveState.extensionWidgets !== undefined) setExtensionWidgets(liveState.extensionWidgets ?? []);
           if (liveState.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(liveState.queuedMessages));
+          if (liveState.sessionPolicy !== undefined) setSessionPolicy(liveState.sessionPolicy);
         } else if (!agentState.running) {
           setQueuedMessages({ steering: [], followUp: [] });
         }
@@ -842,6 +848,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (state.systemPrompt !== undefined) setSystemPrompt(state.systemPrompt ?? null);
         if (state.extensionStatuses !== undefined) setExtensionStatuses(state.extensionStatuses ?? []);
         if (state.extensionWidgets !== undefined) setExtensionWidgets(state.extensionWidgets ?? []);
+        if (state.sessionPolicy !== undefined) setSessionPolicy(state.sessionPolicy);
       }
       await finishPromptWithoutStream(sid, runId);
     } catch {
@@ -903,6 +910,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
               if (d.state?.systemPrompt !== undefined) setSystemPrompt(d.state.systemPrompt ?? null);
               if (d.state?.extensionStatuses !== undefined) setExtensionStatuses(d.state.extensionStatuses ?? []);
               if (d.state?.extensionWidgets !== undefined) setExtensionWidgets(d.state.extensionWidgets ?? []);
+              if (d.state?.sessionPolicy !== undefined) setSessionPolicy(d.state.sessionPolicy);
               // Aborted turns can leave messages queued in pi (delivered with the
               // next turn); dead wrapper (no state) means the queue is gone.
               setQueuedMessages(normalizeQueuedMessages(d.state?.queuedMessages));
@@ -1192,25 +1200,30 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [onSessionForked]);
 
+  const syncLiveSessionPolicy = useCallback(async (sid: string) => {
+    const response = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
+    if (!response.ok) return;
+    const payload = await response.json() as { state?: AgentStateResponse };
+    if (payload.state?.sessionPolicy) setSessionPolicy(payload.state.sessionPolicy);
+  }, []);
+
   const handleNavigate = useCallback(async (entryId: string) => {
     if (bashRunningRef.current) return;
     const sid = sessionIdRef.current;
     if (!sid) return;
-    sendAgentCommand(sid, { type: "navigate_tree", targetId: entryId }).catch(() => {});
+    await sendAgentCommand(sid, { type: "navigate_tree", targetId: entryId });
     setActiveLeafId(entryId);
-    await loadContext(sid, entryId);
-  }, [loadContext]);
+    await Promise.all([loadContext(sid, entryId), syncLiveSessionPolicy(sid), loadTools(sid)]);
+  }, [loadContext, loadTools, syncLiveSessionPolicy]);
 
   const handleLeafChange = useCallback(async (leafId: string | null) => {
     if (bashRunningRef.current) return;
     setActiveLeafId(leafId);
     const sid = sessionIdRef.current;
     if (!sid) return;
-    await loadContext(sid, leafId);
-    if (leafId) {
-      sendAgentCommand(sid, { type: "navigate_tree", targetId: leafId }).catch(() => {});
-    }
-  }, [loadContext]);
+    if (leafId) await sendAgentCommand(sid, { type: "navigate_tree", targetId: leafId });
+    await Promise.all([loadContext(sid, leafId), syncLiveSessionPolicy(sid), loadTools(sid)]);
+  }, [loadContext, loadTools, syncLiveSessionPolicy]);
 
   const handleModelChange = useCallback(async (provider: string, modelId: string) => {
     if (isNew) {
@@ -1451,6 +1464,35 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, []);
 
+  const handleSetSessionGoal = useCallback(async (goal: string) => {
+    const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current ?? await ensureNewSession();
+    if (!sid) return false;
+    try {
+      const result = await sendAgentCommand<{ sessionPolicy?: SessionPolicy }>(sid, { type: "set_session_goal", goal });
+      if (result?.sessionPolicy) setSessionPolicy(result.sessionPolicy);
+      return true;
+    } catch (e) {
+      console.error("Failed to set session goal:", e);
+      addNotice({ type: "error", message: e instanceof Error ? e.message : "Failed to set session goal" });
+      return false;
+    }
+  }, [addNotice, ensureNewSession]);
+
+  const handleSetPlanMode = useCallback(async (enabled: boolean) => {
+    const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current ?? await ensureNewSession();
+    if (!sid) return false;
+    try {
+      const result = await sendAgentCommand<{ sessionPolicy?: SessionPolicy }>(sid, { type: "set_plan_mode", enabled });
+      if (result?.sessionPolicy) setSessionPolicy(result.sessionPolicy);
+      if (!enabled) await loadTools(sid);
+      return true;
+    } catch (e) {
+      console.error("Failed to set plan mode:", e);
+      addNotice({ type: "error", message: e instanceof Error ? e.message : "Failed to change plan mode" });
+      return false;
+    }
+  }, [addNotice, ensureNewSession, loadTools]);
+
   const handleToolPresetChange = useCallback(async (preset: "none" | "default" | "full") => {
     const toolNames = getToolNamesForPreset(preset);
     setToolPresetState(preset);
@@ -1523,6 +1565,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (agentState.state.extensionStatuses !== undefined) setExtensionStatuses(agentState.state.extensionStatuses ?? []);
           if (agentState.state.extensionWidgets !== undefined) setExtensionWidgets(agentState.state.extensionWidgets ?? []);
           if (agentState.state.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(agentState.state.queuedMessages));
+          if (agentState.state.sessionPolicy !== undefined) setSessionPolicy(agentState.state.sessionPolicy);
         }
       });
     }
@@ -1629,7 +1672,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunning, modelNames, modelList, modelError, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, sessionStats,
-    slashCommands, slashCommandsLoading, queuedMessages,
+    slashCommands, slashCommandsLoading, queuedMessages, sessionPolicy,
     notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,
     agentPhase,
@@ -1642,7 +1685,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
+    handleSetSessionGoal, handleSetPlanMode, handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
     dispatch, setAgentRunning, setForkingEntryId,
     bashRunning, pendingBash,
     // Subscriptions

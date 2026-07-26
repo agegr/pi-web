@@ -14,6 +14,7 @@ import {
 } from "@/lib/file-fuzzy";
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import type { SessionPolicy } from "@/lib/session-policy";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -47,6 +48,9 @@ interface Props {
   compactResult?: CompactResultInfo | null;
   toolPreset?: "none" | "default" | "full";
   onToolPresetChange?: (preset: "none" | "default" | "full") => void;
+  sessionPolicy?: SessionPolicy;
+  onSessionGoalChange?: (goal: string) => Promise<boolean> | boolean;
+  onPlanModeChange?: (enabled: boolean) => Promise<boolean> | boolean;
   thinkingLevel?: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   onThinkingLevelChange?: (level: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") => void;
   availableThinkingLevels?: string[] | null;
@@ -249,6 +253,7 @@ export function ModelErrorBanner({ error }: { error?: string | null }) {
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, onModelChange,
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
+  sessionPolicy, onSessionGoalChange, onPlanModeChange,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
@@ -263,6 +268,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modelDropdownRect, setModelDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
+  const [goalEditorOpen, setGoalEditorOpen] = useState(false);
+  const [goalDraft, setGoalDraft] = useState(sessionPolicy?.goal ?? "");
+  const [goalSaving, setGoalSaving] = useState(false);
+  const [planChanging, setPlanChanging] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
@@ -286,6 +295,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownPanelRef = useRef<HTMLDivElement>(null);
   const toolDropdownRef = useRef<HTMLDivElement>(null);
+  const goalEditorRef = useRef<HTMLDivElement>(null);
   const thinkingDropdownRef = useRef<HTMLDivElement>(null);
   const controlsMenuRef = useRef<HTMLDivElement>(null);
   const historyMenuRef = useRef<HTMLDivElement>(null);
@@ -984,7 +994,24 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (lvl === "auto" || !thinkingLevelMap) return lvl;
     return thinkingLevelMap[lvl] ?? lvl;
   })();
-  const toolPresetLabel = Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? "default"))?.[0] ?? "default";
+  const toolPresetLabel = Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? "full"))?.[0] ?? "full";
+  const planModeActive = sessionPolicy?.mode === "plan";
+  const activeGoal = sessionPolicy?.goal ?? "";
+
+  useEffect(() => {
+    if (!goalEditorOpen) setGoalDraft(activeGoal);
+  }, [activeGoal, goalEditorOpen]);
+
+  const saveGoal = useCallback(async (goal: string) => {
+    if (!onSessionGoalChange || goalSaving) return;
+    setGoalSaving(true);
+    try {
+      const saved = await onSessionGoalChange(goal);
+      if (saved !== false) setGoalEditorOpen(false);
+    } finally {
+      setGoalSaving(false);
+    }
+  }, [goalSaving, onSessionGoalChange]);
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -997,6 +1024,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       }
       if (toolDropdownRef.current && !toolDropdownRef.current.contains(e.target as Node)) {
         setToolDropdownOpen(false);
+      }
+      if (goalEditorRef.current && !goalEditorRef.current.contains(e.target as Node)) {
+        setGoalEditorOpen(false);
       }
       if (thinkingDropdownRef.current && !thinkingDropdownRef.current.contains(e.target as Node)) {
         setThinkingDropdownOpen(false);
@@ -1958,12 +1988,69 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 )}
               </div>
             )}
+            {!isStreaming && onSessionGoalChange && (
+              <div ref={goalEditorRef} style={{ position: "relative" }}>
+                <button
+                  onClick={() => { setGoalDraft(activeGoal); setGoalEditorOpen((open) => !open); }}
+                  title={activeGoal ? `Session goal: ${activeGoal}` : "Set a persistent session goal"}
+                  aria-label={activeGoal ? "Edit session goal" : "Set session goal"}
+                  aria-expanded={goalEditorOpen}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: isMobile ? "0 6px" : "8px 12px", height: 32, background: goalEditorOpen ? "var(--bg-hover)" : "none", border: "none", borderRadius: 9, color: activeGoal ? "var(--accent)" : "var(--text-muted)", cursor: "pointer", fontSize: 12 }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="4" /><path d="M12 3v3M21 12h-3M12 21v-3M3 12h3" /></svg>
+                  {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>Goal{activeGoal ? " •" : ""}</span>}
+                </button>
+                {goalEditorOpen && (
+                  <div style={{ position: "absolute", bottom: "calc(100% + 6px)", right: 0, zIndex: 110, width: "min(360px, calc(100vw - 32px))", padding: 12, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "0 -8px 28px rgba(0,0,0,0.16)" }}>
+                    <div style={{ fontSize: 12, fontWeight: 650, color: "var(--text)", marginBottom: 4 }}>Persistent session goal</div>
+                    <div style={{ fontSize: 11, lineHeight: 1.4, color: "var(--text-dim)", marginBottom: 8 }}>Applied to every turn in this branch. Current requests still take precedence.</div>
+                    <textarea
+                      autoFocus value={goalDraft} maxLength={4000} rows={4}
+                      placeholder="What outcome should the agent keep pursuing?"
+                      onChange={(event) => setGoalDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") { event.preventDefault(); void saveGoal(goalDraft); }
+                        if (event.key === "Escape") setGoalEditorOpen(false);
+                      }}
+                      style={{ display: "block", width: "100%", maxWidth: "100%", boxSizing: "border-box", resize: "vertical", minHeight: 82, padding: "8px 9px", border: "1px solid var(--border)", borderRadius: 7, background: "var(--bg-panel)", color: "var(--text)", font: "inherit", fontSize: 12, lineHeight: 1.45, outline: "none" }}
+                    />
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 9 }}>
+                      <button onClick={() => void saveGoal("")} disabled={goalSaving || !activeGoal} style={{ border: "none", background: "none", color: "var(--text-dim)", cursor: activeGoal ? "pointer" : "default", fontSize: 11, padding: "5px 2px", opacity: activeGoal ? 1 : 0.5 }}>Clear</button>
+                      <div style={{ display: "flex", gap: 7 }}>
+                        <button onClick={() => setGoalEditorOpen(false)} style={{ border: "1px solid var(--border)", background: "none", color: "var(--text-muted)", borderRadius: 6, padding: "5px 9px", cursor: "pointer", fontSize: 11 }}>Cancel</button>
+                        <button onClick={() => void saveGoal(goalDraft)} disabled={goalSaving || goalDraft.trim() === activeGoal} style={{ border: "1px solid var(--accent)", background: "var(--accent)", color: "white", borderRadius: 6, padding: "5px 10px", cursor: goalSaving ? "wait" : "pointer", fontSize: 11, fontWeight: 600, opacity: goalSaving || goalDraft.trim() === activeGoal ? 0.55 : 1 }}>{goalSaving ? "Saving…" : "Save"}</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!isStreaming && onPlanModeChange && (
+              <button
+                onClick={async () => {
+                  if (planChanging) return;
+                  setPlanChanging(true);
+                  try { await onPlanModeChange(!planModeActive); }
+                  finally { setPlanChanging(false); }
+                }}
+                disabled={planChanging}
+                title={planModeActive ? "Exit plan mode and restore previous tools" : "Enter read-only plan mode"}
+                aria-label={planModeActive ? "Exit plan mode" : "Enter plan mode"}
+                aria-pressed={planModeActive}
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: isMobile ? "0 6px" : "8px 12px", height: 32, border: planModeActive ? "1px solid color-mix(in srgb, var(--accent) 35%, transparent)" : "1px solid transparent", borderRadius: 9, background: planModeActive ? "color-mix(in srgb, var(--accent) 10%, transparent)" : "none", color: planModeActive ? "var(--accent)" : "var(--text-muted)", cursor: planChanging ? "wait" : "pointer", opacity: planChanging ? 0.6 : 1, fontSize: 12, fontWeight: planModeActive ? 600 : 400 }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11" /><path d="m3 6 1 1 2-2M3 12h3M3 18h3" /></svg>
+                {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{planModeActive ? "Planning" : "Plan"}</span>}
+              </button>
+            )}
+
             {!isStreaming && onToolPresetChange && (
               <div ref={toolDropdownRef} style={{ position: "relative" }}>
                 <button
-                  onClick={() => !isStreaming && setToolDropdownOpen((v) => !v)}
-                  disabled={isStreaming}
-                  title={`Change tool preset: ${toolPresetLabel}`}
+                  onClick={() => !isStreaming && !planModeActive && setToolDropdownOpen((v) => !v)}
+                  disabled={isStreaming || planModeActive}
+                  title={planModeActive ? "Plan mode uses read-only tools" : `Change tool preset: ${toolPresetLabel}`}
                   aria-label="Change tool preset"
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
@@ -1974,13 +2061,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     border: "none",
                     borderRadius: 9,
                     color: "var(--text-muted)",
-                    cursor: isStreaming ? "not-allowed" : "pointer",
+                    cursor: isStreaming || planModeActive ? "not-allowed" : "pointer",
                     fontSize: 12,
-                    opacity: isStreaming ? 0.5 : 1,
+                    opacity: isStreaming || planModeActive ? 0.5 : 1,
                     transition: "background 0.12s, color 0.12s",
                   }}
                   onMouseEnter={(e) => {
-                    if (isStreaming) return;
+                    if (isStreaming || planModeActive) return;
                     e.currentTarget.style.background = "var(--bg-hover)";
                     e.currentTarget.style.color = "var(--text)";
                   }}
@@ -2003,7 +2090,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   }}>
                     {TOOL_PRESETS.map((lvl) => {
                       const preset = TOOL_PRESET_MAP[lvl];
-                      const isActive = (toolPreset ?? "default") === preset;
+                      const isActive = (toolPreset ?? "full") === preset;
                       const desc = lvl === "off" ? "No tools, read-only" : lvl === "default" ? "4 built-in tools" : "All built-in tools";
                       return (
                         <button

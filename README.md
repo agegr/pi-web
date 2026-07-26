@@ -68,6 +68,7 @@ npx @agegr/pi-web@latest
 
 - **Pick work back up**: browse previous pi conversations by project without digging through terminal history or session paths.
 - **Try different directions safely**: continue from an earlier message or fork a session into a separate route.
+- **Keep work focused and plan safely**: set a branch-persistent goal, or enter Plan Mode to investigate with read-only `read`, `grep`, `find`, and `ls` tools before implementation.
 - **Work across branches**: switch Git worktrees from the sidebar so new sessions and the Explorer follow the checkout you choose.
 - **Chat beside the project**: browse files on the left and preview source, docs, images, audio, and PDFs on the right while the agent works.
 - **See session state clearly**: context usage, cost, compaction state, and system prompt details are visible from the top bar.
