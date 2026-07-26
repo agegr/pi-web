@@ -10,7 +10,7 @@ export async function POST(
 ) {
   if (!getAuthenticatedSession(_req).valid) return Response.json({ error: "未认证" }, { status: 401 });
   try {
-    await readAuthJson(_req);
+    await readAuthJson(_req, { allowEmpty: true });
   } catch (error) {
     const status = (error as { status?: number }).status;
     return Response.json({ error: status ? (error as Error).message : "请求体无效" }, { status: status ?? 400 });

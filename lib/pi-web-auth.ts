@@ -16,6 +16,7 @@ const RATE_LIMIT_WINDOW = 15 * 60 * 1000;
 const PASSWORD_MIN_LENGTH = 8;
 const PASSWORD_MAX_LENGTH = 128;
 const SCRYPT_CONFIG = { N: 16_384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 } as const;
+const COMMON_WEAK_PASSWORDS = new Set(["password", "password1", "12345678", "qwertyui", "letmein", "admin"]);
 
 interface StoredAuthConfig {
   algorithm?: "scrypt";
@@ -129,8 +130,9 @@ function getScryptConfig(config: StoredAuthConfig): typeof SCRYPT_CONFIG {
 }
 
 function validatePassword(password: string): void {
-  if (password.length < PASSWORD_MIN_LENGTH || password.length > PASSWORD_MAX_LENGTH) {
-    throw new Error("密码长度无效");
+  if (password.length < PASSWORD_MIN_LENGTH || password.length > PASSWORD_MAX_LENGTH
+    || /^(.)\1+$/.test(password) || COMMON_WEAK_PASSWORDS.has(password.toLowerCase())) {
+    throw new Error("密码格式无效");
   }
 }
 

@@ -49,6 +49,8 @@ API requests accept loopback names, IP literals, the selected bind hostname, and
 
 Pi Web requires authentication by default. On first launch, a one-time initialization token is printed to the server terminal. Enter it on the setup page and choose a password. The token is not the password and is not recoverable from the browser or config file.
 
+Login rate limiting uses one fixed anonymous source bucket by default and does not trust client-supplied proxy headers. If Pi Web is deployed behind a trusted reverse proxy that overwrites these headers, set `PI_WEB_TRUSTED_PROXY=true` to use its `X-Forwarded-For`/`X-Real-IP` source. Do not enable this unless every direct client is prevented from reaching Pi Web and the proxy sanitizes those headers.
+
 - Authentication is stored at `~/.pi/agent/pi-web-auth.json` by default; set `PI_WEB_AUTH_CONFIG_PATH` to choose another path.
 - Pi Agent sessions, models, and related settings remain under `~/.pi/agent/` by default. Set `PI_CODING_AGENT_DIR` to use another Pi Agent directory.
 - If the initialization token is lost, stop Pi Web locally, remove the auth config, and restart it to receive a new token in the terminal. Only the local operator should do this; it resets authentication and requires a new password.

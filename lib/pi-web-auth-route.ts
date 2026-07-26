@@ -26,10 +26,13 @@ export function authError(message: string, status: number): Response {
 
 /** 读取并校验认证 API 的 JSON 请求体。
  * @param request 当前 HTTP 请求。
+ * @param options 是否允许缺少请求体或空请求体。
  * @returns 解析后的 JSON 值。
  * @throws 请求不是 JSON 或 body 超限时抛出带 status 的错误。
  */
-export async function readAuthJson(request: Request): Promise<Record<string, unknown>> {
+export async function readAuthJson(request: Request, options: { allowEmpty?: boolean } = {}): Promise<Record<string, unknown>> {
+  const hasBody = request.body !== null;
+  if (!hasBody && options.allowEmpty) return {};
   validateAuthJsonHeaders(request);
   const reader = request.body?.getReader();
   let bytes = 0;
@@ -51,6 +54,7 @@ export async function readAuthJson(request: Request): Promise<Record<string, unk
     }
   }
   const text = new TextDecoder().decode(concatChunks(chunks, bytes));
+  if (!text.trim() && options.allowEmpty) return {};
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -114,7 +118,10 @@ export function sessionCookie(request: Request, token: string | null): string {
  * @returns 限速桶 key。
  */
 export function loginRateKey(request: Request): string {
-  return request.headers.get("x-forwarded-for")?.split(",", 1)[0]?.trim()
-    || request.headers.get("x-real-ip")?.trim()
-    || "anonymous";
+  if (process.env.PI_WEB_TRUSTED_PROXY === "true") {
+    return request.headers.get("x-forwarded-for")?.split(",", 1)[0]?.trim()
+      || request.headers.get("x-real-ip")?.trim()
+      || "anonymous";
+  }
+  return "anonymous";
 }

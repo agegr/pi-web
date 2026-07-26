@@ -47,6 +47,8 @@ API 请求仅接受 loopback 名称、IP 字面量、当前监听主机名，以
 
 Pi Web 现在默认要求认证。首次启动时，初始化 token 只会在服务端终端输出一次；打开网页后，在初始化页面输入该 token，并设置密码。token 不是密码，不能从浏览器或配置文件中恢复。
 
+登录限速默认使用固定匿名来源桶，不信任客户端提交的代理请求头。如果 Pi Web 位于可信反向代理之后，且代理会覆盖并清理这些请求头，可设置 `PI_WEB_TRUSTED_PROXY=true`，启用 `X-Forwarded-For`/`X-Real-IP` 来源。只有在所有直连客户端都无法访问 Pi Web、且代理会清理伪造头时才应启用。
+
 - 认证配置默认保存于 `~/.pi/agent/pi-web-auth.json`，也可以用 `PI_WEB_AUTH_CONFIG_PATH` 指定路径。
 - pi Agent 的会话、模型和其他配置默认仍在 `~/.pi/agent/`；`PI_CODING_AGENT_DIR` 可以切换整个 pi Agent 目录。
 - 忘记初始化 token 时，在本机停止 Pi Web、删除认证配置文件后重新启动，再从终端获取新的 token。只有能控制运行 Pi Web 的本机账户时才应执行此恢复操作；这会清除现有认证配置，随后必须重新设置密码。
