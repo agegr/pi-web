@@ -1,4 +1,4 @@
-import { getSession } from "./pi-web-auth.ts";
+import { getSession } from "./pi-web-auth";
 
 const MAX_BODY_BYTES = 16 * 1024;
 const COOKIE_NAME = "pi_web_session";

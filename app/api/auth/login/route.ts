@@ -1,5 +1,5 @@
-import { checkLoginRateLimit, createSession, recordLoginFailure, verifyPassword } from "../../../../lib/pi-web-auth.ts";
-import { authError, loginRateKey, readAuthJson, sessionCookie } from "../../../../lib/pi-web-auth-route.ts";
+import { checkLoginRateLimit, createSession, recordLoginFailure, verifyPassword } from "../../../../lib/pi-web-auth";
+import { authError, loginRateKey, readAuthJson, sessionCookie } from "../../../../lib/pi-web-auth-route";
 
 /** 使用密码创建 web session。
  * @param request 当前 HTTP 请求。

@@ -1,5 +1,5 @@
-import { revokeSession } from "../../../../lib/pi-web-auth.ts";
-import { getSessionToken, readAuthJson, sessionCookie } from "../../../../lib/pi-web-auth-route.ts";
+import { revokeSession } from "../../../../lib/pi-web-auth";
+import { getSessionToken, readAuthJson, sessionCookie } from "../../../../lib/pi-web-auth-route";
 
 /** 清理当前 web session。
  * @param request 当前 HTTP 请求。

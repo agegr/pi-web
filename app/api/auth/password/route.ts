@@ -1,5 +1,5 @@
-import { changePassword } from "../../../../lib/pi-web-auth.ts";
-import { authError, getAuthenticatedSession, readAuthJson, sessionCookie } from "../../../../lib/pi-web-auth-route.ts";
+import { changePassword } from "../../../../lib/pi-web-auth";
+import { authError, getAuthenticatedSession, readAuthJson, sessionCookie } from "../../../../lib/pi-web-auth-route";
 
 /** 修改密码并吊销全部已有 session。
  * @param request 当前 HTTP 请求。

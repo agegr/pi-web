@@ -372,11 +372,12 @@ export function checkLoginRateLimit(key: string): RateLimitDecision {
     globalLoginFailures = null;
   }
   const activeFailure = loginFailures.get(key);
-  if (activeFailure?.count >= MAX_LOGIN_FAILURES) {
+  if (activeFailure && activeFailure.count >= MAX_LOGIN_FAILURES) {
     return { allowed: false, retryAfterMs: RATE_LIMIT_WINDOW - (now - activeFailure.firstFailureAt) };
   }
-  if (globalLoginFailures?.count >= MAX_LOGIN_FAILURES) {
-    return { allowed: false, retryAfterMs: RATE_LIMIT_WINDOW - (now - globalLoginFailures.firstFailureAt) };
+  const activeGlobalFailure = globalLoginFailures;
+  if (activeGlobalFailure && activeGlobalFailure.count >= MAX_LOGIN_FAILURES) {
+    return { allowed: false, retryAfterMs: RATE_LIMIT_WINDOW - (now - activeGlobalFailure.firstFailureAt) };
   }
   return { allowed: true };
 }

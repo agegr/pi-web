@@ -1,5 +1,5 @@
 import { isIP } from "node:net";
-import { getAuthenticatedSession } from "./pi-web-auth-route.ts";
+import { getAuthenticatedSession } from "./pi-web-auth-route";
 
 function normalizeHostname(value: string): string {
   const unbracketed = value.startsWith("[") && value.endsWith("]")

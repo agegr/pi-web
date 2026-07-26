@@ -1,5 +1,5 @@
-import { getAuthState } from "../../../../lib/pi-web-auth.ts";
-import { getAuthenticatedSession } from "../../../../lib/pi-web-auth-route.ts";
+import { getAuthState } from "../../../../lib/pi-web-auth";
+import { getAuthenticatedSession } from "../../../../lib/pi-web-auth-route";
 
 /** 返回认证初始化状态和当前 session 状态。
  * @param request 当前 HTTP 请求。

@@ -1,5 +1,5 @@
-import { initializeAuth } from "../../../../lib/pi-web-auth.ts";
-import { authError, readAuthJson } from "../../../../lib/pi-web-auth-route.ts";
+import { initializeAuth } from "../../../../lib/pi-web-auth";
+import { authError, readAuthJson } from "../../../../lib/pi-web-auth-route";
 
 /** 使用一次性 token 初始化认证密码。
  * @param request 当前 HTTP 请求。

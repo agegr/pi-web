@@ -203,3 +203,22 @@
 
 - Node 仍会输出外层 `MODULE_TYPELESS_PACKAGE_JSON` warning；不影响测试结果，业务测试无失败。
 - 工作区已有未由本次任务修改的 `package-lock.json` 变更，未纳入本次提交。
+
+## Task 5 最终验证 TypeScript/lint 修复
+
+### Status
+
+已修复认证 route 和认证辅助模块的 `.ts` import 后缀、限速判断中的可空类型错误，以及认证测试中的未使用变量。为保留测试 loader 对 extensionless production import 的运行支持，认证 route 测试统一使用项目已有的 `jiti` 并启用 `tsconfigPaths`；认证行为和测试接口未改变。
+
+### 验证
+
+- `node --test lib/*.test.mjs components/*.test.mjs`：172 通过，0 失败，0 跳过。
+- `node_modules/.bin/tsc --noEmit`：通过。
+- `npm run lint`：通过，无 error 或 warning。
+- `git diff --check`：通过。
+- 未运行 `next build`，符合项目要求。
+
+### Concerns
+
+- Node 直接加载认证 TypeScript 测试模块时仍可能输出既有 `MODULE_TYPELESS_PACKAGE_JSON` warning；不影响测试结果。
+- 工作区已有未由本次任务修改的 `package-lock.json` 变更，未纳入本次提交。
