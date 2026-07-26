@@ -677,7 +677,7 @@ export function AppShell() {
           onDoubleClick={resetSidebarWidth}
           title="Drag to resize · double-click to reset"
           style={{
-            width: 4,
+            width: 2,
             flexShrink: 0,
             cursor: "col-resize",
             background: isSidebarResizing ? "var(--accent)" : "var(--border)",
