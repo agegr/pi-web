@@ -176,3 +176,30 @@
 
 - Node 仍会对直接加载 `.ts` 模块输出一个外层 `MODULE_TYPELESS_PACKAGE_JSON` warning；该 warning 不影响测试结果，静默业务输出的子进程测试已通过 `NODE_NO_WARNINGS=1` 隔离。
 - 工作区已有未由本次任务修改的 `package-lock.json` 变更，未纳入本次提交。
+
+## Task 5 最终 reviewer 测试缺口修复
+
+### Status
+
+已补齐最终 reviewer 指出的 logout 生命周期断言顺序、Agent SSE cleanup、running registry 监听移除和中文 Nginx 示例缩进。未修改生产 Agent lifecycle 语义。
+
+### 变更
+
+- `lib/rpc-manager.test.mjs`：将真实 logout route 调用移到完整 `send`、底层 `prompt`、`destroy`、`abort`、`shutdown` 计数及 wrapper 存活状态断言之前；logout 后再次完整断言计数和状态不变。
+- `lib/rpc-manager.test.mjs`：为 Agent SSE 的 `onEvent()` cleanup 建立 spy，abort 后断言只清理 SSE 监听；为 running SSE 记录全局 registry listener 数量，abort 后断言订阅移除、Agent 仍存活且 running 状态不变。
+- `README.zh-CN.md`：修正 Nginx `proxy_set_header X-Forwarded-Proto` 和 `proxy_buffering` 的缩进。
+
+### TDD 证据
+
+- RED：先加入 logout 后生命周期完整断言、Agent SSE cleanup spy 和 running registry 监听数量断言，验证这些 reviewer 要求被测试直接覆盖。
+- GREEN：现有 SSE route 的最小 cleanup 已满足断言，因此未修改生产 Agent lifecycle 或新增注入接口。
+
+### 验证
+
+- `node --test lib/rpc-manager.test.mjs lib/pi-web-auth.test.mjs`：43 通过，0 失败，0 skip。
+- `git diff --check`：通过。
+
+### Concerns
+
+- Node 仍会输出外层 `MODULE_TYPELESS_PACKAGE_JSON` warning；不影响测试结果，业务测试无失败。
+- 工作区已有未由本次任务修改的 `package-lock.json` 变更，未纳入本次提交。
