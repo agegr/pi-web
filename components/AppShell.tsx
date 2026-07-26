@@ -50,6 +50,9 @@ export function AppShell() {
   const [pluginsConfigOpen, setPluginsConfigOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(260);
+  const sidebarWidthRef = useRef(260);
+  const [isSidebarResizing, setIsSidebarResizing] = useState(false);
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
   // is visible on load. Runs once the breakpoint resolves after hydration.
   useEffect(() => {
@@ -57,6 +60,17 @@ export function AppShell() {
   }, [isMobile]);
   useEffect(() => {
     setMobileSidebarReady(true);
+  }, []);
+  // Restore sidebar width from localStorage (desktop only)
+  useEffect(() => {
+    const saved = typeof localStorage !== "undefined" ? localStorage.getItem("sidebar-width") : null;
+    if (saved) {
+      const w = parseInt(saved, 10);
+      if (!isNaN(w) && w >= 180 && w <= 480) {
+        setSidebarWidth(w);
+        sidebarWidthRef.current = w;
+      }
+    }
   }, []);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
@@ -133,6 +147,37 @@ export function AppShell() {
     if (isMobile) setActiveTopPanel(null);
     setSidebarOpen((open) => !open);
   }, [isMobile]);
+
+  const startSidebarResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsSidebarResizing(true);
+    const startX = e.clientX;
+    const startWidth = sidebarWidthRef.current;
+    const onMove = (ev: MouseEvent) => {
+      const w = Math.max(180, Math.min(480, startWidth + ev.clientX - startX));
+      sidebarWidthRef.current = w;
+      setSidebarWidth(w);
+    };
+    const onUp = () => {
+      setIsSidebarResizing(false);
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      localStorage.setItem("sidebar-width", String(sidebarWidthRef.current));
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, []);
+
+  const resetSidebarWidth = useCallback(() => {
+    setSidebarWidth(260);
+    sidebarWidthRef.current = 260;
+    localStorage.setItem("sidebar-width", "260");
+  }, []);
 
   useEffect(() => {
     if (!activeTopPanel || !topBarRef.current) return;
@@ -612,18 +657,37 @@ export function AppShell() {
 
       {/* Left sidebar */}
       <div
-        className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
+        className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${isSidebarResizing ? " sidebar-resizing" : ""}`}
         style={{
+          "--sidebar-width": `${sidebarWidth}px`,
           background: "var(--bg-panel)",
           borderRight: "1px solid var(--border)",
           display: "flex",
           flexDirection: "column",
           flexShrink: 0,
           zIndex: 200,
-        }}
+        } as React.CSSProperties}
       >
         {sidebarContent}
       </div>
+      {/* Sidebar resize handle (desktop only) */}
+      {sidebarOpen && !isMobile && (
+        <div
+          onMouseDown={startSidebarResize}
+          onDoubleClick={resetSidebarWidth}
+          title="Drag to resize · double-click to reset"
+          style={{
+            width: 4,
+            flexShrink: 0,
+            cursor: "col-resize",
+            background: isSidebarResizing ? "var(--accent)" : "var(--border)",
+            zIndex: 201,
+            transition: "background 0.12s",
+          }}
+          onMouseEnter={(e) => { if (!isSidebarResizing) e.currentTarget.style.background = "var(--accent)"; }}
+          onMouseLeave={(e) => { if (!isSidebarResizing) e.currentTarget.style.background = "var(--border)"; }}
+        />
+      )}
 
       {/* Center: chat */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
