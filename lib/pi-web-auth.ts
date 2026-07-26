@@ -1,5 +1,5 @@
 import { chmod, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { readFileSync, statSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
 import { randomBytes, scrypt as scryptCallback, createHash, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { dirname, join } from "node:path";
@@ -69,6 +69,9 @@ function hashToken(token: string): string {
 
 async function readConfig(): Promise<StoredAuthConfig | null> {
   try {
+    if (configPathExists() && !hasRegularConfigFile()) {
+      throw new Error("认证配置路径不是普通文件");
+    }
     const parsed: unknown = JSON.parse(await readFile(configPath(), "utf8"));
     validateConfig(parsed);
     return parsed;
@@ -98,7 +101,7 @@ function validateConfig(value: unknown): asserts value is StoredAuthConfig {
 
 function hasRegularConfigFile(): boolean {
   try {
-    return statSync(configPath()).isFile();
+    return lstatSync(configPath()).isFile();
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
     throw error;
@@ -107,7 +110,7 @@ function hasRegularConfigFile(): boolean {
 
 function configPathExists(): boolean {
   try {
-    statSync(configPath());
+    lstatSync(configPath());
     return true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
@@ -406,6 +409,9 @@ let generationInitialized = false;
 
 function syncGenerationFromConfig(): StoredAuthConfig | null {
   try {
+    if (configPathExists() && !hasRegularConfigFile()) {
+      throw new Error("认证配置路径不是普通文件");
+    }
     const content = readFileSync(configPath(), "utf8");
     const parsed: unknown = JSON.parse(content);
     validateConfig(parsed);

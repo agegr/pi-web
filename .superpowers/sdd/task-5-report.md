@@ -122,3 +122,28 @@
 ### Concerns
 
 - 当前环境仍缺少 `jiti` 及 Pi Agent 依赖，因此 lifecycle 行为测试的真实 wrapper 分支需要在完整依赖环境再次执行；本次明确记录为 skip，未伪造通过。
+
+## Task 5 最终 reviewer Important 修复追加报告
+
+### Status
+
+已修复认证配置路径对 broken symlink 的误判；目录、符号链接和其他非普通文件均按损坏配置处理，不生成或消费 setup token，也不会在初始化时覆盖原路径。未修改默认用户配置。
+
+### RED/GREEN
+
+- RED：新增 broken symlink 回归测试后，`consumeSetupToken("setup-token")` 错误返回 `true`，证明原 `statSync` 跟随符号链接并将 broken symlink 当作不存在。
+- GREEN：配置路径检查改用 `lstatSync`，并在异步配置读取和同步 generation 读取前拒绝非普通文件；broken symlink 测试通过，且初始化不会替换符号链接。目录测试同步修正为新的损坏配置语义。
+
+### 变更
+
+- `lib/pi-web-auth.ts`：用 `lstatSync` 检查路径本身；仅 `ENOENT` 表示不存在，存在但不是普通文件的路径抛出损坏配置错误。
+- `lib/pi-web-auth.test.mjs`：增加 broken symlink 回归测试，验证 token 拒绝、初始化拒绝和符号链接保留；将目录测试断言更新为损坏配置错误。
+
+### 验证
+
+- `node --test lib/pi-web-auth.test.mjs lib/rpc-manager.test.mjs`：认证测试 42 通过；RPC 测试因当前 `jiti` 无法解析 `@/lib/session-reader` 别名失败，另有 1 个旧目录断言已修正后未重新计入该次结果。
+- `git diff --check`：通过。
+
+### Concerns
+
+- 当前环境的 RPC 测试运行器无法解析项目 `@/` 路径别名；未安装依赖或修改运行环境，因此无法在本地完成该测试的真实 wrapper 分支验证。
