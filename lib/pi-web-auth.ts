@@ -1,15 +1,26 @@
 import { chmod, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { lstatSync, readFileSync } from "node:fs";
 import { randomBytes, scrypt as scryptCallback, createHash, timingSafeEqual } from "node:crypto";
-import { promisify } from "node:util";
 import { dirname, join } from "node:path";
 
-const scrypt = promisify(scryptCallback);
+const scrypt = (password: string, salt: Buffer, keyLength: number, options: typeof SCRYPT_CONFIG): Promise<Buffer> => new Promise((resolve, reject) => {
+  scryptCallback(password, salt, keyLength, options, (error, derivedKey) => {
+    if (error) reject(error);
+    else resolve(derivedKey as Buffer);
+  });
+});
 const SESSION_TTL = 24 * 60 * 60 * 1000;
-const MAX_LOGIN_FAILURES = 5;
+const SOURCE_FAILURE_LIMIT = 5;
+const GLOBAL_FAILURE_LIMIT = 100;
 const RATE_LIMIT_WINDOW = 15 * 60 * 1000;
+const PASSWORD_MIN_LENGTH = 8;
+const PASSWORD_MAX_LENGTH = 128;
+const SCRYPT_CONFIG = { N: 16_384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 } as const;
 
 interface StoredAuthConfig {
+  algorithm?: "scrypt";
+  algorithmVersion?: 1;
+  scrypt?: typeof SCRYPT_CONFIG;
   passwordHash: string;
   salt: string;
   generation: number;
@@ -40,6 +51,8 @@ export interface RateLimitDecision {
   allowed: boolean;
   /** 被拒绝时的剩余等待时间，单位为毫秒。 */
   retryAfterMs?: number;
+  /** 允许请求前建议等待的渐进延迟，单位为毫秒。 */
+  delayMs?: number;
 }
 
 interface SessionRecord {
@@ -72,7 +85,7 @@ async function readConfig(): Promise<StoredAuthConfig | null> {
     if (configPathExists() && !hasRegularConfigFile()) {
       throw new Error("认证配置路径不是普通文件");
     }
-    const parsed: unknown = JSON.parse(await readFile(configPath(), "utf8"));
+  const parsed: unknown = JSON.parse(await readFile(configPath(), "utf8"));
     validateConfig(parsed);
     return parsed;
   } catch (error) {
@@ -90,12 +103,34 @@ function validateConfig(value: unknown): asserts value is StoredAuthConfig {
     throw new Error("认证配置结构无效");
   }
   const config = value as Record<string, unknown>;
-  if (Object.keys(config).sort().join(",") !== "generation,passwordHash,salt,updatedAt" ||
+  const keys = Object.keys(config).sort().join(",");
+  const legacy = keys === "generation,passwordHash,salt,updatedAt";
+  const versioned = keys === "algorithm,algorithmVersion,generation,passwordHash,salt,scrypt,updatedAt";
+  if ((!legacy && !versioned) ||
+    (versioned && (config.algorithm !== "scrypt" || config.algorithmVersion !== 1 || !isScryptConfig(config.scrypt))) ||
     typeof config.passwordHash !== "string" || !/^[0-9a-f]+$/i.test(config.passwordHash) || config.passwordHash.length !== 128 ||
     typeof config.salt !== "string" || !/^[0-9a-f]+$/i.test(config.salt) || config.salt.length !== 32 ||
     typeof config.generation !== "number" || !Number.isSafeInteger(config.generation) || config.generation < 1 ||
     typeof config.updatedAt !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(config.updatedAt) || !Number.isFinite(Date.parse(config.updatedAt))) {
     throw new Error("认证配置结构无效");
+  }
+}
+
+function isScryptConfig(value: unknown): value is typeof SCRYPT_CONFIG {
+  return typeof value === "object" && value !== null
+    && (value as Record<string, unknown>).N === SCRYPT_CONFIG.N
+    && (value as Record<string, unknown>).r === SCRYPT_CONFIG.r
+    && (value as Record<string, unknown>).p === SCRYPT_CONFIG.p
+    && (value as Record<string, unknown>).maxmem === SCRYPT_CONFIG.maxmem;
+}
+
+function getScryptConfig(config: StoredAuthConfig): typeof SCRYPT_CONFIG {
+  return config.scrypt && isScryptConfig(config.scrypt) ? config.scrypt : SCRYPT_CONFIG;
+}
+
+function validatePassword(password: string): void {
+  if (password.length < PASSWORD_MIN_LENGTH || password.length > PASSWORD_MAX_LENGTH) {
+    throw new Error("密码长度无效");
   }
 }
 
@@ -189,17 +224,21 @@ async function initializeAuthNow(token: string, password: string): Promise<void>
   let writeAttempted = false;
   let configWriteCompleted = false;
   try {
+    validatePassword(password);
     const existing = await readConfigForInitialization();
     if (existing) throw new Error("认证已经初始化");
     if (!consumeSetupToken(token)) throw new Error("初始化 token 无效");
     tokenConsumed = true;
     const salt = randomBytes(16);
-    const derived = await scrypt(password, salt, 64) as Buffer;
+    const derived = await scrypt(password, salt, 64, SCRYPT_CONFIG) as Buffer;
     // 在耗时的哈希计算后再次检查，避免并发请求覆盖已创建的配置。
     if (await readConfigForInitialization()) throw new Error("认证已经初始化");
     writeAttempted = true;
     await writeConfig({
-      passwordHash: derived.toString("hex"),
+        algorithm: "scrypt",
+        algorithmVersion: 1,
+        scrypt: SCRYPT_CONFIG,
+        passwordHash: derived.toString("hex"),
       salt: salt.toString("hex"),
       generation: authGeneration + 1,
       updatedAt: new Date().toISOString(),
@@ -221,11 +260,29 @@ async function initializeAuthNow(token: string, password: string): Promise<void>
  * @throws 配置文件读取失败或 JSON 损坏时抛出原始错误。
  */
 export async function verifyPassword(password: string): Promise<boolean> {
+  return await authMutationQueue.then(() => verifyPasswordNow(password), () => verifyPasswordNow(password));
+}
+
+async function verifyPasswordNow(password: string): Promise<boolean> {
   const config = await readConfig();
   if (!config) return false;
   const expected = Buffer.from(config.passwordHash, "hex");
-  const actual = await scrypt(password, Buffer.from(config.salt, "hex"), expected.length) as Buffer;
+  const actual = await scrypt(password, Buffer.from(config.salt, "hex"), expected.length, getScryptConfig(config)) as Buffer;
   return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+/** 串行校验密码并创建 session，避免与改密事务交错。
+ * @param password 待校验的密码。
+ * @returns 成功时返回 session token，失败时返回 null。
+ */
+export async function authenticateAndCreateSession(password: string): Promise<string | null> {
+  const operation = authMutationQueue.then(async () => {
+    const config = await readConfig();
+    if (!config || !(await verifyPasswordNow(password))) return null;
+    return createSessionForGeneration(config.generation);
+  }, async () => null);
+  authMutationQueue = operation.then(() => undefined, () => undefined);
+  return operation;
 }
 
 /** 原子更新密码并吊销全部已有 session。
@@ -244,17 +301,21 @@ export async function changePassword(currentPassword: string, newPassword: strin
 }
 
 async function changePasswordNow(currentPassword: string, newPassword: string): Promise<void> {
+  validatePassword(newPassword);
   const config = await readConfig();
   if (!config) throw new Error("认证尚未初始化");
   const expected = Buffer.from(config.passwordHash, "hex");
-  const actual = await scrypt(currentPassword, Buffer.from(config.salt, "hex"), expected.length) as Buffer;
+  const actual = await scrypt(currentPassword, Buffer.from(config.salt, "hex"), expected.length, getScryptConfig(config)) as Buffer;
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
     throw new Error("当前密码错误");
   }
   const salt = randomBytes(16);
-  const derived = await scrypt(newPassword, salt, 64) as Buffer;
+  const derived = await scrypt(newPassword, salt, 64, SCRYPT_CONFIG) as Buffer;
   await writeConfig({
     ...config,
+    algorithm: "scrypt",
+    algorithmVersion: 1,
+    scrypt: SCRYPT_CONFIG,
     passwordHash: derived.toString("hex"),
     salt: salt.toString("hex"),
     generation: config.generation + 1,
@@ -272,6 +333,15 @@ export function createSession(): string {
   const token = randomBytes(32).toString("hex");
   const now = Date.now();
   const stateGeneration = currentGeneration();
+  return storeSession(token, now, stateGeneration);
+}
+
+function createSessionForGeneration(stateGeneration: number): string {
+  const token = randomBytes(32).toString("hex");
+  return storeSession(token, Date.now(), stateGeneration);
+}
+
+function storeSession(token: string, now: number, stateGeneration: number): string {
   const tokenHash = hashToken(token);
   sessions.set(tokenHash, {
     hash: tokenHash,
@@ -372,14 +442,14 @@ export function checkLoginRateLimit(key: string): RateLimitDecision {
     globalLoginFailures = null;
   }
   const activeFailure = loginFailures.get(key);
-  if (activeFailure && activeFailure.count >= MAX_LOGIN_FAILURES) {
+  if (activeFailure && activeFailure.count >= SOURCE_FAILURE_LIMIT) {
     return { allowed: false, retryAfterMs: RATE_LIMIT_WINDOW - (now - activeFailure.firstFailureAt) };
   }
   const activeGlobalFailure = globalLoginFailures;
-  if (activeGlobalFailure && activeGlobalFailure.count >= MAX_LOGIN_FAILURES) {
+  if (activeGlobalFailure && activeGlobalFailure.count >= GLOBAL_FAILURE_LIMIT) {
     return { allowed: false, retryAfterMs: RATE_LIMIT_WINDOW - (now - activeGlobalFailure.firstFailureAt) };
   }
-  return { allowed: true };
+  return { allowed: true, delayMs: activeFailure ? Math.min(activeFailure.count * 100, 500) : 0 };
 }
 
 /** 记录一次登录失败。

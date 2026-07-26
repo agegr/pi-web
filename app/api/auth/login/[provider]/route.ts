@@ -1,6 +1,7 @@
 import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { authError, getAuthenticatedSession, readAuthJson } from "@/lib/pi-web-auth-route";
 
 export const dynamic = "force-dynamic";
 
@@ -19,8 +20,16 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ provider: string }> }
 ) {
+  if (!getAuthenticatedSession(req).valid) return authError("未认证", 401);
   const { provider } = await params;
-  const { token, code } = (await req.json()) as { token?: string; code?: string };
+  let body: Record<string, unknown>;
+  try {
+    body = await readAuthJson(req);
+  } catch (error) {
+    const status = (error as { status?: number }).status;
+    return authError(status ? (error as Error).message : "请求体无效", status ?? 400);
+  }
+  const { token, code } = body as { token?: string; code?: string };
 
   if (!token || !code) {
     return Response.json({ error: "token and code required" }, { status: 400 });
@@ -46,6 +55,7 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ provider: string }> }
 ) {
+  if (!getAuthenticatedSession(req).valid) return authError("未认证", 401);
   const { provider } = await params;
 
   const encoder = new TextEncoder();

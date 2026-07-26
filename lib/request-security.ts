@@ -115,8 +115,7 @@ const PUBLIC_PATHS = new Set(["/login", "/setup", "/favicon.ico"]);
 function isPublicAuthPath(pathname: string): boolean {
   return pathname === "/api/auth/status"
     || pathname === "/api/auth/setup"
-    || pathname === "/api/auth/login"
-    || /^\/api\/auth\/login\/[^/]+$/.test(pathname);
+    || pathname === "/api/auth/login";
 }
 
 /** 判断请求是否公开、已认证或需要被拒绝。

@@ -1,8 +1,10 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { getAuthenticatedSession } from "@/lib/pi-web-auth-route";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
+  if (!getAuthenticatedSession(request).valid) return Response.json({ error: "未认证" }, { status: 401 });
   const modelRuntime = await ModelRuntime.create();
   const credentials = await modelRuntime.listCredentials();
   const loggedInProviders = new Set(

@@ -16,6 +16,7 @@ export async function POST(request: Request) {
     const status = (error as { status?: number }).status;
     if (status) return authError((error as Error).message, status);
     const message = error instanceof Error ? error.message : "认证初始化失败";
+    if (message === "密码长度无效") return authError("密码格式无效", 400);
     return authError(message.includes("token") ? "初始化 token 无效" : message.includes("已经") ? "认证已经初始化" : "认证初始化失败", message.includes("token") ? 401 : message.includes("已经") ? 409 : 500);
   }
 }

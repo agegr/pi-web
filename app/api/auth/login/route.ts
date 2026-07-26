@@ -1,5 +1,6 @@
-import { checkLoginRateLimit, createSession, recordLoginFailure, verifyPassword } from "../../../../lib/pi-web-auth";
+import { authenticateAndCreateSession, checkLoginRateLimit, recordLoginFailure } from "../../../../lib/pi-web-auth";
 import { authError, loginRateKey, readAuthJson, sessionCookie } from "../../../../lib/pi-web-auth-route";
+import { setTimeout as delay } from "node:timers/promises";
 
 /** 使用密码创建 web session。
  * @param request 当前 HTTP 请求。
@@ -11,13 +12,19 @@ export async function POST(request: Request) {
     if (typeof body.password !== "string") return authError("请求参数无效", 400);
     const key = loginRateKey(request);
     const limit = checkLoginRateLimit(key);
-    if (!limit.allowed) return authError("登录尝试过于频繁", 429);
-    if (!await verifyPassword(body.password)) {
+    if (!limit.allowed) {
+      const response = authError("登录尝试过于频繁", 429);
+      response.headers.set("Retry-After", String(Math.ceil((limit.retryAfterMs ?? 0) / 1000)));
+      return response;
+    }
+    if (limit.delayMs) await delay(limit.delayMs);
+    const sessionToken = await authenticateAndCreateSession(body.password);
+    if (!sessionToken) {
       recordLoginFailure(key);
-      return authError("密码错误", 401);
+      return authError("登录失败", 401);
     }
     const response = Response.json({ success: true });
-    response.headers.set("Set-Cookie", sessionCookie(request, createSession()));
+    response.headers.set("Set-Cookie", sessionCookie(request, sessionToken));
     return response;
   } catch (error) {
     const status = (error as { status?: number }).status;
