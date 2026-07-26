@@ -443,8 +443,10 @@ export function subscribeSessionInvalidation(token: string, listener: SessionInv
     sessionInvalidationListeners.set(tokenHash, listeners);
   }
   listeners.add(listener);
-  const timeout = setTimeout(() => notifySessionInvalidation(tokenHash), Math.max(0, record.expiresAt - Date.now()));
-  sessionInvalidationTimeouts.set(tokenHash, timeout);
+  if (!sessionInvalidationTimeouts.has(tokenHash)) {
+    const timeout = setTimeout(() => notifySessionInvalidation(tokenHash), Math.max(0, record.expiresAt - Date.now()));
+    sessionInvalidationTimeouts.set(tokenHash, timeout);
+  }
   const unsubscribe = () => {
     const current = sessionInvalidationListeners.get(tokenHash);
     current?.delete(listener);

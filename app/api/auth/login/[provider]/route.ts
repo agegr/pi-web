@@ -59,6 +59,7 @@ export async function GET(
 ) {
   if (!getAuthenticatedSession(req).valid) return authError("未认证", 401);
   const { provider } = await params;
+  if (req.signal.aborted) return new Response(null, { status: 204 });
 
   const encoder = new TextEncoder();
   // AbortController propagates client disconnect into ModelRuntime.login().
@@ -122,6 +123,7 @@ export async function GET(
       }
 
       const createClientInputRequest = () => {
+        if (closed) throw new Error("Login cancelled");
         const token = `${provider}-${Date.now()}-${randomBytes(18).toString("base64url")}`;
         activeTokens.add(token);
 
@@ -161,6 +163,7 @@ export async function GET(
       try {
         await modelRuntime.login(provider, "oauth", {
           prompt: async (prompt: AuthPrompt) => {
+            if (closed) throw new Error("Login cancelled");
             const request = prompt.type === "manual_code"
               ? getManualInputRequest()
               : createClientInputRequest();
@@ -182,6 +185,7 @@ export async function GET(
             return request.promise;
           },
           notify: (event: AuthEvent) => {
+            if (closed) return;
             if (event.type === "auth_url") {
               const request = getManualInputRequest();
               send({

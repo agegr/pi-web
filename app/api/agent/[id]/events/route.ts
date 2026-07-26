@@ -11,6 +11,7 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (req.signal.aborted) return new Response(null, { status: 204 });
   const { id } = await params;
 
   // Fast path: already-running session
@@ -49,6 +50,10 @@ export async function GET(
         unsubscribeAuth();
         try { controller.close(); } catch { /* stream already closed */ }
       };
+      if (req.signal.aborted) {
+        cleanup();
+        return;
+      }
       const encode = (data: unknown) => {
         if (closed) return;
         const text = `data: ${JSON.stringify(data)}\n\n`;
@@ -72,6 +77,7 @@ export async function GET(
 
       // Detect client disconnect via abort signal
       req.signal?.addEventListener("abort", cleanup);
+      if (req.signal.aborted) cleanup();
     },
   });
 
