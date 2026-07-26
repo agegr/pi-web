@@ -64,36 +64,29 @@ export async function GET(
   const encoder = new TextEncoder();
   // AbortController propagates client disconnect into ModelRuntime.login().
   const abort = new AbortController();
-  req.signal.addEventListener("abort", () => abort.abort());
   let closed = false;
   let controller: ReadableStreamDefaultController | undefined;
-  let cleanup = () => {
+  let unsubscribeAuth = () => {};
+  const registry = getCallbackRegistry();
+  const activeTokens = new Set<string>();
+  const cleanup = () => {
     if (closed) return;
     closed = true;
     abort.abort();
+    for (const token of activeTokens) {
+      registry.get(token)?.reject(new Error("Login cancelled"));
+      registry.delete(token);
+    }
+    activeTokens.clear();
+    unsubscribeAuth();
     try { controller?.close(); } catch { /* stream already closed */ }
   };
+  req.signal.addEventListener("abort", cleanup);
 
   const stream = new ReadableStream({
     async start(streamController) {
       controller = streamController;
-      let unsubscribeAuth = () => {};
-      const registry = getCallbackRegistry();
-      const activeTokens = new Set<string>();
       let pendingManualRequest: { token: string; promise: Promise<string> } | undefined;
-
-      cleanup = () => {
-        if (closed) return;
-        closed = true;
-        abort.abort();
-        for (const token of activeTokens) {
-          registry.get(token)?.reject(new Error("Login cancelled"));
-          registry.delete(token);
-        }
-        activeTokens.clear();
-        unsubscribeAuth();
-        try { controller?.close(); } catch { /* stream already closed */ }
-      };
 
       const send = (data: unknown) => {
         if (closed) return;
@@ -108,14 +101,18 @@ export async function GET(
       unsubscribeAuth = sessionToken
         ? subscribeSessionInvalidation(sessionToken, cleanup)
         : () => {};
-      if (abort.signal.aborted) {
+      if (abort.signal.aborted || closed) {
+        unsubscribeAuth();
+        unsubscribeAuth = () => {};
         cleanup();
         return;
       }
-      if (closed) return;
 
       const modelRuntime = await ModelRuntime.create();
-      if (closed) return;
+      if (abort.signal.aborted || closed) {
+        cleanup();
+        return;
+      }
       if (!modelRuntime.getProvider(provider)?.auth.oauth) {
         send({ type: "error", message: `Unknown provider: ${provider}` });
         cleanup();
@@ -156,9 +153,6 @@ export async function GET(
         }
         return pendingManualRequest;
       };
-
-      // Also cancel on client disconnect
-      abort.signal.addEventListener("abort", cleanup);
 
       try {
         await modelRuntime.login(provider, "oauth", {

@@ -13,17 +13,20 @@ export async function GET(
 ) {
   if (req.signal.aborted) return new Response(null, { status: 204 });
   const { id } = await params;
+  if (req.signal.aborted) return new Response(null, { status: 204 });
 
   // Fast path: already-running session
   let session = getRpcSession(id);
   if (!session || !session.isAlive()) {
     const filePath = await resolveSessionPath(id);
+    if (req.signal.aborted) return new Response(null, { status: 204 });
     if (!filePath) {
       return new Response("Session not found", { status: 404 });
     }
     const cwd = SessionManager.open(filePath).getHeader()?.cwd ?? process.cwd();
     try {
       ({ session } = await startRpcSession(id, filePath, cwd));
+      if (req.signal.aborted) return new Response(null, { status: 204 });
     } catch (error) {
       return new Response(`Failed to start agent: ${error}`, { status: 500 });
     }
