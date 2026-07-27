@@ -9,11 +9,11 @@ import { setTimeout as delay } from "node:timers/promises";
 export async function POST(request: Request) {
   try {
     const body = await readAuthJson(request);
-    if (typeof body.password !== "string") return authError("请求参数无效", 400);
+    if (typeof body.password !== "string") return authError("AUTH_INVALID_PARAMETERS", "请求参数无效", 400);
     const key = loginRateKey(request);
     const limit = checkLoginRateLimit(key);
     if (!limit.allowed) {
-      const response = authError("登录尝试过于频繁", 429);
+      const response = authError("AUTH_LOGIN_RATE_LIMITED", "登录尝试过于频繁", 429);
       response.headers.set("Retry-After", String(Math.ceil((limit.retryAfterMs ?? 0) / 1000)));
       return response;
     }
@@ -21,13 +21,13 @@ export async function POST(request: Request) {
     const sessionToken = await authenticateAndCreateSession(body.password);
     if (!sessionToken) {
       recordLoginFailure(key);
-      return authError("登录失败", 401);
+      return authError("AUTH_LOGIN_FAILED", "登录失败", 401);
     }
     const response = Response.json({ success: true });
     response.headers.set("Set-Cookie", sessionCookie(request, sessionToken));
     return response;
   } catch (error) {
     const status = (error as { status?: number }).status;
-    return authError(status ? (error as Error).message : "登录失败", status ?? 500);
+    return authError("AUTH_LOGIN_FAILED", status ? (error as Error).message : "登录失败", status ?? 500);
   }
 }

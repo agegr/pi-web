@@ -16,12 +16,13 @@ export function validateAuthJsonHeaders(request: Request): void {
 }
 
 /** 返回统一格式的 API 错误响应。
- * @param message 面向客户端的非敏感错误信息。
+ * @param errorCode 面向客户端的稳定错误码。
+ * @param message 面向旧客户端的非敏感错误信息。
  * @param status HTTP 状态码。
  * @returns JSON 错误响应。
  */
-export function authError(message: string, status: number): Response {
-  return Response.json({ error: message }, { status });
+export function authError(errorCode: string, message: string, status: number): Response {
+  return Response.json({ errorCode, error: message }, { status });
 }
 
 /** 读取并校验认证 API 的 JSON 请求体。

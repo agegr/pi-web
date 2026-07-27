@@ -54,7 +54,7 @@ test("初始化提交 token 和密码，但密码确认不匹配时不发请求"
     onSuccess: () => {},
   });
 
-  assert.deepEqual(mismatch, { ok: false, error: "两次密码不一致" });
+  assert.deepEqual(mismatch, { ok: false, errorCode: "AUTH_PASSWORD_MISMATCH" });
   assert.equal(requestCalls, 0);
 
   const requests = [];
@@ -82,11 +82,11 @@ test("HTTP 失败不调用成功回调，成功请求调用成功回调", async 
   const failure = await submitAuthForm({
     mode: "login",
     values: { password: "secret" },
-    request: async () => new Response(null, { status: 401 }),
+    request: async () => Response.json({ errorCode: "AUTH_LOGIN_FAILED", error: "登录失败" }, { status: 401 }),
     onSuccess: () => { successCalls += 1; },
   });
 
-  assert.deepEqual(failure, { ok: false, error: "认证失败，请稍后再试" });
+  assert.deepEqual(failure, { ok: false, errorCode: "AUTH_LOGIN_FAILED" });
   assert.equal(successCalls, 0);
 
   const success = await submitAuthForm({
@@ -98,6 +98,29 @@ test("HTTP 失败不调用成功回调，成功请求调用成功回调", async 
 
   assert.deepEqual(success, { ok: true });
   assert.equal(successCalls, 1);
+});
+
+test("认证失败优先使用 API 返回的稳定错误码", async () => {
+  const result = await submitAuthForm({
+    mode: "setup",
+    values: { token: "token", password: "secret", confirmPassword: "secret" },
+    request: async () => Response.json({ errorCode: "AUTH_SETUP_TOKEN_INVALID", error: "初始化 token 无效" }, { status: 401 }),
+    onSuccess: () => {},
+  });
+
+  assert.deepEqual(result, { ok: false, errorCode: "AUTH_SETUP_TOKEN_INVALID" });
+});
+
+test("认证界面使用 i18n，而不是硬编码文案", async () => {
+  const [form, login, setup] = await Promise.all([
+    source("components/AuthForms.tsx"),
+    source("app/login/page.tsx"),
+    source("app/setup/page.tsx"),
+  ]);
+
+  assert.match(form, /useI18n/);
+  assert.match(login, /useI18n/);
+  assert.match(setup, /useI18n/);
 });
 
 test("登录和初始化页面使用认证表单并导航", async () => {
@@ -115,9 +138,20 @@ test("登录和初始化页面使用认证表单并导航", async () => {
 test("AppShell 暴露改密和退出登录入口", async () => {
   const sourceText = await source("components/AppShell.tsx");
 
-  assert.match(sourceText, /修改访问密码/);
-  assert.match(sourceText, /退出登录/);
+  assert.match(sourceText, /auth\.changePassword/);
+  assert.match(sourceText, /auth\.logout/);
+  assert.match(sourceText, /useI18n/);
+  assert.match(sourceText, /auth\.error\.AUTH_PASSWORD_MISMATCH/);
+  assert.doesNotMatch(sourceText, />修改访问密码</);
+  assert.doesNotMatch(sourceText, />退出登录</);
   assert.match(sourceText, /\/api\/auth\/password/);
   assert.match(sourceText, /\/api\/auth\/logout/);
   assert.match(sourceText, /\/login/);
+});
+
+test("登出 API 返回稳定错误码和兼容文案", async () => {
+  const sourceText = await source("app/api/auth/logout/route.ts");
+
+  assert.match(sourceText, /AUTH_LOGOUT_FAILED/);
+  assert.match(sourceText, /authError/);
 });

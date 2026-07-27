@@ -9,18 +9,18 @@ export async function POST(request: Request) {
   try {
     const body = await readAuthJson(request);
     const session = getAuthenticatedSession(request);
-    if (!session.valid) return authError("未认证", 401);
-    if (typeof body.currentPassword !== "string" || typeof body.newPassword !== "string" || typeof body.confirmPassword !== "string") return authError("请求参数无效", 400);
-    if (body.newPassword !== body.confirmPassword) return authError("两次密码不一致", 400);
+    if (!session.valid) return authError("AUTH_UNAUTHORIZED", "未认证", 401);
+    if (typeof body.currentPassword !== "string" || typeof body.newPassword !== "string" || typeof body.confirmPassword !== "string") return authError("AUTH_INVALID_PARAMETERS", "请求参数无效", 400);
+    if (body.newPassword !== body.confirmPassword) return authError("AUTH_PASSWORD_MISMATCH", "两次密码不一致", 400);
     await changePassword(body.currentPassword, body.newPassword);
     const response = Response.json({ success: true });
     response.headers.set("Set-Cookie", sessionCookie(request, null));
     return response;
   } catch (error) {
     const status = (error as { status?: number }).status;
-    if (status) return authError((error as Error).message, status);
+    if (status) return authError("AUTH_PASSWORD_CHANGE_FAILED", (error as Error).message, status);
     const message = error instanceof Error ? error.message : "密码修改失败";
-    if (message === "密码长度无效" || message === "密码格式无效") return authError("密码格式无效", 400);
-    return authError(message === "当前密码错误" ? "密码修改失败" : "密码修改失败", message === "当前密码错误" ? 401 : 500);
+    if (message === "密码长度无效" || message === "密码格式无效") return authError("AUTH_PASSWORD_INVALID", "密码格式无效", 400);
+    return authError("AUTH_PASSWORD_CHANGE_FAILED", "密码修改失败", message === "当前密码错误" ? 401 : 500);
   }
 }

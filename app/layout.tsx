@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Noto_Sans_Mono } from "next/font/google";
 import "katex/dist/katex.min.css";
 import "./globals.css";
+import { I18nProvider } from "@/hooks/useI18n";
 
 const notoSansMono = Noto_Sans_Mono({
   subsets: ["latin", "cyrillic"],
@@ -30,7 +31,7 @@ export default function RootLayout({
         />
       </head>
       <body translate="no" className="notranslate" style={{ height: "100dvh", display: "flex", flexDirection: "column" }}>
-        {children}
+        <I18nProvider>{children}</I18nProvider>
       </body>
     </html>
   );

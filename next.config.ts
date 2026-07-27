@@ -17,7 +17,9 @@ const nextConfig: NextConfig = {
     "@earendil-works/pi-ai",
     "@earendil-works/pi-tui",
   ],
-  allowedDevOrigins: ['192.168.*.*'],
+  // Allow the LAN and Tailscale addresses commonly used to open the dev UI.
+  // This is only enforced by Next.js in development mode.
+  allowedDevOrigins: ['192.168.*.*', '100.*.*.*'],
   async headers() {
     return [
       {

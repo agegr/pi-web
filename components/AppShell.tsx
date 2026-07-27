@@ -486,9 +486,12 @@ export function AppShell() {
     setAuthError(null);
     try {
       const response = await fetch("/api/auth/logout", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-      if (!response.ok) throw new Error("退出登录失败");
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { errorCode?: string } | null;
+        throw new Error(body?.errorCode ?? "AUTH_LOGOUT_FAILED");
+      }
     } catch {
-      setAuthError("退出登录失败，请稍后再试");
+      setAuthError(translate("auth.error.AUTH_LOGOUT_FAILED"));
     } finally {
       // 改密已经吊销当前 session，logout 网络失败也不能阻止离开受保护页面。
       router.replace("/login");
@@ -644,8 +647,8 @@ export function AppShell() {
         ))}
       </div>
       <div style={{ display: "flex", gap: 4, padding: "0 8px 8px" }}>
-        <button className="auth-sidebar-action" type="button" onClick={() => setAuthSettingsOpen(true)}>修改访问密码</button>
-        <button className="auth-sidebar-action" type="button" onClick={() => void handleLogout()}>退出登录</button>
+        <button className="auth-sidebar-action" type="button" onClick={() => setAuthSettingsOpen(true)}>{translate("auth.changePassword")}</button>
+        <button className="auth-sidebar-action" type="button" onClick={() => void handleLogout()}>{translate("auth.logout")}</button>
       </div>
     </>
   );
@@ -1562,8 +1565,8 @@ export function AppShell() {
       <div className="auth-settings-modal" role="dialog" aria-modal="true" aria-labelledby="auth-settings-title">
         <div className="auth-settings-panel">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 18 }}>
-            <h2 id="auth-settings-title" style={{ margin: 0, fontSize: 18 }}>修改访问密码</h2>
-            <button type="button" aria-label="关闭" onClick={() => setAuthSettingsOpen(false)} style={{ border: 0, background: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 20 }}>×</button>
+            <h2 id="auth-settings-title" style={{ margin: 0, fontSize: 18 }}>{translate("auth.changePassword")}</h2>
+            <button type="button" aria-label={translate("auth.close")} onClick={() => setAuthSettingsOpen(false)} style={{ border: 0, background: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 20 }}>×</button>
           </div>
           <PasswordChangeForm onSuccess={() => { void handleLogout(); }} />
           {authError && <p className="auth-form-error" role="alert">{authError}</p>}
@@ -1575,6 +1578,7 @@ export function AppShell() {
 }
 
 function PasswordChangeForm({ onSuccess }: { onSuccess: () => void }) {
+  const { t: translate } = useI18n();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -1583,18 +1587,22 @@ function PasswordChangeForm({ onSuccess }: { onSuccess: () => void }) {
     const form = event.currentTarget;
     const values = Object.fromEntries(new FormData(form));
     if (values.newPassword !== values.confirmPassword) {
-      setError("两次密码不一致");
+      setError(translate("auth.error.AUTH_PASSWORD_MISMATCH"));
       return;
     }
     setBusy(true);
     setError(null);
     try {
       const response = await fetch("/api/auth/password", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(values) });
-      if (!response.ok) throw new Error("密码修改失败，请稍后再试");
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { errorCode?: string } | null;
+        setError(translate(`auth.error.${body?.errorCode ?? "AUTH_PASSWORD_CHANGE_FAILED"}`));
+        return;
+      }
       form.reset();
       onSuccess();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "密码修改失败，请稍后再试");
+    } catch {
+      setError(translate("auth.error.AUTH_NETWORK_ERROR"));
     } finally {
       setBusy(false);
     }
@@ -1602,11 +1610,11 @@ function PasswordChangeForm({ onSuccess }: { onSuccess: () => void }) {
 
   return (
     <form className="auth-form" onSubmit={submit}>
-      <label>当前密码<input name="currentPassword" type="password" autoComplete="current-password" required /></label>
-      <label>新密码<input name="newPassword" type="password" autoComplete="new-password" required /></label>
-      <label>确认新密码<input name="confirmPassword" type="password" autoComplete="new-password" required /></label>
+      <label>{translate("auth.currentPassword")}<input name="currentPassword" type="password" autoComplete="current-password" required /></label>
+      <label>{translate("auth.newPassword")}<input name="newPassword" type="password" autoComplete="new-password" required /></label>
+      <label>{translate("auth.confirmNewPassword")}<input name="confirmPassword" type="password" autoComplete="new-password" required /></label>
       {error && <p className="auth-form-error" role="alert">{error}</p>}
-      <button className="auth-form-submit" type="submit" disabled={busy}>{busy ? "处理中..." : "保存并重新登录"}</button>
+      <button className="auth-form-submit" type="submit" disabled={busy}>{busy ? translate("auth.processing") : translate("auth.saveAndRelogin")}</button>
     </form>
   );
 }

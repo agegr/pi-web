@@ -65,14 +65,22 @@ interface SessionRecord {
 
 type SessionInvalidationListener = () => void;
 
-const sessions = new Map<string, SessionRecord>();
+declare global {
+  var __piWebAuthSetupState: { token: string | null; announced: boolean } | undefined;
+  var __piWebAuthSessions: Map<string, SessionRecord> | undefined;
+}
+
+const sessions = globalThis.__piWebAuthSessions ??= new Map<string, SessionRecord>();
 const sessionInvalidationListeners = new Map<string, Set<SessionInvalidationListener>>();
 const sessionInvalidationTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 const loginFailures = new Map<string, { count: number; firstFailureAt: number }>();
 let globalLoginFailures: { count: number; firstFailureAt: number } | null = null;
-// brief 要求 token 在模块首次加载时生成；已有配置时不创建初始化凭据。
-let setupToken: string | null = configPathExists() ? null : randomBytes(32).toString("hex");
-let setupTokenAnnounced = false;
+// 使用 globalThis 让 instrumentation 和 API route 的独立 server bundle 共享首启 token。
+const setupState = globalThis.__piWebAuthSetupState ??= {
+  // brief 要求 token 在模块首次加载时生成；已有配置时不创建初始化凭据。
+  token: configPathExists() ? null : randomBytes(32).toString("hex"),
+  announced: false,
+};
 
 function configPath(): string {
   return process.env.PI_WEB_AUTH_CONFIG_PATH || join(
@@ -184,20 +192,20 @@ export function getAuthConfigPath(): string {
  * @returns 无返回值。
  */
 export function announceSetupToken(): void {
-  if (setupTokenAnnounced) return;
+  if (setupState.announced) return;
   if (configPathExists()) {
     try {
       if (!hasRegularConfigFile()) throw new Error("认证配置路径不是普通文件");
       validateConfig(JSON.parse(readFileSync(configPath(), "utf8")));
     } catch {
-      setupTokenAnnounced = true;
+      setupState.announced = true;
       console.error(`[pi-web] 认证配置损坏，拒绝自动重置。请停止服务后备份或修复配置文件：${configPath()}`);
     }
     return;
   }
-  if (setupToken === null) return;
-  setupTokenAnnounced = true;
-  console.error(`[pi-web] Pi Web setup token: ${setupToken}`);
+  if (setupState.token === null) return;
+  setupState.announced = true;
+  console.error(`[pi-web] Pi Web setup token: ${setupState.token}`);
 }
 
 /** 读取认证状态；配置损坏或其他读取错误会直接抛出。
@@ -254,7 +262,7 @@ async function initializeAuthNow(token: string, password: string): Promise<void>
     notifyAllSessionInvalidations();
     bumpGeneration();
   } catch (error) {
-    if (tokenConsumed && writeAttempted && !configWriteCompleted) setupToken = token;
+    if (tokenConsumed && writeAttempted && !configWriteCompleted) setupState.token = token;
     throw error;
   } finally {
     initializationInProgress = false;
@@ -478,11 +486,11 @@ function notifyAllSessionInvalidations(): void {
  */
 export function consumeSetupToken(token: string): boolean {
   if (configPathExists()) {
-    setupToken = null;
+    setupState.token = null;
     return false;
   }
-  if (setupToken === null || token !== setupToken) return false;
-  setupToken = null;
+  if (setupState.token === null || token !== setupState.token) return false;
+  setupState.token = null;
   return true;
 }
 
@@ -572,8 +580,8 @@ export async function resetAuthStateForTests(): Promise<void> {
   notifyAllSessionInvalidations();
   loginFailures.clear();
   globalLoginFailures = null;
-  setupToken = "setup-token";
-  setupTokenAnnounced = false;
+  setupState.token = "setup-token";
+  setupState.announced = false;
   authGeneration = 1;
   generationInitialized = false;
   initializationInProgress = false;
@@ -589,6 +597,6 @@ export async function resetAuthStateForTests(): Promise<void> {
 export function getSetupTokenForTests(): string {
   if (configPathExists() && !hasRegularConfigFile()) throw new Error("认证配置损坏");
   if (hasRegularConfigFile()) throw new Error("认证已经初始化");
-  if (setupToken === null) throw new Error("初始化 token 不可用");
-  return setupToken;
+  if (setupState.token === null) throw new Error("初始化 token 不可用");
+  return setupState.token;
 }

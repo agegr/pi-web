@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { submitAuthForm } from "@/lib/auth-form";
+import { useI18n } from "@/hooks/useI18n";
 
 /** 认证表单的工作模式。 */
 export type AuthFormMode = "login" | "setup";
@@ -19,6 +20,7 @@ type AuthFormsProps = {
  * @returns 认证表单元素。
  */
 export function AuthForms({ mode, onSuccess }: AuthFormsProps) {
+  const { t } = useI18n();
   const isSetup = mode === "setup";
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -28,7 +30,7 @@ export function AuthForms({ mode, onSuccess }: AuthFormsProps) {
     const form = event.currentTarget;
     const values = Object.fromEntries(new FormData(form));
     if (isSetup && values.password !== values.confirmPassword) {
-      setError("两次密码不一致");
+      setError(t("auth.error.AUTH_PASSWORD_MISMATCH"));
       return;
     }
 
@@ -39,7 +41,7 @@ export function AuthForms({ mode, onSuccess }: AuthFormsProps) {
       form.reset();
       onSuccess();
       } });
-      if (!result.ok) setError(result.error);
+      if (!result.ok) setError(t(`auth.error.${result.errorCode}`));
     } finally {
       setBusy(false);
     }
@@ -49,23 +51,23 @@ export function AuthForms({ mode, onSuccess }: AuthFormsProps) {
     <form className="auth-form" onSubmit={submit} noValidate={false}>
       {isSetup && (
         <label>
-          初始化 token
+          {t("auth.token")}
           <input name="token" type="password" autoComplete="one-time-code" required />
         </label>
       )}
       <label>
-        访问密码
+        {t("auth.password")}
         <input name="password" type="password" autoComplete={isSetup ? "new-password" : "current-password"} required />
       </label>
       {isSetup && (
         <label>
-          确认密码
+          {t("auth.confirmPassword")}
           <input name="confirmPassword" type="password" autoComplete="new-password" required />
         </label>
       )}
       {error && <p className="auth-form-error" role="alert">{error}</p>}
       <button className="auth-form-submit" type="submit" disabled={busy}>
-        {busy ? "处理中..." : isSetup ? "初始化" : "登录"}
+        {busy ? t("auth.processing") : isSetup ? t("auth.setup.submit") : t("auth.login.submit")}
       </button>
     </form>
   );

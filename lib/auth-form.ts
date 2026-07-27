@@ -9,11 +9,27 @@ type SubmitAuthFormOptions = {
   onSuccess: () => void;
 };
 
-/** 认证表单提交的结果。 */
-type SubmitAuthFormResult = { ok: true } | { ok: false; error: string };
+/**
+ * 认证 API 返回的稳定错误码。
+ * @remarks 客户端根据当前语言将错误码映射为可读文案。
+ */
+export type AuthErrorCode =
+  | "AUTH_INVALID_PARAMETERS"
+  | "AUTH_PASSWORD_MISMATCH"
+  | "AUTH_LOGIN_RATE_LIMITED"
+  | "AUTH_LOGIN_FAILED"
+  | "AUTH_SETUP_RATE_LIMITED"
+  | "AUTH_SETUP_TOKEN_INVALID"
+  | "AUTH_ALREADY_INITIALIZED"
+  | "AUTH_PASSWORD_INVALID"
+  | "AUTH_SETUP_FAILED"
+  | "AUTH_NETWORK_ERROR";
 
-function getAuthErrorMessage(status: number): string {
-  return status === 429 ? "操作过于频繁，请稍后再试" : "认证失败，请稍后再试";
+type SubmitAuthFormResult = { ok: true } | { ok: false; errorCode: AuthErrorCode };
+
+function getAuthErrorCode(mode: "login" | "setup", status: number): AuthErrorCode {
+  if (status === 429) return mode === "setup" ? "AUTH_SETUP_RATE_LIMITED" : "AUTH_LOGIN_RATE_LIMITED";
+  return mode === "setup" ? "AUTH_SETUP_FAILED" : "AUTH_LOGIN_FAILED";
 }
 
 /**
@@ -28,7 +44,7 @@ function getAuthErrorMessage(status: number): string {
  */
 export async function submitAuthForm({ mode, values, request, onSuccess }: SubmitAuthFormOptions): Promise<SubmitAuthFormResult> {
   if (mode === "setup" && values.password !== values.confirmPassword) {
-    return { ok: false, error: "两次密码不一致" };
+    return { ok: false, errorCode: "AUTH_PASSWORD_MISMATCH" };
   }
 
   try {
@@ -37,10 +53,13 @@ export async function submitAuthForm({ mode, values, request, onSuccess }: Submi
       headers: { "content-type": "application/json" },
       body: JSON.stringify(values),
     });
-    if (!response.ok) return { ok: false, error: getAuthErrorMessage(response.status) };
+    if (!response.ok) {
+      const body = await response.json().catch(() => null) as { errorCode?: AuthErrorCode } | null;
+      return { ok: false, errorCode: body?.errorCode ?? getAuthErrorCode(mode, response.status) };
+    }
     onSuccess();
     return { ok: true };
   } catch {
-    return { ok: false, error: "认证失败，请稍后再试" };
+    return { ok: false, errorCode: "AUTH_NETWORK_ERROR" };
   }
 }
