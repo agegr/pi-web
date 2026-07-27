@@ -1586,7 +1586,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     loadModels(controller.signal).catch((e) => {
       if (e instanceof DOMException && e.name === "AbortError") return;
     });
-    return () => controller.abort();
+    return () => { try { controller.abort(); } catch { /* ignore */ } };
   }, [loadModels, modelsRefreshKey]);
 
   // Compact error auto-dismiss
