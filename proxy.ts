@@ -9,10 +9,6 @@ import { getAuthState } from "@/lib/pi-web-auth";
 export async function proxy(request: NextRequest) {
   const access = getRequestAccess(request);
   if (access.type === "public") {
-    const pathname = new URL(request.url).pathname;
-    if (pathname === "/login" || pathname === "/setup") {
-      return NextResponse.rewrite(new URL("/", request.url));
-    }
     return NextResponse.next();
   }
   if (access.type === "allow") return NextResponse.next();
