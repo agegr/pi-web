@@ -226,6 +226,9 @@ export function AppShell() {
     // Close any session that belongs to a different project — it no longer
     // matches the selected project directory.
     setSelectedSession(null);
+    setFileTabs([]);
+    setActiveFileTabId(null);
+    setRightPanelOpen(false);
     setNewSessionCwd((prev) => {
       if (prev && prev !== cwd) return null;
       return prev;
