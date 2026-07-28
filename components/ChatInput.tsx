@@ -2,6 +2,7 @@
 
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
+import type { SkillsResponse } from "@/lib/api-types";
 import { clearDraft, getDraft, setDraft, type ChatDraftImage } from "@/lib/draft-store";
 import {
   MAX_ATTACHED_IMAGE_BYTES,
@@ -144,6 +145,13 @@ function getSlashDescription(command: SlashCommandPaletteItem, t: (key: string) 
   return command.source === "builtin" ? t(command.description) : command.description ?? "";
 }
 
+// Skill slash commands are named "skill:<skillName>"; look the skill up in the
+// dormancy map fetched from /api/skills. Unknown skills are treated as active.
+function isDormantSkillCommand(command: SlashCommandPaletteItem, dormancy: Record<string, boolean>): boolean {
+  if (command.source !== "skill" || !command.name.startsWith("skill:")) return false;
+  return dormancy[command.name.slice("skill:".length)] === true;
+}
+
 function imageToDraftImage(image: AttachedImage): ChatDraftImage {
   return { data: image.data, mimeType: image.mimeType };
 }
@@ -281,6 +289,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [fileIndex, setFileIndex] = useState<{ cwd: string; entries: FileIndexEntry[]; truncated: boolean } | null>(null);
   const [fileIndexLoading, setFileIndexLoading] = useState(false);
   const [atServerResult, setAtServerResult] = useState<{ cwd: string; query: string; matches: FileIndexEntry[] } | null>(null);
+  const [skillDormancy, setSkillDormancy] = useState<Record<string, boolean>>({});
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -520,7 +529,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     });
     return SLASH_SOURCES
       .map((source) => groups.get(source)!)
-      .filter((group) => group.items.length > 0);
+      .filter((group) => group.items.length > 0)
+      .map((group) => {
+        // Dormant skills (disable-model-invocation) sink to the end of the
+        // skill group; all other groups keep their original order.
+        if (group.source !== "skill") return group;
+        const active = group.items.filter((item) => !isDormantSkillCommand(item.command, skillDormancy));
+        const dormant = group.items.filter((item) => isDormantSkillCommand(item.command, skillDormancy));
+        return { ...group, items: [...active, ...dormant] };
+      });
   })();
 
   const slashCommandCountLabel = filteredSlashCommands.length === 1
@@ -930,6 +947,32 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
   }, [slashQuery, onLoadSlashCommands]);
 
+  // Lazy-load skill dormancy (disable-model-invocation) each time the slash
+  // palette opens, so toggles made in the skills panel are reflected on the
+  // next open. Failures degrade silently to the unannotated palette.
+  const slashPaletteOpen = slashQuery !== null;
+  useEffect(() => {
+    if (!slashPaletteOpen || !cwd) return;
+    let cancelled = false;
+    fetch(`/api/skills?cwd=${encodeURIComponent(cwd)}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`skills fetch failed: ${res.status}`);
+        return res.json() as Promise<Partial<SkillsResponse>>;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        const dormancy: Record<string, boolean> = {};
+        for (const skill of data.skills ?? []) dormancy[skill.name] = skill.disableModelInvocation;
+        setSkillDormancy(dormancy);
+      })
+      .catch(() => {
+        // Leave the palette unannotated; the next open retries.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [slashPaletteOpen, cwd]);
+
   useEffect(() => {
     if (slashActiveIndex >= filteredSlashCommands.length) {
       setSlashActiveIndex(Math.max(0, filteredSlashCommands.length - 1));
@@ -1323,6 +1366,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       >
                         {group.items.map(({ command, index }) => {
                           const active = index === slashActiveIndex;
+                          const dormant = isDormantSkillCommand(command, skillDormancy);
                           return (
                             <button
                               key={`${command.source}:${command.name}`}
@@ -1358,8 +1402,22 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                                 fontFamily: "var(--font-mono)",
                                 overflowWrap: "anywhere",
                                 wordBreak: "break-word",
+                                color: dormant ? "var(--text-dim)" : undefined,
                               }}>
                                 /{command.name}
+                                {dormant && (
+                                  <span style={{
+                                    marginLeft: 6,
+                                    padding: "0 4px",
+                                    border: "1px solid var(--border)",
+                                    borderRadius: 3,
+                                    fontSize: 9,
+                                    color: "var(--text-dim)",
+                                    whiteSpace: "nowrap",
+                                  }}>
+                                    {t("chat.dormant")}
+                                  </span>
+                                )}
                               </span>
                                {command.description && (
                                 <span style={{
