@@ -10,13 +10,18 @@ const jiti = createJiti(import.meta.url, {
 });
 const { MarkdownBody } = await jiti.import("./MarkdownBody.tsx");
 const { normalizeDisplayMath } = await jiti.import("../lib/markdown.ts");
+const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
 function renderMarkdown(markdown) {
   return renderToStaticMarkup(
-    React.createElement(MarkdownBody, {
-      cwd: "/home/me/project",
-      onOpenFile() {},
-    }, markdown),
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(MarkdownBody, {
+        cwd: "/home/me/project",
+        onOpenFile() {},
+      }, markdown),
+    ),
   );
 }
 
@@ -82,4 +87,28 @@ test("does not normalize escaped delimiters or link destinations", () => {
 
   assert.equal(normalizeDisplayMath(escaped), escaped);
   assert.equal(normalizeDisplayMath(link), link);
+});
+
+test("turns a bare absolute path into an in-app link", () => {
+  const html = renderMarkdown("Generated /home/me/project/out/report.html for you");
+
+  assert.match(
+    html,
+    /<a href="\/home\/me\/project\/out\/report\.html">\/home\/me\/project\/out\/report\.html<\/a>/,
+  );
+  assert.doesNotMatch(html, /target=|rel=/);
+});
+
+test("leaves bare paths inside code untouched", () => {
+  const fenced = renderMarkdown("```bash\ncat /tmp/a.html\n```");
+  const inline = renderMarkdown("run `/tmp/a.html` now");
+
+  assert.doesNotMatch(fenced, /<a /);
+  assert.doesNotMatch(inline, /<a /);
+});
+
+test("leaves non-previewable bare paths as plain text", () => {
+  const html = renderMarkdown("installed to /usr/bin today");
+
+  assert.doesNotMatch(html, /<a /);
 });
