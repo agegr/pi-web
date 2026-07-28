@@ -10,7 +10,11 @@ export interface FilePathMatch {
 // Chinese prose. Unlike ASCII punctuation it is not followed by a space, so it
 // lands mid-candidate ("/tmp/a.md，请查看") where a $-anchored strip cannot
 // reach it. Excluding it here ends the candidate at the punctuation instead.
-const CANDIDATE_PATTERN = /(?:[A-Za-z]:[\\/]|\/)[^\s"'`<>|*?。，、；：！？…（）【】《》「」『』]+/g;
+// The curly quotes are GB/T 15834's Simplified Chinese quotation marks, the
+// typographic counterparts of the ASCII " and ' already excluded above. Dashes
+// are deliberately absent: "/tmp/a-b–c.md" is a legal file name.
+const CANDIDATE_PATTERN = /(?:[A-Za-z]:[\\/]|\/)[^\s"'`<>|*?“”‘’。，、；：！？…（）【】《》「」『』]+/g;
+// CJK entries here are unreachable — new CJK punctuation belongs in CANDIDATE_PATTERN.
 const TRAILING_PUNCTUATION = /[.,;:!?)\]}>'"。，、；：！？）】》」』…]+$/;
 
 function stripLineSuffix(value: string): string {
