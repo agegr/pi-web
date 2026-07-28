@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type ReactElement } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import type {
@@ -681,13 +681,21 @@ function AddSkillPanel({
   );
 }
 
-export function SkillsConfig({
-  cwd,
-  onClose,
-}: {
+/** 技能设置内容属性。 */
+export interface SkillsConfigProps {
+  /** 当前项目工作目录。 */
   cwd: string;
-  onClose: () => void;
-}) {
+}
+
+/**
+ * 渲染指定项目的技能设置内容。
+ *
+ * @param props - 技能设置属性。
+ * @param props.cwd - 当前项目工作目录。
+ * @returns 可嵌入设置中心的技能配置内容。
+ * @throws 不直接抛出异常；加载和操作错误在内容区显示。
+ */
+export function SkillsConfig({ cwd }: SkillsConfigProps): ReactElement {
   const isMobile = useIsMobile();
   const { t } = useI18n();
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -859,80 +867,12 @@ export function SkillsConfig({
   return (
     <div
       style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 1000,
-        background: "rgba(0,0,0,0.35)",
         display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        flexDirection: "column",
+        height: "100%",
+        minHeight: 0,
       }}
     >
-      <div
-        style={{
-          width: isMobile ? "calc(100vw - 16px)" : 860,
-          maxWidth: "calc(100vw - 16px)",
-          height: isMobile ? "calc(100dvh - 16px)" : "78vh",
-          maxHeight: "calc(100dvh - 16px)",
-          background: "var(--bg)",
-          border: "1px solid var(--border)",
-          borderRadius: 10,
-          display: "flex",
-          flexDirection: "column",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-          overflow: "hidden",
-        }}
-      >
-        {/* Header */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "12px 18px",
-            borderBottom: "1px solid var(--border)",
-            flexShrink: 0,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-            <span
-              style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}
-            >
-               {t("common.skills")}
-            </span>
-            <code
-              style={{
-                fontSize: 11,
-                color: "var(--text-muted)",
-                fontFamily: "var(--font-mono)",
-                maxWidth: 320,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {shortenPath(cwd)}
-            </code>
-          </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              fontSize: 20,
-              lineHeight: 1,
-              padding: "2px 6px",
-            }}
-          >
-            ×
-          </button>
-        </div>
-
         {!projectResourcesLoaded && (
           <div
             role="status"
@@ -949,7 +889,7 @@ export function SkillsConfig({
         )}
 
         {/* Body */}
-        <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
+        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
           {/* Left: skill list */}
           <div
             style={{
@@ -1052,8 +992,10 @@ export function SkillsConfig({
                             !addMode && selected === skill.filePath;
                           const disabled = skill.disableModelInvocation;
                           return (
-                            <div
+                            <button
                               key={skill.filePath}
+                              type="button"
+                              aria-pressed={isSelected}
                               onClick={() => {
                                 setSelected(skill.filePath);
                                 setAddMode(false);
@@ -1062,9 +1004,12 @@ export function SkillsConfig({
                                 display: "flex",
                                 alignItems: "center",
                                 gap: 7,
+                                width: "100%",
                                 padding: "8px 8px",
+                                border: "none",
                                 borderRadius: 5,
                                 cursor: "pointer",
+                                textAlign: "left",
                                 background: isSelected
                                   ? "var(--bg-selected)"
                                   : "none",
@@ -1129,7 +1074,7 @@ export function SkillsConfig({
                                   </span>
                                 );
                               })()}
-                            </div>
+                            </button>
                           );
                         })}
                       </div>
@@ -1146,13 +1091,16 @@ export function SkillsConfig({
                 flexShrink: 0,
               }}
             >
-              <div
+              <button
+                type="button"
                 onClick={() => setAddMode(true)}
                 style={{
                   display: "flex",
                   alignItems: "center",
                   gap: 6,
+                  width: "100%",
                   padding: "7px 8px",
+                  border: "none",
                   borderRadius: 5,
                   cursor: "pointer",
                   background: addMode ? "var(--bg-selected)" : "none",
@@ -1181,7 +1129,7 @@ export function SkillsConfig({
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
                  {t("i18n.addSkill")}
-              </div>
+              </button>
             </div>
           </div>
 
@@ -1297,22 +1245,7 @@ export function SkillsConfig({
               </span>
             )}
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              padding: "6px 14px",
-              background: "none",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              fontSize: 13,
-            }}
-          >
-             {t("i18n.close")}
-          </button>
         </div>
-      </div>
     </div>
   );
 }

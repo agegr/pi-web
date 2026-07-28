@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { PluginPackageInfo, PluginsResponse } from "@/lib/api-types";
@@ -573,17 +573,27 @@ function PackageDetail({
   );
 }
 
-export function PluginsConfig({
-  cwd,
-  sessionId,
-  onClose,
-  onReloaded,
-}: {
+/** 插件设置内容属性。 */
+export interface PluginsConfigProps {
+  /** 当前项目工作目录。 */
   cwd: string;
+  /** 当前会话 ID；没有活动会话时为 null。 */
   sessionId: string | null;
-  onClose: () => void;
+  /** 插件重载当前会话成功后的回调。 */
   onReloaded?: () => void;
-}) {
+}
+
+/**
+ * 渲染指定项目的插件设置内容。
+ *
+ * @param props - 插件设置属性。
+ * @param props.cwd - 当前项目工作目录。
+ * @param props.sessionId - 当前会话 ID。
+ * @param props.onReloaded - 会话重载后的可选回调。
+ * @returns 可嵌入设置中心的插件配置内容。
+ * @throws 不直接抛出异常；加载和操作错误在内容区显示。
+ */
+export function PluginsConfig({ cwd, sessionId, onReloaded }: PluginsConfigProps): ReactElement {
   const isMobile = useIsMobile();
   const { t } = useI18n();
   const [data, setData] = useState<PluginsResponse | null>(null);
@@ -715,76 +725,12 @@ export function PluginsConfig({
   return (
     <div
       style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 1000,
-        background: "rgba(0,0,0,0.35)",
         display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        flexDirection: "column",
+        height: "100%",
+        minHeight: 0,
       }}
     >
-      <div
-        style={{
-          width: isMobile ? "calc(100vw - 16px)" : 860,
-          maxWidth: "calc(100vw - 16px)",
-          height: isMobile ? "calc(100dvh - 16px)" : "76vh",
-          maxHeight: "calc(100dvh - 16px)",
-          background: "var(--bg)",
-          border: "1px solid var(--border)",
-          borderRadius: 8,
-          display: "flex",
-          flexDirection: "column",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-          overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "12px 18px",
-            borderBottom: "1px solid var(--border)",
-            flexShrink: 0,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0 }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>
-              {t("common.plugins")}
-            </span>
-            <code
-              style={{
-                fontSize: 11,
-                color: "var(--text-muted)",
-                fontFamily: "var(--font-mono)",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {shortenPath(cwd)}
-            </code>
-          </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              fontSize: 20,
-              lineHeight: 1,
-              padding: "2px 6px",
-            }}
-          >
-            ×
-          </button>
-        </div>
-
         {!projectResourcesLoaded && (
           <div
             role="status"
@@ -800,7 +746,7 @@ export function PluginsConfig({
           </div>
         )}
 
-        <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
+        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
           <div
             style={{
               width: isMobile ? "100%" : 245,
@@ -844,8 +790,10 @@ export function PluginsConfig({
                       const key = packageKey(pkg);
                       const isSelected = !addMode && selected === key;
                       return (
-                        <div
+                        <button
                           key={key}
+                          type="button"
+                          aria-pressed={isSelected}
                           onClick={() => {
                             setSelected(key);
                             setAddMode(false);
@@ -856,9 +804,12 @@ export function PluginsConfig({
                             display: "flex",
                             alignItems: "center",
                             gap: 7,
+                            width: "100%",
                             padding: "8px 8px",
+                            border: "none",
                             borderRadius: 5,
                             cursor: "pointer",
+                            textAlign: "left",
                             background: isSelected ? "var(--bg-selected)" : "none",
                           }}
                           onMouseEnter={(e) => {
@@ -918,7 +869,7 @@ export function PluginsConfig({
                               </div>
                             )}
                           </div>
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
@@ -1041,11 +992,7 @@ export function PluginsConfig({
           <button onClick={() => void loadPlugins()} disabled={loading || busyKey !== null} style={buttonStyle(loading || busyKey !== null)}>
              {t("i18n.refresh")}
           </button>
-          <button onClick={onClose} style={buttonStyle(false)}>
-             {t("i18n.close")}
-          </button>
         </div>
-      </div>
     </div>
   );
 }

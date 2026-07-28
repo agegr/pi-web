@@ -7,12 +7,9 @@ import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
-import { ModelsConfig } from "./ModelsConfig";
-import { SkillsConfig } from "./SkillsConfig";
-import { PluginsConfig } from "./PluginsConfig";
+import { SettingsModal } from "./SettingsModal";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { BranchNavigator } from "./BranchNavigator";
-import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { copyText } from "@/lib/clipboard";
@@ -32,7 +29,6 @@ type AutoNameStatus =
   | { kind: "error"; message: string };
 
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
-const LANGUAGE_MENU_WIDTH = 176;
 
 /**
  * 渲染 Pi Web 的主工作区及其会话、文件和认证设置。
@@ -42,8 +38,7 @@ export function AppShell() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [initialNavigation] = useState(() => getInitialNavigation(searchParams));
-  const { isDark, toggleTheme } = useTheme();
-  const { locale, setLocale, t: translate, supportedLocales } = useI18n();
+  const { locale, t: translate } = useI18n();
   const isMobile = useIsMobile();
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
   // When user clicks +, we only store the cwd — no fake session id
@@ -55,15 +50,12 @@ export function AppShell() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [sessionKey, setSessionKey] = useState(0);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
-  const [modelsConfigOpen, setModelsConfigOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
-  const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
-  const [pluginsConfigOpen, setPluginsConfigOpen] = useState(false);
   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
   const [projectTrustBusy, setProjectTrustBusy] = useState(false);
   const [projectTrustError, setProjectTrustError] = useState<string | null>(null);
-  const [authSettingsOpen, setAuthSettingsOpen] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
@@ -77,7 +69,6 @@ export function AppShell() {
   }, []);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
-  const languageBtnRef = useRef<HTMLButtonElement>(null);
 
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
   const [branchTree, setBranchTree] = useState<SessionTreeNode[]>([]);
@@ -134,10 +125,10 @@ export function AppShell() {
   }, []);
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | "language" | null>(null);
+  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
-  const toggleTopPanel = useCallback((panel: "branches" | "system" | "session" | "language") => {
+  const toggleTopPanel = useCallback((panel: "branches" | "system" | "session") => {
     if (isMobile) setSidebarOpen(false);
     setActiveTopPanel((cur) => cur === panel ? null : panel);
   }, [isMobile]);
@@ -155,25 +146,14 @@ export function AppShell() {
   useEffect(() => {
     if (!activeTopPanel || !topBarRef.current) return;
     const update = () => {
-      const topBarRect = topBarRef.current!.getBoundingClientRect();
-      if (activeTopPanel === "language" && !isMobile && languageBtnRef.current) {
-        const buttonRect = languageBtnRef.current.getBoundingClientRect();
-        const width = Math.min(LANGUAGE_MENU_WIDTH, topBarRect.width);
-        const left = Math.min(
-          buttonRect.left - 1,
-          Math.max(topBarRect.left, topBarRect.right - width),
-        );
-        setTopPanelPos({ top: topBarRect.bottom, left, width });
-        return;
-      }
-      setTopPanelPos({ top: topBarRect.bottom, left: topBarRect.left, width: topBarRect.width });
+      const rect = topBarRef.current!.getBoundingClientRect();
+      setTopPanelPos({ left: rect.left, top: rect.bottom + 4, width: rect.width });
     };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(topBarRef.current);
-    if (languageBtnRef.current) ro.observe(languageBtnRef.current);
     return () => ro.disconnect();
-  }, [activeTopPanel, isMobile]);
+  }, [activeTopPanel]);
 
   // Right panel — file tabs only
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
@@ -540,7 +520,6 @@ export function AppShell() {
       if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
       setProjectTrust(data);
       setProjectTrustDialogOpen(false);
-      setModelsRefreshKey((key) => key + 1);
       setSessionKey((key) => key + 1);
     } catch (error) {
       setProjectTrustError(error instanceof Error ? error.message : String(error));
@@ -583,73 +562,31 @@ export function AppShell() {
         onAtMention={handleAtMention}
         onAtMentions={handleAtMentions}
       />
-      <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
-        {([
-          {
-             label: translate("common.models"),
-            onClick: () => setModelsConfigOpen(true),
-            disabled: false,
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" />
-                <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
-                <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
-                <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
-                <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
-              </svg>
-            ),
-          },
-          {
-             label: translate("common.skills"),
-            onClick: () => setSkillsConfigOpen(true),
-            disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                <path d="M2 17l10 5 10-5" />
-                <path d="M2 12l10 5 10-5" />
-              </svg>
-            ),
-          },
-          {
-             label: translate("common.plugins"),
-            onClick: () => setPluginsConfigOpen(true),
-            disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 7V2" />
-                <path d="M15 7V2" />
-                <path d="M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0Z" />
-                <path d="M12 19v3" />
-              </svg>
-            ),
-          },
-        ] as { label: string; onClick: () => void; disabled: boolean; icon: React.ReactNode }[]).map(({ label, onClick, disabled, icon }) => (
-          <button
-            key={label}
-            onClick={onClick}
-            disabled={disabled}
-            title={label}
-            style={{
-              flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-              height: 32, padding: 0, background: "none", border: "none",
-              borderRadius: 9, color: "var(--text-muted)", cursor: disabled ? "default" : "pointer",
-              fontSize: 12, opacity: disabled ? 0.35 : 1,
-              transition: "background 0.12s, color 0.12s",
-            }}
-            onMouseEnter={(e) => { if (!disabled) { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text)"; } }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "var(--text-muted)"; }}
-          >
-            {icon}
-            {label}
-          </button>
-        ))}
+      <div className="settings-sidebar-actions">
+        <button
+          type="button"
+          className="settings-sidebar-icon"
+          title={translate("settings.title")}
+          aria-label={translate("settings.title")}
+          onClick={() => setSettingsOpen(true)}
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18">
+            <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.4 5.1-1.7-1 .1-.6-.1-.6 1.7-1-2-3.4-1.8 1a8 8 0 0 0-1-.6V5.5h-4v2a8 8 0 0 0-1 .5l-1.8-1-2 3.4 1.7 1-.1.6.1.6-1.7 1 2 3.4 1.8-1a8 8 0 0 0 1 .6v1.9h4v-2a8 8 0 0 0 1-.5l1.8 1 2-3.4Z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="settings-sidebar-icon"
+          title={translate("auth.logout")}
+          aria-label={translate("auth.logout")}
+          onClick={() => { void handleLogout(); }}
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18">
+            <path d="M10 5H5v14h5M14 8l4 4-4 4m4-4H9" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
       </div>
-      <div style={{ display: "flex", gap: 4, padding: "0 8px 8px" }}>
-        <button className="auth-sidebar-action" type="button" onClick={() => setAuthSettingsOpen(true)}>{translate("auth.changePassword")}</button>
-        <button className="auth-sidebar-action" type="button" onClick={() => void handleLogout()}>{translate("auth.logout")}</button>
-      </div>
-      {authError && !authSettingsOpen && <p className="auth-sidebar-error" role="alert">{authError}</p>}
+      {authError && <div className="auth-sidebar-error" role="alert">{authError}</div>}
     </>
   );
 
@@ -784,78 +721,6 @@ export function AppShell() {
               </svg>
             )}
           </button>
-          <button
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              toggleTheme({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-            }}
-             title={isDark ? translate("theme.light") : translate("theme.dark")}
-             aria-label={isDark ? translate("theme.light") : translate("theme.dark")}
-            aria-pressed={isDark}
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-              background: "none", border: "none", borderRight: "1px solid var(--border)",
-              color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
-          >
-            {isDark ? (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="5" />
-                <line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
-                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-                <line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" />
-                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-              </svg>
-            ) : (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-              </svg>
-            )}
-           </button>
-           <button
-             ref={languageBtnRef}
-             type="button"
-             onClick={() => toggleTopPanel("language")}
-             title={translate("common.language")}
-             aria-label={translate("common.language")}
-             aria-haspopup="menu"
-             aria-expanded={activeTopPanel === "language"}
-             aria-pressed={activeTopPanel === "language"}
-             style={{
-               display: "flex", alignItems: "center", justifyContent: "center",
-               width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-               background: activeTopPanel === "language" ? "var(--bg-selected)" : "none",
-               border: "none", borderRight: "1px solid var(--border)",
-               color: activeTopPanel === "language" ? "var(--text)" : "var(--text-muted)",
-               cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
-             }}
-             onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-             onMouseLeave={(e) => {
-               e.currentTarget.style.color = activeTopPanel === "language" ? "var(--text)" : "var(--text-muted)";
-             }}
-           >
-             <svg
-               width="16"
-               height="16"
-               viewBox="0 0 24 24"
-               fill="none"
-               stroke="currentColor"
-               strokeWidth="1.8"
-               strokeLinecap="round"
-               strokeLinejoin="round"
-               aria-hidden="true"
-             >
-               <path d="m5 8 6 6" />
-               <path d="m4 14 6-6 2-3" />
-               <path d="M2 5h12" />
-               <path d="M7 2h1" />
-               <path d="m22 22-5-10-5 10" />
-               <path d="M14 18h6" />
-             </svg>
-           </button>
           {showChat && projectTrust?.requiresTrust && !projectTrust.trusted && (
             <button
               type="button"
@@ -1177,49 +1042,6 @@ export function AppShell() {
               overflowY: "auto",
               zIndex: 500,
             }}>
-              {activeTopPanel === "language" && (
-                <div
-                  role="menu"
-                  aria-label={translate("common.language")}
-                  style={{
-                    background: "var(--bg-panel)",
-                    borderLeft: "1px solid var(--border)",
-                    borderRight: "1px solid var(--border)",
-                    borderBottom: "1px solid var(--border)",
-                    overflow: "hidden",
-                    padding: 4,
-                  }}
-                >
-                  {supportedLocales.map((plugin) => (
-                    <button
-                      key={plugin.id}
-                      type="button"
-                      onClick={() => {
-                        setLocale(plugin.id as typeof locale);
-                        setActiveTopPanel(null);
-                      }}
-                      role="menuitemradio"
-                      aria-checked={locale === plugin.id}
-                      style={{
-                        display: "flex", alignItems: "center",
-                        width: "100%", height: 34, padding: "0 10px",
-                        border: "none", borderRadius: 4,
-                        background: locale === plugin.id ? "var(--bg-selected)" : "transparent",
-                        color: "var(--text)", cursor: "pointer", textAlign: "left", fontSize: 12,
-                        transition: "background 0.1s",
-                      }}
-                      onMouseEnter={(e) => {
-                        if (locale !== plugin.id) e.currentTarget.style.background = "var(--bg-hover)";
-                      }}
-                      onMouseLeave={(e) => {
-                        if (locale !== plugin.id) e.currentTarget.style.background = "transparent";
-                      }}
-                    >
-                      <span>{plugin.label}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
               {activeTopPanel === "system" && (
                 <div style={{
                   background: "var(--bg-panel)",
@@ -1538,7 +1360,6 @@ export function AppShell() {
         <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
       </svg>
     </button>
-    {modelsConfigOpen && <ModelsConfig onClose={() => { setModelsConfigOpen(false); setModelsRefreshKey((k) => k + 1); }} />}
     {projectTrustDialogOpen && projectTrustCwd && (
       <ProjectTrustDialog
         cwd={projectTrustCwd}
@@ -1550,71 +1371,17 @@ export function AppShell() {
         onConfirm={() => void handleTrustProject()}
       />
     )}
-    {skillsConfigOpen && projectTrustCwd && (
-      <SkillsConfig cwd={projectTrustCwd} onClose={() => setSkillsConfigOpen(false)} />
-    )}
-    {pluginsConfigOpen && projectTrustCwd && (
-      <PluginsConfig
+    {settingsOpen && (
+      <SettingsModal
         cwd={projectTrustCwd}
         sessionId={selectedSession?.id ?? null}
-        onClose={() => setPluginsConfigOpen(false)}
-        onReloaded={() => setSessionKey((k) => k + 1)}
+        authError={authError}
+        onClose={() => setSettingsOpen(false)}
+        onModelsSaved={() => setModelsRefreshKey(key => key + 1)}
+        onSessionReloaded={() => setSessionKey(key => key + 1)}
+        onPasswordChanged={() => { void handleLogout(true); }}
       />
     )}
-    {authSettingsOpen && (
-      <div className="auth-settings-modal" role="dialog" aria-modal="true" aria-labelledby="auth-settings-title">
-        <div className="auth-settings-panel">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 18 }}>
-            <h2 id="auth-settings-title" style={{ margin: 0, fontSize: 18 }}>{translate("auth.changePassword")}</h2>
-            <button type="button" aria-label={translate("auth.close")} onClick={() => setAuthSettingsOpen(false)} style={{ border: 0, background: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 20 }}>×</button>
-          </div>
-          <PasswordChangeForm onSuccess={() => { void handleLogout(true); }} />
-          {authError && <p className="auth-form-error" role="alert">{authError}</p>}
-        </div>
-      </div>
-    )}
     </>
-  );
-}
-
-function PasswordChangeForm({ onSuccess }: { onSuccess: () => void }) {
-  const { t: translate } = useI18n();
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const values = Object.fromEntries(new FormData(form));
-    if (values.newPassword !== values.confirmPassword) {
-      setError(translate("auth.error.AUTH_PASSWORD_MISMATCH"));
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/auth/password", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(values) });
-      if (!response.ok) {
-        const body = await response.json().catch(() => null) as { errorCode?: string } | null;
-        setError(translate(`auth.error.${body?.errorCode ?? "AUTH_PASSWORD_CHANGE_FAILED"}`));
-        return;
-      }
-      form.reset();
-      onSuccess();
-    } catch {
-      setError(translate("auth.error.AUTH_NETWORK_ERROR"));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <form className="auth-form" onSubmit={submit}>
-      <label>{translate("auth.currentPassword")}<input name="currentPassword" type="password" autoComplete="current-password" required /></label>
-      <label>{translate("auth.newPassword")}<input name="newPassword" type="password" autoComplete="new-password" required /></label>
-      <label>{translate("auth.confirmNewPassword")}<input name="confirmPassword" type="password" autoComplete="new-password" required /></label>
-      {error && <p className="auth-form-error" role="alert">{error}</p>}
-      <button className="auth-form-submit" type="submit" disabled={busy}>{busy ? translate("auth.processing") : translate("auth.saveAndRelogin")}</button>
-    </form>
   );
 }

@@ -135,18 +135,24 @@ test("登录和初始化页面使用认证表单并导航", async () => {
   assert.match(setup, /\/login/);
 });
 
-test("AppShell 暴露改密和退出登录入口", async () => {
-  const sourceText = await source("components/AppShell.tsx");
+test("设置中心密码表单保留校验、提交和国际化错误", async () => {
+  const [appShell, passwordForm, english, chinese] = await Promise.all([
+    source("components/AppShell.tsx"),
+    source("components/PasswordChangeForm.tsx"),
+    source("lib/i18n/messages/en.ts"),
+    source("lib/i18n/messages/zh-CN.ts"),
+  ]);
 
-  assert.match(sourceText, /auth\.changePassword/);
-  assert.match(sourceText, /auth\.logout/);
-  assert.match(sourceText, /useI18n/);
-  assert.match(sourceText, /auth\.error\.AUTH_PASSWORD_MISMATCH/);
-  assert.doesNotMatch(sourceText, />修改访问密码</);
-  assert.doesNotMatch(sourceText, />退出登录</);
-  assert.match(sourceText, /\/api\/auth\/password/);
-  assert.match(sourceText, /\/api\/auth\/logout/);
-  assert.match(sourceText, /\/login/);
+  assert.match(appShell, /auth\.logout/);
+  assert.match(appShell, /\/api\/auth\/logout/);
+  assert.match(passwordForm, /auth\.error\.AUTH_PASSWORD_MISMATCH/);
+  assert.match(passwordForm, /\/api\/auth\/password/);
+  assert.match(passwordForm, /onSuccess\(\)/);
+  assert.match(passwordForm, /body !== null && typeof body === "object" && typeof body\.errorCode === "string"/);
+  assert.match(english, /"settings\.title": "Settings"/);
+  assert.match(chinese, /"settings\.title": "设置"/);
+  assert.match(english, /"settings\.projectRequired"/);
+  assert.match(chinese, /"settings\.projectRequired"/);
 });
 
 test("普通登出失败停留当前页面，改密成功后仍强制跳转登录页", async () => {
@@ -154,7 +160,7 @@ test("普通登出失败停留当前页面，改密成功后仍强制跳转登�
 
   assert.match(sourceText, /handleLogout\(forceRedirect = false\)/);
   assert.match(sourceText, /if \(forceRedirect\) router\.replace\("\/login"\)/);
-  assert.match(sourceText, /PasswordChangeForm onSuccess=\{\(\) => \{ void handleLogout\(true\); \}\}/);
+  assert.match(sourceText, /onPasswordChanged=\{\(\) => \{ void handleLogout\(true\); \}\}/);
   assert.match(sourceText, /auth-sidebar-error/);
 });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type ReactElement } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 // Color icons (have their own fill colors — no background needed)
@@ -1152,6 +1152,8 @@ interface AddProviderPickerProps {
   onClose: () => void;
 }
 
+const FOCUSABLE_SELECTOR = 'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
+
 function AddProviderPicker({
   oauthProviders, apiKeyProviders,
   onSelectOAuth, onSelectApiKey, onAddCustom, onClose,
@@ -1160,7 +1162,16 @@ function AddProviderPicker({
   const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 30); }, []);
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 30);
+    return () => {
+      window.clearTimeout(focusTimer);
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+    };
+  }, []);
 
   const q = search.trim().toLowerCase();
 
@@ -1188,10 +1199,39 @@ function AddProviderPicker({
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="add-provider-picker-title"
       style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          onClose();
+          return;
+        }
+        if (event.key !== "Tab") return;
+
+        const focusableElements = Array.from(
+          event.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+        );
+        const firstFocusable = focusableElements[0];
+        const lastFocusable = focusableElements.at(-1);
+        if (!firstFocusable || !lastFocusable) return;
+
+        if (event.shiftKey && document.activeElement === firstFocusable) {
+          event.preventDefault();
+          lastFocusable.focus();
+        } else if (!event.shiftKey && document.activeElement === lastFocusable) {
+          event.preventDefault();
+          firstFocusable.focus();
+        }
+      }}
     >
       <div style={{ width: 820, maxWidth: "calc(100vw - 32px)", maxHeight: "min(72vh, calc(100vh - 32px))", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.22)", overflow: "hidden" }}>
+        <h2 id="add-provider-picker-title" style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0, 0, 0, 0)", whiteSpace: "nowrap", border: 0 }}>
+          {t("i18n.addProvider")}
+        </h2>
         {/* Search */}
         <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", flexShrink: 0, display: "flex", alignItems: "center", gap: 8 }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-dim)", flexShrink: 0 }}>
@@ -1201,7 +1241,6 @@ function AddProviderPicker({
             ref={inputRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
              placeholder={t("i18n.searchProviders")}
             style={{ flex: 1, background: "none", border: "none", outline: "none", color: "var(--text)", fontSize: 13, boxSizing: "border-box" }}
           />
@@ -1279,7 +1318,21 @@ function AddProviderPicker({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ModelsConfig({ onClose }: { onClose: () => void }) {
+/** 模型设置内容属性。 */
+export interface ModelsConfigProps {
+  /** 模型配置成功保存后的回调。 */
+  onSaved?: () => void;
+}
+
+/**
+ * 渲染模型设置内容并保留现有 Provider 与模型编辑流程。
+ *
+ * @param props - 模型设置属性。
+ * @param props.onSaved - 配置成功保存后的可选回调。
+ * @returns 可嵌入设置中心的模型配置内容。
+ * @throws 不直接抛出异常；加载和保存错误在内容区显示。
+ */
+export function ModelsConfig({ onSaved }: ModelsConfigProps): ReactElement {
   const isMobile = useIsMobile();
   const { t } = useI18n();
   const [config, setConfig] = useState<ModelsJson>({ providers: {} });
@@ -1406,13 +1459,17 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
       });
       const d = await res.json() as { success?: boolean; error?: string };
       if (!res.ok || d.error) setSaveError(d.error ?? `HTTP ${res.status}`);
-      else { setSavedOk(true); setTimeout(() => setSavedOk(false), 2000); }
+      else {
+        setSavedOk(true);
+        setTimeout(() => setSavedOk(false), 2000);
+        onSaved?.();
+      }
     } catch (e) {
       setSaveError(String(e));
     } finally {
       setSaving(false);
     }
-  }, [config]);
+  }, [config, onSaved]);
 
   const providers = Object.entries(config.providers ?? {});
   const activeOAuth = oauthProviders.filter((p) => p.loggedIn);
@@ -1461,22 +1518,9 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
   })();
 
   return (
-    <>
-    <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center" }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ width: isMobile ? "calc(100vw - 16px)" : 860, maxWidth: "calc(100vw - 16px)", height: isMobile ? "calc(100dvh - 16px)" : "78vh", maxHeight: "calc(100dvh - 16px)", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.18)", overflow: "hidden" }}>
-
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-             <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>{t("common.models")}</span>
-            <code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>~/.pi/agent/models.json</code>
-          </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: "2px 6px" }}>×</button>
-        </div>
-
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
         {/* Body */}
-        <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
+        <div style={{ display: "flex", flex: 1, minHeight: 0, flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
 
           {/* Left: tree */}
           <div style={{
@@ -1491,16 +1535,18 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
               {activeOAuth.map((p) => {
                 const isSelected = selection?.type === "oauth" && selection.providerId === p.id;
                 return (
-                  <div
+                  <button
                     key={p.id}
+                    type="button"
+                    aria-pressed={isSelected}
                     onClick={() => setSelection({ type: "oauth", providerId: p.id })}
-                    style={{ display: "flex", alignItems: "center", gap: 7, padding: "5px 8px", borderRadius: 5, cursor: "pointer", background: isSelected ? "var(--bg-selected)" : "none" }}
+                    style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "5px 8px", border: "none", borderRadius: 5, cursor: "pointer", background: isSelected ? "var(--bg-selected)" : "none", textAlign: "left" }}
                     onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
                     onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "none"; }}
                   >
                     <ProviderIcon id={p.id} size={16} />
                     <span style={{ fontSize: 12, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-                  </div>
+                  </button>
                 );
               })}
 
@@ -1508,16 +1554,18 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
               {activeApiKey.map((p) => {
                 const isSelected = selection?.type === "apikey" && selection.providerId === p.id;
                 return (
-                  <div
+                  <button
                     key={p.id}
+                    type="button"
+                    aria-pressed={isSelected}
                     onClick={() => setSelection({ type: "apikey", providerId: p.id })}
-                    style={{ display: "flex", alignItems: "center", gap: 7, padding: "5px 8px", borderRadius: 5, cursor: "pointer", background: isSelected ? "var(--bg-selected)" : "none" }}
+                    style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "5px 8px", border: "none", borderRadius: 5, cursor: "pointer", background: isSelected ? "var(--bg-selected)" : "none", textAlign: "left" }}
                     onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
                     onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "none"; }}
                   >
                     <ProviderIcon id={p.id} size={16} />
                     <span style={{ fontSize: 12, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.displayName}</span>
-                  </div>
+                  </button>
                 );
               })}
 
@@ -1535,9 +1583,11 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                 return (
                   <div key={pName} style={{ marginBottom: 2 }}>
                     {/* Provider row */}
-                    <div
+                    <button
+                      type="button"
+                      aria-pressed={isProviderSelected}
                       onClick={() => setSelection({ type: "provider", name: pName })}
-                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 8px", borderRadius: 5, cursor: "pointer", background: isProviderSelected ? "var(--bg-selected)" : "none" }}
+                      style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", padding: "7px 8px", border: "none", borderRadius: 5, cursor: "pointer", background: isProviderSelected ? "var(--bg-selected)" : "none", textAlign: "left" }}
                       onMouseEnter={(e) => { if (!isProviderSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
                       onMouseLeave={(e) => { if (!isProviderSelected) e.currentTarget.style.background = "none"; }}
                     >
@@ -1551,16 +1601,18 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                       <span style={{ fontSize: 12, fontWeight: isProviderSelected ? 600 : 400, color: "var(--text)", fontFamily: "var(--font-mono)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {pName}
                       </span>
-                    </div>
+                    </button>
 
                     {/* Model rows */}
                     {models.map((m, i) => {
                       const isModelSelected = selection?.type === "model" && selection.providerName === pName && selection.index === i;
                       return (
-                        <div
+                        <button
                           key={i}
+                          type="button"
+                          aria-pressed={isModelSelected}
                           onClick={() => setSelection({ type: "model", providerName: pName, index: i })}
-                          style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px 5px 26px", borderRadius: 5, cursor: "pointer", background: isModelSelected ? "var(--bg-selected)" : "none" }}
+                          style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", padding: "5px 8px 5px 26px", border: "none", borderRadius: 5, cursor: "pointer", background: isModelSelected ? "var(--bg-selected)" : "none", textAlign: "left" }}
                           onMouseEnter={(e) => { if (!isModelSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
                           onMouseLeave={(e) => { if (!isModelSelected) e.currentTarget.style.background = "none"; }}
                         >
@@ -1570,19 +1622,20 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                           {m.reasoning && (
                             <span style={{ fontSize: 9, padding: "1px 4px", background: "rgba(99,102,241,0.12)", color: "rgba(99,102,241,0.8)", borderRadius: 3, flexShrink: 0 }}>T</span>
                           )}
-                        </div>
+                        </button>
                       );
                     })}
 
                     {/* Add model button */}
-                    <div
+                    <button
+                      type="button"
                       onClick={(e) => { e.stopPropagation(); addModel(pName); }}
-                      style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 8px 4px 26px", borderRadius: 5, cursor: "pointer", color: "var(--text-dim)" }}
+                      style={{ display: "flex", alignItems: "center", gap: 4, width: "100%", padding: "4px 8px 4px 26px", border: "none", borderRadius: 5, cursor: "pointer", color: "var(--text-dim)", background: "none", textAlign: "left" }}
                       onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
                       onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
                     >
                        <span style={{ fontSize: 11 }}>+ {t("i18n.model")}</span>
-                    </div>
+                    </button>
                   </div>
                 );
               })}
@@ -1614,12 +1667,9 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* Footer */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, padding: "10px 18px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
-          {saveError && <span style={{ fontSize: 12, color: "#f87171", flex: 1 }}>{saveError}</span>}
-          <button onClick={onClose} style={{ padding: "6px 14px", background: "none", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer", fontSize: 13 }}>
-             {t("i18n.cancel")}
-          </button>
-          <button onClick={handleSave} disabled={saving || savedOk} style={{
+        <div style={{ borderTop: "1px solid var(--border)", padding: "10px 14px", display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          {saveError && <span role="alert" style={{ fontSize: 12, color: "#f87171", flex: 1 }}>{saveError}</span>}
+          <button type="button" onClick={handleSave} disabled={saving || savedOk} style={{
             position: "relative",
             padding: "6px 16px",
             minWidth: 92,
@@ -1640,8 +1690,6 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
              <span>{savedOk ? t("i18n.saved") : saving ? t("i18n.saving") : t("i18n.save")}</span>
           </button>
         </div>
-      </div>
-    </div>
     {pickerOpen && (
       <AddProviderPicker
         oauthProviders={oauthProviders}
@@ -1652,6 +1700,6 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
         onClose={() => setPickerOpen(false)}
       />
     )}
-    </>
+    </div>
   );
 }
