@@ -1,0 +1,50 @@
+import { isPreviewableExtension } from "./file-types";
+
+export interface FilePathMatch {
+  start: number;
+  end: number;
+  path: string;
+}
+
+// CJK/fullwidth punctuation cannot occur in a path but constantly abuts one in
+// Chinese prose. Unlike ASCII punctuation it is not followed by a space, so it
+// lands mid-candidate ("/tmp/a.md，请查看") where a $-anchored strip cannot
+// reach it. Excluding it here ends the candidate at the punctuation instead.
+const CANDIDATE_PATTERN = /(?:[A-Za-z]:[\\/]|\/)[^\s"'`<>|*?。，、；：！？…（）【】《》「」『』]+/g;
+const TRAILING_PUNCTUATION = /[.,;:!?)\]}>'"。，、；：！？）】》」』…]+$/;
+
+function stripLineSuffix(value: string): string {
+  return value.replace(/:\d+(?::\d+)?$/, "");
+}
+
+function hasDottedBaseName(value: string): boolean {
+  const base = value.replace(/\\/g, "/").split("/").pop() ?? "";
+  return base.includes(".");
+}
+
+export function scanFilePaths(text: string): FilePathMatch[] {
+  const matches: FilePathMatch[] = [];
+  CANDIDATE_PATTERN.lastIndex = 0;
+
+  let candidate: RegExpExecArray | null;
+  while ((candidate = CANDIDATE_PATTERN.exec(text)) !== null) {
+    const start = candidate.index;
+
+    // Protocol-relative and UNC-style prefixes are rejected downstream anyway.
+    if (candidate[0].startsWith("//")) continue;
+    // A path glued to a preceding word is almost always not a path.
+    if (start > 0 && /[A-Za-z0-9]/.test(text[start - 1])) continue;
+
+    const trimmed = candidate[0].replace(TRAILING_PUNCTUATION, "");
+    if (!trimmed) continue;
+    const bare = stripLineSuffix(trimmed);
+    // getFileExt() falls back to the whole base name when there is no dot, so
+    // "/bin/bash" would otherwise read as extension "bash". Require a real dot.
+    if (!hasDottedBaseName(bare)) continue;
+    if (!isPreviewableExtension(bare)) continue;
+
+    matches.push({ start, end: start + trimmed.length, path: trimmed });
+  }
+
+  return matches;
+}
