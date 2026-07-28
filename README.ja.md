@@ -41,8 +41,55 @@ PI_WEB_ALLOWED_HOSTS=pi-web.internal pi-web  # プロキシまたはカスタム
 PI_WEB_NO_OPEN=1 pi-web         # バックグラウンドサービスとして実行する場合に便利
 ```
 
-Pi Web はデフォルトで認証を要求します。高権限のエージェントを呼び出せるため、loopback 以外のアドレスで使用する場合も、信頼できるネットワークまたは HTTPS リバースプロキシで保護してください。
-API リクエストでは、loopback 名、IP リテラル、選択したバインドホスト名、および `PI_WEB_ALLOWED_HOSTS` にカンマ区切りで指定した完全一致のホスト名のみを受け入れます。信頼できるリバースプロキシが異なる外部ホスト名を使用する場合は、この変数を設定してください。
+## 公開環境でのデプロイと認証
+
+Pi Web はデフォルトで認証を要求します。初回起動時に、一度だけ使用できる初期化 token がサーバーのターミナルに表示されます。セットアップページでこの token を入力し、パスワードを設定してください。token はパスワードではなく、ブラウザや設定ファイルから復元することもできません。
+
+ログインのレート制限は、デフォルトでは匿名アクセス元を 1 つの固定バケットとして扱い、クライアントが送信した proxy header を信頼しません。Pi Web を信頼できるリバースプロキシの背後で実行し、プロキシがこれらの header を上書き・サニタイズする場合は、`PI_WEB_TRUSTED_PROXY=true` を設定して `X-Forwarded-For` / `X-Real-IP` のアクセス元を使用できます。すべての直接アクセスを遮断し、プロキシが偽装された header を除去できる場合にのみ有効にしてください。
+
+- 認証情報はデフォルトで `~/.pi/agent/pi-web-auth.json` に保存されます。別の場所を使用するには `PI_WEB_AUTH_CONFIG_PATH` を設定してください。
+- Pi Agent のセッション、モデル、その他の設定はデフォルトで `~/.pi/agent/` に保存されます。`PI_CODING_AGENT_DIR` で Pi Agent のディレクトリ全体を変更できます。
+- 初期化 token を紛失した場合は、Pi Web をローカルで停止し、認証設定ファイルを削除して再起動すると、ターミナルで新しい token を取得できます。この復旧操作は Pi Web を実行しているローカルアカウントが管理できる場合にのみ行ってください。既存の認証設定が消去され、新しいパスワードの設定が必要になります。
+- サーバーが認証設定の破損を報告した場合、Pi Web は未初期化として扱わず、設定ファイルを暗黙に上書きすることもありません。サービスを停止し、server stderr に表示されたパスをバックアップしたうえで、ローカルの管理者が意図的に修復または削除して再初期化してください。
+- ログイン session の有効期限は 24 時間です。パスワードを変更すると既存の session は取り消されるため、新しいパスワードで再ログインしてください。
+- 認証 session の期限切れ、ブラウザの切断、パスワードの変更によって、バックグラウンドの AgentSession が停止・破棄・中断されることはありません。実行中の処理は継続し、再ログイン後に結果を確認できます。
+
+### HTTPS とリバースプロキシ
+
+公開アクセスでは、Pi Web を HTTPS リバースプロキシの背後に置き、Pi Web 自体は loopback のみを listen するようにしてください。`PI_WEB_TRUSTED_PROXY=true` を有効にする場合は、クライアントから Pi Web への直接アクセスを遮断し、信頼できるプロキシがクライアントの `X-Forwarded-For` header を追加ではなく上書きする必要があります。次の Nginx 例では、証明書管理ツールによって TLS 証明書が設定済みであることを前提としています。
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name pi.example.com;
+
+    ssl_certificate     /path/to/fullchain.pem;
+    ssl_certificate_key /path/to/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:30141;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 1h;
+    }
+}
+```
+
+`--hostname 127.0.0.1` を指定し、プロキシの外部ホスト名を許可したうえで、Pi Web の HTTP ポートを直接公開せずに信頼できる proxy のアクセス元判定を有効にしてください。
+
+```bash
+PI_WEB_ALLOWED_HOSTS=pi.example.com PI_WEB_TRUSTED_PROXY=true pi-web --hostname 127.0.0.1 --port 30141 --no-open
+```
+
+Pi Web は Agent の状態を SSE で配信するため、リバースプロキシは長時間接続を許可し、レスポンスをバッファリングしないようにする必要があります。ファイアウォールでアクセス元を制限し、有効な TLS 証明書を使用し、`pi-web-auth.json`、Pi の session ファイル、モデルの API key を他のユーザーから読み取れないようにしてください。セットアップ token はサーバーのターミナル stderr（またはサービスのサーバー側ログ）に一度だけ表示され、HTTP response、ブラウザ、cookie、設定ファイルには返されません。
+
+このリポジトリには組み込みの `Dockerfile` はありません。コンテナイメージを作成する場合は、Pi Agent の設定ディレクトリをコンテナにマウントし、`PI_CODING_AGENT_DIR` をそのマウント先に設定してください。認証設定は persistent volume に保存するか、`PI_WEB_AUTH_CONFIG_PATH` を設定してください。そうしないとコンテナの再作成時に認証状態が失われます。パスワード、初期化 token、session cookie、API key をイメージ、Dockerfile、compose ファイル、ログに書き込まないでください。
 
 ## HTTP プロキシ
 
