@@ -28,7 +28,7 @@ Agent 在回复正文里提到生成的文件时，给出的是纯文本绝对�
 | 维度 | 决定 |
 |---|---|
 | 位置 | 仅 assistant 回复正文的普通段落文字 |
-| 路径类型 | 仅绝对路径（`/` 开头，或 `C:/`、`C:\` 盘符） |
+| 路径类型 | 仅 Unix 绝对路径（`/` 开头）；Windows 盘符路径刻意不链接化（已知限制） |
 | 文件类型 | 仅可预览的扩展名白名单 |
 | 实现层 | remark 插件（mdast AST 层） |
 
@@ -94,7 +94,7 @@ export function scanFilePaths(text: string): FilePathMatch[];
 
 | 规则 | 内容 |
 |---|---|
-| 起始 | `/` 开头，或 `C:/`、`C:\` 盘符形式 |
+| 起始 | `/` 开头 |
 | 扩展名 | 必须命中白名单（见下） |
 | 行号后缀 | `:42`、`:42:8` 一并纳入匹配范围；`resolveLocalFileHref` 下游会剥离 |
 | 尾部标点 | 结尾的 `。，、；：）」』.,;:)]}'"` 等不计入路径 |
@@ -155,7 +155,7 @@ export const markdownRemarkPlugins = [remarkGfm, remarkMath, remarkFilePaths];
 ### lib/file-path-scan.test.mjs
 
 - 识别 Unix 绝对路径
-- 识别 Windows 盘符路径（`C:/`、`C:\`）
+- 不识别 Windows 盘符路径（`C:/`、`C:\`，保持纯文本）
 - 扩展名不在白名单时不识别（`/usr/bin`、`/tmp/data.xyz`）
 - 剥离中文尾部标点（`路径：/tmp/a.html。`）
 - 剥离英文尾部标点（`see /tmp/a.html.`）

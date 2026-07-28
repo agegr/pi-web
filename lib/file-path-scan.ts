@@ -13,7 +13,7 @@ export interface FilePathMatch {
 // The curly quotes are GB/T 15834's Simplified Chinese quotation marks, the
 // typographic counterparts of the ASCII " and ' already excluded above. Dashes
 // are deliberately absent: "/tmp/a-b–c.md" is a legal file name.
-const CANDIDATE_PATTERN = /(?:[A-Za-z]:[\\/]|\/)[^\s"'`<>|*?“”‘’。，、；：！？…（）【】《》「」『』]+/g;
+const CANDIDATE_PATTERN = /\/[^\s"'`<>|*?“”‘’。，、；：！？…（）【】《》「」『』]+/g;
 // CJK entries here are unreachable — new CJK punctuation belongs in CANDIDATE_PATTERN.
 const TRAILING_PUNCTUATION = /[.,;:!?)\]}>'"。，、；：！？）】》」』…]+$/;
 
@@ -38,6 +38,19 @@ export function scanFilePaths(text: string): FilePathMatch[] {
     if (candidate[0].startsWith("//")) continue;
     // A path glued to a preceding word is almost always not a path.
     if (start > 0 && /[A-Za-z0-9]/.test(text[start - 1])) continue;
+    // A "/" rooted in a Windows drive-letter prefix ("C:/...") is not a Unix
+    // path. Drive paths are intentionally not linkified (known limitation; see
+    // design spec), and the ":" before "/" slips past the word-glue guard above.
+    // Only a standalone drive letter is rejected, so scheme tails like "https://"
+    // still match here at the first slash and get dropped by the "//" check.
+    if (
+      start >= 2 &&
+      text[start - 1] === ":" &&
+      /[A-Za-z]/.test(text[start - 2]) &&
+      (start === 2 || !/[A-Za-z0-9]/.test(text[start - 3]))
+    ) {
+      continue;
+    }
 
     const trimmed = candidate[0].replace(TRAILING_PUNCTUATION, "");
     if (!trimmed) continue;
