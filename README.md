@@ -85,10 +85,10 @@ server {
 }
 ```
 
-Start Pi Web with `--hostname 127.0.0.1` instead of exposing its HTTP port directly:
+Start Pi Web with `--hostname 127.0.0.1`, allow the proxy's external hostname, and enable trusted proxy source detection instead of exposing its HTTP port directly:
 
 ```bash
-pi-web --hostname 127.0.0.1 --port 30141 --no-open
+PI_WEB_ALLOWED_HOSTS=pi.example.com PI_WEB_TRUSTED_PROXY=true pi-web --hostname 127.0.0.1 --port 30141 --no-open
 ```
 
 Pi Web uses SSE for live Agent status, so the proxy must allow long-lived connections and disable response buffering. Restrict firewall access, use a valid TLS certificate, and keep `pi-web-auth.json`, Pi session files, and model API keys inaccessible to other users. The setup token is printed only once to the server terminal/stderr (or the service's server-side log); it is never returned in an HTTP response, browser UI, cookie, or config file.

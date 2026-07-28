@@ -1,4 +1,6 @@
 import { getRunningRpcSessionIds, subscribeRunningSessions } from "@/lib/rpc-manager";
+import { subscribeSessionInvalidation } from "@/lib/pi-web-auth";
+import { getSessionToken } from "@/lib/pi-web-auth-route";
 
 export const dynamic = "force-dynamic";
 
@@ -8,7 +10,10 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const stream = new ReadableStream({
     start(controller) {
+      let closed = false;
+      let unsubscribeAuth = () => {};
       const encode = (data: unknown) => {
+        if (closed) return;
         const text = `data: ${JSON.stringify(data)}\n\n`;
         controller.enqueue(new TextEncoder().encode(text));
       };
@@ -37,12 +42,20 @@ export async function GET(req: Request) {
       }, 30_000);
 
       const cleanup = () => {
+        if (closed) return;
+        closed = true;
         clearInterval(heartbeat);
         unsubscribe();
+        unsubscribeAuth();
         try { controller.close(); } catch { /* already closed */ }
       };
 
+      const sessionToken = getSessionToken(req);
+      unsubscribeAuth = sessionToken
+        ? subscribeSessionInvalidation(sessionToken, cleanup)
+        : () => {};
       req.signal?.addEventListener("abort", cleanup);
+      if (req.signal.aborted) cleanup();
     },
   });
 

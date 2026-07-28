@@ -233,6 +233,13 @@ body {
   background: var(--bg-hover);
 }
 
+.auth-sidebar-error {
+  margin: -4px 8px 8px;
+  color: #dc2626;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 @media (max-width: 480px) {
   .auth-page { padding: 16px; }
   .auth-card { padding: 26px 20px; }

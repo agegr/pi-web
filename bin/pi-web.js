@@ -46,7 +46,7 @@ if (!fs.existsSync(nextDir)) {
 
 if (!loopbackHostnames.has(hostname)) {
   console.warn(
-    `Warning: pi-web is listening on ${hostname} without authentication. Only use this on a trusted network.`,
+    `Warning: pi-web is listening on ${hostname}. Authentication is enabled, but you should still use a trusted network or HTTPS reverse proxy.`,
   );
 }
 

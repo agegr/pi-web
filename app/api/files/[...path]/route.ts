@@ -27,6 +27,8 @@ import {
   validateUploadFileNames,
 } from "@/lib/file-upload";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
+import { subscribeSessionInvalidation } from "@/lib/pi-web-auth";
+import { getSessionToken } from "@/lib/pi-web-auth-route";
 
 const IGNORED_NAMES = new Set([
   "node_modules", ".git", ".next", "dist", "build", "__pycache__",
@@ -534,14 +536,28 @@ export async function GET(
       let watcher: fs.FSWatcher | null = null;
       let lastMtimeMs = stat.mtimeMs;
       let lastSize = stat.size;
+      let cleanupStream = () => {
+        try { watcher?.close(); } catch { /* ignore */ }
+      };
       const stream = new ReadableStream({
         start(controller) {
+          let closed = false;
+          let unsubscribeAuth = () => {};
+          const cleanup = () => {
+            if (closed) return;
+            closed = true;
+            unsubscribeAuth();
+            try { watcher?.close(); } catch { /* ignore */ }
+            try { controller.close(); } catch { /* ignore */ }
+          };
+          cleanupStream = cleanup;
           const send = (eventName: string, data: Record<string, unknown>) => {
+            if (closed) return;
             const payload = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
             try {
               controller.enqueue(new TextEncoder().encode(payload));
             } catch {
-              // client disconnected
+              cleanup();
             }
           };
           // Send initial ping so client knows connection is live
@@ -560,16 +576,21 @@ export async function GET(
                 send("change", { mtime: new Date().toISOString(), size: 0 });
               }
             });
-            watcher.on("error", () => {
-              try { controller.close(); } catch { /* ignore */ }
-            });
+            watcher.on("error", cleanup);
           } catch {
             send("error", { message: "Failed to watch file" });
-            controller.close();
+            cleanup();
           }
+          if (closed) return;
+          const sessionToken = getSessionToken(request);
+          unsubscribeAuth = sessionToken
+            ? subscribeSessionInvalidation(sessionToken, cleanup)
+            : () => {};
+          request.signal.addEventListener("abort", cleanup);
+          if (request.signal.aborted) cleanup();
         },
         cancel() {
-          try { watcher?.close(); } catch { /* ignore */ }
+          cleanupStream();
         },
       });
       return new Response(stream, {

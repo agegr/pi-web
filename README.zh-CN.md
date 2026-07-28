@@ -83,10 +83,10 @@ server {
 }
 ```
 
-启动时使用 `--hostname 127.0.0.1`，不要直接把 Pi Web 的 HTTP 端口暴露到公网：
+启动时使用 `--hostname 127.0.0.1`，允许代理使用的外部主机名，并启用可信代理来源识别，不要直接把 Pi Web 的 HTTP 端口暴露到公网：
 
 ```bash
-pi-web --hostname 127.0.0.1 --port 30141 --no-open
+PI_WEB_ALLOWED_HOSTS=pi.example.com PI_WEB_TRUSTED_PROXY=true pi-web --hostname 127.0.0.1 --port 30141 --no-open
 ```
 
 Pi Web 依赖 SSE 推送 Agent 状态，因此反向代理必须支持长连接，并且不能缓冲响应。请同时限制防火墙入口、使用有效 TLS 证书，并避免把 `pi-web-auth.json`、Pi session 文件或模型 API key 暴露给 Web 服务器之外的用户。初始化 token 只会在服务端终端 stderr（或服务端日志）输出一次；不会出现在 HTTP response、浏览器、cookie 或配置文件中。

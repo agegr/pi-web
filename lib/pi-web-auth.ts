@@ -12,6 +12,7 @@ const scrypt = (password: string, salt: Buffer, keyLength: number, options: type
 const SESSION_TTL = 24 * 60 * 60 * 1000;
 const SOURCE_FAILURE_LIMIT = 5;
 const GLOBAL_FAILURE_LIMIT = 100;
+const MAX_CONCURRENT_LOGIN_ATTEMPTS = 4;
 const RATE_LIMIT_WINDOW = 15 * 60 * 1000;
 const PASSWORD_MIN_LENGTH = 8;
 const PASSWORD_MAX_LENGTH = 128;
@@ -65,16 +66,40 @@ interface SessionRecord {
 
 type SessionInvalidationListener = () => void;
 
+interface AuthRuntimeState {
+  sessionInvalidationListeners: Map<string, Set<SessionInvalidationListener>>;
+  sessionInvalidationTimeouts: Map<string, ReturnType<typeof setTimeout>>;
+  loginFailures: Map<string, { count: number; firstFailureAt: number }>;
+  globalLoginFailures: { count: number; firstFailureAt: number } | null;
+  activeLoginAttempts: number;
+  authMutationQueue: Promise<void>;
+  authGeneration: number;
+  generationInitialized: boolean;
+  initializationInProgress: boolean;
+}
+
 declare global {
   var __piWebAuthSetupState: { token: string | null; announced: boolean } | undefined;
   var __piWebAuthSessions: Map<string, SessionRecord> | undefined;
+  var __piWebAuthRuntime: AuthRuntimeState | undefined;
 }
 
 const sessions = globalThis.__piWebAuthSessions ??= new Map<string, SessionRecord>();
-const sessionInvalidationListeners = new Map<string, Set<SessionInvalidationListener>>();
-const sessionInvalidationTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
-const loginFailures = new Map<string, { count: number; firstFailureAt: number }>();
-let globalLoginFailures: { count: number; firstFailureAt: number } | null = null;
+const runtime = globalThis.__piWebAuthRuntime ??= {
+  sessionInvalidationListeners: new Map(),
+  sessionInvalidationTimeouts: new Map(),
+  loginFailures: new Map(),
+  globalLoginFailures: null,
+  activeLoginAttempts: 0,
+  authMutationQueue: Promise.resolve(),
+  authGeneration: 1,
+  generationInitialized: false,
+  initializationInProgress: false,
+};
+runtime.activeLoginAttempts ??= 0;
+const sessionInvalidationListeners = runtime.sessionInvalidationListeners;
+const sessionInvalidationTimeouts = runtime.sessionInvalidationTimeouts;
+const loginFailures = runtime.loginFailures;
 // 使用 globalThis 让 instrumentation 和 API route 的独立 server bundle 共享首启 token。
 const setupState = globalThis.__piWebAuthSetupState ??= {
   // brief 要求 token 在模块首次加载时生成；已有配置时不创建初始化凭据。
@@ -213,7 +238,7 @@ export function announceSetupToken(): void {
  * @throws 配置文件读取失败或 JSON 损坏时抛出原始错误。
  */
 export async function getAuthState(): Promise<AuthState> {
-  await authMutationQueue;
+  await runtime.authMutationQueue;
   const config = await readConfig();
   if (!config) return { initialized: false, generation: 0 };
   return { initialized: true, generation: config.generation, updatedAt: config.updatedAt };
@@ -226,14 +251,14 @@ export async function getAuthState(): Promise<AuthState> {
  * @throws token 无效、认证已初始化或配置写入失败时抛出错误。
  */
 export async function initializeAuth(token: string, password: string): Promise<void> {
-  const operation = authMutationQueue.then(() => initializeAuthNow(token, password), () => initializeAuthNow(token, password));
-  authMutationQueue = operation.then(() => undefined, () => undefined);
+  const operation = runtime.authMutationQueue.then(() => initializeAuthNow(token, password), () => initializeAuthNow(token, password));
+  runtime.authMutationQueue = operation.then(() => undefined, () => undefined);
   return operation;
 }
 
 async function initializeAuthNow(token: string, password: string): Promise<void> {
-  if (initializationInProgress) throw new Error("认证初始化进行中");
-  initializationInProgress = true;
+  if (runtime.initializationInProgress) throw new Error("认证初始化进行中");
+  runtime.initializationInProgress = true;
   let tokenConsumed = false;
   let writeAttempted = false;
   let configWriteCompleted = false;
@@ -254,7 +279,7 @@ async function initializeAuthNow(token: string, password: string): Promise<void>
         scrypt: SCRYPT_CONFIG,
         passwordHash: derived.toString("hex"),
       salt: salt.toString("hex"),
-      generation: authGeneration + 1,
+      generation: runtime.authGeneration + 1,
       updatedAt: new Date().toISOString(),
     });
     configWriteCompleted = true;
@@ -265,7 +290,7 @@ async function initializeAuthNow(token: string, password: string): Promise<void>
     if (tokenConsumed && writeAttempted && !configWriteCompleted) setupState.token = token;
     throw error;
   } finally {
-    initializationInProgress = false;
+    runtime.initializationInProgress = false;
   }
 }
 
@@ -275,7 +300,7 @@ async function initializeAuthNow(token: string, password: string): Promise<void>
  * @throws 配置文件读取失败或 JSON 损坏时抛出原始错误。
  */
 export async function verifyPassword(password: string): Promise<boolean> {
-  return await authMutationQueue.then(() => verifyPasswordNow(password), () => verifyPasswordNow(password));
+  return await runtime.authMutationQueue.then(() => verifyPasswordNow(password), () => verifyPasswordNow(password));
 }
 
 async function verifyPasswordNow(password: string): Promise<boolean> {
@@ -291,12 +316,12 @@ async function verifyPasswordNow(password: string): Promise<boolean> {
  * @returns 成功时返回 session token，失败时返回 null。
  */
 export async function authenticateAndCreateSession(password: string): Promise<string | null> {
-  const operation = authMutationQueue.then(async () => {
+  const operation = runtime.authMutationQueue.then(async () => {
     const config = await readConfig();
     if (!config || !(await verifyPasswordNow(password))) return null;
     return createSessionForGeneration(config.generation);
   }, async () => null);
-  authMutationQueue = operation.then(() => undefined, () => undefined);
+  runtime.authMutationQueue = operation.then(() => undefined, () => undefined);
   return operation;
 }
 
@@ -307,11 +332,11 @@ export async function authenticateAndCreateSession(password: string): Promise<st
  * @throws 当前密码错误、认证未初始化或配置写入失败时抛出错误；写入失败不会改变旧密码。
  */
 export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
-  const operation = authMutationQueue.then(
+  const operation = runtime.authMutationQueue.then(
     () => changePasswordNow(currentPassword, newPassword),
     () => changePasswordNow(currentPassword, newPassword),
   );
-  authMutationQueue = operation.then(() => undefined, () => undefined);
+  runtime.authMutationQueue = operation.then(() => undefined, () => undefined);
   return operation;
 }
 
@@ -338,8 +363,8 @@ async function changePasswordNow(currentPassword: string, newPassword: string): 
   });
   sessions.clear();
   notifyAllSessionInvalidations();
-  authGeneration = config.generation + 1;
-  generationInitialized = true;
+  runtime.authGeneration = config.generation + 1;
+  runtime.generationInitialized = true;
 }
 
 /** 创建一个仅以哈希形式保存在内存中的 session，并返回原始 token。
@@ -386,16 +411,14 @@ export function getSession(token: string): SessionValidation {
  * @throws 认证配置读取或原子写入失败时抛出错误；失败时内存代次和 session 保持不变。
  */
 export async function revokeAllSessions(): Promise<void> {
-  const operation = authMutationQueue.then(revokeAllSessionsNow, revokeAllSessionsNow);
-  authMutationQueue = operation.then(() => undefined, () => undefined);
+  const operation = runtime.authMutationQueue.then(revokeAllSessionsNow, revokeAllSessionsNow);
+  runtime.authMutationQueue = operation.then(() => undefined, () => undefined);
   return operation;
 }
 
-let authMutationQueue: Promise<void> = Promise.resolve();
-
 async function revokeAllSessionsNow(): Promise<void> {
-  const previousGeneration = authGeneration;
-  const previousInitialization = generationInitialized;
+  const previousGeneration = runtime.authGeneration;
+  const previousInitialization = runtime.generationInitialized;
   const config = syncGenerationFromConfig();
   if (!config) {
     sessions.clear();
@@ -412,14 +435,14 @@ async function revokeAllSessionsNow(): Promise<void> {
       updatedAt: new Date().toISOString(),
     });
   } catch (error) {
-    authGeneration = previousGeneration;
-    generationInitialized = previousInitialization;
+    runtime.authGeneration = previousGeneration;
+    runtime.generationInitialized = previousInitialization;
     throw error;
   }
   sessions.clear();
   notifyAllSessionInvalidations();
-  authGeneration = nextGeneration;
-  generationInitialized = true;
+  runtime.authGeneration = nextGeneration;
+  runtime.generationInitialized = true;
 }
 
 /** 使指定 session 失效。
@@ -499,24 +522,47 @@ export function consumeSetupToken(token: string): boolean {
  * @returns 当前限速判定和可选的重试等待时间。
  */
 export function checkLoginRateLimit(key: string): RateLimitDecision {
-  const failure = loginFailures.get(key);
   const now = Date.now();
-  if (!failure || now - failure.firstFailureAt >= RATE_LIMIT_WINDOW) {
-    if (failure) loginFailures.delete(key);
+  for (const [source, failure] of loginFailures) {
+    if (now - failure.firstFailureAt >= RATE_LIMIT_WINDOW) loginFailures.delete(source);
   }
-  const globalFailure = globalLoginFailures;
+  const globalFailure = runtime.globalLoginFailures;
   if (globalFailure && now - globalFailure.firstFailureAt >= RATE_LIMIT_WINDOW) {
-    globalLoginFailures = null;
+    runtime.globalLoginFailures = null;
   }
   const activeFailure = loginFailures.get(key);
-  if (activeFailure && activeFailure.count >= SOURCE_FAILURE_LIMIT) {
+  if (key !== "anonymous" && activeFailure && activeFailure.count >= SOURCE_FAILURE_LIMIT) {
     return { allowed: false, retryAfterMs: RATE_LIMIT_WINDOW - (now - activeFailure.firstFailureAt) };
   }
-  const activeGlobalFailure = globalLoginFailures;
+  const activeGlobalFailure = runtime.globalLoginFailures;
   if (activeGlobalFailure && activeGlobalFailure.count >= GLOBAL_FAILURE_LIMIT) {
     return { allowed: false, retryAfterMs: RATE_LIMIT_WINDOW - (now - activeGlobalFailure.firstFailureAt) };
   }
   return { allowed: true, delayMs: activeFailure ? Math.min(activeFailure.count * 100, 500) : 0 };
+}
+
+/** 在密码校验前原子预留一次登录尝试配额。
+ * @param key 登录来源标识。
+ * @returns 当前限速判定和可选的重试等待时间。
+ */
+export function beginLoginAttempt(key: string): RateLimitDecision {
+  const decision = checkLoginRateLimit(key);
+  if (!decision.allowed) return decision;
+  if (runtime.activeLoginAttempts >= MAX_CONCURRENT_LOGIN_ATTEMPTS) {
+    return { allowed: false, retryAfterMs: 1000 };
+  }
+  runtime.activeLoginAttempts += 1;
+  return decision;
+}
+
+/** 释放登录尝试配额，并按需记录凭据失败。
+ * @param key 登录来源标识。
+ * @param failed 是否为凭据校验失败。
+ * @returns 无返回值。
+ */
+export function finishLoginAttempt(key: string, failed: boolean): void {
+  runtime.activeLoginAttempts = Math.max(0, runtime.activeLoginAttempts - 1);
+  if (failed) recordLoginFailure(key);
 }
 
 /** 记录一次登录失败。
@@ -531,19 +577,17 @@ export function recordLoginFailure(key: string): void {
   } else {
     existing.count += 1;
   }
-  if (!globalLoginFailures || now - globalLoginFailures.firstFailureAt >= RATE_LIMIT_WINDOW) {
-    globalLoginFailures = { count: 1, firstFailureAt: now };
+  if (!runtime.globalLoginFailures || now - runtime.globalLoginFailures.firstFailureAt >= RATE_LIMIT_WINDOW) {
+    runtime.globalLoginFailures = { count: 1, firstFailureAt: now };
   } else {
-    globalLoginFailures.count += 1;
+    runtime.globalLoginFailures.count += 1;
   }
 }
 
 function currentGeneration(): number {
-  if (!generationInitialized) syncGenerationFromConfig();
-  return authGeneration;
+  if (!runtime.generationInitialized) syncGenerationFromConfig();
+  return runtime.authGeneration;
 }
-
-let generationInitialized = false;
 
 function syncGenerationFromConfig(): StoredAuthConfig | null {
   try {
@@ -553,22 +597,20 @@ function syncGenerationFromConfig(): StoredAuthConfig | null {
     const content = readFileSync(configPath(), "utf8");
     const parsed: unknown = JSON.parse(content);
     validateConfig(parsed);
-    authGeneration = parsed.generation;
-    generationInitialized = true;
+    runtime.authGeneration = parsed.generation;
+    runtime.generationInitialized = true;
     return parsed;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      generationInitialized = true;
+      runtime.generationInitialized = true;
       return null;
     }
     throw error;
   }
 }
 
-let authGeneration = 1;
-let initializationInProgress = false;
 function bumpGeneration(): void {
-  authGeneration += 1;
+  runtime.authGeneration += 1;
 }
 
 /** 清理测试状态；仅供测试使用。
@@ -579,13 +621,14 @@ export async function resetAuthStateForTests(): Promise<void> {
   sessions.clear();
   notifyAllSessionInvalidations();
   loginFailures.clear();
-  globalLoginFailures = null;
+  runtime.globalLoginFailures = null;
+  runtime.activeLoginAttempts = 0;
   setupState.token = "setup-token";
   setupState.announced = false;
-  authGeneration = 1;
-  generationInitialized = false;
-  initializationInProgress = false;
-  authMutationQueue = Promise.resolve();
+  runtime.authGeneration = 1;
+  runtime.generationInitialized = false;
+  runtime.initializationInProgress = false;
+  runtime.authMutationQueue = Promise.resolve();
   await import("node:fs/promises").then(({ unlink }) => unlink(configPath()).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== "ENOENT") throw error;
   }));

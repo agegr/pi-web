@@ -482,7 +482,7 @@ export function AppShell() {
     );
   }, [selectedSession]);
 
-  async function handleLogout() {
+  async function handleLogout(forceRedirect = false) {
     setAuthError(null);
     try {
       const response = await fetch("/api/auth/logout", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
@@ -490,11 +490,10 @@ export function AppShell() {
         const body = await response.json().catch(() => null) as { errorCode?: string } | null;
         throw new Error(body?.errorCode ?? "AUTH_LOGOUT_FAILED");
       }
+      router.replace("/login");
     } catch {
       setAuthError(translate("auth.error.AUTH_LOGOUT_FAILED"));
-    } finally {
-      // 改密已经吊销当前 session，logout 网络失败也不能阻止离开受保护页面。
-      router.replace("/login");
+      if (forceRedirect) router.replace("/login");
     }
   }
 
@@ -650,6 +649,7 @@ export function AppShell() {
         <button className="auth-sidebar-action" type="button" onClick={() => setAuthSettingsOpen(true)}>{translate("auth.changePassword")}</button>
         <button className="auth-sidebar-action" type="button" onClick={() => void handleLogout()}>{translate("auth.logout")}</button>
       </div>
+      {authError && !authSettingsOpen && <p className="auth-sidebar-error" role="alert">{authError}</p>}
     </>
   );
 
@@ -1568,7 +1568,7 @@ export function AppShell() {
             <h2 id="auth-settings-title" style={{ margin: 0, fontSize: 18 }}>{translate("auth.changePassword")}</h2>
             <button type="button" aria-label={translate("auth.close")} onClick={() => setAuthSettingsOpen(false)} style={{ border: 0, background: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 20 }}>×</button>
           </div>
-          <PasswordChangeForm onSuccess={() => { void handleLogout(); }} />
+          <PasswordChangeForm onSuccess={() => { void handleLogout(true); }} />
           {authError && <p className="auth-form-error" role="alert">{authError}</p>}
         </div>
       </div>

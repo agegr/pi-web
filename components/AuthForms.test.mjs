@@ -149,6 +149,15 @@ test("AppShell 暴露改密和退出登录入口", async () => {
   assert.match(sourceText, /\/login/);
 });
 
+test("普通登出失败停留当前页面，改密成功后仍强制跳转登录页", async () => {
+  const sourceText = await source("components/AppShell.tsx");
+
+  assert.match(sourceText, /handleLogout\(forceRedirect = false\)/);
+  assert.match(sourceText, /if \(forceRedirect\) router\.replace\("\/login"\)/);
+  assert.match(sourceText, /PasswordChangeForm onSuccess=\{\(\) => \{ void handleLogout\(true\); \}\}/);
+  assert.match(sourceText, /auth-sidebar-error/);
+});
+
 test("登出 API 返回稳定错误码和兼容文案", async () => {
   const sourceText = await source("app/api/auth/logout/route.ts");
 
