@@ -46,6 +46,7 @@ export const enLocale: LocalePlugin = {
     "settings.general": "General",
     "settings.security": "Security",
     "settings.theme": "Theme",
+    "settings.system": "System",
     "settings.light": "Light",
     "settings.dark": "Dark",
     "settings.projectRequired": "Select a project to manage this section.",

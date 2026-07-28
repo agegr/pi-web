@@ -161,14 +161,21 @@ test("父 dialog 精确约束可见焦点并仅恢复仍连接的原焦点", asy
   );
 });
 
-test("通用页直接复用主题和语言 hooks", async () => {
+test("通用页提供三态主题按钮和受控动态语言下拉", async () => {
   const content = await source("components/SettingsModal.tsx");
 
   assert.match(content, /useTheme\(\)/);
   assert.match(content, /useI18n\(\)/);
-  assert.match(content, /toggleTheme/);
+  assert.match(content, /id: "system"/);
+  assert.match(content, /id: "light"/);
+  assert.match(content, /id: "dark"/);
+  assert.match(content, /setThemePreference\(option\.id/);
   assert.match(content, /setLocale/);
-  assert.match(content, /supportedLocales\.map/);
+  assert.match(content, /<select[^>]*value=\{locale\}[^>]*onChange=/);
+  assert.match(content, /onChange=\{event => setLocale\(event\.target\.value\)\}/);
+  assert.doesNotMatch(content, /event\.target\.value as Locale/);
+  assert.match(content, /supportedLocales\.map\(plugin => \(<option/);
+  assert.match(content, /className="settings-compact-choice"/);
   assert.match(content, /PasswordChangeForm/);
 });
 
@@ -261,6 +268,30 @@ test("设置中心样式包含桌面双栏、移动 tabs 和清晰焦点", async
     /@media \(max-width: 640px\)[\s\S]*?\.settings-navigation-list \{[^}]*padding: 4px;[^}]*overflow-x: auto;/,
   );
   assert.doesNotMatch(css, /\.settings-nav(?=[\s,{.:])/);
+});
+
+test("设置通用页和安全页使用紧凑 scoped 样式", async () => {
+  const css = await source("app/globals.css");
+
+  for (const selector of [
+    ".settings-compact-choice",
+    ".settings-language-select",
+    ".settings-security .auth-form",
+  ]) {
+    assert.match(css, new RegExp(selector.replaceAll(".", "\\.")));
+  }
+  assert.match(css, /\.settings-compact-choice \{[^}]*font-size: 12px;[^}]*border-radius: 5px;/);
+  assert.match(css, /\.settings-language-select \{[^}]*font-size: 12px;[^}]*border-radius: 5px;/);
+});
+
+test("双语语言包提供跟随系统主题文案", async () => {
+  const [en, zhCN] = await Promise.all([
+    source("lib/i18n/messages/en.ts"),
+    source("lib/i18n/messages/zh-CN.ts"),
+  ]);
+
+  assert.match(en, /"settings\.system": "System"/);
+  assert.match(zhCN, /"settings\.system": "跟随系统"/);
 });
 
 test("项目必需说明位于独立滚动 tablist 外并仅在无 cwd 时显示", async () => {

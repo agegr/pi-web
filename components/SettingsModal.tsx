@@ -10,7 +10,6 @@ import {
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useTheme } from "@/hooks/useTheme";
-import type { Locale } from "@/lib/i18n/types";
 import { ModelsConfig } from "./ModelsConfig";
 import { PasswordChangeForm } from "./PasswordChangeForm";
 import { PluginsConfig } from "./PluginsConfig";
@@ -51,29 +50,34 @@ export interface SettingsModalProps {
 }
 
 function GeneralSettings(): ReactElement {
-  const { isDark, toggleTheme } = useTheme();
+  const { preference, setThemePreference } = useTheme();
   const { locale, setLocale, supportedLocales, t: translate } = useI18n();
+  const themeOptions = [
+    { id: "system", label: translate("settings.system") },
+    { id: "light", label: translate("settings.light") },
+    { id: "dark", label: translate("settings.dark") },
+  ] as const;
 
   return (
     <div className="settings-general">
       <fieldset className="settings-fieldset">
         <legend>{translate("settings.theme")}</legend>
-        <div className="settings-choice-grid">
-          {([
-            { id: "light", label: translate("settings.light") },
-            { id: "dark", label: translate("settings.dark") },
-          ] as const).map(option => {
-            const selected = option.id === (isDark ? "dark" : "light");
+        <div className="settings-compact-choices">
+          {themeOptions.map(option => {
+            const selected = preference === option.id;
             return (
               <button
                 key={option.id}
                 type="button"
-                className="settings-choice"
+                className="settings-compact-choice"
                 aria-pressed={selected}
                 onClick={event => {
                   if (selected) return;
                   const rect = event.currentTarget.getBoundingClientRect();
-                  toggleTheme({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+                  setThemePreference(option.id, {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                  });
                 }}
               >
                 {option.label}
@@ -84,19 +88,16 @@ function GeneralSettings(): ReactElement {
       </fieldset>
       <fieldset className="settings-fieldset">
         <legend>{translate("common.language")}</legend>
-        <div className="settings-choice-grid">
-          {supportedLocales.map(plugin => (
-            <button
-              key={plugin.id}
-              type="button"
-              className="settings-choice"
-              aria-pressed={plugin.id === locale}
-              onClick={() => setLocale(plugin.id as Locale)}
-            >
-              {plugin.label}
-            </button>
-          ))}
-        </div>
+        <label>
+          {translate("common.language")}
+          <select
+            className="settings-language-select"
+            value={locale}
+            onChange={event => setLocale(event.target.value)}
+          >
+            {supportedLocales.map(plugin => (<option key={plugin.id} value={plugin.id}>{plugin.label}</option>))}
+          </select>
+        </label>
       </fieldset>
     </div>
   );

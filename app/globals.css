@@ -237,9 +237,41 @@ body {
 .settings-security { max-width: 640px; padding: 24px; }
 .settings-fieldset { margin: 0 0 24px; padding: 0; border: 0; }
 .settings-fieldset legend { margin-bottom: 10px; font-size: 13px; font-weight: 600; }
-.settings-choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.settings-choice { padding: 10px 12px; color: var(--text-muted); text-align: left; background: var(--bg); border: 1px solid var(--border); border-radius: 7px; }
-.settings-choice[aria-pressed="true"] { color: var(--text); border-color: var(--accent); background: var(--bg-selected); }
+.settings-compact-choices { display: flex; flex-wrap: wrap; gap: 3px; }
+.settings-compact-choice {
+  padding: 5px 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+}
+.settings-compact-choice:hover { background: var(--bg-hover); }
+.settings-compact-choice[aria-pressed="true"] { color: var(--text); background: var(--bg-selected); }
+.settings-language-select {
+  width: 100%;
+  padding: 5px 8px;
+  color: var(--text);
+  font-size: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+.settings-fieldset label { display: grid; gap: 7px; color: var(--text-muted); font-size: 12px; }
+.settings-security .auth-form { gap: 10px; }
+.settings-security .auth-form label { gap: 4px; font-size: 12px; }
+.settings-security .auth-form input {
+  min-height: 32px;
+  padding: 5px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+.settings-security .auth-form input:focus-visible,
+.settings-language-select:focus-visible,
+.settings-compact-choice:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.settings-security .auth-form-submit { min-height: 30px; padding: 5px 10px; border-radius: 5px; font-size: 12px; }
 .settings-sidebar-actions { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--border); }
 .settings-sidebar-icon {
   width: 34px;
@@ -259,7 +291,7 @@ body {
 .settings-sidebar-icon:focus-visible,
 .settings-header button:focus-visible,
 .settings-navigation-list button:focus-visible,
-.settings-choice:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.settings-compact-choice:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .auth-sidebar-error {
   margin: -4px 8px 8px;
@@ -283,7 +315,6 @@ body {
   .settings-project-required { margin: 0 8px 2px; }
   .settings-general,
   .settings-security { padding: 18px 14px; }
-  .settings-choice-grid { grid-template-columns: 1fr; }
 }
 
 ::-webkit-scrollbar {

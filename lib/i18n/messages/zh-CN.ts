@@ -46,6 +46,7 @@ export const zhCNLocale: LocalePlugin = {
     "settings.general": "通用",
     "settings.security": "安全",
     "settings.theme": "主题",
+    "settings.system": "跟随系统",
     "settings.light": "浅色",
     "settings.dark": "深色",
     "settings.projectRequired": "请先选择项目，再管理此设置。",
