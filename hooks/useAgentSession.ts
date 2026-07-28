@@ -430,6 +430,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // on whether pi persisted the user entry (it does not for a session with no
   // assistant reply yet), so the decision is deferred to the next reload.
   const failedPromptRef = useRef<{ message: string; images?: AttachedImage[]; key: string } | null>(null);
+  // Client-side mirror of what we handed to pi's steering / follow-up queue.
+  // That queue lives only in the wrapper's memory — it is never written to the
+  // session file — so if the wrapper dies before delivering, the text is gone
+  // and the composer was already cleared on submit.
+  const pendingQueuedRef = useRef<{ message: string; images?: AttachedImage[] }[]>([]);
+  // addNotice is declared further down; the recovery paths above it reach the
+  // current one through this ref.
+  const addNoticeRef = useRef<((notice: { id?: string; message: string; type?: NoticeType }) => void) | null>(null);
 
   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
 
@@ -507,6 +515,31 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     restorePromptToComposer(pending);
   }, [restorePromptToComposer]);
 
+  // Reconcile the queue mirror against what the agent actually reports. A dead
+  // wrapper (no state) means pi's in-memory queue died with it, so anything we
+  // never saw delivered has to go back to the composer. Anything the live queue
+  // no longer lists was delivered and is already in the transcript.
+  const reconcilePendingQueue = useCallback((state?: AgentStateResponse | null) => {
+    const mirror = pendingQueuedRef.current;
+    if (mirror.length === 0) return;
+    if (!state) {
+      pendingQueuedRef.current = [];
+      restorePromptToComposer({ message: mirror.map((m) => m.message).join("\n\n") });
+      addNoticeRef.current?.({
+        type: "warning",
+        message: mirror.length > 1
+          ? `${mirror.length} queued messages were never delivered — restored to the input`
+          : "Your queued message was never delivered — restored to the input",
+      });
+      return;
+    }
+    const stillQueued = new Set([
+      ...(state.queuedMessages?.steering ?? []),
+      ...(state.queuedMessages?.followUp ?? []),
+    ]);
+    pendingQueuedRef.current = mirror.filter((m) => stillQueued.has(m.message));
+  }, [restorePromptToComposer]);
+
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
     let messagesLoaded = false;
     try {
@@ -567,6 +600,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (sessionIdRef.current !== sid) return null;
 
         const liveState = agentState.state;
+        reconcilePendingQueue(liveState);
         if (liveState) {
           applyLiveAgentModel(liveState);
           if (liveState.contextUsage !== undefined) setContextUsage(liveState.contextUsage ?? null);
@@ -589,7 +623,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (showLoading && !messagesLoaded) setLoading(false);
     }
-  }, [applyLiveAgentModel, restorePromptToComposer]);
+  }, [applyLiveAgentModel, reconcilePendingQueue, restorePromptToComposer]);
 
   const loadContext = useCallback(async (sid: string, leafId: string | null) => {
     try {
@@ -848,6 +882,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       },
     });
   }, []);
+  addNoticeRef.current = addNotice;
 
   const handleExtensionUiRequest = useCallback((request: ExtensionUiRequest) => {
     switch (request.method) {
@@ -1070,6 +1105,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // would otherwise leave the "Stop compaction" UI stuck. No state
       // (wrapper destroyed) means nothing is compacting.
       setIsCompacting(state?.isCompacting ?? false);
+      reconcilePendingQueue(state);
       setQueuedMessages(normalizeQueuedMessages(state?.queuedMessages));
       const busy = data.running && state
         && (state.isStreaming || state.isPromptRunning || state.isCompacting);
@@ -1085,7 +1121,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch {
       // Network still down — the next poll / visibility / online tick retries.
     }
-  }, [applyLiveAgentModel, finishPromptWithoutStream]);
+  }, [applyLiveAgentModel, finishPromptWithoutStream, reconcilePendingQueue]);
 
   // Recovery net for missed SSE events: while the agent is running, verify
   // against the server periodically and whenever the tab returns to the
@@ -1144,7 +1180,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
               if (d.state?.extensionStatuses !== undefined) setExtensionStatuses(d.state.extensionStatuses ?? []);
               if (d.state?.extensionWidgets !== undefined) setExtensionWidgets(d.state.extensionWidgets ?? []);
               // Aborted turns can leave messages queued in pi (delivered with the
-              // next turn); dead wrapper (no state) means the queue is gone.
+              // next turn); dead wrapper (no state) means the queue is gone —
+              // reconcile first so undelivered text goes back to the composer
+              // instead of disappearing with the wrapper.
+              reconcilePendingQueue(d.state);
               setQueuedMessages(normalizeQueuedMessages(d.state?.queuedMessages));
             })
             .catch(() => {});
@@ -1238,6 +1277,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           // optimistic bubble; later same-text queue deliveries must render.
           const delivered = normalizeToolCalls(completed);
           const deliveredKey = userMessageKey(delivered);
+          // A queued message reaching the model is the one unambiguous delivery
+          // signal — drop it from the mirror so it is never restored twice.
+          const deliveredText = extractMessageText(delivered);
+          const mirrorIndex = pendingQueuedRef.current.findIndex((m) => m.message === deliveredText);
+          if (mirrorIndex !== -1) {
+            pendingQueuedRef.current = pendingQueuedRef.current.filter((_, i) => i !== mirrorIndex);
+          }
           const optimisticKey = optimisticUserMessageKeyRef.current;
           optimisticUserMessageKeyRef.current = null;
           setMessages((prev) => {
@@ -1311,7 +1357,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, applyLiveAgentModel, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, settleUiStage]);
+  }, [addNotice, applyLiveAgentModel, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, reconcilePendingQueue, scheduleEventStreamClose, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -1730,6 +1776,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         message,
         ...(piImages?.length ? { images: piImages } : {}),
       });
+      // Accepted into pi's queue. Track it until we see it delivered — a 200
+      // here is not a promise that the message ever reaches the model.
+      pendingQueuedRef.current = [
+        ...pendingQueuedRef.current,
+        { message, ...(images?.length ? { images } : {}) },
+      ];
     } catch (e) {
       console.error(`${label}:`, e);
       fail(e instanceof Error ? e.message : String(e));
@@ -1770,6 +1822,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // clearQueue also emits an empty queue_update, but that only reaches us
       // while SSE is connected — clear locally so idle recalls update the UI.
       setQueuedMessages({ steering: [], followUp: [] });
+      // The user now holds this text; the mirror must not offer it again.
+      pendingQueuedRef.current = [];
       const texts = [...(result?.steering ?? []), ...(result?.followUp ?? [])];
       if (texts.length > 0) {
         opts.chatInputRef?.current?.prependText(texts.join("\n\n"));

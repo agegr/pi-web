@@ -375,6 +375,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const fileIndexMetaRef = useRef<{ cwd: string; fetchedAt: number } | null>(null);
   const fileIndexFetchingRef = useRef<string | null>(null);
   const draftKeyRef = useRef(draftKey);
+  const pendingRestoreRef = useRef<{ key: string | undefined; text: string } | null>(null);
   const valueRef = useRef(value);
   const attachedImagesRef = useRef(attachedImages);
   const pendingImageCountRef = useRef(0);
@@ -443,23 +444,23 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     // failed text goes in front of it, the same way queued messages are
     // recalled.
     restoreSubmission(text: string, images?: ChatDraftImage[]) {
-      const ta = textareaRef.current;
-      const current = ta ? ta.value : valueRef.current;
-      const combined = [text, current].filter((t) => t.trim()).join("\n\n");
-      if (combined !== current) {
-        setValue(combined);
-        setAtQuery(null);
-      }
+      if (!text.trim() && !images?.length) return;
+      // Functional update on purpose. Submitting queues setValue("") and the
+      // failure can land before React has flushed it, so reading the textarea
+      // or `value` here sees the text that is about to be wiped — which is how
+      // insertIfEmpty used to bail out and lose the message. Composing against
+      // the queued state instead is correct in every ordering.
+      pendingRestoreRef.current = { key: draftKeyRef.current, text };
+      setValue((prev) => [text, prev].filter((t) => t.trim()).join("\n\n"));
+      setAtQuery(null);
       if (images?.length) {
-        setAttachedImages((prev) => {
-          if (prev.length) return prev;
-          return draftImagesToAttachedImages(images);
-        });
+        setAttachedImages((prev) => (prev.length ? prev : draftImagesToAttachedImages(images)));
       }
       requestAnimationFrame(() => {
+        const ta = textareaRef.current;
         if (!ta) return;
         ta.focus();
-        ta.setSelectionRange(combined.length, combined.length);
+        ta.setSelectionRange(ta.value.length, ta.value.length);
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
@@ -523,6 +524,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const clearInput = useCallback(() => {
     setValue("");
     setAtQuery(null);
+    pendingRestoreRef.current = null;
     setHistoryMenuOpen(false);
     if (draftKey) clearDraft(draftKey);
     if (draftKeyRef.current && draftKeyRef.current !== draftKey) clearDraft(draftKeyRef.current);
@@ -553,7 +555,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
     const draft = draftKey ? getDraft(draftKey) : null;
     draftKeyRef.current = draftKey;
-    setValue(draft?.value ?? "");
+    // A send that failed on a brand-new session restores its text under the
+    // "new:<cwd>" key, and promoting the session then swaps the key — carry the
+    // recovered text across instead of resetting the composer to the promoted
+    // session's (empty) draft.
+    const pendingRestore = pendingRestoreRef.current;
+    pendingRestoreRef.current = null;
+    const carried = pendingRestore && pendingRestore.key === previousDraftKey && previousDraftKey?.startsWith("new:")
+      ? pendingRestore.text
+      : null;
+    setValue(carried ? [carried, draft?.value ?? ""].filter((t) => t.trim()).join("\n\n") : (draft?.value ?? ""));
     setAtQuery(null);
     setHistoryMenuOpen(false);
     setAttachedImages((prev) => {
