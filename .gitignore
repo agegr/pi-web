@@ -40,3 +40,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .factory
+
+# local agent/tooling state
+/.superpowers/
+/doc/.superpowers/
+/graphify-out/
