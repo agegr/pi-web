@@ -9,6 +9,7 @@ const jiti = createJiti(import.meta.url, {
   tsconfigPaths: true,
 });
 const { MarkdownBody } = await jiti.import("./MarkdownBody.tsx");
+const { normalizeDisplayMath } = await jiti.import("../lib/markdown.ts");
 
 function renderMarkdown(markdown) {
   return renderToStaticMarkup(
@@ -34,4 +35,51 @@ test("keeps local file markdown links in the app", () => {
 
   assert.match(html, /<a href="components\/MarkdownBody\.tsx">file<\/a>/);
   assert.doesNotMatch(html, /target=|rel=|\snode=/);
+});
+
+test("renders LaTeX parenthesis delimiters as inline math", () => {
+  const html = renderMarkdown(String.raw`射线为 \(r_c = K^{-1}p\)。`);
+
+  assert.match(html, /class="katex"/);
+  assert.match(html, /r_c/);
+});
+
+test("renders paired LaTeX bracket delimiters as display math", () => {
+  const html = renderMarkdown(String.raw`\[
+P(\lambda)=o_b+\lambda r_b
+\]`);
+  const oneLineHtml = renderMarkdown(String.raw`\[P(\lambda)=o_b+\lambda r_b\]`);
+
+  assert.match(html, /class="katex-display"/);
+  assert.match(html, /lambda/);
+  assert.match(oneLineHtml, /class="katex-display"/);
+});
+
+test("leaves an unmatched LaTeX bracket delimiter unchanged", () => {
+  const markdown = String.raw`before
+\[
+x + y
+after`;
+
+  assert.equal(normalizeDisplayMath(markdown), markdown);
+});
+
+test("does not normalize LaTeX delimiters inside Markdown code", () => {
+  const markdown = "    \\(indented\\)\n\n`code\n\\(inline\\)`\n\n```text\n\\[\nfenced\n\\]\n```";
+
+  assert.equal(normalizeDisplayMath(markdown), markdown);
+});
+
+test("does not normalize LaTeX delimiters inside raw HTML code", () => {
+  const markdown = "<code>\\(inline\\)</code>\n\n<pre>\n\\(block\\)\n</pre>";
+
+  assert.equal(normalizeDisplayMath(markdown), markdown);
+});
+
+test("does not normalize escaped delimiters or link destinations", () => {
+  const escaped = String.raw`Literal: \\(x+y\\).`;
+  const link = String.raw`[docs](https://example.com/\(manual\))`;
+
+  assert.equal(normalizeDisplayMath(escaped), escaped);
+  assert.equal(normalizeDisplayMath(link), link);
 });

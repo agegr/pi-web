@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
-import { join } from "path";
+import { dirname, join } from "path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   resolveSessionPath,
@@ -10,6 +10,7 @@ import {
   buildSessionContext,
   readSessionHeader,
 } from "@/lib/session-reader";
+import { sessionPathKey } from "@/lib/session-path";
 import { getRpcSession } from "@/lib/rpc-manager";
 
 // BranchNavigator still traverses recursively, so keep the response tree shallow.
@@ -210,16 +211,23 @@ export async function DELETE(
 
     // Re-attach all direct children to this session's parent (cascade re-parent)
     // Scan sibling files in the same directory
-    const dir = filePath.replace(/\\/g, "/").split("/").slice(0, -1).join("/");
+    const targetPathKey = sessionPathKey(filePath);
+    const dir = dirname(filePath);
     try {
-      const files = readdirSync(dir).filter((f) => f.endsWith(".jsonl") && join(dir, f) !== filePath);
+      const files = readdirSync(dir).filter(
+        (file) => file.endsWith(".jsonl") && sessionPathKey(join(dir, file)) !== targetPathKey,
+      );
       for (const file of files) {
         const childPath = join(dir, file);
         try {
           const content = readFileSync(childPath, "utf8");
           const lines = content.split("\n");
           const header = JSON.parse(lines[0]) as { type?: string; parentSession?: string };
-          if (header.type === "session" && header.parentSession === filePath) {
+          if (
+            header.type === "session" &&
+            header.parentSession &&
+            sessionPathKey(header.parentSession) === targetPathKey
+          ) {
             // Rewrite header with new parentSession
             header.parentSession = parentSessionPath;
             lines[0] = JSON.stringify(header);

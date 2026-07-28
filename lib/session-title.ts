@@ -165,19 +165,64 @@ function getAssistantResult(agent: Agent, historyLength: number): GeneratedSessi
   throw new Error("The model did not return a session title");
 }
 
+export function sanitizeTitleMessages(messages: AgentMessage[]): AgentMessage[] {
+  const sanitized: AgentMessage[] = [];
+  let expectedToolResultIds: Set<string> | undefined;
+
+  for (let index = 0; index < messages.length; index++) {
+    const message = messages[index];
+
+    if (message.role === "assistant") {
+      const followingToolResultIds = new Set<string>();
+      for (let resultIndex = index + 1; resultIndex < messages.length; resultIndex++) {
+        const resultMessage = messages[resultIndex];
+        if (resultMessage.role !== "toolResult") break;
+        followingToolResultIds.add(resultMessage.toolCallId);
+      }
+
+      expectedToolResultIds = new Set<string>();
+      const content = message.content.filter((block) => {
+        if (block.type !== "toolCall") return true;
+        if (!followingToolResultIds.has(block.id)) return false;
+        expectedToolResultIds!.add(block.id);
+        return true;
+      });
+
+      if (content.length > 0) {
+        sanitized.push({ ...message, content });
+      }
+      continue;
+    }
+
+    if (message.role === "toolResult") {
+      if (expectedToolResultIds?.delete(message.toolCallId)) {
+        sanitized.push(message);
+      }
+      continue;
+    }
+
+    expectedToolResultIds = undefined;
+    sanitized.push(message);
+  }
+
+  return sanitized;
+}
+
 export async function generateSessionTitle(source: AgentSession): Promise<GeneratedSessionTitle> {
   const sourceAgent = source.agent;
   await sourceAgent.waitForIdle();
 
-  const historyLength = sourceAgent.state.messages.length;
-  if (!sourceAgent.state.messages.some((message) => message.role === "user")) {
+  const sanitizedMessages = sanitizeTitleMessages(sourceAgent.state.messages);
+  const historyLength = sanitizedMessages.length;
+  if (!sanitizedMessages.some((message) => message.role === "user")) {
     throw new Error("The session has no user messages to name");
   }
 
   const options = buildSessionTitleAgentOptions(sourceAgent);
-  const continuesFromTrailingUser = sourceAgent.state.messages.at(-1)?.role === "user";
+  options.initialState!.messages = sanitizedMessages;
+  const continuesFromTrailingUser = sanitizedMessages.at(-1)?.role === "user";
   if (continuesFromTrailingUser) {
-    options.initialState!.messages = appendTitleRequestToTrailingUser(sourceAgent.state.messages);
+    options.initialState!.messages = appendTitleRequestToTrailingUser(sanitizedMessages);
   }
 
   const temporaryAgent = new Agent(options);

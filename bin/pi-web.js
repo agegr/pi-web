@@ -2,6 +2,14 @@
 "use strict";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
+const { getUnsupportedNodeVersionMessage, isNodeVersionSupported } = require("./node-version");
+
+if (!isNodeVersionSupported(process.versions.node)) {
+  console.error(getUnsupportedNodeVersionMessage(process.versions.node));
+  process.exit(1);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { spawn } = require("child_process");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require("path");
@@ -29,25 +37,32 @@ try {
 }
 
 const { port, hostname, openBrowser } = parseLaunchOptions();
+const loopbackHostnames = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 
 if (!fs.existsSync(nextDir)) {
   console.error("Build artifacts not found. Please report this issue.");
   process.exit(1);
 }
 
+if (!loopbackHostnames.has(hostname)) {
+  console.warn(
+    `Warning: pi-web is listening on ${hostname} without authentication. Only use this on a trusted network.`,
+  );
+}
+
 const nextArgs = ["start", "-p", port];
-if (hostname) nextArgs.push("-H", hostname);
+nextArgs.push("-H", hostname);
 
 // Always run next's JS entry with node directly — avoids .bin symlink issues
 // and path-with-spaces problems on Windows when shell: true is used.
 const child = spawn(process.execPath, [nextBin, ...nextArgs], {
   cwd: pkgDir,
   stdio: ["inherit", "pipe", "inherit"],
-  env: { ...process.env },
+  env: { ...process.env, PI_WEB_HOSTNAME: hostname },
 });
 
 let browserOpened = false;
-const url = `http://${hostname ?? "localhost"}:${port}`;
+const url = `http://${hostname}:${port}`;
 
 child.stdout.on("data", (chunk) => {
   const text = chunk.toString();

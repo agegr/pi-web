@@ -2,7 +2,9 @@ import { stat } from "fs/promises";
 import { resolve } from "path";
 import { createAgentSessionServices, getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
-import { loadModelsWithCache, type ModelsData } from "@/lib/models-cache";
+import { loadModelsWithCache, withModelRuntimeError, type ModelsData } from "@/lib/models-cache";
+import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
+import { projectTrustReloadOptions } from "@/lib/project-trust";
 
 export const dynamic = "force-dynamic";
 
@@ -46,8 +48,17 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   const thinkingLevelMaps: Record<string, Record<string, string | null>> = {};
 
   const agentDir = getAgentDir();
-  const services = await createAgentSessionServices({ cwd, agentDir });
+  // Gate untrusted project extensions: enumerating models still imports and
+  // runs a repository's .pi/extensions factories, so honor project trust here
+  // too (see lib/project-trust.ts, #236).
+  const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
+  const services = await createAgentSessionServices({
+    cwd,
+    agentDir,
+    ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
+  });
   const available = await services.modelRuntime.getAvailable();
+  const modelError = services.modelRuntime.getError();
   const settings: SettingsManager = services.settingsManager;
   const enabledModels = settings.getEnabledModels();
   const visible = filterByExactEnabledModels(available, enabledModels);
@@ -69,7 +80,10 @@ async function loadModels(cwd: string): Promise<ModelsData> {
     defaultModel = { provider, modelId };
   }
 
-  return { models: Object.fromEntries(nameMap), modelList, defaultModel, thinkingLevels, thinkingLevelMaps };
+  return withModelRuntimeError(
+    { models: Object.fromEntries(nameMap), modelList, defaultModel, thinkingLevels, thinkingLevelMaps },
+    modelError,
+  );
 }
 
 const EMPTY_MODELS: ModelsData = {
@@ -92,6 +106,10 @@ export async function GET(req: Request) {
   }
   if (!cwdStat.isDirectory()) {
     return Response.json({ error: `Not a directory: ${cwd}` }, { status: 400 });
+  }
+  const allowedRoots = await getAllowedFileRoots();
+  if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
+    return Response.json({ error: "Access denied" }, { status: 403 });
   }
 
   try {

@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import type { SessionEntry, SessionTreeNode } from "@/lib/types";
+import { useI18n } from "@/hooks/useI18n";
 
 interface Props {
   tree: SessionTreeNode[];
@@ -217,6 +218,7 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
 }
 
 export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, containerRef, open: openProp, onToggle, hasSession, compact }: Props) {
+  const { t } = useI18n();
   const [openInternal, setOpenInternal] = useState(false);
   const open = openProp !== undefined ? openProp : openInternal;
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -246,9 +248,9 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
   }, [onLeafChange]);
 
   const noBranchReason = !hasSession
-    ? "No active session"
+    ? t("i18n.noActiveSession")
     : !hasBranch(tree)
-      ? "This session has no branches"
+      ? t("i18n.noBranches")
       : null;
 
   // Find first meaningful node (skip pure linear prefix)
@@ -296,12 +298,12 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
           }}
           onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
           onMouseLeave={(e) => { e.currentTarget.style.color = open ? "var(--text)" : "var(--text-muted)"; }}
-          title="Branches"
-          aria-label="Branches"
+           title={t("i18n.branches")}
+           aria-label={t("i18n.branches")}
           aria-pressed={open}
         >
           {branchIcon}
-          {!compact && <span>Branches</span>}
+           {!compact && <span>{t("i18n.branches")}</span>}
         </button>
         {open && dropdownPos && (
           <div style={{
@@ -358,7 +360,7 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
         }}
       >
         {branchIcon}
-        <span style={{ color: "var(--text-muted)" }}>Branches</span>
+         <span style={{ color: "var(--text-muted)" }}>{t("i18n.branches")}</span>
         {chevron}
       </button>
 
@@ -390,7 +392,7 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
             </div>
           ) : (
             <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-              {noBranchReason ?? "This session has no branches"}
+              {noBranchReason ?? t("i18n.noBranches")}
             </div>
           )}
         </div>

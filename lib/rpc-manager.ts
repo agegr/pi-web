@@ -1,9 +1,12 @@
 import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, Theme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
-import { existsSync, writeFileSync } from "fs";
+import { existsSync, realpathSync, writeFileSync } from "fs";
+import { resolve } from "path";
+import { validateAgentImages } from "./image-attachments";
 import { invalidateModelsCache } from "./models-cache";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
+import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
 import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
@@ -130,6 +133,10 @@ export class AgentSessionWrapper {
 
   get sessionFile(): string {
     return this.inner.sessionFile ?? "";
+  }
+
+  get cwd(): string {
+    return this.inner.sessionManager.getCwd();
   }
 
   isAlive(): boolean {
@@ -306,6 +313,11 @@ export class AgentSessionWrapper {
     const type = command.type as string;
     if (this.shouldWaitForExtensions(type)) await this.waitForExtensionsBound();
 
+    if (type === "prompt" || type === "steer" || type === "follow_up") {
+      const imageError = validateAgentImages(command.images);
+      if (imageError) throw new Error(imageError);
+    }
+
     switch (type) {
       case "prompt": {
         if (this.inner.isBashRunning) {
@@ -372,7 +384,11 @@ export class AgentSessionWrapper {
 
       case "set_model": {
         const { provider, modelId } = command as { provider: string; modelId: string };
-        const model = this.inner.modelRuntime.getModel(provider, modelId);
+        let model = this.inner.modelRuntime.getModel(provider, modelId);
+        if (!model) {
+          await this.inner.modelRuntime.refresh({ allowNetwork: false });
+          model = this.inner.modelRuntime.getModel(provider, modelId);
+        }
         if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
         await this.inner.setModel(model);
         invalidateModelsCache();
@@ -541,6 +557,7 @@ export class AgentSessionWrapper {
         await this.waitForExtensionsBound();
         this.extensionStatuses.clear();
         this.extensionWidgets.clear();
+        this.syncProjectTrust();
         await this.inner.reload();
         if (typeof this.inner.bindExtensions !== "function") {
           this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
@@ -935,6 +952,7 @@ export class AgentSessionWrapper {
       reload: async () => {
         this.extensionStatuses.clear();
         this.extensionWidgets.clear();
+        this.syncProjectTrust();
         await this.inner.reload({
           beforeSessionStart: () => {
             this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
@@ -943,6 +961,11 @@ export class AgentSessionWrapper {
         this.applyForcedEmptySystemPrompt();
       },
     };
+  }
+
+  private syncProjectTrust(): void {
+    const status = getProjectTrustStatus(this.cwd, getAgentDir());
+    this.inner.settingsManager.setProjectTrusted(status.trusted);
   }
 }
 
@@ -953,6 +976,7 @@ export class AgentSessionWrapper {
 declare global {
   var __piSessions: Map<string, AgentSessionWrapper> | undefined;
   var __piStartLocks: Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> | undefined;
+  var __piStartingSessionCwds: Map<string, number> | undefined;
   var __piRunningListeners: Set<(ids: string[]) => void> | undefined;
 }
 
@@ -972,8 +996,50 @@ function getLocks(): Map<string, Promise<{ session: AgentSessionWrapper; realSes
   return globalThis.__piStartLocks;
 }
 
+function normalizeRpcCwd(cwd: string): string {
+  const resolvedCwd = resolve(cwd);
+  try {
+    return realpathSync(resolvedCwd);
+  } catch {
+    return resolvedCwd;
+  }
+}
+
+function getStartingSessionCwds(): Map<string, number> {
+  if (!globalThis.__piStartingSessionCwds) globalThis.__piStartingSessionCwds = new Map();
+  return globalThis.__piStartingSessionCwds;
+}
+
+function trackStartingSession(cwd: string): () => void {
+  const startingCwds = getStartingSessionCwds();
+  const key = normalizeRpcCwd(cwd);
+  startingCwds.set(key, (startingCwds.get(key) ?? 0) + 1);
+  return () => {
+    const remaining = (startingCwds.get(key) ?? 1) - 1;
+    if (remaining > 0) startingCwds.set(key, remaining);
+    else startingCwds.delete(key);
+  };
+}
+
 export function getRpcSession(sessionId: string): AgentSessionWrapper | undefined {
   return getRegistry().get(sessionId);
+}
+
+export function hasBusyRpcSessionForCwd(cwd: string): boolean {
+  const targetCwd = normalizeRpcCwd(cwd);
+  if (getStartingSessionCwds().has(targetCwd)) return true;
+  return Array.from(getRegistry().values()).some(
+    (session) => normalizeRpcCwd(session.cwd) === targetCwd && session.isRunning(),
+  );
+}
+
+export function destroyRpcSessionsForCwd(cwd: string): number {
+  const targetCwd = normalizeRpcCwd(cwd);
+  const sessions = Array.from(getRegistry().values()).filter(
+    (session) => normalizeRpcCwd(session.cwd) === targetCwd,
+  );
+  for (const session of sessions) session.destroy();
+  return sessions.length;
 }
 
 export function getRunningRpcSessionIds(): string[] {
@@ -1041,6 +1107,7 @@ export async function startRpcSession(
   const inflight = locks.get(sessionId);
   if (inflight) return inflight;
 
+  const finishStartingSession = trackStartingSession(cwd);
   const starting = (async () => {
     // Some extensions access the SDK's global theme even outside the terminal UI.
     initTheme();
@@ -1066,7 +1133,14 @@ export async function startRpcSession(
 
     // Build services first so extension-registered providers are available
     // before the SDK restores the saved model from the session file.
-    const services = await createAgentSessionServices({ cwd, agentDir });
+    // Gate untrusted project extensions so opening a repository does not run
+    // its .pi/extensions code automatically (see lib/project-trust.ts, #236).
+    const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
+    const services = await createAgentSessionServices({
+      cwd,
+      agentDir,
+      ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
+    });
     const { session: inner } = await createAgentSessionFromServices({
       services,
       sessionManager,
@@ -1098,7 +1172,10 @@ export async function startRpcSession(
     wrapper.beginExtensionBinding({ forceEmptySystemPrompt: toolNames?.length === 0 });
 
     return { session: wrapper, realSessionId };
-  })().finally(() => locks.delete(sessionId));
+  })().finally(() => {
+    locks.delete(sessionId);
+    finishStartingSession();
+  });
 
   locks.set(sessionId, starting);
   return starting;

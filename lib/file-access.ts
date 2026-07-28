@@ -2,6 +2,7 @@ import { readdirSync } from "fs";
 import { homedir } from "os";
 import path from "path";
 import { getAdditionalAllowedRoots, normalizeSlashes } from "./allowed-roots";
+import { isExistingPathWithinRoots } from "./path-security";
 import { listAllSessions } from "./session-reader";
 export { allowFileRoot, normalizeSlashes } from "./allowed-roots";
 
@@ -66,4 +67,9 @@ export function isFilePathAllowed(target: string, allowedRoots: Set<string>): bo
     }
   }
   return false;
+}
+
+/** Authorize an existing path after resolving symbolic links. */
+export function isExistingFilePathAllowed(target: string, allowedRoots: Set<string>): boolean {
+  return isExistingPathWithinRoots(target, allowedRoots);
 }

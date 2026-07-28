@@ -10,14 +10,17 @@ import { TabBar, type Tab } from "./TabBar";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
+import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { BranchNavigator } from "./BranchNavigator";
 import { useTheme } from "@/hooks/useTheme";
+import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
-import { buildAtMentionText, buildFileAtMentionsText } from "@/lib/file-fuzzy";
+import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import { getInitialNavigation } from "@/lib/initial-navigation";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
+import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 
@@ -28,11 +31,15 @@ type AutoNameStatus =
   | { kind: "success" }
   | { kind: "error"; message: string };
 
+const TOP_BAR_ICON_BUTTON_SIZE = 36;
+const LANGUAGE_MENU_WIDTH = 176;
+
 export function AppShell() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [initialNavigation] = useState(() => getInitialNavigation(searchParams));
   const { isDark, toggleTheme } = useTheme();
+  const { locale, setLocale, t: translate, supportedLocales } = useI18n();
   const isMobile = useIsMobile();
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
   // When user clicks +, we only store the cwd — no fake session id
@@ -48,6 +55,10 @@ export function AppShell() {
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [pluginsConfigOpen, setPluginsConfigOpen] = useState(false);
+  const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
+  const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
+  const [projectTrustBusy, setProjectTrustBusy] = useState(false);
+  const [projectTrustError, setProjectTrustError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
@@ -60,6 +71,7 @@ export function AppShell() {
   }, []);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
+  const languageBtnRef = useRef<HTMLButtonElement>(null);
 
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
   const [branchTree, setBranchTree] = useState<SessionTreeNode[]>([]);
@@ -116,10 +128,10 @@ export function AppShell() {
   }, []);
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | null>(null);
+  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | "language" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
-  const toggleTopPanel = useCallback((panel: "branches" | "system" | "session") => {
+  const toggleTopPanel = useCallback((panel: "branches" | "system" | "session" | "language") => {
     if (isMobile) setSidebarOpen(false);
     setActiveTopPanel((cur) => cur === panel ? null : panel);
   }, [isMobile]);
@@ -137,14 +149,25 @@ export function AppShell() {
   useEffect(() => {
     if (!activeTopPanel || !topBarRef.current) return;
     const update = () => {
-      const rect = topBarRef.current!.getBoundingClientRect();
-      setTopPanelPos({ top: rect.bottom, left: rect.left, width: rect.width });
+      const topBarRect = topBarRef.current!.getBoundingClientRect();
+      if (activeTopPanel === "language" && !isMobile && languageBtnRef.current) {
+        const buttonRect = languageBtnRef.current.getBoundingClientRect();
+        const width = Math.min(LANGUAGE_MENU_WIDTH, topBarRect.width);
+        const left = Math.min(
+          buttonRect.left - 1,
+          Math.max(topBarRect.left, topBarRect.right - width),
+        );
+        setTopPanelPos({ top: topBarRect.bottom, left, width });
+        return;
+      }
+      setTopPanelPos({ top: topBarRect.bottom, left: topBarRect.left, width: topBarRect.width });
     };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(topBarRef.current);
+    if (languageBtnRef.current) ro.observe(languageBtnRef.current);
     return () => ro.disconnect();
-  }, [activeTopPanel]);
+  }, [activeTopPanel, isMobile]);
 
   // Right panel — file tabs only
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
@@ -162,8 +185,13 @@ export function AppShell() {
     if (mentions) chatInputRef.current?.insertText(mentions);
   }, []);
 
+  const handleFileLineMention = useCallback((relativePath: string, startLine: number, endLine: number) => {
+    chatInputRef.current?.insertText(buildFileLineMentionText(relativePath, startLine, endLine));
+  }, []);
+
   const initialSessionId = initialNavigation.sessionId;
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
+  const activeProjectRootRef = useRef<string | null>(null);
   // True once the initial ?session= URL param has been resolved (or confirmed absent)
   const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !initialSessionId);
   // Suppresses sessionKey bump in handleCwdChange during the initial URL restore
@@ -206,8 +234,15 @@ export function AppShell() {
 
   const handleCwdChange = useCallback((cwd: string | null, projectRoot?: string | null) => {
     setActiveCwd(cwd);
-    // Skip if cwd is null (initial mount) or during the initial URL restore.
+    // Skip if cwd is null (initial mount).
     if (!cwd) return;
+    const newProject = projectRoot ?? cwd;
+    const currentProject = activeProjectRootRef.current
+      ?? (selectedSession ? (selectedSession.projectRoot ?? selectedSession.cwd) : null);
+    activeProjectRootRef.current = newProject;
+
+    // Keep the project identity in sync during the initial URL restore without
+    // remounting the just-created or restored chat.
     if (suppressCwdBumpRef.current) {
       suppressCwdBumpRef.current = false;
       return;
@@ -215,8 +250,7 @@ export function AppShell() {
     // Worktrees of one repo share a project root. Moving the effective cwd
     // within the same project (e.g. switching worktree, or clicking a session
     // that lives in another worktree) must not close the open session.
-    const newProject = projectRoot ?? cwd;
-    if (selectedSession && (selectedSession.projectRoot ?? selectedSession.cwd) === newProject) {
+    if (currentProject === newProject) {
       return;
     }
     // Close any session that belongs to a different project — it no longer
@@ -231,6 +265,14 @@ export function AppShell() {
     setBranchActiveLeafId(null);
     setSystemPrompt(null);
     setActiveTopPanel(null);
+    // File tabs are keyed by absolute path, so tabs opened in the previous
+    // project would otherwise linger after switching to a different project.
+    // Reached only past the same-project early return above, so worktrees of
+    // one repo keep their open tabs. Mirror handleCloseFileTab and close the
+    // now-empty right panel.
+    setFileTabs([]);
+    setActiveFileTabId(null);
+    setRightPanelOpen(false);
     router.replace("/", { scroll: false });
   }, [router, selectedSession]);
 
@@ -372,13 +414,35 @@ export function AppShell() {
     }
   }, [selectedSession, router]);
 
-  const handleOpenFile = useCallback((filePath: string, fileName: string, sourceSessionId?: string | null) => {
+  const handleOpenFile = useCallback((
+    filePath: string,
+    fileName: string,
+    options?: { sourceSessionId?: string | null; modeHint?: "diff" },
+  ) => {
+    const sourceSessionId = options?.sourceSessionId;
+    const modeHint = options?.modeHint;
     const tabId = `file:${filePath}`;
     setFileTabs((prev) => {
       const existing = prev.find((t) => t.id === tabId);
-      if (!existing) return [...prev, { id: tabId, label: fileName, filePath, sourceSessionId }];
-      if (!sourceSessionId || existing.sourceSessionId === sourceSessionId) return prev;
-      return prev.map((t) => t.id === tabId ? { ...t, sourceSessionId } : t);
+      if (!existing) {
+        return [...prev, {
+          id: tabId,
+          label: fileName,
+          filePath,
+          sourceSessionId,
+          initialDisplayMode: modeHint,
+        }];
+      }
+      const sourceUnchanged = !sourceSessionId || existing.sourceSessionId === sourceSessionId;
+      const modeUnchanged = !modeHint || existing.initialDisplayMode === modeHint;
+      if (sourceUnchanged && modeUnchanged) return prev;
+      return prev.map((t) => {
+        if (t.id !== tabId) return t;
+        const next: Tab = { ...t };
+        if (sourceSessionId) next.sourceSessionId = sourceSessionId;
+        if (modeHint) next.initialDisplayMode = modeHint;
+        return next;
+      });
     });
     setActiveFileTabId(tabId);
     setRightPanelOpen(true);
@@ -387,7 +451,7 @@ export function AppShell() {
   }, [isMobile]);
 
   const handleOpenLinkedFile = useCallback((filePath: string) => {
-    handleOpenFile(filePath, getFileName(filePath), selectedSession?.id ?? null);
+    handleOpenFile(filePath, getFileName(filePath), { sourceSessionId: selectedSession?.id ?? null });
   }, [handleOpenFile, selectedSession?.id]);
 
   const handleCloseFileTab = useCallback((tabId: string) => {
@@ -415,8 +479,54 @@ export function AppShell() {
   // Show chat area if a session is selected, or if we have a cwd to start a new session in
   const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
   const showChat = selectedSession !== null || effectiveNewSessionCwd !== null;
+  const projectTrustCwd = selectedSession?.cwd ?? effectiveNewSessionCwd;
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat;
+
+  useEffect(() => {
+    setProjectTrust(null);
+    setProjectTrustDialogOpen(false);
+    setProjectTrustError(null);
+    if (!projectTrustCwd) return;
+
+    const controller = new AbortController();
+    fetch(`/api/project-trust?cwd=${encodeURIComponent(projectTrustCwd)}`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const data = await response.json() as ProjectTrustStatus & { error?: string };
+        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+        setProjectTrust(data);
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        console.error("Failed to load project trust:", error);
+      });
+    return () => controller.abort();
+  }, [projectTrustCwd]);
+
+  const handleTrustProject = useCallback(async () => {
+    if (!projectTrustCwd || projectTrustBusy) return;
+    setProjectTrustBusy(true);
+    setProjectTrustError(null);
+    try {
+      const response = await fetch("/api/project-trust", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: projectTrustCwd }),
+      });
+      const data = await response.json() as ProjectTrustStatus & { error?: string };
+      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      setProjectTrust(data);
+      setProjectTrustDialogOpen(false);
+      setModelsRefreshKey((key) => key + 1);
+      setSessionKey((key) => key + 1);
+    } catch (error) {
+      setProjectTrustError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setProjectTrustBusy(false);
+    }
+  }, [projectTrustBusy, projectTrustCwd]);
 
   const activeFileTab = fileTabs.find((t) => t.id === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
@@ -455,7 +565,7 @@ export function AppShell() {
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
         {([
           {
-            label: "Models",
+             label: translate("common.models"),
             onClick: () => setModelsConfigOpen(true),
             disabled: false,
             icon: (
@@ -469,7 +579,7 @@ export function AppShell() {
             ),
           },
           {
-            label: "Skills",
+             label: translate("common.skills"),
             onClick: () => setSkillsConfigOpen(true),
             disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
             icon: (
@@ -481,7 +591,7 @@ export function AppShell() {
             ),
           },
           {
-            label: "Plugins",
+             label: translate("common.plugins"),
             onClick: () => setPluginsConfigOpen(true),
             disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
             icon: (
@@ -627,11 +737,11 @@ export function AppShell() {
         <div ref={topBarRef} style={{ display: "flex", alignItems: "center", flexShrink: 0, borderBottom: "1px solid var(--border)", height: 36, background: "var(--bg-panel)" }}>
           <button
             onClick={handleSidebarToggle}
-            title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
-            aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+             title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
+             aria-label={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
             style={{
               display: "flex", alignItems: "center", justifyContent: "center",
-              width: 36, height: 36, padding: 0,
+              width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
               background: "none", border: "none", borderRight: "1px solid var(--border)",
               color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
             }}
@@ -653,12 +763,12 @@ export function AppShell() {
               const rect = e.currentTarget.getBoundingClientRect();
               toggleTheme({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
             }}
-            title={isDark ? "Switch to light mode" : "Switch to dark mode"}
-            aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+             title={isDark ? translate("theme.light") : translate("theme.dark")}
+             aria-label={isDark ? translate("theme.light") : translate("theme.dark")}
             aria-pressed={isDark}
             style={{
               display: "flex", alignItems: "center", justifyContent: "center",
-              width: 36, height: 36, padding: 0,
+              width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
               background: "none", border: "none", borderRight: "1px solid var(--border)",
               color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
             }}
@@ -678,14 +788,98 @@ export function AppShell() {
                 <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
               </svg>
             )}
-          </button>
+           </button>
+           <button
+             ref={languageBtnRef}
+             type="button"
+             onClick={() => toggleTopPanel("language")}
+             title={translate("common.language")}
+             aria-label={translate("common.language")}
+             aria-haspopup="menu"
+             aria-expanded={activeTopPanel === "language"}
+             aria-pressed={activeTopPanel === "language"}
+             style={{
+               display: "flex", alignItems: "center", justifyContent: "center",
+               width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+               background: activeTopPanel === "language" ? "var(--bg-selected)" : "none",
+               border: "none", borderRight: "1px solid var(--border)",
+               color: activeTopPanel === "language" ? "var(--text)" : "var(--text-muted)",
+               cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
+             }}
+             onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+             onMouseLeave={(e) => {
+               e.currentTarget.style.color = activeTopPanel === "language" ? "var(--text)" : "var(--text-muted)";
+             }}
+           >
+             <svg
+               width="16"
+               height="16"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="1.8"
+               strokeLinecap="round"
+               strokeLinejoin="round"
+               aria-hidden="true"
+             >
+               <path d="m5 8 6 6" />
+               <path d="m4 14 6-6 2-3" />
+               <path d="M2 5h12" />
+               <path d="M7 2h1" />
+               <path d="m22 22-5-10-5 10" />
+               <path d="M14 18h6" />
+             </svg>
+           </button>
+          {showChat && projectTrust?.requiresTrust && !projectTrust.trusted && (
+            <button
+              type="button"
+              onClick={() => {
+                setProjectTrustError(null);
+                setProjectTrustDialogOpen(true);
+              }}
+              title={translate("trust.resourcesNotLoaded")}
+              aria-label={translate("trust.resourcesNotLoaded")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                height: "100%",
+                padding: isMobile ? "0 10px" : "0 12px",
+                background: "none",
+                border: "none",
+                borderRight: "1px solid var(--border)",
+                color: "#d97706",
+                cursor: "pointer",
+                flexShrink: 0,
+                fontSize: 11,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
+                <path d="M12 8v4" />
+                <path d="M12 16h.01" />
+              </svg>
+              {!isMobile && <span>{translate("trust.resourcesNotLoaded")}</span>}
+            </button>
+          )}
           {showChat && (
             <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
               <button
                 onClick={handleViewFullHistory}
                 disabled={!selectedSession}
-                title={selectedSession ? "View full history" : "Full history is available after the session is saved"}
-                aria-label="View full history"
+                 title={selectedSession ? translate("history.full") : translate("history.unsaved")}
+                 aria-label={translate("history.full")}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -732,7 +926,7 @@ export function AppShell() {
                   <path d="M3 3v5h5" />
                   <path d="M12 7v5l3 2" />
                 </svg>
-                {!isMobile && <span>Full history</span>}
+                 {!isMobile && <span>{translate("history.label")}</span>}
               </button>
               {(() => {
                 const hasMessages = Boolean(
@@ -743,19 +937,19 @@ export function AppShell() {
                 const isSuccess = autoNameStatus.kind === "success";
                 const isError = autoNameStatus.kind === "error";
                 const label = autoNameStatus.kind === "naming"
-                  ? "Generating..."
-                  : isSuccess
-                    ? "Title updated"
+                   ? translate("title.generating")
+                    : isSuccess
+                    ? translate("title.updated")
                     : isError
-                      ? "Generation failed"
-                      : "Generate title";
+                      ? translate("title.failed")
+                      : translate("title.generate");
                 const title = !selectedSession
-                  ? "Title generation is available after the session is saved"
-                  : !hasMessages
-                    ? "Send a message before naming this session"
-                    : isError
-                      ? autoNameStatus.message
-                      : "Generate a session title";
+                   ? translate("title.unsaved")
+                   : !hasMessages
+                     ? translate("title.noMessages")
+                     : isError
+                       ? autoNameStatus.message
+                       : translate("title.generateSession");
 
                 return (
                   <button
@@ -820,8 +1014,8 @@ export function AppShell() {
               <button
                 ref={systemBtnRef}
                 onClick={() => toggleTopPanel("system")}
-                title="System prompt"
-                aria-label="System prompt"
+                 title={translate("system.prompt")}
+                 aria-label={translate("system.prompt")}
                 aria-pressed={activeTopPanel === "system"}
                 style={{
                   display: "flex", alignItems: "center", gap: 6,
@@ -843,13 +1037,13 @@ export function AppShell() {
                   <line x1="8" y1="13" x2="16" y2="13" />
                   <line x1="8" y1="17" x2="13" y2="17" />
                 </svg>
-                {!isMobile && <span>System</span>}
+                 {!isMobile && <span>{translate("system.label")}</span>}
               </button>
             </div>
           )}
           {/* Session stats — right-aligned in top bar */}
           {showChat && (sessionStats || contextUsage) && (() => {
-            const t = sessionStats?.tokens;
+             const tokens = sessionStats?.tokens;
             const c = sessionStats?.cost ?? 0;
             const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
             const costStr = c > 0 ? (c >= 0.01 ? `$${c.toFixed(2)}` : `<$0.01`) : null;
@@ -864,11 +1058,11 @@ export function AppShell() {
             }
 
             const tooltipParts: string[] = [];
-            if (t) {
-              tooltipParts.push(`in: ${t.input.toLocaleString()}`);
-              tooltipParts.push(`out: ${t.output.toLocaleString()}`);
-              tooltipParts.push(`cache read: ${t.cacheRead.toLocaleString()}`);
-              tooltipParts.push(`cache write: ${t.cacheWrite.toLocaleString()}`);
+             if (tokens) {
+               tooltipParts.push(`in: ${tokens.input.toLocaleString(locale)}`);
+               tooltipParts.push(`out: ${tokens.output.toLocaleString(locale)}`);
+               tooltipParts.push(`cache read: ${tokens.cacheRead.toLocaleString(locale)}`);
+               tooltipParts.push(`cache write: ${tokens.cacheWrite.toLocaleString(locale)}`);
               if (c > 0) tooltipParts.push(`cost: $${c.toFixed(4)}`);
             }
             if (contextUsage?.contextWindow) {
@@ -881,8 +1075,8 @@ export function AppShell() {
               <button
                 type="button"
                 onClick={() => toggleTopPanel("session")}
-                title={tooltip || "Session info"}
-                aria-label="Session info"
+               title={tooltip || translate("session.title")}
+                 aria-label={translate("session.title")}
                 aria-pressed={activeTopPanel === "session"}
                 style={{
                   marginLeft: "auto",
@@ -906,28 +1100,28 @@ export function AppShell() {
                     <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
                   </svg>
                 )}
-                {!isMobile && t && t.input > 0 && (
+                 {!isMobile && tokens && tokens.input > 0 && (
                   <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="5" y1="8.5" x2="5" y2="1.5" /><polyline points="2 4 5 1.5 8 4" />
                     </svg>
-                    {fmt(t.input)}
+                     {fmt(tokens.input)}
                   </span>
                 )}
-                {!isMobile && t && t.output > 0 && (
+                 {!isMobile && tokens && tokens.output > 0 && (
                   <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
                     </svg>
-                    {fmt(t.output)}
+                     {fmt(tokens.output)}
                   </span>
                 )}
-                {!isMobile && t && t.cacheRead > 0 && (
+                 {!isMobile && tokens && tokens.cacheRead > 0 && (
                   <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M8.5 5a3.5 3.5 0 1 1-1-2.45" /><polyline points="6.5 1.5 8.5 2.5 7.5 4.5" />
                     </svg>
-                    {fmt(t.cacheRead)}
+                     {fmt(tokens.cacheRead)}
                   </span>
                 )}
                 {!isMobile && costStr && (
@@ -957,6 +1151,49 @@ export function AppShell() {
               overflowY: "auto",
               zIndex: 500,
             }}>
+              {activeTopPanel === "language" && (
+                <div
+                  role="menu"
+                  aria-label={translate("common.language")}
+                  style={{
+                    background: "var(--bg-panel)",
+                    borderLeft: "1px solid var(--border)",
+                    borderRight: "1px solid var(--border)",
+                    borderBottom: "1px solid var(--border)",
+                    overflow: "hidden",
+                    padding: 4,
+                  }}
+                >
+                  {supportedLocales.map((plugin) => (
+                    <button
+                      key={plugin.id}
+                      type="button"
+                      onClick={() => {
+                        setLocale(plugin.id as typeof locale);
+                        setActiveTopPanel(null);
+                      }}
+                      role="menuitemradio"
+                      aria-checked={locale === plugin.id}
+                      style={{
+                        display: "flex", alignItems: "center",
+                        width: "100%", height: 34, padding: "0 10px",
+                        border: "none", borderRadius: 4,
+                        background: locale === plugin.id ? "var(--bg-selected)" : "transparent",
+                        color: "var(--text)", cursor: "pointer", textAlign: "left", fontSize: 12,
+                        transition: "background 0.1s",
+                      }}
+                      onMouseEnter={(e) => {
+                        if (locale !== plugin.id) e.currentTarget.style.background = "var(--bg-hover)";
+                      }}
+                      onMouseLeave={(e) => {
+                        if (locale !== plugin.id) e.currentTarget.style.background = "transparent";
+                      }}
+                    >
+                      <span>{plugin.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
               {activeTopPanel === "system" && (
                 <div style={{
                   background: "var(--bg-panel)",
@@ -977,11 +1214,11 @@ export function AppShell() {
                     </div>
                   ) : systemPrompt === "" ? (
                     <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-                      System prompt is empty (tools are disabled)
+                       {translate("system.empty")}
                     </div>
                   ) : (
                     <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-                      Send a message to load the system prompt
+                       {translate("system.load")}
                     </div>
                   )}
                 </div>
@@ -995,29 +1232,29 @@ export function AppShell() {
                 }}>
                   {sessionStats ? (() => {
                     const sessionRows = [
-                      ...(sessionStats.sessionName ? [{ label: "Name", value: sessionStats.sessionName, copyField: null }] : []),
-                      { label: "File", value: sessionStats.sessionFile ?? "In-memory", copyField: "file" as const },
-                      { label: "ID", value: sessionStats.sessionId, copyField: "id" as const },
+                       ...(sessionStats.sessionName ? [{ label: translate("session.name"), value: sessionStats.sessionName, copyField: null }] : []),
+                       { label: translate("session.file"), value: sessionStats.sessionFile ?? translate("session.inMemory"), copyField: "file" as const },
+                       { label: translate("session.id"), value: sessionStats.sessionId, copyField: "id" as const },
                     ];
                     const messageRows = [
-                      ["User", sessionStats.userMessages.toLocaleString()],
-                      ["Assistant", sessionStats.assistantMessages.toLocaleString()],
-                      ["Tool Calls", sessionStats.toolCalls.toLocaleString()],
-                      ["Tool Results", sessionStats.toolResults.toLocaleString()],
-                      ["Total", sessionStats.totalMessages.toLocaleString()],
+                       [translate("session.user"), sessionStats.userMessages.toLocaleString(locale)],
+                       [translate("session.assistant"), sessionStats.assistantMessages.toLocaleString(locale)],
+                       [translate("session.toolCalls"), sessionStats.toolCalls.toLocaleString(locale)],
+                       [translate("session.toolResults"), sessionStats.toolResults.toLocaleString(locale)],
+                       [translate("session.total"), sessionStats.totalMessages.toLocaleString(locale)],
                     ];
                     const tokenRows = [
-                      ["Input", sessionStats.tokens.input.toLocaleString()],
-                      ["Output", sessionStats.tokens.output.toLocaleString()],
-                      ...(sessionStats.tokens.cacheRead > 0 ? [["Cache Read", sessionStats.tokens.cacheRead.toLocaleString()]] : []),
-                      ...(sessionStats.tokens.cacheWrite > 0 ? [["Cache Write", sessionStats.tokens.cacheWrite.toLocaleString()]] : []),
-                      ["Total", sessionStats.tokens.total.toLocaleString()],
+                       [translate("session.input"), sessionStats.tokens.input.toLocaleString(locale)],
+                       [translate("session.output"), sessionStats.tokens.output.toLocaleString(locale)],
+                       ...(sessionStats.tokens.cacheRead > 0 ? [[translate("session.cacheRead"), sessionStats.tokens.cacheRead.toLocaleString(locale)]] : []),
+                       ...(sessionStats.tokens.cacheWrite > 0 ? [[translate("session.cacheWrite"), sessionStats.tokens.cacheWrite.toLocaleString(locale)]] : []),
+                       [translate("session.total"), sessionStats.tokens.total.toLocaleString(locale)],
                     ];
                     const ctx = contextUsage ?? sessionStats.contextUsage;
                     const formatCompact = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
                     const extraTokenRows = [
-                      ...(sessionStats.cost > 0 ? [["Cost", `$${sessionStats.cost.toFixed(4)}`]] : []),
-                      ...(ctx?.contextWindow ? [["Context", `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompact(ctx.contextWindow)}`]] : []),
+                       ...(sessionStats.cost > 0 ? [[translate("session.cost"), `$${sessionStats.cost.toFixed(4)}`]] : []),
+                       ...(ctx?.contextWindow ? [[translate("session.context"), `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompact(ctx.contextWindow)}`]] : []),
                     ];
                     const section = (
                       title: string,
@@ -1054,7 +1291,7 @@ export function AppShell() {
                       return (
                         <button
                           type="button"
-                          title={copied ? "Copied" : `Copy ${field === "file" ? "file path" : "session ID"}`}
+                           title={copied ? translate("session.copied") : translate(field === "file" ? "session.copyFile" : "session.copyId")}
                           onClick={() => handleCopySessionField(field, value)}
                           style={{
                             alignSelf: "start",
@@ -1098,7 +1335,7 @@ export function AppShell() {
                     };
                     const sessionInfoSection = (
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>Session Info</div>
+                         <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>{translate("session.infoSection")}</div>
                         <div style={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", columnGap: 12, rowGap: 8, alignItems: "start" }}>
                           {sessionRows.map((row) => (
                             <div key={`session-info:${row.label}`} style={{ display: "contents" }}>
@@ -1129,13 +1366,13 @@ export function AppShell() {
                         fontFamily: "var(--font-mono)",
                       }}>
                         {sessionInfoSection}
-                        {section("Messages", messageRows)}
-                        {section("Tokens", [...tokenRows, ...extraTokenRows], "right", true)}
+                         {section(translate("session.messages"), messageRows)}
+                         {section(translate("session.tokens"), [...tokenRows, ...extraTokenRows], "right", true)}
                       </div>
                     );
                   })() : (
                     <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-                      Send a message or run /session to load session info
+                       {translate("session.load")}
                     </div>
                   )}
                 </div>
@@ -1169,7 +1406,7 @@ export function AppShell() {
               role="status"
               style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: 24, color: "var(--text-muted)", textAlign: "center" }}
             >
-              <div style={{ fontSize: 14, color: "var(--text)" }}>Opening workspace...</div>
+               <div style={{ fontSize: 14, color: "var(--text)" }}>{translate("workspace.opening")}</div>
               <div style={{ maxWidth: "min(720px, 100%)", overflowWrap: "anywhere", fontFamily: "var(--font-mono)", fontSize: 12 }}>
                 {initialNavigation.requestedCwd}
               </div>
@@ -1179,7 +1416,7 @@ export function AppShell() {
               role="alert"
               style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: 24, color: "var(--text-muted)", textAlign: "center" }}
             >
-              <div style={{ fontSize: 14, color: "#dc2626" }}>Unable to open workspace</div>
+               <div style={{ fontSize: 14, color: "#dc2626" }}>{translate("workspace.unable")}</div>
               <div style={{ maxWidth: "min(720px, 100%)", overflowWrap: "anywhere", fontFamily: "var(--font-mono)", fontSize: 12 }}>
                 {initialNavigation.requestedCwd}
               </div>
@@ -1188,7 +1425,7 @@ export function AppShell() {
           ) : showPlaceholder ? (
             activeCwd ? (
               <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 15 }}>
-                Select a session from the sidebar
+                 {translate("workspace.selectSession")}
               </div>
             ) : (
               <div style={{ position: "absolute", top: 12, left: 12, display: "flex", alignItems: "flex-start", gap: 8, userSelect: "none", pointerEvents: "none" }}>
@@ -1196,10 +1433,10 @@ export function AppShell() {
                   <line x1="20" y1="12" x2="4" y2="12" /><polyline points="10 6 4 12 10 18" />
                 </svg>
                 <div>
-                  <div style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>Get Started</div>
+                   <div style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>{translate("workspace.getStarted")}</div>
                   <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.8 }}>
-                    <span style={{ color: "var(--text-dim)", marginRight: 6 }}>1.</span>Select a project directory from the sidebar<br />
-                    <span style={{ color: "var(--text-dim)", marginRight: 6 }}>2.</span>Add models via the <strong style={{ color: "var(--text)" }}>Models</strong> button at the bottom
+                     <span style={{ color: "var(--text-dim)", marginRight: 6 }}>1.</span>{translate("workspace.selectProject")}<br />
+                     <span style={{ color: "var(--text-dim)", marginRight: 6 }}>2.</span>{translate("workspace.addModels")}
                   </div>
                 </div>
               </div>
@@ -1239,15 +1476,17 @@ export function AppShell() {
               cwd={activeCwd ?? undefined}
               sourceSessionId={activeFileTab.sourceSessionId}
               gitRefreshKey={explorerRefreshKey}
+              initialDisplayMode={activeFileTab.initialDisplayMode}
+              onMentionLines={rightPanelOpen ? handleFileLineMention : undefined}
               onOpenFile={(filePath) => handleOpenFile(
                 filePath,
                 getFileName(filePath),
-                activeFileTab.sourceSessionId,
+                { sourceSessionId: activeFileTab.sourceSessionId },
               )}
             />
           ) : (
             <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
-              No file open
+               {translate("files.noneOpen")}
             </div>
           )}
         </div>
@@ -1256,8 +1495,8 @@ export function AppShell() {
     {/* File panel toggle — always visible at top-right */}
     <button
       onClick={() => setRightPanelOpen((v) => !v)}
-      title={rightPanelOpen ? "Hide file panel" : "Show file panel"}
-      aria-label={rightPanelOpen ? "Hide file panel" : "Show file panel"}
+       title={rightPanelOpen ? translate("files.hidePanel") : translate("files.showPanel")}
+       aria-label={rightPanelOpen ? translate("files.hidePanel") : translate("files.showPanel")}
       style={{
         position: "fixed", top: 0, right: 0, zIndex: 300,
         display: "flex", alignItems: "center", justifyContent: "center",
@@ -1274,12 +1513,23 @@ export function AppShell() {
       </svg>
     </button>
     {modelsConfigOpen && <ModelsConfig onClose={() => { setModelsConfigOpen(false); setModelsRefreshKey((k) => k + 1); }} />}
-    {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
-      <SkillsConfig cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!} onClose={() => setSkillsConfigOpen(false)} />
+    {projectTrustDialogOpen && projectTrustCwd && (
+      <ProjectTrustDialog
+        cwd={projectTrustCwd}
+        busy={projectTrustBusy}
+        error={projectTrustError}
+        onCancel={() => {
+          if (!projectTrustBusy) setProjectTrustDialogOpen(false);
+        }}
+        onConfirm={() => void handleTrustProject()}
+      />
     )}
-    {pluginsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
+    {skillsConfigOpen && projectTrustCwd && (
+      <SkillsConfig cwd={projectTrustCwd} onClose={() => setSkillsConfigOpen(false)} />
+    )}
+    {pluginsConfigOpen && projectTrustCwd && (
       <PluginsConfig
-        cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!}
+        cwd={projectTrustCwd}
         sessionId={selectedSession?.id ?? null}
         onClose={() => setPluginsConfigOpen(false)}
         onReloaded={() => setSessionKey((k) => k + 1)}

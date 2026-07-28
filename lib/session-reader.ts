@@ -9,6 +9,7 @@ import { normalize as normalizePath } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
 import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } from "@earendil-works/pi-coding-agent";
 import { normalizeToolCalls } from "./normalize";
+import { sessionPathKey } from "./session-path";
 import { resolveProject, type ProjectInfo } from "./worktree";
 
 export { getAgentDir };
@@ -16,7 +17,7 @@ export { getAgentDir };
 async function loadAllSessions(): Promise<SessionInfo[]> {
   const piSessions: PiSessionInfo[] = await SessionManager.listAll();
   const pathToId = new Map<string, string>();
-  for (const s of piSessions) pathToId.set(normalizePath(s.path), s.id);
+  for (const s of piSessions) pathToId.set(sessionPathKey(s.path), s.id);
 
   // Resolve each unique cwd to its project root (main repo shared by all
   // worktrees). resolveProject caches per-cwd, so this is cheap after warmup.
@@ -38,7 +39,7 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
       modified: s.modified instanceof Date ? s.modified.toISOString() : String(s.modified),
       messageCount: s.messageCount,
       firstMessage: s.firstMessage || "(no messages)",
-      parentSessionId: s.parentSessionPath ? pathToId.get(normalizePath(s.parentSessionPath)) : undefined,
+      parentSessionId: s.parentSessionPath ? pathToId.get(sessionPathKey(s.parentSessionPath)) : undefined,
       projectRoot: project?.projectRoot ?? s.cwd,
       ...(project?.isWorktree && project.branch ? { worktreeBranch: project.branch } : {}),
     };
@@ -119,7 +120,7 @@ export async function resolveSessionPath(sessionId: string): Promise<string | nu
 }
 
 export async function resolveSessionIdByPath(filePath: string): Promise<string | undefined> {
-  const pathKey = normalizePath(filePath);
+  const pathKey = sessionPathKey(filePath);
   const cached = getPathToIdCache().get(pathKey);
   if (cached) return cached;
 
@@ -128,18 +129,26 @@ export async function resolveSessionIdByPath(filePath: string): Promise<string |
 }
 
 export function cacheSessionPath(sessionId: string, filePath: string): void {
-  const pathKey = normalizePath(filePath);
+  const normalizedPath = normalizePath(filePath);
+  const pathKey = sessionPathKey(normalizedPath);
   const pathCache = getPathCache();
   const reverseCache = getPathToIdCache();
   const previousPath = pathCache.get(sessionId);
+  const previousPathKey = previousPath ? sessionPathKey(previousPath) : undefined;
   const previousSessionId = reverseCache.get(pathKey);
-  if (previousPath && previousPath !== pathKey && reverseCache.get(previousPath) === sessionId) {
-    reverseCache.delete(previousPath);
+  const previousOwnerPath = previousSessionId ? pathCache.get(previousSessionId) : undefined;
+  if (previousPathKey && previousPathKey !== pathKey && reverseCache.get(previousPathKey) === sessionId) {
+    reverseCache.delete(previousPathKey);
   }
-  if (previousSessionId && previousSessionId !== sessionId && pathCache.get(previousSessionId) === pathKey) {
+  if (
+    previousSessionId &&
+    previousSessionId !== sessionId &&
+    previousOwnerPath &&
+    sessionPathKey(previousOwnerPath) === pathKey
+  ) {
     pathCache.delete(previousSessionId);
   }
-  pathCache.set(sessionId, pathKey);
+  pathCache.set(sessionId, normalizedPath);
   reverseCache.set(pathKey, sessionId);
 }
 
@@ -148,8 +157,9 @@ export function invalidateSessionPathCache(sessionId: string): void {
   const reverseCache = getPathToIdCache();
   const filePath = pathCache.get(sessionId);
   pathCache.delete(sessionId);
-  if (filePath && reverseCache.get(filePath) === sessionId) {
-    reverseCache.delete(filePath);
+  const pathKey = filePath ? sessionPathKey(filePath) : undefined;
+  if (pathKey && reverseCache.get(pathKey) === sessionId) {
+    reverseCache.delete(pathKey);
   }
 }
 

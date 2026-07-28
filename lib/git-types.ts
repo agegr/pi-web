@@ -18,6 +18,8 @@ export interface GitStatusResponse {
   isGitRepository: boolean;
   repositoryRoot: string | null;
   files: GitFileStatus[];
+  additions: number;
+  deletions: number;
 }
 
 export interface GitFileDiffResponse {

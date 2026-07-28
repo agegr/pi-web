@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, type CSSProperties, type MouseEvent } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties, type MouseEvent } from "react";
 import {
   Prism as SyntaxHighlighter,
   createElement as renderSyntaxNode,
@@ -19,16 +19,20 @@ import {
 } from "@/lib/file-types";
 import { encodeFilePathForApi, getFileDirectory, getFileName, getRelativeFilePath } from "@/lib/file-paths";
 import { resolveLocalFileHref } from "@/lib/file-links";
-import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins } from "@/lib/markdown";
+import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
+import { CodeBlock, MermaidBlock } from "./MermaidBlock";
 import { parseUnifiedPatch } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
+import { useI18n } from "@/hooks/useI18n";
 
 interface Props {
   filePath: string;
   cwd?: string;
   sourceSessionId?: string | null;
   onOpenFile?: (filePath: string) => void;
+  onMentionLines?: (relativePath: string, startLine: number, endLine: number) => void;
   gitRefreshKey?: number;
+  initialDisplayMode?: DisplayMode;
 }
 
 interface FileData {
@@ -73,6 +77,78 @@ type SourceCodeRendererProps = Parameters<NonNullable<SyntaxHighlighterProps["re
   wrapLines: boolean;
 };
 
+interface SelectedLineRange {
+  startLine: number;
+  endLine: number;
+}
+
+function MentionIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
+    </svg>
+  );
+}
+
+function closestSourceLine(node: Node): HTMLElement | null {
+  const element = node.nodeType === Node.ELEMENT_NODE
+    ? node as Element
+    : node.parentElement;
+  return element?.closest<HTMLElement>(".file-source-line[data-line-number]") ?? null;
+}
+
+function getSelectedSourceLineRange(root: HTMLElement, selection: Selection | null): SelectedLineRange | null {
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
+
+  const range = selection.getRangeAt(0);
+  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+
+  let startElement = closestSourceLine(range.startContainer);
+  let endElement = closestSourceLine(range.endContainer);
+  if (!startElement || !endElement || !root.contains(startElement) || !root.contains(endElement)) return null;
+
+  let startLine = Number(startElement.dataset.lineNumber);
+  let endLine = Number(endElement.dataset.lineNumber);
+  if (!Number.isInteger(startLine) || !Number.isInteger(endLine)) return null;
+
+  if (startLine < endLine) {
+    // Browser ranges can start at the end of the preceding line or end at the
+    // start of the following line. Exclude either boundary line when none of
+    // its source text is actually selected.
+    const startContent = startElement.querySelector<HTMLElement>(".file-source-line-content");
+    if (startContent?.contains(range.startContainer)) {
+      const selectedSuffix = document.createRange();
+      selectedSuffix.selectNodeContents(startContent);
+      selectedSuffix.setStart(range.startContainer, range.startOffset);
+      if (selectedSuffix.toString().length === 0) {
+        const nextLine = startElement.nextElementSibling;
+        if (nextLine instanceof HTMLElement && nextLine.matches(".file-source-line[data-line-number]")) {
+          startElement = nextLine;
+          startLine = Number(startElement.dataset.lineNumber);
+        }
+      }
+    }
+
+    const endContent = endElement.querySelector<HTMLElement>(".file-source-line-content");
+    if (endContent?.contains(range.endContainer)) {
+      const selectedPrefix = document.createRange();
+      selectedPrefix.selectNodeContents(endContent);
+      selectedPrefix.setEnd(range.endContainer, range.endOffset);
+      if (selectedPrefix.toString().length === 0) {
+        const previousLine = endElement.previousElementSibling;
+        if (previousLine instanceof HTMLElement && previousLine.matches(".file-source-line[data-line-number]")) {
+          endElement = previousLine;
+          endLine = Number(endElement.dataset.lineNumber);
+        }
+      }
+    }
+  }
+
+  if (startLine > endLine) return null;
+  return { startLine, endLine };
+}
+
 function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines }: SourceCodeRendererProps) {
   return rows.map((row, lineIndex) => {
     const children = row.children ?? [];
@@ -85,6 +161,7 @@ function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines }: So
     return (
       <span
         className="file-source-line"
+        data-line-number={lineIndex + 1}
         key={`source-line-${lineIndex}`}
         style={{ display: "flex", minWidth: "100%" }}
       >
@@ -131,12 +208,13 @@ function getFileApiUrl(
 }
 
 function DownloadLink({ filePath, sourceSessionId }: { filePath: string; sourceSessionId?: string | null }) {
+  const { t } = useI18n();
   return (
     <a
       href={getFileApiUrl(filePath, "download", sourceSessionId)}
       download={getFileName(filePath)}
-      title="Download file"
-      aria-label="Download file"
+      title={t("i18n.downloadFile")}
+      aria-label={t("i18n.downloadFile")}
       className="file-viewer-icon-button"
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -198,13 +276,14 @@ function diffLines(patch: string): DiffLine[] {
 }
 
 function DiffView({ patch }: { patch: string }) {
+  const { t } = useI18n();
   const diff = diffLines(patch);
 
   const hasChanges = diff.some((l) => l.type !== "unchanged");
   if (!hasChanges) {
     return (
       <div style={{ padding: "12px 16px", fontSize: 12, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-        No changes
+        {t("i18n.noChanges")}
       </div>
     );
   }
@@ -332,6 +411,7 @@ function DiffView({ patch }: { patch: string }) {
 }
 
 function ImageViewer({ filePath, cwd, sourceSessionId }: Props) {
+  const { t } = useI18n();
   const [watching, setWatching] = useState(false);
   const [bust, setBust] = useState(0);
   const [size, setSize] = useState<number | null>(null);
@@ -399,7 +479,7 @@ function ImageViewer({ filePath, cwd, sourceSessionId }: Props) {
         {naturalSize && <span>{naturalSize.w} × {naturalSize.h}</span>}
         {formatSizeStr && <span>{formatSizeStr}</span>}
         <span
-          title={watching ? "Live sync active" : "Not watching"}
+          title={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
           style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "#4ade80" : "var(--text-dim)" }}
         >
           <span
@@ -465,6 +545,7 @@ function formatDuration(seconds: number): string {
 }
 
 function AudioViewer({ filePath, cwd, sourceSessionId }: Props) {
+  const { t } = useI18n();
   const [watching, setWatching] = useState(false);
   const [bust, setBust] = useState(0);
   const [size, setSize] = useState<number | null>(null);
@@ -532,7 +613,7 @@ function AudioViewer({ filePath, cwd, sourceSessionId }: Props) {
         {duration != null && <span>{formatDuration(duration)}</span>}
         {size != null && <span>{formatSize(size)}</span>}
         <span
-          title={watching ? "Live sync active" : "Not watching"}
+          title={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
           style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "#4ade80" : "var(--text-dim)" }}
         >
           <span
@@ -581,6 +662,7 @@ function AudioViewer({ filePath, cwd, sourceSessionId }: Props) {
 }
 
 function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
+  const { t } = useI18n();
   const [watching, setWatching] = useState(false);
   const [bust, setBust] = useState(0);
   const [size, setSize] = useState<number | null>(null);
@@ -666,7 +748,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
         {size != null && <span>{formatSize(size)}</span>}
         <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
         <span
-          title={watching ? "Live sync active" : "Not watching"}
+          title={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
           style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "#4ade80" : "var(--text-dim)", flexShrink: 0 }}
         >
           <span
@@ -692,7 +774,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
             key={previewUrl}
             src={previewUrl}
             sandbox={isPdf ? undefined : ""}
-            title={`Preview ${getFileName(filePath)}`}
+            title={t("i18n.previewFile", { file: getFileName(filePath) })}
             style={{ width: "100%", height: "100%", border: "none", background: isPdf ? "var(--bg)" : "#eef1f5" }}
           />
         )}
@@ -701,7 +783,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
   );
 }
 
-export function FileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefreshKey }: Props) {
+export function FileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionLines, gitRefreshKey, initialDisplayMode }: Props) {
   if (isImagePath(filePath)) {
     return <ImageViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} />;
   }
@@ -711,13 +793,15 @@ export function FileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefr
   if (isDocumentPreviewPath(filePath)) {
     return <DocumentViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} />;
   }
-  return <TextFileViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} onOpenFile={onOpenFile} gitRefreshKey={gitRefreshKey} />;
+  return <TextFileViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} onOpenFile={onOpenFile} onMentionLines={onMentionLines} gitRefreshKey={gitRefreshKey} initialDisplayMode={initialDisplayMode} />;
 }
 
-function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefreshKey }: Props) {
+function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionLines, gitRefreshKey, initialDisplayMode }: Props) {
   const { isDark } = useTheme();
+  const { t } = useI18n();
   const [data, setData] = useState<FileData | null>(null);
   const [gitDiff, setGitDiff] = useState<GitFileDiffResponse | null>(null);
+  const [gitDiffLoading, setGitDiffLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [displayMode, setDisplayMode] = useState<DisplayMode>("source");
@@ -725,6 +809,8 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefresh
   const [watching, setWatching] = useState(false);
   const esRef = useRef<EventSource | null>(null);
   const gitDiffRequestRef = useRef(0);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const [selectedLineRange, setSelectedLineRange] = useState<SelectedLineRange | null>(null);
 
   const fetchContent = useCallback((filePath: string) => {
     return fetch(getFileApiUrl(filePath, "read", sourceSessionId))
@@ -746,8 +832,10 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefresh
 
   const fetchGitDiff = useCallback(async (targetPath: string) => {
     const requestId = ++gitDiffRequestRef.current;
+    setGitDiffLoading(true);
     if (!cwd) {
       setGitDiff(null);
+      setGitDiffLoading(false);
       return;
     }
 
@@ -759,6 +847,8 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefresh
       setGitDiff(response.ok && next.supported && typeof next.patch === "string" ? next : null);
     } catch {
       if (requestId === gitDiffRequestRef.current) setGitDiff(null);
+    } finally {
+      if (requestId === gitDiffRequestRef.current) setGitDiffLoading(false);
     }
   }, [cwd]);
 
@@ -777,9 +867,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefresh
       esRef.current = null;
     }
 
-    fetchContent(filePath).then((d) => {
-      if (d?.language === "markdown") setDisplayMode("preview");
-    }).finally(() => setLoading(false));
+    fetchContent(filePath).finally(() => setLoading(false));
 
     // Set up SSE watch
     const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
@@ -812,21 +900,105 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefresh
     void fetchGitDiff(filePath);
   }, [fetchGitDiff, filePath, gitRefreshKey]);
 
+  useEffect(() => {
+    if (data?.language === "markdown" && initialDisplayMode !== "diff") {
+      setDisplayMode("preview");
+    }
+  }, [data?.language, initialDisplayMode]);
+
   const hasGitDiff = gitDiff?.supported === true && typeof gitDiff.patch === "string";
+  const isDeletedDiff = hasGitDiff && gitDiff.status === "deleted";
 
   useEffect(() => {
     if (!hasGitDiff && displayMode === "diff") setDisplayMode("source");
   }, [displayMode, hasGitDiff]);
 
-  if (loading) {
+  useEffect(() => {
+    if (!isDeletedDiff || !esRef.current) return;
+    esRef.current.close();
+    esRef.current = null;
+    setWatching(false);
+  }, [isDeletedDiff]);
+
+  // Opened from the Changes list (initialDisplayMode === "diff"): switch to the
+  // diff view once the git diff has resolved. We do this after the diff loads
+  // rather than at mount so files without a diff never flash an empty diff view.
+  const autoDiffAppliedRef = useRef(false);
+  useEffect(() => {
+    autoDiffAppliedRef.current = false;
+  }, [filePath]);
+  useEffect(() => {
+    if (initialDisplayMode === "diff" && hasGitDiff && !autoDiffAppliedRef.current) {
+      autoDiffAppliedRef.current = true;
+      setDisplayMode("diff");
+    }
+  }, [initialDisplayMode, hasGitDiff]);
+
+  const markdownPreview = useMemo(
+    () => (data?.language === "markdown" ? normalizeDisplayMath(data.content) : ""),
+    [data],
+  );
+
+  useEffect(() => {
+    const updateSelectedLineRange = () => {
+      const root = contentRef.current;
+      setSelectedLineRange(
+        onMentionLines && displayMode === "source" && root
+          ? getSelectedSourceLineRange(root, window.getSelection())
+          : null,
+      );
+    };
+
+    updateSelectedLineRange();
+    if (!onMentionLines || displayMode !== "source") return;
+
+    document.addEventListener("selectionchange", updateSelectedLineRange);
+    return () => document.removeEventListener("selectionchange", updateSelectedLineRange);
+  }, [data?.content, displayMode, onMentionLines]);
+
+  const mentionLineRange = useCallback((lineRange: SelectedLineRange | null) => {
+    if (!onMentionLines || !lineRange) return;
+    onMentionLines(
+      getRelativeFilePath(filePath, cwd),
+      lineRange.startLine,
+      lineRange.endLine,
+    );
+  }, [cwd, filePath, onMentionLines]);
+
+  const handleMentionSelectedLines = useCallback(() => {
+    mentionLineRange(selectedLineRange);
+  }, [mentionLineRange, selectedLineRange]);
+
+  useEffect(() => {
+    if (!onMentionLines || displayMode !== "source") return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || event.key.toLowerCase() !== "i" || (!event.metaKey && !event.ctrlKey) || event.altKey || event.shiftKey) return;
+
+      const target = event.target;
+      if (target instanceof Element && target.closest("input, textarea, [contenteditable='true']")) return;
+
+      const root = contentRef.current;
+      const lineRange = root ? getSelectedSourceLineRange(root, window.getSelection()) : null;
+      if (!lineRange) return;
+
+      event.preventDefault();
+      mentionLineRange(lineRange);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [displayMode, mentionLineRange, onMentionLines]);
+
+  if (loading || (initialDisplayMode === "diff" && gitDiffLoading && !data)) {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 13 }}>
-        Loading...
+        {t("i18n.loading")}
       </div>
     );
   }
 
-  if (error) {
+  if (error && !isDeletedDiff) {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#f87171", fontSize: 13 }}>
         {error}
@@ -834,19 +1006,26 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefresh
     );
   }
 
-  if (!data) return null;
+  if (!data && !isDeletedDiff) return null;
 
-  const isHtml = data.language === "html";
-  const isMarkdown = data.language === "markdown";
+  const language = data?.language ?? "text";
+  const content = data?.content ?? "";
+  const isHtml = language === "html";
+  const isMarkdown = language === "markdown";
   const hasPreview = isHtml || isMarkdown;
   const markdownDirectory = getFileDirectory(filePath);
-  const lines = data.content.split("\n");
-  const displayModes: DisplayMode[] = [
-    "source",
-    ...(hasPreview ? ["preview" as const] : []),
-    ...(hasGitDiff ? ["diff" as const] : []),
-  ];
-  const metadata = `${data.language} · ${lines.length} lines · ${formatSize(data.size)}`;
+  const lines = content.split("\n");
+  const effectiveDisplayMode = isDeletedDiff ? "diff" : displayMode;
+  const displayModes: DisplayMode[] = isDeletedDiff
+    ? ["diff"]
+    : [
+        "source",
+        ...(hasPreview ? ["preview" as const] : []),
+        ...(hasGitDiff ? ["diff" as const] : []),
+      ];
+  const metadata = isDeletedDiff
+    ? t("files.deleted")
+    : `${language} · ${lines.length} lines · ${formatSize(data!.size)}`;
 
   return (
     <div className="file-viewer-shell" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -869,27 +1048,29 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefresh
         </span>
 
         <span className="file-viewer-meta" title={metadata}>{metadata}</span>
-        <span
-          title={watching ? "Live sync active" : "Not watching"}
-          aria-label={watching ? "Live sync active" : "Not watching"}
-          className="file-viewer-live-indicator"
-          style={{
-            background: watching ? "#4ade80" : "var(--border)",
-            boxShadow: watching ? "0 0 4px #4ade80" : "none",
-          }}
-        />
+        {!isDeletedDiff && (
+          <span
+            title={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
+            aria-label={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
+            className="file-viewer-live-indicator"
+            style={{
+              background: watching ? "#4ade80" : "var(--border)",
+              boxShadow: watching ? "0 0 4px #4ade80" : "none",
+            }}
+          />
+        )}
 
         <div className="file-viewer-controls">
           {displayModes.length > 1 && (
-            <div className="file-viewer-mode-switch" aria-label="File view mode">
+            <div className="file-viewer-mode-switch" aria-label={t("i18n.fileViewMode")}>
               {displayModes.map((mode) => {
-                const active = displayMode === mode;
+                const active = effectiveDisplayMode === mode;
                 return (
                   <button
                     key={mode}
                     type="button"
                     onClick={() => setDisplayMode(mode)}
-                    title={mode === "diff" ? "Compare working tree with HEAD" : undefined}
+                    title={mode === "diff" ? t("i18n.compareHead") : undefined}
                     aria-pressed={active}
                     className="file-viewer-mode-button"
                     style={{
@@ -904,46 +1085,59 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefresh
             </div>
           )}
 
-          <div className="file-viewer-action-slot">
-            {displayMode === "source" && (
-              <button
-                type="button"
-                onClick={() => setWrapLines((value) => !value)}
-                title={wrapLines ? "Disable word wrap" : "Enable word wrap"}
-                aria-label={wrapLines ? "Disable word wrap" : "Enable word wrap"}
-                aria-pressed={wrapLines}
-                className="file-viewer-icon-button"
-                style={{
-                  background: wrapLines ? "var(--bg-selected)" : "transparent",
-                  color: wrapLines ? "var(--text)" : "var(--text-muted)",
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M3 6h18" />
-                  <path d="M3 12h15a3 3 0 1 1 0 6h-4" />
-                  <path d="m16 16-2 2 2 2" />
-                  <path d="M3 18h7" />
-                </svg>
-              </button>
+          <div className="file-viewer-actions">
+            {effectiveDisplayMode === "source" && (
+              <>
+                <button
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={handleMentionSelectedLines}
+                  title={t("i18n.mentionSelectedLines")}
+                  aria-label={t("i18n.mentionSelectedLines")}
+                  disabled={!selectedLineRange}
+                  className="file-viewer-icon-button"
+                >
+                  <MentionIcon />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWrapLines((value) => !value)}
+                  title={wrapLines ? t("i18n.disableWrap") : t("i18n.enableWrap")}
+                  aria-label={wrapLines ? t("i18n.disableWrap") : t("i18n.enableWrap")}
+                  aria-pressed={wrapLines}
+                  className="file-viewer-icon-button"
+                  style={{
+                    background: wrapLines ? "var(--bg-selected)" : "transparent",
+                    color: wrapLines ? "var(--text)" : "var(--text-muted)",
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M3 6h18" />
+                    <path d="M3 12h15a3 3 0 1 1 0 6h-4" />
+                    <path d="m16 16-2 2 2 2" />
+                    <path d="M3 18h7" />
+                  </svg>
+                </button>
+              </>
             )}
           </div>
 
-          <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
+          {!isDeletedDiff && <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />}
         </div>
       </div>
 
       {/* Content area */}
-      <div className="file-viewer-content" style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}>
-        {displayMode === "diff" && hasGitDiff ? (
+      <div ref={contentRef} className="file-viewer-content" style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}>
+        {effectiveDisplayMode === "diff" && hasGitDiff ? (
           <DiffView patch={gitDiff.patch!} />
-        ) : isHtml && displayMode === "preview" ? (
+        ) : isHtml && effectiveDisplayMode === "preview" ? (
           <iframe
-            srcDoc={data.content}
+            srcDoc={content}
             sandbox="allow-scripts"
             style={{ width: "100%", height: "100%", border: "none", background: "var(--bg)" }}
-            title="HTML preview"
+             title={t("i18n.htmlPreview")}
           />
-        ) : isMarkdown && displayMode === "preview" ? (
+        ) : isMarkdown && effectiveDisplayMode === "preview" ? (
           <div
             className="markdown-body markdown-file-preview"
             style={{ padding: "24px 32px" }}
@@ -952,6 +1146,27 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefresh
               remarkPlugins={markdownPreviewRemarkPlugins}
               rehypePlugins={markdownPreviewRehypePlugins}
               components={{
+                code({ className, children, ...props }) {
+                  const lang = className?.replace("language-", "").toLowerCase() ?? "";
+                  const raw = String(children);
+                  const isBlock = className?.includes("language-") || raw.includes("\n");
+                  if (isBlock) {
+                    if (lang === "mermaid") {
+                      return <MermaidBlock code={raw.replace(/\n$/, "")} defaultPreview />;
+                    }
+                    return <CodeBlock code={raw.replace(/\n$/, "")} lang={lang} />;
+                  }
+                  return (
+                    <code className={className} {...props}>
+                      {children}
+                    </code>
+                  );
+                },
+                pre({ children }) {
+                  // Render the code block directly — CodeBlock provides its own wrapping.
+                  // For non-mermaid blocks, pass through to default pre rendering.
+                  return <>{children}</>;
+                },
                 a({ href, children, ...props }) {
                   delete props.node;
                   const linkedFile = onOpenFile
@@ -970,15 +1185,27 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefresh
 
                   return <a href={href} {...props} onClick={handleClick}>{children}</a>;
                 },
+                img({ src, alt, ...props }) {
+                  delete props.node;
+                  const imagePath = typeof src === "string"
+                    ? resolveLocalFileHref(src, markdownDirectory, cwd ?? markdownDirectory)
+                    : null;
+                  const imageSrc = imagePath
+                    ? getFileApiUrl(imagePath, "read", sourceSessionId)
+                    : src;
+                  // Dynamic local paths are served directly by the file API.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  return <img src={imageSrc} alt={alt ?? ""} loading="lazy" {...props} />;
+                },
               }}
             >
-              {data.content}
+              {markdownPreview}
             </ReactMarkdown>
           </div>
         ) : (
           <SyntaxHighlighter
             className={wrapLines ? "file-source-view is-wrapped" : "file-source-view"}
-            language={data.language === "text" ? "plaintext" : data.language}
+            language={language === "text" ? "plaintext" : language}
             style={isDark ? vscDarkPlus : vs}
             showLineNumbers
             lineNumberStyle={{
@@ -1006,7 +1233,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefresh
             )}
             wrapLongLines={wrapLines}
           >
-            {data.content}
+            {content}
           </SyntaxHighlighter>
         )}
       </div>
