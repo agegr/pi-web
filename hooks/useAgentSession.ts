@@ -172,6 +172,12 @@ const AGENT_STATE_RECONCILE_MS = 15_000;
 const BASH_STATE_RECONCILE_MS = 1_000;
 const EVENT_STREAM_CONNECT_TIMEOUT_MS = 5_000;
 const MAX_NOTICES = 5;
+// Threshold auto-compaction stops the agent loop upstream, stranding a task
+// mid-flight. pi-web resumes it, bounded so a task that keeps overflowing
+// cannot spend tokens in a loop without the user noticing.
+const AUTO_CONTINUE_PROMPT = "Continue the task you were working on before the context was compacted.";
+const AUTO_CONTINUE_MAX_CONSECUTIVE = 3;
+
 const NOTICE_VISIBLE_MS = 5000;
 const NOTICE_EXIT_ANIMATION_MS = 180;
 const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " ", "Space", "Spacebar"]);
@@ -438,6 +444,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // addNotice is declared further down; the recovery paths above it reach the
   // current one through this ref.
   const addNoticeRef = useRef<((notice: { id?: string; message: string; type?: NoticeType }) => void) | null>(null);
+  // Threshold auto-compaction ends the agent loop by design upstream (pi's
+  // _checkCompaction: "Threshold: ... NO auto-retry (user continues
+  // manually)"), which strands a half-finished task. These drive the
+  // continuation pi-web sends on the user's behalf.
+  const autoContinueArmedRef = useRef(false);
+  const autoContinueCountRef = useRef(0);
+  const handleSendRef = useRef<
+    ((message: string, images?: AttachedImage[], options?: { auto?: boolean }) => Promise<void>) | null
+  >(null);
 
   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
 
@@ -1010,6 +1025,25 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), EVENT_STREAM_IDLE_GRACE_MS);
   }, [cancelEventStreamGrace, closeEvents]);
 
+  // Send the continuation for a turn that threshold compaction cut short.
+  // Compaction_end can arrive either side of agent_end, so this is armed by the
+  // event and fired from wherever the run actually settles.
+  const maybeAutoContinueAfterCompaction = useCallback(() => {
+    if (!autoContinueArmedRef.current) return;
+    if (agentRunningRef.current || bashRunningRef.current) return;
+    autoContinueArmedRef.current = false;
+    if (autoContinueCountRef.current >= AUTO_CONTINUE_MAX_CONSECUTIVE) {
+      addNoticeRef.current?.({
+        type: "warning",
+        message: `Stopped auto-continuing after ${AUTO_CONTINUE_MAX_CONSECUTIVE} compactions in a row — send a message to resume.`,
+      });
+      return;
+    }
+    autoContinueCountRef.current += 1;
+    addNoticeRef.current?.({ type: "info", message: "Context compacted — continuing the task." });
+    void handleSendRef.current?.(AUTO_CONTINUE_PROMPT, undefined, { auto: true });
+  }, []);
+
   const finishPromptWithoutStream = useCallback(async (sid: string | null = sessionIdRef.current, runId = promptRunIdRef.current) => {
     // Bail out before loadSession too: a stale finish for a previous run
     // must not overwrite the messages of the run currently streaming.
@@ -1030,8 +1064,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         onAgentEnd?.();
       }
       if (sid) scheduleEventStreamClose(sid);
+      maybeAutoContinueAfterCompaction();
     }
-  }, [loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, settleUiStage]);
+  }, [loadSession, maybeAutoContinueAfterCompaction, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, settleUiStage]);
 
   const waitForPromptSettlement = useCallback(async (sid: string, runId?: number) => {
     await delay(PROMPT_SETTLE_INITIAL_DELAY_MS);
@@ -1202,6 +1237,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           scheduleEventStreamClose(sid);
         }
         if (wasRunning) onAgentEnd?.();
+        maybeAutoContinueAfterCompaction();
         break;
       }
       case "prompt_done":
@@ -1349,21 +1385,41 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           setCompactError(event.errorMessage as string);
           setCompactResult(null);
         } else if (!event.aborted) {
-          setCompactResult(readCompactResult(event.result, (event.reason as string | undefined) ?? "auto"));
+          const reason = (event.reason as string | undefined) ?? "auto";
+          setCompactResult(readCompactResult(event.result, reason));
           if (sessionIdRef.current) loadSession(sessionIdRef.current);
+          // Only threshold auto-compaction strands the task: a manual /compact
+          // is the user deliberately stopping, and willRetry means pi resumes
+          // the turn itself (the overflow path) — continuing there would double
+          // up.
+          if (reason !== "manual" && !event.willRetry) {
+            autoContinueArmedRef.current = true;
+            maybeAutoContinueAfterCompaction();
+          }
         }
         break;
       case "extension_ui_request":
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, applyLiveAgentModel, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, reconcilePendingQueue, scheduleEventStreamClose, settleUiStage]);
+  }, [addNotice, applyLiveAgentModel, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, maybeAutoContinueAfterCompaction, notifyPromptStage, onAgentEnd, reconcilePendingQueue, scheduleEventStreamClose, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
 
-  const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
+  const handleSend = useCallback(async (
+    message: string,
+    images?: AttachedImage[],
+    options?: { auto?: boolean },
+  ) => {
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return;
     if (agentRunningRef.current || bashRunningRef.current) return;
+    // Anything the user sends themselves means the task is back under their
+    // control: the streak starts over, and a continuation still armed from a
+    // compaction they already responded to must not fire after this run.
+    if (!options?.auto) {
+      autoContinueCountRef.current = 0;
+      autoContinueArmedRef.current = false;
+    }
     const isSlashCommandPrompt = !images?.length && trimmedMessage.startsWith("/");
 
     const isBashCommand = !images?.length && trimmedMessage.startsWith("!");
@@ -1478,6 +1534,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       dispatch({ type: "end" });
     }
   }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, restoreFailedPrompt]);
+  handleSendRef.current = handleSend;
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
