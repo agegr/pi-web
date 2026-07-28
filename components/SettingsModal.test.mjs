@@ -161,21 +161,29 @@ test("父 dialog 精确约束可见焦点并仅恢复仍连接的原焦点", asy
   );
 });
 
-test("通用页提供三态主题按钮和受控动态语言下拉", async () => {
+test("通用页使用共享 SegmentedControl 与 OptionSelect", async () => {
   const content = await source("components/SettingsModal.tsx");
 
-  assert.match(content, /useTheme\(\)/);
-  assert.match(content, /useI18n\(\)/);
-  assert.match(content, /id: "system"/);
-  assert.match(content, /id: "light"/);
-  assert.match(content, /id: "dark"/);
-  assert.match(content, /setThemePreference\(option\.id/);
-  assert.match(content, /setLocale/);
-  assert.match(content, /<select[^>]*value=\{locale\}[^>]*onChange=/);
-  assert.match(content, /onChange=\{event => setLocale\(event\.target\.value\)\}/);
-  assert.doesNotMatch(content, /event\.target\.value as Locale/);
-  assert.match(content, /supportedLocales\.map\(plugin => \(<option/);
-  assert.match(content, /className="settings-compact-choice"/);
+  assert.match(content, /import \{ SegmentedControl \} from "\.\/ui\/SegmentedControl";/);
+  assert.match(content, /import \{ OptionSelect \} from "\.\/ui\/OptionSelect";/);
+  assert.match(content, /import \{ useTheme, type ThemePreference \} from "@\/hooks\/useTheme";/);
+  // 主题三态选项与 View Transition 坐标保留。
+  assert.match(content, /<SegmentedControl/);
+  assert.match(content, /value=\{preference\}/);
+  assert.match(content, /\{ value: "system", label: translate\("settings\.system"\) \}/);
+  assert.match(content, /\{ value: "light", label: translate\("settings\.light"\) \}/);
+  assert.match(content, /\{ value: "dark", label: translate\("settings\.dark"\) \}/);
+  assert.match(content, /event\.currentTarget\.getBoundingClientRect\(\)/);
+  assert.match(content, /setThemePreference\(value as ThemePreference,/);
+  // 语言为动态 OptionSelect，选项完全来自 supportedLocales。
+  assert.match(content, /<OptionSelect/);
+  assert.match(content, /value=\{locale\}/);
+  assert.match(content, /options=\{supportedLocales\.map\(plugin => \(\{ value: plugin\.id, label: plugin\.label \}\)\)\}/);
+  assert.match(content, /onChange=\{value => setLocale\(value\)\}/);
+  // 原生 select 与旧紧凑按钮样式不再存在。
+  assert.doesNotMatch(content, /<select/);
+  assert.doesNotMatch(content, /settings-compact-choice/);
+  assert.doesNotMatch(content, /settings-language-select/);
   assert.match(content, /PasswordChangeForm/);
 });
 
@@ -270,18 +278,15 @@ test("设置中心样式包含桌面双栏、移动 tabs 和清晰焦点", async
   assert.doesNotMatch(css, /\.settings-nav(?=[\s,{.:])/);
 });
 
-test("设置通用页和安全页使用紧凑 scoped 样式", async () => {
+test("设置通用页和安全页使用共享控件样式", async () => {
   const css = await source("app/globals.css");
 
-  for (const selector of [
-    ".settings-compact-choice",
-    ".settings-language-select",
-    ".settings-security .auth-form",
-  ]) {
-    assert.match(css, new RegExp(selector.replaceAll(".", "\\.")));
-  }
-  assert.match(css, /\.settings-compact-choice \{[^}]*font-size: 12px;[^}]*border-radius: 5px;/);
-  assert.match(css, /\.settings-language-select \{[^}]*font-size: 12px;[^}]*border-radius: 5px;/);
+  assert.match(css, /\.ui-segmented-control \{/);
+  assert.match(css, /\.ui-option-select \{/);
+  assert.match(css, /\.settings-security \.auth-form \{/);
+  assert.doesNotMatch(css, /\.settings-compact-choice/);
+  assert.doesNotMatch(css, /\.settings-language-select/);
+  assert.doesNotMatch(css, /\.settings-fieldset label/);
 });
 
 test("双语语言包提供跟随系统主题文案", async () => {
@@ -310,4 +315,29 @@ test("AppShell 仅在模型保存成功时触发模型列表刷新", async () =>
   assert.equal(content.match(/setModelsRefreshKey\(/g)?.length, 1);
   assert.match(content, /onModelsSaved=\{\(\) => setModelsRefreshKey\(key => key \+ 1\)\}/);
   assert.match(content, /onSessionReloaded=\{\(\) => setSessionKey\(key => key \+ 1\)\}/);
+});
+
+test("模型与技能按钮组接入共享 SegmentedControl", async () => {
+  const [models, skills] = await Promise.all([
+    source("components/ModelsConfig.tsx"),
+    source("components/SkillsConfig.tsx"),
+  ]);
+
+  // 模型页 thinking level 的 Default/Disabled 使用共享控件，Disabled 保留 danger 语义。
+  assert.match(models, /import \{ SegmentedControl \} from "\.\/ui\/SegmentedControl";/);
+  assert.match(models, /<SegmentedControl/);
+  assert.match(models, /\{ value: "default", label: "Default" \}/);
+  assert.match(models, /\{ value: "disabled", label: "Disabled", className: "ui-segmented-control-option--danger" \}/);
+  assert.match(models, /onChange=\{\(next\) => setLevel\(level, next === "default" \? "omit" : null\)\}/);
+  assert.doesNotMatch(models, /btnActiveDisabled/);
+  // Custom + input 融合控件保持现状。
+  assert.match(models, /placeholder=\{level\}/);
+
+  // 技能页 Add Skill 的 global/project scope 使用共享控件，禁用与 title 保留。
+  assert.match(skills, /import \{ SegmentedControl \} from "\.\/ui\/SegmentedControl";/);
+  assert.match(skills, /<SegmentedControl/);
+  assert.match(skills, /value=\{scope\}/);
+  assert.match(skills, /disabled: !projectResourcesLoaded/);
+  assert.match(skills, /t\("trust\.projectScopeUnavailable"\)/);
+  assert.match(skills, /onChange=\{\(next\) => setScope\(next as "global" \| "project"\)\}/);
 });

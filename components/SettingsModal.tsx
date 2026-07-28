@@ -9,10 +9,12 @@ import {
 } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { useTheme } from "@/hooks/useTheme";
+import { useTheme, type ThemePreference } from "@/hooks/useTheme";
 import { ModelsConfig } from "./ModelsConfig";
+import { OptionSelect } from "./ui/OptionSelect";
 import { PasswordChangeForm } from "./PasswordChangeForm";
 import { PluginsConfig } from "./PluginsConfig";
+import { SegmentedControl } from "./ui/SegmentedControl";
 import { SkillsConfig } from "./SkillsConfig";
 
 const FOCUSABLE_SELECTOR = [
@@ -52,52 +54,36 @@ export interface SettingsModalProps {
 function GeneralSettings(): ReactElement {
   const { preference, setThemePreference } = useTheme();
   const { locale, setLocale, supportedLocales, t: translate } = useI18n();
-  const themeOptions = [
-    { id: "system", label: translate("settings.system") },
-    { id: "light", label: translate("settings.light") },
-    { id: "dark", label: translate("settings.dark") },
-  ] as const;
 
   return (
     <div className="settings-general">
       <fieldset className="settings-fieldset">
         <legend>{translate("settings.theme")}</legend>
-        <div className="settings-compact-choices">
-          {themeOptions.map(option => {
-            const selected = preference === option.id;
-            return (
-              <button
-                key={option.id}
-                type="button"
-                className="settings-compact-choice"
-                aria-pressed={selected}
-                onClick={event => {
-                  if (selected) return;
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  setThemePreference(option.id, {
-                    x: rect.left + rect.width / 2,
-                    y: rect.top + rect.height / 2,
-                  });
-                }}
-              >
-                {option.label}
-              </button>
-            );
-          })}
-        </div>
+        <SegmentedControl
+          ariaLabel={translate("settings.theme")}
+          value={preference}
+          options={[
+            { value: "system", label: translate("settings.system") },
+            { value: "light", label: translate("settings.light") },
+            { value: "dark", label: translate("settings.dark") },
+          ]}
+          onChange={(value, event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            setThemePreference(value as ThemePreference, {
+              x: rect.left + rect.width / 2,
+              y: rect.top + rect.height / 2,
+            });
+          }}
+        />
       </fieldset>
       <fieldset className="settings-fieldset">
         <legend>{translate("common.language")}</legend>
-        <label>
-          {translate("common.language")}
-          <select
-            className="settings-language-select"
-            value={locale}
-            onChange={event => setLocale(event.target.value)}
-          >
-            {supportedLocales.map(plugin => (<option key={plugin.id} value={plugin.id}>{plugin.label}</option>))}
-          </select>
-        </label>
+        <OptionSelect
+          ariaLabel={translate("common.language")}
+          value={locale}
+          options={supportedLocales.map(plugin => ({ value: plugin.id, label: plugin.label }))}
+          onChange={value => setLocale(value)}
+        />
       </fieldset>
     </div>
   );

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, type ReactElement } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
+import { SegmentedControl } from "./ui/SegmentedControl";
 // Color icons (have their own fill colors — no background needed)
 import AnthropicIcon from "@lobehub/icons/es/Anthropic/components/Mono";
 import OpenAIIcon from "@lobehub/icons/es/OpenAI/components/Mono";
@@ -402,12 +403,6 @@ function ThinkingLevelMapEditor({
           color: "#fff",
           fontWeight: 600,
         };
-        const btnActiveDisabled: React.CSSProperties = {
-          background: "#ef4444",
-          color: "#fff",
-          fontWeight: 600,
-        };
-
         return (
           <div
             key={level}
@@ -435,20 +430,15 @@ function ThinkingLevelMapEditor({
             </div>
 
             {/* Default + Disabled buttons */}
-            <div style={{ display: "flex", borderRadius: 5, border: "1px solid var(--border)", overflow: "hidden", flexShrink: 0 }}>
-              <button
-                onClick={() => setLevel(level, "omit")}
-                style={{ ...btnBase, ...(state === "omit" ? btnActive : {}) }}
-              >
-                Default
-              </button>
-              <button
-                onClick={() => setLevel(level, null)}
-                style={{ ...btnBase, borderLeft: "1px solid var(--border)", ...(state === "null" ? btnActiveDisabled : {}) }}
-              >
-                Disabled
-              </button>
-            </div>
+            <SegmentedControl
+              ariaLabel={level}
+              value={state === "omit" ? "default" : state === "null" ? "disabled" : "custom"}
+              options={[
+                { value: "default", label: "Default" },
+                { value: "disabled", label: "Disabled", className: "ui-segmented-control-option--danger" },
+              ]}
+              onChange={(next) => setLevel(level, next === "default" ? "omit" : null)}
+            />
 
             {/* Custom button + input fused */}
             <div style={{ display: "flex", borderRadius: 5, border: `1px solid ${state === "string" ? "var(--accent)" : "var(--border)"}`, overflow: "hidden", transition: "border-color 0.1s" }}>

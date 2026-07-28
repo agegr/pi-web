@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, type ReactElement } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
+import { SegmentedControl } from "./ui/SegmentedControl";
 import type {
   SkillInfo as Skill,
   SkillInstallScope,
@@ -484,40 +485,20 @@ function AddSkillPanel({
 
         {/* Scope + install path row */}
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div
-            style={{
-              display: "flex",
-              borderRadius: 5,
-              border: "1px solid var(--border)",
-              overflow: "hidden",
-              fontSize: 12,
-              flexShrink: 0,
-            }}
-          >
-            {(["global", "project"] as const).map((s) => (
-              <button
-                key={s}
-                onClick={() => {
-                  if (s === "global" || projectResourcesLoaded) setScope(s);
-                }}
-                disabled={s === "project" && !projectResourcesLoaded}
-                title={s === "project" && !projectResourcesLoaded ? t("trust.projectScopeUnavailable") : undefined}
-                style={{
-                  padding: "3px 10px",
-                  border: "none",
-                  cursor: s === "project" && !projectResourcesLoaded ? "not-allowed" : "pointer",
-                  background: scope === s ? "var(--bg-selected)" : "none",
-                  color: scope === s ? "var(--text)" : "var(--text-dim)",
-                  fontWeight: scope === s ? 600 : 400,
-                  opacity: s === "project" && !projectResourcesLoaded ? 0.45 : 1,
-                  borderRight:
-                    s === "global" ? "1px solid var(--border)" : "none",
-                }}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            ariaLabel={t("i18n.addSkill")}
+            value={scope}
+            options={[
+              { value: "global", label: "global" },
+              {
+                value: "project",
+                label: "project",
+                disabled: !projectResourcesLoaded,
+                title: !projectResourcesLoaded ? t("trust.projectScopeUnavailable") : undefined,
+              },
+            ]}
+            onChange={(next) => setScope(next as "global" | "project")}
+          />
           <span
             style={{
               fontSize: 12,
