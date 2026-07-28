@@ -1,7 +1,7 @@
-/** 认证表单提交所需的字段集合。 */
+/** Set of fields required to submit an authentication form. */
 type AuthFormValues = Record<string, FormDataEntryValue>;
 
-/** 认证表单提交的输入参数。 */
+/** Input parameters for submitting an authentication form. */
 type SubmitAuthFormOptions = {
   mode: "login" | "setup";
   values: AuthFormValues;
@@ -10,8 +10,8 @@ type SubmitAuthFormOptions = {
 };
 
 /**
- * 认证 API 返回的稳定错误码。
- * @remarks 客户端根据当前语言将错误码映射为可读文案。
+ * Stable error codes returned by the authentication API.
+ * @remarks The client maps error codes to readable text using the current language.
  */
 export type AuthErrorCode =
   | "AUTH_INVALID_PARAMETERS"
@@ -33,14 +33,14 @@ function getAuthErrorCode(mode: "login" | "setup", status: number): AuthErrorCod
 }
 
 /**
- * 提交登录或初始化认证请求，并在成功时调用回调。
- * @param options 提交模式、表单值、请求函数和成功回调。
- * @param options.mode 当前认证模式。
- * @param options.values 要提交的表单值。
- * @param options.request 用于发送请求的 fetch 实现。
- * @param options.onSuccess 请求成功后的回调。
- * @returns 表示提交成功或失败及其通用错误文案的结果。
- * @throws 不会抛出请求异常；请求异常会转换为通用失败结果。
+ * Submit a login or authentication setup request and call the callback on success.
+ * @param options Submission mode, form values, request function, and success callback.
+ * @param options.mode Current authentication mode.
+ * @param options.values Form values to submit.
+ * @param options.request fetch implementation used to send the request.
+ * @param options.onSuccess Callback after a successful request.
+ * @returns Result indicating success or failure with a generic error code.
+ * @throws Does not throw request errors; request errors are converted to a generic failure result.
  */
 export async function submitAuthForm({ mode, values, request, onSuccess }: SubmitAuthFormOptions): Promise<SubmitAuthFormResult> {
   if (mode === "setup" && values.password !== values.confirmPassword) {

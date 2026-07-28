@@ -9,7 +9,7 @@ type Params = { params: Promise<{ provider: string }> };
 
 // GET /api/auth/api-key/[provider] — returns auth status (never returns the actual key)
 export async function GET(_req: Request, { params }: Params) {
-  if (!getAuthenticatedSession(_req).valid) return NextResponse.json({ error: "未认证" }, { status: 401 });
+  if (!getAuthenticatedSession(_req).valid) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   const { provider } = await params;
   const modelRuntime = await ModelRuntime.create();
   const status = modelRuntime.getProviderAuthStatus(provider);
@@ -20,7 +20,7 @@ export async function GET(_req: Request, { params }: Params) {
 
 // POST /api/auth/api-key/[provider]  body: { apiKey: string }
 export async function POST(req: Request, { params }: Params) {
-  if (!getAuthenticatedSession(req).valid) return NextResponse.json({ error: "未认证" }, { status: 401 });
+  if (!getAuthenticatedSession(req).valid) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   const { provider } = await params;
   try {
     const { apiKey } = await readAuthJson(req) as { apiKey?: string };
@@ -48,13 +48,13 @@ export async function POST(req: Request, { params }: Params) {
     return NextResponse.json({ success: true });
   } catch (error) {
     const status = (error as { status?: number }).status;
-    return NextResponse.json({ error: status ? (error as Error).message : "认证配置失败" }, { status: status ?? 500 });
+    return NextResponse.json({ error: status ? (error as Error).message : "Authentication configuration failed" }, { status: status ?? 500 });
   }
 }
 
 // DELETE /api/auth/api-key/[provider] — removes stored API key
 export async function DELETE(_req: Request, { params }: Params) {
-  if (!getAuthenticatedSession(_req).valid) return NextResponse.json({ error: "未认证" }, { status: 401 });
+  if (!getAuthenticatedSession(_req).valid) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   const { provider } = await params;
   try {
     const modelRuntime = await ModelRuntime.create();

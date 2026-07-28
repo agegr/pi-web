@@ -3,22 +3,22 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * 用户选择的主题偏好，可跟随系统或固定为浅色、深色。
+ * The user's theme preference, following the system or fixed to light or dark.
  */
 export type ThemePreference = "system" | "light" | "dark";
 
 /**
- * 当前实际应用到界面的有效主题。
+ * The effective theme currently applied to the interface.
  */
 export type Theme = "light" | "dark";
 
 /**
- * 主题切换动画的起始坐标。
+ * The origin coordinates for the theme transition animation.
  */
 export interface ThemeTransitionOrigin {
-  /** 视口内的横向坐标。 */
+  /** Horizontal coordinate within the viewport. */
   x: number;
-  /** 视口内的纵向坐标。 */
+  /** Vertical coordinate within the viewport. */
   y: number;
 }
 
@@ -30,21 +30,21 @@ let state: { preference: ThemePreference; theme: Theme } = {
 let mediaQuery: MediaQueryList | null = null;
 
 /**
- * 将存储值规范化为受支持的主题偏好。
+ * Normalizes a stored value to a supported theme preference.
  *
- * @param value - localStorage 中读取到的主题值。
- * @returns 有效主题偏好；缺失或无效值返回 `"system"`。
+ * @param value - The theme value read from localStorage.
+ * @returns A valid theme preference; returns `"system"` for missing or invalid values.
  */
 export function readThemePreference(value: string | null): ThemePreference {
   return value === "light" || value === "dark" || value === "system" ? value : "system";
 }
 
 /**
- * 根据用户偏好和系统深色模式状态计算有效主题。
+ * Resolves the effective theme from the user preference and system dark mode state.
  *
- * @param preference - 用户选择的主题偏好。
- * @param systemIsDark - 系统是否处于深色模式。
- * @returns 应实际应用到界面的浅色或深色主题。
+ * @param preference - The user's theme preference.
+ * @param systemIsDark - Whether the system is using dark mode.
+ * @returns The light or dark theme to apply to the interface.
  */
 export function resolveTheme(preference: ThemePreference, systemIsDark: boolean): Theme {
   if (preference === "system") return systemIsDark ? "dark" : "light";
@@ -102,7 +102,7 @@ function applyWithViewTransition(callback: () => void, origin?: ThemeTransitionO
   try {
     reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
   } catch {
-    // 无法检测动画偏好时仍尝试使用浏览器支持的 View Transition。
+    // Still attempt the browser-supported View Transition when the motion preference cannot be detected.
   }
   const supportsViewTransition = typeof document.startViewTransition === "function";
   if (!supportsViewTransition || reduceMotion) {
@@ -126,16 +126,16 @@ function applyWithViewTransition(callback: () => void, origin?: ThemeTransitionO
       { duration: 450, easing: "cubic-bezier(0.22, 0.61, 0.36, 1)", pseudoElement: "::view-transition-new(root)" },
     );
   }).catch(() => {
-    // View Transition 被取消时无需额外处理。
+    // No additional handling is needed when the View Transition is cancelled.
   });
 }
 
 /**
- * 设置主题偏好、同步页面样式并持久化用户选择。
+ * Sets the theme preference, synchronizes page styles, and persists the user's choice.
  *
- * @param nextPreference - 要应用的主题偏好。
- * @param origin - 可选的 View Transition 动画起始坐标。
- * @returns 无返回值。
+ * @param nextPreference - The theme preference to apply.
+ * @param origin - Optional origin coordinates for the View Transition animation.
+ * @returns No return value.
  */
 export function setThemePreference(nextPreference: ThemePreference, origin?: ThemeTransitionOrigin): void {
   const apply = () => {
@@ -143,7 +143,7 @@ export function setThemePreference(nextPreference: ThemePreference, origin?: The
     try {
       localStorage.setItem("pi-theme", nextPreference);
     } catch {
-      // localStorage 在隐私模式或配额耗尽时可能不可用。
+      // localStorage may be unavailable in private mode or when the quota is exhausted.
     }
   };
 
@@ -151,10 +151,10 @@ export function setThemePreference(nextPreference: ThemePreference, origin?: The
 }
 
 /**
- * 订阅全局主题状态，并在需要时维护 system 偏好的媒体查询监听。
+ * Subscribes to global theme state and maintains the media-query listener for the system preference.
  *
- * @param listener - 主题状态变化时调用的订阅函数。
- * @returns 取消订阅并在最后一个订阅者离开时清理监听的函数。
+ * @param listener - The subscription function called when the theme state changes.
+ * @returns A function that unsubscribes and cleans up the listener when the last subscriber leaves.
  */
 export function subscribeTheme(listener: () => void): () => void {
   const isFirstSubscriber = listeners.size === 0;
@@ -186,9 +186,9 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
 }
 
 /**
- * 订阅全局主题状态，并提供修改主题偏好的操作。
+ * Subscribes to global theme state and provides an operation to change the theme preference.
  *
- * @returns 当前偏好、有效主题、深色状态和设置偏好的函数。
+ * @returns The current preference, effective theme, dark-mode state, and preference setter.
  */
 export function useTheme(): {
   preference: ThemePreference;

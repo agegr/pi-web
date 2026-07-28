@@ -1,6 +1,6 @@
-/** 初始化 Node.js 服务端运行时，输出首启 token 并配置服务端请求代理。
- * @returns 初始化完成的 Promise。
- * @throws 认证模块或请求代理初始化失败时抛出错误。
+/** Initializes the Node.js server runtime, announces the setup token, and configures the server request proxy.
+ * @returns A Promise that resolves when initialization is complete.
+ * @throws If the authentication module or request proxy initialization fails.
  */
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;

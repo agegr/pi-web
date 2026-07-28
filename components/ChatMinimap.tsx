@@ -81,7 +81,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
   const allMessagesRef = useRef(allMessages);
   allMessagesRef.current = allMessages;
 
-  // --- 仅更新视口比例，不读取 DOM ---
+  // --- Update only the viewport ratio without reading the DOM ---
   const updateScroll = useCallback(() => {
     const scrollEl = scrollContainer.current;
     if (!scrollEl) return;
@@ -98,10 +98,10 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
     }
   }, [scrollContainer]);
 
-  // --- 节流 DOM 测量（仅消息变化/尺寸变化时触发，最多 150ms 一次）---
+  // --- Throttled DOM measurement (only on message/size changes, at most every 150ms) ---
   const measureThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const measureNodes = useCallback(() => {
-    // 节流：150ms 内忽略重复调用
+    // Throttle: ignore duplicate calls within 150ms
     if (measureThrottleRef.current) return;
     measureThrottleRef.current = setTimeout(() => {
       measureThrottleRef.current = null;
@@ -138,7 +138,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
     }, 150);
   }, [scrollContainer, messageRefs]);
 
-  // scroll 事件 → 只更新视口，不碰 DOM
+  // scroll event -> update only the viewport without touching the DOM
   useEffect(() => {
     const el = scrollContainer.current;
     if (!el) return;

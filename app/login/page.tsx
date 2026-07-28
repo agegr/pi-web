@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { AuthForms } from "@/components/AuthForms";
 import { useI18n } from "@/hooks/useI18n";
 
-/** 渲染登录页面。 * @returns 登录页面。 */
+/** Render the login page. * @returns Login page. */
 export default function LoginPage() {
   const router = useRouter();
   const { t } = useI18n();

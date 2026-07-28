@@ -3,10 +3,10 @@ import type { Locale, TranslationParams } from "./types";
 type MessagesByLocale = Record<string, Record<string, string>>;
 
 /**
- * 替换翻译消息中的简单插值占位符。
- * @param message 原始翻译消息
- * @param params 插值参数
- * @returns 完成参数替换后的消息
+ * Replaces simple interpolation placeholders in a translated message.
+ * @param message The original translated message.
+ * @param params Interpolation parameters.
+ * @returns The message after replacing parameters.
  */
 export function interpolateMessage(message: string, params: TranslationParams = {}): string {
   return message.replace(/\{([\w.-]+)\}/g, (token, name: string) => {
@@ -16,12 +16,12 @@ export function interpolateMessage(message: string, params: TranslationParams = 
 }
 
 /**
- * 从当前语言和英语语言包中解析消息。
- * @param locale 当前语言
- * @param key 翻译 key
- * @param messages 各语言的消息字典
- * @param params 可选的插值参数
- * @returns 翻译结果，缺失时返回 key
+ * Resolves a message from the current locale and the English locale.
+ * @param locale The current locale.
+ * @param key The translation key.
+ * @param messages Message dictionaries grouped by locale.
+ * @param params Optional interpolation parameters.
+ * @returns The translated message, or the key when it is missing.
  */
 export function translateMessage(
   locale: Locale,
@@ -38,11 +38,11 @@ export function translateMessage(
 }
 
 /**
- * 按当前语言格式化相对时间。
- * @param date 要格式化的时间
- * @param locale 当前语言
- * @param now 用于测试或特殊场景的当前时间
- * @returns locale-aware 的相对时间文本
+ * Formats relative time using the current locale.
+ * @param date The time to format.
+ * @param locale The current locale.
+ * @param now The current time for tests or special cases.
+ * @returns Locale-aware relative time text.
  */
 export function formatRelativeTime(date: Date | string, locale: Locale, now = new Date()): string {
   const target = date instanceof Date ? date : new Date(date);

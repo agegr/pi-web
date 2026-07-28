@@ -3,45 +3,45 @@
 import type { MouseEvent, ReactElement, ReactNode } from "react";
 
 /**
- * SegmentedControl 的单个互斥选项。
+ * A single mutually exclusive SegmentedControl option.
  */
 export interface SegmentedControlOption {
-  /** 选项值，点击时传给 onChange。 */
+  /** Option value passed to onChange when clicked. */
   value: string;
-  /** 选项显示内容。 */
+  /** Visible option label. */
   label: ReactNode;
-  /** 是否禁用该选项；禁用后不触发 onChange。 */
+  /** Whether the option is disabled; disabled options do not trigger onChange. */
   disabled?: boolean;
-  /** 悬停提示，用于说明禁用原因等。 */
+  /** Hover hint, for example to explain why an option is disabled. */
   title?: string;
-  /** 追加到选项按钮上的额外 class，用于选中态语义变体（如 danger）。 */
+  /** Extra class appended to the option button for semantic selected-state variants such as danger. */
   className?: string;
 }
 
 /**
- * SegmentedControl 的受控属性。
+ * Controlled SegmentedControl props.
  */
 export interface SegmentedControlProps {
-  /** 当前选中值；不匹配任何选项时不渲染选中态。 */
+  /** Current selected value; no selected state is rendered when it matches no option. */
   value: string;
-  /** 可选项列表，按数组顺序渲染。 */
+  /** Available options, rendered in array order. */
   options: readonly SegmentedControlOption[];
-  /** 选择新值时的回调；重复点击当前值或禁用项不触发。 */
+  /** Callback invoked for a new value; repeated clicks on the current or a disabled value are ignored. */
   onChange: (value: string, event: MouseEvent<HTMLButtonElement>) => void;
-  /** 按钮组的无障碍名称。 */
+  /** Accessible name for the button group. */
   ariaLabel?: string;
 }
 
 /**
- * 渲染项目级互斥按钮组，统一设置中心、模型页和技能页的 segmented button group。
+ * Renders a project-level mutually exclusive button group shared by the settings, model, and skills pages.
  *
- * @param props - 控件属性。
- * @param props.value - 当前选中值。
- * @param props.options - 可选项列表。
- * @param props.onChange - 选择新值时的回调，第二个参数为原始点击事件（供调用方取坐标）。
- * @param props.ariaLabel - 按钮组的无障碍名称。
- * @returns 使用 `role="group"` 与 `aria-pressed` 的原生按钮组。
- * @throws 不抛出异常；禁用与重复点击在组件内被忽略。
+ * @param props - Control props.
+ * @param props.value - Current selected value.
+ * @param props.options - Available options.
+ * @param props.onChange - Callback for a new value; the second argument is the native click event for reading coordinates.
+ * @param props.ariaLabel - Accessible name for the button group.
+ * @returns A native button group using `role="group"` and `aria-pressed`.
+ * @throws Does not throw; disabled options and repeated clicks are ignored internally.
  */
 export function SegmentedControl({
   value,

@@ -1,9 +1,9 @@
 import { revokeSession } from "../../../../lib/pi-web-auth";
 import { authError, getSessionToken, readAuthJson, sessionCookie } from "../../../../lib/pi-web-auth-route";
 
-/** 清理当前 web session。
- * @param request 当前 HTTP 请求。
- * @returns 登出结果响应。
+/** Clear the current web session.
+ * @param request Current HTTP request.
+ * @returns Logout result response.
  */
 export async function POST(request: Request) {
   try {
@@ -15,6 +15,6 @@ export async function POST(request: Request) {
     return response;
   } catch (error) {
     const status = (error as { status?: number }).status;
-    return authError("AUTH_LOGOUT_FAILED", status ? (error as Error).message : "登出失败", status ?? 500);
+    return authError("AUTH_LOGOUT_FAILED", status ? (error as Error).message : "Logout failed", status ?? 500);
   }
 }

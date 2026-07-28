@@ -573,25 +573,25 @@ function PackageDetail({
   );
 }
 
-/** 插件设置内容属性。 */
+/** Props for the plugin settings content. */
 export interface PluginsConfigProps {
-  /** 当前项目工作目录。 */
+  /** Current project working directory. */
   cwd: string;
-  /** 当前会话 ID；没有活动会话时为 null。 */
+  /** Current session ID, or null when no session is active. */
   sessionId: string | null;
-  /** 插件重载当前会话成功后的回调。 */
+  /** Callback invoked after the plugin reloads the current session successfully. */
   onReloaded?: () => void;
 }
 
 /**
- * 渲染指定项目的插件设置内容。
+ * Renders plugin settings content for the specified project.
  *
- * @param props - 插件设置属性。
- * @param props.cwd - 当前项目工作目录。
- * @param props.sessionId - 当前会话 ID。
- * @param props.onReloaded - 会话重载后的可选回调。
- * @returns 可嵌入设置中心的插件配置内容。
- * @throws 不直接抛出异常；加载和操作错误在内容区显示。
+ * @param props - Plugin settings props.
+ * @param props.cwd - Current project working directory.
+ * @param props.sessionId - Current session ID.
+ * @param props.onReloaded - Optional callback invoked after the session reloads.
+ * @returns Plugin configuration content that can be embedded in the settings center.
+ * @throws Does not throw directly; loading and operation errors are displayed in the content area.
  */
 export function PluginsConfig({ cwd, sessionId, onReloaded }: PluginsConfigProps): ReactElement {
   const isMobile = useIsMobile();

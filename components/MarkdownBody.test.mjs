@@ -38,7 +38,7 @@ test("keeps local file markdown links in the app", () => {
 });
 
 test("renders LaTeX parenthesis delimiters as inline math", () => {
-  const html = renderMarkdown(String.raw`射线为 \(r_c = K^{-1}p\)。`);
+  const html = renderMarkdown(String.raw`Ray is \(r_c = K^{-1}p\).`);
 
   assert.match(html, /class="katex"/);
   assert.match(html, /r_c/);

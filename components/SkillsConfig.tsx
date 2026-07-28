@@ -662,19 +662,19 @@ function AddSkillPanel({
   );
 }
 
-/** 技能设置内容属性。 */
+/** Props for the skills settings content. */
 export interface SkillsConfigProps {
-  /** 当前项目工作目录。 */
+  /** Current project working directory. */
   cwd: string;
 }
 
 /**
- * 渲染指定项目的技能设置内容。
+ * Renders skills settings content for the specified project.
  *
- * @param props - 技能设置属性。
- * @param props.cwd - 当前项目工作目录。
- * @returns 可嵌入设置中心的技能配置内容。
- * @throws 不直接抛出异常；加载和操作错误在内容区显示。
+ * @param props - Skills settings props.
+ * @param props.cwd - Current project working directory.
+ * @returns Skills configuration content that can be embedded in the settings center.
+ * @throws Does not throw directly; loading and operation errors are displayed in the content area.
  */
 export function SkillsConfig({ cwd }: SkillsConfigProps): ReactElement {
   const isMobile = useIsMobile();

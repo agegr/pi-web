@@ -7,7 +7,7 @@ import path from "node:path";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const source = relativePath => readFile(path.join(root, relativePath), "utf8");
 
-test("SegmentedControl 提供受控接口与无障碍按钮组语义", async () => {
+test("SegmentedControl provides a controlled interface and accessible button-group semantics", async () => {
   const content = await source("components/ui/SegmentedControl.tsx");
 
   assert.match(content, /export interface SegmentedControlOption \{/);
@@ -32,7 +32,7 @@ test("SegmentedControl 提供受控接口与无障碍按钮组语义", async () 
   assert.match(content, /option\.className/);
 });
 
-test("SegmentedControl 样式使用统一容器、分隔线与状态", async () => {
+test("SegmentedControl styling uses a shared container, separators, and states", async () => {
   const css = await source("app/globals.css");
 
   assert.match(css, /\.ui-segmented-control \{[^}]*display: inline-flex;[^}]*overflow: hidden;[^}]*border: 1px solid var\(--border\);[^}]*border-radius: 5px;/);
@@ -45,7 +45,7 @@ test("SegmentedControl 样式使用统一容器、分隔线与状态", async () 
   assert.match(css, /\.ui-segmented-control-option:focus-visible \{[^}]*outline: 2px solid var\(--accent\);/);
 });
 
-test("OptionSelect 提供受控接口、listbox 语义与完整键盘行为", async () => {
+test("OptionSelect provides a controlled interface, listbox semantics, and complete keyboard behavior", async () => {
   const content = await source("components/ui/OptionSelect.tsx");
 
   assert.match(content, /export interface OptionSelectOption \{/);
@@ -58,28 +58,28 @@ test("OptionSelect 提供受控接口、listbox 语义与完整键盘行为", as
   assert.match(content, /role="listbox"/);
   assert.match(content, /role="option"/);
   assert.match(content, /aria-selected=\{selected\}/);
-  // Escape 关闭并阻断冒泡，避免关闭父级设置 dialog。
+  // Escape closes the list and stops propagation to avoid closing the parent settings dialog.
   assert.match(content, /event\.key === "Escape"\)[\s\S]*?event\.stopPropagation\(\);[\s\S]*?close\(\);/);
-  // 方向键与 Home/End 在可用选项间移动焦点。
+  // Arrow keys and Home/End move focus among enabled options.
   assert.match(content, /event\.key === "ArrowDown"/);
   assert.match(content, /event\.key === "ArrowUp"/);
   assert.match(content, /event\.key === "Home"/);
   assert.match(content, /event\.key === "End"/);
   assert.match(content, /\[role="option"\]:not\(\[disabled\]\)/);
-  // 外部 pointer down 关闭，resize/scroll 重定位，卸载清理监听。
+  // Outside pointerdown closes the list, resize/scroll repositions it, and unmount cleans up listeners.
   assert.match(content, /document\.addEventListener\("pointerdown"/);
   assert.match(content, /document\.removeEventListener\("pointerdown"/);
   assert.match(content, /window\.addEventListener\("resize", updatePlacement\)/);
   assert.match(content, /window\.addEventListener\("scroll", updatePlacement, true\)/);
   assert.match(content, /window\.removeEventListener\("resize", updatePlacement\)/);
   assert.match(content, /window\.removeEventListener\("scroll", updatePlacement, true\)/);
-  // 空 options、整体 disabled 或全部选项 disabled 时触发器禁用，避免 Escape 泄漏到父级 dialog。
+  // The trigger is disabled for empty options, an entirely disabled control, or all-disabled options.
   assert.match(content, /const hasEnabledOption = options\.some\(option => !option\.disabled\);/);
   assert.match(content, /const unusable = disabled \|\| options\.length === 0 \|\| !hasEnabledOption;/);
   assert.match(content, /selectedOption \? selectedOption\.label : value/);
-  // 选择后关闭并把焦点还给触发器。
+  // Close after selection and return focus to the trigger.
   assert.match(content, /triggerRef\.current\?\.focus\(\)/);
-  // 定位从根容器矩形和视口宽度计算横向可用空间及偏移，并将结果应用到面板内联样式。
+  // Calculate horizontal space and offset from the root rectangle and viewport width, then apply them inline.
   assert.match(content, /const rect = root\.getBoundingClientRect\(\);/);
   assert.match(content, /const viewportWidth = window\.innerWidth;/);
   assert.match(content, /const offsetX = Math\.max\(safeInset - rect\.left, 0\);/);
@@ -88,7 +88,7 @@ test("OptionSelect 提供受控接口、listbox 语义与完整键盘行为", as
   assert.match(content, /style=\{\{[\s\S]*?maxWidth: `\$\{panelPlacement\.maxWidth\}px`,[\s\S]*?transform: `translateX\(\$\{panelPlacement\.offsetX\}px\)`,/);
 });
 
-test("OptionSelect 样式提供触发器、面板定位和选中勾号", async () => {
+test("OptionSelect styling provides a trigger, panel placement, and selected checkmark", async () => {
   const css = await source("app/globals.css");
 
   assert.match(css, /\.ui-option-select \{[^}]*position: relative;[^}]*width: 100%;/);
@@ -96,7 +96,7 @@ test("OptionSelect 样式提供触发器、面板定位和选中勾号", async (
   assert.match(css, /\.ui-option-select-trigger:disabled \{[^}]*cursor: not-allowed;/);
   assert.match(css, /\.ui-option-select-trigger:focus-visible \{[^}]*outline: 2px solid var\(--accent\);/);
   assert.match(css, /\.ui-option-select-panel \{[^}]*position: absolute;[^}]*max-height: 260px;[^}]*overflow-y: auto;/);
-  // 横向边界由组件根据 trigger 相对视口的位置计算，CSS 不再以固定视口宽度作为唯一约束。
+  // The component calculates horizontal bounds from the trigger's viewport position instead of relying on fixed CSS width.
   assert.doesNotMatch(css, /max-width: calc\(100vw - 16px\);/);
   assert.match(css, /\.ui-option-select-panel\[data-placement="bottom"\] \{[^}]*top: calc\(100% \+ 4px\);/);
   assert.match(css, /\.ui-option-select-panel\[data-placement="top"\] \{[^}]*bottom: calc\(100% \+ 4px\);/);

@@ -29,31 +29,31 @@ interface StoredAuthConfig {
   updatedAt: string;
 }
 
-/** 对调用方公开的认证状态，不包含密码凭据。 */
+/** Authentication state exposed to callers without password credentials. */
 export interface AuthState {
-  /** 是否已经完成认证初始化。 */
+  /** Whether authentication setup has completed. */
   initialized: boolean;
-  /** 当前密码代次。 */
+  /** Current password generation. */
   generation: number;
-  /** 配置最后更新时间。 */
+  /** Last configuration update time. */
   updatedAt?: string;
 }
 
-/** Session 校验结果。 */
+/** Session validation result. */
 export interface SessionValidation {
-  /** session 是否有效。 */
+  /** Whether the session is valid. */
   valid: boolean;
-  /** 有效 session 使用的密码代次。 */
+  /** Password generation used by the valid session. */
   generation?: number;
 }
 
-/** 登录限速判定结果。 */
+/** Login rate-limit decision. */
 export interface RateLimitDecision {
-  /** 当前请求是否允许继续。 */
+  /** Whether the current request may continue. */
   allowed: boolean;
-  /** 被拒绝时的剩余等待时间，单位为毫秒。 */
+  /** Remaining wait time when rejected, in milliseconds. */
   retryAfterMs?: number;
-  /** 允许请求前建议等待的渐进延迟，单位为毫秒。 */
+  /** Suggested progressive delay before allowing the request, in milliseconds. */
   delayMs?: number;
 }
 
@@ -100,9 +100,9 @@ runtime.activeLoginAttempts ??= 0;
 const sessionInvalidationListeners = runtime.sessionInvalidationListeners;
 const sessionInvalidationTimeouts = runtime.sessionInvalidationTimeouts;
 const loginFailures = runtime.loginFailures;
-// 使用 globalThis 让 instrumentation 和 API route 的独立 server bundle 共享首启 token。
+// Use globalThis so the instrumentation and API route server bundles share the first-run token.
 const setupState = globalThis.__piWebAuthSetupState ??= {
-  // brief 要求 token 在模块首次加载时生成；已有配置时不创建初始化凭据。
+  // The brief requires generating the token on first module load; do not create credentials when config exists.
   token: configPathExists() ? null : randomBytes(32).toString("hex"),
   announced: false,
 };
@@ -121,7 +121,7 @@ function hashToken(token: string): string {
 async function readConfig(): Promise<StoredAuthConfig | null> {
   try {
     if (configPathExists() && !hasRegularConfigFile()) {
-      throw new Error("认证配置路径不是普通文件");
+      throw new Error("Authentication config path is not a regular file");
     }
   const parsed: unknown = JSON.parse(await readFile(configPath(), "utf8"));
     validateConfig(parsed);
@@ -138,7 +138,7 @@ async function readConfigForInitialization(): Promise<StoredAuthConfig | null> {
 
 function validateConfig(value: unknown): asserts value is StoredAuthConfig {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error("认证配置结构无效");
+    throw new Error("Invalid authentication config structure");
   }
   const config = value as Record<string, unknown>;
   const keys = Object.keys(config).sort().join(",");
@@ -150,7 +150,7 @@ function validateConfig(value: unknown): asserts value is StoredAuthConfig {
     typeof config.salt !== "string" || !/^[0-9a-f]+$/i.test(config.salt) || config.salt.length !== 32 ||
     typeof config.generation !== "number" || !Number.isSafeInteger(config.generation) || config.generation < 1 ||
     typeof config.updatedAt !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(config.updatedAt) || !Number.isFinite(Date.parse(config.updatedAt))) {
-    throw new Error("认证配置结构无效");
+     throw new Error("Invalid authentication config structure");
   }
 }
 
@@ -169,7 +169,7 @@ function getScryptConfig(config: StoredAuthConfig): typeof SCRYPT_CONFIG {
 function validatePassword(password: string): void {
   if (password.length < PASSWORD_MIN_LENGTH || password.length > PASSWORD_MAX_LENGTH
     || /^([\s\S])\1+$/.test(password) || COMMON_WEAK_PASSWORDS.has(password.toLowerCase())) {
-    throw new Error("密码格式无效");
+    throw new Error("Invalid password format");
   }
 }
 
@@ -206,25 +206,25 @@ async function writeConfig(config: StoredAuthConfig): Promise<void> {
   }
 }
 
-/** 返回认证配置文件的实际路径。
- * @returns 认证配置文件路径。
+/** Return the actual authentication configuration file path.
+ * @returns Authentication configuration file path.
  */
 export function getAuthConfigPath(): string {
   return configPath();
 }
 
-/** 在服务端启动输出一次性初始化 token；不会通过 HTTP 或持久化配置暴露。
- * @returns 无返回值。
+/** Print the one-time setup token at server startup; it is not exposed over HTTP or persisted.
+ * @returns Nothing.
  */
 export function announceSetupToken(): void {
   if (setupState.announced) return;
   if (configPathExists()) {
     try {
-      if (!hasRegularConfigFile()) throw new Error("认证配置路径不是普通文件");
+      if (!hasRegularConfigFile()) throw new Error("Authentication config path is not a regular file");
       validateConfig(JSON.parse(readFileSync(configPath(), "utf8")));
     } catch {
       setupState.announced = true;
-      console.error(`[pi-web] 认证配置损坏，拒绝自动重置。请停止服务后备份或修复配置文件：${configPath()}`);
+      console.error(`[pi-web] Authentication config is corrupt; refusing automatic reset. Stop the service, then back up or repair the config file: ${configPath()}`);
     }
     return;
   }
@@ -233,9 +233,9 @@ export function announceSetupToken(): void {
   console.error(`[pi-web] Pi Web setup token: ${setupState.token}`);
 }
 
-/** 读取认证状态；配置损坏或其他读取错误会直接抛出。
- * @returns 不包含凭据的认证状态。
- * @throws 配置文件读取失败或 JSON 损坏时抛出原始错误。
+/** Read authentication state; config corruption and other read errors are rethrown.
+ * @returns Authentication state without credentials.
+ * @throws Rethrows the original error when reading the config fails or its JSON is corrupt.
  */
 export async function getAuthState(): Promise<AuthState> {
   await runtime.authMutationQueue;
@@ -244,11 +244,11 @@ export async function getAuthState(): Promise<AuthState> {
   return { initialized: true, generation: config.generation, updatedAt: config.updatedAt };
 }
 
-/** 使用一次性初始化 token 设置密码并持久化认证配置。
- * @param token 一次性初始化 token。
- * @param password 要设置的密码。
- * @returns 配置写入完成的 Promise。
- * @throws token 无效、认证已初始化或配置写入失败时抛出错误。
+/** Set the password with a one-time setup token and persist authentication config.
+ * @param token One-time setup token.
+ * @param password Password to set.
+ * @returns Promise fulfilled when the config is written.
+ * @throws Throws when the token is invalid, authentication is already initialized, or config writing fails.
  */
 export async function initializeAuth(token: string, password: string): Promise<void> {
   const operation = runtime.authMutationQueue.then(() => initializeAuthNow(token, password), () => initializeAuthNow(token, password));
@@ -257,7 +257,7 @@ export async function initializeAuth(token: string, password: string): Promise<v
 }
 
 async function initializeAuthNow(token: string, password: string): Promise<void> {
-  if (runtime.initializationInProgress) throw new Error("认证初始化进行中");
+  if (runtime.initializationInProgress) throw new Error("Authentication setup is already in progress");
   runtime.initializationInProgress = true;
   let tokenConsumed = false;
   let writeAttempted = false;
@@ -265,13 +265,13 @@ async function initializeAuthNow(token: string, password: string): Promise<void>
   try {
     validatePassword(password);
     const existing = await readConfigForInitialization();
-    if (existing) throw new Error("认证已经初始化");
-    if (!consumeSetupToken(token)) throw new Error("初始化 token 无效");
+    if (existing) throw new Error("Authentication is already initialized");
+    if (!consumeSetupToken(token)) throw new Error("Invalid setup token");
     tokenConsumed = true;
     const salt = randomBytes(16);
     const derived = await scrypt(password, salt, 64, SCRYPT_CONFIG) as Buffer;
-    // 在耗时的哈希计算后再次检查，避免并发请求覆盖已创建的配置。
-    if (await readConfigForInitialization()) throw new Error("认证已经初始化");
+    // Recheck after the expensive hash to prevent concurrent requests from overwriting the config.
+    if (await readConfigForInitialization()) throw new Error("Authentication is already initialized");
     writeAttempted = true;
     await writeConfig({
         algorithm: "scrypt",
@@ -294,10 +294,10 @@ async function initializeAuthNow(token: string, password: string): Promise<void>
   }
 }
 
-/** 校验密码，认证配置不存在时返回 false，读取损坏配置时抛出错误。
- * @param password 待校验的密码。
- * @returns 密码是否匹配。
- * @throws 配置文件读取失败或 JSON 损坏时抛出原始错误。
+/** Verify a password; return false when config is absent and throw on corrupt config.
+ * @param password Password to verify.
+ * @returns Whether the password matches.
+ * @throws Rethrows the original error when reading the config fails or its JSON is corrupt.
  */
 export async function verifyPassword(password: string): Promise<boolean> {
   return await runtime.authMutationQueue.then(() => verifyPasswordNow(password), () => verifyPasswordNow(password));
@@ -311,9 +311,9 @@ async function verifyPasswordNow(password: string): Promise<boolean> {
   return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
-/** 串行校验密码并创建 session，避免与改密事务交错。
- * @param password 待校验的密码。
- * @returns 成功时返回 session token，失败时返回 null。
+/** Verify the password and create a session serially to avoid interleaving with password changes.
+ * @param password Password to verify.
+ * @returns Session token on success, or null on failure.
  */
 export async function authenticateAndCreateSession(password: string): Promise<string | null> {
   const operation = runtime.authMutationQueue.then(async () => {
@@ -325,11 +325,11 @@ export async function authenticateAndCreateSession(password: string): Promise<st
   return operation;
 }
 
-/** 原子更新密码并吊销全部已有 session。
- * @param currentPassword 当前密码。
- * @param newPassword 新密码。
- * @returns 密码更新完成的 Promise。
- * @throws 当前密码错误、认证未初始化或配置写入失败时抛出错误；写入失败不会改变旧密码。
+/** Atomically update the password and revoke all existing sessions.
+ * @param currentPassword Current password.
+ * @param newPassword New password.
+ * @returns Promise fulfilled when the password is updated.
+ * @throws Throws when the current password is wrong, authentication is uninitialized, or config writing fails; a write failure leaves the old password unchanged.
  */
 export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
   const operation = runtime.authMutationQueue.then(
@@ -343,11 +343,11 @@ export async function changePassword(currentPassword: string, newPassword: strin
 async function changePasswordNow(currentPassword: string, newPassword: string): Promise<void> {
   validatePassword(newPassword);
   const config = await readConfig();
-  if (!config) throw new Error("认证尚未初始化");
+  if (!config) throw new Error("Authentication is not initialized");
   const expected = Buffer.from(config.passwordHash, "hex");
   const actual = await scrypt(currentPassword, Buffer.from(config.salt, "hex"), expected.length, getScryptConfig(config)) as Buffer;
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
-    throw new Error("当前密码错误");
+    throw new Error("Current password is incorrect");
   }
   const salt = randomBytes(16);
   const derived = await scrypt(newPassword, salt, 64, SCRYPT_CONFIG) as Buffer;
@@ -367,8 +367,8 @@ async function changePasswordNow(currentPassword: string, newPassword: string): 
   runtime.generationInitialized = true;
 }
 
-/** 创建一个仅以哈希形式保存在内存中的 session，并返回原始 token。
- * @returns 仅供 cookie 使用的原始随机 token。
+/** Create a session stored only as a hash in memory and return the raw token.
+ * @returns Raw random token intended only for the cookie.
  */
 export function createSession(): string {
   const token = randomBytes(32).toString("hex");
@@ -393,9 +393,9 @@ function storeSession(token: string, now: number, stateGeneration: number): stri
   return token;
 }
 
-/** 校验 session 的存在性、过期时间和密码代次。
- * @param token 要校验的原始 session token。
- * @returns session 校验结果。
+/** Validate session existence, expiration, and password generation.
+ * @param token Raw session token to validate.
+ * @returns Session validation result.
  */
 export function getSession(token: string): SessionValidation {
   const record = sessions.get(hashToken(token));
@@ -406,9 +406,9 @@ export function getSession(token: string): SessionValidation {
   return { valid: true, generation: record.generation };
 }
 
-/** 增加密码代次、持久化认证配置并使全部已有 session 失效。
- * @returns 吊销和配置写入完成的 Promise。
- * @throws 认证配置读取或原子写入失败时抛出错误；失败时内存代次和 session 保持不变。
+/** Increment the password generation, persist authentication config, and invalidate all existing sessions.
+ * @returns Promise fulfilled when revocation and config writing complete.
+ * @throws Throws when reading authentication config or atomically writing it fails; memory generation and sessions remain unchanged on failure.
  */
 export async function revokeAllSessions(): Promise<void> {
   const operation = runtime.authMutationQueue.then(revokeAllSessionsNow, revokeAllSessionsNow);
@@ -445,10 +445,10 @@ async function revokeAllSessionsNow(): Promise<void> {
   runtime.generationInitialized = true;
 }
 
-/** 使指定 session 失效。
- * @param token 要失效的原始 session token。
- * @returns 无返回值。
- * @throws 当前实现不会主动抛出异常。
+/** Invalidate the specified session.
+ * @param token Raw session token to invalidate.
+ * @returns Nothing.
+ * @throws The current implementation does not throw proactively.
  */
 export function revokeSession(token: string): void {
   const tokenHash = hashToken(token);
@@ -456,10 +456,10 @@ export function revokeSession(token: string): void {
   notifySessionInvalidation(tokenHash);
 }
 
-/** 订阅指定 Web session 的失效事件；不会触碰 AgentSession 生命周期。
- * @param token 要监听的原始 Web session token。
- * @param listener session 失效时调用的回调。
- * @returns 取消订阅函数；可安全重复调用。
+/** Subscribe to invalidation events for a Web session without touching AgentSession lifecycle.
+ * @param token Raw Web session token to monitor.
+ * @param listener Callback invoked when the session is invalidated.
+ * @returns Unsubscribe function that is safe to call repeatedly.
  */
 export function subscribeSessionInvalidation(token: string, listener: SessionInvalidationListener): () => void {
   const tokenHash = hashToken(token);
@@ -503,9 +503,9 @@ function notifyAllSessionInvalidations(): void {
   for (const tokenHash of sessionInvalidationListeners.keys()) notifySessionInvalidation(tokenHash);
 }
 
-/** 消费一次性初始化 token；成功后该 token 会从内存删除。
- * @param token 待消费的初始化 token。
- * @returns token 是否有效且已成功消费。
+/** Consume a one-time setup token; remove it from memory after success.
+ * @param token Setup token to consume.
+ * @returns Whether the token was valid and successfully consumed.
  */
 export function consumeSetupToken(token: string): boolean {
   if (configPathExists()) {
@@ -517,9 +517,9 @@ export function consumeSetupToken(token: string): boolean {
   return true;
 }
 
-/** 判断来源是否仍可尝试登录。
- * @param key 登录来源标识。
- * @returns 当前限速判定和可选的重试等待时间。
+/** Determine whether a source may still attempt to log in.
+ * @param key Login source identifier.
+ * @returns Current rate-limit decision and optional retry delay.
  */
 export function checkLoginRateLimit(key: string): RateLimitDecision {
   const now = Date.now();
@@ -541,9 +541,9 @@ export function checkLoginRateLimit(key: string): RateLimitDecision {
   return { allowed: true, delayMs: activeFailure ? Math.min(activeFailure.count * 100, 500) : 0 };
 }
 
-/** 在密码校验前原子预留一次登录尝试配额。
- * @param key 登录来源标识。
- * @returns 当前限速判定和可选的重试等待时间。
+/** Atomically reserve a login attempt before password verification.
+ * @param key Login source identifier.
+ * @returns Current rate-limit decision and optional retry delay.
  */
 export function beginLoginAttempt(key: string): RateLimitDecision {
   const decision = checkLoginRateLimit(key);
@@ -555,19 +555,19 @@ export function beginLoginAttempt(key: string): RateLimitDecision {
   return decision;
 }
 
-/** 释放登录尝试配额，并按需记录凭据失败。
- * @param key 登录来源标识。
- * @param failed 是否为凭据校验失败。
- * @returns 无返回值。
+/** Release a login attempt slot and record credential failure when needed.
+ * @param key Login source identifier.
+ * @param failed Whether credential verification failed.
+ * @returns Nothing.
  */
 export function finishLoginAttempt(key: string, failed: boolean): void {
   runtime.activeLoginAttempts = Math.max(0, runtime.activeLoginAttempts - 1);
   if (failed) recordLoginFailure(key);
 }
 
-/** 记录一次登录失败。
- * @param key 登录来源标识。
- * @returns 无返回值。
+/** Record a login failure.
+ * @param key Login source identifier.
+ * @returns Nothing.
  */
 export function recordLoginFailure(key: string): void {
   const now = Date.now();
@@ -592,7 +592,7 @@ function currentGeneration(): number {
 function syncGenerationFromConfig(): StoredAuthConfig | null {
   try {
     if (configPathExists() && !hasRegularConfigFile()) {
-      throw new Error("认证配置路径不是普通文件");
+      throw new Error("Authentication config path is not a regular file");
     }
     const content = readFileSync(configPath(), "utf8");
     const parsed: unknown = JSON.parse(content);
@@ -613,9 +613,9 @@ function bumpGeneration(): void {
   runtime.authGeneration += 1;
 }
 
-/** 清理测试状态；仅供测试使用。
- * @returns 清理完成的 Promise。
- * @throws 删除测试配置失败时抛出错误。
+/** Reset authentication state for tests only.
+ * @returns Promise fulfilled when test config cleanup completes.
+ * @throws Throws when deleting the test config fails.
  */
 export async function resetAuthStateForTests(): Promise<void> {
   sessions.clear();
@@ -634,12 +634,12 @@ export async function resetAuthStateForTests(): Promise<void> {
   }));
 }
 
-/** 返回当前进程中的初始化 token，仅供测试验证熵值。
- * @returns 初始化 token。
+/** Return the current process setup token for entropy tests only.
+ * @returns Setup token.
  */
 export function getSetupTokenForTests(): string {
-  if (configPathExists() && !hasRegularConfigFile()) throw new Error("认证配置损坏");
-  if (hasRegularConfigFile()) throw new Error("认证已经初始化");
-  if (setupState.token === null) throw new Error("初始化 token 不可用");
+  if (configPathExists() && !hasRegularConfigFile()) throw new Error("Authentication config is corrupt");
+  if (hasRegularConfigFile()) throw new Error("Authentication is already initialized");
+  if (setupState.token === null) throw new Error("Setup token is unavailable");
   return setupState.token;
 }

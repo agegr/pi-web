@@ -3,19 +3,19 @@
 import { useState, type FormEvent, type ReactElement } from "react";
 import { useI18n } from "@/hooks/useI18n";
 
-/** 访问密码修改表单的属性。 */
+/** Props for the access password change form. */
 export interface PasswordChangeFormProps {
-  /** 密码修改成功后的回调。 */
+  /** Callback invoked after the password changes successfully. */
   onSuccess: () => void;
 }
 
 /**
- * 渲染访问密码修改表单，并提交到现有认证 API。
+ * Renders the access password change form and submits it to the existing authentication API.
  *
- * @param props - 表单属性。
- * @param props.onSuccess - 密码修改成功后的回调。
- * @returns 密码修改表单元素。
- * @throws 不直接抛出异常；请求和校验错误会显示在表单内。
+ * @param props - Form props.
+ * @param props.onSuccess - Callback invoked after the password changes successfully.
+ * @returns The password change form element.
+ * @throws Does not throw directly; request and validation errors are displayed in the form.
  */
 export function PasswordChangeForm({ onSuccess }: PasswordChangeFormProps): ReactElement {
   const { t } = useI18n();

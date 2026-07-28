@@ -29,15 +29,15 @@ function readInitialLocale(): Locale {
     const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
     if (stored && getLocalePlugin(stored)) return stored;
   } catch {
-    // 隐私模式或存储不可用时继续使用浏览器语言。
+    // Continue with the browser language when private mode or storage is unavailable.
   }
   return resolveBrowserLocale(window.navigator.languages.length ? window.navigator.languages : [window.navigator.language]);
 }
 
 /**
- * 提供 Pi Web 的界面语言状态和翻译能力。
- * @param props React 子节点
- * @returns 包含语言上下文的 React 节点
+ * Provides Pi Web UI locale state and translation capabilities.
+ * @param props React child nodes.
+ * @returns A React node containing the locale context.
  */
 export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(defaultLocale);
@@ -62,7 +62,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     try {
       window.localStorage.setItem(LOCALE_STORAGE_KEY, next);
     } catch {
-      // 存储失败不影响当前页面内的语言切换。
+      // A storage failure must not prevent switching languages on the current page.
     }
   }, []);
 
@@ -73,9 +73,9 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * 获取当前组件树中的国际化能力。
- * @returns 当前 locale、翻译函数、语言切换函数和支持的语言列表
- * @throws 当组件不在 I18nProvider 内时抛出异常
+ * Gets internationalization capabilities from the current component tree.
+ * @returns The current locale, translation function, locale setter, and supported locales.
+ * @throws If the component is not rendered inside I18nProvider.
  */
 export function useI18n(): I18nContextValue {
   const context = useContext(I18nContext);

@@ -10,8 +10,8 @@ const source = relativePath => readFile(path.join(root, relativePath), "utf8");
 function sourceBetween(content, startMarker, endMarker) {
   const start = content.indexOf(startMarker);
   const end = content.indexOf(endMarker, start + startMarker.length);
-  assert.notEqual(start, -1, `未找到起始边界：${startMarker}`);
-  assert.notEqual(end, -1, `未找到结束边界：${endMarker}`);
+  assert.notEqual(start, -1, `Start boundary not found: ${startMarker}`);
+  assert.notEqual(end, -1, `End boundary not found: ${endMarker}`);
   return content.slice(start, end);
 }
 
@@ -20,10 +20,10 @@ function assertNativeSelectionButton(content, selectionPattern) {
   assert.match(content, /aria-pressed=\{is[A-Za-z]*Selected\}/);
   assert.match(content, selectionPattern);
   assert.doesNotMatch(content, /<div\s+[\s\S]*?onClick=/);
-  assert.equal(content.match(/<button\b/g)?.length, 1, "选择项不可嵌套 button");
+  assert.equal(content.match(/<button\b/g)?.length, 1, "selection items must not nest buttons");
 }
 
-test("三个配置组件只渲染设置内容，不再拥有一级模态外壳", async () => {
+test("the three configuration components render settings content without top-level modal shells", async () => {
   const [models, skills, plugins] = await Promise.all([
     source("components/ModelsConfig.tsx"),
     source("components/SkillsConfig.tsx"),
@@ -39,7 +39,7 @@ test("三个配置组件只渲染设置内容，不再拥有一级模态外壳",
   assert.match(models, /AddProviderPicker/);
 });
 
-test("模型保存和插件重载向应用层发送精确回调", async () => {
+test("model save and plugin reload send exact callbacks to the application layer", async () => {
   const [models, plugins] = await Promise.all([
     source("components/ModelsConfig.tsx"),
     source("components/PluginsConfig.tsx"),
@@ -53,13 +53,13 @@ test("模型保存和插件重载向应用层发送精确回调", async () => {
   assert.match(models, /AddProviderPicker/);
 });
 
-test("模型保存错误使用 alert live region", async () => {
+test("model save errors use an alert live region", async () => {
   const models = await source("components/ModelsConfig.tsx");
 
   assert.match(models, /saveError && <span role="alert"/);
 });
 
-test("AddProviderPicker 具备可访问名称并约束键盘焦点", async () => {
+test("AddProviderPicker has an accessible name and traps keyboard focus", async () => {
   const models = await source("components/ModelsConfig.tsx");
 
   assert.match(models, /aria-labelledby="add-provider-picker-title"/);
@@ -75,7 +75,7 @@ test("AddProviderPicker 具备可访问名称并约束键盘焦点", async () =>
   assert.match(models, /previouslyFocused\?\.isConnected[\s\S]*?previouslyFocused\.focus\(\)/);
 });
 
-test("SettingsModal 提供五个一级菜单并禁用无项目内容", async () => {
+test("SettingsModal provides five top-level menus and disables project-dependent content", async () => {
   const content = await source("components/SettingsModal.tsx");
 
   for (const section of ["general", "models", "skills", "plugins", "security"]) {
@@ -88,7 +88,7 @@ test("SettingsModal 提供五个一级菜单并禁用无项目内容", async () 
   assert.match(content, /hidden=\{activeSection !== section\.id\}/);
 });
 
-test("SettingsModal 是支持 Escape、焦点约束和恢复的最上层 dialog", async () => {
+test("SettingsModal is a top-level dialog supporting Escape, focus trapping, and restoration", async () => {
   const content = await source("components/SettingsModal.tsx");
 
   assert.match(content, /role="dialog"/);
@@ -100,7 +100,7 @@ test("SettingsModal 是支持 Escape、焦点约束和恢复的最上层 dialog"
   assert.match(content, /event\.defaultPrevented/);
 });
 
-test("父 SettingsModal 消费 Escape 后阻止事件到达 window abort listener", async () => {
+test("the parent SettingsModal prevents consumed Escape events from reaching the window abort listener", async () => {
   const [modal, shortcuts] = await Promise.all([
     source("components/SettingsModal.tsx"),
     source("hooks/useKeyboardShortcuts.ts"),
@@ -119,7 +119,7 @@ test("父 SettingsModal 消费 Escape 后阻止事件到达 window abort listene
   assert.match(shortcuts, /if \(e\.key === "Escape"\)[\s\S]*?globalAbortHandler\(\)/);
 });
 
-test("模型关键选择分支均使用无嵌套交互控件的原生 button", async () => {
+test("key model selection branches use native buttons without nested interactive controls", async () => {
   const models = await source("components/ModelsConfig.tsx");
   const cases = [
     ["{/* Active OAuth subscriptions */}", "{/* Active API key providers */}", /setSelection\(\{ type: "oauth", providerId: p\.id \}\)/],
@@ -133,7 +133,7 @@ test("模型关键选择分支均使用无嵌套交互控件的原生 button", a
   }
 });
 
-test("技能与插件关键选择分支使用原生 button 且不嵌套 button", async () => {
+test("key skills and plugin selection branches use native buttons without nested buttons", async () => {
   const [skills, plugins] = await Promise.all([
     source("components/SkillsConfig.tsx"),
     source("components/PluginsConfig.tsx"),
@@ -145,7 +145,7 @@ test("技能与插件关键选择分支使用原生 button 且不嵌套 button",
   assertNativeSelectionButton(packageItem, /setSelected\(key\);\s*setAddMode\(false\);/);
 });
 
-test("父 dialog 精确约束可见焦点并仅恢复仍连接的原焦点", async () => {
+test("the parent dialog precisely traps visible focus and restores only connected original focus", async () => {
   const content = await source("components/SettingsModal.tsx");
 
   assert.match(content, /previouslyFocused\?\.isConnected[\s\S]*?previouslyFocused\.focus\(\)/);
@@ -161,13 +161,13 @@ test("父 dialog 精确约束可见焦点并仅恢复仍连接的原焦点", asy
   );
 });
 
-test("通用页使用共享 SegmentedControl 与 OptionSelect", async () => {
+test("the general page uses shared SegmentedControl and OptionSelect controls", async () => {
   const content = await source("components/SettingsModal.tsx");
 
   assert.match(content, /import \{ SegmentedControl \} from "\.\/ui\/SegmentedControl";/);
   assert.match(content, /import \{ OptionSelect \} from "\.\/ui\/OptionSelect";/);
   assert.match(content, /import \{ useTheme, type ThemePreference \} from "@\/hooks\/useTheme";/);
-  // 主题三态选项与 View Transition 坐标保留。
+  // Preserve the three-state theme options and View Transition coordinates.
   assert.match(content, /<SegmentedControl/);
   assert.match(content, /value=\{preference\}/);
   assert.match(content, /\{ value: "system", label: translate\("settings\.system"\) \}/);
@@ -175,19 +175,19 @@ test("通用页使用共享 SegmentedControl 与 OptionSelect", async () => {
   assert.match(content, /\{ value: "dark", label: translate\("settings\.dark"\) \}/);
   assert.match(content, /event\.currentTarget\.getBoundingClientRect\(\)/);
   assert.match(content, /setThemePreference\(value as ThemePreference,/);
-  // 语言为动态 OptionSelect，选项完全来自 supportedLocales。
+  // The language is a dynamic OptionSelect whose options come entirely from supportedLocales.
   assert.match(content, /<OptionSelect/);
   assert.match(content, /value=\{locale\}/);
   assert.match(content, /options=\{supportedLocales\.map\(plugin => \(\{ value: plugin\.id, label: plugin\.label \}\)\)\}/);
   assert.match(content, /onChange=\{value => setLocale\(value\)\}/);
-  // 原生 select 与旧紧凑按钮样式不再存在。
+  // Native select and legacy compact button styles are no longer present.
   assert.doesNotMatch(content, /<select/);
   assert.doesNotMatch(content, /settings-compact-choice/);
   assert.doesNotMatch(content, /settings-language-select/);
   assert.match(content, /PasswordChangeForm/);
 });
 
-test("SettingsModal 仅提供结构 class 而不锁定 Task 4 响应式视觉", async () => {
+test("SettingsModal provides structural classes without locking in Task 4 responsive visuals", async () => {
   const content = await source("components/SettingsModal.tsx");
 
   for (const className of [
@@ -209,7 +209,7 @@ test("SettingsModal 仅提供结构 class 而不锁定 Task 4 响应式视觉", 
   assert.doesNotMatch(content, /settings-nav(?:-mobile|-desktop|\s)/);
 });
 
-test("一级导航使用响应式 tab 键盘语义并跳过禁用项", async () => {
+test("top-level navigation uses responsive tab keyboard semantics and skips disabled items", async () => {
   const content = await source("components/SettingsModal.tsx");
 
   assert.match(content, /role="tablist"/);
@@ -221,7 +221,7 @@ test("一级导航使用响应式 tab 键盘语义并跳过禁用项", async () 
   assert.match(content, /title=\{section\.disabled \? projectRequired : undefined\}/);
 });
 
-test("tab 与延迟挂载 panel 使用完整关联和 roving tabindex", async () => {
+test("tabs and lazily mounted panels use complete associations and roving tabindex", async () => {
   const content = await source("components/SettingsModal.tsx");
 
   assert.match(content, /id=\{`settings-tab-\$\{section\.id\}`\}[\s\S]*?aria-controls=\{`settings-panel-\$\{section\.id\}`\}/);
@@ -231,7 +231,7 @@ test("tab 与延迟挂载 panel 使用完整关联和 roving tabindex", async ()
   assert.match(content, /if \(event\.target === event\.currentTarget\) onClose\(\);/);
 });
 
-test("cwd 失效时从项目设置回退 general 并聚焦其 tab", async () => {
+test("when cwd becomes invalid, the project settings fall back to general and focus its tab", async () => {
   const content = await source("components/SettingsModal.tsx");
 
   assert.match(content, /generalTabRef = useRef<HTMLButtonElement>\(null\)/);
@@ -240,7 +240,7 @@ test("cwd 失效时从项目设置回退 general 并聚焦其 tab", async () => 
   assert.match(content, /ref=\{section\.id === "general" \? generalTabRef : undefined\}/);
 });
 
-test("AppShell 只保留一个设置状态和两个侧栏图标入口", async () => {
+test("AppShell keeps one settings state and two sidebar icon entry points", async () => {
   const content = await source("components/AppShell.tsx");
 
   assert.match(content, /const \[settingsOpen, setSettingsOpen\] = useState\(false\)/);
@@ -254,7 +254,7 @@ test("AppShell 只保留一个设置状态和两个侧栏图标入口", async ()
   assert.match(content, /settings-sidebar-actions/);
 });
 
-test("AppShell 移除顶部主题和语言快捷入口", async () => {
+test("AppShell removes the top theme and language shortcuts", async () => {
   const content = await source("components/AppShell.tsx");
 
   assert.doesNotMatch(content, /toggleTheme/);
@@ -263,7 +263,7 @@ test("AppShell 移除顶部主题和语言快捷入口", async () => {
   assert.doesNotMatch(content, /activeTopPanel === "language"/);
 });
 
-test("设置中心样式包含桌面双栏、移动 tabs 和清晰焦点", async () => {
+test("settings center styling includes desktop columns, mobile tabs, and clear focus", async () => {
   const css = await source("app/globals.css");
 
   assert.match(css, /\.settings-dialog/);
@@ -278,7 +278,7 @@ test("设置中心样式包含桌面双栏、移动 tabs 和清晰焦点", async
   assert.doesNotMatch(css, /\.settings-nav(?=[\s,{.:])/);
 });
 
-test("设置通用页和安全页使用共享控件样式", async () => {
+test("the general and security settings pages use shared control styles", async () => {
   const css = await source("app/globals.css");
 
   assert.match(css, /\.ui-segmented-control \{/);
@@ -289,17 +289,17 @@ test("设置通用页和安全页使用共享控件样式", async () => {
   assert.doesNotMatch(css, /\.settings-fieldset label/);
 });
 
-test("双语语言包提供跟随系统主题文案", async () => {
+test("both language packs provide the follow-system theme label", async () => {
   const [en, zhCN] = await Promise.all([
     source("lib/i18n/messages/en.ts"),
     source("lib/i18n/messages/zh-CN.ts"),
   ]);
 
   assert.match(en, /"settings\.system": "System"/);
-  assert.match(zhCN, /"settings\.system": "跟随系统"/);
+  assert.match(zhCN, /"settings\.system": "\u8ddf\u968f\u7cfb\u7edf"/);
 });
 
-test("项目必需说明位于独立滚动 tablist 外并仅在无 cwd 时显示", async () => {
+test("the project-required notice is outside the independently scrolling tablist and appears only without cwd", async () => {
   const content = await source("components/SettingsModal.tsx");
 
   assert.match(
@@ -309,7 +309,7 @@ test("项目必需说明位于独立滚动 tablist 外并仅在无 cwd 时显示
   assert.match(content, /aria-orientation=\{isMobile \? "horizontal" : "vertical"\}/);
 });
 
-test("AppShell 仅在模型保存成功时触发模型列表刷新", async () => {
+test("AppShell refreshes the model list only after a successful model save", async () => {
   const content = await source("components/AppShell.tsx");
 
   assert.equal(content.match(/setModelsRefreshKey\(/g)?.length, 1);
@@ -317,23 +317,23 @@ test("AppShell 仅在模型保存成功时触发模型列表刷新", async () =>
   assert.match(content, /onSessionReloaded=\{\(\) => setSessionKey\(key => key \+ 1\)\}/);
 });
 
-test("模型与技能按钮组接入共享 SegmentedControl", async () => {
+test("model and skills button groups use the shared SegmentedControl", async () => {
   const [models, skills] = await Promise.all([
     source("components/ModelsConfig.tsx"),
     source("components/SkillsConfig.tsx"),
   ]);
 
-  // 模型页 thinking level 的 Default/Disabled 使用共享控件，Disabled 保留 danger 语义。
+  // The model page uses the shared control for Default/Disabled thinking levels; Disabled keeps danger semantics.
   assert.match(models, /import \{ SegmentedControl \} from "\.\/ui\/SegmentedControl";/);
   assert.match(models, /<SegmentedControl/);
   assert.match(models, /\{ value: "default", label: "Default" \}/);
   assert.match(models, /\{ value: "disabled", label: "Disabled", className: "ui-segmented-control-option--danger" \}/);
   assert.match(models, /onChange=\{\(next\) => setLevel\(level, next === "default" \? "omit" : null\)\}/);
   assert.doesNotMatch(models, /btnActiveDisabled/);
-  // Custom + input 融合控件保持现状。
+  // Keep the combined Custom + input control unchanged.
   assert.match(models, /placeholder=\{level\}/);
 
-  // 技能页 Add Skill 的 global/project scope 使用共享控件，禁用与 title 保留。
+  // The skills page uses the shared control for Add Skill global/project scope, preserving disabled and title behavior.
   assert.match(skills, /import \{ SegmentedControl \} from "\.\/ui\/SegmentedControl";/);
   assert.match(skills, /<SegmentedControl/);
   assert.match(skills, /value=\{scope\}/);

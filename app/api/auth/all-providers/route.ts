@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 const OAUTH_PROVIDER_IDS = new Set(["anthropic", "github-copilot", "openai-codex"]);
 
 export async function GET(request: Request) {
-  if (!getAuthenticatedSession(request).valid) return Response.json({ error: "未认证" }, { status: 401 });
+  if (!getAuthenticatedSession(request).valid) return Response.json({ error: "Not authenticated" }, { status: 401 });
   const modelRuntime = await ModelRuntime.create();
   const all = modelRuntime.getModels();
 

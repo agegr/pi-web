@@ -71,7 +71,7 @@ async function loadLayoutThemeScript() {
   const hooksDirectory = path.dirname(fileURLToPath(import.meta.url));
   const layout = await readFile(path.join(hooksDirectory, "../app/layout.tsx"), "utf8");
   const match = layout.match(/__html: `([^`]+)`/);
-  assert.ok(match, "未找到 layout 的首屏主题脚本");
+  assert.ok(match, "Could not find the layout initial theme script");
   return match[1];
 }
 
@@ -94,7 +94,7 @@ async function runLayoutThemeScript({ getItem, matchMedia }) {
   return classes;
 }
 
-test("主题偏好将缺失和无效值解析为 system", () => {
+test("theme preference parses missing and invalid values as system", () => {
   assert.equal(subject.readThemePreference(null), "system");
   assert.equal(subject.readThemePreference("sepia"), "system");
   assert.equal(subject.readThemePreference("light"), "light");
@@ -102,13 +102,13 @@ test("主题偏好将缺失和无效值解析为 system", () => {
   assert.equal(subject.readThemePreference("system"), "system");
 });
 
-test("system 偏好解析为当前系统有效主题", () => {
+test("system preference resolves to the current system theme", () => {
   assert.equal(subject.resolveTheme("system", true), "dark");
   assert.equal(subject.resolveTheme("system", false), "light");
   assert.equal(subject.resolveTheme("dark", false), "dark");
 });
 
-test("system 偏好仅在存在订阅者时监听系统主题，并在最后取消订阅后清理", () => {
+test("system preference watches the system theme only with subscribers and cleans up after the last unsubscribe", () => {
   assert.equal(browser.listeners.size, 0);
 
   const unsubscribe = subject.subscribeTheme(() => {});
@@ -138,7 +138,7 @@ test("system 偏好仅在存在订阅者时监听系统主题，并在最后取�
   explicitSubscription();
 });
 
-test("重新订阅 system 偏好时立即同步无订阅期间变化的系统主题", () => {
+test("resubscribing to system preference immediately syncs system theme changes made while unsubscribed", () => {
   const initialSubscription = subject.subscribeTheme(() => {});
   subject.setThemePreference("system");
   browser.emitSystemChange(false);
@@ -156,7 +156,7 @@ test("重新订阅 system 偏好时立即同步无订阅期间变化的系统主
   resubscribe();
 });
 
-test("动画能力检测的 matchMedia 抛错时仍应用并持久化主题", () => {
+test("theme is still applied and persisted when matchMedia throws during animation capability detection", () => {
   browser.setMatchMedia(() => { throw new Error("media unavailable"); });
 
   assert.doesNotThrow(() => subject.setThemePreference("dark"));
@@ -164,7 +164,7 @@ test("动画能力检测的 matchMedia 抛错时仍应用并持久化主题", ()
   assert.deepEqual(browser.writes.at(-1), ["pi-theme", "dark"]);
 });
 
-test("startViewTransition 同步抛错时仍应用并持久化主题", () => {
+test("theme is still applied and persisted when startViewTransition throws synchronously", () => {
   browser.setMatchMedia(() => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
   browser.setStartViewTransition(() => { throw new Error("transition unavailable"); });
 
@@ -173,7 +173,7 @@ test("startViewTransition 同步抛错时仍应用并持久化主题", () => {
   assert.deepEqual(browser.writes.at(-1), ["pi-theme", "light"]);
 });
 
-test("首屏脚本在存储读取失败后仍以 system 偏好使用系统深色主题", async () => {
+test("initial theme script still uses the system dark theme with system preference after storage access fails", async () => {
   const classes = await runLayoutThemeScript({
     getItem() { throw new Error("storage unavailable"); },
     matchMedia() { return { matches: true }; },
@@ -182,7 +182,7 @@ test("首屏脚本在存储读取失败后仍以 system 偏好使用系统深色
   assert.equal(classes.has("dark"), true);
 });
 
-test("首屏脚本在 matchMedia 缺失或失败时回退到浅色主题", async () => {
+test("initial theme script falls back to the light theme when matchMedia is missing or fails", async () => {
   const missingMatchMedia = await runLayoutThemeScript({
     getItem() { return "system"; },
     matchMedia: undefined,

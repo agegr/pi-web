@@ -100,8 +100,8 @@ export function hasJsonContentType(request: Request): boolean {
     || Boolean(mediaType?.startsWith("application/") && mediaType.endsWith("+json"));
 }
 
-/** 请求认证分流结果。
- * @returns 当前请求应执行的访问控制动作。
+/** Authentication routing result for a request.
+ * @returns Access-control action for the current request.
  */
 export type RequestAccess =
   | { type: "public" }
@@ -118,9 +118,9 @@ function isPublicAuthPath(pathname: string): boolean {
     || pathname === "/api/auth/login";
 }
 
-/** 判断请求是否公开、已认证或需要被拒绝。
- * @param request 当前 HTTP 请求。
- * @returns 请求访问控制结果。
+/** Determine whether a request is public, authenticated, or must be rejected.
+ * @param request Current HTTP request.
+ * @returns Request access-control result.
  */
 export function getRequestAccess(request: Request): RequestAccess {
   const { pathname } = new URL(request.url);

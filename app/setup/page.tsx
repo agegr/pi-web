@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { AuthForms } from "@/components/AuthForms";
 import { useI18n } from "@/hooks/useI18n";
 
-/** 渲染首次初始化页面。 * @returns 初始化页面。 */
+/** Render the first-run setup page. * @returns Setup page. */
 export default function SetupPage() {
   const router = useRouter();
   const { t } = useI18n();

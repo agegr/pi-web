@@ -1,15 +1,15 @@
-/** 已注册语言包的唯一标识。 */
+/** The unique identifier of a registered locale plugin. */
 export type Locale = string;
 
-/** 翻译字符串使用的简单插值参数。 */
+/** Simple interpolation parameters used by translated strings. */
 export type TranslationParams = Record<string, string | number>;
 
-/** 可注册的语言包定义。 */
+/** Definition of a locale plugin that can be registered. */
 export interface LocalePlugin {
-  /** 语言包唯一标识。 */
+  /** The unique locale plugin identifier. */
   id: string;
-  /** 用于语言选择菜单的显示名称。 */
+  /** The display name used in the locale selection menu. */
   label: string;
-  /** 以稳定 key 索引的翻译消息。 */
+  /** Translated messages indexed by stable keys. */
   messages: Record<string, string>;
 }

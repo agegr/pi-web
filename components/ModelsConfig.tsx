@@ -1308,19 +1308,19 @@ function AddProviderPicker({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-/** 模型设置内容属性。 */
+/** Props for the model settings content. */
 export interface ModelsConfigProps {
-  /** 模型配置成功保存后的回调。 */
+  /** Callback invoked after model configuration is saved successfully. */
   onSaved?: () => void;
 }
 
 /**
- * 渲染模型设置内容并保留现有 Provider 与模型编辑流程。
+ * Renders model settings content while preserving the existing Provider and model editing flow.
  *
- * @param props - 模型设置属性。
- * @param props.onSaved - 配置成功保存后的可选回调。
- * @returns 可嵌入设置中心的模型配置内容。
- * @throws 不直接抛出异常；加载和保存错误在内容区显示。
+ * @param props - Model settings props.
+ * @param props.onSaved - Optional callback invoked after configuration is saved successfully.
+ * @returns Model configuration content that can be embedded in the settings center.
+ * @throws Does not throw directly; loading and saving errors are displayed in the content area.
  */
 export function ModelsConfig({ onSaved }: ModelsConfigProps): ReactElement {
   const isMobile = useIsMobile();

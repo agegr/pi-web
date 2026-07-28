@@ -27,27 +27,27 @@ const FOCUSABLE_SELECTOR = [
 ].join(", ");
 
 /**
- * 设置中心一级菜单标识，用于关联 tab 与对应 panel。
+ * Top-level settings menu identifier used to associate a tab with its panel.
  */
 export type SettingsSection = "general" | "models" | "skills" | "plugins" | "security";
 
 /**
- * 设置中心属性，包含当前应用上下文和设置操作完成后的回调。
+ * Settings center props, including the current application context and callbacks after settings operations.
  */
 export interface SettingsModalProps {
-  /** 当前项目工作目录；未选择项目时为 null。 */
+  /** Current project working directory, or null when no project is selected. */
   cwd: string | null;
-  /** 当前会话 ID；没有活动会话时为 null。 */
+  /** Current session ID, or null when no session is active. */
   sessionId: string | null;
-  /** 应用层认证错误。 */
+  /** Application-level authentication error. */
   authError: string | null;
-  /** 请求关闭设置中心。 */
+  /** Requests that the settings center close. */
   onClose: () => void;
-  /** 模型配置保存成功后的回调。 */
+  /** Callback invoked after model configuration is saved successfully. */
   onModelsSaved: () => void;
-  /** 插件触发会话重载后的回调。 */
+  /** Callback invoked after a plugin triggers a session reload. */
   onSessionReloaded: () => void;
-  /** 密码修改成功后的回调。 */
+  /** Callback invoked after the password changes successfully. */
   onPasswordChanged: () => void;
 }
 
@@ -90,18 +90,18 @@ function GeneralSettings(): ReactElement {
 }
 
 /**
- * 渲染统一设置中心，并管理导航、焦点约束和各设置面板的生命周期。
+ * Renders the unified settings center and manages navigation, focus trapping, and settings panel lifecycles.
  *
- * @param props - 设置中心属性。
- * @param props.cwd - 当前项目工作目录。
- * @param props.sessionId - 当前会话 ID。
- * @param props.authError - 应用层认证错误。
- * @param props.onClose - 请求关闭设置中心的回调。
- * @param props.onModelsSaved - 模型配置保存成功后的回调。
- * @param props.onSessionReloaded - 插件触发会话重载后的回调。
- * @param props.onPasswordChanged - 密码修改成功后的回调。
- * @returns 具有可访问 tab 导航和焦点约束的设置 dialog。
- * @throws 不直接抛出异常；子设置组件自行处理请求错误。
+ * @param props - Settings center props.
+ * @param props.cwd - Current project working directory.
+ * @param props.sessionId - Current session ID.
+ * @param props.authError - Application-level authentication error.
+ * @param props.onClose - Callback requesting that the settings center close.
+ * @param props.onModelsSaved - Callback invoked after model configuration is saved successfully.
+ * @param props.onSessionReloaded - Callback invoked after a plugin triggers a session reload.
+ * @param props.onPasswordChanged - Callback invoked after the password changes successfully.
+ * @returns A settings dialog with accessible tab navigation and focus trapping.
+ * @throws Does not throw directly; child settings components handle request errors themselves.
  */
 export function SettingsModal({
   cwd,
@@ -144,7 +144,7 @@ export function SettingsModal({
   );
 
   useEffect(() => {
-    // 仅当已选择的项目页因 cwd 消失而失效时回退，不干扰首次打开的初始焦点。
+    // Fall back only when the selected project tab becomes invalid because cwd disappeared.
     if (!activeSectionDisabled) return;
     setActiveSection("general");
     generalTabRef.current?.focus();
@@ -162,7 +162,7 @@ export function SettingsModal({
   }
 
   function handleDialogKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
-    // 子 dialog 已消费的 Escape 不应关闭设置中心。
+    // Escape consumed by a child dialog must not close the settings center.
     if (event.defaultPrevented) return;
     if (event.key === "Escape") {
       event.preventDefault();

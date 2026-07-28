@@ -31,8 +31,8 @@ type AutoNameStatus =
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
 
 /**
- * 渲染 Pi Web 的主工作区及其会话、文件和认证设置。
- * @returns 主工作区界面。
+ * Renders the main Pi Web workspace with sessions, files, and authentication settings.
+ * @returns The main workspace interface.
  */
 export function AppShell() {
   const router = useRouter();

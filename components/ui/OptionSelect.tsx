@@ -12,47 +12,47 @@ import {
 } from "react";
 
 /**
- * OptionSelect 的单个选项。
+ * A single OptionSelect option.
  */
 export interface OptionSelectOption {
-  /** 选项值，选择时传给 onChange。 */
+  /** Option value passed to onChange when selected. */
   value: string;
-  /** 选项显示内容。 */
+  /** Visible option label. */
   label: ReactNode;
-  /** 是否禁用该选项；禁用项不可获得焦点也不可被选中。 */
+  /** Whether the option is disabled; disabled options cannot receive focus or be selected. */
   disabled?: boolean;
 }
 
 /**
- * OptionSelect 的受控属性。
+ * Controlled OptionSelect props.
  */
 export interface OptionSelectProps {
-  /** 当前值；不在 options 中时触发器原样显示该值且不伪造选中项。 */
+  /** Current value; values absent from options are displayed as-is without a fabricated selection. */
   value: string;
-  /** 可选项列表；为空时触发器禁用。 */
+  /** Available options; the trigger is disabled when empty. */
   options: readonly OptionSelectOption[];
-  /** 选择新值时的回调。 */
+  /** Callback invoked when a new value is selected. */
   onChange: (value: string) => void;
-  /** 触发器与列表面板的无障碍名称。 */
+  /** Accessible name for the trigger and listbox panel. */
   ariaLabel: string;
-  /** 是否禁用整个控件。 */
+  /** Whether the entire control is disabled. */
   disabled?: boolean;
 }
 
 /**
- * 渲染项目级通用下拉选择控件，与模型选择、项目路径选择的视觉模式一致。
+ * Renders a project-wide dropdown control matching the visual pattern used for model and project-path selection.
  *
- * 面板渲染在控件根容器内（不使用 portal），因此不会逃出父级 dialog 的焦点约束；
- * Escape 关闭面板并阻止冒泡，不会误关闭父级设置中心。
+ * The panel renders inside the control root (without a portal), so it stays within the parent dialog's focus trap;
+ * Escape closes the panel and stops propagation without accidentally closing the parent settings center.
  *
- * @param props - 控件属性。
- * @param props.value - 当前值。
- * @param props.options - 可选项列表。
- * @param props.onChange - 选择新值时的回调。
- * @param props.ariaLabel - 触发器与面板的无障碍名称。
- * @param props.disabled - 是否禁用整个控件。
- * @returns 带触发按钮、listbox 面板和勾号选中态的下拉选择控件。
- * @throws 不抛出异常；外部点击、卸载与禁用态均在组件内处理。
+ * @param props - Control props.
+ * @param props.value - Current value.
+ * @param props.options - Available options.
+ * @param props.onChange - Callback invoked when a new value is selected.
+ * @param props.ariaLabel - Accessible name for the trigger and panel.
+ * @param props.disabled - Whether the entire control is disabled.
+ * @returns A dropdown control with a trigger button, listbox panel, and checkmark selection state.
+ * @throws Does not throw; outside clicks, unmounting, and disabled state are handled internally.
  */
 export function OptionSelect({
   value,
@@ -99,7 +99,7 @@ export function OptionSelect({
     triggerRef.current?.focus();
   }, []);
 
-  // 打开期间监听外部点击、窗口尺寸与滚动；卸载时清理全部监听器。
+  // Listen for outside clicks, window resize, and scrolling while open; clean up on unmount.
   useEffect(() => {
     if (!isOpen) return;
     updatePlacement();
@@ -120,7 +120,7 @@ export function OptionSelect({
     if (unusable) setOpen(false);
   }, [unusable]);
 
-  // 打开后把焦点移入当前选中项或第一个可用项（roving focus）。
+  // Move focus to the selected option or first enabled option after opening (roving focus).
   useEffect(() => {
     if (!isOpen) return;
     const panel = panelRef.current;

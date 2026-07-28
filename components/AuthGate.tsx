@@ -6,11 +6,11 @@ import { usePathname, useRouter } from "next/navigation";
 type AuthStatus = { initialized: boolean; authenticated: boolean };
 
 /**
- * 在认证状态确认前阻止业务 UI 挂载，并提供登录或初始化表单。
- * @param props 组件属性。
- * @param props.children 已认证后显示的业务界面。
- * @returns 认证分流界面。
- * @throws 认证状态请求失败时显示通用错误界面，不向调用方抛出异常。
+ * Prevent business UI from mounting until authentication is confirmed, and provide login or setup forms.
+ * @param props Component properties.
+ * @param props.children Business UI shown after authentication.
+ * @returns Authentication routing interface.
+ * @throws Does not throw to callers; displays a generic error interface when the status request fails.
  */
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -21,11 +21,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function refreshStatus() {
       const response = await fetch("/api/auth/status", { cache: "no-store" });
-      if (!response.ok) throw new Error("认证状态读取失败");
+      if (!response.ok) throw new Error("Failed to read authentication status");
       setStatus(await response.json() as AuthStatus);
     }
 
-    refreshStatus().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "认证状态读取失败"));
+    refreshStatus().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Failed to read authentication status"));
   }, []);
 
   useEffect(() => {
@@ -35,6 +35,6 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }, [pathname, router, status]);
 
   if (status?.authenticated) return children;
-  if (error) return <main className="auth-page"><p className="auth-form-error" role="alert">认证状态读取失败，请刷新页面重试</p></main>;
-  return <main className="auth-page"><p>正在跳转...</p></main>;
+  if (error) return <main className="auth-page"><p className="auth-form-error" role="alert">Failed to read authentication status. Refresh the page and try again.</p></main>;
+  return <main className="auth-page"><p>Redirecting...</p></main>;
 }

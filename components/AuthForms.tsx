@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import { submitAuthForm } from "@/lib/auth-form";
 import { useI18n } from "@/hooks/useI18n";
 
-/** 认证表单的工作模式。 */
+/** Authentication form operating mode. */
 export type AuthFormMode = "login" | "setup";
 
 type AuthFormsProps = {
@@ -13,11 +13,11 @@ type AuthFormsProps = {
 };
 
 /**
- * 渲染登录或初始化认证表单。
- * @param props 表单模式和成功回调。
- * @param props.mode 当前表单模式。
- * @param props.onSuccess 请求成功后的回调。
- * @returns 认证表单元素。
+ * Render a login or authentication setup form.
+ * @param props Form mode and success callback.
+ * @param props.mode Current form mode.
+ * @param props.onSuccess Callback after a successful request.
+ * @returns Authentication form element.
  */
 export function AuthForms({ mode, onSuccess }: AuthFormsProps) {
   const { t } = useI18n();

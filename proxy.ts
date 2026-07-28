@@ -2,9 +2,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getRequestAccess } from "@/lib/request-security";
 import { getAuthState } from "@/lib/pi-web-auth";
 
-/** 保护页面、业务 API 和 SSE，同时保留认证引导及静态资源公开访问。
- * @param request Next.js proxy 请求。
- * @returns 访问控制响应。
+/** Protect pages, business APIs, and SSE while keeping authentication entry points and static assets public.
+ * @param request Next.js proxy request.
+ * @returns Access-control response.
  */
 export async function proxy(request: NextRequest) {
   const access = getRequestAccess(request);
@@ -21,7 +21,7 @@ export async function proxy(request: NextRequest) {
   try {
     if (!(await getAuthState()).initialized) destination = "/setup";
   } catch {
-    // 损坏配置不能伪装成未初始化，否则 setup 页面无法安全恢复。
+    // Do not treat a corrupt config as uninitialized, or the setup page cannot recover safely.
     destination = "/login";
   }
   return NextResponse.redirect(new URL(destination, request.url));

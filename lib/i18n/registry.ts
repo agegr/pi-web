@@ -4,7 +4,7 @@ import type { Locale, LocalePlugin } from "./types";
 
 const localePlugins = new Map<string, LocalePlugin>();
 
-/** 注册一个语言包；重复注册会抛出异常，避免静默覆盖翻译。 */
+/** Registers a locale plugin; duplicate registration throws instead of silently overwriting translations. */
 export function registerLocale(plugin: LocalePlugin): void {
   if (!plugin.id.trim()) throw new Error("Locale id must not be empty");
   if (localePlugins.has(plugin.id)) throw new Error(`Locale already registered: ${plugin.id}`);
@@ -12,23 +12,23 @@ export function registerLocale(plugin: LocalePlugin): void {
 }
 
 /**
- * 根据标识获取已注册的语言包。
- * @param id 要查询的语言标识
- * @returns 已注册的语言包，不存在时返回 undefined
+ * Gets a registered locale plugin by identifier.
+ * @param id The locale identifier to query.
+ * @returns The registered locale plugin, or undefined if it does not exist.
  */
 export function getLocalePlugin(id: string): LocalePlugin | undefined {
   return localePlugins.get(id);
 }
 
-/** 获取当前已注册语言的稳定顺序列表。 */
+/** Returns the stable ordered list of currently registered locales. */
 export function getSupportedLocales(): string[] {
   return [...localePlugins.keys()];
 }
 
 /**
- * 将浏览器语言列表解析为 Pi Web 内置语言。
- * @param languages 浏览器按优先级排列的语言列表
- * @returns 匹配的内置语言，无法匹配时返回英语
+ * Resolves a browser language list to a built-in Pi Web locale.
+ * @param languages Browser languages ordered by preference.
+ * @returns The matching built-in locale, or English when none matches.
  */
 export function resolveBrowserLocale(languages: readonly string[]): Locale {
   for (const language of languages) {

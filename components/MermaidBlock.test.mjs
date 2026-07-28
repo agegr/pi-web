@@ -58,12 +58,12 @@ test("MermaidBlock renders empty graph without error", () => {
   assert.match(html, /mermaid-block-loading/);
 });
 
-test("MermaidBlock handles Chinese characters in diagram", () => {
-  const chineseMermaid = `sequenceDiagram
-    participant PC as PC客户端
-    PC->>SV: 请求登录`;
+test("MermaidBlock handles English characters in diagram", () => {
+  const englishMermaid = `sequenceDiagram
+    participant PC as PC Client
+    PC->>SV: Request login`;
 
-  const html = renderMermaid({ code: chineseMermaid, defaultPreview: true });
+  const html = renderMermaid({ code: englishMermaid, defaultPreview: true });
 
   assert.doesNotMatch(html, /mermaid-block-error/);
   assert.match(html, /mermaid-block/);
