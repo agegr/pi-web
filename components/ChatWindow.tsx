@@ -37,6 +37,7 @@ interface Props {
   onSessionStatsPanelOpen?: () => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
   onOpenFile?: (filePath: string) => void;
+  onOpenModelsConfig?: () => void;
 }
 
 function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, string | number>) => string): string {
@@ -170,7 +171,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, children, t }: { mes
   );
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile }: Props) {
+export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenModelsConfig }: Props) {
   const { t } = useI18n();
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
   const isMobile = useIsMobile();
@@ -201,7 +202,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, dismissNotice,
     isAutoModelSelection,
     agentPhase,
     isNew,
@@ -473,7 +474,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 </span>
               </div>
             </div>
-            <NoticeShelf notices={notices} align="right" />
+            <NoticeShelf notices={notices} align="right" t={t} onDismiss={dismissNotice} onRetry={(message) => void handleSend(message)} onOpenModelsConfig={onOpenModelsConfig} />
             {chatInputElement}
           </div>
         </div>
@@ -492,7 +493,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           }}
         >
           <div style={{ maxWidth: 820, margin: "0 auto" }}>
-            <NoticeShelf notices={notices} floating align="right" />
+            <NoticeShelf notices={notices} floating align="right" t={t} onDismiss={dismissNotice} onRetry={(message) => void handleSend(message)} onOpenModelsConfig={onOpenModelsConfig} />
           </div>
         </div>
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pt-4 [scrollbar-width:none]">
@@ -771,7 +772,15 @@ function ExtensionWidgets({ widgets }: { widgets: Array<{ key: string; lines: st
   );
 }
 
-function NoticeShelf({ notices, floating = false, align = "left" }: { notices: NoticeItem[]; floating?: boolean; align?: "left" | "right" }) {
+function NoticeShelf({ notices, floating = false, align = "left", t, onDismiss, onRetry, onOpenModelsConfig }: {
+  notices: NoticeItem[];
+  floating?: boolean;
+  align?: "left" | "right";
+  t: (key: string) => string;
+  onDismiss: (id: string) => void;
+  onRetry: (message: string) => void;
+  onOpenModelsConfig?: () => void;
+}) {
   if (notices.length === 0) return null;
   return (
     <div
@@ -819,6 +828,7 @@ function NoticeShelf({ notices, floating = false, align = "left" }: { notices: N
                 ? "notice-shelf-out 0.18s ease-in forwards"
                 : "notice-shelf-in 0.18s ease-out both",
               padding: "0 12px",
+              pointerEvents: "auto",
             }}
           >
             <span
@@ -833,6 +843,21 @@ function NoticeShelf({ notices, floating = false, align = "left" }: { notices: N
             <span style={{ padding: "14px 0", minWidth: 0, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {notice.message}
             </span>
+            {notice.retryMessage && (
+              <button type="button" onClick={() => onRetry(notice.retryMessage!)} style={{ border: "none", background: "transparent", color, cursor: "pointer", font: "inherit", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>
+                {t("notice.retry")}
+              </button>
+            )}
+            {notice.showModelsAction && onOpenModelsConfig && (
+              <button type="button" onClick={onOpenModelsConfig} style={{ border: "none", background: "transparent", color, cursor: "pointer", font: "inherit", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>
+                {t("notice.checkModels")}
+              </button>
+            )}
+            {notice.persistent && (
+              <button type="button" aria-label={t("notice.dismiss")} title={t("notice.dismiss")} onClick={() => onDismiss(notice.id)} style={{ border: "none", background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 2 }}>
+                ×
+              </button>
+            )}
           </div>
         );
       })}

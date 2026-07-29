@@ -96,6 +96,9 @@ export type NoticeItem = {
   id: string;
   message: string;
   type: NoticeType;
+  retryMessage?: string;
+  showModelsAction?: boolean;
+  persistent?: boolean;
   exiting?: boolean;
 };
 
@@ -195,7 +198,7 @@ function delay(ms: number): Promise<void> {
 }
 
 function markOldestNoticeExiting(notices: NoticeItem[]): NoticeItem[] {
-  const index = notices.findIndex((notice) => !notice.exiting);
+  const index = notices.findIndex((notice) => !notice.exiting && !notice.persistent);
   if (index === -1) return notices;
   return notices.map((notice, i) => (
     i === index ? { ...notice, exiting: true } : notice
@@ -387,6 +390,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const newSessionPromotedRef = useRef(false);
   const promptRunIdRef = useRef(0);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
+  const lastPromptTextRef = useRef<string | null>(null);
 
   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
 
@@ -680,7 +684,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, []);
 
-  const addNotice = useCallback((notice: { id?: string; message: string; type?: NoticeType }) => {
+  const addNotice = useCallback((notice: Omit<NoticeItem, "id" | "exiting"> & { id?: string }) => {
     const message = notice.message.trim();
     if (!message) return;
     dispatchNotice({
@@ -689,6 +693,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         id: notice.id ?? createNoticeId(),
         message,
         type: notice.type ?? "info",
+        retryMessage: notice.retryMessage,
+        showModelsAction: notice.showModelsAction,
+        persistent: notice.persistent,
       },
     });
   }, []);
@@ -918,7 +925,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         void finishPromptWithoutStream(sessionIdRef.current);
         break;
       case "prompt_error":
-        addNotice({ type: "error", message: (event.errorMessage as string | undefined) ?? "Command failed" });
+        addNotice({
+          type: "error",
+          message: (event.errorMessage as string | undefined) ?? "Command failed",
+          retryMessage: lastPromptTextRef.current ?? undefined,
+          showModelsAction: true,
+          persistent: true,
+        });
         break;
       case "extension_error":
         addNotice({
@@ -1045,6 +1058,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
 
     const promptRunId = promptRunIdRef.current + 1;
+    lastPromptTextRef.current = message;
 
     const imageBlocks = images?.map((img) => ({ type: "image" as const, source: { type: "base64" as const, media_type: img.mimeType, data: img.data } }));
     const userMsg: AgentMessage = {
@@ -1613,7 +1627,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }, NOTICE_EXIT_ANIMATION_MS);
       return () => clearTimeout(t);
     }
-    const oldest = noticeState.visible[0];
+    const oldest = noticeState.visible.find((notice) => !notice.persistent);
     if (!oldest) return;
     const t = setTimeout(() => {
       dispatchNotice({ type: "mark_oldest_exiting" });
@@ -1646,6 +1660,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
     dispatch, setAgentRunning, setForkingEntryId,
+    dismissNotice: (id: string) => dispatchNotice({ type: "remove", id }),
     bashRunning, pendingBash,
     // Subscriptions
     handleAgentEventRef,

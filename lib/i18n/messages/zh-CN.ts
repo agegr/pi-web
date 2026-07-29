@@ -426,5 +426,8 @@ export const zhCNLocale: LocalePlugin = {
     "i18n.thinkingUnavailable": "思考内容不可用",
     "i18n.before": "之前",
     "i18n.after": "之后",
+    "notice.retry": "重试",
+    "notice.checkModels": "检查模型设置",
+    "notice.dismiss": "关闭",
   },
 };

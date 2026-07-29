@@ -1400,6 +1400,7 @@ export function AppShell() {
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onContextUsageChange={handleContextUsageChange}
               onOpenFile={handleOpenLinkedFile}
+              onOpenModelsConfig={() => setModelsConfigOpen(true)}
             />
           ) : initialCwdStatus === "validating" ? (
             <div

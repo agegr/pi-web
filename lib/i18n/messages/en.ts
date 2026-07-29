@@ -426,5 +426,8 @@ export const enLocale: LocalePlugin = {
     "i18n.thinkingUnavailable": "Thinking content unavailable",
     "i18n.before": "Before",
     "i18n.after": "After",
+    "notice.retry": "Retry",
+    "notice.checkModels": "Check models",
+    "notice.dismiss": "Dismiss",
   },
 };
