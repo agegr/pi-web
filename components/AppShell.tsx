@@ -470,11 +470,11 @@ export function AppShell() {
   const handleViewFullHistory = useCallback(() => {
     if (!selectedSession) return;
     window.open(
-      `/api/sessions/${encodeURIComponent(selectedSession.id)}/export?inline=1`,
+      `/api/sessions/${encodeURIComponent(selectedSession.id)}/export?inline=1&locale=${encodeURIComponent(locale)}`,
       "_blank",
       "noopener,noreferrer",
     );
-  }, [selectedSession]);
+  }, [locale, selectedSession]);
 
   // Show chat area if a session is selected, or if we have a cwd to start a new session in
   const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
