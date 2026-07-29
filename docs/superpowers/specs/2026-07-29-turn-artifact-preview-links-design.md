@@ -34,12 +34,36 @@
 
 ## 架构与数据流
 
-1. `AssistantMessageView`（`components/MessageView.tsx:341`）已同时持有 `message.content`、`toolResults`（`Map<toolCallId, ToolResultMessage>`）、`cwd`、`onOpenFile`（行 344 / 346 / 347 / 353）——四个依赖全在这一层齐了，无需新增 prop 穿透。
-2. 调用纯函数 `extractTurnArtifacts(message.content, toolResults, cwd)` → `TurnArtifact[]`（已去重）。
-3. 列表非空则渲染 `<TurnArtifacts>` 组件（chip 行），位于 blocks 列表**之后**（约 `MessageView.tsx:533` 之后）。
-4. 每个 chip 点击调 `onOpenFile(filePath)`（绝对路径）→ 复用现有 `handleOpenLinkedFile` → `handleOpenFile`（`AppShell.tsx:417`）→ 右侧 `FileViewer` + `setRightPanelOpen(true)`。
+> **实现期架构修正（2026-07-29）：** 本节最初假设 assistant 回答消息的 `message.content`
+> 里就带着本回合的 `toolCall` 块。**这是错的。** pi-web 的会话预处理会把原始 assistant
+> 消息**按工具调用拆成多条独立消息条目**：每个 `toolCall`（+ 其 `toolResult`）各自一条
+> assistant / toolResult 条目，最终回答（纯 text）单独一条。因此渲染时一个"回合"在
+> `messages[]` 里横跨多条条目，而最终回答条目（`finalAssistant`）的 `content` 只有
+> `[text]`——`extractTurnArtifacts(message.content)` 只看得到文本，永远返回空，chip 不出。
+> 单测没抓住这点，因为它们直接喂了包含 `toolCall` 的合成 `content`。修正后的数据流如下。
 
-**抽取逻辑（对该回合每个 `toolCall` content 块）：**
+1. **回合边界由 `ChatWindow` 掌握**（`components/ChatWindow.tsx`）：渲染时按 user 锚点把
+   消息分组，组内 `[userIdx+1, finalAssistantIdx]` 即一个回合。回合的工具调用散落在该区间
+   的多条 assistant 条目里，最终回答是 `finalAssistant`（text-only）。
+2. **在 `ChatWindow` 聚合整回合的工具调用**：遍历 `[userIdx+1, finalAssistantIdx]` 所有
+   `role==="assistant"` 条目，把它们的 content 块拼成一个数组，传入
+   `extractTurnArtifacts(turnContent, toolResultsMap, cwd)` → `TurnArtifact[]`（已去重）。
+   `extractTurnArtifacts` 内部只挑 `write`/`edit` 的 `toolCall` 块，跳过 text/thinking。
+3. **把结果作为 `turnArtifacts` prop 穿下去**：`renderMessage(..., { messageOverride:
+   finalAnswerMessage, turnArtifacts })` → `MessageView`（新增可选 prop）→
+   `AssistantMessageView`（新增可选 prop）。`AssistantMessageView` 的 `useMemo` 优先用该 prop：
+   `turnArtifacts ?? extractTurnArtifacts(message.content, ...)`。
+4. **chip 渲染**：`AssistantMessageView` 在 blocks 列表之后渲染 `<TurnArtifacts artifacts=
+   {artifacts} onOpenFile={onOpenFile}>`（`MessageView.tsx` 约 543 行）。
+5. **流式回退**：未拆分的流式 bubble（`ChatWindow` 直接渲染 `streamingMessage` 那条，
+   未传 `turnArtifacts`）走 `?? extractTurnArtifacts(message.content)`——流式消息此时
+   `content` 仍含 `toolCall`，故也能实时出 chip。
+6. **抑制 Process Details 内重复**：回合的 process 条目（折叠的"Process details"）渲染时
+   显式传 `turnArtifacts: []`，避免展开后 fallback 在过程区也冒 chip。
+7. 每个 chip 点击调 `onOpenFile(filePath)`（绝对路径）→ 复用现有 `handleOpenLinkedFile` →
+   `handleOpenFile`（`AppShell.tsx`）→ 右侧 `FileViewer` + `setRightPanelOpen(true)`。
+
+**抽取逻辑（对聚合后内容里每个 `toolCall` 块）：**
 
 1. 工具名属 `write`/`edit` 族 → 否则跳过（`read` / `ls` / `grep` / `bash` 等自然排除）
 2. 按 `toolCallId` 在 `toolResults` 查结果，`isError === true` → 跳过

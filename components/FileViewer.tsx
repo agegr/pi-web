@@ -901,7 +901,9 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
   }, [fetchGitDiff, filePath, gitRefreshKey]);
 
   useEffect(() => {
-    if (data?.language === "markdown" && initialDisplayMode !== "diff") {
+    // Default content-renderable file types to rendered preview (mirrors markdown):
+    // HTML opens as a live webpage via the sandboxed iframe rather than as source.
+    if ((data?.language === "markdown" || data?.language === "html") && initialDisplayMode !== "diff") {
       setDisplayMode("preview");
     }
   }, [data?.language, initialDisplayMode]);

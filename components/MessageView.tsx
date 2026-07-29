@@ -7,7 +7,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
-import { extractTurnArtifacts } from "@/lib/turn-artifacts";
+import { extractTurnArtifacts, type TurnArtifact } from "@/lib/turn-artifacts";
 import { TurnArtifacts } from "./TurnArtifacts";
 import type {
   AgentMessage,
@@ -71,6 +71,15 @@ interface Props {
   showTimestamp?: boolean;
   prevTimestamp?: number;
   sessionId?: string;
+  /**
+   * Pre-extracted produced-file artifacts for this turn. The saved-message
+   * render path splits an assistant message into "process" (tool calls) and
+   * "answer" (final text) entries, so the answer's `message.content` no longer
+   * holds the tool calls — ChatWindow computes artifacts from the full turn and
+   * passes them here. Omitted on the un-split streaming path, where this falls
+   * back to deriving from `message.content`.
+   */
+  turnArtifacts?: TurnArtifact[];
 }
 
 function formatTime(ts?: number): string | null {
@@ -100,12 +109,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, turnArtifacts }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} turnArtifacts={turnArtifacts} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -351,6 +360,7 @@ function AssistantMessageView({
   prevTimestamp,
   sessionId,
   entryId,
+  turnArtifacts,
 }: {
   message: AssistantMessage;
   isStreaming?: boolean;
@@ -362,6 +372,7 @@ function AssistantMessageView({
   prevTimestamp?: number;
   sessionId?: string;
   entryId?: string;
+  turnArtifacts?: TurnArtifact[];
 }) {
   const { t } = useI18n();
   const time = showTimestamp ? formatTime(message.timestamp) : null;
@@ -404,8 +415,12 @@ function AssistantMessageView({
   }, [toolResults, message.timestamp]);
 
   const artifacts = useMemo(
-    () => extractTurnArtifacts(message.content ?? [], toolResults, cwd),
-    [message.content, toolResults, cwd],
+    // Prefer artifacts pre-extracted from the full turn (the saved-message path
+    // splits tool calls out of the answer, so message.content alone can't see
+    // them). Fall back to deriving from message.content for the un-split
+    // streaming bubble.
+    () => turnArtifacts ?? extractTurnArtifacts(message.content ?? [], toolResults, cwd),
+    [turnArtifacts, message.content, toolResults, cwd],
   );
 
   const textContent = blocks

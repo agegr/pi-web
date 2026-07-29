@@ -5,6 +5,7 @@ import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecuti
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { extractTurnArtifacts, type TurnArtifact } from "@/lib/turn-artifacts";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
@@ -535,7 +536,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
               };
 
-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean } = {}): ReactNode => {
+              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; turnArtifacts?: TurnArtifact[] } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
                 const prevAssistantEntryId =
                   msg.role === "user" && idx > 0 && messages[idx - 1].role === "assistant"
@@ -575,6 +576,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     showTimestamp={showTimestamp}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
+                    turnArtifacts={options.turnArtifacts}
                   />
                 );
                 if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;
@@ -645,8 +647,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                        t={t}
                       toolCallCount={countToolCalls(messages, visibleProcessIndices) + countToolCallBlocks(finalSplit.processBlocks)}
                     >
-                      {visibleProcessIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }))}
-                      {finalProcessMessage && renderMessage(finalAssistantIdx, { attachRef: false, keyPrefix: "process-final", messageOverride: finalProcessMessage, showTimestamp: false })}
+                      {visibleProcessIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process", turnArtifacts: [] }))}
+                      {finalProcessMessage && renderMessage(finalAssistantIdx, { attachRef: false, keyPrefix: "process-final", messageOverride: finalProcessMessage, showTimestamp: false, turnArtifacts: [] })}
                     </ProcessDetailsGroup>
                   );
                   rendered.push(
@@ -660,7 +662,21 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 }
 
                 if (finalAnswerMessage) {
-                  rendered.push(renderMessage(finalAssistantIdx, { messageOverride: finalAnswerMessage }));
+                  // The turn's tool calls are NOT in the final answer: session
+                  // preprocessing splits each tool call into its own assistant
+                  // entry, leaving the final answer (finalAssistant) text-only.
+                  // Aggregate every assistant content block across the turn
+                  // [userIdx+1, finalAssistantIdx] and extract artifacts from
+                  // the union — extractTurnArtifacts filters/dedupes from there.
+                  const turnContent: AssistantContentBlock[] = [];
+                  for (let i = userIdx + 1; i <= finalAssistantIdx; i++) {
+                    const m = messages[i];
+                    if (m && m.role === "assistant") {
+                      for (const b of (m as AssistantMessage).content ?? []) turnContent.push(b);
+                    }
+                  }
+                  const turnArtifacts = extractTurnArtifacts(turnContent, toolResultsMap, messageCwd);
+                  rendered.push(renderMessage(finalAssistantIdx, { messageOverride: finalAnswerMessage, turnArtifacts }));
                 }
                 for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
                   rendered.push(renderMessage(renderIdx));
