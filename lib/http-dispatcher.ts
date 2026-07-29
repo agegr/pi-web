@@ -1,5 +1,8 @@
 import { EventEmitter } from "node:events";
 import * as undici from "undici";
+// Relative, not "@/lib/...": http-dispatcher.test.mjs loads this module through
+// a jiti instance without tsconfig path aliases.
+import { withTlsOverride } from "./tls-overrides";
 
 export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 300_000;
 
@@ -35,9 +38,13 @@ function withUndiciErrorListener<T extends undici.Dispatcher>(dispatcher: T): T 
   return dispatcher;
 }
 
+// Per-origin TLS overrides ride along here: an intranet model endpoint reached
+// by IP needs its certificate checked against the SAN name, which is a connect
+// option on the client for that origin only. Everything else passes through
+// untouched and keeps Node's strict verification.
 function createUndiciClient(origin: string | URL, options: object): undici.Dispatcher {
   return withUndiciErrorListener(
-    new undici.Client(origin, options as undici.Client.Options),
+    new undici.Client(origin, withTlsOverride(origin, options) as undici.Client.Options),
   );
 }
 
@@ -49,7 +56,7 @@ function createUndiciOriginDispatcher(origin: string | URL, options: object): un
 
   return withUndiciErrorListener(
     new undici.Pool(origin, {
-      ...dispatcherOptions,
+      ...withTlsOverride(origin, dispatcherOptions),
       factory: createUndiciClient,
     }),
   );
