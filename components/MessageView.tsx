@@ -7,6 +7,8 @@ import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
+import { extractTurnArtifacts } from "@/lib/turn-artifacts";
+import { TurnArtifacts } from "./TurnArtifacts";
 import type {
   AgentMessage,
   UserMessage,
@@ -401,6 +403,11 @@ function AssistantMessageView({
     return map;
   }, [toolResults, message.timestamp]);
 
+  const artifacts = useMemo(
+    () => extractTurnArtifacts(message.content ?? [], toolResults, cwd),
+    [message.content, toolResults, cwd],
+  );
+
   const textContent = blocks
     .filter((b): b is TextContent => b.type === "text")
     .map((b) => b.text)
@@ -531,6 +538,10 @@ function AssistantMessageView({
           <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
         ))}
       </div>
+
+      {artifacts.length > 0 && (
+        <TurnArtifacts artifacts={artifacts} onOpenFile={onOpenFile} />
+      )}
 
       <div style={{
         display: "flex", alignItems: "center", gap: 8, marginTop: 4,
