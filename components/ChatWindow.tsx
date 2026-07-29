@@ -99,6 +99,7 @@ function countToolCalls(messages: AgentMessage[], indices: number[]): number {
 
 function hasDisplayableProcessMessage(message: AgentMessage): boolean {
   if (message.role === "assistant") {
+    if ((message as AssistantMessage).stopReason === "error") return true;
     return getDisplayableAssistantBlocks(message as AssistantMessage).length > 0;
   }
   return message.role === "custom";
@@ -629,7 +630,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 const finalProcessMessage = finalSplit.processBlocks.length > 0
                   ? withAssistantBlocks(finalAssistant, finalSplit.processBlocks, { omitUsage: true })
                   : null;
-                const finalAnswerMessage = finalSplit.answerBlocks.length > 0
+                const finalAnswerMessage = finalSplit.answerBlocks.length > 0 || finalAssistant.stopReason === "error"
                   ? withAssistantBlocks(finalAssistant, finalSplit.answerBlocks)
                   : null;
 

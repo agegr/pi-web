@@ -470,7 +470,7 @@ function AssistantMessageView({
     return () => clearInterval(id);
   }, [isStreaming]);
 
-  if (blocks.length === 0 && !isStreaming) return null;
+  if (blocks.length === 0 && !isStreaming && message.stopReason !== "error") return null;
 
   return (
     <div
@@ -531,6 +531,25 @@ function AssistantMessageView({
           <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
         ))}
       </div>
+
+      {message.stopReason === "error" && (
+        <div
+          style={{
+            marginTop: 4,
+            padding: "8px 12px",
+            background: "color-mix(in srgb, #e01a4f 8%, transparent)",
+            border: "1px solid color-mix(in srgb, #e01a4f 35%, transparent)",
+            borderRadius: 6,
+            color: "#e01a4f",
+            fontSize: 12,
+            fontFamily: "var(--font-mono)",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
+          {message.errorMessage || "The model request failed."}
+        </div>
+      )}
 
       <div style={{
         display: "flex", alignItems: "center", gap: 8, marginTop: 4,

@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo, useReducer } from "react";
 import type {
   AgentMessage,
+  AssistantMessage,
   ExtensionStatusItem,
   ExtensionUiRequest,
   ExtensionWidgetItem,
@@ -968,6 +969,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           });
         } else if (completed) {
           setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
+          if (completed.role === "assistant" && (completed as AssistantMessage).stopReason === "error") {
+            const err = (completed as AssistantMessage).errorMessage;
+            addNotice({ type: "error", message: err || "The model request failed." });
+          }
         }
         dispatch({ type: "reset" });
         setAgentPhase({ kind: "waiting_model" });
