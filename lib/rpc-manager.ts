@@ -563,6 +563,7 @@ export class AgentSessionWrapper {
           this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
         }
         this.applyForcedEmptySystemPrompt();
+        invalidateModelsCache();
         return { success: true };
       }
 
