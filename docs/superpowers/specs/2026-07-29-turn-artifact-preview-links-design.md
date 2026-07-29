@@ -82,14 +82,14 @@ export function extractTurnArtifacts(
 
 ## 安全
 
-- 路径解析复用 `resolveLocalFileHref`，内含 `isPathInside` 校验：落在 `cwd` / 允许根之外的路径被拒绝（不渲染死链 / 越界链接）。
-- 列出的路径都来自本会话工具调用（session-referenced），预览后端 `isFilePathAllowed` 会放行；与现有 bare-path 链接特性走**同一套门禁**，不新增攻击面。
+- 路径解析复用 `resolveLocalFileHref`：它只对**相对**候选项做 `isPathInside` 校验（落在 `cwd` 之外的相对路径被拒绝，不渲染死链 / 越界链接）。**绝对**路径会直接放行——真正的越界访问门禁在预览后端（见下条）。
+- 真正的访问门禁是预览后端 `isFilePathAllowed`（`app/api/files/[...path]/route.ts`）：落在允许根之外的路径在后端被拒绝、不会被读取或渲染。列出的路径都来自本会话工具调用（session-referenced）；与现有 bare-path 链接特性走**同一套后端门禁**，不新增攻击面。
 - chip 点击只调 `onOpenFile`（现有受信路径），不引入新的外部跳转。
 
 ## 边界与已知缺口
 
 - **bash 间接写入**：不识别（见"范围"）。该类文件不会出现在 chip 行。
-- 路径无法解析成绝对 / 落在允许根之外：跳过，不渲染死链。
+- 相对路径落在 `cwd` 之外：`resolveLocalFileHref` 跳过，不渲染死链。（绝对路径越界则由后端 `isFilePathAllowed` 拦截，见"安全"。）
 - **流式**：随工具调用到达实时重算（每次 render 从 `message.content` 派生）；结果未回时不显示该文件。
 - **Windows 盘符路径**：本特性读的是工具调用 `input` 里的路径，`resolveLocalFileHref` 支持盘符解析；预览后端按所在平台处理。它不在"正文链接化"层面，**不受前置特性 Windows 盘符限制的影响**。
 

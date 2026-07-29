@@ -57,6 +57,9 @@ export function extractTurnArtifacts(
     const rawPath = readToolPath(block.input);
     if (!rawPath) continue;
 
+    // resolveLocalFileHref's isPathInside check applies only to RELATIVE candidates;
+    // absolute paths pass through — actual access is gated by the backend
+    // isFilePathAllowed (app/api/files/[...path]/route.ts), same as bare-path links.
     const filePath = resolveLocalFileHref(rawPath, cwd);
     if (!filePath) continue;
 
