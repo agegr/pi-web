@@ -39,7 +39,7 @@ PI_WEB_ALLOWED_HOSTS=pi-web.internal pi-web  # 允许指定的代理或自定义
 PI_WEB_NO_OPEN=1 pi-web         # 适用于后台服务或开机自启
 ```
 
-Pi Web 没有应用层身份验证，并且可以调用高权限智能体。请勿将其暴露到互联网；仅在可信网络中使用非 loopback 监听地址。
+首次访问 Pi Web 时需要设置访问密码。密码哈希和会话密钥保存在 `~/.pi/agent/pi-web-auth.json`，文件权限仅限当前用户。Pi Web 可以调用高权限智能体，请勿直接暴露到互联网；仅在可信网络中使用非 loopback 监听地址，或放在安全配置的反向代理之后。
 API 请求仅接受 loopback 名称、IP 字面量、当前监听主机名，以及 `PI_WEB_ALLOWED_HOSTS` 中以逗号分隔的精确主机名。可信反向代理使用不同的外部主机名时，请配置该变量。
 
 ## HTTP 代理
@@ -106,7 +106,7 @@ npm run lint
 app/
   api/
     agent/          # 创建/驱动 AgentSession，提供 SSE 事件流
-    auth/           # OAuth 和 API key 管理
+    auth/           # 密码会话、OAuth 和 API key 管理
     cwd/browse/     # 服务端目录浏览
     cwd/validate/   # 自定义工作目录校验
     default-cwd/    # 获取 pi 默认工作目录

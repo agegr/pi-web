@@ -201,7 +201,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+    notices, dismissNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection,
     agentPhase,
     isNew,
@@ -473,7 +473,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 </span>
               </div>
             </div>
-            <NoticeShelf notices={notices} align="right" />
+            <NoticeShelf notices={notices} onDismiss={dismissNotice} align="right" />
             {chatInputElement}
           </div>
         </div>
@@ -492,7 +492,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           }}
         >
           <div style={{ maxWidth: 820, margin: "0 auto" }}>
-            <NoticeShelf notices={notices} floating align="right" />
+            <NoticeShelf notices={notices} onDismiss={dismissNotice} floating align="right" />
           </div>
         </div>
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pt-4 [scrollbar-width:none]">
@@ -771,7 +771,8 @@ function ExtensionWidgets({ widgets }: { widgets: Array<{ key: string; lines: st
   );
 }
 
-function NoticeShelf({ notices, floating = false, align = "left" }: { notices: NoticeItem[]; floating?: boolean; align?: "left" | "right" }) {
+function NoticeShelf({ notices, onDismiss, floating = false, align = "left" }: { notices: NoticeItem[]; onDismiss: (id: string) => void; floating?: boolean; align?: "left" | "right" }) {
+  const { t } = useI18n();
   if (notices.length === 0) return null;
   return (
     <div
@@ -780,6 +781,7 @@ function NoticeShelf({ notices, floating = false, align = "left" }: { notices: N
         flexDirection: "column",
         alignItems: align === "right" ? "flex-end" : "stretch",
         marginBottom: floating ? 0 : 10,
+        pointerEvents: "auto",
       }}
     >
       {notices.map((notice, index) => {
@@ -791,8 +793,11 @@ function NoticeShelf({ notices, floating = false, align = "left" }: { notices: N
               ? "#10b981"
               : "var(--accent)";
         return (
-          <div
+          <button
             key={notice.id}
+            type="button"
+            onClick={() => onDismiss(notice.id)}
+            title={t("i18n.close")}
             className="notice-shelf-item"
             style={{
               display: "flex",
@@ -819,6 +824,8 @@ function NoticeShelf({ notices, floating = false, align = "left" }: { notices: N
                 ? "notice-shelf-out 0.18s ease-in forwards"
                 : "notice-shelf-in 0.18s ease-out both",
               padding: "0 12px",
+              cursor: "pointer",
+              textAlign: "left",
             }}
           >
             <span
@@ -833,7 +840,7 @@ function NoticeShelf({ notices, floating = false, align = "left" }: { notices: N
             <span style={{ padding: "14px 0", minWidth: 0, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {notice.message}
             </span>
-          </div>
+          </button>
         );
       })}
     </div>

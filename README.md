@@ -41,7 +41,7 @@ PI_WEB_ALLOWED_HOSTS=pi-web.internal pi-web  # allow an exact proxy/custom hostn
 PI_WEB_NO_OPEN=1 pi-web         # useful when running as a background service
 ```
 
-Pi Web has no application-level authentication and can invoke a high-privilege agent. Do not expose it to the internet; only use non-loopback bindings on a trusted network.
+On first access, Pi Web asks you to create an access password. The password hash and session secret are stored in `~/.pi/agent/pi-web-auth.json` with private file permissions. Pi Web can invoke a high-privilege agent, so do not expose it directly to the internet; only use non-loopback bindings on a trusted network or behind a properly secured reverse proxy.
 API requests accept loopback names, IP literals, the selected bind hostname, and exact comma-separated names in `PI_WEB_ALLOWED_HOSTS`. Configure that variable when a trusted reverse proxy uses a different external hostname.
 
 ## HTTP Proxy
@@ -110,7 +110,7 @@ Avoid running `next build` / `npm run build` during local development. It writes
 app/
   api/
     agent/          # creates/drives AgentSession and exposes SSE events
-    auth/           # OAuth and API key management
+    auth/           # password sessions, OAuth, and API key management
     cwd/browse/     # browsable server directory listing
     cwd/validate/   # custom working directory validation
     default-cwd/    # pi default working directory lookup
