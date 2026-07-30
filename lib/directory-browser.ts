@@ -54,3 +54,41 @@ export async function listDirectories(directory: string): Promise<BrowsableDirec
     .filter((entry): entry is BrowsableDirectory => entry !== null)
     .sort((left, right) => left.name.localeCompare(right.name));
 }
+
+/**
+ * 列出可供浏览的顶层文件系统入口，作为目录选择器的起始视图，
+ * 让用户从「选择磁盘」开始，而不是直接落入用户主目录。
+ *
+ * Windows 上返回可访问的盘符（C:、D:…）；其他平台返回根目录 `/`
+ * （macOS 额外返回 `/Volumes` 以便访问已挂载的卷）。
+ */
+export async function listDrives(): Promise<BrowsableDirectory[]> {
+  if (process.platform === "win32") {
+    const letters = "CDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+    const found = await Promise.all(letters.map(async (letter) => {
+      const root = `${letter}:\\`;
+      try {
+        const info = await stat(root);
+        if (info.isDirectory()) return { name: `${letter}:`, path: root };
+      } catch {
+        // 盘符不存在或不可访问 —— 跳过。
+      }
+      return null;
+    }));
+    return found
+      .filter((entry): entry is BrowsableDirectory => entry !== null)
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  // POSIX：暴露文件系统根目录（macOS 额外暴露 /Volumes 以访问挂载卷）。
+  const entries: BrowsableDirectory[] = [{ name: "/", path: "/" }];
+  if (process.platform === "darwin") {
+    try {
+      const info = await stat("/Volumes");
+      if (info.isDirectory()) entries.push({ name: "Volumes", path: "/Volumes" });
+    } catch {
+      // 没有 /Volumes —— 仅保留根目录。
+    }
+  }
+  return entries;
+}
