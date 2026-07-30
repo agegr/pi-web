@@ -4,10 +4,12 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type React
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { countToolCallBlocks, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
+import { ExtensionStatusBar } from "./ExtensionStatusBar";
+import { useI18n } from "@/hooks/useI18n";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
 import { useAudio } from "@/hooks/useAudio";
 import { useDragDrop } from "@/hooks/useDragDrop";
@@ -37,17 +39,17 @@ interface Props {
   onOpenFile?: (filePath: string) => void;
 }
 
-function phaseLabel(phase: AgentPhase): string {
+function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, string | number>) => string): string {
   if (phase?.kind === "running_tools") {
     const names = phase.tools.map((t) => t.name);
-    if (names.length === 0) return "Running tool...";
-    if (names.length === 1) return `Running ${names[0]}...`;
-    if (names.length <= 3) return `Running ${names.join(", ")}...`;
-    return `Running ${names.slice(0, 2).join(", ")} (+${names.length - 2})...`;
+    if (names.length === 0) return t("chat.runningTool");
+    if (names.length === 1) return t("chat.runningNamedTool", { name: names[0] });
+    if (names.length <= 3) return t("chat.runningTools", { names: names.join(", ") });
+    return t("chat.runningToolsMore", { names: names.slice(0, 2).join(", "), count: names.length - 2 });
   }
-  if (phase?.kind === "waiting_model") return "Waiting for model...";
-  if (phase?.kind === "running_command") return "Running command...";
-  return "Thinking...";
+  if (phase?.kind === "waiting_model") return t("chat.waitingModel");
+  if (phase?.kind === "running_command") return t("chat.runningCommand");
+  return t("chat.thinking");
 }
 
 const CHAT_MINIMAP_WIDTH = 36;
@@ -125,10 +127,10 @@ function withAssistantBlocks(
   return next;
 }
 
-function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messageCount: number; toolCallCount: number; children: ReactNode }) {
+function ProcessDetailsGroup({ messageCount, toolCallCount, children, t }: { messageCount: number; toolCallCount: number; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
   const [expanded, setExpanded] = useState(false);
-  const parts = ["Process details", `${messageCount} ${messageCount === 1 ? "message" : "messages"}`];
-  if (toolCallCount > 0) parts.push(`${toolCallCount} ${toolCallCount === 1 ? "tool call" : "tool calls"}`);
+  const parts = [t("chat.processDetails"), `${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`];
+  if (toolCallCount > 0) parts.push(`${toolCallCount} ${t(toolCallCount === 1 ? "chat.toolCall" : "chat.toolCalls")}`);
 
   return (
     <div style={{ marginBottom: 14 }}>
@@ -150,7 +152,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messag
           fontSize: 12,
           textAlign: "left",
         }}
-        title={expanded ? "Collapse process details" : "Expand process details"}
+        title={expanded ? t("chat.collapseProcess") : t("chat.expandProcess")}
       >
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
           <polyline points="4 2.5 7.5 6 4 9.5" />
@@ -169,6 +171,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messag
 }
 
 export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile }: Props) {
+  const { t } = useI18n();
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
   const isMobile = useIsMobile();
 
@@ -315,6 +318,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     return history.reverse();
   }, [messages]);
   const messageRefs = useMessageRefs(visibleMessages.length);
+  const revealHistoryForMinimap = useCallback(() => {
+    setVisibleCount((current) => Math.max(current, messages.length * 2));
+  }, [messages.length]);
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
@@ -375,7 +381,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center text-text-muted">
-        Loading session...
+         {t("chat.loadingSession")}
       </div>
     );
   }
@@ -495,7 +501,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pt-4 [scrollbar-width:none]">
           <div style={{ padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
             <div style={{ maxWidth: 820, margin: "0 auto" }}>
-              <ExtensionStatusBar statuses={extensionStatuses} />
               <ExtensionWidgets widgets={aboveEditorWidgets} />
 
             {(() => {
@@ -627,7 +632,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 const finalProcessMessage = finalSplit.processBlocks.length > 0
                   ? withAssistantBlocks(finalAssistant, finalSplit.processBlocks, { omitUsage: true })
                   : null;
-                const finalAnswerMessage = finalSplit.answerBlocks.length > 0
+                const finalAnswerMessage = finalSplit.answerBlocks.length > 0 || getAssistantErrorMessage(finalAssistant)
                   ? withAssistantBlocks(finalAssistant, finalSplit.answerBlocks)
                   : null;
 
@@ -639,7 +644,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     ?? (finalAnswerMessage ? undefined : visibleRefIndexByMessage.get(finalAssistantIdx));
                   const processGroup = (
                     <ProcessDetailsGroup
-                      messageCount={processCount}
+                       messageCount={processCount}
+                       t={t}
                       toolCallCount={countToolCalls(messages, visibleProcessIndices) + countToolCallBlocks(finalSplit.processBlocks)}
                     >
                       {visibleProcessIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }))}
@@ -668,8 +674,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               return (
                 <>
                   {hasMore && (
-                    <div ref={sentinelRef} className="py-3 text-center text-xs text-text-muted">
-                      Scroll up to load earlier messages ({startIndex} hidden)
+                     <div ref={sentinelRef} className="py-3 text-center text-xs text-text-muted">
+                       {t("chat.loadEarlier", { count: startIndex })}
                     </div>
                   )}
                   {rendered.slice(startIndex)}
@@ -682,13 +688,13 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
             {agentRunning && !streamState.streamingMessage && (
               <div className="py-2 text-[13px] text-text-muted">
-                <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase)}</span>
+                <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t)}</span>
               </div>
             )}
 
             {bashRunning && !pendingBash && (
               <div className="py-2 text-[13px] text-text-muted">
-                <span className="animate-[pulse_1.5s_infinite]">Running command...</span>
+                 <span className="animate-[pulse_1.5s_infinite]">{t("chat.runningCommand")}</span>
               </div>
             )}
 
@@ -718,6 +724,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             streamingMessage={streamState.streamingMessage}
             scrollContainer={scrollContainerRef}
             messageRefs={messageRefs}
+            onRevealHistory={revealHistoryForMinimap}
           />
         )}
       </div>
@@ -734,37 +741,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           </div>
         </div>
         {chatInputElement}
+        <ExtensionStatusBar statuses={extensionStatuses} />
       </div>
       </>
       )}
-    </div>
-  );
-}
-
-function ExtensionStatusBar({ statuses }: { statuses: Array<{ key: string; text: string }> }) {
-  if (statuses.length === 0) return null;
-  return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-      {statuses.map((status) => (
-        <div
-          key={status.key}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            maxWidth: "100%",
-            padding: "4px 8px",
-            border: "1px solid color-mix(in srgb, var(--accent) 24%, var(--border))",
-            borderRadius: 6,
-            background: "color-mix(in srgb, var(--accent) 7%, var(--bg))",
-            color: "var(--text-muted)",
-            fontSize: 12,
-          }}
-        >
-          <span style={{ color: "var(--accent)", fontFamily: "var(--font-mono)", fontSize: 11 }}>{status.key}</span>
-          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{status.text}</span>
-        </div>
-      ))}
     </div>
   );
 }
@@ -873,6 +853,7 @@ function ExtensionDialog({
   request: ExtensionDialogRequest;
   onRespond: (request: ExtensionDialogRequest, response: { value: string } | { confirmed: boolean } | { cancelled: true }) => void;
 }) {
+  const { t } = useI18n();
   const [value, setValue] = useState(request.method === "editor" ? request.prefill ?? "" : "");
 
   useEffect(() => {
@@ -914,7 +895,7 @@ function ExtensionDialog({
       >
         <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
           <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650 }}>{request.title}</div>
-          <div style={{ marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>extension request</div>
+          <div style={{ marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>{t("chat.extensionRequest")}</div>
         </div>
 
         <div style={{ padding: 14 }}>
@@ -1005,7 +986,7 @@ function ExtensionDialog({
               cursor: "pointer",
             }}
           >
-            Cancel
+             {t("chat.cancel")}
           </button>
           {request.method === "confirm" ? (
             <button
@@ -1019,7 +1000,7 @@ function ExtensionDialog({
                 cursor: "pointer",
               }}
             >
-              Confirm
+               {t("chat.confirm")}
             </button>
           ) : request.method !== "select" ? (
             <button
@@ -1033,7 +1014,7 @@ function ExtensionDialog({
                 cursor: "pointer",
               }}
             >
-              Submit
+               {t("chat.submit")}
             </button>
           ) : null}
         </div>
@@ -1059,6 +1040,7 @@ function ExtensionCustomPanel({
   request: ExtensionCustomRequest;
   onInput: (request: ExtensionCustomRequest, data: string) => void;
 }) {
+  const { t } = useI18n();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const composingRef = useRef(false);
   const displayLines = normalizeCustomPanelLines(request.lines);
@@ -1100,7 +1082,7 @@ function ExtensionCustomPanel({
       >
         <textarea
           ref={inputRef}
-          aria-label="Extension terminal input"
+           aria-label={t("chat.extensionInput")}
           autoCapitalize="off"
           autoComplete="off"
           autoCorrect="off"
@@ -1147,7 +1129,7 @@ function ExtensionCustomPanel({
           }}
         />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 650 }}>Extension panel</div>
+           <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 650 }}>{t("chat.extensionPanel")}</div>
           <button
             onClick={() => onInput(request, "\x03")}
             style={{
@@ -1160,7 +1142,7 @@ function ExtensionCustomPanel({
               fontSize: 12,
             }}
           >
-            Close
+             {t("chat.close")}
           </button>
         </div>
         <pre

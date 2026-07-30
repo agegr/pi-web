@@ -268,6 +268,9 @@ export async function GET(
           "Content-Type": "text/html; charset=utf-8",
           "Content-Disposition": getContentDisposition(fileName, inline),
           "Cache-Control": "no-cache",
+          "Content-Security-Policy": "frame-ancestors 'none'",
+          "X-Content-Type-Options": "nosniff",
+          "X-Frame-Options": "DENY",
         },
       });
     } finally {

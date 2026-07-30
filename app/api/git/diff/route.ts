@@ -17,7 +17,10 @@ export async function GET(request: NextRequest) {
     if (!isFilePathAllowed(cwd, allowedRoots) || !isFilePathAllowed(filePath, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
-    if (!isExistingFilePathAllowed(cwd, allowedRoots) || !isExistingFilePathAllowed(filePath, allowedRoots)) {
+    // The cwd must resolve inside an allowed root. The file itself may no
+    // longer exist when Git reports it as deleted; getGitFileDiff verifies
+    // that the requested path belongs to this repository and its status.
+    if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 

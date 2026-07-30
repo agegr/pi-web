@@ -2,6 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useI18n } from "@/hooks/useI18n";
+import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
+import type { DiscoveredModel } from "@/lib/model-discovery";
 // Color icons (have their own fill colors — no background needed)
 import AnthropicIcon from "@lobehub/icons/es/Anthropic/components/Mono";
 import OpenAIIcon from "@lobehub/icons/es/OpenAI/components/Mono";
@@ -143,6 +146,18 @@ type ModelTestState =
   | { phase: "success"; latencyMs?: number; status?: number; responseText?: string }
   | { phase: "error"; message: string; latencyMs?: number; status?: number };
 
+type ModelDiscoveryState =
+  | { phase: "idle" }
+  | { phase: "loading" }
+  | { phase: "success"; models: DiscoveredModel[]; endpoint: string }
+  | { phase: "error"; message: string };
+
+type ModelCatalogState =
+  | { phase: "idle" }
+  | { phase: "loading" }
+  | { phase: "success"; recommendation: ModelCatalogRecommendation; appliedCount: number }
+  | { phase: "error"; message: string };
+
 type Selection =
   | { type: "provider"; name: string }
   | { type: "model"; providerName: string; index: number }
@@ -199,6 +214,7 @@ function SecretTextInput({
   style?: React.CSSProperties;
 }) {
   const [visible, setVisible] = useState(false);
+  const { t } = useI18n();
 
   useEffect(() => {
     if (!value) setVisible(false);
@@ -219,8 +235,8 @@ function SecretTextInput({
       <button
         type="button"
         onClick={() => setVisible((v) => !v)}
-        aria-label={visible ? "Hide API key" : "Show API key"}
-        title={visible ? "Hide API key" : "Show API key"}
+         aria-label={visible ? t("i18n.hideDetails") : t("i18n.showDetails")}
+         title={visible ? t("i18n.hideDetails") : t("i18n.showDetails")}
         style={{
           position: "absolute",
           right: 5,
@@ -261,10 +277,11 @@ function NumInput({ value, onChange, placeholder }: { value: string; onChange: (
 }
 
 function Select({ value, onChange, options, required }: { value: string; onChange: (v: string) => void; options: readonly string[]; required?: boolean }) {
+  const { t } = useI18n();
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)}
       style={{ ...inputStyle, color: value ? "var(--text)" : "var(--text-dim)" }}>
-      {!required && <option value="">— inherit / none —</option>}
+       {!required && <option value="">— {t("i18n.default")} / none —</option>}
       {options.map((o) => <option key={o} value={o}>{o}</option>)}
     </select>
   );
@@ -286,11 +303,18 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 // ── Provider detail ───────────────────────────────────────────────────────────
 
-function ProviderDetail({ name, provider, onChange, onRename, onDelete }: {
+function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddModels }: {
   name: string; provider: ProviderEntry;
   onChange: (p: ProviderEntry) => void; onRename: (n: string) => void; onDelete: () => void;
+  onAddModels: (models: DiscoveredModel[]) => void;
 }) {
+  const { t } = useI18n();
   const [editingName, setEditingName] = useState(name);
+  const [discoveryState, setDiscoveryState] = useState<ModelDiscoveryState>({ phase: "idle" });
+  const [discoveryQuery, setDiscoveryQuery] = useState("");
+  const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
+  const discoveryRequestIdRef = useRef(0);
+  const selectShownRef = useRef<HTMLInputElement>(null);
   useEffect(() => setEditingName(name), [name]);
   const set = <K extends keyof ProviderEntry>(k: K, v: ProviderEntry[K]) => onChange({ ...provider, [k]: v });
 
@@ -299,22 +323,95 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider.api]);
 
+  useEffect(() => {
+    discoveryRequestIdRef.current += 1;
+    setDiscoveryState({ phase: "idle" });
+    setDiscoveryQuery("");
+    setSelectedModelIds([]);
+  }, [name, provider.baseUrl, provider.api, provider.apiKey]);
+
+  const handleDiscoverModels = useCallback(async () => {
+    if (!provider.baseUrl?.trim() || discoveryState.phase === "loading") return;
+    const requestId = ++discoveryRequestIdRef.current;
+    setDiscoveryState({ phase: "loading" });
+    setSelectedModelIds([]);
+    try {
+      const res = await fetch("/api/models-config/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerName: name, provider: { ...provider, models: undefined } }),
+      });
+      const data = await res.json() as { models?: DiscoveredModel[]; endpoint?: string; error?: string };
+      if (requestId !== discoveryRequestIdRef.current) return;
+      if (!res.ok || data.error || !data.models) {
+        setDiscoveryState({ phase: "error", message: data.error ?? `HTTP ${res.status}` });
+        return;
+      }
+      setDiscoveryState({ phase: "success", models: data.models, endpoint: data.endpoint ?? provider.baseUrl });
+    } catch (error) {
+      if (requestId !== discoveryRequestIdRef.current) return;
+      setDiscoveryState({ phase: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }, [discoveryState.phase, name, provider]);
+
+  const existingModelIds = new Set((provider.models ?? []).map((model) => model.id));
+  const discoveredModels = discoveryState.phase === "success" ? discoveryState.models : [];
+  const normalizedDiscoveryQuery = discoveryQuery.trim().toLocaleLowerCase();
+  const filteredDiscoveredModels = discoveredModels.filter((model) => !normalizedDiscoveryQuery
+    || model.id.toLocaleLowerCase().includes(normalizedDiscoveryQuery)
+    || model.name?.toLocaleLowerCase().includes(normalizedDiscoveryQuery));
+  const shownDiscoveredModels = filteredDiscoveredModels.slice(0, 300);
+  const selectableShownIds = shownDiscoveredModels
+    .filter((model) => !existingModelIds.has(model.id))
+    .map((model) => model.id);
+  const selectedCount = selectedModelIds.filter((id) => !existingModelIds.has(id)).length;
+  const allShownSelected = selectableShownIds.length > 0
+    && selectableShownIds.every((id) => selectedModelIds.includes(id));
+  const someShownSelected = !allShownSelected
+    && selectableShownIds.some((id) => selectedModelIds.includes(id));
+
+  useEffect(() => {
+    if (selectShownRef.current) selectShownRef.current.indeterminate = someShownSelected;
+  }, [someShownSelected]);
+
+  const toggleDiscoveredModel = (id: string) => {
+    setSelectedModelIds((current) => current.includes(id)
+      ? current.filter((entry) => entry !== id)
+      : [...current, id]);
+  };
+
+  const toggleShownModels = () => {
+    const shownIds = new Set(selectableShownIds);
+    setSelectedModelIds((current) => allShownSelected
+      ? current.filter((id) => !shownIds.has(id))
+      : Array.from(new Set([...current, ...selectableShownIds])));
+  };
+
+  const addSelectedModels = () => {
+    if (discoveryState.phase !== "success") return;
+    const selected = new Set(selectedModelIds);
+    const additions = discoveryState.models.filter((model) => selected.has(model.id) && !existingModelIds.has(model.id));
+    if (additions.length === 0) return;
+    onAddModels(additions);
+    setSelectedModelIds([]);
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <SectionTitle>Provider</SectionTitle>
+         <SectionTitle>{t("i18n.provider")}</SectionTitle>
         <button onClick={onDelete}
           style={{ padding: "3px 8px", background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 4, color: "#ef4444", cursor: "pointer", fontSize: 11 }}>
-          Delete
+           {t("i18n.delete")}
         </button>
       </div>
 
-      <Field label="Provider name">
+       <Field label={t("i18n.providerName")}>
         <TextInput value={editingName} onChange={setEditingName} placeholder="provider-name" mono />
         {editingName !== name && editingName.trim() && (
           <button onClick={() => onRename(editingName.trim())}
             style={{ marginTop: 4, padding: "3px 10px", background: "var(--accent)", border: "none", borderRadius: 4, color: "#fff", cursor: "pointer", fontSize: 11, alignSelf: "flex-start" }}>
-            Rename
+             {t("i18n.rename")}
           </button>
         )}
       </Field>
@@ -335,6 +432,107 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete }: {
       <Field label="API">
         <Select value={provider.api ?? "openai-completions"} onChange={(v) => set("api", v)} options={API_OPTIONS} required />
       </Field>
+
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+        {discoveryState.phase !== "success" && (
+          <button
+            onClick={handleDiscoverModels}
+            disabled={!provider.baseUrl?.trim() || discoveryState.phase === "loading"}
+            style={{
+              alignSelf: "flex-start", height: 30, padding: "0 12px", border: "1px solid var(--border)", borderRadius: 5,
+              background: "var(--bg-panel)", color: !provider.baseUrl?.trim() || discoveryState.phase === "loading" ? "var(--text-dim)" : "var(--text-muted)",
+              cursor: !provider.baseUrl?.trim() || discoveryState.phase === "loading" ? "not-allowed" : "pointer", fontSize: 11,
+            }}
+          >
+            {discoveryState.phase === "loading" ? t("models.discoveryFetching") : t("models.discoveryFetch")}
+          </button>
+        )}
+
+        {discoveryState.phase === "error" && (
+          <div style={{ padding: "7px 9px", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 5, color: "#ef4444", fontSize: 11, lineHeight: 1.4 }}>
+            {discoveryState.message}
+          </div>
+        )}
+
+        {discoveryState.phase === "success" && (
+          <>
+            <input
+              value={discoveryQuery}
+              onChange={(event) => setDiscoveryQuery(event.target.value)}
+              placeholder={t("models.discoveryFilterPlaceholder", { count: discoveryState.models.length })}
+              aria-label={t("models.discoveryFilter")}
+              style={{ ...inputStyle, width: "100%", minWidth: 0 }}
+            />
+
+            <div style={{ maxHeight: 220, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-panel)" }}>
+              <label
+                style={{
+                  minHeight: 32, padding: "5px 9px", display: "flex", alignItems: "center", gap: 8,
+                  position: "sticky", top: 0, zIndex: 1, borderBottom: "1px solid var(--border)",
+                  background: "var(--bg)", cursor: selectableShownIds.length ? "pointer" : "default",
+                  color: "var(--text-muted)", fontSize: 10, fontWeight: 600,
+                }}
+              >
+                <input
+                  ref={selectShownRef}
+                  type="checkbox"
+                  checked={allShownSelected}
+                  disabled={selectableShownIds.length === 0}
+                  onChange={toggleShownModels}
+                  style={{ width: 13, height: 13, accentColor: "var(--accent)", flexShrink: 0 }}
+                />
+                {t("models.discoverySelectShown")}
+              </label>
+              {shownDiscoveredModels.length === 0 ? (
+                <div style={{ padding: 12, color: "var(--text-dim)", fontSize: 11 }}>{t("models.discoveryNoMatches")}</div>
+              ) : shownDiscoveredModels.map((model, index) => {
+                const alreadyAdded = existingModelIds.has(model.id);
+                const checked = selectedModelIds.includes(model.id);
+                return (
+                  <label
+                    key={model.id}
+                    style={{
+                      minHeight: 36, padding: "6px 9px", display: "flex", alignItems: "center", gap: 8,
+                      borderTop: index === 0 ? "none" : "1px solid var(--border)", cursor: alreadyAdded ? "default" : "pointer",
+                      opacity: alreadyAdded ? 0.65 : 1,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked || alreadyAdded}
+                      disabled={alreadyAdded}
+                      onChange={() => toggleDiscoveredModel(model.id)}
+                      style={{ width: 13, height: 13, accentColor: "var(--accent)", flexShrink: 0 }}
+                    />
+                    <span style={{ minWidth: 0, flex: 1 }}>
+                      <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text)", fontSize: 11 }}>{model.name ?? model.id}</span>
+                      {model.name && <code style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-dim)", fontSize: 10, fontFamily: "var(--font-mono)" }}>{model.id}</code>}
+                    </span>
+                    {alreadyAdded && <span style={{ color: "var(--text-dim)", fontSize: 10 }}>{t("models.discoveryAdded")}</span>}
+                  </label>
+                );
+              })}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <span title={discoveryState.endpoint} style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-dim)", fontSize: 10 }}>
+                {filteredDiscoveredModels.length > shownDiscoveredModels.length
+                  ? t("models.discoveryShowing", { shown: shownDiscoveredModels.length, total: filteredDiscoveredModels.length })
+                  : t("models.discoveryFetched", { count: discoveryState.models.length })}
+              </span>
+              <button
+                onClick={addSelectedModels}
+                disabled={selectedCount === 0}
+                style={{ height: 28, padding: "0 11px", border: "none", borderRadius: 5, background: selectedCount ? "var(--accent)" : "var(--bg-panel)", color: selectedCount ? "#fff" : "var(--text-dim)", cursor: selectedCount ? "pointer" : "not-allowed", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}
+              >
+                {selectedCount
+                  ? t("models.discoveryAddSelectedCount", { count: selectedCount })
+                  : t("models.discoveryAddSelected")}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -502,6 +700,48 @@ function setDeepseekCompat(model: ModelEntry, enabled: boolean): ModelEntry {
   return { ...model, compat: Object.keys(rest).length ? rest : undefined };
 }
 
+function fillEmptyModelFields(
+  model: ModelEntry,
+  preset: ModelCatalogPreset,
+): { model: ModelEntry; appliedCount: number } {
+  const next = { ...model };
+  let appliedCount = 0;
+  if (!model.name?.trim() && preset.name) {
+    next.name = preset.name;
+    appliedCount += 1;
+  }
+  if (model.reasoning === undefined && preset.reasoning === true) {
+    next.reasoning = true;
+    appliedCount += 1;
+  }
+  if (!model.input?.length && preset.input?.length) {
+    next.input = [...preset.input];
+    appliedCount += 1;
+  }
+  if (model.contextWindow === undefined && preset.contextWindow !== undefined) {
+    next.contextWindow = preset.contextWindow;
+    appliedCount += 1;
+  }
+  if (model.maxTokens === undefined && preset.maxTokens !== undefined) {
+    next.maxTokens = preset.maxTokens;
+    appliedCount += 1;
+  }
+
+  if (preset.cost) {
+    const cost = { ...(model.cost ?? {}) };
+    let costChanged = false;
+    for (const key of ["input", "output", "cacheRead", "cacheWrite"] as const) {
+      if (cost[key] === undefined && preset.cost[key] !== undefined) {
+        cost[key] = preset.cost[key];
+        costChanged = true;
+        appliedCount += 1;
+      }
+    }
+    if (costChanged) next.cost = cost;
+  }
+  return { model: next, appliedCount };
+}
+
 function ModelDetail({
   providerName,
   provider,
@@ -516,6 +756,10 @@ function ModelDetail({
   onDelete: () => void;
 }) {
   const [testState, setTestState] = useState<ModelTestState>({ phase: "idle" });
+  const { t } = useI18n();
+  const [catalogState, setCatalogState] = useState<ModelCatalogState>({ phase: "idle" });
+  const catalogRequestIdRef = useRef(0);
+  const catalogUndoRef = useRef<ModelEntry | null>(null);
   const set = <K extends keyof ModelEntry>(k: K, v: ModelEntry[K]) => onChange({ ...model, [k]: v });
   const costVal = (k: keyof NonNullable<ModelEntry["cost"]>) => model.cost?.[k] !== undefined ? String(model.cost[k]) : "";
   const setCost = (k: keyof NonNullable<ModelEntry["cost"]>, v: string) => {
@@ -524,20 +768,26 @@ function ModelDetail({
   };
   const testSummary = (() => {
     if (testState.phase === "idle") return null;
-    if (testState.phase === "testing") return "Testing model connection...";
+     if (testState.phase === "testing") return t("i18n.testingModel");
     const meta = [
       testState.latencyMs !== undefined ? `${testState.latencyMs}ms` : null,
       testState.status !== undefined ? `HTTP ${testState.status}` : null,
     ].filter(Boolean);
     if (testState.phase === "success") {
-      return ["Connected", ...meta, testState.responseText || null].filter(Boolean).join(" · ");
+       return [t("i18n.connected"), ...meta, testState.responseText || null].filter(Boolean).join(" · ");
     }
-    return ["Failed", ...meta, testState.message].filter(Boolean).join(" · ");
+     return [t("i18n.failed"), ...meta, testState.message].filter(Boolean).join(" · ");
   })();
 
   useEffect(() => {
     setTestState({ phase: "idle" });
   }, [providerName, provider.baseUrl, provider.api, provider.apiKey, model.id, model.api]);
+
+  useEffect(() => {
+    catalogRequestIdRef.current += 1;
+    setCatalogState({ phase: "idle" });
+    catalogUndoRef.current = null;
+  }, [providerName, provider.baseUrl, model.id]);
 
   const handleTest = useCallback(async () => {
     if (!model.id.trim() || testState.phase === "testing") return;
@@ -575,10 +825,80 @@ function ModelDetail({
     }
   }, [model, provider, providerName, testState.phase]);
 
+  const handleCatalogFill = useCallback(async () => {
+    const query = model.id.trim();
+    if (!query || catalogState.phase === "loading") return;
+    const requestId = ++catalogRequestIdRef.current;
+    setCatalogState({ phase: "loading" });
+    try {
+      const params = new URLSearchParams({ q: query, provider: providerName, limit: "50" });
+      if (provider.baseUrl?.trim()) params.set("baseUrl", provider.baseUrl.trim());
+      const res = await fetch(`/api/models-config/catalog?${params}`);
+      const data = await res.json() as { recommendation?: ModelCatalogRecommendation; error?: string };
+      if (requestId !== catalogRequestIdRef.current) return;
+      if (!res.ok || data.error || !data.recommendation) {
+        setCatalogState({ phase: "error", message: data.error ?? `HTTP ${res.status}` });
+        return;
+      }
+      const filled = fillEmptyModelFields(model, data.recommendation.preset);
+      if (filled.appliedCount > 0) {
+        catalogUndoRef.current = model;
+        onChange(filled.model);
+      }
+      setCatalogState({
+        phase: "success",
+        recommendation: data.recommendation,
+        appliedCount: filled.appliedCount,
+      });
+    } catch (error) {
+      if (requestId !== catalogRequestIdRef.current) return;
+      setCatalogState({ phase: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }, [catalogState.phase, model, onChange, provider.baseUrl, providerName]);
+
+  const undoCatalogFill = () => {
+    const previous = catalogUndoRef.current;
+    if (!previous) return;
+    catalogUndoRef.current = null;
+    onChange(previous);
+    setCatalogState({ phase: "idle" });
+  };
+
+  const catalogResultSummary = (() => {
+    if (catalogState.phase !== "success") return null;
+    const { recommendation, appliedCount } = catalogState;
+    const applied = appliedCount > 0
+      ? t("models.catalogFilled", { count: appliedCount })
+      : t("models.catalogNoEmptyFields");
+    if (recommendation.price.status === "unreliable") {
+      const price = recommendation.price.reason === "no-exact-match"
+        ? t("models.catalogNoExactMatch")
+        : t("models.catalogPriceUnreliable");
+      return `${applied} · ${price}`;
+    }
+    const price = recommendation.price.method === "provider"
+      ? t("models.catalogPriceProvider", { provider: recommendation.price.providerName ?? recommendation.price.providerId ?? providerName })
+      : recommendation.price.method === "base-url"
+        ? t("models.catalogPriceBaseUrl", { provider: recommendation.price.providerName ?? recommendation.price.providerId ?? providerName })
+        : t("models.catalogPriceConsensus", {
+            support: recommendation.price.support,
+            total: recommendation.price.total,
+          });
+    return `${applied} · ${price}`;
+  })();
+  const catalogStatusText = catalogState.phase === "error"
+    ? catalogState.message
+    : catalogResultSummary;
+  const catalogStatusColor = catalogState.phase === "error"
+    ? "#ef4444"
+    : catalogState.phase === "success" && catalogState.recommendation.price.status === "unreliable"
+      ? "#d97706"
+      : "var(--text-dim)";
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <SectionTitle>Model</SectionTitle>
+         <SectionTitle>{t("i18n.model")}</SectionTitle>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {testSummary && (
             <span
@@ -606,7 +926,7 @@ function ModelDetail({
           <button
             onClick={handleTest}
             disabled={!model.id.trim() || testState.phase === "testing"}
-            title="Test model connection"
+             title={t("i18n.testConnection")}
             style={{
               height: 24,
               padding: "0 8px",
@@ -628,11 +948,11 @@ function ModelDetail({
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             )}
-            {testState.phase === "testing" ? "Testing…" : testState.phase === "success" ? "OK" : "Test"}
+             {testState.phase === "testing" ? t("i18n.checking") : testState.phase === "success" ? t("common.ok") : t("i18n.test")}
           </button>
           <button onClick={onDelete}
             style={{ height: 24, padding: "0 8px", background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 4, color: "#ef4444", cursor: "pointer", fontSize: 11, boxSizing: "border-box" }}>
-            Remove
+             {t("i18n.remove")}
           </button>
         </div>
       </div>
@@ -640,6 +960,55 @@ function ModelDetail({
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Field label="ID *"><TextInput value={model.id} onChange={(v) => set("id", v)} placeholder="model-id" mono /></Field>
         <Field label="Name"><TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder="Display name" /></Field>
+      </div>
+
+      <div style={{ padding: "10px 0", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <button
+            onClick={() => void handleCatalogFill()}
+            disabled={!model.id.trim() || catalogState.phase === "loading"}
+            style={{
+              height: 28, padding: "0 10px", border: "1px solid var(--border)", borderRadius: 5,
+              background: "var(--bg-panel)",
+              color: !model.id.trim() || catalogState.phase === "loading" ? "var(--text-dim)" : "var(--text-muted)",
+              cursor: !model.id.trim() || catalogState.phase === "loading" ? "not-allowed" : "pointer",
+              fontSize: 11,
+            }}
+          >
+            {catalogState.phase === "loading" ? t("models.catalogFilling") : t("models.catalogFill")}
+          </button>
+          <a
+            href="https://github.com/anomalyco/models.dev"
+            target="_blank"
+            rel="noreferrer"
+            style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10, textDecoration: "none" }}
+          >
+            {t("models.catalogSource")}
+          </a>
+        </div>
+
+        <div
+          aria-live="polite"
+          style={{
+            marginTop: 6, height: 20, display: "flex", alignItems: "center",
+            justifyContent: "space-between", gap: 8, color: catalogStatusColor, fontSize: 10,
+          }}
+        >
+          <span
+            title={catalogStatusText ?? undefined}
+            style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+          >
+            {catalogStatusText}
+          </span>
+          {catalogUndoRef.current && (
+            <button
+              onClick={undoCatalogFill}
+              style={{ flexShrink: 0, padding: "0 2px", border: "none", background: "none", color: "var(--accent)", cursor: "pointer", fontSize: 10 }}
+            >
+              {t("models.catalogUndo")}
+            </button>
+          )}
+        </div>
       </div>
 
       <Field label="API override">
@@ -708,6 +1077,7 @@ function ModelDetail({
 
 function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefresh: () => void }) {
   const [loginState, setLoginState] = useState<OAuthLoginState>({ phase: "idle" });
+  const { t } = useI18n();
   const [inputValue, setInputValue] = useState("");
   const eventSourceRef = useRef<EventSource | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -832,11 +1202,11 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <SectionTitle>Subscription</SectionTitle>
+           <SectionTitle>{t("i18n.subscription")}</SectionTitle>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.loggedIn ? "#4ade80" : "var(--border)", display: "inline-block" }} />
           <span style={{ fontSize: 11, color: provider.loggedIn ? "#4ade80" : "var(--text-dim)" }}>
-            {provider.loggedIn ? "connected" : "not connected"}
+             {provider.loggedIn ? t("i18n.connected") : t("i18n.notConnected")}
           </span>
         </div>
       </div>
@@ -845,11 +1215,11 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
       <div style={{ minHeight: 48 }}>
         {loginState.phase === "idle" && (
           <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-            {provider.loggedIn ? "Already connected. You can re-login or disconnect." : `Connect your ${provider.name} account.`}
+             {provider.loggedIn ? "Already connected. You can re-login or disconnect." : `Connect your ${provider.name} account.`}
           </p>
         )}
         {loginState.phase === "connecting" && (
-          <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>Opening browser…</p>
+            <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>{t("i18n.openingBrowser")}</p>
         )}
         {loginState.phase === "select" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -899,7 +1269,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
                 disabled={!inputValue.trim()}
                 style={{ padding: "6px 12px", background: inputValue.trim() ? "var(--accent)" : "var(--bg-panel)", border: "none", borderRadius: 5, color: inputValue.trim() ? "#fff" : "var(--text-dim)", cursor: inputValue.trim() ? "pointer" : "not-allowed", fontSize: 12, fontWeight: 600, flexShrink: 0 }}
               >
-                Submit
+                 {t("i18n.submit")}
               </button>
             </div>
           </div>
@@ -924,7 +1294,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
           <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>{loginState.message}</p>
         )}
         {loginState.phase === "success" && (
-          <p style={{ margin: 0, fontSize: 12, color: "#4ade80" }}>Connected successfully.</p>
+             <p style={{ margin: 0, fontSize: 12, color: "#4ade80" }}>{t("i18n.connectedSuccessfully")}</p>
         )}
         {loginState.phase === "error" && (
           <p style={{ margin: 0, fontSize: 12, color: "#f87171" }}>{loginState.message}</p>
@@ -938,7 +1308,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
             onClick={() => { eventSourceRef.current?.close(); setLoginState({ phase: "idle" }); }}
             style={{ padding: "5px 12px", background: "none", border: "1px solid var(--border)", borderRadius: 5, color: "var(--text-muted)", cursor: "pointer", fontSize: 12 }}
           >
-            Cancel
+             {t("i18n.cancel")}
           </button>
         ) : (
           <>
@@ -946,14 +1316,14 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
               onClick={handleLogin}
               style={{ padding: "5px 14px", background: "var(--accent)", border: "none", borderRadius: 5, color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 600 }}
             >
-              {provider.loggedIn ? "Re-login" : "Login"}
+               {provider.loggedIn ? t("i18n.relogin") : t("i18n.login")}
             </button>
             {provider.loggedIn && (
               <button
                 onClick={handleLogout}
                 style={{ padding: "5px 12px", background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 5, color: "#ef4444", cursor: "pointer", fontSize: 12 }}
               >
-                Disconnect
+                 {t("i18n.disconnect")}
               </button>
             )}
           </>
@@ -971,6 +1341,7 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
+  const { t } = useI18n();
 
   // Reset state when provider changes
   useEffect(() => {
@@ -1024,11 +1395,11 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <SectionTitle>API Key</SectionTitle>
+         <SectionTitle>API Key</SectionTitle>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.configured ? "#4ade80" : "var(--border)", display: "inline-block" }} />
           <span style={{ fontSize: 11, color: provider.configured ? "#4ade80" : "var(--text-dim)" }}>
-            {provider.configured ? "configured" : "not configured"}
+             {provider.configured ? t("i18n.configured") : t("i18n.notConfigured")}
           </span>
         </div>
       </div>
@@ -1069,7 +1440,7 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             )}
-            {savedOk ? "Saved" : saving ? "Saving…" : "Save"}
+             {savedOk ? t("i18n.saved") : saving ? t("i18n.saving") : t("i18n.save")}
           </button>
         </div>
       </Field>
@@ -1087,7 +1458,7 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
             cursor: removing ? "not-allowed" : "pointer", fontSize: 12,
           }}
         >
-          {removing ? "Removing…" : "Disconnect"}
+           {removing ? t("i18n.removing") : t("i18n.disconnect")}
         </button>
       )}
     </div>
@@ -1150,6 +1521,7 @@ function AddProviderPicker({
   onSelectOAuth, onSelectApiKey, onAddCustom, onClose,
 }: AddProviderPickerProps) {
   const [search, setSearch] = useState("");
+  const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 30); }, []);
@@ -1194,7 +1566,7 @@ function AddProviderPicker({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
-            placeholder="Search providers…"
+             placeholder={t("i18n.searchProviders")}
             style={{ flex: 1, background: "none", border: "none", outline: "none", color: "var(--text)", fontSize: 13, boxSizing: "border-box" }}
           />
         </div>
@@ -1202,11 +1574,11 @@ function AddProviderPicker({
         {/* Card grid */}
         <div style={{ flex: 1, overflowY: "auto", padding: 14 }}>
           {totalCount === 0 ? (
-            <div style={{ padding: "20px 0", fontSize: 12, color: "var(--text-dim)", textAlign: "center" }}>No providers match</div>
+            <div style={{ padding: "20px 0", fontSize: 12, color: "var(--text-dim)", textAlign: "center" }}>{t("i18n.noProviders")}</div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))", gap: 8 }}>
               {showCustom && (
-                <div style={{ gridColumn: "1 / -1", fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>Custom</div>
+                 <div style={{ gridColumn: "1 / -1", fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>{t("i18n.custom")}</div>
               )}
               {showCustom && (
                 <button
@@ -1217,7 +1589,7 @@ function AddProviderPicker({
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>OpenAI / Anthropic compatible</div>
-                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>Custom endpoint format</div>
+                     <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>{t("i18n.customEndpoint")}</div>
                   </div>
                   <span style={{ width: 26, height: 26, borderRadius: 5, background: "var(--bg-hover)", border: "1px dashed var(--border)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-dim)" }}>
@@ -1228,7 +1600,7 @@ function AddProviderPicker({
               )}
 
               {availableOAuth.length > 0 && (
-                <div style={{ gridColumn: "1 / -1", paddingTop: showCustom ? 6 : 0, fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>Subscriptions</div>
+                 <div style={{ gridColumn: "1 / -1", paddingTop: showCustom ? 6 : 0, fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>{t("i18n.subscriptions")}</div>
               )}
               {availableOAuth.map((p) => (
                 <button key={p.id} onClick={() => { onSelectOAuth(p.id); onClose(); }}
@@ -1273,6 +1645,7 @@ function AddProviderPicker({
 
 export function ModelsConfig({ onClose }: { onClose: () => void }) {
   const isMobile = useIsMobile();
+  const { t } = useI18n();
   const [config, setConfig] = useState<ModelsJson>({ providers: {} });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1366,6 +1739,20 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     });
   }, []);
 
+  const addDiscoveredModels = useCallback((providerName: string, discovered: DiscoveredModel[]) => {
+    setConfig((prev) => {
+      const provider = prev.providers?.[providerName] ?? {};
+      const models = [...(provider.models ?? [])];
+      const existingIds = new Set(models.map((model) => model.id));
+      for (const discoveredModel of discovered) {
+        if (existingIds.has(discoveredModel.id)) continue;
+        existingIds.add(discoveredModel.id);
+        models.push({ id: discoveredModel.id, name: discoveredModel.name });
+      }
+      return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models } } };
+    });
+  }, []);
+
   const updateModel = useCallback((providerName: string, index: number, m: ModelEntry) => {
     setConfig((prev) => {
       const provider = prev.providers?.[providerName] ?? {};
@@ -1433,6 +1820,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
           onChange={(p) => updateProvider(selection.name, p)}
           onRename={(n) => renameProvider(selection.name, n)}
           onDelete={() => deleteProvider(selection.name)}
+          onAddModels={(models) => addDiscoveredModels(selection.name, models)}
         />
       );
     }
@@ -1460,7 +1848,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>Models</span>
+             <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>{t("common.models")}</span>
             <code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>~/.pi/agent/models.json</code>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: "2px 6px" }}>×</button>
@@ -1519,7 +1907,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
 
               {/* Custom providers */}
               {loading ? (
-                <div style={{ padding: "10px 8px", fontSize: 12, color: "var(--text-muted)" }}>Loading…</div>
+                 <div style={{ padding: "10px 8px", fontSize: 12, color: "var(--text-muted)" }}>{t("i18n.loading")}</div>
               ) : providers.map(([pName, pData]) => {
                 const isProviderSelected = selection?.type === "provider" && selection.name === pName;
                 const models = pData.models ?? [];
@@ -1556,7 +1944,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                           onMouseLeave={(e) => { if (!isModelSelected) e.currentTarget.style.background = "none"; }}
                         >
                           <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: m.id ? "var(--text-muted)" : "var(--text-dim)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {m.id || "new model"}
+                             {m.id || t("i18n.newModel")}
                           </span>
                           {m.reasoning && (
                             <span style={{ fontSize: 9, padding: "1px 4px", background: "rgba(99,102,241,0.12)", color: "rgba(99,102,241,0.8)", borderRadius: 3, flexShrink: 0 }}>T</span>
@@ -1572,7 +1960,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                       onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
                       onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
                     >
-                      <span style={{ fontSize: 11 }}>+ model</span>
+                       <span style={{ fontSize: 11 }}>+ {t("i18n.model")}</span>
                     </div>
                   </div>
                 );
@@ -1589,7 +1977,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.color = "var(--accent)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-muted)"; }}
               >
-                + Add provider
+                 + {t("i18n.addProvider")}
               </button>
             </div>
           </div>
@@ -1598,7 +1986,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
           <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
             {loading ? null : detailContent ?? (
               <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 13 }}>
-                Select a provider or model
+                 {t("i18n.selectProviderModel")}
               </div>
             )}
           </div>
@@ -1608,7 +1996,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, padding: "10px 18px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
           {saveError && <span style={{ fontSize: 12, color: "#f87171", flex: 1 }}>{saveError}</span>}
           <button onClick={onClose} style={{ padding: "6px 14px", background: "none", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer", fontSize: 13 }}>
-            Cancel
+             {t("i18n.cancel")}
           </button>
           <button onClick={handleSave} disabled={saving || savedOk} style={{
             position: "relative",
@@ -1628,7 +2016,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             )}
-            <span>{savedOk ? "Saved" : saving ? "Saving…" : "Save"}</span>
+             <span>{savedOk ? t("i18n.saved") : saving ? t("i18n.saving") : t("i18n.save")}</span>
           </button>
         </div>
       </div>

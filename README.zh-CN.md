@@ -4,6 +4,8 @@
 
 [pi 编程智能体](https://github.com/badlogic/pi-mono) 的本地网页界面。它会读取本机的 pi 会话文件，在浏览器里提供会话管理、实时对话、模型配置、技能管理和项目文件预览。
 
+中文微信群：请查看 [GitHub Discussions 帖子](https://github.com/agegr/pi-web/discussions/271)。
+
 ## 快速开始
 
 Pi Web 要求 Node.js 22.19.0 或更高版本。可通过 `node --version` 检查当前版本。
@@ -33,10 +35,12 @@ pi-web --no-open                # 不自动打开浏览器
 
 PORT=8080 pi-web                # 也支持环境变量
 PI_WEB_HOSTNAME=0.0.0.0 pi-web  # 显式开放网络访问
+PI_WEB_ALLOWED_HOSTS=pi-web.internal pi-web  # 允许指定的代理或自定义主机名
 PI_WEB_NO_OPEN=1 pi-web         # 适用于后台服务或开机自启
 ```
 
 Pi Web 没有应用层身份验证，并且可以调用高权限智能体。请勿将其暴露到互联网；仅在可信网络中使用非 loopback 监听地址。
+API 请求仅接受 loopback 名称、IP 字面量、当前监听主机名，以及 `PI_WEB_ALLOWED_HOSTS` 中以逗号分隔的精确主机名。可信反向代理使用不同的外部主机名时，请配置该变量。
 
 ## HTTP 代理
 

@@ -9,16 +9,25 @@ const jiti = createJiti(import.meta.url, {
   tsconfigPaths: true,
 });
 const { MermaidBlock } = await jiti.import("./MermaidBlock.tsx");
+const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
 // Simple sequenceDiagram for testing
 const mermaidSrc = `sequenceDiagram
     Alice->>Bob: Hello
     Bob-->>Alice: Hi`;
 
-test("MermaidBlock renders source by default", () => {
-  const html = renderToStaticMarkup(
-    React.createElement(MermaidBlock, { code: mermaidSrc }),
+function renderMermaid(props) {
+  return renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(MermaidBlock, props),
+    ),
   );
+}
+
+test("MermaidBlock renders source by default", () => {
+  const html = renderMermaid({ code: mermaidSrc });
 
   assert.match(html, />Preview</);
   assert.match(html, /Alice/);
@@ -26,9 +35,7 @@ test("MermaidBlock renders source by default", () => {
 });
 
 test("MermaidBlock can render preview by default", () => {
-  const html = renderToStaticMarkup(
-    React.createElement(MermaidBlock, { code: mermaidSrc, defaultPreview: true }),
-  );
+  const html = renderMermaid({ code: mermaidSrc, defaultPreview: true });
 
   assert.match(html, />Source</);
   assert.match(html, /mermaid-block-loading/);
@@ -36,9 +43,7 @@ test("MermaidBlock can render preview by default", () => {
 });
 
 test("MermaidBlock with isStreaming falls back to source view", () => {
-  const html = renderToStaticMarkup(
-    React.createElement(MermaidBlock, { code: mermaidSrc, isStreaming: true, defaultPreview: true }),
-  );
+  const html = renderMermaid({ code: mermaidSrc, isStreaming: true, defaultPreview: true });
 
   assert.match(html, /disabled/);
   assert.match(html, />Preview</);
@@ -47,9 +52,7 @@ test("MermaidBlock with isStreaming falls back to source view", () => {
 });
 
 test("MermaidBlock renders empty graph without error", () => {
-  const html = renderToStaticMarkup(
-    React.createElement(MermaidBlock, { code: "graph TD", defaultPreview: true }),
-  );
+  const html = renderMermaid({ code: "graph TD", defaultPreview: true });
 
   assert.doesNotMatch(html, /mermaid-block-error/);
   assert.match(html, /mermaid-block-loading/);
@@ -60,9 +63,7 @@ test("MermaidBlock handles Chinese characters in diagram", () => {
     participant PC as PC客户端
     PC->>SV: 请求登录`;
 
-  const html = renderToStaticMarkup(
-    React.createElement(MermaidBlock, { code: chineseMermaid, defaultPreview: true }),
-  );
+  const html = renderMermaid({ code: chineseMermaid, defaultPreview: true });
 
   assert.doesNotMatch(html, /mermaid-block-error/);
   assert.match(html, /mermaid-block/);
