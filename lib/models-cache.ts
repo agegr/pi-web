@@ -5,6 +5,8 @@ export interface ModelsData {
   thinkingLevels: Record<string, string[]>;
   thinkingLevelMaps: Record<string, Record<string, string | null>>;
   modelError?: string;
+  /** Warnings from resolving the `enabledModels` scope (e.g. a pattern matched nothing). */
+  modelScopeWarnings?: string[];
 }
 
 interface ModelsCacheState {
