@@ -1,54 +1,57 @@
 # Pi Web
 
-[English](./README.md) | [中文文档](./README.zh-CN.md) | [日本語](./README.ja.md) | [Русский](./README.ru.md)
+[English](./README.md) | [中文文档](./README.zh-CN.md) | [日本語](./README.ja.md)
 
-Локальный web UI для [pi coding agent](https://github.com/badlogic/pi-mono). Pi Web читает локальные session-файлы pi и даёт браузерный workspace: просмотр сессий, real-time chat, настройка моделей, skills и preview файлов проекта.
+Локальный веб-интерфейс для [pi coding agent](https://github.com/badlogic/pi-mono). Pi Web читает локальные файлы сессий pi и предоставляет рабочее пространство в браузере для просмотра сессий, общения с агентом в реальном времени, настройки моделей, управления навыками и предварительного просмотра файлов проекта.
 
-![Pi Web shows the same pi session with structured Markdown, tool calls, and project navigation beside the CLI](https://raw.githubusercontent.com/agegr/pi-web/main/docs/screenshot2.png)
+![Pi Web показывает одну и ту же сессию pi рядом с CLI: структурированный Markdown, вызовы инструментов и навигация по проекту](https://raw.githubusercontent.com/agegr/pi-web/main/docs/screenshot2.png)
 
-Та же pi-сессия в CLI и Pi Web: structured tool calls, читаемый Markdown, session browsing и более удобные результаты.
+Одна и та же сессия pi в CLI и Pi Web: структурированные вызовы инструментов, удобочитаемый Markdown, просмотр сессий и наглядные результаты.
 
 ## Быстрый старт
 
-Нужен Node.js **22.19.0** или новее. Проверка: `node --version`.
+Для работы Pi Web требуется Node.js **22.19.0** или новее. Проверьте версию командой `node --version`.
 
-**Без установки:**
+**Запуск без установки:**
 
 ```bash
 npx @agegr/pi-web@latest
 ```
 
-**Глобально:**
+**Или глобальная установка:**
 
 ```bash
 npm install -g @agegr/pi-web
 pi-web
 ```
 
-Откройте [http://127.0.0.1:30141](http://127.0.0.1:30141). CLI попытается открыть браузер после старта сервера. По умолчанию слушаем `127.0.0.1`.
+Затем откройте [http://127.0.0.1:30141](http://127.0.0.1:30141). После запуска сервера CLI попытается автоматически открыть браузер. По умолчанию Pi Web прослушивает только `127.0.0.1`.
 
-**Опции:**
+**Параметры:**
 
 ```bash
-pi-web --port 8080              # custom port
-pi-web --hostname 0.0.0.0       # expose on a trusted network
-pi-web -p 8080 -H 0.0.0.0       # combine options
-pi-web --no-open                # do not open the browser automatically
+pi-web --port 8080              # другой порт
+pi-web --hostname 0.0.0.0       # доступ в доверенной сети
+pi-web -p 8080 -H 0.0.0.0       # сочетание параметров
+pi-web --no-open                # не открывать браузер автоматически
 
-PORT=8080 pi-web                # environment variable is also supported
-PI_WEB_HOSTNAME=0.0.0.0 pi-web  # explicit network exposure
-PI_WEB_ALLOWED_HOSTS=pi-web.internal pi-web  # allow an exact proxy/custom hostname
-PI_WEB_NO_OPEN=1 pi-web         # useful when running as a background service
+PORT=8080 pi-web                # порт также можно задать переменной окружения
+PI_WEB_HOSTNAME=0.0.0.0 pi-web  # явное разрешение сетевого доступа
+PI_WEB_ALLOWED_HOSTS=pi-web.internal pi-web  # точное имя прокси или другого хоста
+PI_WEB_PASSWORD='длинный-случайный-пароль' pi-web  # Basic Auth (имя пользователя: pi)
+PI_WEB_NO_OPEN=1 pi-web         # удобно для фоновой службы
 ```
 
-У Pi Web **нет** application-level auth, при этом он может вызывать high-privilege agent. **Не** выставляйте в интернет; non-loopback bindings — только в trusted network.  
-API принимает loopback names, IP literals, bind hostname и exact names из `PI_WEB_ALLOWED_HOSTS` (через запятую). Нужно, если reverse proxy с другим external hostname.
+Задайте `PI_WEB_PASSWORD`, чтобы защитить веб-интерфейс и все конечные точки API с помощью HTTP Basic Auth. Имя пользователя всегда `pi`. Если переменная не задана или пуста, аутентификация отключена.
 
-## HTTP Proxy
+Pi Web может вызывать агента с широкими полномочиями. Basic Auth не шифрует пароль при передаче, поэтому не публикуйте обычный HTTP-сервер в интернете. Для удалённого доступа используйте HTTPS через доверенный обратный прокси или надёжное VPN-подключение.
+API-запросы принимаются для loopback-имён, IP-адресов, выбранного имени хоста и точных имён из `PI_WEB_ALLOWED_HOSTS`, разделённых запятыми. Задайте эту переменную, если доверенный обратный прокси использует другое внешнее имя хоста.
 
-Серверные model/API-запросы уважают `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`.
+## HTTP-прокси
 
-macOS / Linux:
+Для серверных запросов к моделям и API Pi Web использует стандартные переменные окружения `HTTP_PROXY`, `HTTPS_PROXY` и `NO_PROXY`.
+
+В macOS и Linux:
 
 ```bash
 HTTP_PROXY=http://127.0.0.1:7890 \
@@ -57,7 +60,7 @@ NO_PROXY=localhost,127.0.0.1 \
 npx @agegr/pi-web@latest
 ```
 
-Windows PowerShell:
+В Windows PowerShell:
 
 ```powershell
 $env:HTTP_PROXY = "http://127.0.0.1:7890"
@@ -68,83 +71,85 @@ npx @agegr/pi-web@latest
 
 ## Возможности
 
-- **Продолжить работу**: предыдущие pi-разговоры по проектам без поиска в terminal history
-- **Безопасные ветки**: continue с сообщения или fork сессии в отдельный route
-- **Git worktrees**: переключение worktrees в sidebar — новые sessions и Explorer следуют checkout
-- **Chat рядом с проектом**: файлы слева; preview source/docs/images/audio/PDF справа, пока агент работает
-- **Состояние сессии**: context usage, cost, compaction, system prompt — в top bar
-- **Меньше терминала**: models, login/API keys, model tests, skills — из web UI
-- **Язык UI**: переключение supported languages в top bar
+- **Продолжайте работу с прежнего места**: просматривайте предыдущие разговоры с pi по проектам, не разыскивая их в истории терминала или путях к сессиям.
+- **Безопасно пробуйте разные подходы**: продолжайте диалог с более раннего сообщения или создавайте отдельный форк сессии.
+- **Работайте с разными ветками**: переключайте Git worktree в боковой панели, чтобы новые сессии и Explorer следовали за выбранным рабочим деревом.
+- **Общайтесь с агентом рядом с проектом**: просматривайте файлы слева, а исходный код, документы, изображения, аудио и PDF — справа, пока агент работает.
+- **Следите за состоянием сессии**: в верхней панели видны использование контекста, стоимость, состояние сжатия и сведения о системном промпте.
+- **Реже обращайтесь к терминалу**: управляйте моделями, учётными данными для входа и API, тестированием моделей и переключателями навыков в веб-интерфейсе.
+- **Используйте удобный язык интерфейса**: переключайтесь между поддерживаемыми языками в верхней панели.
 
-## Notes
+## Примечания
 
-- **Data directory**: по умолчанию `~/.pi/agent/sessions`. Другой каталог: `PI_CODING_AGENT_DIR`
-- **Session files**: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
-- **Model config**: панель Models читает/пишет `models.json` в pi agent directory
-- **File access**: browsing/preview ограничены selected project и working dirs из sessions
-- **Git worktrees**: [Worktrees in Pi Web](./docs/worktrees.md)
-- **Forks vs in-session branches**: Fork = новый `.jsonl`; «Edit from here» = ветка внутри того же session file
-- **i18n**: [Internationalization](./docs/i18n.md)
+- **Каталог данных**: по умолчанию Pi Web читает `~/.pi/agent/sessions`. Чтобы указать другой каталог агента pi, задайте `PI_CODING_AGENT_DIR`.
+- **Файлы сессий**: файлы хранятся по пути `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`.
+- **Настройка моделей**: панель Models читает и записывает `models.json` в каталоге агента pi. Список моделей и модель по умолчанию берутся из конфигурации pi.
+- **Доступ к файлам**: просмотр файлов ограничен выбранным каталогом проекта и рабочими каталогами, которые встречаются в сессиях.
+- **Git worktree**: условия отображения переключателя, создание новых рабочих деревьев и их удаление описаны в документе [Worktrees in Pi Web](./docs/worktrees.md).
+- **Форк и ветка внутри сессии**: Fork создаёт новый файл `.jsonl`, а «Edit from here» — другую ветку внутри того же файла сессии.
+- **Интернационализация**: использование переводов и добавление языков или текстов интерфейса описаны в документе [Internationalization](./docs/i18n.md).
 
-## Development
+## Разработка
 
 ```bash
 npm install
 npm run dev
 ```
 
-Dev server: [http://127.0.0.1:30141](http://127.0.0.1:30141).
+Локальный сервер разработки доступен по адресу [http://127.0.0.1:30141](http://127.0.0.1:30141).
+
+Основные проверки:
 
 ```bash
 node_modules/.bin/tsc --noEmit
 npm run lint
 ```
 
-Не гоняйте `next build` / `npm run build` во время local dev — пишет в `.next/` и мешает dev server; builds — для release.
+Не запускайте `next build` / `npm run build` во время локальной разработки. Эта команда записывает данные в `.next/` и может помешать работе сервера разработки; выполняйте сборку только при подготовке релиза.
 
 ## Структура проекта
 
 ```text
 app/
   api/
-    agent/          # creates/drives AgentSession and exposes SSE events
-    auth/           # OAuth and API key management
-    cwd/browse/     # browsable server directory listing
-    cwd/validate/   # custom working directory validation
-    default-cwd/    # pi default working directory lookup
-    files/          # file listing, reading, preview, and watching
-    home/           # current user home directory
-    models/         # available models, default model, thinking levels
-    models-config/  # read/write models.json and test models
-    sessions/       # session reads, rename, delete, context, HTML export
-    skills/         # skill listing, search, install, enable/disable
+    agent/          # создание и управление AgentSession, события SSE
+    auth/           # управление OAuth и ключами API
+    cwd/browse/     # просмотр каталогов на сервере
+    cwd/validate/   # проверка пользовательского рабочего каталога
+    default-cwd/    # рабочий каталог pi по умолчанию
+    files/          # список, чтение, просмотр и отслеживание файлов
+    home/           # домашний каталог текущего пользователя
+    models/         # доступные модели, модель по умолчанию, уровни рассуждения
+    models-config/  # чтение и запись models.json, проверка моделей
+    sessions/       # чтение, переименование, удаление, контекст и экспорт сессий в HTML
+    skills/         # список, поиск, установка, включение и отключение навыков
 components/
-  AppShell.tsx        # main layout, URL state, top panels, file tabs
-  SessionSidebar.tsx  # project selector, session tree, Explorer
-  DirectoryPicker.tsx # browsable and editable working-directory picker
-  ChatWindow.tsx      # messages, SSE, image drag/drop, minimap
-  ChatInput.tsx       # input bar, model/tools/thinking/compact/slash controls
-  MessageView.tsx     # message, thinking, tool call/result rendering
-  ModelsConfig.tsx    # model and auth configuration panel
-  SkillsConfig.tsx    # skill management panel
-  FileExplorer.tsx    # file tree
-  FileViewer.tsx      # source, diff, image, audio, PDF, DOCX preview
+  AppShell.tsx        # основной макет, состояние URL, верхние панели, вкладки файлов
+  SessionSidebar.tsx  # выбор проекта, дерево сессий, Explorer
+  DirectoryPicker.tsx # просмотр и изменение рабочего каталога
+  ChatWindow.tsx      # сообщения, SSE, перетаскивание изображений, мини-карта
+  ChatInput.tsx       # модели, инструменты, рассуждение, сжатие и слеш-команды
+  MessageView.tsx     # сообщения, рассуждения, вызовы инструментов и результаты
+  ModelsConfig.tsx    # настройка моделей и аутентификации
+  SkillsConfig.tsx    # управление навыками
+  FileExplorer.tsx    # дерево файлов
+  FileViewer.tsx      # просмотр кода, diff, изображений, аудио, PDF и DOCX
 lib/
-  directory-browser.ts # directory normalization and safe listing helpers
-  http-dispatcher.ts  # HTTP(S) proxy setup for server-side fetch
-  rpc-manager.ts      # AgentSessionWrapper lifecycle and global registry
-  session-reader.ts   # parses .jsonl session files and branch contexts
-  normalize.ts        # normalizes toolCall field names
-  file-access.ts      # file read safety boundary
-  file-paths.ts       # path encoding and relative path helpers
-  markdown.ts         # Markdown/Mermaid/KaTeX plugin configuration
-  pi-types.ts         # pi-related types
+  directory-browser.ts # нормализация каталогов и безопасный просмотр
+  http-dispatcher.ts  # настройка HTTP(S)-прокси для серверных запросов
+  rpc-manager.ts      # жизненный цикл AgentSessionWrapper и глобальный реестр
+  session-reader.ts   # разбор файлов сессий .jsonl и контекста веток
+  normalize.ts        # нормализация имён полей toolCall
+  file-access.ts      # границы безопасного чтения файлов
+  file-paths.ts       # кодирование путей и работа с относительными путями
+  markdown.ts         # настройка плагинов Markdown, Mermaid и KaTeX
+  pi-types.ts         # типы, связанные с pi
 hooks/
-  useAgentSession.ts  # session loading, command sending, SSE state machine
-  useAudio.ts         # completion sound
-  useDragDrop.ts      # image drag/drop
-  useTheme.ts         # theme switching
+  useAgentSession.ts  # загрузка сессии, команды и автомат состояний SSE
+  useAudio.ts         # звук завершения
+  useDragDrop.ts      # перетаскивание изображений
+  useTheme.ts         # переключение темы
 bin/
-  pi-web.js           # npm CLI entrypoint
-instrumentation.ts    # initializes the server HTTP dispatcher
+  pi-web.js           # точка входа npm CLI
+instrumentation.ts    # инициализация HTTP-диспетчера сервера
 ```
