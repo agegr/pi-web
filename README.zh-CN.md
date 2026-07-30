@@ -1,6 +1,6 @@
 # Pi Web
 
-[English](./README.md) | [日本語](./README.ja.md)
+[English](./README.md) | [日本語](./README.ja.md) | [Русский](./README.ru.md)
 
 [pi 编程智能体](https://github.com/badlogic/pi-mono) 的本地网页界面。它会读取本机的 pi 会话文件，在浏览器里提供会话管理、实时对话、模型配置、技能管理和项目文件预览。
 

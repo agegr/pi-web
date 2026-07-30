@@ -1,33 +1,33 @@
 # Pi Web
 
-[中文文档](./README.zh-CN.md) | [日本語](./README.ja.md) | [Русский](./README.ru.md)
+[English](./README.md) | [中文文档](./README.zh-CN.md) | [日本語](./README.ja.md) | [Русский](./README.ru.md)
 
-Local web UI for the [pi coding agent](https://github.com/badlogic/pi-mono). Pi Web reads your local pi session files and gives you a browser workspace for session browsing, real-time chat, model configuration, skill management, and project file preview.
+Локальный web UI для [pi coding agent](https://github.com/badlogic/pi-mono). Pi Web читает локальные session-файлы pi и даёт браузерный workspace: просмотр сессий, real-time chat, настройка моделей, skills и preview файлов проекта.
 
 ![Pi Web shows the same pi session with structured Markdown, tool calls, and project navigation beside the CLI](https://raw.githubusercontent.com/agegr/pi-web/main/docs/screenshot2.png)
 
-The same pi session in CLI and Pi Web: structured tool calls, readable Markdown, session browsing, and cleaner results.
+Та же pi-сессия в CLI и Pi Web: structured tool calls, читаемый Markdown, session browsing и более удобные результаты.
 
-## Quick Start
+## Быстрый старт
 
-Pi Web requires Node.js 22.19.0 or newer. Check your version with `node --version`.
+Нужен Node.js **22.19.0** или новее. Проверка: `node --version`.
 
-**Run without installing:**
+**Без установки:**
 
 ```bash
 npx @agegr/pi-web@latest
 ```
 
-**Or install globally:**
+**Глобально:**
 
 ```bash
 npm install -g @agegr/pi-web
 pi-web
 ```
 
-Then open [http://127.0.0.1:30141](http://127.0.0.1:30141). The CLI will try to open the browser automatically after the server is ready. Pi Web listens on `127.0.0.1` by default.
+Откройте [http://127.0.0.1:30141](http://127.0.0.1:30141). CLI попытается открыть браузер после старта сервера. По умолчанию слушаем `127.0.0.1`.
 
-**Options:**
+**Опции:**
 
 ```bash
 pi-web --port 8080              # custom port
@@ -41,14 +41,14 @@ PI_WEB_ALLOWED_HOSTS=pi-web.internal pi-web  # allow an exact proxy/custom hostn
 PI_WEB_NO_OPEN=1 pi-web         # useful when running as a background service
 ```
 
-Pi Web has no application-level authentication and can invoke a high-privilege agent. Do not expose it to the internet; only use non-loopback bindings on a trusted network.
-API requests accept loopback names, IP literals, the selected bind hostname, and exact comma-separated names in `PI_WEB_ALLOWED_HOSTS`. Configure that variable when a trusted reverse proxy uses a different external hostname.
+У Pi Web **нет** application-level auth, при этом он может вызывать high-privilege agent. **Не** выставляйте в интернет; non-loopback bindings — только в trusted network.  
+API принимает loopback names, IP literals, bind hostname и exact names из `PI_WEB_ALLOWED_HOSTS` (через запятую). Нужно, если reverse proxy с другим external hostname.
 
 ## HTTP Proxy
 
-Pi Web reads the standard `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` environment variables for server-side model and API requests.
+Серверные model/API-запросы уважают `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`.
 
-On macOS or Linux:
+macOS / Linux:
 
 ```bash
 HTTP_PROXY=http://127.0.0.1:7890 \
@@ -57,7 +57,7 @@ NO_PROXY=localhost,127.0.0.1 \
 npx @agegr/pi-web@latest
 ```
 
-On Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
 $env:HTTP_PROXY = "http://127.0.0.1:7890"
@@ -66,25 +66,25 @@ $env:NO_PROXY = "localhost,127.0.0.1"
 npx @agegr/pi-web@latest
 ```
 
-## Features
+## Возможности
 
-- **Pick work back up**: browse previous pi conversations by project without digging through terminal history or session paths.
-- **Try different directions safely**: continue from an earlier message or fork a session into a separate route.
-- **Work across branches**: switch Git worktrees from the sidebar so new sessions and the Explorer follow the checkout you choose.
-- **Chat beside the project**: browse files on the left and preview source, docs, images, audio, and PDFs on the right while the agent works.
-- **See session state clearly**: context usage, cost, compaction state, and system prompt details are visible from the top bar.
-- **Configure less from the terminal**: manage models, login/API keys, model tests, and skill switches from the web UI.
-- **Use the interface in your language**: switch between the supported UI languages from the top bar.
+- **Продолжить работу**: предыдущие pi-разговоры по проектам без поиска в terminal history
+- **Безопасные ветки**: continue с сообщения или fork сессии в отдельный route
+- **Git worktrees**: переключение worktrees в sidebar — новые sessions и Explorer следуют checkout
+- **Chat рядом с проектом**: файлы слева; preview source/docs/images/audio/PDF справа, пока агент работает
+- **Состояние сессии**: context usage, cost, compaction, system prompt — в top bar
+- **Меньше терминала**: models, login/API keys, model tests, skills — из web UI
+- **Язык UI**: переключение supported languages в top bar
 
 ## Notes
 
-- **Data directory**: Pi Web reads `~/.pi/agent/sessions` by default. Set `PI_CODING_AGENT_DIR` to point at another pi agent directory.
-- **Session files**: files are stored as `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`.
-- **Model config**: the Models panel reads and writes `models.json` in the pi agent directory. Model lists and defaults come from pi's config.
-- **File access**: file browsing and preview are scoped to the selected project directory and working directories that appear in sessions.
-- **Git worktrees**: see [Worktrees in Pi Web](./docs/worktrees.md) for when the switcher appears, how new worktrees are created, and what removal does.
-- **Forks vs in-session branches**: Fork creates a new `.jsonl` file. "Edit from here" creates another branch inside the same session file.
-- **Internationalization**: see [Internationalization](./docs/i18n.md) for using translations and adding languages or UI text.
+- **Data directory**: по умолчанию `~/.pi/agent/sessions`. Другой каталог: `PI_CODING_AGENT_DIR`
+- **Session files**: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
+- **Model config**: панель Models читает/пишет `models.json` в pi agent directory
+- **File access**: browsing/preview ограничены selected project и working dirs из sessions
+- **Git worktrees**: [Worktrees in Pi Web](./docs/worktrees.md)
+- **Forks vs in-session branches**: Fork = новый `.jsonl`; «Edit from here» = ветка внутри того же session file
+- **i18n**: [Internationalization](./docs/i18n.md)
 
 ## Development
 
@@ -93,18 +93,16 @@ npm install
 npm run dev
 ```
 
-The local dev server runs at [http://127.0.0.1:30141](http://127.0.0.1:30141).
-
-Common checks:
+Dev server: [http://127.0.0.1:30141](http://127.0.0.1:30141).
 
 ```bash
 node_modules/.bin/tsc --noEmit
 npm run lint
 ```
 
-Avoid running `next build` / `npm run build` during local development. It writes to `.next/` and can interfere with the dev server; leave builds for release work.
+Не гоняйте `next build` / `npm run build` во время local dev — пишет в `.next/` и мешает dev server; builds — для release.
 
-## Project Structure
+## Структура проекта
 
 ```text
 app/
