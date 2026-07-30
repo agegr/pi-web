@@ -1,4 +1,5 @@
-import { resolveModelScopeWithDiagnostics } from "@earendil-works/pi-coding-agent";
+import { resolveModelScopeWithDiagnostics, type ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { Api, Model } from "@earendil-works/pi-ai";
 
 /**
  * Model scoping for the UI model selector.
@@ -11,17 +12,12 @@ import { resolveModelScopeWithDiagnostics } from "@earendil-works/pi-coding-agen
  * instead of reimplementing the matching rules here.
  */
 
-/** Minimal shape of a resolved model — matches pi's `Model` structurally. */
-export interface ScopeModel {
-  id: string;
-  provider: string;
-  name: string;
-}
-
-export interface ModelScopeResult<T extends ScopeModel = ScopeModel> {
+export interface ModelScopeResult {
   /** Models the UI should offer, in resolver order (all available when unscoped). */
-  visible: readonly T[];
-  /** Human-readable messages for patterns that matched nothing. */
+  visible: readonly Model<Api>[];
+  /** `provider/modelId` → thinking level pinned with a `:level` pattern suffix. */
+  thinkingLevelPins: Record<string, string>;
+  /** Resolver diagnostics, e.g. a pattern that matched no model. */
   warnings: string[];
 }
 
@@ -32,27 +28,29 @@ export interface ModelScopeResult<T extends ScopeModel = ScopeModel> {
  * the patterns resolve to nothing, so a stale or typo'd setting can never leave
  * the UI without any selectable model.
  */
-export async function resolveVisibleModels<T extends ScopeModel>(
-  modelRuntime: { getAvailable: () => Promise<readonly T[]> | readonly T[] },
+export async function resolveVisibleModels(
+  modelRuntime: ModelRuntime,
   patterns: string[] | undefined,
-): Promise<ModelScopeResult<T>> {
-  const available = await modelRuntime.getAvailable();
-  const unscoped: ModelScopeResult<T> = { visible: available, warnings: [] };
-
+): Promise<ModelScopeResult> {
   const cleaned = (patterns ?? []).map((pattern) => pattern.trim()).filter(Boolean);
-  if (cleaned.length === 0) return unscoped;
-
-  try {
-    const { scopedModels, diagnostics } = await resolveModelScopeWithDiagnostics(
-      cleaned,
-      // The resolver only reads `getAvailable()`; the cast keeps this helper
-      // testable with a stub runtime.
-      modelRuntime as unknown as Parameters<typeof resolveModelScopeWithDiagnostics>[1],
-    );
-    const warnings = diagnostics.map((diagnostic) => diagnostic.message);
-    if (scopedModels.length === 0) return { visible: available, warnings };
-    return { visible: scopedModels.map((scoped) => scoped.model) as unknown as readonly T[], warnings };
-  } catch {
-    return unscoped;
+  if (cleaned.length === 0) {
+    return { visible: await modelRuntime.getAvailable(), thinkingLevelPins: {}, warnings: [] };
   }
+
+  const { scopedModels, diagnostics } = await resolveModelScopeWithDiagnostics(cleaned, modelRuntime);
+  const warnings = diagnostics.map((diagnostic) => diagnostic.message);
+  if (scopedModels.length === 0) {
+    return { visible: await modelRuntime.getAvailable(), thinkingLevelPins: {}, warnings };
+  }
+
+  // `anthropic/*:high` pins a thinking level on every model the glob matched.
+  // pi applies the pin of the model a new session starts with; report them all
+  // so the client can look up whichever model it pre-selects.
+  const thinkingLevelPins: Record<string, string> = {};
+  for (const scoped of scopedModels) {
+    if (scoped.thinkingLevel) {
+      thinkingLevelPins[`${scoped.model.provider}/${scoped.model.id}`] = scoped.thinkingLevel;
+    }
+  }
+  return { visible: scopedModels.map((scoped) => scoped.model), thinkingLevelPins, warnings };
 }

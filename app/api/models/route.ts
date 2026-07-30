@@ -41,11 +41,11 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   const settings: SettingsManager = services.settingsManager;
   // `enabledModels` supports globs and fuzzy patterns, so resolve it the same
   // way the CLI does instead of comparing pattern strings literally (#307).
-  const { visible, warnings } = await resolveVisibleModels(
+  const { visible, thinkingLevelPins, warnings } = await resolveVisibleModels(
     services.modelRuntime,
     settings.getEnabledModels(),
   );
-  modelList = visible.map((m: { id: string; name: string; provider: string }) => ({
+  modelList = visible.map((m) => ({
     id: m.id,
     name: m.name,
     provider: m.provider,
@@ -70,6 +70,7 @@ async function loadModels(cwd: string): Promise<ModelsData> {
       defaultModel,
       thinkingLevels,
       thinkingLevelMaps,
+      thinkingLevelPins,
       ...(warnings.length > 0 ? { modelScopeWarnings: warnings } : {}),
     },
     modelError,
@@ -82,6 +83,7 @@ const EMPTY_MODELS: ModelsData = {
   defaultModel: null,
   thinkingLevels: {},
   thinkingLevelMaps: {},
+  thinkingLevelPins: {},
 };
 
 export async function GET(req: Request) {
