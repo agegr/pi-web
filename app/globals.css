@@ -841,6 +841,37 @@ span.linenumber {
   to   { stroke-dashoffset: 0;  opacity: 1; }
 }
 
+/* Keep the panel border as the idle separator; this element only expands the hit target. */
+.panel-resize-handle {
+  position: relative;
+  z-index: 220;
+  width: 12px;
+  margin: 0 -6px;
+  flex: 0 0 12px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.panel-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 5px;
+  width: 2px;
+  pointer-events: none;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+.panel-resize-handle:hover::after,
+.panel-resize-handle:focus-visible::after,
+.panel-resize-handle.is-resizing::after {
+  background: color-mix(in srgb, var(--text-muted) 70%, var(--border));
+}
+.right-panel-overlay-backdrop {
+  display: none;
+}
+
 /* Desktop sidebar: animate width */
 @media (min-width: 641px) {
   .sidebar-overlay-backdrop {
@@ -865,23 +896,21 @@ span.linenumber {
     width: var(--sidebar-width, 260px);
     min-width: var(--sidebar-width, 260px);
   }
-  /* disable transition while actively dragging the resize handle */
   .sidebar-container.sidebar-resizing,
   .sidebar-container.sidebar-resizing > * {
     transition: none !important;
   }
 }
 
-
-/* Right panel: animate width */
-@media (min-width: 641px) {
+/* Wide desktop file panel: participate in the split layout. */
+@media (min-width: 960px) {
   .right-panel-container {
     overflow: hidden;
     transition: width 0.2s ease, min-width 0.2s ease;
     flex-shrink: 0;
   }
   .right-panel-container.right-panel-open {
-    width: var(--right-panel-width, 560px);
+    width: var(--right-panel-width, clamp(360px, 42vw, 640px));
     min-width: 300px;
   }
   .right-panel-container.right-panel-closed {
@@ -891,13 +920,56 @@ span.linenumber {
   }
   /* keep inner content at fixed width so it doesn't reflow during animation */
   .right-panel-container > * {
-    width: var(--right-panel-width, 560px);
+    width: var(--right-panel-width, clamp(360px, 42vw, 640px));
     min-width: 300px;
   }
-  /* disable transition while actively dragging the resize handle */
   .right-panel-container.right-panel-resizing,
   .right-panel-container.right-panel-resizing > * {
     transition: none !important;
+  }
+}
+
+/* Compact desktop file panel: overlay the chat instead of collapsing it. */
+@media (min-width: 641px) and (max-width: 959px) {
+  .right-panel-resize-handle {
+    display: none;
+  }
+  .right-panel-overlay-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 240;
+    display: block;
+    background: rgba(0, 0, 0, 0.24);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .right-panel-overlay-backdrop.is-open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .right-panel-container {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 250;
+    width: min(560px, calc(100vw - 48px));
+    min-width: 300px;
+    overflow: hidden;
+    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.18);
+    transition: transform 0.2s ease;
+  }
+  .right-panel-container.right-panel-open {
+    transform: translateX(0);
+  }
+  .right-panel-container.right-panel-closed {
+    transform: translateX(100%);
+    pointer-events: none;
+  }
+  .right-panel-container > * {
+    width: 100%;
+    min-width: 0;
   }
 }
 
@@ -925,9 +997,11 @@ span.linenumber {
   }
 
   .right-panel-container {
+    position: fixed;
+    inset: 0;
+    z-index: 250;
     overflow: hidden;
-    transition: width 0.2s ease, min-width 0.2s ease;
-    flex-shrink: 0;
+    transition: transform 0.2s ease;
   }
   .right-panel-container.right-panel-open {
     width: 100%;
@@ -938,6 +1012,14 @@ span.linenumber {
     min-width: 0 !important;
     border-left: none !important;
     display: none !important;
+  }
+  .right-panel-container > * {
+    width: 100%;
+    min-width: 0;
+  }
+  .panel-resize-handle,
+  .right-panel-overlay-backdrop {
+    display: none;
   }
   .directory-picker-back,
   .directory-picker-entry,

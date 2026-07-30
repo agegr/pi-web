@@ -15,10 +15,22 @@ import { BranchNavigator } from "./BranchNavigator";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import { getInitialNavigation } from "@/lib/initial-navigation";
+import {
+  getDefaultRightPanelWidth,
+  getRightPanelMaxWidth,
+  getSidebarMaxWidth,
+  RIGHT_PANEL_FALLBACK_WIDTH,
+  RIGHT_PANEL_MAX_WIDTH,
+  RIGHT_PANEL_MIN_WIDTH,
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+} from "@/lib/panel-layout";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
@@ -60,13 +72,61 @@ export function AppShell() {
   const [projectTrustBusy, setProjectTrustBusy] = useState(false);
   const [projectTrustError, setProjectTrustError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(260);
-  const sidebarWidthRef = useRef(260);
-  const [isSidebarResizing, setIsSidebarResizing] = useState(false);
-  const [rightPanelWidth, setRightPanelWidth] = useState(560);
-  const rightPanelWidthRef = useRef(560);
-  const [isRightPanelResizing, setIsRightPanelResizing] = useState(false);
+  const sidebarWidthRef = useRef(SIDEBAR_DEFAULT_WIDTH);
+  const rightPanelWidthRef = useRef(RIGHT_PANEL_FALLBACK_WIDTH);
+  const getResponsiveRightPanelWidth = useCallback(
+    () => typeof window === "undefined"
+      ? RIGHT_PANEL_FALLBACK_WIDTH
+      : getDefaultRightPanelWidth(window.innerWidth),
+    [],
+  );
+  const getResponsiveSidebarMaxWidth = useCallback(
+    () => typeof window === "undefined"
+      ? SIDEBAR_MAX_WIDTH
+      : getSidebarMaxWidth({
+        viewportWidth: window.innerWidth,
+        rightPanelOpen,
+        rightPanelWidth: rightPanelWidthRef.current,
+      }),
+    [rightPanelOpen],
+  );
+  const getResponsiveRightPanelMaxWidth = useCallback(
+    () => typeof window === "undefined"
+      ? RIGHT_PANEL_MAX_WIDTH
+      : getRightPanelMaxWidth({
+        viewportWidth: window.innerWidth,
+        sidebarOpen,
+        sidebarWidth: sidebarWidthRef.current,
+      }),
+    [sidebarOpen],
+  );
+  const sidebarResizer = useResizablePanel({
+    ariaLabel: translate("layout.resizeSidebar"),
+    cssVariable: "--sidebar-width",
+    defaultWidth: SIDEBAR_DEFAULT_WIDTH,
+    getMaxWidth: getResponsiveSidebarMaxWidth,
+    growthDirection: "right",
+    maxWidth: SIDEBAR_MAX_WIDTH,
+    minWidth: SIDEBAR_MIN_WIDTH,
+    storageKey: "pi-sidebar-width",
+    widthRef: sidebarWidthRef,
+  });
+  const rightPanelResizer = useResizablePanel({
+    ariaLabel: translate("layout.resizeFilePanel"),
+    cssVariable: "--right-panel-width",
+    defaultWidth: RIGHT_PANEL_FALLBACK_WIDTH,
+    getDefaultWidth: getResponsiveRightPanelWidth,
+    getMaxWidth: getResponsiveRightPanelMaxWidth,
+    growthDirection: "left",
+    maxWidth: RIGHT_PANEL_MAX_WIDTH,
+    minWidth: RIGHT_PANEL_MIN_WIDTH,
+    storageKey: "pi-right-panel-width",
+    widthRef: rightPanelWidthRef,
+  });
+  const reclampSidebarWidth = sidebarResizer.reclampWidth;
+  const reclampRightPanelWidth = rightPanelResizer.reclampWidth;
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
   // is visible on load. Runs once the breakpoint resolves after hydration.
   useEffect(() => {
@@ -75,25 +135,11 @@ export function AppShell() {
   useEffect(() => {
     setMobileSidebarReady(true);
   }, []);
-  // Restore sidebar width from localStorage (desktop only)
   useEffect(() => {
-    const savedSidebar = typeof localStorage !== "undefined" ? localStorage.getItem("sidebar-width") : null;
-    if (savedSidebar) {
-      const w = parseInt(savedSidebar, 10);
-      if (!isNaN(w) && w >= 180 && w <= 480) {
-        setSidebarWidth(w);
-        sidebarWidthRef.current = w;
-      }
-    }
-    const savedRightPanel = typeof localStorage !== "undefined" ? localStorage.getItem("right-panel-width") : null;
-    if (savedRightPanel) {
-      const w = parseInt(savedRightPanel, 10);
-      if (!isNaN(w) && w >= 300 && w <= 1200) {
-        setRightPanelWidth(w);
-        rightPanelWidthRef.current = w;
-      }
-    }
-  }, []);
+    if (!rightPanelOpen) return;
+    reclampSidebarWidth();
+    reclampRightPanelWidth();
+  }, [reclampRightPanelWidth, reclampSidebarWidth, rightPanelOpen]);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
   const languageBtnRef = useRef<HTMLButtonElement>(null);
@@ -171,69 +217,6 @@ export function AppShell() {
     setSidebarOpen((open) => !open);
   }, [isMobile]);
 
-  const startSidebarResize = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsSidebarResizing(true);
-    const startX = e.clientX;
-    const startWidth = sidebarWidthRef.current;
-    const onMove = (ev: MouseEvent) => {
-      const w = Math.max(180, Math.min(480, startWidth + ev.clientX - startX));
-      sidebarWidthRef.current = w;
-      setSidebarWidth(w);
-    };
-    const onUp = () => {
-      setIsSidebarResizing(false);
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      localStorage.setItem("sidebar-width", String(sidebarWidthRef.current));
-    };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-  }, []);
-
-  const resetSidebarWidth = useCallback(() => {
-    setSidebarWidth(260);
-    sidebarWidthRef.current = 260;
-    localStorage.setItem("sidebar-width", "260");
-  }, []);
-
-  const startRightPanelResize = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsRightPanelResizing(true);
-    const startX = e.clientX;
-    const startWidth = rightPanelWidthRef.current;
-    const onMove = (ev: MouseEvent) => {
-      // Dragging left (negative delta) increases width
-      const w = Math.max(300, Math.min(1200, startWidth - (ev.clientX - startX)));
-      rightPanelWidthRef.current = w;
-      setRightPanelWidth(w);
-    };
-    const onUp = () => {
-      setIsRightPanelResizing(false);
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      localStorage.setItem("right-panel-width", String(rightPanelWidthRef.current));
-    };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-  }, []);
-
-  const resetRightPanelWidth = useCallback(() => {
-    setRightPanelWidth(560);
-    rightPanelWidthRef.current = 560;
-    localStorage.setItem("right-panel-width", "560");
-  }, []);
-
   useEffect(() => {
     if (!activeTopPanel || !topBarRef.current) return;
     const update = () => {
@@ -260,7 +243,6 @@ export function AppShell() {
   // Right panel — file tabs only
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
-  const [rightPanelOpen, setRightPanelOpen] = useState(false);
 
   // Same @mention format as the chat input's @ autocomplete, so the agent's
   // read tool resolves it the same way (it strips the @ prefix).
@@ -806,9 +788,11 @@ export function AppShell() {
 
       {/* Left sidebar */}
       <div
-        className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${isSidebarResizing ? " sidebar-resizing" : ""}`}
+        ref={sidebarResizer.panelRef}
+        id="session-sidebar"
+        className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${sidebarResizer.isResizing ? " sidebar-resizing" : ""}`}
         style={{
-          "--sidebar-width": `${sidebarWidth}px`,
+          "--sidebar-width": `${sidebarResizer.width}px`,
           background: "var(--bg-panel)",
           borderRight: "1px solid var(--border)",
           display: "flex",
@@ -819,22 +803,13 @@ export function AppShell() {
       >
         {sidebarContent}
       </div>
-      {/* Sidebar resize handle (desktop only) */}
-      {sidebarOpen && !isMobile && (
+      {sidebarOpen && (
         <div
-          onMouseDown={startSidebarResize}
-          onDoubleClick={resetSidebarWidth}
-          title="Drag to resize · double-click to reset"
-          style={{
-            width: 2,
-            flexShrink: 0,
-            cursor: "col-resize",
-            background: isSidebarResizing ? "var(--accent)" : "var(--border)",
-            zIndex: 201,
-            transition: "background 0.12s",
-          }}
-          onMouseEnter={(e) => { if (!isSidebarResizing) e.currentTarget.style.background = "var(--accent)"; }}
-          onMouseLeave={(e) => { if (!isSidebarResizing) e.currentTarget.style.background = "var(--border)"; }}
+          {...sidebarResizer.separatorProps}
+          aria-controls="session-sidebar"
+          className={`panel-resize-handle sidebar-resize-handle${sidebarResizer.isResizing ? " is-resizing" : ""}`}
+          data-resize-handle="sidebar"
+          title={`${translate("layout.resizeSidebar")}: ${translate("layout.resizeHint")}`}
         />
       )}
 
@@ -1552,30 +1527,28 @@ export function AppShell() {
         </div>
       </div>
 
-      {/* Right panel resize handle (desktop only) */}
-      {rightPanelOpen && !isMobile && (
+      <div
+        aria-hidden="true"
+        className={`right-panel-overlay-backdrop${rightPanelOpen ? " is-open" : ""}`}
+        onClick={() => setRightPanelOpen(false)}
+      />
+      {rightPanelOpen && (
         <div
-          onMouseDown={startRightPanelResize}
-          onDoubleClick={resetRightPanelWidth}
-          title="Drag to resize · double-click to reset"
-          style={{
-            width: 2,
-            flexShrink: 0,
-            cursor: "col-resize",
-            background: isRightPanelResizing ? "var(--accent)" : "var(--border)",
-            zIndex: 201,
-            transition: "background 0.12s",
-          }}
-          onMouseEnter={(e) => { if (!isRightPanelResizing) e.currentTarget.style.background = "var(--accent)"; }}
-          onMouseLeave={(e) => { if (!isRightPanelResizing) e.currentTarget.style.background = "var(--border)"; }}
+          {...rightPanelResizer.separatorProps}
+          aria-controls="file-panel"
+          className={`panel-resize-handle right-panel-resize-handle${rightPanelResizer.isResizing ? " is-resizing" : ""}`}
+          data-resize-handle="right-panel"
+          title={`${translate("layout.resizeFilePanel")}: ${translate("layout.resizeHint")}`}
         />
       )}
 
       {/* Right panel: file viewer — always mounted, width animated via CSS */}
       <div
-        className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}${isRightPanelResizing ? " right-panel-resizing" : ""}`}
+        ref={rightPanelResizer.panelRef}
+        id="file-panel"
+        className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}${rightPanelResizer.isResizing ? " right-panel-resizing" : ""}`}
         style={{
-          "--right-panel-width": `${rightPanelWidth}px`,
+          "--right-panel-width": `${rightPanelResizer.width}px`,
           display: "flex",
           flexDirection: "column",
           borderLeft: "1px solid var(--border)",
@@ -1622,6 +1595,8 @@ export function AppShell() {
     {/* File panel toggle — always visible at top-right */}
     <button
       onClick={() => setRightPanelOpen((v) => !v)}
+       aria-controls="file-panel"
+       aria-expanded={rightPanelOpen}
        title={rightPanelOpen ? translate("files.hidePanel") : translate("files.showPanel")}
        aria-label={rightPanelOpen ? translate("files.hidePanel") : translate("files.showPanel")}
       style={{
