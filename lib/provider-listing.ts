@@ -2,10 +2,13 @@
  * Provider listing for the Models panel.
  *
  * Providers are listed by the auth methods they actually declare, not by a
- * hardcoded id list. Anthropic, GitHub Copilot, and OpenAI Codex support both
- * an API key and OAuth; hardcoding them as "OAuth only" hid them from the
- * API-key endpoint, while the OAuth endpoint separately excluded Anthropic, so a
- * configured Anthropic account appeared in neither list (#309).
+ * hardcoded id list. Anthropic and GitHub Copilot (and kimi-coding, openrouter,
+ * radius, xai) declare both an API key and OAuth; hardcoding them as "OAuth
+ * only" hid them from the API-key endpoint, while the OAuth endpoint separately
+ * excluded Anthropic, so a configured Anthropic account appeared in neither list
+ * (#309). Which providers are dual-auth is a property of the SDK's provider
+ * definitions and changes between releases — read it from `auth`, never assume
+ * it from an id.
  */
 
 /** Credential kinds pi stores in `auth.json`. */
@@ -94,6 +97,21 @@ export function buildApiKeyProviderList(
     });
   }
   return result;
+}
+
+/**
+ * Whether a route that owns `expected` credentials may remove what is stored.
+ *
+ * `ModelRuntime.logout()` deletes whichever credential a provider holds, and
+ * auth.json holds at most one per provider. So after switching a dual-auth
+ * provider from an API key to OAuth, "Disconnect" on a stale API-key row would
+ * delete the fresh OAuth credential (#309). Both delete routes check this first.
+ */
+export function canRemoveCredential(
+  stored: ProviderCredentialType | undefined,
+  expected: ProviderCredentialType,
+): boolean {
+  return stored === undefined || stored === expected;
 }
 
 /** Providers that can be authenticated with OAuth. */
