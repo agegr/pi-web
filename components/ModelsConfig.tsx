@@ -92,6 +92,8 @@ interface OAuthProvider {
   name: string;
   usesCallbackServer: boolean;
   loggedIn: boolean;
+  /** Provider also accepts an API key, so it appears in both picker sections. */
+  supportsApiKey?: boolean;
 }
 
 interface ApiKeyProvider {
@@ -100,6 +102,8 @@ interface ApiKeyProvider {
   configured: boolean;
   source?: string;
   modelCount: number;
+  /** Provider also supports OAuth, so it appears in both picker sections. */
+  supportsOAuth?: boolean;
 }
 
 type OAuthLoginState =
