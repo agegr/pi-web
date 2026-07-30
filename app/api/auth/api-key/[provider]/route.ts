@@ -1,8 +1,7 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { NextResponse } from "next/server";
 import { invalidateModelsCache } from "@/lib/models-cache";
-import { canRemoveCredential } from "@/lib/provider-listing";
-import { getStoredCredentialType } from "@/lib/provider-listing-runtime";
+import { removeStoredCredentialIfType } from "@/lib/provider-credential-store";
 
 export const dynamic = "force-dynamic";
 
@@ -54,15 +53,13 @@ export async function POST(req: Request, { params }: Params) {
 export async function DELETE(_req: Request, { params }: Params) {
   const { provider } = await params;
   try {
-    const modelRuntime = await ModelRuntime.create();
-    // A dual-auth provider holds one credential; never delete an OAuth login here (#309).
-    if (!canRemoveCredential(await getStoredCredentialType(modelRuntime, provider), "api_key")) {
+    const removal = await removeStoredCredentialIfType(provider, "api_key");
+    if (removal.status === "type_mismatch") {
       return NextResponse.json(
         { error: `${provider} is authenticated with OAuth, not an API key` },
         { status: 409 },
       );
     }
-    await modelRuntime.logout(provider);
     invalidateModelsCache();
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -35,18 +35,3 @@ export async function collectProviderListingInputs(
     modelCount: models.filter((model) => model.provider === provider.id).length,
   }));
 }
-
-/**
- * Type of the credential stored for `providerId`, or `undefined` when the
- * provider has none (an env-provided key, or never authenticated).
- *
- * The delete routes use this with `canRemoveCredential()` so each only removes
- * the credential type it owns.
- */
-export async function getStoredCredentialType(
-  modelRuntime: ModelRuntime,
-  providerId: string,
-): Promise<ProviderCredentialType | undefined> {
-  const credentials = await modelRuntime.listCredentials();
-  return credentials.find((credential) => credential.providerId === providerId)?.type;
-}

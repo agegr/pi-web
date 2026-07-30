@@ -99,21 +99,6 @@ export function buildApiKeyProviderList(
   return result;
 }
 
-/**
- * Whether a route that owns `expected` credentials may remove what is stored.
- *
- * `ModelRuntime.logout()` deletes whichever credential a provider holds, and
- * auth.json holds at most one per provider. So after switching a dual-auth
- * provider from an API key to OAuth, "Disconnect" on a stale API-key row would
- * delete the fresh OAuth credential (#309). Both delete routes check this first.
- */
-export function canRemoveCredential(
-  stored: ProviderCredentialType | undefined,
-  expected: ProviderCredentialType,
-): boolean {
-  return stored === undefined || stored === expected;
-}
-
 /** Providers that can be authenticated with OAuth. */
 export function buildOAuthProviderList(
   providers: readonly ProviderListingInput[],
