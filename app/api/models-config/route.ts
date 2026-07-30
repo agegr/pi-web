@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "fs";
-import { randomUUID } from "crypto";
-import { join, dirname } from "path";
+import { existsSync, mkdirSync, readFileSync } from "fs";
+import { dirname, join } from "path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { writePrivateFileAtomicSync } from "@/lib/atomic-file";
 import { invalidateModelsCache } from "@/lib/models-cache";
 
 export const dynamic = "force-dynamic";
@@ -25,13 +25,7 @@ function writeModelsJson(data: Record<string, unknown>): void {
   const path = getModelsPath();
   const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  const tempPath = join(dir, `.models-${randomUUID()}.json.tmp`);
-  try {
-    writeFileSync(tempPath, JSON.stringify(data, null, 2), "utf8");
-    renameSync(tempPath, path);
-  } finally {
-    if (existsSync(tempPath)) unlinkSync(tempPath);
-  }
+  writePrivateFileAtomicSync(path, JSON.stringify(data, null, 2));
 }
 
 export async function GET() {
