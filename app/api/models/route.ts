@@ -3,7 +3,7 @@ import { resolve } from "path";
 import { createAgentSessionServices, getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { loadModelsWithCache, withModelRuntimeError, type ModelsData } from "@/lib/models-cache";
-import { resolveVisibleModels } from "@/lib/model-scope";
+import { resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { projectTrustReloadOptions } from "@/lib/project-trust";
 
@@ -41,10 +41,11 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   const settings: SettingsManager = services.settingsManager;
   // `enabledModels` supports globs and fuzzy patterns, so resolve it the same
   // way the CLI does instead of comparing pattern strings literally (#307).
-  const { visible, thinkingLevelPins, warnings } = await resolveVisibleModels(
+  const scope = await resolveVisibleModels(
     services.modelRuntime,
     settings.getEnabledModels(),
   );
+  const { visible, thinkingLevelPins, warnings } = scope;
   modelList = visible.map((m) => ({
     id: m.id,
     name: m.name,
@@ -57,10 +58,15 @@ async function loadModels(cwd: string): Promise<ModelsData> {
     if (m.thinkingLevelMap) thinkingLevelMaps[key] = m.thinkingLevelMap;
   }
 
-  const provider = settings.getDefaultProvider();
-  const modelId = settings.getDefaultModel();
-  if (provider && modelId && visible.some((m) => m.provider === provider && m.id === modelId)) {
-    defaultModel = { provider, modelId };
+  const defaultProvider = settings.getDefaultProvider();
+  const defaultModelId = settings.getDefaultModel();
+  const initial = selectInitialModelScope(scope, {
+    ...(defaultProvider && defaultModelId
+      ? { defaultModel: { provider: defaultProvider, modelId: defaultModelId } }
+      : {}),
+  });
+  if (initial.model) {
+    defaultModel = { provider: initial.model.provider, modelId: initial.model.id };
   }
 
   return withModelRuntimeError(
