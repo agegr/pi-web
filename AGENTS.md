@@ -19,7 +19,7 @@ Browser                Next.js Server              AgentSession (in-process)
   │                        │                               │
   ├─ GET /api/sessions ────▶ reads ~/.pi/agent/sessions/   │
   ├─ GET /api/sessions/[id] reads .jsonl file directly     │
-  ├─ GET /api/agent/running/events ───▶ running id SSE     │
+  ├─ GET /api/agent/running ───────▶ running id snapshot   │
   │                        │                               │
   ├─ send message ─────────▶ POST /api/agent/[id]          │
   │                        │   startRpcSession() ─────────▶│ createAgentSession()
@@ -46,6 +46,7 @@ app/api/
   agent/new/route.ts              POST { cwd, message, toolNames?, provider?, modelId? }
   agent/[id]/route.ts             GET state | POST any command
   agent/[id]/events/route.ts      GET SSE stream
+  agent/running/route.ts          GET currently-running session ids
   agent/running/events/route.ts   GET SSE stream of currently-running session ids
   auth/all-providers/route.ts     GET API-key provider list
   auth/api-key/[provider]/route.ts GET/POST/DELETE provider API key status/storage
@@ -143,9 +144,10 @@ On `ChatWindow` mount, `GET /api/agent/[id]` is called. If `state.isStreaming ==
 ### Compaction SSE events
 Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `auto_compaction_start` / `auto_compaction_end`. `handleAgentEvent` accepts both sets to keep `isCompacting` in sync. Manual compact is a blocking POST — the button stays disabled until the response returns.
 
-### Running state SSE + reconciliation
-- The sidebar listens to `/api/agent/running/events`, backed by `subscribeRunningSessions()` in `lib/rpc-manager.ts`, so running badges update without polling.
-- `useAgentSession` still treats per-session SSE as primary for chat events, but while a run is active it periodically calls `GET /api/agent/[id]` and also reconciles on `visibilitychange`/`online`. This fixes missed `agent_end` events from background tabs or half-open connections.
+### Running state polling + reconciliation
+- The sidebar polls `/api/agent/running` every 2.5 seconds while the tab is visible and pauses polling in background tabs. The session-list response remains the initial fallback.
+- `useAgentSession` treats per-session SSE as primary for chat events, opens it before each prompt, and closes it only after `prompt_done` plus server-idle settlement. Do not close on the first `agent_end`: retries, compaction, and extension-queued messages can continue the same logical prompt.
+- While a run is active, `useAgentSession` periodically calls `GET /api/agent/[id]` and also reconciles on `visibilitychange`/`online`. This fixes missed terminal events from background tabs or half-open connections.
 - Prompt runs use a monotonic run id; late SSE or slow reconciliation responses from an old run must be ignored so they cannot resurrect stale streaming bubbles.
 
 ### Worktrees and project grouping

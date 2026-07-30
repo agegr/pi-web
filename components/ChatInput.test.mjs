@@ -62,3 +62,26 @@ test("filters model options by name and id", () => {
   assert.equal(filterModelOptions(options, "missing").length, 0);
   assert.equal(filterModelOptions(options, "  "), options);
 });
+
+test("renders compact errors above the input as a wrapping alert", () => {
+  const error = "Compaction failed: OpenAI API error (403): <html>request forbidden</html>";
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        onCompact() {},
+        isStreaming: false,
+        compactError: error,
+      }),
+    ),
+  );
+
+  assert.match(html, /role="alert"/);
+  assert.match(html, /Compaction failed: OpenAI API error/);
+  assert.match(html, /&lt;html&gt;request forbidden&lt;\/html&gt;/);
+  assert.match(html, /white-space:pre-wrap/);
+  assert.ok(html.indexOf('role="alert"') < html.indexOf("<textarea"));
+});

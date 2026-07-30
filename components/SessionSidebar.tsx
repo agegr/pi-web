@@ -109,6 +109,7 @@ interface WorktreeState {
 }
 
 const UNREAD_SESSIONS_STORAGE_KEY = "pi-web:unread-session-ids";
+const RUNNING_SESSIONS_POLL_MS = 2500;
 
 function loadUnreadSessionIds(): Set<string> {
   if (typeof window === "undefined") return new Set();
@@ -418,9 +419,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
-  // Once the SSE stream has delivered a frame it is the source of truth for
+  // Once polling has delivered a snapshot it is the source of truth for
   // running state; late /api/sessions responses must not overwrite it.
-  const sseAuthoritativeRef = useRef(false);
+  const runningPollAuthoritativeRef = useRef(false);
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
@@ -432,9 +433,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[] };
       setAllSessions(data.sessions);
-      // Treat the fetched running set as an initial fallback only. Once SSE is
-      // live it owns this state, so a slow fetch can't revive a stale snapshot.
-      if (!sseAuthoritativeRef.current) {
+      // Treat the fetched running set as an initial fallback only. Once the
+      // lightweight poll is live, a slow session-list fetch cannot overwrite it.
+      if (!runningPollAuthoritativeRef.current) {
         setRunningSessionIds(new Set(data.runningSessionIds ?? []));
       }
       // Drop unread markers for sessions that no longer exist (e.g. deleted).
@@ -471,24 +472,62 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }, [unreadSessionIds]);
 
   useEffect(() => {
-    // Live running status via SSE — no polling. The server pushes the current
-    // set of running session ids whenever any session starts/stops working.
-    const source = new EventSource("/api/agent/running/events");
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let controller: AbortController | null = null;
 
-    source.onmessage = (e) => {
+    const clearTimer = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+    };
+
+    const schedule = () => {
+      clearTimer();
+      if (stopped || document.visibilityState !== "visible") return;
+      timer = setTimeout(() => void poll(), RUNNING_SESSIONS_POLL_MS);
+    };
+
+    const poll = async () => {
+      if (stopped || document.visibilityState !== "visible") return;
+      const current = new AbortController();
+      controller?.abort();
+      controller = current;
       try {
-        const data = JSON.parse(e.data) as { type?: string; runningSessionIds?: string[] };
-        if (data.type === "running") {
-          sseAuthoritativeRef.current = true;
-          setRunningSessionIds(new Set(data.runningSessionIds ?? []));
-        }
+        const res = await fetch("/api/agent/running", {
+          cache: "no-store",
+          signal: current.signal,
+        });
+        if (!res.ok) return;
+        const data = await res.json() as { runningSessionIds?: string[] };
+        if (stopped || controller !== current) return;
+        runningPollAuthoritativeRef.current = true;
+        setRunningSessionIds(new Set(data.runningSessionIds ?? []));
       } catch {
-        // ignore malformed frames
+        // Keep the last known state; the next visible-tab poll retries.
+      } finally {
+        if (controller === current) controller = null;
+        schedule();
       }
     };
 
-    // On error EventSource auto-reconnects; keep the last known state meanwhile.
-    return () => source.close();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void poll();
+        return;
+      }
+      clearTimer();
+      controller?.abort();
+      controller = null;
+    };
+
+    void poll();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      stopped = true;
+      clearTimer();
+      controller?.abort();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, []);
 
   useEffect(() => {

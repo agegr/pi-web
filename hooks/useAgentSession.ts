@@ -593,11 +593,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [ensureNewSession]);
 
+  const closeEvents = useCallback(() => {
+    eventSourceRef.current?.close();
+    eventSourceRef.current = null;
+  }, []);
+
   const connectEvents = useCallback((sid: string): Promise<EventStreamConnectionResult> => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
+    closeEvents();
     const es = new EventSource(`/api/agent/${encodeURIComponent(sid)}/events`);
     eventSourceRef.current = es;
 
@@ -638,7 +640,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // connection must be ready before they continue.
       };
     });
-  }, []);
+  }, [closeEvents]);
 
   const ensureEventsConnected = useCallback(async (sid: string) => {
     const result = await connectEvents(sid);
@@ -752,16 +754,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (sid) await loadSession(sid);
     } finally {
       if (runId !== undefined && promptRunIdRef.current !== runId) return;
-      optimisticUserMessageKeyRef.current = null;
-      if (!agentRunningRef.current) return;
+      const wasRunning = agentRunningRef.current;
       agentRunningRef.current = false;
+      closeEvents();
+      optimisticUserMessageKeyRef.current = null;
+      if (!wasRunning) return;
       setAgentRunning(false);
       setAgentPhase(null);
       setRetryInfo(null);
       dispatch({ type: "end" });
       onAgentEnd?.();
     }
-  }, [loadSession, onAgentEnd]);
+  }, [closeEvents, loadSession, onAgentEnd]);
 
   const waitForPromptSettlement = useCallback(async (sid: string, runId?: number) => {
     await delay(PROMPT_SETTLE_INITIAL_DELAY_MS);
@@ -818,7 +822,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // missed (network drop, mobile tab backgrounded, half-open connection),
   // agent_end never arrives and the UI stays in streaming state forever.
   // If the server reports idle while we still think it's running, finish
-  // through the same path as prompt_done.
+  // through the same settlement path used by non-streaming prompts.
   const reconcileAgentState = useCallback(async (sid: string) => {
     if (!agentRunningRef.current) return;
     const runId = promptRunIdRef.current;
@@ -888,11 +892,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         dispatch({ type: "start" });
         break;
       case "agent_end":
-        // A late agent_end can arrive over SSE after reconcileAgentState
-        // already finished this run — don't re-trigger completion.
+        // One logical prompt can emit multiple agent_end events before retrying,
+        // compacting, or continuing messages queued by extension handlers.
+        // Keep the stream open until prompt_done and server-idle settlement.
         if (!agentRunningRef.current) break;
-        agentRunningRef.current = false;
-        setAgentRunning(false);
         setAgentPhase(null);
         setRetryInfo(null);
         dispatch({ type: "end" });
@@ -911,11 +914,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             })
             .catch(() => {});
         }
-        onAgentEnd?.();
         break;
       case "prompt_done":
         if (!agentRunningRef.current) break;
-        void finishPromptWithoutStream(sessionIdRef.current);
+        // Extension commands can call pi.sendUserMessage(), which starts its
+        // agent run asynchronously. In that case prompt_done for the command
+        // arrives before agent_start for the injected message. Give that run
+        // time to start and settle against server state instead of ending the
+        // UI immediately and dropping its subsequent streaming events.
+        if (sessionIdRef.current) {
+          void waitForPromptSettlement(sessionIdRef.current, promptRunIdRef.current);
+        }
         break;
       case "prompt_error":
         addNotice({ type: "error", message: (event.errorMessage as string | undefined) ?? "Command failed" });
@@ -1026,7 +1035,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, onAgentEnd]);
+  }, [addNotice, handleExtensionUiRequest, loadSession, waitForPromptSettlement]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -1065,9 +1074,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     completionScrollAllowedRef.current = true;
 
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
+    let sentSessionId: string | null = null;
+    let promptRequestStarted = false;
 
     try {
-      let sentSessionId: string | null = null;
       if (isNew && newSessionCwd) {
         const selectedModel = newSessionModel;
         const existingSid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
@@ -1082,6 +1092,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             }
           }
           await ensureEventsConnected(sid);
+          promptRequestStarted = true;
           await sendAgentCommand(sid, {
             type: "prompt",
             message,
@@ -1092,6 +1103,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       } else if (session) {
         sentSessionId = session.id;
         await ensureEventsConnected(session.id);
+        promptRequestStarted = true;
         await sendAgentCommand(session.id, {
           type: "prompt",
           message,
@@ -1103,6 +1115,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     } catch (e) {
       console.error("Failed to send message:", e);
+      // A failed prompt POST is ambiguous: the server may have accepted it
+      // before the response connection was lost. Keep SSE alive until the
+      // server confirms idle so a real run cannot continue unseen.
+      if (promptRequestStarted && sentSessionId) {
+        void waitForPromptSettlement(sentSessionId, promptRunId);
+        return;
+      }
+      agentRunningRef.current = false;
+      closeEvents();
       if (e instanceof EventStreamConnectionError) {
         const optimisticKey = optimisticUserMessageKeyRef.current;
         if (optimisticKey) {
@@ -1120,12 +1141,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (message) opts.chatInputRef?.current?.insertIfEmpty(message);
       }
       optimisticUserMessageKeyRef.current = null;
-      agentRunningRef.current = false;
       setAgentRunning(false);
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, opts.chatInputRef]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, closeEvents, opts.chatInputRef]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -1530,8 +1550,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
     return () => {
       bashRecoveryIdRef.current += 1;
-      eventSourceRef.current?.close();
-      eventSourceRef.current = null;
+      closeEvents();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1590,13 +1609,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     });
     return () => controller.abort();
   }, [loadModels, modelsRefreshKey]);
-
-  // Compact error auto-dismiss
-  useEffect(() => {
-    if (!compactError) return;
-    const t = setTimeout(() => setCompactError(null), 3000);
-    return () => clearTimeout(t);
-  }, [compactError]);
 
   useEffect(() => {
     if (!compactResult) return;

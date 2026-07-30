@@ -36,7 +36,7 @@ export function ExtensionStatusBar({ statuses }: { statuses: ExtensionStatusItem
         height: 36,
         padding: "0 12px",
         borderTop: "1px solid var(--border)",
-        background: "var(--bg-panel)",
+        background: "transparent",
       }}
     >
       <span
@@ -44,6 +44,7 @@ export function ExtensionStatusBar({ statuses }: { statuses: ExtensionStatusItem
           minWidth: 0,
           overflow: "hidden",
           color: "var(--text-muted)",
+          fontFamily: "var(--font-mono)",
           fontSize: 11,
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",

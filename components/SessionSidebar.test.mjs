@@ -17,3 +17,10 @@ test("does not register row-level session deletion shortcuts", () => {
   assert.doesNotMatch(sessionItemSource, /onKeyDown=\{handleKeyDown\}/);
   assert.doesNotMatch(sessionItemSource, /tabIndex=\{0\}/);
 });
+
+test("polls running sessions only while the tab is visible", () => {
+  assert.doesNotMatch(source, /new EventSource\("\/api\/agent\/running\/events"\)/);
+  assert.match(source, /fetch\("\/api\/agent\/running"/);
+  assert.match(source, /document\.visibilityState !== "visible"/);
+  assert.match(source, /document\.addEventListener\("visibilitychange", onVisibilityChange\)/);
+});
