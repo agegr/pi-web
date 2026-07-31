@@ -1,6 +1,15 @@
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, Theme } from "@earendil-works/pi-coding-agent";
-import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
+import type { ThinkingLevel } from "@oh-my-pi/pi-agent-core";
+import {
+  createAgentSession,
+  discoverSessionExtensionPaths,
+  getAgentDir,
+  initTheme,
+  SessionManager,
+  Theme,
+} from "@oh-my-pi/pi-coding-agent";
+import { discoverCustomToolPaths } from "@oh-my-pi/pi-coding-agent/extensibility/custom-tools";
+import { initializeExtensions } from "@oh-my-pi/pi-coding-agent/modes/runtime-init";
+import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@oh-my-pi/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
@@ -8,10 +17,12 @@ import { validateAgentImages } from "./image-attachments";
 import { invalidateModelsCache } from "./models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
-import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
+import { untrustedProjectSessionOptions } from "./project-trust";
+import { readDefaultModelRole } from "./model-roles";
+import { getOmpRuntime, getSettingsForCwd } from "./omp-runtime";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
-import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
-import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
+import type { SlashCommandInfo } from "@oh-my-pi/pi-coding-agent";
+import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./omp-types";
 import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS } from "./custom-ui-terminal";
 
@@ -51,15 +62,6 @@ type ExtensionUiRequestBody = Record<string, unknown> & {
   expiresAt?: number;
 };
 
-type ExtensionCommandContextActionsLike = {
-  waitForIdle: () => Promise<void>;
-  newSession: () => Promise<{ cancelled: boolean }>;
-  fork: () => Promise<{ cancelled: boolean }>;
-  navigateTree: (targetId: string, options?: { summarize?: boolean }) => Promise<{ cancelled: boolean }>;
-  switchSession: () => Promise<{ cancelled: boolean }>;
-  reload: () => Promise<void>;
-};
-
 type ExtensionBindingOptions = {
   forceEmptySystemPrompt?: boolean;
 };
@@ -79,6 +81,8 @@ class PlainTextTheme extends Theme {
       { thinkingXhigh: "" } as ConstructorParameters<typeof Theme>[0],
       {} as ConstructorParameters<typeof Theme>[1],
       "truecolor",
+      "unicode",
+      {},
     );
   }
 
@@ -105,11 +109,18 @@ function withExtensionTools(session: AgentSessionLike, toolNames: string[]): str
 
   const codingToolNames = new Set(CODING_TOOL_NAMES);
   const extensionToolNames = session
-    .getAllTools()
-    .map((t) => t.name)
+    .getAllToolNames()
     .filter((name) => !codingToolNames.has(name));
 
   return [...new Set([...toolNames, ...extensionToolNames])];
+}
+
+/** Tool descriptors for the browser's tool picker. */
+function listTools(session: AgentSessionLike): ToolInfo[] {
+  return session.getAllToolNames().map((name) => ({
+    name,
+    description: session.getToolByName(name)?.description ?? "",
+  }));
 }
 
 // ============================================================================
@@ -178,7 +189,7 @@ export class AgentSessionWrapper {
 
   beginExtensionBinding(options: ExtensionBindingOptions = {}): void {
     void this.ensureExtensionsBound(options).catch((err) => {
-      console.error("[pi-web] failed to dispatch session_start to extensions:", err instanceof Error ? err.message : err);
+      console.error("[omp-web] failed to dispatch session_start to extensions:", err instanceof Error ? err.message : err);
     });
   }
 
@@ -197,39 +208,34 @@ export class AgentSessionWrapper {
     this.extensionBindingError = null;
     this.extensionBindingPromise = (async () => {
       if (!this._alive) return;
-      const uiContext = this.createExtensionUiContext();
-      if (typeof this.inner.bindExtensions === "function") {
-        const bindExtensions = this.inner.bindExtensions as (bindings: {
-          uiContext?: ExtensionUiContextLike;
-          mode?: "rpc";
-          commandContextActions?: ExtensionCommandContextActionsLike;
-          shutdownHandler?: () => void;
-          onError?: (error: { extensionPath: string; event: string; error: string }) => void;
-        }) => Promise<void>;
-        await bindExtensions.call(this.inner, {
-          uiContext,
-          mode: "rpc",
-          commandContextActions: this.createExtensionCommandContextActions(),
-          shutdownHandler: () => this.emit({
-            type: "extension_ui_request",
-            id: randomUUID(),
-            method: "notify",
-            notifyType: "warning",
-            message: "Extension requested shutdown, but shutdown is not supported in Pi Web.",
-          } as ExtensionUiRequest as AgentEvent),
-          onError: (error) => this.emit({
-            type: "extension_error",
-            extensionPath: error.extensionPath,
-            event: error.event,
-            error: error.error,
-          }),
-        });
-      } else {
-        this.inner.extensionRunner.setUIContext?.(uiContext, "rpc");
-      }
+      // omp wires extensions the same way for every non-interactive host; reuse
+      // its shared initializer so omp-web sessions expose exactly the action set
+      // `omp --mode rpc` does, then layer our browser-backed UI context on top.
+      await initializeExtensions(this.inner as never, {
+        uiContext: this.createExtensionUiContext() as never,
+        reportSendError: (action, error) => this.emit({
+          type: "extension_error",
+          extensionPath: action,
+          event: "send",
+          error: error.message,
+        }),
+        reportRuntimeError: (error) => this.emit({
+          type: "extension_error",
+          extensionPath: error.extensionPath,
+          event: error.event,
+          error: error.error,
+        }),
+        onShutdown: () => this.emit({
+          type: "extension_ui_request",
+          id: randomUUID(),
+          method: "notify",
+          notifyType: "warning",
+          message: "Extension requested shutdown, but shutdown is not supported in omp-web.",
+        } as ExtensionUiRequest as AgentEvent),
+      });
       this.extensionsBound = true;
       this.applyForcedEmptySystemPrompt();
-      console.log(`[pi-web] session_start dispatched to extensions for session ${this.inner.sessionId}`);
+      console.log(`[omp-web] session_start dispatched to extensions for session ${this.inner.sessionId}`);
     })().catch((err) => {
       this.extensionBindingError = err;
       throw err;
@@ -265,7 +271,7 @@ export class AgentSessionWrapper {
 
   private applyForcedEmptySystemPrompt(): void {
     if (this.forceEmptySystemPrompt && this.inner.agent.state) {
-      this.inner.agent.state.systemPrompt = "";
+      this.inner.agent.state.systemPrompt = [];
     }
   }
 
@@ -297,7 +303,7 @@ export class AgentSessionWrapper {
       .join("\n") + "\n";
     writeFileSync(sessionFile, content, { encoding: "utf8", flag: "wx" });
 
-    // Pi normally delays the first flush until an assistant message exists.
+    // omp normally delays the first flush until an assistant message exists.
     // A leading shell command has no assistant message, so mark this SDK
     // manager as flushed after writing its own generated entries.
     (manager as unknown as { flushed: boolean }).flushed = true;
@@ -340,7 +346,7 @@ export class AgentSessionWrapper {
         this.inner.prompt(command.message as string, {
           ...(promptImages?.length ? { images: promptImages } : {}),
           ...(streamingBehavior ? { streamingBehavior } : {}),
-          source: "rpc",
+          userInitiated: true,
         }).then(() => {
           this.promptRunning = false;
           if (!streamingBehavior) this.emit({ type: "prompt_done" });
@@ -376,15 +382,15 @@ export class AgentSessionWrapper {
           autoRetryEnabled: this.inner.autoRetryEnabled,
           model: model ? { id: model.id, provider: model.provider } : undefined,
           messageCount: 0,
-          pendingMessageCount: this.inner.pendingMessageCount,
+          pendingMessageCount: this.inner.queuedMessageCount,
           queuedMessages: {
-            steering: [...this.inner.getSteeringMessages()],
-            followUp: [...this.inner.getFollowUpMessages()],
+            steering: [...this.inner.getQueuedMessages().steering],
+            followUp: [...this.inner.getQueuedMessages().followUp],
           },
           contextUsage: contextUsage
             ? { percent: contextUsage.percent, contextWindow: contextUsage.contextWindow, tokens: contextUsage.tokens }
             : null,
-          systemPrompt: this.inner.agent.state?.systemPrompt ?? "",
+          systemPrompt: [this.inner.agent.state?.systemPrompt ?? ""].flat().join("\n"),
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),
@@ -392,17 +398,30 @@ export class AgentSessionWrapper {
       }
 
       case "set_model": {
-        const { provider, modelId } = command as { provider: string; modelId: string };
-        let model = this.inner.modelRuntime.getModel(provider, modelId);
+        const { provider, modelId, role } = command as { provider: string; modelId: string; role?: string };
+        const selector = `${provider}/${modelId}`;
+        let model = this.inner.modelRegistry.find(selector);
         if (!model) {
-          await this.inner.modelRuntime.refresh({ allowNetwork: false });
-          model = this.inner.modelRuntime.getModel(provider, modelId);
+          await this.inner.modelRegistry.refresh("offline");
+          model = this.inner.modelRegistry.find(selector);
         }
-        if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
-        await this.inner.setModel(model);
+        if (!model) throw new Error(`Model not found: ${selector}`);
+        // omp records the role a model change came from, so the transcript and
+        // the `/model` carousel agree on which role is currently driving.
+        await this.inner.setModel(model, role);
         invalidateModelsCache();
         invalidateSessionListCache();
-        return { id: model.id, provider: model.provider };
+        return { id: model.id, provider: model.provider, ...(role ? { role } : {}) };
+      }
+
+      case "set_role_model": {
+        const role = command.role as string;
+        const model = this.inner.resolveRoleModel(role);
+        if (!model) throw new Error(`No model configured for role "${role}"`);
+        await this.inner.setModel(model, role);
+        invalidateModelsCache();
+        invalidateSessionListCache();
+        return { id: model.id, provider: model.provider, role };
       }
 
       case "fork": {
@@ -413,8 +432,7 @@ export class AgentSessionWrapper {
         const sessionManager = this.inner.sessionManager;
         const currentSessionFile = this.inner.sessionFile;
 
-        if (!sessionManager.isPersisted()) return { cancelled: true };
-        if (!currentSessionFile) throw new Error("Persisted session is missing a session file");
+        if (!currentSessionFile) return { cancelled: true };
 
         const entry = sessionManager.getEntry(entryId);
         if (!entry) throw new Error("Invalid entry ID for forking");
@@ -425,17 +443,18 @@ export class AgentSessionWrapper {
         if (!entry.parentId) {
           // Fork before the first message: create an empty session linked to this one
           const newManager = SessionManager.create(sessionManager.getCwd(), sessionDir);
-          newManager.newSession({ parentSession: currentSessionFile });
+          await newManager.newSession({ parentSession: currentSessionFile });
+          await newManager.ensureOnDisk();
           newSessionFile = newManager.getSessionFile() as string;
         } else {
           // Fork after some history: copy path up to (but not including) the fork point
-          const sourceManager = SessionManager.open(currentSessionFile, sessionDir);
+          const sourceManager = await SessionManager.open(currentSessionFile, sessionDir);
           const forkedPath = sourceManager.createBranchedSession(entry.parentId);
           if (!forkedPath) throw new Error("Failed to create forked session");
           newSessionFile = forkedPath;
         }
 
-        const newSessionId = SessionManager.open(newSessionFile, sessionDir).getSessionId();
+        const newSessionId = (await SessionManager.open(newSessionFile, sessionDir)).getSessionId();
         cacheSessionPath(newSessionId, newSessionFile);
         invalidateSessionListCache();
         this.destroy();
@@ -476,7 +495,7 @@ export class AgentSessionWrapper {
       case "set_session_name": {
         const name = (command.name as string | undefined)?.trim();
         if (!name) throw new Error("Session name cannot be empty");
-        this.inner.setSessionName(name);
+        await this.inner.sessionManager.setSessionName(name, "user");
         invalidateSessionListCache();
         return null;
       }
@@ -498,9 +517,15 @@ export class AgentSessionWrapper {
       }
 
       case "clear_queue": {
-        // Full clear only: pi has no single-item dequeue, and clear+requeue
+        // Full clear only: omp has no single-item dequeue, and clear+requeue
         // races against the agent loop pulling messages mid-flight.
-        return this.inner.clearQueue();
+        const cleared = this.inner.clearQueue();
+        const toText = (message: unknown): string =>
+          typeof message === "string" ? message : String((message as { text?: string })?.text ?? "");
+        return {
+          steering: cleared.steering.map(toText),
+          followUp: cleared.followUp.map(toText),
+        };
       }
 
       case "steer": {
@@ -516,9 +541,8 @@ export class AgentSessionWrapper {
       }
 
       case "get_tools": {
-        const all: ToolInfo[] = this.inner.getAllTools();
         const active = new Set<string>(this.inner.getActiveToolNames());
-        return all.map((t) => ({
+        return listTools(this.inner).map((t) => ({
           name: t.name,
           description: t.description,
           active: active.has(t.name),
@@ -527,12 +551,11 @@ export class AgentSessionWrapper {
 
       case "get_commands": {
         const commands: SlashCommandInfo[] = [];
-        for (const registered of this.inner.extensionRunner.getRegisteredCommands()) {
+        for (const registered of this.inner.extensionRunner?.getRegisteredCommands() ?? []) {
           commands.push({
-            name: registered.invocationName,
+            name: registered.name,
             description: registered.description,
             source: "extension",
-            sourceInfo: registered.sourceInfo,
           });
         }
         for (const template of this.inner.promptTemplates) {
@@ -540,15 +563,15 @@ export class AgentSessionWrapper {
             name: template.name,
             description: template.description,
             source: "prompt",
-            sourceInfo: template.sourceInfo,
+            ...(template.source ? { path: template.source } : {}),
           });
         }
-        for (const skill of this.inner.resourceLoader.getSkills().skills) {
+        for (const skill of this.inner.skills) {
           commands.push({
             name: `skill:${skill.name}`,
             description: skill.description,
             source: "skill",
-            sourceInfo: skill.sourceInfo,
+            ...(skill.filePath ? { path: skill.filePath } : {}),
           });
         }
         return { commands };
@@ -557,7 +580,7 @@ export class AgentSessionWrapper {
       case "set_tools": {
         const toolNames = command.toolNames as string[];
         this.setForceEmptySystemPrompt(toolNames.length === 0);
-        this.inner.setActiveToolsByName(withExtensionTools(this.inner, toolNames));
+        await this.inner.setActiveToolsByName(withExtensionTools(this.inner, toolNames));
         this.applyForcedEmptySystemPrompt();
         return null;
       }
@@ -566,11 +589,8 @@ export class AgentSessionWrapper {
         await this.waitForExtensionsBound();
         this.extensionStatuses.clear();
         this.extensionWidgets.clear();
-        this.syncProjectTrust();
         await this.inner.reload();
-        if (typeof this.inner.bindExtensions !== "function") {
-          this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
-        }
+        await this.inner.refreshSkills?.();
         this.applyForcedEmptySystemPrompt();
         invalidateModelsCache();
         return { success: true };
@@ -940,42 +960,10 @@ export class AgentSessionWrapper {
       get theme() { return PLAIN_TEXT_THEME; },
       getAllThemes: () => [],
       getTheme: () => undefined,
-      setTheme: () => ({ success: false, error: "Theme switching is not supported in Pi Web extension UI yet" }),
+      setTheme: () => ({ success: false, error: "Theme switching is not supported in omp-web extension UI yet" }),
       getToolsExpanded: () => false,
       setToolsExpanded: () => {},
     };
-  }
-
-  private createExtensionCommandContextActions(): ExtensionCommandContextActionsLike {
-    return {
-      waitForIdle: async () => {
-        const agent = this.inner.agent as { waitForIdle?: () => Promise<void> };
-        await agent.waitForIdle?.();
-      },
-      newSession: async () => ({ cancelled: true }),
-      fork: async () => ({ cancelled: true }),
-      navigateTree: async (targetId, options) => {
-        const result = await this.inner.navigateTree(targetId, { summarize: options?.summarize });
-        return { cancelled: result.cancelled };
-      },
-      switchSession: async () => ({ cancelled: true }),
-      reload: async () => {
-        this.extensionStatuses.clear();
-        this.extensionWidgets.clear();
-        this.syncProjectTrust();
-        await this.inner.reload({
-          beforeSessionStart: () => {
-            this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
-          },
-        });
-        this.applyForcedEmptySystemPrompt();
-      },
-    };
-  }
-
-  private syncProjectTrust(): void {
-    const status = getProjectTrustStatus(this.cwd, getAgentDir());
-    this.inner.settingsManager.setProjectTrusted(status.trusted);
   }
 }
 
@@ -984,26 +972,26 @@ export class AgentSessionWrapper {
 // ============================================================================
 
 declare global {
-  var __piSessions: Map<string, AgentSessionWrapper> | undefined;
-  var __piStartLocks: Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> | undefined;
-  var __piStartingSessionCwds: Map<string, number> | undefined;
-  var __piRunningListeners: Set<(ids: string[]) => void> | undefined;
+  var __ompSessions: Map<string, AgentSessionWrapper> | undefined;
+  var __ompStartLocks: Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> | undefined;
+  var __ompStartingSessionCwds: Map<string, number> | undefined;
+  var __ompRunningListeners: Set<(ids: string[]) => void> | undefined;
 }
 
 function getRegistry(): Map<string, AgentSessionWrapper> {
-  if (!globalThis.__piSessions) {
-    globalThis.__piSessions = new Map();
-    const cleanup = () => globalThis.__piSessions?.forEach((s) => s.destroy());
+  if (!globalThis.__ompSessions) {
+    globalThis.__ompSessions = new Map();
+    const cleanup = () => globalThis.__ompSessions?.forEach((s) => s.destroy());
     process.once("exit", cleanup);
     process.once("SIGINT", cleanup);
     process.once("SIGTERM", cleanup);
   }
-  return globalThis.__piSessions;
+  return globalThis.__ompSessions;
 }
 
 function getLocks(): Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> {
-  if (!globalThis.__piStartLocks) globalThis.__piStartLocks = new Map();
-  return globalThis.__piStartLocks;
+  if (!globalThis.__ompStartLocks) globalThis.__ompStartLocks = new Map();
+  return globalThis.__ompStartLocks;
 }
 
 function normalizeRpcCwd(cwd: string): string {
@@ -1016,8 +1004,8 @@ function normalizeRpcCwd(cwd: string): string {
 }
 
 function getStartingSessionCwds(): Map<string, number> {
-  if (!globalThis.__piStartingSessionCwds) globalThis.__piStartingSessionCwds = new Map();
-  return globalThis.__piStartingSessionCwds;
+  if (!globalThis.__ompStartingSessionCwds) globalThis.__ompStartingSessionCwds = new Map();
+  return globalThis.__ompStartingSessionCwds;
 }
 
 function trackStartingSession(cwd: string): () => void {
@@ -1070,8 +1058,8 @@ export function getRunningRpcSessionIds(): string[] {
 // ----------------------------------------------------------------------------
 
 function getRunningListeners(): Set<(ids: string[]) => void> {
-  if (!globalThis.__piRunningListeners) globalThis.__piRunningListeners = new Set();
-  return globalThis.__piRunningListeners;
+  if (!globalThis.__ompRunningListeners) globalThis.__ompRunningListeners = new Set();
+  return globalThis.__ompRunningListeners;
 }
 
 /** Subscribe to running-session-id changes. Returns an unsubscribe function. */
@@ -1099,7 +1087,7 @@ export function notifyRunningChange(): void {
 
 /**
  * Get or create an AgentSession for the given session.
- * For new sessions (sessionFile === ""), pi generates its own id.
+ * For new sessions (sessionFile === ""), omp generates its own id.
  * New sessions resolve enabledModels before construction so the initial model,
  * thinking pin, and SDK scopedModels share one settings snapshot.
  * Pass options.toolNames to pre-configure active tools (empty = all disabled).
@@ -1123,64 +1111,63 @@ export async function startRpcSession(
   const finishStartingSession = trackStartingSession(cwd);
   const starting = (async () => {
     // Some extensions access the SDK's global theme even outside the terminal UI.
-    initTheme();
+    await initTheme(false);
     const agentDir = getAgentDir();
 
+    const settings = await getSettingsForCwd(cwd);
     const sessionManager = sessionFile
-      ? SessionManager.open(sessionFile, undefined)
+      ? await SessionManager.open(sessionFile, undefined, undefined, { initialCwd: cwd })
       : SessionManager.create(cwd, undefined);
 
     // Determine which tools to pass based on requested toolNames.
-    // Since v0.68.0, session creation expects string[] tool names instead of Tool[] instances.
     let toolsOption: string[] | undefined;
     if (toolNames !== undefined) {
       // toolNames === [] -> "all off" (an empty allow-list disables every tool).
       // Otherwise DO NOT pass a builtin-only allow-list: passing CODING_TOOL_NAMES
       // set allowedToolNames to coding builtins only, which filtered every
       // extension/package-provided tool (e.g. subagents, web access) out of the
-      // tool registry — so they were unavailable in Pi Web sessions even though the
-      // `pi` CLI keeps them. Leaving the allow-list unset lets the SDK register all
+      // tool registry — so they were unavailable in omp-web sessions even though the
+      // `omp` CLI keeps them. Leaving the allow-list unset lets the SDK register all
       // tools (and activate extension tools); we narrow the ACTIVE set below.
       toolsOption = toolNames.length === 0 ? [] : undefined;
     }
 
-    // Build services first so extension-registered providers are available
-    // before the SDK restores the saved model from the session file.
-    // Gate untrusted project extensions so opening a repository does not run
-    // its .pi/extensions code automatically (see lib/project-trust.ts, #236).
-    const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
-    const services = await createAgentSessionServices({
-      cwd,
-      agentDir,
-      ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
-    });
-    const scope = await resolveVisibleModels(
-      services.modelRuntime,
-      services.settingsManager.getEnabledModels(),
-    );
-    const defaultProvider = services.settingsManager.getDefaultProvider();
-    const defaultModelId = services.settingsManager.getDefaultModel();
+    // Gate untrusted project code so opening a repository in a browser tab does
+    // not run its `.omp/extensions`, `.omp/tools`, or `.mcp.json` servers (see
+    // lib/project-trust.ts). Discovery still runs — only project-local entries
+    // are dropped, so user-level extensions keep working.
+    const [extensionPaths, customToolPaths] = await Promise.all([
+      discoverSessionExtensionPaths({}, cwd, settings),
+      discoverCustomToolPaths([], cwd),
+    ]);
+    const untrusted = untrustedProjectSessionOptions(cwd, agentDir, { extensionPaths, customToolPaths });
+
+    const { modelRegistry } = await getOmpRuntime();
+    const scope = await resolveVisibleModels(modelRegistry, settings.get("enabledModels"), settings);
+    const defaultRole = readDefaultModelRole(settings);
     const hasExistingMessages = sessionManager.buildSessionContext().messages.length > 0;
     const initial = hasExistingMessages
-      ? { scopedModels: [...scope.scopedModels] }
+      ? { scopedModels: [...scope.scopedModels], model: undefined, thinkingLevel: undefined }
       : selectInitialModelScope(scope, {
         ...(initialModel ? { requestedModel: initialModel } : {}),
-        ...(defaultProvider && defaultModelId
-          ? { defaultModel: { provider: defaultProvider, modelId: defaultModelId } }
-          : {}),
+        ...(defaultRole ? { defaultModel: defaultRole } : {}),
         ...(thinkingLevel ? { thinkingLevel } : {}),
       });
-    const { session: inner } = await createAgentSessionFromServices({
-      services,
+    const { session: inner } = await createAgentSession({
+      cwd,
+      agentDir,
+      settings,
       sessionManager,
+      modelRegistry,
       ...(initial.model ? { model: initial.model } : {}),
       ...(initial.thinkingLevel ? { thinkingLevel: initial.thinkingLevel } : {}),
       ...(initial.scopedModels.length > 0 ? { scopedModels: initial.scopedModels } : {}),
-      ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
+      ...(toolsOption !== undefined ? { toolNames: toolsOption, restrictToolNames: true } : {}),
+      ...(untrusted ?? {}),
     });
 
     const persistedPreferences = await persistExplicitStartupPreferences(
-      services.settingsManager,
+      settings,
       {
         ...(initialModel ? { model: initialModel } : {}),
         ...(thinkingLevel ? { thinkingLevel } : {}),
@@ -1189,23 +1176,25 @@ export async function startRpcSession(
         ...(inner.model
           ? { model: { provider: inner.model.provider, modelId: inner.model.id } }
           : {}),
-        thinkingLevel: inner.thinkingLevel,
-        supportsThinking: inner.supportsThinking(),
+        thinkingLevel: inner.thinkingLevel ?? "off",
+        supportsThinking: Boolean(inner.model?.reasoning),
       },
     );
     if (persistedPreferences.modelDefaultChanged) invalidateModelsCache();
 
+    const session = inner as unknown as AgentSessionLike;
+
     // If specific tool names were requested (non-empty), set the active tools to the
     // requested builtin coding tools PLUS all extension/package tools, so installed
-    // extensions stay usable in Pi Web just like in the `pi` CLI.
+    // extensions stay usable in omp-web just like in the `omp` CLI.
     if (toolNames && toolNames.length > 0) {
-      inner.setActiveToolsByName(withExtensionTools(inner, toolNames));
+      await session.setActiveToolsByName(withExtensionTools(session, toolNames));
     }
 
-    const wrapper = new AgentSessionWrapper(inner);
+    const wrapper = new AgentSessionWrapper(session);
     // When all tools are disabled, clear the system prompt entirely.
-    // pi's buildSystemPrompt always produces a non-empty prompt even with no tools;
-    // keep this forced after extension resource discovery and reloads as well.
+    // omp's buildSystemPrompt always produces a non-empty prompt even with no
+    // tools; keep this forced after extension discovery and reloads as well.
     if (toolNames?.length === 0) {
       wrapper.setForceEmptySystemPrompt(true);
     }

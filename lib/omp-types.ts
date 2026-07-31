@@ -1,10 +1,10 @@
 import type {
   AgentSessionEvent,
   SessionManager,
-  SettingsManager,
+  Settings,
   SlashCommandInfo,
   Theme,
-} from "@earendil-works/pi-coding-agent";
+} from "@oh-my-pi/pi-coding-agent";
 
 export interface ContextUsage {
   percent: number | null;
@@ -48,29 +48,28 @@ export interface SessionStatsInfo {
   contextUsage?: ContextUsage;
 }
 
+/** Where a slash command came from, in the shape the browser consumes. */
+export type SlashCommandOrigin = Pick<SlashCommandInfo, "location" | "path">;
+
 interface PromptTemplateLike {
   name: string;
   description?: string;
-  sourceInfo: SlashCommandInfo["sourceInfo"];
+  source?: string;
 }
 
 interface SkillLike {
   name: string;
   description?: string;
-  sourceInfo: SlashCommandInfo["sourceInfo"];
-}
-
-interface ResourceLoaderLike {
-  getSkills(): { skills: SkillLike[] };
+  source?: string;
+  filePath?: string;
 }
 
 interface ExtensionRunnerLike {
-  getRegisteredCommands(): Array<{
-    invocationName: string;
+  getRegisteredCommands(reserved?: ReadonlySet<string>): Array<{
+    name: string;
     description?: string;
-    sourceInfo: SlashCommandInfo["sourceInfo"];
   }>;
-  setUIContext?(uiContext?: unknown, mode?: "tui" | "rpc" | "json" | "print"): void;
+  getExtensionPaths?(): string[];
 }
 
 type DialogOptionsLike = {
@@ -113,6 +112,13 @@ export interface ExtensionUiContextLike {
   setToolsExpanded(expanded: boolean): void;
 }
 
+/**
+ * Structural view of omp's `AgentSession`, narrowed to what omp-web drives.
+ *
+ * Keeping this structural (rather than importing the class) means an SDK bump
+ * that widens an unrelated signature does not ripple through the app; only the
+ * members listed here are contractual.
+ */
 export interface AgentSessionLike {
   readonly sessionId: string;
   readonly sessionFile: string | undefined;
@@ -121,47 +127,52 @@ export interface AgentSessionLike {
   readonly autoCompactionEnabled: boolean;
   readonly autoRetryEnabled: boolean;
   readonly model: ModelLike | undefined;
-  readonly modelRuntime: {
-    getModel: (provider: string, modelId: string) => ModelLike | undefined;
-    refresh: (options?: { allowNetwork?: boolean }) => Promise<unknown>;
+  readonly modelRegistry: {
+    find: (selector: string) => ModelLike | undefined;
+    getAll: () => ModelLike[];
+    getAvailable: () => ModelLike[];
+    refresh: (strategy?: string) => Promise<unknown>;
   };
   readonly sessionManager: SessionManager;
-  readonly settingsManager: SettingsManager;
-  readonly agent: { state?: { systemPrompt?: string; thinkingLevel?: string } };
-  readonly extensionRunner: ExtensionRunnerLike;
+  readonly settings: Settings;
+  readonly agent: { state?: { systemPrompt?: string | string[]; thinkingLevel?: string } };
+  readonly extensionRunner: ExtensionRunnerLike | undefined;
   readonly promptTemplates: readonly PromptTemplateLike[];
-  readonly resourceLoader: ResourceLoaderLike;
+  readonly skills: readonly SkillLike[];
 
-  readonly bindExtensions?: unknown;
-  reload(options?: { beforeSessionStart?: () => void | Promise<void> }): Promise<void>;
+  reload(): Promise<void>;
+  refreshSkills?(): Promise<void>;
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;
   prompt(text: string, options?: {
     images?: Array<{ type: "image"; data: string; mimeType: string }>;
     streamingBehavior?: "steer" | "followUp";
-    source?: "interactive" | "rpc";
-  }): Promise<void>;
-  abort(): Promise<void>;
+    userInitiated?: boolean;
+  }): Promise<boolean>;
+  abort(options?: { reason?: string }): Promise<void>;
   executeBash(command: string, onChunk?: (chunk: string) => void, options?: { excludeFromContext?: boolean }): Promise<{ output: string; exitCode?: number; cancelled?: boolean; truncated?: boolean; fullOutputPath?: string }>;
   abortBash(): void;
   readonly isBashRunning: boolean;
-  setModel(model: ModelLike): Promise<void>;
+  setModel(model: ModelLike, role?: string, options?: { selector?: string; thinkingLevel?: string; persist?: boolean }): Promise<{ switched: boolean }>;
+  resolveRoleModel(role: string): ModelLike | undefined;
   navigateTree(targetId: string, options?: { summarize?: boolean }): Promise<NavigateTreeResult>;
-  setThinkingLevel(level: string): void;
+  branch(entryId: string): Promise<{ cancelled: boolean }>;
+  setThinkingLevel(level: string | undefined, persist?: boolean): void;
   compact(customInstructions?: string): Promise<unknown>;
-  setSessionName(name: string): void;
   getSessionStats(): Omit<SessionStatsInfo, "sessionName">;
   getLastAssistantText(): string | undefined;
   setAutoCompactionEnabled(enabled: boolean): void;
   setAutoRetryEnabled(enabled: boolean): void;
   steer(text: string, images?: Array<{ type: "image"; data: string; mimeType: string }>): Promise<void>;
   followUp(text: string, images?: Array<{ type: "image"; data: string; mimeType: string }>): Promise<void>;
-  readonly pendingMessageCount: number;
-  getSteeringMessages(): readonly string[];
-  getFollowUpMessages(): readonly string[];
-  clearQueue(): { steering: string[]; followUp: string[] };
-  getAllTools(): ToolInfo[];
+  readonly queuedMessageCount: number;
+  getQueuedMessages(): { steering: readonly string[]; followUp: readonly string[] };
+  clearQueue(): { steering: unknown[]; followUp: unknown[] };
+  getAllToolNames(): string[];
+  getToolByName(name: string): { name: string; description?: string } | undefined;
   getActiveToolNames(): string[];
-  setActiveToolsByName(names: string[]): void;
+  getEnabledToolNames(): string[];
+  setActiveToolsByName(names: string[]): Promise<void>;
   abortCompaction(): void;
-  getContextUsage(): ContextUsage | undefined;
+  getContextUsage(): { tokens: number; contextWindow: number; percent: number } | undefined;
+  dispose?(options?: { keepAlive?: boolean }): Promise<void>;
 }

@@ -2,6 +2,7 @@
 
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
+import type { ModelRoleAssignment } from "@/lib/api-types";
 import { clearDraft, getDraft, setDraft, type ChatDraftImage } from "@/lib/draft-store";
 import {
   MAX_ATTACHED_IMAGE_BYTES,
@@ -43,6 +44,9 @@ interface Props {
   /** Diagnostics from resolving `enabledModels`, e.g. a pattern that matched nothing. */
   modelScopeWarnings?: string[];
   onModelChange?: (provider: string, modelId: string) => void;
+  /** omp's model roles (default/smol/slow/plan/commit/…) with their assignments. */
+  modelRoles?: ModelRoleAssignment[];
+  onRoleModelChange?: (role: string) => void;
   onCompact?: () => void;
   onAbortCompaction?: () => void;
   isCompacting?: boolean;
@@ -278,6 +282,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange,
+  modelRoles, onRoleModelChange,
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
@@ -999,6 +1004,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     else modelsByProvider.push({ provider: opt.provider, options: [opt] });
   }
 
+  // omp's roles, in omp's own order, minus the ones it hides from its selector
+  // and the ones with nothing configured to switch to.
+  const roleRows = (modelRoles ?? []).filter((role) => !role.hidden && role.resolved);
+  const activeRole = model
+    ? roleRows.find((role) => role.resolved?.provider === model.provider && role.resolved?.modelId === model.modelId)
+    : undefined;
+
   const displayModelName = model
     ? (modelOptions.find((o) => o.modelId === model.modelId && o.provider === model.provider)?.name ?? model.modelId)
     : null;
@@ -1076,7 +1088,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       <div style={{ maxWidth: 820, margin: "0 auto" }}>
         <ModelErrorBanner error={modelError} />
         <ModelScopeWarningBanner warnings={modelScopeWarnings} />
-        {/* Queued steering / follow-up messages (delivered by pi on upcoming turns) */}
+        {/* Queued steering / follow-up messages (delivered by omp on upcoming turns) */}
         {((queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)) > 0 && (
           <div style={{
             marginBottom: 8,
@@ -1832,6 +1844,86 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                         </div>
                       )}
                       <div style={{ minHeight: 0, overflowY: "auto" }}>
+                        {/* omp assigns a model per scope of work; offer those first
+                            so picking "Fast" or "Architect" stays one click, and
+                            record the role so the transcript matches `/model`. */}
+                        {roleRows.length > 0 && !modelFilter.trim() && onRoleModelChange && (
+                          <div>
+                            <div style={{
+                              padding: "6px 12px 4px",
+                              fontSize: 10, fontWeight: 600, color: "var(--text-dim)",
+                              textTransform: "uppercase", letterSpacing: "0.07em",
+                            }}>
+                              {t("chat.modelRoles")}
+                            </div>
+                            {roleRows.map((role) => {
+                              const isActive = activeRole?.role === role.role;
+                              const resolvedName = role.resolved?.name ?? role.resolved?.modelId ?? "";
+                              return (
+                                <button
+                                  key={role.role}
+                                  onClick={() => {
+                                    setModelDropdownOpen(false);
+                                    setModelFilter("");
+                                    onRoleModelChange(role.role);
+                                  }}
+                                  title={role.selector ?? resolvedName}
+                                  style={{
+                                    display: "flex", alignItems: "center", gap: 8,
+                                    width: "100%", padding: "7px 12px",
+                                    background: isActive ? "var(--bg-selected)" : "none",
+                                    border: "none",
+                                    color: isActive ? "var(--text)" : "var(--text-muted)",
+                                    cursor: "pointer", fontSize: 12, textAlign: "left",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                  onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
+                                  onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
+                                >
+                                  {isActive
+                                    ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
+                                    : <span style={{ width: 10, flexShrink: 0 }} />}
+                                  <span style={{
+                                    flexShrink: 0,
+                                    minWidth: 58,
+                                    padding: "1px 6px",
+                                    borderRadius: 4,
+                                    border: "1px solid var(--border)",
+                                    background: "var(--bg-subtle)",
+                                    color: isActive ? "var(--accent)" : "var(--text-dim)",
+                                    fontFamily: "var(--font-mono)",
+                                    fontSize: 9.5,
+                                    fontWeight: 700,
+                                    letterSpacing: "0.06em",
+                                    textAlign: "center",
+                                  }}>
+                                    {role.tag ?? role.role.toUpperCase()}
+                                  </span>
+                                  <span style={{ fontWeight: isActive ? 600 : 500 }}>{role.name}</span>
+                                  <span style={{
+                                    marginLeft: "auto",
+                                    paddingLeft: 12,
+                                    color: "var(--text-dim)",
+                                    fontSize: 11,
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                  }}>
+                                    {resolvedName}
+                                    {role.resolved?.thinkingLevel ? ` · ${role.resolved.thinkingLevel}` : ""}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                            <div style={{
+                              padding: "6px 12px 4px",
+                              fontSize: 10, fontWeight: 600, color: "var(--text-dim)",
+                              textTransform: "uppercase", letterSpacing: "0.07em",
+                              borderTop: "1px solid var(--border)",
+                            }}>
+                              {t("chat.allModels")}
+                            </div>
+                          </div>
+                        )}
                         {modelsByProvider.length === 0 ? (
                           <div style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 12, whiteSpace: "nowrap" }}>
                             {modelFilter.trim() ? t("chat.noMatchingModels") : "No available models"}

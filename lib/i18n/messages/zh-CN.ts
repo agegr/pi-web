@@ -1,6 +1,6 @@
 import type { LocalePlugin } from "../types";
 
-/** Pi Web 内置简体中文语言包。 */
+/** omp-web 内置简体中文语言包。 */
 export const zhCNLocale: LocalePlugin = {
   id: "zh-CN",
   label: "简体中文",
@@ -201,6 +201,18 @@ export const zhCNLocale: LocalePlugin = {
     "chat.attachImage": "附加图片",
     "chat.filterModels": "筛选模型…",
     "chat.noMatchingModels": "没有匹配的模型",
+    "chat.modelRoles": "角色",
+    "chat.allModels": "全部模型",
+    "roles.title": "模型角色",
+    "roles.description": "omp 按角色分派任务，而非只用一个当前模型。为每个角色分配模型后，omp-web 与 omp 命令行都会使用该配置。",
+    "roles.scope": "保存到",
+    "roles.scopeGlobal": "全局",
+    "roles.scopeProject": "当前项目",
+    "roles.unset": "— 未设置 —",
+    "roles.needsProject": "打开一个项目后即可编辑其模型角色。",
+    "roles.source.global": "来自全局配置",
+    "roles.source.project": "来自项目配置",
+    "roles.source.default": "omp 默认值",
     "chat.moreControls": "更多控件",
     "chat.collapseControls": "收起控件",
     "chat.shell": "Shell",
@@ -220,7 +232,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.stop": "停止",
     "chat.disableSound": "关闭完成提示音",
     "chat.enableSound": "开启完成提示音",
-    "chat.thinkingUseDefault": "使用 pi 默认设置",
+    "chat.thinkingUseDefault": "使用 omp 默认设置",
     "chat.thinkingOff": "关闭推理",
     "chat.thinkingMinimal": "最低限度推理",
     "chat.thinkingLow": "低强度推理",

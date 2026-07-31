@@ -1,23 +1,43 @@
-# Pi Web - Development Notes
+# omp-web - Development Notes
 
 ## Quick Start
 
 ```bash
-npm run dev   # port 30141
+bun install
+bun run dev   # port 30141
 ```
 
-Typecheck: `node_modules/.bin/tsc --noEmit`  
-Lint: `npm run lint`  
-**Never run `next build` during dev** — pollutes `.next/` and breaks `npm run dev`.
+Typecheck: `bun run typecheck`
+Lint: `bun run lint`
+Tests: `bun test`
+**Never run `bun run build` during dev** — pollutes `.next/` and breaks `bun run dev`.
+
+### Everything runs on Bun
+
+`@oh-my-pi/pi-*` is published as **TypeScript sources** and imports `bun:sqlite`,
+so Node cannot load it at all (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`).
+The server half of omp-web therefore only runs on Bun; `bin/omp-web.js` finds a
+Bun binary and re-executes `next start` through it.
+
+Two consequences worth remembering:
+
+- `next.config.ts` externalizes **every** `@oh-my-pi/*` request as an ESM
+  `import`, not `commonjs`. The SDK's `exports` map declares only an `import`
+  condition, so a `require()` of it cannot resolve — that is what
+  "Cannot find module '@oh-my-pi/pi-coding-agent'" during *Collecting page data*
+  means. `serverExternalPackages` alone is not sufficient: it misses the SDK's
+  own transitive entry points.
+- `bun test`, not `node --test`. The test files are `node:test`-based and Bun
+  runs them; Node cannot import the SDK the tests exercise.
 
 ---
 
 ## Architecture
 
 ```
-Browser                Next.js Server              AgentSession (in-process)
+Browser                Next.js Server (Bun)        AgentSession (in-process)
   │                        │                               │
-  ├─ GET /api/sessions ────▶ reads ~/.pi/agent/sessions/   │
+  ├─ GET /api/sessions ────▶ reads ~/.omp/agent/sessions/  │
   ├─ GET /api/sessions/[id] reads .jsonl file directly     │
   ├─ GET /api/agent/running ───────▶ running id snapshot   │
   │                        │                               │
@@ -30,8 +50,10 @@ Browser                Next.js Server              AgentSession (in-process)
   │◀── data: {...} ─────────│                               │
 ```
 
-**Session browsing** (read-only): reads `.jsonl` files through SDK `SessionManager` helpers and `lib/session-reader.ts` — no AgentSession created.  
-**Sending a message**: `startRpcSession()` in `lib/rpc-manager.ts` creates an AgentSession in-process.
+**Session browsing** (read-only): reads `.jsonl` files through SDK helpers and
+`lib/session-reader.ts` — no AgentSession created.
+**Sending a message**: `startRpcSession()` in `lib/rpc-manager.ts` creates an
+AgentSession in-process.
 
 ---
 
@@ -54,18 +76,18 @@ app/api/
   auth/logout/[provider]/route.ts POST OAuth logout
   auth/providers/route.ts         GET OAuth provider list
   cwd/validate/route.ts           POST validate/select a cwd
-  default-cwd/route.ts            POST create ~/pi-cwd-YYYYMMDD
+  default-cwd/route.ts            POST create ~/omp-cwd-YYYYMMDD
   files/[...path]/route.ts        GET file contents for viewer
   home/route.ts                   GET user home directory
-  models/route.ts                 GET { models, modelList, defaultModel }
-  models-config/route.ts          GET/PUT — read/write ~/.pi/agent/models.json
+  model-roles/route.ts            GET/PUT omp's modelRoles record
+  models/route.ts                 GET { models, modelList, defaultModel, roles }
+  models-config/route.ts          GET/PUT — read/write ~/.omp/agent/models.yml
   models-config/catalog/route.ts  GET models.dev pricing presets
   models-config/discover/route.ts POST fetch a configured provider's upstream model list
   models-config/test/route.ts     POST test a configured model/provider
-  plugins/route.ts                GET/POST package plugin management
+  plugins/route.ts                GET/POST omp plugin management
   skills/route.ts                 GET/PATCH loaded skills and disable-model-invocation
   skills/install/route.ts         POST install skills through npx skills add
-  skills/search/route.ts          GET/POST skills.sh search
   worktrees/route.ts              GET/POST/DELETE git worktrees
 
 lib/
@@ -74,26 +96,32 @@ lib/
   file-access.ts       allowed file roots for /api/files and worktrees
   file-paths.ts        client/server path encoding helpers
   markdown.ts          shared markdown helpers
+  model-roles.ts       omp's model roles, read/written for the browser
+  model-scope.ts       enabledModels resolution shared by UI and startup
   npx.ts               npx runner used by skill install
-  pi-types.ts          local structural types for pi SDK objects
-  rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
-  session-reader.ts   SessionManager wrappers + path cache + buildSessionContext adapter
-  tool-presets.ts     PRESET_NONE/DEFAULT/FULL + getPresetFromTools()
-  types.ts            shared TypeScript types
-  normalize.ts        normalizeToolCalls() — field name mismatch between file format and our types
-  worktree.ts         project/worktree resolution and git worktree operations
+  omp-runtime.ts       shared Settings + AuthStorage + ModelRegistry
+  omp-types.ts         structural view of omp's AgentSession
+  project-trust.ts     gates a project's executable resources
+  rpc-manager.ts       AgentSessionWrapper + registry + startRpcSession
+  session-reader.ts    session listing + path cache + buildSessionContext adapter
+  session-title.ts     thin wrapper over omp's own title generator
+  tool-presets.ts      PRESET_NONE/DEFAULT/FULL + getPresetFromTools()
+  types.ts             shared TypeScript types
+  normalize.ts         normalizeToolCalls() — field name mismatch between file format and our types
+  worktree.ts          project/worktree resolution and git worktree operations
 
 components/
   AppShell.tsx        layout + URL state + tab management
   SessionSidebar.tsx  session tree + FileExplorer
   ChatWindow.tsx      chat composition + completion sound wrapper
-  ChatInput.tsx       input bar + model/thinking/tools/compact controls
+  ChatInput.tsx       input bar + model/role/thinking/tools/compact controls
   MessageView.tsx     renders one message (user/assistant/toolCall/toolResult)
   BranchNavigator.tsx in-session branch switcher
   ChatMinimap.tsx     scroll minimap alongside the message list
   MarkdownBody.tsx    markdown renderer
-  ModelsConfig.tsx    modal for editing models.json (opened from sidebar bottom)
-  PluginsConfig.tsx   modal for installed package plugins
+  ModelsConfig.tsx    modal for providers/auth (opened from sidebar bottom)
+  ModelRolesPanel.tsx per-role model assignment inside that modal
+  PluginsConfig.tsx   modal for installed omp plugins
   SkillsConfig.tsx    modal for loaded/search/installable skills
   FileExplorer.tsx    file tree inside sidebar
   FileIcons.tsx       file icon helpers
@@ -113,9 +141,35 @@ hooks/
 ## Key Design Decisions & Traps
 
 ### AgentSession lifecycle (`lib/rpc-manager.ts`)
-- One `AgentSessionWrapper` per session id, keyed in `globalThis.__piSessions`
+- One `AgentSessionWrapper` per session id, keyed in `globalThis.__ompSessions`
 - `globalThis` survives Next.js hot-reload; plain module-level Map does not
-- Idle timeout: 10 minutes. Concurrent `startRpcSession()` calls share a single start Promise (`globalThis.__piStartLocks`)
+- Idle timeout: 10 minutes. Concurrent `startRpcSession()` calls share a single start Promise (`globalThis.__ompStartLocks`)
+- Extensions are bound with omp's own `initializeExtensions()` from
+  `@oh-my-pi/pi-coding-agent/modes/runtime-init` — the same wiring `omp --mode rpc`
+  uses — with a browser-backed `ExtensionUIContext` layered on top. Do not
+  reimplement the action set; a mismatch shows up as extensions silently doing
+  nothing.
+
+### One runtime, many requests (`lib/omp-runtime.ts`)
+omp's CLI builds `Settings` + `AuthStorage` + `ModelRegistry` once per process.
+omp-web does the same and caches them on `globalThis`; a second `AuthStorage`
+would open a second SQLite handle on `~/.omp/agent/agent.db` and split
+`credential_disabled` events. Per-project settings come from
+`settings.cloneForCwd(cwd)`, never from a second `Settings.init()`.
+
+Anything that mutates credentials or `models.yml` must call
+`invalidateOmpRuntime()` as well as `invalidateModelsCache()`.
+
+### Model roles are the model selector
+omp assigns a model per scope of work (`default`, `smol`, `slow`, `vision`,
+`plan`, `designer`, `commit`, `tiny`, `task`, `advisor`), stored in the
+`modelRoles` record in `config.yml`. `lib/model-roles.ts` reads and writes that
+record; `GET /api/models` ships the resolved table so `ChatInput` can list roles
+above the flat model list, and `set_role_model` switches the session **and
+records the role** so the transcript matches what `/model` writes in the TUI.
+
+An explicit model pick in the browser is persisted as `modelRoles.default`
+(`lib/startup-preferences.ts`), which is the same slot the TUI writes.
 
 ### Fork must destroy the wrapper immediately
 `AgentSession.fork()` **mutates the wrapper's inner state in-place** — after fork, `inner.sessionId` is the *new* session's id. If the wrapper stays alive in the registry under the old id, the next request gets the already-forked state and subsequent forks produce a corrupt `parentSession` chain.
@@ -127,25 +181,51 @@ hooks/
 - **In-session branch** (Continue button / BranchNavigator): calls `navigate_tree` within the same file. Multiple entries share the same `parentId`. Switching between them calls `/api/sessions/[id]/context?leafId=`.
 
 ### Session files can be fully rewritten
-`parentSession` in the header is **display metadata only** — has zero effect on chat content. Safe to `writeFileSync` the entire file (pi does this itself during migrations). Used when cascade-reparenting children on delete.
+`parentSession` in the header is **display metadata only** — has zero effect on chat content. Safe to `writeFileSync` the entire file (omp does this itself during migrations). Used when cascade-reparenting children on delete.
+
+### `SessionManager.open()` is async
+Every omp `SessionManager.open()` / `forkFrom()` / `continueRecent()` returns a
+Promise, and `setSessionName()` / `newSession()` / `flush()` do too. Forgetting
+an `await` yields `Property 'getEntries' does not exist on type 'Promise<…>'`.
+
+### Transcript ordering follows omp, not the LLM context
+`buildSessionContext()` in `lib/session-reader.ts` mirrors omp's live-chat
+transcript (`{ transcript: true, collapseCompactedHistory: true }`): history
+replaced by the latest compaction is elided, and the summary renders **at the
+chronological compaction point** — after the kept messages, before the
+post-compaction turns. It is not the LLM context, where the summary comes first.
+`entryIds` is a parallel array to `messages` and is walked locally because omp's
+`buildSessionContext` does not return entry ids.
 
 ### ToolCall field normalization
-Pi stores toolCall blocks as `{type:"toolCall", id, name, arguments}` but `ToolCallContent` uses `{toolCallId, toolName, input}`. `normalizeToolCalls()` in `lib/normalize.ts` handles this — called in both `session-reader.ts` (file load) and `ChatWindow.handleAgentEvent()` (streaming).
+omp stores toolCall blocks as `{type:"toolCall", id, name, arguments}` but `ToolCallContent` uses `{toolCallId, toolName, input}`. `normalizeToolCalls()` in `lib/normalize.ts` handles this — called in both `session-reader.ts` (file load) and `ChatWindow.handleAgentEvent()` (streaming).
 
 ### New session tool preset
-Tool names are passed at session creation (`POST /api/agent/new` → `toolNames[]`). For existing sessions, the active preset is inferred on mount via `get_tools` → `getPresetFromTools()`. When tools are fully disabled (`toolNames = []`), `rpc-manager.ts` passes an empty tool allow-list and forces `agent.state.systemPrompt = ""` after startup/reload/resource discovery.
-
-### Model defaults for new sessions
-`GET /api/models` returns `defaultModel` read from `~/.pi/agent/settings.json`. `ChatWindow` pre-selects this on mount for new sessions. Explicit browser model/thinking selections are applied atomically during AgentSession construction, then `lib/startup-preferences.ts` persists their effective values without replaying `set_model`/`set_thinking_level`; implicit `enabledModels` fallbacks and thinking pins are not persisted.
+Tool names are passed at session creation (`POST /api/agent/new` → `toolNames[]`). For existing sessions, the active preset is inferred on mount via `get_tools` → `getPresetFromTools()`. When tools are fully disabled (`toolNames = []`), `rpc-manager.ts` passes `toolNames: []` with `restrictToolNames: true` and forces `agent.state.systemPrompt = []` after startup and reloads.
 
 ### `enabledModels` scoping
-The `enabledModels` setting uses pi's `--models` syntax: minimatch globs against `provider/modelId` or a bare `modelId`, fuzzy matching for non-glob patterns, and an optional `:thinkingLevel` suffix. Never compare those patterns as literal strings — `lib/model-scope.ts` delegates to the SDK's `resolveModelScopeWithDiagnostics()` so pi-web and the TUI agree on the visible model list, and falls back to all available models when patterns resolve to nothing. `startRpcSession()` resolves that scope before creating an AgentSession and passes the selected initial model, thinking pin, and SDK-native `scopedModels` atomically; `GET /api/models` reuses the helper only for selector data, `thinkingLevelPins`, and `modelScopeWarnings` display.
+The `enabledModels` setting uses omp's `--models` syntax: globs against
+`provider/modelId` or a bare `modelId`, fuzzy matching for non-glob patterns, and
+an optional `:thinkingLevel` suffix. Never compare those patterns as literal
+strings — `lib/model-scope.ts` delegates to the SDK's `resolveModelScope()` so
+omp-web and the TUI agree on the visible model list, and falls back to all
+available models when patterns resolve to nothing. Diagnostics are produced by
+re-resolving each pattern alone, because omp's resolver drops unmatched patterns
+silently.
+
+### Project trust is omp-web's own
+omp has no trust store — it runs a repository's extensions because you ran it
+there. A browser tab is not that decision, so `lib/project-trust.ts` keeps a
+store in `~/.omp/agent/omp-web-trusted-projects.json` and, for an untrusted
+project, filters project-local entries out of omp's discovered extension and
+custom-tool paths and disables MCP. Skills and rules are data and always load.
+See `docs/project-trust.md`.
 
 ### SSE reconnect on page refresh mid-stream
 On `ChatWindow` mount, `GET /api/agent/[id]` is called. If `state.isStreaming === true`, SSE is reconnected automatically. `thinkingLevel` and `isCompacting` are also synced from this response.
 
 ### Compaction SSE events
-Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `auto_compaction_start` / `auto_compaction_end`. `handleAgentEvent` accepts both sets to keep `isCompacting` in sync. Manual compact is a blocking POST — the button stays disabled until the response returns.
+Newer omp emits `compaction_start` / `compaction_end`; older versions emitted `auto_compaction_start` / `auto_compaction_end`. `handleAgentEvent` accepts both sets to keep `isCompacting` in sync. Manual compact is a blocking POST — the button stays disabled until the response returns.
 
 ### Running state polling + reconciliation
 - The sidebar polls `/api/agent/running` every 2.5 seconds while the tab is visible and pauses polling in background tabs. The session-list response remains the initial fallback.
@@ -161,37 +241,45 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - Sessions whose cwd points at a removed worktree are inferred back into the main project instead of becoming a phantom project row.
 
 ### File access allow-list
-- `/api/files` is intentionally not a general filesystem browser. Allowed roots come from session cwds, their resolved project roots, `~/pi-cwd-*`, and roots explicitly added with `allowFileRoot()`.
+- `/api/files` is intentionally not a general filesystem browser. Allowed roots come from session cwds, their resolved project roots, `~/omp-cwd-*`, and roots explicitly added with `allowFileRoot()`.
 - `/api/cwd/validate`, `/api/default-cwd`, and `/api/worktrees` call `allowFileRoot()` when they make a new location browsable.
 
 ### Plugins and skills
-- `/api/plugins` uses pi's `SettingsManager` + `DefaultPackageManager` for global/project package install, remove, update, enable, and disable. Disabling writes empty `extensions/skills/prompts/themes` arrays for that package entry.
-- `/api/skills` uses `DefaultResourceLoader` so settings paths, package skills, and project `.agents/skills` are listed the same way the runtime sees them.
+- `/api/plugins` drives omp's `PluginManager` (`~/.omp/plugins`): install, uninstall, enable/disable, plus `doctor()` output as diagnostics. omp has no in-place update, so "update" reinstalls the spec with `force`.
+- `/api/skills` uses omp's own `loadSkills()`, so `.omp/skills`, `~/.omp/agent/skills`, `.claude/skills`, plugin skills and `.agents/skills` are listed exactly as a session sees them.
 - Skill toggling edits only the `disable-model-invocation` frontmatter key on the target `SKILL.md`; keep that surgical so user formatting survives.
-- `/api/skills/install` shells through `npx skills add ... --agent pi`; project installs run with the selected cwd.
+- `/api/skills/install` shells through `npx skills add ... --agent claude-code`. The `skills` CLI has no `omp` agent, and its `pi` agent writes `~/.pi/agent/skills`, which omp does **not** read; the Claude layout is discovered by default.
 
 ### Auth and model config
-- `ModelsConfig` combines models from `~/.pi/agent/models.json` with provider auth status from pi's `AuthStorage`/`ModelRegistry`.
-- Provider listing is capability-driven, never id-driven: `lib/provider-listing.ts` decides membership from `auth.apiKey.login` / `auth.oauth` plus the stored credential type, so dual-auth providers (anthropic and github-copilot today — which providers declare both changes between SDK releases, so never assume it from an id) appear exactly once and never fall through both lists (#309). `lib/provider-listing-runtime.ts` adapts `ModelRuntime` to those pure helpers.
-- auth.json holds **one** credential per provider and `ModelRuntime.logout()` deletes whichever it is. The delete routes therefore use `removeStoredCredentialIfType()` to compare and delete under the same file lock used by pi's auth storage. `ModelsConfig` also refreshes *both* provider lists after any auth change — refreshing one leaves a dual-auth provider rendered twice.
-- OAuth/device-code/manual-code flows are streamed by `GET /api/auth/login/[provider]`; manual code responses POST back with a short-lived token stored in `globalThis.__piLoginCallbacks`.
-- API-key routes store and remove keys through `AuthStorage`. Status endpoints must never return the raw key.
-- The model test route is `app/api/models-config/test/route.ts`; `app/api/models/test/` is not a real route.
+- Credentials live in omp's SQLite `agent.db` via `AuthStorage`, not in `auth.json`. Writes go through `authStorage.set()` / `remove()` / `logout()` so the CLI and omp-web share one store and one lock.
+- Provider listing is capability-driven: `lib/provider-listing-runtime.ts` folds the catalog (`@oh-my-pi/pi-catalog`), the OAuth registry (`@oh-my-pi/pi-ai/oauth`) and stored credential types into the flat shape `lib/provider-listing.ts` expects, so a dual-auth provider appears exactly once. An OAuth login whose `storeCredentialsAs` differs from its id is keyed by the id the catalog uses.
+- OAuth flows are streamed by `GET /api/auth/login/[provider]` through `authStorage.login()`; `onAuth`/`onPrompt`/`onManualCodeInput` become browser input requests with short-lived tokens stored in `globalThis.__ompLoginCallbacks`.
+- API-key status endpoints must never return the raw key.
+- `models.yml` is YAML: `/api/models-config` parses whichever of `models.yml` / `models.yaml` / `models.json` exists and always writes back `models.yml`.
+- A header value in `models.yml` that names an environment variable is written as the **bare name** (`X-Token: MY_VAR`), not `$MY_VAR`.
 
 ### Completion sound
-- `hooks/useAudio.ts` stores the toggle in `localStorage` as `pi-sound-enabled` and reuses one `AudioContext`.
+- `hooks/useAudio.ts` stores the toggle in `localStorage` as `omp-sound-enabled` and reuses one `AudioContext`.
 - Browser autoplay policy means sound must be unlocked from a user gesture; `ChatInput` calls the unlock hook from interactive controls, and `ChatWindow` plays the tone from `onAgentEnd`.
 
 ### Exported session HTML
-- `/api/sessions/[id]/export` delegates to pi's export helper, then patches recursive tree helpers in the generated HTML to iterative versions so very deep linear sessions do not overflow the browser call stack.
+- `/api/sessions/[id]/export` delegates to omp's export helper, then patches recursive tree helpers in the generated HTML to iterative versions so very deep linear sessions do not overflow the browser call stack.
 
-## Pi Session File Format
+### HTTP proxying
+Bun's `fetch` reads `HTTP_PROXY` / `HTTPS_PROXY` **once at process start** and
+never proxies loopback — which is what local providers need. It ignores
+`NO_PROXY`. `lib/http-dispatcher.ts` is therefore a no-op under Bun; its undici
+`EnvHttpProxyAgent` path only exists for a dev server run on Node, because Bun
+resolves `undici` to its own shim where `setGlobalDispatcher` does not affect
+`fetch` and `install` does not exist.
 
-Location: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
+## omp Session File Format
+
+Location: `~/.omp/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
 
 ```jsonl
 {"type":"session","version":3,"id":"<uuid>","timestamp":"...","cwd":"/path","parentSession":"/abs/path/to/parent.jsonl"}
-{"type":"model_change","id":"<8hex>","parentId":null,"provider":"zenmux","modelId":"claude-sonnet-4-6","timestamp":"..."}
+{"type":"model_change","id":"<8hex>","parentId":null,"model":"anthropic/claude-sonnet-5","role":"default","timestamp":"..."}
 {"type":"message","id":"<8hex>","parentId":"<8hex>","message":{"role":"user","content":"..."}}
 {"type":"message","id":"<8hex>","parentId":"<8hex>","message":{"role":"assistant","content":[...],...}}
 {"type":"message","id":"<8hex>","parentId":"<8hex>","message":{"role":"toolResult","toolCallId":"...","content":[...]}}
@@ -199,15 +287,24 @@ Location: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
 {"type":"session_info","id":"...","parentId":"...","name":"user-defined name"}
 ```
 
-`entryIds[]` in `SessionContext` is a parallel array to `messages[]` — maps each displayed message back to its `.jsonl` entry id, used for fork and navigate_tree calls.
+`model_change` carries a `provider/modelId` string plus the **role** it came
+from; `SessionContext.models` is a role → selector record, and `models.default`
+is what the UI shows as the session's model.
 
 ---
 
 ## CSS Variables (`app/globals.css`)
 
+Both themes come from omp's own theme files — `titanium` (omp's default dark
+theme) and `light` — so the browser and the TUI read as one product.
+
 ```
 --bg --bg-panel --bg-hover --bg-selected --border
 --text --text-muted --text-dim
---accent --user-bg --tool-bg
+--accent --accent-hover --user-bg --assistant-bg --tool-bg --bg-subtle
+--success --danger --warning
 --font-mono
 ```
+
+`--font-mono` is a system stack on purpose: a local-first tool must not fetch a
+font from a CDN at build or at runtime.

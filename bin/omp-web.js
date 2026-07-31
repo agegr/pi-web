@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 "use strict";
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { getUnsupportedNodeVersionMessage, isNodeVersionSupported } = require("./node-version");
+const {
+  getMissingBunMessage,
+  getUnsupportedNodeVersionMessage,
+  isNodeVersionSupported,
+  resolveBunPath,
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+} = require("./runtime");
 
-if (!isNodeVersionSupported(process.versions.node)) {
+if (!process.versions.bun && !isNodeVersionSupported(process.versions.node)) {
   console.error(getUnsupportedNodeVersionMessage(process.versions.node));
   process.exit(1);
 }
@@ -16,13 +21,13 @@ const path = require("path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fs = require("fs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { parseLaunchOptions } = require("./pi-web-options");
+const { parseLaunchOptions } = require("./omp-web-options");
 
 const pkgDir = path.join(__dirname, "..");
 const nextDir = path.join(pkgDir, ".next");
 
 // Resolve next's CLI entry directly to avoid relying on .bin symlinks (which
-// may not exist when installed via npx).
+// may not exist when installed via npx/bunx).
 let nextBin;
 try {
   nextBin = require.resolve("next/dist/bin/next", { paths: [pkgDir] });
@@ -38,34 +43,43 @@ try {
 
 const { port, hostname, openBrowser } = parseLaunchOptions();
 const loopbackHostnames = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
-const passwordEnabled = Boolean(process.env.PI_WEB_PASSWORD);
+const passwordEnabled = Boolean(process.env.OMP_WEB_PASSWORD);
 
 if (!fs.existsSync(nextDir)) {
   console.error("Build artifacts not found. Please report this issue.");
   process.exit(1);
 }
 
+const bunPath = resolveBunPath();
+if (!bunPath) {
+  console.error(getMissingBunMessage());
+  process.exit(1);
+}
+
 if (!loopbackHostnames.has(hostname)) {
   if (passwordEnabled) {
     console.warn(
-      `Warning: pi-web is listening on ${hostname} with Basic Auth over HTTP. Use HTTPS or a trusted VPN to protect the password in transit.`,
+      `Warning: omp-web is listening on ${hostname} with Basic Auth over HTTP. Use HTTPS or a trusted VPN to protect the password in transit.`,
     );
   } else {
     console.warn(
-      `Warning: pi-web is listening on ${hostname} without authentication. Only use this on a trusted network.`,
+      `Warning: omp-web is listening on ${hostname} without authentication. Only use this on a trusted network.`,
     );
   }
 }
 
-const nextArgs = ["start", "-p", port];
-nextArgs.push("-H", hostname);
-
-// Always run next's JS entry with node directly — avoids .bin symlink issues
-// and path-with-spaces problems on Windows when shell: true is used.
-const child = spawn(process.execPath, [nextBin, ...nextArgs], {
+// `--bun` forces Bun's own runtime for next's CLI entry (it would otherwise
+// hand shebang'd scripts to node). The omp SDK ships TypeScript sources and
+// `bun:` builtins, so the API routes only resolve under Bun.
+const child = spawn(bunPath, ["--bun", nextBin, "start", "-p", port, "-H", hostname], {
   cwd: pkgDir,
   stdio: ["inherit", "pipe", "inherit"],
-  env: { ...process.env, PI_WEB_HOSTNAME: hostname },
+  env: { ...process.env, OMP_WEB_HOSTNAME: hostname },
+});
+
+child.on("error", (error) => {
+  console.error(`Failed to launch omp-web through Bun (${bunPath}): ${error.message}`);
+  process.exit(1);
 });
 
 let browserOpened = false;

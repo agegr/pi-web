@@ -24,7 +24,7 @@ function playTone(ctx: AudioContext) {
 export function useAudio() {
   const [enabled, setEnabled] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
-    const stored = localStorage.getItem("pi-sound-enabled");
+    const stored = localStorage.getItem("omp-sound-enabled");
     return stored === null ? true : stored === "true";
   });
 
@@ -56,7 +56,7 @@ export function useAudio() {
     const next = !enabledRef.current;
     if (next) unlockAudio(true);
     enabledRef.current = next;
-    localStorage.setItem("pi-sound-enabled", String(next));
+    localStorage.setItem("omp-sound-enabled", String(next));
     setEnabled(next);
   }, [unlockAudio]);
 

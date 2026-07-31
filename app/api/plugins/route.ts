@@ -1,23 +1,13 @@
 import { NextResponse } from "next/server";
-import { existsSync, readFileSync, statSync } from "fs";
-import { basename, dirname, extname, join, relative } from "path";
-import {
-  DefaultPackageManager,
-  getAgentDir,
-  SettingsManager,
-  type PackageSource,
-  type ResolvedPaths,
-  type ResolvedResource,
-} from "@earendil-works/pi-coding-agent";
+import { PluginManager } from "@oh-my-pi/pi-coding-agent/extensibility/plugins";
+import type { InstalledPlugin } from "@oh-my-pi/pi-coding-agent/extensibility/plugins";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
-import { getProjectTrustStatus } from "@/lib/project-trust";
 import type {
   PluginDiagnostic,
   PluginPackageInfo,
   PluginResourceCounts,
   PluginResourceInfo,
-  PluginResourceKind,
   PluginScope,
   PluginsResponse,
 } from "@/lib/api-types";
@@ -30,205 +20,97 @@ function emptyCounts(): PluginResourceCounts {
   return { extensions: 0, skills: 0, prompts: 0, themes: 0 };
 }
 
-function toPluginScope(scope: string): PluginScope {
-  return scope === "project" ? "project" : "global";
+/**
+ * Effective feature list for a plugin.
+ *
+ * `enabledFeatures === null` means "manifest defaults", i.e. every feature
+ * declared with `default: true`.
+ */
+function effectiveFeatures(plugin: InstalledPlugin): string[] {
+  if (plugin.enabledFeatures) return plugin.enabledFeatures;
+  return Object.entries(plugin.manifest.features ?? {})
+    .filter(([, feature]) => feature.default)
+    .map(([name]) => name);
 }
 
-function keyFor(source: string, scope: PluginScope): string {
-  return `${scope}\0${source}`;
-}
-
-function getPackageSource(entry: PackageSource): string {
-  return typeof entry === "string" ? entry : entry.source;
-}
-
-function isDisabledPackage(entry: PackageSource): boolean {
-  if (typeof entry === "string") return false;
-  return (
-    Array.isArray(entry.extensions) && entry.extensions.length === 0 &&
-    Array.isArray(entry.skills) && entry.skills.length === 0 &&
-    Array.isArray(entry.prompts) && entry.prompts.length === 0 &&
-    Array.isArray(entry.themes) && entry.themes.length === 0
-  );
-}
-
-function getDisabledPackages(settingsManager: SettingsManager): Map<string, boolean> {
-  const disabled = new Map<string, boolean>();
-  for (const entry of settingsManager.getGlobalSettings().packages ?? []) {
-    disabled.set(keyFor(getPackageSource(entry), "global"), isDisabledPackage(entry));
-  }
-  for (const entry of settingsManager.getProjectSettings().packages ?? []) {
-    disabled.set(keyFor(getPackageSource(entry), "project"), isDisabledPackage(entry));
-  }
-  return disabled;
-}
-
-function setPackageDisabled(
-  settingsManager: SettingsManager,
-  source: string,
-  scope: PluginScope,
-  disabled: boolean,
-): boolean {
-  const current = scope === "project"
-    ? settingsManager.getProjectSettings().packages ?? []
-    : settingsManager.getGlobalSettings().packages ?? [];
-  let changed = false;
-  const next = current.map((entry): PackageSource => {
-    if (getPackageSource(entry) !== source) return entry;
-    changed = true;
-    if (disabled) {
-      return {
-        ...(typeof entry === "string" ? { source: entry } : entry),
-        extensions: [],
-        skills: [],
-        prompts: [],
-        themes: [],
-      };
-    }
-    return getPackageSource(entry);
-  });
-  if (!changed) return false;
-  if (scope === "project") settingsManager.setProjectPackages(next);
-  else settingsManager.setPackages(next);
-  return true;
-}
-
-function addCount(counts: PluginResourceCounts, kind: keyof PluginResourceCounts): void {
-  counts[kind] += 1;
-}
-
-function getResourceName(path: string, kind: PluginResourceKind): string {
-  const file = basename(path);
-  const ext = extname(file);
-  if (kind === "skill" && file.toLowerCase() === "skill.md") return basename(dirname(path));
-  if ((kind === "extension" || kind === "theme" || kind === "prompt") && ext) {
-    if (kind === "extension" && /^index\.(ts|js)$/.test(file)) return basename(dirname(path));
-    return file.slice(0, -ext.length);
-  }
-  return file;
-}
-
-function getRelativePath(resource: ResolvedResource): string {
-  const baseDir = resource.metadata.baseDir;
-  if (!baseDir) return resource.path;
-  const rel = relative(baseDir, resource.path);
-  return rel && !rel.startsWith("..") ? rel : resource.path;
-}
-
-function getConfiguredVersion(source: string): string | undefined {
-  const npmSpec = source.startsWith("npm:") ? source.slice(4) : undefined;
-  if (npmSpec) {
-    const lastAt = npmSpec.lastIndexOf("@");
-    const packageNameEnd = npmSpec.startsWith("@") ? npmSpec.indexOf("/", 1) : 0;
-    if (lastAt > packageNameEnd) return npmSpec.slice(lastAt + 1) || undefined;
-    return undefined;
-  }
-
-  if (source.startsWith("git:") || /^[a-z]+:\/\//.test(source)) {
-    const lastAt = source.lastIndexOf("@");
-    const lastSlash = source.lastIndexOf("/");
-    const lastColon = source.lastIndexOf(":");
-    if (lastAt > Math.max(lastSlash, lastColon)) return source.slice(lastAt + 1) || undefined;
-  }
-  return undefined;
-}
-
-function readPackageMetadata(installedPath?: string): { packageName?: string; version?: string } {
-  if (!installedPath) return {};
-  try {
-    const stats = statSync(installedPath);
-    const packageJsonPath = stats.isDirectory()
-      ? join(installedPath, "package.json")
-      : join(dirname(installedPath), "package.json");
-    if (!existsSync(packageJsonPath)) return {};
-    const parsed = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
-      name?: unknown;
-      version?: unknown;
-    };
-    return {
-      packageName: typeof parsed.name === "string" ? parsed.name : undefined,
-      version: typeof parsed.version === "string" ? parsed.version : undefined,
-    };
-  } catch {
-    return {};
-  }
-}
-
-function collectResource(
-  resource: ResolvedResource,
-  kind: keyof PluginResourceCounts,
-  countsByPackage: Map<string, PluginResourceCounts>,
-  resourcesByPackage: Map<string, PluginResourceInfo[]>,
-  totals: PluginResourceCounts,
-): void {
-  if (!resource.enabled || resource.metadata.origin !== "package") return;
-  const source = resource.metadata.source;
-  const scope = toPluginScope(resource.metadata.scope);
-  const key = keyFor(source, scope);
-  const counts = countsByPackage.get(key) ?? emptyCounts();
-  addCount(counts, kind);
-  addCount(totals, kind);
-  countsByPackage.set(key, counts);
-  const resources = resourcesByPackage.get(key) ?? [];
-  const resourceKind = kind === "extensions"
-    ? "extension"
-    : kind === "skills"
-      ? "skill"
-      : kind === "prompts"
-        ? "prompt"
-        : "theme";
-  resources.push({
-    kind: resourceKind,
-    name: getResourceName(resource.path, resourceKind),
-    path: resource.path,
-    relativePath: getRelativePath(resource),
-  });
-  resourcesByPackage.set(key, resources);
-}
-
-function collectResources(paths: ResolvedPaths): {
-  countsByPackage: Map<string, PluginResourceCounts>;
-  resourcesByPackage: Map<string, PluginResourceInfo[]>;
-  totals: PluginResourceCounts;
+/**
+ * Entry points a plugin contributes, flattened into the panel's resource rows.
+ *
+ * omp plugins expose extensions, tools, hooks, and command files; the panel's
+ * four counters were modelled on pi's package layout, so tools and hooks are
+ * reported under `extensions` (they are all code the session loads) and command
+ * files under `prompts` (they are all `/`-invocable text).
+ */
+function collectResources(plugin: InstalledPlugin): {
+  counts: PluginResourceCounts;
+  resources: PluginResourceInfo[];
 } {
-  const countsByPackage = new Map<string, PluginResourceCounts>();
-  const resourcesByPackage = new Map<string, PluginResourceInfo[]>();
-  const totals = emptyCounts();
-  for (const resource of paths.extensions) collectResource(resource, "extensions", countsByPackage, resourcesByPackage, totals);
-  for (const resource of paths.skills) collectResource(resource, "skills", countsByPackage, resourcesByPackage, totals);
-  for (const resource of paths.prompts) collectResource(resource, "prompts", countsByPackage, resourcesByPackage, totals);
-  for (const resource of paths.themes) collectResource(resource, "themes", countsByPackage, resourcesByPackage, totals);
-  return { countsByPackage, resourcesByPackage, totals };
+  const counts = emptyCounts();
+  const resources: PluginResourceInfo[] = [];
+  const features = new Set(effectiveFeatures(plugin));
+  const manifest = plugin.manifest;
+
+  const push = (kind: PluginResourceInfo["kind"], relativePath: string, countKey: keyof PluginResourceCounts) => {
+    counts[countKey] += 1;
+    resources.push({
+      kind,
+      name: relativePath.replace(/\.[cm]?[jt]s$/, "").replace(/^\.\//, ""),
+      path: `${plugin.path}/${relativePath}`,
+      relativePath,
+    });
+  };
+
+  for (const entry of manifest.extensions ?? []) push("extension", entry, "extensions");
+  if (manifest.tools) push("extension", manifest.tools, "extensions");
+  if (manifest.hooks) push("extension", manifest.hooks, "extensions");
+  for (const entry of manifest.commands ?? []) push("prompt", entry, "prompts");
+
+  for (const [name, feature] of Object.entries(manifest.features ?? {})) {
+    if (!features.has(name)) continue;
+    for (const entry of feature.extensions ?? []) push("extension", entry, "extensions");
+    for (const entry of feature.tools ?? []) push("extension", entry, "extensions");
+    for (const entry of feature.hooks ?? []) push("extension", entry, "extensions");
+    for (const entry of feature.commands ?? []) push("prompt", entry, "prompts");
+  }
+
+  return { counts, resources };
+}
+
+function addCounts(totals: PluginResourceCounts, counts: PluginResourceCounts): void {
+  totals.extensions += counts.extensions;
+  totals.skills += counts.skills;
+  totals.prompts += counts.prompts;
+  totals.themes += counts.themes;
 }
 
 async function readPlugins(cwd: string): Promise<PluginsResponse> {
-  const agentDir = getAgentDir();
-  const projectTrust = getProjectTrustStatus(cwd, agentDir);
-  const settingsManager = SettingsManager.create(cwd, agentDir, {
-    projectTrusted: projectTrust.trusted,
-  });
-  const packageManager = new DefaultPackageManager({
-    cwd,
-    agentDir,
-    settingsManager,
-  });
-
+  const manager = new PluginManager(cwd);
   const diagnostics: PluginDiagnostic[] = [];
-  let countsByPackage = new Map<string, PluginResourceCounts>();
-  let resourcesByPackage = new Map<string, PluginResourceInfo[]>();
-  let totals = emptyCounts();
-  const disabledByPackage = getDisabledPackages(settingsManager);
+  const totals = emptyCounts();
+  let packages: PluginPackageInfo[] = [];
 
   try {
-    const resolved = await packageManager.resolve(async (source) => {
-      diagnostics.push({
-        type: "warning",
-        source,
-        message: "Package is configured but not installed yet.",
-      });
-      return "skip";
+    const installed = await manager.list();
+    packages = installed.map((plugin) => {
+      const { counts, resources } = collectResources(plugin);
+      addCounts(totals, counts);
+      const resourceCount = counts.extensions + counts.skills + counts.prompts + counts.themes;
+      return {
+        source: plugin.name,
+        // omp installs plugins into one shared tree; project scoping happens
+        // through `.omp/plugin-overrides.json`, not through separate installs.
+        scope: "global" as PluginScope,
+        filtered: plugin.enabledFeatures !== null,
+        disabled: !plugin.enabled,
+        installedPath: plugin.path,
+        packageName: plugin.name,
+        version: plugin.version,
+        configuredVersion: plugin.manifest.version,
+        counts,
+        resources,
+        status: !plugin.enabled ? "disabled" : resourceCount > 0 ? "loaded" : "installed",
+      } satisfies PluginPackageInfo;
     });
-    ({ countsByPackage, resourcesByPackage, totals } = collectResources(resolved));
   } catch (error) {
     diagnostics.push({
       type: "error",
@@ -236,46 +118,19 @@ async function readPlugins(cwd: string): Promise<PluginsResponse> {
     });
   }
 
-  const packages = packageManager.listConfiguredPackages().map((pkg) => {
-    const scope = toPluginScope(pkg.scope);
-    const key = keyFor(pkg.source, scope);
-    const disabled = disabledByPackage.get(key) ?? false;
-    const counts = countsByPackage.get(key) ?? emptyCounts();
-    const resources = resourcesByPackage.get(key) ?? [];
-    const resourceCount = counts.extensions + counts.skills + counts.prompts + counts.themes;
-    const packageMetadata = readPackageMetadata(pkg.installedPath);
-    if (!pkg.installedPath) {
+  try {
+    for (const check of await manager.doctor()) {
+      if (check.status === "ok") continue;
       diagnostics.push({
-        type: "warning",
-        source: pkg.source,
-        message: "Configured package path was not found.",
+        type: check.status === "error" ? "error" : "warning",
+        message: check.message ?? check.name,
       });
     }
-    return {
-      source: pkg.source,
-      scope,
-      filtered: pkg.filtered,
-      disabled,
-      installedPath: pkg.installedPath,
-      packageName: packageMetadata.packageName,
-      version: packageMetadata.version,
-      configuredVersion: getConfiguredVersion(pkg.source),
-      counts,
-      resources,
-      status: disabled ? "disabled" : resourceCount > 0 ? "loaded" : pkg.installedPath ? "installed" : "missing",
-    } satisfies PluginPackageInfo;
-  });
+  } catch {
+    // Health checks are advisory; a doctor failure must not empty the list.
+  }
 
-  return {
-    packages,
-    totals,
-    diagnostics,
-    projectResourcesLoaded: projectTrust.trusted,
-  };
-}
-
-function readScope(scope: unknown): PluginScope {
-  return scope === "project" ? "project" : "global";
+  return { packages, totals, diagnostics, projectResourcesLoaded: true };
 }
 
 export async function GET(req: Request) {
@@ -294,7 +149,7 @@ export async function GET(req: Request) {
   }
 }
 
-// POST /api/plugins body: { action, source?, scope?, cwd }
+// POST /api/plugins body: { action, source?, cwd }
 export async function POST(req: Request) {
   if (!isApiRequestAllowed(req)) {
     return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
@@ -307,7 +162,6 @@ export async function POST(req: Request) {
     const body = await req.json() as {
       action?: PluginAction;
       source?: string;
-      scope?: PluginScope;
       cwd?: string;
     };
     if (!body.cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
@@ -317,42 +171,22 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
-    const agentDir = getAgentDir();
-    const projectTrust = getProjectTrustStatus(body.cwd, agentDir);
-    const settingsManager = SettingsManager.create(body.cwd, agentDir, {
-      projectTrusted: projectTrust.trusted,
-    });
-    const scope = readScope(body.scope);
-    if (scope === "project" && !projectTrust.trusted) {
-      return NextResponse.json(
-        { error: "Project resources must be trusted before modifying project plugins" },
-        { status: 403 },
-      );
-    }
-    const packageManager = new DefaultPackageManager({
-      cwd: body.cwd,
-      agentDir,
-      settingsManager,
-    });
+    const manager = new PluginManager(body.cwd);
     const source = body.source?.trim();
-    const local = scope === "project";
 
     if (body.action === "install") {
       if (!source) return NextResponse.json({ error: "source required" }, { status: 400 });
-      await packageManager.installAndPersist(source, { local });
+      await manager.install(source);
     } else if (body.action === "remove") {
       if (!source) return NextResponse.json({ error: "source required" }, { status: 400 });
-      await packageManager.removeAndPersist(source, { local });
+      await manager.uninstall(source);
     } else if (body.action === "update") {
-      await packageManager.update(source);
-    } else if (body.action === "disable") {
+      // omp has no in-place update: reinstalling the same spec re-resolves it.
       if (!source) return NextResponse.json({ error: "source required" }, { status: 400 });
-      setPackageDisabled(settingsManager, source, scope, true);
-      await settingsManager.flush();
-    } else if (body.action === "enable") {
+      await manager.install(source, { force: true });
+    } else if (body.action === "disable" || body.action === "enable") {
       if (!source) return NextResponse.json({ error: "source required" }, { status: 400 });
-      setPackageDisabled(settingsManager, source, scope, false);
-      await settingsManager.flush();
+      await manager.setEnabled(source, body.action === "enable");
     } else {
       return NextResponse.json({ error: `Unsupported action: ${body.action}` }, { status: 400 });
     }

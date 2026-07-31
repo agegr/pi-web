@@ -1,19 +1,19 @@
 import { NextResponse } from "next/server";
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { ThinkingLevel } from "@oh-my-pi/pi-agent-core";
+import { parseThinkingLevel as parseOmpThinkingLevel } from "@oh-my-pi/pi-coding-agent/thinking";
 import { existsSync } from "fs";
 import { randomUUID } from "crypto";
 import { allowFileRoot } from "@/lib/file-access";
 import { invalidateSessionListCache } from "@/lib/session-reader";
 import { startRpcSession } from "@/lib/rpc-manager";
 
-const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
-
+// omp owns the selector grammar (including abbreviations like "med"); reuse its
+// parser so the browser and the CLI accept exactly the same values.
 function parseThinkingLevel(value: unknown): ThinkingLevel | undefined {
   if (value === undefined) return undefined;
-  if (typeof value === "string" && THINKING_LEVELS.has(value as ThinkingLevel)) {
-    return value as ThinkingLevel;
-  }
-  throw new Error(`Invalid thinking level: ${String(value)}`);
+  const parsed = typeof value === "string" ? parseOmpThinkingLevel(value) : undefined;
+  if (parsed === undefined) throw new Error(`Invalid thinking level: ${String(value)}`);
+  return parsed;
 }
 // POST /api/agent/new  body: { cwd: string; type: string; message?: string; ... }
 // Spawns a brand-new pi session. Most calls immediately send the first command;

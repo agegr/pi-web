@@ -12,18 +12,16 @@ const execFileAsync = promisify(execFile);
 
 export const runtime = "nodejs";
 
-type PiCodingAgentModule = {
-  getPackageDir: () => string;
-};
-
 type ExportHtmlModule = {
   exportFromFile: (inputPath: string, outputPath: string) => Promise<string>;
 };
 
-async function getPiPackageDir(): Promise<string | null> {
+async function getOmpPackageDir(): Promise<string | null> {
   try {
-    const { getPackageDir } = (await import("@earendil-works/pi-coding-agent")) as PiCodingAgentModule;
-    return getPackageDir();
+    // `getPackageDir` returns undefined inside `bun --compile` binaries, where
+    // omp's package assets are not on disk at all.
+    const { getPackageDir } = await import("@oh-my-pi/pi-coding-agent/config");
+    return getPackageDir() ?? null;
   } catch {
     return null;
   }
@@ -41,9 +39,9 @@ function getContentDisposition(fileName: string, inline: boolean): string {
   return `${disposition}; filename="${fallback}"; filename*=UTF-8''${encodeHeaderValue(fileName)}`;
 }
 
-async function getPiCliPath(): Promise<string | null> {
+async function getOmpCliPath(): Promise<string | null> {
   const candidates = new Set<string>();
-  const packageDir = await getPiPackageDir();
+  const packageDir = await getOmpPackageDir();
 
   if (packageDir) {
     candidates.add(join(packageDir, "dist", "cli.js"));
@@ -54,7 +52,7 @@ async function getPiCliPath(): Promise<string | null> {
       resolve?: (specifier: string) => string | Promise<string>;
     }).resolve;
     if (typeof resolver === "function") {
-      const indexUrl = await resolver("@earendil-works/pi-coding-agent");
+      const indexUrl = await resolver("@oh-my-pi/pi-coding-agent");
       candidates.add(join(dirname(fileURLToPath(indexUrl)), "cli.js"));
     }
   } catch {
@@ -65,7 +63,7 @@ async function getPiCliPath(): Promise<string | null> {
     join(
       process.cwd(),
       "node_modules",
-      "@earendil-works",
+      "@oh-my-pi",
       "pi-coding-agent",
       "dist",
       "cli.js"
@@ -215,7 +213,7 @@ function patchExportHtml(html: string): string {
 }
 
 async function exportSession(filePath: string, outputPath: string): Promise<void> {
-  const cliPath = await getPiCliPath();
+  const cliPath = await getOmpCliPath();
   if (cliPath) {
     await execFileAsync(process.execPath, [cliPath, "--export", filePath, outputPath], {
       cwd: process.cwd(),
@@ -230,7 +228,7 @@ async function exportSession(filePath: string, outputPath: string): Promise<void
     return;
   }
 
-  const packageDir = await getPiPackageDir();
+  const packageDir = await getOmpPackageDir();
   if (!packageDir) throw new Error("pi CLI not found");
 
   const exporterUrl = pathToFileURL(join(packageDir, "dist", "core", "export-html", "index.js")).href;
@@ -251,7 +249,7 @@ export async function GET(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const tempDir = join(tmpdir(), "pi-web-export");
+    const tempDir = join(tmpdir(), "omp-web-export");
     mkdirSync(tempDir, { recursive: true });
 
     const sessionBase = basename(filePath, ".jsonl");

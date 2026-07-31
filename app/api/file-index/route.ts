@@ -51,12 +51,12 @@ interface CacheEntry {
 // re-requests on every open and searches on every keystroke, so listings must
 // not be recomputed within a short window.
 declare global {
-  var __piFileIndexCache: Map<string, CacheEntry> | undefined;
+  var __ompFileIndexCache: Map<string, CacheEntry> | undefined;
 }
 
 function getIndexCache(): Map<string, CacheEntry> {
-  if (!globalThis.__piFileIndexCache) globalThis.__piFileIndexCache = new Map();
-  return globalThis.__piFileIndexCache;
+  if (!globalThis.__ompFileIndexCache) globalThis.__ompFileIndexCache = new Map();
+  return globalThis.__ompFileIndexCache;
 }
 
 async function listWithGit(cwd: string): Promise<FileListing | null> {

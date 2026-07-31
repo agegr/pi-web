@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { ModelRolesPanel } from "./ModelRolesPanel";
 import { useI18n } from "@/hooks/useI18n";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
 import type { DiscoveredModel } from "@/lib/model-discovery";
@@ -163,6 +164,7 @@ type ModelCatalogState =
   | { phase: "error"; message: string };
 
 type Selection =
+  | { type: "roles" }
   | { type: "provider"; name: string }
   | { type: "model"; providerName: string; index: number }
   | { type: "oauth"; providerId: string }
@@ -1647,7 +1649,7 @@ function AddProviderPicker({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ModelsConfig({ onClose }: { onClose: () => void }) {
+export function ModelsConfig({ cwd, onClose }: { cwd?: string | null; onClose: () => void }) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
   const [config, setConfig] = useState<ModelsJson>({ providers: {} });
@@ -1655,7 +1657,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
-  const [selection, setSelection] = useState<Selection | null>(null);
+  const [selection, setSelection] = useState<Selection | null>({ type: "roles" });
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
   const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -1687,10 +1689,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     fetch("/api/models-config")
       .then((r) => r.json())
       .then((d: ModelsJson) => {
-        const normalized = d.providers ? d : { ...d, providers: {} };
-        setConfig(normalized);
-        const keys = Object.keys(normalized.providers ?? {});
-        if (keys.length > 0) setSelection({ type: "provider", name: keys[0] });
+        setConfig(d.providers ? d : { ...d, providers: {} });
       })
       .catch(() => setConfig({ providers: {} }))
       .finally(() => setLoading(false));
@@ -1811,6 +1810,9 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
   // Resolve current detail
   const detailContent = (() => {
     if (!selection) return null;
+    if (selection.type === "roles") {
+      return <ModelRolesPanel cwd={cwd ?? null} />;
+    }
     if (selection.type === "oauth") {
       const p = oauthProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
@@ -1861,7 +1863,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
              <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>{t("common.models")}</span>
-            <code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>~/.pi/agent/models.json</code>
+            <code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>~/.omp/agent/models.yml</code>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: "2px 6px" }}>×</button>
         </div>
@@ -1878,6 +1880,21 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
             display: "flex", flexDirection: "column", flexShrink: 0, background: "var(--bg-panel)",
           }}>
             <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>
+              {/* omp routes work by role; keep that the first thing in the panel. */}
+              <div
+                onClick={() => setSelection({ type: "roles" })}
+                style={{ display: "flex", alignItems: "center", gap: 7, padding: "5px 8px", borderRadius: 5, cursor: "pointer", background: selection?.type === "roles" ? "var(--bg-selected)" : "none" }}
+                onMouseEnter={(e) => { if (selection?.type !== "roles") e.currentTarget.style.background = "var(--bg-hover)"; }}
+                onMouseLeave={(e) => { if (selection?.type !== "roles") e.currentTarget.style.background = "none"; }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-muted)", flexShrink: 0 }}>
+                  <line x1="4" y1="7" x2="20" y2="7" /><circle cx="9" cy="7" r="2.2" />
+                  <line x1="4" y1="17" x2="20" y2="17" /><circle cx="15" cy="17" r="2.2" />
+                </svg>
+                <span style={{ fontSize: 12, color: "var(--text)", flex: 1 }}>{t("roles.title")}</span>
+              </div>
+              <div style={{ margin: "4px 8px", borderTop: "1px solid var(--border)" }} />
+
               {/* Active OAuth subscriptions */}
               {activeOAuth.map((p) => {
                 const isSelected = selection?.type === "oauth" && selection.providerId === p.id;

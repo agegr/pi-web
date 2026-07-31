@@ -19,11 +19,11 @@ interface CatalogCache {
 }
 
 declare global {
-  var __piModelsDevCatalogCache: CatalogCache | undefined;
+  var __ompModelsDevCatalogCache: CatalogCache | undefined;
 }
 
 function getCache(): CatalogCache {
-  return globalThis.__piModelsDevCatalogCache ??= { entries: [], expiresAt: 0 };
+  return globalThis.__ompModelsDevCatalogCache ??= { entries: [], expiresAt: 0 };
 }
 
 async function fetchCatalog(): Promise<ModelCatalogEntry[]> {
