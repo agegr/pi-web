@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Mono } from "next/font/google";
+import Script from "next/script";
 import { PwaRegistration } from "@/components/PwaRegistration";
 import "katex/dist/katex.min.css";
 import "./globals.css";
@@ -9,6 +10,25 @@ const notoSansMono = Noto_Sans_Mono({
   variable: "--font-noto-mono",
   display: "swap",
 });
+
+const DEV_PWA_CLEANUP_SCRIPT = `(function(){
+  if (!("serviceWorker" in navigator)) return;
+  Promise.all([
+    navigator.serviceWorker.getRegistrations().then(function(registrations){
+      return Promise.all(registrations.map(function(registration){ return registration.unregister(); }));
+    }),
+    ("caches" in window) ? caches.keys().then(function(keys){
+      return Promise.all(keys.filter(function(key){ return key.indexOf("pi-web-") === 0; }).map(function(key){ return caches.delete(key); }));
+    }) : Promise.resolve()
+  ]).then(function(){
+    if (navigator.serviceWorker.controller && !sessionStorage.getItem("pi-web-dev-sw-cleaned")) {
+      sessionStorage.setItem("pi-web-dev-sw-cleaned", "1");
+      location.reload();
+    } else {
+      sessionStorage.removeItem("pi-web-dev-sw-cleaned");
+    }
+  }).catch(function(error){ console.error("PWA 开发缓存清理失败", error); });
+})();`;
 
 export const metadata: Metadata = {
   title: "Pi Web",
@@ -66,6 +86,9 @@ export default function RootLayout({
             __html: `(function(){try{var t=localStorage.getItem("pi-theme");if(t==="dark")document.documentElement.classList.add("dark")}catch(e){}})();`,
           }}
         />
+        {process.env.NODE_ENV !== "production" && (
+          <Script id="dev-pwa-cleanup" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: DEV_PWA_CLEANUP_SCRIPT }} />
+        )}
       </head>
       <body translate="no" className="notranslate">
         {children}

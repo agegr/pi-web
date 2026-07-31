@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { AUTH_COOKIE_NAME, authIsConfigured, verifySessionToken } from "@/lib/auth";
+import { getAuthenticatedLoginRedirect } from "@/lib/login-redirect";
 import { isApiRequestAllowed } from "@/lib/request-security";
 
 const PUBLIC_PATHS = new Set([
@@ -22,10 +23,17 @@ export function proxy(request: NextRequest) {
     return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
   }
 
-  if (isPublicPath(pathname)) return NextResponse.next();
-
   const authenticated = authIsConfigured()
     && verifySessionToken(request.cookies.get(AUTH_COOKIE_NAME)?.value);
+
+  if (pathname === "/login" && authenticated) {
+    return NextResponse.redirect(new URL(
+      getAuthenticatedLoginRedirect(request.nextUrl.searchParams),
+      request.url,
+    ));
+  }
+
+  if (isPublicPath(pathname)) return NextResponse.next();
   if (authenticated) return NextResponse.next();
 
   if (pathname.startsWith("/api/")) {

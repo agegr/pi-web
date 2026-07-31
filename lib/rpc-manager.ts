@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
+import { expandMultiSkillCommand } from "./multi-skill-command";
 import { invalidateModelsCache } from "./models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
@@ -356,7 +357,12 @@ export class AgentSessionWrapper {
         const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
         this.promptRunning = true;
         notifyRunningChange();
-        this.inner.prompt(command.message as string, {
+        const multiSkill = expandMultiSkillCommand(
+          command.message as string,
+          this.inner.resourceLoader.getSkills().skills,
+        );
+        this.inner.prompt(multiSkill.text, {
+          ...(multiSkill.expanded ? { expandPromptTemplates: false } : {}),
           ...(promptImages?.length ? { images: promptImages } : {}),
           ...(streamingBehavior ? { streamingBehavior } : {}),
           source: "rpc",
