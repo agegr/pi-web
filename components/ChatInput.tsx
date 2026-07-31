@@ -72,6 +72,10 @@ interface Props {
   draftKey?: string;
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
+  /** 新会话可选的 worktree 列表；已有会话不显示此选择器。 */
+  newSessionWorktrees?: { path: string; branch: string | null; isMain: boolean }[];
+  newSessionCwd?: string | null;
+  onNewSessionCwdChange?: (cwd: string) => void;
 }
 
 export interface ChatInputHandle {
@@ -292,6 +296,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
+  newSessionWorktrees,
+  newSessionCwd,
+  onNewSessionCwdChange,
 }: Props, ref) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
@@ -1111,6 +1118,23 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       <div style={{ maxWidth: 820, margin: "0 auto" }}>
         <ModelErrorBanner error={modelError} />
         <ModelScopeWarningBanner warnings={modelScopeWarnings} />
+        {newSessionWorktrees && newSessionWorktrees.length > 1 && (
+          <label style={{ display: "flex", alignItems: "center", gap: 7, margin: "0 0 6px 4px", color: "var(--text-muted)", fontSize: 11 }}>
+            <span aria-hidden="true">⌘</span>
+            <select
+              aria-label="选择 worktree"
+              value={newSessionCwd ?? cwd ?? ""}
+              onChange={(event) => onNewSessionCwdChange?.(event.target.value)}
+              style={{ minWidth: 0, maxWidth: "100%", border: 0, outline: 0, background: "transparent", color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 11, cursor: "pointer" }}
+            >
+              {newSessionWorktrees.map((worktree) => (
+                <option key={worktree.path} value={worktree.path}>
+                  {worktree.branch ?? worktree.path}{worktree.isMain ? " · 主分支" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {/* Queued steering / follow-up messages (delivered by pi on upcoming turns) */}
         {((queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)) > 0 && (
           <div style={{

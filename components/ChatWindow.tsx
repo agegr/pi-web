@@ -39,6 +39,7 @@ interface Props {
   onSessionStatsPanelOpen?: () => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
   onOpenFile?: (filePath: string) => void;
+  onNewSessionCwdChange?: (cwd: string) => void;
 }
 
 function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, string | number>) => string): string {
@@ -191,7 +192,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, children, t }: { mes
   );
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile }: Props) {
+export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onNewSessionCwdChange }: Props) {
   const { t } = useI18n();
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
   const {
@@ -387,6 +388,23 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
+  const [newSessionWorktrees, setNewSessionWorktrees] = useState<{ path: string; branch: string | null; isMain: boolean }[]>([]);
+  useEffect(() => {
+    if (session || !newSessionCwd) {
+      setNewSessionWorktrees([]);
+      return;
+    }
+    const controller = new AbortController();
+    fetch(`/api/worktrees?cwd=${encodeURIComponent(newSessionCwd)}`, { signal: controller.signal })
+      .then((response) => response.ok ? response.json() as Promise<{ worktrees?: typeof newSessionWorktrees }> : Promise.reject(new Error(`HTTP ${response.status}`)))
+      .then((data) => setNewSessionWorktrees(data.worktrees ?? []))
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        console.error("加载新会话 worktree 失败", error);
+        setNewSessionWorktrees([]);
+      });
+    return () => controller.abort();
+  }, [newSessionCwd, session]);
 
   const availableThinkingLevels = displayModelValue
     ? (modelThinkingLevels[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
@@ -439,6 +457,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       onNotificationToggle={onNotificationToggle}
       draftKey={session?.id ?? (newSessionCwd ? `new:${newSessionCwd}` : undefined)}
       cwd={session?.cwd ?? newSessionCwd}
+      newSessionWorktrees={!session ? newSessionWorktrees : undefined}
+      newSessionCwd={!session ? newSessionCwd : undefined}
+      onNewSessionCwdChange={onNewSessionCwdChange}
     />
   );
 
