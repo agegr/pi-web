@@ -41,6 +41,8 @@ interface Props {
   modelNames?: Record<string, string>;
   modelList?: { id: string; name: string; provider: string }[];
   modelError?: string | null;
+  /** Diagnostics from resolving `enabledModels`, e.g. a pattern that matched nothing. */
+  modelScopeWarnings?: string[];
   onModelChange?: (provider: string, modelId: string) => void;
   onCompact?: () => void;
   onAbortCompaction?: () => void;
@@ -217,8 +219,8 @@ function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: s
   );
 }
 
-export function ModelErrorBanner({ error }: { error?: string | null }) {
-  if (!error) return null;
+function ModelNoticeBanner({ tone, title, body }: { tone: "error" | "warning"; title: string; body: string }) {
+  const color = tone === "error" ? "239,68,68" : "234,179,8";
   return (
     <div
       role="alert"
@@ -230,10 +232,10 @@ export function ModelErrorBanner({ error }: { error?: string | null }) {
         marginBottom: 8,
         padding: "7px 10px",
         overflowY: "auto",
-        border: "1px solid rgba(239,68,68,0.3)",
+        border: `1px solid rgba(${color},0.3)`,
         borderRadius: 6,
-        background: "rgba(239,68,68,0.07)",
-        color: "#ef4444",
+        background: `rgba(${color},0.07)`,
+        color: `rgb(${color})`,
         fontSize: 11,
         lineHeight: 1.45,
       }}
@@ -255,15 +257,32 @@ export function ModelErrorBanner({ error }: { error?: string | null }) {
         <line x1="12" y1="17" x2="12.01" y2="17" />
       </svg>
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontWeight: 600 }}>Model error</div>
-        <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{error}</div>
+        <div style={{ fontWeight: 600 }}>{title}</div>
+        <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{body}</div>
       </div>
     </div>
   );
 }
 
+export function ModelErrorBanner({ error }: { error?: string | null }) {
+  if (!error) return null;
+  return <ModelNoticeBanner tone="error" title="Model error" body={error} />;
+}
+
+/** Surfaces `enabledModels` patterns that matched nothing, so a typo is visible (#307). */
+export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
+  if (!warnings || warnings.length === 0) return null;
+  return (
+    <ModelNoticeBanner
+      tone="warning"
+      title={warnings.length > 1 ? "Model scope warnings" : "Model scope warning"}
+      body={warnings.join("\n")}
+    />
+  );
+}
+
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, onModelChange,
+  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange,
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
@@ -1091,6 +1110,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       />
       <div style={{ maxWidth: 820, margin: "0 auto" }}>
         <ModelErrorBanner error={modelError} />
+        <ModelScopeWarningBanner warnings={modelScopeWarnings} />
         {/* Queued steering / follow-up messages (delivered by pi on upcoming turns) */}
         {((queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)) > 0 && (
           <div style={{
@@ -1185,6 +1205,26 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               <polyline points="20 6 9 17 4 12" />
             </svg>
             {compactResultText}
+          </div>
+        )}
+        {compactError && (
+          <div
+            role="alert"
+            style={{
+              marginBottom: 8,
+              padding: "7px 10px",
+              background: "rgba(239,68,68,0.07)",
+              border: "1px solid rgba(239,68,68,0.3)",
+              borderRadius: 6,
+              color: "#ef4444",
+              fontFamily: "var(--font-mono)",
+              fontSize: 12,
+              lineHeight: 1.5,
+              whiteSpace: "pre-wrap",
+              overflowWrap: "anywhere",
+            }}
+          >
+            {compactError}
           </div>
         )}
         {/* Image previews */}
@@ -2130,18 +2170,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             )}
 
             {!isStreaming && onCompact && (
-              <div style={{ position: "relative" }}>
-                {compactError && (
-                  <div style={{
-                    position: "absolute", bottom: "calc(100% + 6px)", right: 0,
-                    background: "#1f2937", color: "#f87171",
-                    fontSize: 11, padding: "4px 8px", borderRadius: 5,
-                    whiteSpace: "nowrap", pointerEvents: "none",
-                    boxShadow: "0 2px 8px rgba(0,0,0,0.2)", zIndex: 50,
-                  }}>
-                    {compactError}
-                  </div>
-                )}
+              <div>
                 <button
                   onClick={isCompacting ? onAbortCompaction : onCompact}
                   disabled={isStreaming && !isCompacting}

@@ -15,6 +15,14 @@ export function getDisplayableAssistantBlocks(
   return (message.content ?? []).filter((block) => !isEmptyThinkingBlock(block, options));
 }
 
+export function getAssistantErrorMessage(
+  message: AssistantMessage,
+  options: DisplayOptions = {},
+): string | null {
+  if (options.isStreaming || message.stopReason !== "error") return null;
+  return message.errorMessage?.trim() || "Unknown provider error";
+}
+
 function isFinalAnswerBlock(block: AssistantContentBlock): boolean {
   return block.type === "text" || block.type === "image";
 }

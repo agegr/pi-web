@@ -26,3 +26,10 @@ test("keeps a newly created session visible until it reaches the server list", (
   assert.match(source, /getRecentProjects\(visibleSessions\)/);
   assert.match(source, /visibleSessions\.filter/);
 });
+
+test("polls running sessions only while the tab is visible", () => {
+  assert.doesNotMatch(source, /new EventSource\("\/api\/agent\/running\/events"\)/);
+  assert.match(source, /fetch\("\/api\/agent\/running"/);
+  assert.match(source, /document\.visibilityState !== "visible"/);
+  assert.match(source, /document\.addEventListener\("visibilitychange", onVisibilityChange\)/);
+});
