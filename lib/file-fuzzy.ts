@@ -24,18 +24,20 @@ export interface FileIndexEntry {
  * @"my dir/fi so drill-down into space-containing paths keeps working.
  */
 export function extractAtQuery(textBeforeCursor: string): AtQueryMatch | null {
-  const quoted = /(?:^|\s)@"([^"\n]*)$/.exec(textBeforeCursor);
+  const lineStart = textBeforeCursor.lastIndexOf("\n") + 1;
+  const line = textBeforeCursor.slice(lineStart);
+  const quoted = /(?:^|\s)@"([^"\n]*)$/.exec(line);
   if (quoted) {
     return {
-      start: textBeforeCursor.length - (quoted[1].length + 2),
+      start: lineStart + line.length - (quoted[1].length + 2),
       query: quoted[1],
       quoted: true,
     };
   }
-  const plain = /(?:^|\s)@([^\s"]*)$/.exec(textBeforeCursor);
+  const plain = /(?:^|\s)@([^\s"]*)$/.exec(line);
   if (plain) {
     return {
-      start: textBeforeCursor.length - (plain[1].length + 1),
+      start: lineStart + line.length - (plain[1].length + 1),
       query: plain[1],
       quoted: false,
     };

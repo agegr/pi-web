@@ -10,6 +10,7 @@ try {
 } catch { /* package not found, use default */ }
 
 const nextConfig: NextConfig = {
+  devIndicators: false,
   serverExternalPackages: [
     "undici",
     "@earendil-works/pi-coding-agent",
@@ -17,7 +18,7 @@ const nextConfig: NextConfig = {
     "@earendil-works/pi-ai",
     "@earendil-works/pi-tui",
   ],
-  allowedDevOrigins: ['192.168.*.*'],
+  allowedDevOrigins: ["192.168.*.*", "10.0.0.*", "pi.znzme.com"],
   async headers() {
     return [
       {

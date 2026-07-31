@@ -17,3 +17,12 @@ test("does not register row-level session deletion shortcuts", () => {
   assert.doesNotMatch(sessionItemSource, /onKeyDown=\{handleKeyDown\}/);
   assert.doesNotMatch(sessionItemSource, /tabIndex=\{0\}/);
 });
+
+test("keeps a newly created session visible until it reaches the server list", () => {
+  assert.match(
+    source,
+    /!optimisticSession \|\| allSessions\.some\(\(session\) => session\.id === optimisticSession\.id\)/,
+  );
+  assert.match(source, /getRecentProjects\(visibleSessions\)/);
+  assert.match(source, /visibleSessions\.filter/);
+});

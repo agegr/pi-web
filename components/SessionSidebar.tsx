@@ -75,6 +75,7 @@ function ToolbarIconButton({
 
 interface Props {
   selectedSessionId: string | null;
+  optimisticSession?: SessionInfo | null;
   onSelectSession: (session: SessionInfo, isRestore?: boolean) => void;
   onNewSession?: (sessionId: string, cwd: string) => void;
   initialSessionId?: string | null;
@@ -382,9 +383,10 @@ function PiWebTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions }: Props) {
+export function SessionSidebar({ selectedSessionId, optimisticSession, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
+  const [optimisticSessions, setOptimisticSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
@@ -432,6 +434,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[] };
       setAllSessions(data.sessions);
+      const persistedIds = new Set(data.sessions.map((session) => session.id));
+      setOptimisticSessions((prev) => prev.filter((session) => !persistedIds.has(session.id)));
       // Treat the fetched running set as an initial fallback only. Once SSE is
       // live it owns this state, so a slow fetch can't revive a stale snapshot.
       if (!sseAuthoritativeRef.current) {
@@ -777,7 +781,29 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onNewSession?.(tempId, selectedCwd);
   }, [selectedCwd, onNewSession]);
 
-  const recentProjects = getRecentProjects(allSessions);
+  // Pi 首次生成助手消息前可能尚未把新会话写入可读取的列表。缓存客户端已知的
+  // 临时会话，切换到其它会话后仍保留它，直到服务端列表确认已经持久化。
+  useEffect(() => {
+    if (!optimisticSession || allSessions.some((session) => session.id === optimisticSession.id)) return;
+    setOptimisticSessions((prev) => {
+      const session = {
+        ...optimisticSession,
+        projectRoot: optimisticSession.projectRoot ?? projectRootFor(optimisticSession.cwd) ?? optimisticSession.cwd,
+      };
+      const index = prev.findIndex((item) => item.id === session.id);
+      if (index < 0) return [session, ...prev];
+      const next = [...prev];
+      next[index] = session;
+      return next;
+    });
+  }, [optimisticSession, allSessions, projectRootFor]);
+
+  const persistedIds = new Set(allSessions.map((session) => session.id));
+  const visibleSessions = [
+    ...optimisticSessions.filter((session) => !persistedIds.has(session.id)),
+    ...allSessions,
+  ];
+  const recentProjects = getRecentProjects(visibleSessions);
   const showProjectFilter = recentProjects.length > 8;
   const visibleProjects = projectFilter.trim()
     ? recentProjects.filter((p) => p.toLowerCase().includes(projectFilter.trim().toLowerCase()))
@@ -786,8 +812,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // Sessions of every worktree in the selected project are shown together
   const selectedProject = projectRootFor(selectedCwd);
   const filteredSessions = selectedProject
-    ? allSessions.filter((s) => (s.projectRoot ?? s.cwd) === selectedProject)
-    : allSessions;
+    ? visibleSessions.filter((s) => (s.projectRoot ?? s.cwd) === selectedProject)
+    : visibleSessions;
   const showWorktreeSwitcher = Boolean(
     worktreeState?.isGit
     && worktreeState.isTopLevel
@@ -1497,6 +1523,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             onSelectSession={handleSelectSessionFromList}
             onRenamed={loadSessions}
             onSessionDeleted={(id) => {
+              setOptimisticSessions((prev) => prev.filter((session) => session.id !== id));
               onSessionDeleted?.(id);
               loadSessions();
             }}

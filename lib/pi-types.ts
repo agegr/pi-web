@@ -57,6 +57,8 @@ interface PromptTemplateLike {
 interface SkillLike {
   name: string;
   description?: string;
+  filePath: string;
+  baseDir: string;
   sourceInfo: SlashCommandInfo["sourceInfo"];
 }
 
@@ -136,6 +138,7 @@ export interface AgentSessionLike {
   reload(options?: { beforeSessionStart?: () => void | Promise<void> }): Promise<void>;
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;
   prompt(text: string, options?: {
+    expandPromptTemplates?: boolean;
     images?: Array<{ type: "image"; data: string; mimeType: string }>;
     streamingBehavior?: "steer" | "followUp";
     source?: "interactive" | "rpc";

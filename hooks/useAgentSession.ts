@@ -377,6 +377,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const initialScrollDoneRef = useRef(false);
   const lastUserMsgRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollToUserRef = useRef(false);
+  const pendingScrollToRunningEndRef = useRef(false);
   const completionScrollAllowedRef = useRef(true);
   const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
   const userScrollIntentUntilRef = useRef(0);
@@ -1471,7 +1472,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
-    messagesEndRef.current?.scrollIntoView({ behavior });
+    messagesEndRef.current?.scrollIntoView({ behavior, block: "end" });
   }, []);
 
   const scrollUserMsgToTop = useCallback(() => {
@@ -1506,6 +1507,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (agentState?.running) {
           loadTools(session.id);
           if (agentState.state?.isStreaming || agentState.state?.isPromptRunning) {
+            pendingScrollToRunningEndRef.current = true;
             agentRunningRef.current = true;
             setAgentRunning(true);
             setAgentPhase(agentState.state.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
@@ -1577,6 +1579,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         pendingScrollToUserRef.current = false;
         initialScrollDoneRef.current = true;
         scrollUserMsgToTop();
+      } else if (pendingScrollToRunningEndRef.current) {
+        pendingScrollToRunningEndRef.current = false;
+        initialScrollDoneRef.current = true;
+        scrollToBottom("instant");
       } else if (!initialScrollDoneRef.current) {
         initialScrollDoneRef.current = true;
         scrollToBottom("instant");

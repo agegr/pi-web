@@ -7,7 +7,8 @@ import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
-import { parseSkillBlock } from "@/lib/skill-block";
+import { parseSkillMessage } from "@/lib/skill-block";
+import { getLongUserMessageStats } from "@/lib/long-user-message";
 import type {
   AgentMessage,
   UserMessage,
@@ -24,6 +25,18 @@ import type {
 
 const MAX_THINKING_CACHE_ENTRIES = 100;
 const thinkingContentCache = new Map<string, Promise<string>>();
+
+function downloadTextFile(content: string): void {
+  const url = URL.createObjectURL(new Blob([content], { type: "text/plain;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "prompt.txt";
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
 
 function loadThinkingContent(sessionId: string, entryId: string, blockIndex: number): Promise<string> {
   const key = `${sessionId}:${entryId}:${blockIndex}`;
@@ -152,6 +165,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   const { t } = useI18n();
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [longMessageExpanded, setLongMessageExpanded] = useState(false);
 
   const content =
     typeof message.content === "string"
@@ -160,11 +174,12 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
           .filter((b): b is TextContent => b.type === "text")
           .map((b) => b.text)
           .join("\n");
-  const skillBlock = parseSkillBlock(content);
-  const displayContent = skillBlock?.userMessage ?? (skillBlock ? "" : content);
-  const skillCommand = skillBlock
-    ? `/skill:${skillBlock.name}${skillBlock.userMessage ? ` ${skillBlock.userMessage}` : ""}`
+  const skillMessage = parseSkillMessage(content);
+  const displayContent = skillMessage?.userMessage ?? (skillMessage ? "" : content);
+  const skillCommand = skillMessage
+    ? `${skillMessage.skills.map((skill) => `/skill:${skill.name}`).join(" ")}${skillMessage.userMessage ? ` ${skillMessage.userMessage}` : ""}`
     : null;
+  const longMessageStats = getLongUserMessageStats(displayContent);
 
   const imageBlocks: ImageContent[] =
     typeof message.content === "string"
@@ -228,12 +243,53 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
               })}
             </div>
           )}
-          {skillBlock && (
+          {skillMessage && (
             <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 600, marginBottom: displayContent ? 6 : 0 }}>
-              [skill] {skillBlock.name}
+              {skillMessage.skills.map((skill) => <div key={`${skill.name}:${skill.location}`}>[skill] {skill.name}</div>)}
             </div>
           )}
-          {displayContent && <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{displayContent}</MarkdownBody>}
+          {displayContent && longMessageStats.compact ? (
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 9, minHeight: 34 }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, color: "var(--text-muted)" }}>
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+                  <path d="M14 2v6h6" />
+                  <path d="M8 13h8M8 17h6" />
+                </svg>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600 }}>prompt.txt</div>
+                  <div style={{ color: "var(--text-dim)", fontSize: 11 }}>
+                    {t("chat.longMessageStats", {
+                      characters: longMessageStats.characters.toLocaleString(),
+                      lines: longMessageStats.lines.toLocaleString(),
+                    })}
+                  </div>
+                </div>
+                <button type="button" onClick={() => setLongMessageExpanded((expanded) => !expanded)} style={{ padding: "3px 7px", border: "none", background: "none", color: "var(--accent)", cursor: "pointer", fontSize: 11, whiteSpace: "nowrap" }}>
+                  {t(longMessageExpanded ? "chat.collapseLongMessage" : "chat.viewLongMessage")}
+                </button>
+                <button type="button" onClick={copyContent} title={t("i18n.copyMessage")} aria-label={t("i18n.copyMessage")} style={{ display: "flex", width: 26, height: 26, alignItems: "center", justifyContent: "center", padding: 0, border: "none", background: "none", color: copied ? "var(--accent)" : "var(--text-muted)", cursor: "pointer" }}>
+                  {copied ? (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+                  )}
+                </button>
+                <button type="button" onClick={() => downloadTextFile(displayContent)} title={t("i18n.downloadFile")} aria-label={t("i18n.downloadFile")} style={{ display: "flex", width: 26, height: 26, alignItems: "center", justifyContent: "center", padding: 0, border: "none", background: "none", color: "var(--text-muted)", cursor: "pointer" }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" />
+                  </svg>
+                </button>
+              </div>
+              {longMessageExpanded && (
+                <pre style={{ maxHeight: 420, margin: "8px 0 0", paddingTop: 8, overflow: "auto", borderTop: "1px solid rgba(59,130,246,0.16)", whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontFamily: "var(--font-mono)", fontSize: 12, lineHeight: 1.55 }}>
+                  {displayContent}
+                </pre>
+              )}
+            </div>
+          ) : displayContent ? (
+            <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{displayContent}</MarkdownBody>
+          ) : null}
         </div>
 
       </div>

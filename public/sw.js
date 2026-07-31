@@ -14,9 +14,14 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(STATIC_CACHE)
-      .then((cache) => cache.addAll(PRECACHE_URLS))
-      .then(() => self.skipWaiting()),
+      .then((cache) => cache.addAll(PRECACHE_URLS)),
   );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") {
+    void self.skipWaiting();
+  }
 });
 
 self.addEventListener("activate", (event) => {
@@ -31,6 +36,21 @@ self.addEventListener("activate", (event) => {
         ),
       )
       .then(() => self.clients.claim()),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = new URL(event.notification.data?.url || "/", self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (clients) => {
+      const client = clients.find((candidate) => candidate.url.startsWith(self.location.origin));
+      if (client) {
+        await client.navigate(targetUrl);
+        return client.focus();
+      }
+      return self.clients.openWindow(targetUrl);
+    }),
   );
 });
 

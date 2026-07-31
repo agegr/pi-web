@@ -1,0 +1,87 @@
+.prompt {
+  position: absolute;
+  right: 16px;
+  bottom: 92px;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  max-width: min(430px, calc(100% - 32px));
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--text) 16%, transparent);
+}
+
+.copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.copy strong {
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.copy span {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.actions button {
+  min-height: 34px;
+  padding: 0 11px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.laterButton {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.enableButton {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.actions button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .prompt {
+    right: 10px;
+    bottom: 82px;
+    left: 10px;
+    max-width: none;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .actions {
+    justify-content: flex-end;
+  }
+
+  .actions button {
+    min-height: 40px;
+  }
+}
