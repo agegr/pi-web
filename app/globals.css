@@ -72,9 +72,13 @@ html.dark {
 }
 
 html, body {
-  height: 100%;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  height: var(--app-viewport-height, 100dvh);
   margin: 0;
   padding: 0;
+  overflow: hidden;
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -83,7 +87,8 @@ html, body {
 }
 
 body {
-  height: 100dvh;
+  display: flex;
+  flex-direction: column;
 }
 
 ::-webkit-scrollbar {
@@ -111,6 +116,9 @@ pre, code {
 
 /* react-markdown output styles */
 .markdown-body {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
   font-size: 14px;
   line-height: 1.7;
   color: var(--text);
@@ -358,6 +366,9 @@ pre, code {
 
 .markdown-code-block {
   position: relative;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   margin: 6px 0;
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -985,6 +996,7 @@ span.linenumber {
     bottom: 0;
     width: 280px;
     max-width: 85vw;
+    height: var(--app-viewport-height, 100dvh);
     transition: transform 0.25s ease, box-shadow 0.25s ease;
   }
   .sidebar-container.sidebar-open {
@@ -999,6 +1011,7 @@ span.linenumber {
   .right-panel-container {
     position: fixed;
     inset: 0;
+    height: var(--app-viewport-height, 100dvh);
     z-index: 250;
     overflow: hidden;
     transition: transform 0.2s ease;
@@ -1032,5 +1045,10 @@ span.linenumber {
   .directory-picker-footer {
     flex-wrap: wrap;
     padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
+  }
+  textarea,
+  input,
+  select {
+    font-size: 16px !important;
   }
 }
