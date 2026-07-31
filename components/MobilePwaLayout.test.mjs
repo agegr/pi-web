@@ -19,12 +19,18 @@ test("tracks the visual viewport while the software keyboard is open", () => {
   assert.match(appShellSource, /useViewportHeight\(\)/);
   assert.match(appShellSource, /paddingTop: "env\(safe-area-inset-top\)"/);
   assert.match(appShellSource, /paddingBottom: "env\(safe-area-inset-bottom\)"/);
+  assert.match(appShellSource, /paddingLeft: "env\(safe-area-inset-left\)"/);
+  assert.match(appShellSource, /paddingRight: "env\(safe-area-inset-right\)"/);
   assert.match(appShellSource, /height: "calc\(36px \+ env\(safe-area-inset-top\)\)"/);
+  assert.match(appShellSource, /\/\* Right panel tab bar \*\/[\s\S]*?height: "calc\(36px \+ env\(safe-area-inset-top\)\)"/);
   assert.match(appShellSource, /height: "var\(--app-viewport-height, 100dvh\)"/);
+  assert.match(appShellSource, /right: "env\(safe-area-inset-right\)"/);
   assert.match(viewportHookSource, /window\.visualViewport/);
   assert.match(viewportHookSource, /--app-viewport-height/);
   assert.match(viewportHookSource, /window\.scrollTo\(0, 0\)/);
   assert.match(cssSource, /height: var\(--app-viewport-height, 100dvh\)/);
+  assert.match(cssSource, /left: env\(safe-area-inset-left\)/);
+  assert.match(chatWindowSource, /paddingBottom: "env\(safe-area-inset-bottom\)"/);
 });
 
 test("contains chat content and inputs within the mobile viewport", () => {
