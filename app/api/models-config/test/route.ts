@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { completeSimple, type AssistantMessage } from "@earendil-works/pi-ai/compat";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { completeSimple, type AssistantMessage } from "@oh-my-pi/pi-ai";
+import { ModelRegistry } from "@oh-my-pi/pi-coding-agent";
+import { getOmpRuntime } from "@/lib/omp-runtime";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,7 @@ function errorMessage(error: unknown): string {
 
 function getAssistantText(message: AssistantMessage): string {
   return message.content
-    .filter((block) => block.type === "text")
+    .filter((block): block is { type: "text"; text: string } => block.type === "text")
     .map((block) => block.text)
     .join("");
 }
@@ -48,7 +49,7 @@ export async function POST(req: Request) {
     const modelId = typeof body.model.id === "string" ? body.model.id.trim() : "";
     if (!modelId) return NextResponse.json({ ok: false, error: "Model ID is required" }, { status: 400 });
 
-    tempDir = mkdtempSync(join(tmpdir(), "pi-web-model-test-"));
+    tempDir = mkdtempSync(join(tmpdir(), "omp-web-model-test-"));
     const modelsPath = join(tempDir, "models.json");
     writeFileSync(modelsPath, JSON.stringify({
       providers: {
@@ -59,16 +60,23 @@ export async function POST(req: Request) {
       },
     }, null, 2), "utf8");
 
-    const modelRuntime = await ModelRuntime.create({ modelsPath });
-    const loadError = modelRuntime.getError();
-    if (loadError) return NextResponse.json({ ok: false, error: loadError });
+    // A throwaway registry over the submitted provider config, sharing the real
+    // AuthStorage so a saved key for this provider still resolves.
+    const { authStorage } = await getOmpRuntime();
+    const registry = new ModelRegistry(authStorage, modelsPath);
+    await registry.refresh("offline");
+    const loadError = registry.getError();
+    if (loadError) return NextResponse.json({ ok: false, error: loadError.message });
 
-    const model = modelRuntime.getModel(providerName, modelId);
+    const model = registry.find(providerName, modelId);
     if (!model) return NextResponse.json({ ok: false, error: `Model not found: ${providerName}/${modelId}` });
 
-    const resolved = await modelRuntime.getAuth(model);
-    if (!resolved?.auth.apiKey) {
-      return NextResponse.json({ ok: false, error: `No API key found for "${providerName}"` });
+    const resolved = await registry.getApiKeyAndHeaders(model);
+    if (!resolved.ok || !resolved.apiKey) {
+      return NextResponse.json({
+        ok: false,
+        error: resolved.ok ? `No API key found for "${providerName}"` : resolved.error,
+      });
     }
 
     const controller = new AbortController();
@@ -84,11 +92,12 @@ export async function POST(req: Request) {
           timestamp: Date.now(),
         }],
       }, {
-        apiKey: resolved.auth.apiKey,
-        headers: resolved.auth.headers,
+        apiKey: resolved.apiKey,
+        headers: resolved.headers,
         maxTokens: 16,
-        timeoutMs: TEST_TIMEOUT_MS,
-        maxRetries: 0,
+        // A connectivity probe should fail fast rather than sit through a
+        // provider-requested backoff.
+        maxRetryDelayMs: 0,
         cacheRetention: "none",
         signal: controller.signal,
         onResponse: (response) => { status = response.status; },

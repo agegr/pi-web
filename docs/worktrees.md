@@ -1,6 +1,6 @@
-# Worktrees in Pi Web
+# Worktrees in omp-web
 
-Pi Web can show all Git worktrees for one project in the sidebar. Use this when you want to keep separate checkouts for different branches, while keeping the project's sessions grouped together.
+omp-web can show all Git worktrees for one project in the sidebar. Use this when you want to keep separate checkouts for different branches, while keeping the project's sessions grouped together.
 
 ## When the Worktree Control Appears
 
@@ -16,7 +16,7 @@ If you are inside a repo subdirectory, open the repository root from the project
 
 ## Switching Worktrees
 
-Use the worktree switcher to choose which checkout Pi Web should use for new work in that project.
+Use the worktree switcher to choose which checkout omp-web should use for new work in that project.
 
 Switching worktrees affects:
 
@@ -30,7 +30,7 @@ Existing sessions stay grouped under the same project. Opening an existing sessi
 
 Choose `New worktree...` from the worktree menu and enter a branch name.
 
-Pi Web creates the checkout at:
+omp-web creates the checkout at:
 
 ```text
 <repo>-worktrees/<branch>
@@ -39,16 +39,16 @@ Pi Web creates the checkout at:
 For example, if the main checkout is:
 
 ```text
-/Users/alex/Documents/Workspace/pi-web
+/Users/alex/Documents/Workspace/omp-web
 ```
 
 and you create branch `codex/worktree-help`, the worktree is created under:
 
 ```text
-/Users/alex/Documents/Workspace/pi-web-worktrees/codex-worktree-help
+/Users/alex/Documents/Workspace/omp-web-worktrees/codex-worktree-help
 ```
 
-If the branch already exists, Pi Web adds a worktree for that branch. If it does not exist, Pi Web creates the branch from the current `HEAD`.
+If the branch already exists, omp-web adds a worktree for that branch. If it does not exist, omp-web creates the branch from the current `HEAD`.
 
 ## Removing a Worktree
 
@@ -57,14 +57,14 @@ Use the remove button next to a non-main worktree to remove that checkout.
 Removing a worktree does not delete:
 
 - The Git branch.
-- Pi Web session history.
+- omp-web session history.
 - The main checkout.
 
-If the worktree has uncommitted or untracked files, Git refuses the removal. Pi Web then offers a force remove action. Force removal discards the uncommitted files in that checkout, so use it only when you no longer need those changes.
+If the worktree has uncommitted or untracked files, Git refuses the removal. omp-web then offers a force remove action. Force removal discards the uncommitted files in that checkout, so use it only when you no longer need those changes.
 
 ## Sessions and Worktrees
 
-Pi Web groups sessions by project root, so sessions from the main checkout and linked worktrees appear together.
+omp-web groups sessions by project root, so sessions from the main checkout and linked worktrees appear together.
 
 Each session still remembers the working directory it was created with. That means:
 
@@ -81,7 +81,7 @@ Select a Git repository root. Non-Git directories and repo subdirectories show a
 Git allows a branch to be checked out in only one worktree at a time. Switch to the existing worktree for that branch, or remove it first.
 
 **A removed worktree still shows up in Git.**
-Git can keep prunable worktree records after a checkout disappears. Pi Web filters those out of the switcher.
+Git can keep prunable worktree records after a checkout disappears. omp-web filters those out of the switcher.
 
 **The Explorer shows a different branch than the open chat.**
 The Explorer follows the selected worktree. The chat follows the opened session. Click the session again to move the sidebar back to that session's checkout.

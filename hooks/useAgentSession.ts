@@ -12,7 +12,8 @@ import type {
 import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
-import type { SessionStatsInfo } from "@/lib/pi-types";
+import type { SessionStatsInfo } from "@/lib/omp-types";
+import type { ModelRoleAssignment } from "@/lib/api-types";
 
 export interface SessionData {
   sessionId: string;
@@ -322,6 +323,7 @@ type ModelsResponse = {
   thinkingLevels?: Record<string, string[]>;
   thinkingLevelMaps?: Record<string, Record<string, string | null>>;
   thinkingLevelPins?: Record<string, string>;
+  roles?: ModelRoleAssignment[];
   modelError?: string;
   modelScopeWarnings?: string[];
 };
@@ -354,6 +356,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelScopeWarnings, setModelScopeWarnings] = useState<string[]>([]);
   const [modelThinkingLevels, setModelThinkingLevels] = useState<Record<string, string[]>>({});
   const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>({});
+  const [modelRoles, setModelRoles] = useState<ModelRoleAssignment[]>([]);
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
   const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("default");
@@ -1442,6 +1445,34 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [isNew, setNewSessionModel]);
 
+  /**
+   * Switch the session onto the model configured for one of omp's roles.
+   *
+   * The role is sent along, not just the model, so the transcript records which
+   * role drove the change — the same thing `/model` does in the TUI, and what
+   * lets omp resolve retry fallbacks for that role later.
+   */
+  const handleRoleModelChange = useCallback(async (role: string) => {
+    const assignment = modelRoles.find((candidate) => candidate.role === role);
+    const resolved = assignment?.resolved;
+    if (!resolved) return;
+
+    if (isNew) {
+      const selectedModel = { provider: resolved.provider, modelId: resolved.modelId };
+      newSessionModelOverrideRef.current = selectedModel;
+      setNewSessionModel(selectedModel);
+      setPendingModel(selectedModel);
+    }
+    const sid = sessionIdRef.current ?? (isNew ? await ensuringNewSessionRef.current : null);
+    if (!sid) return;
+    try {
+      await sendAgentCommand(sid, { type: "set_role_model", role });
+      if (!isNew) setCurrentModelOverride({ provider: resolved.provider, modelId: resolved.modelId });
+    } catch (e) {
+      console.error("Failed to set role model:", e);
+    }
+  }, [isNew, modelRoles, setNewSessionModel]);
+
   const handleCompact = useCallback(async () => {
     const sid = sessionIdRef.current;
     if (!sid || isCompacting) return;
@@ -1471,6 +1502,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setModelScopeWarnings(d.modelScopeWarnings ?? []);
     setModelThinkingLevels(d.thinkingLevels ?? {});
     setModelThinkingLevelMaps(d.thinkingLevelMaps ?? {});
+    setModelRoles(d.roles ?? []);
     const nextModelList = d.modelList ?? [];
     setModelList(nextModelList);
     if (isNew && !sessionIdRef.current) {
@@ -1838,7 +1870,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, entryIds, streamState,
-    agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
+    agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, modelRoles, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
@@ -1850,7 +1882,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     sessionIdRef, eventSourceRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
     // Actions
-    handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
+    handleSend, handleAbort, handleFork, handleNavigate, handleModelChange, handleRoleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,

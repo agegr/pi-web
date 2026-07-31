@@ -1,6 +1,6 @@
-# Pi Web 里的 Worktree
+# omp-web 里的 Worktree
 
-Pi Web 会把同一个 Git 项目的 main checkout 和 linked worktree 放在同一个项目下。你可以用它在不同分支之间切换工作目录，同时保留统一的会话列表。
+omp-web 会把同一个 Git 项目的 main checkout 和 linked worktree 放在同一个项目下。你可以用它在不同分支之间切换工作目录，同时保留统一的会话列表。
 
 ## 什么时候会看到 Worktree 控件
 
@@ -16,7 +16,7 @@ Pi Web 会把同一个 Git 项目的 main checkout 和 linked worktree 放在同
 
 ## 切换 Worktree 会影响什么
 
-worktree 切换器决定 Pi Web 接下来使用哪个 checkout。
+worktree 切换器决定 omp-web 接下来使用哪个 checkout。
 
 它会影响：
 
@@ -30,7 +30,7 @@ worktree 切换器决定 Pi Web 接下来使用哪个 checkout。
 
 在 worktree 菜单里选择 `New worktree...`，输入 branch name。
 
-Pi Web 会把 checkout 放在：
+omp-web 会把 checkout 放在：
 
 ```text
 <repo>-worktrees/<branch>
@@ -39,16 +39,16 @@ Pi Web 会把 checkout 放在：
 例如 main checkout 是：
 
 ```text
-/Users/alex/Documents/Workspace/pi-web
+/Users/alex/Documents/Workspace/omp-web
 ```
 
 新建 `codex/worktree-help` 时，目录会是：
 
 ```text
-/Users/alex/Documents/Workspace/pi-web-worktrees/codex-worktree-help
+/Users/alex/Documents/Workspace/omp-web-worktrees/codex-worktree-help
 ```
 
-如果这个 branch 已存在，Pi Web 会为它添加 worktree。如果 branch 不存在，Pi Web 会从当前 `HEAD` 创建这个 branch。
+如果这个 branch 已存在，omp-web 会为它添加 worktree。如果 branch 不存在，omp-web 会从当前 `HEAD` 创建这个 branch。
 
 ## 删除 Worktree
 
@@ -57,14 +57,14 @@ Pi Web 会把 checkout 放在：
 删除 worktree 不会删除：
 
 - Git branch。
-- Pi Web 的历史会话。
+- omp-web 的历史会话。
 - main checkout。
 
-如果 worktree 里有未提交或未跟踪文件，Git 会拒绝删除。Pi Web 会再显示 force remove。force remove 会丢弃这个 checkout 里的未提交文件，只在确定不需要这些改动时使用。
+如果 worktree 里有未提交或未跟踪文件，Git 会拒绝删除。omp-web 会再显示 force remove。force remove 会丢弃这个 checkout 里的未提交文件，只在确定不需要这些改动时使用。
 
 ## 会话和 Worktree 的关系
 
-Pi Web 按 project root 分组会话，所以 main checkout 和 linked worktree 里的会话会显示在一起。
+omp-web 按 project root 分组会话，所以 main checkout 和 linked worktree 里的会话会显示在一起。
 
 但每个会话仍然记得自己创建时的 working directory：
 
@@ -81,7 +81,7 @@ Pi Web 按 project root 分组会话，所以 main checkout 和 linked worktree 
 Git 不允许同一个 branch 同时被多个 worktree checkout。你可以切到已有的 worktree，或者先删除那个 checkout。
 
 **Git 里还有已经消失的 worktree 记录怎么办？**
-Git 有时会保留 prunable worktree 记录。Pi Web 会过滤这些记录，不在切换器里显示。
+Git 有时会保留 prunable worktree 记录。omp-web 会过滤这些记录，不在切换器里显示。
 
 **Explorer 和当前聊天看起来不在同一个分支？**
 Explorer 跟随当前选择的 worktree；聊天跟随打开的会话。重新点击会话，可以把侧边栏切回这个会话所在的 checkout。

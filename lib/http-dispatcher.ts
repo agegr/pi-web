@@ -4,7 +4,7 @@ import * as undici from "undici";
 export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 300_000;
 
 type DispatcherGlobal = typeof globalThis & {
-  __piWebHttpDispatcherConfigured?: boolean;
+  __ompWebHttpDispatcherConfigured?: boolean;
 };
 
 const dispatcherGlobal = globalThis as DispatcherGlobal;
@@ -55,14 +55,32 @@ function createUndiciOriginDispatcher(origin: string | URL, options: object): un
   );
 }
 
+/**
+ * Whether the process is running on Bun's runtime.
+ *
+ * Bun ships its own `undici` module: `setGlobalDispatcher` there does not affect
+ * `fetch`, and `install` does not exist. Bun's native `fetch` already honors
+ * `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` read at process start, so the
+ * dispatcher dance is both ineffective and unnecessary under Bun — which is the
+ * runtime `omp-web` actually serves on.
+ */
+export function isBunRuntime(): boolean {
+  return typeof process.versions.bun === "string";
+}
+
 export function configureHttpDispatcher(
   timeoutMs: number = DEFAULT_HTTP_IDLE_TIMEOUT_MS,
 ): void {
-  if (dispatcherGlobal.__piWebHttpDispatcherConfigured) return;
+  if (dispatcherGlobal.__ompWebHttpDispatcherConfigured) return;
 
   const normalizedTimeoutMs = parseHttpIdleTimeoutMs(timeoutMs);
   if (normalizedTimeoutMs === undefined) {
     throw new Error(`Invalid HTTP idle timeout: ${String(timeoutMs)}`);
+  }
+
+  if (isBunRuntime()) {
+    dispatcherGlobal.__ompWebHttpDispatcherConfigured = true;
+    return;
   }
 
   const dispatcher = withUndiciErrorListener(
@@ -82,5 +100,5 @@ export function configureHttpDispatcher(
     undici.install?.();
   }
 
-  dispatcherGlobal.__piWebHttpDispatcherConfigured = true;
+  dispatcherGlobal.__ompWebHttpDispatcherConfigured = true;
 }

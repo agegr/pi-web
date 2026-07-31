@@ -1,13 +1,13 @@
 import {
   SessionManager,
-  buildContextEntries as piBuildContextEntries,
-  buildSessionContext as piBuildSessionContext,
+  buildSessionContext as ompBuildSessionContext,
   getAgentDir,
-} from "@earendil-works/pi-coding-agent";
+  listAllSessions as ompListAllSessions,
+} from "@oh-my-pi/pi-coding-agent";
 import { closeSync, openSync, readSync } from "fs";
 import { normalize as normalizePath } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
-import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry as OmpSessionEntry, SessionInfo as OmpSessionInfo } from "@oh-my-pi/pi-coding-agent";
 import { normalizeToolCalls } from "./normalize";
 import { sessionPathKey } from "./session-path";
 import { resolveProject, type ProjectInfo } from "./worktree";
@@ -15,26 +15,26 @@ import { resolveProject, type ProjectInfo } from "./worktree";
 export { getAgentDir };
 
 async function loadAllSessions(): Promise<SessionInfo[]> {
-  const piSessions: PiSessionInfo[] = await SessionManager.listAll();
+  const ompSessions: OmpSessionInfo[] = await ompListAllSessions();
   const pathToId = new Map<string, string>();
-  for (const s of piSessions) pathToId.set(sessionPathKey(s.path), s.id);
+  for (const s of ompSessions) pathToId.set(sessionPathKey(s.path), s.id);
 
   // Resolve each unique cwd to its project root (main repo shared by all
   // worktrees). resolveProject caches per-cwd, so this is cheap after warmup.
-  const uniqueCwds = [...new Set(piSessions.map((s) => s.cwd).filter(Boolean))];
+  const uniqueCwds = [...new Set(ompSessions.map((s) => s.cwd).filter(Boolean))];
   const projectByCwd = new Map<string, ProjectInfo>();
   await Promise.all(uniqueCwds.map(async (cwd) => {
     projectByCwd.set(cwd, await resolveProject(cwd));
   }));
 
-  return piSessions.map((s) => {
+  return ompSessions.map((s) => {
     cacheSessionPath(s.id, s.path);
     const project = s.cwd ? projectByCwd.get(s.cwd) : undefined;
     return {
       path: s.path,
       id: s.id,
       cwd: s.cwd,
-      name: s.name,
+      name: s.title,
       created: s.created instanceof Date ? s.created.toISOString() : String(s.created),
       modified: s.modified instanceof Date ? s.modified.toISOString() : String(s.modified),
       messageCount: s.messageCount,
@@ -47,37 +47,37 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
 }
 
 export async function listAllSessions(): Promise<SessionInfo[]> {
-  const generation = globalThis.__piSessionListGeneration ?? 0;
+  const generation = globalThis.__ompSessionListGeneration ?? 0;
 
   // Return cached result if still fresh (avoids re-scanning session files
   // and re-spawning git processes on every page load).
-  if (globalThis.__piSessionListCache && Date.now() - globalThis.__piSessionListCache.ts < SESSION_LIST_CACHE_TTL_MS) {
-    return globalThis.__piSessionListCache.data;
+  if (globalThis.__ompSessionListCache && Date.now() - globalThis.__ompSessionListCache.ts < SESSION_LIST_CACHE_TTL_MS) {
+    return globalThis.__ompSessionListCache.data;
   }
 
   // Coalescing dedup: concurrent callers share the same in-flight promise
   // only while it belongs to the current cache generation.
-  if (globalThis.__piSessionListPromise && globalThis.__piSessionListPromiseGeneration === generation) {
-    return globalThis.__piSessionListPromise;
+  if (globalThis.__ompSessionListPromise && globalThis.__ompSessionListPromiseGeneration === generation) {
+    return globalThis.__ompSessionListPromise;
   }
 
   const loadPromise = loadAllSessions().then((data) => {
     // An invalidation may happen while the scan is in flight. Do not let that
     // older result repopulate the cache after a session mutation.
-    if ((globalThis.__piSessionListGeneration ?? 0) === generation) {
-      globalThis.__piSessionListCache = { data, ts: Date.now() };
+    if ((globalThis.__ompSessionListGeneration ?? 0) === generation) {
+      globalThis.__ompSessionListCache = { data, ts: Date.now() };
     }
     return data;
   });
   const trackedPromise = loadPromise.finally(() => {
-    if (globalThis.__piSessionListPromise === trackedPromise) {
-      globalThis.__piSessionListPromise = undefined;
-      globalThis.__piSessionListPromiseGeneration = undefined;
+    if (globalThis.__ompSessionListPromise === trackedPromise) {
+      globalThis.__ompSessionListPromise = undefined;
+      globalThis.__ompSessionListPromiseGeneration = undefined;
     }
   });
 
-  globalThis.__piSessionListPromise = trackedPromise;
-  globalThis.__piSessionListPromiseGeneration = generation;
+  globalThis.__ompSessionListPromise = trackedPromise;
+  globalThis.__ompSessionListPromiseGeneration = generation;
   return trackedPromise;
 }
 
@@ -85,29 +85,29 @@ export async function listAllSessions(): Promise<SessionInfo[]> {
 // Session path caches, stored in globalThis for hot-reload safety.
 // ============================================================================
 declare global {
-  var __piSessionPathCache: Map<string, string> | undefined;
-  var __piPathToSessionIdCache: Map<string, string> | undefined;
-  var __piSessionListPromise: Promise<SessionInfo[]> | undefined;
-  var __piSessionListPromiseGeneration: number | undefined;
-  var __piSessionListGeneration: number | undefined;
-  var __piSessionListCache: { data: SessionInfo[]; ts: number } | undefined;
+  var __ompSessionPathCache: Map<string, string> | undefined;
+  var __ompPathToSessionIdCache: Map<string, string> | undefined;
+  var __ompSessionListPromise: Promise<SessionInfo[]> | undefined;
+  var __ompSessionListPromiseGeneration: number | undefined;
+  var __ompSessionListGeneration: number | undefined;
+  var __ompSessionListCache: { data: SessionInfo[]; ts: number } | undefined;
 }
 
 const SESSION_LIST_CACHE_TTL_MS = 30_000;
 
 export function invalidateSessionListCache(): void {
-  globalThis.__piSessionListGeneration = (globalThis.__piSessionListGeneration ?? 0) + 1;
-  globalThis.__piSessionListCache = undefined;
+  globalThis.__ompSessionListGeneration = (globalThis.__ompSessionListGeneration ?? 0) + 1;
+  globalThis.__ompSessionListCache = undefined;
 }
 
 function getPathCache(): Map<string, string> {
-  if (!globalThis.__piSessionPathCache) globalThis.__piSessionPathCache = new Map();
-  return globalThis.__piSessionPathCache;
+  if (!globalThis.__ompSessionPathCache) globalThis.__ompSessionPathCache = new Map();
+  return globalThis.__ompSessionPathCache;
 }
 
 function getPathToIdCache(): Map<string, string> {
-  if (!globalThis.__piPathToSessionIdCache) globalThis.__piPathToSessionIdCache = new Map();
-  return globalThis.__piPathToSessionIdCache;
+  if (!globalThis.__ompPathToSessionIdCache) globalThis.__ompPathToSessionIdCache = new Map();
+  return globalThis.__ompPathToSessionIdCache;
 }
 
 export async function resolveSessionPath(sessionId: string): Promise<string | null> {
@@ -196,9 +196,85 @@ export function readSessionHeader(filePath: string): SessionHeader | null {
   }
 }
 
-export function getSessionEntries(filePath: string): SessionEntry[] {
-  const entries = SessionManager.open(filePath).getEntries();
-  return entries as unknown as SessionEntry[];
+export async function getSessionEntries(filePath: string): Promise<SessionEntry[]> {
+  const manager = await SessionManager.open(filePath);
+  return manager.getEntries() as unknown as SessionEntry[];
+}
+
+/**
+ * Entries on the branch that ends at `leafId`, root-first.
+ *
+ * Corrupt or pre-fix files can contain parent cycles; stop at the first repeat
+ * so loading a session is bounded.
+ */
+function collectBranchPath(
+  entries: SessionEntry[],
+  byId: Map<string, SessionEntry>,
+  leafId?: string | null,
+): SessionEntry[] {
+  if (leafId === null) return [];
+
+  const leaf = (leafId ? byId.get(leafId) : undefined) ?? entries[entries.length - 1];
+  if (!leaf) return [];
+
+  const path: SessionEntry[] = [];
+  const seen = new Set<string>();
+  let current: SessionEntry | undefined = leaf;
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    path.push(current);
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+  return path.reverse();
+}
+
+/**
+ * Displayable entries for the chat window, in render order.
+ *
+ * omp's `buildSessionContext` returns rendered messages but not the entry ids
+ * behind them, and the browser needs those ids to fork and to navigate between
+ * in-session branches. This mirrors omp's own live-chat transcript —
+ * `{ transcript: true, collapseCompactedHistory: true }` — so the browser and
+ * the TUI show the same thing: history replaced by the latest compaction is
+ * elided, the summary renders at the compaction point, and everything kept or
+ * newer follows.
+ */
+function collectDisplayEntries(
+  entries: SessionEntry[],
+  byId: Map<string, SessionEntry>,
+  leafId?: string | null,
+): SessionEntry[] {
+  const path = collectBranchPath(entries, byId, leafId);
+
+  // Only the latest compaction on the path is active; earlier ones were
+  // themselves superseded.
+  let compactionIdx = -1;
+  for (let i = path.length - 1; i >= 0; i--) {
+    if (path[i].type === "compaction") {
+      compactionIdx = i;
+      break;
+    }
+  }
+  if (compactionIdx === -1) return path;
+
+  const compaction = path[compactionIdx] as Extract<SessionEntry, { type: "compaction" }>;
+  const kept: SessionEntry[] = [];
+  let foundFirstKept = false;
+  for (let i = 0; i < compactionIdx; i++) {
+    if (path[i].id === compaction.firstKeptEntryId) foundFirstKept = true;
+    if (foundFirstKept) kept.push(path[i]);
+  }
+
+  return [...kept, compaction, ...path.slice(compactionIdx + 1)];
+}
+
+/** `models.default` as the UI's `{ provider, modelId }` pair. */
+function parseDefaultModel(models: Record<string, string>): { provider: string; modelId: string } | null {
+  const selector = models.default;
+  if (!selector) return null;
+  const slash = selector.indexOf("/");
+  if (slash <= 0) return null;
+  return { provider: selector.slice(0, slash), modelId: selector.slice(slash + 1) };
 }
 
 export function buildSessionContext(
@@ -209,33 +285,31 @@ export function buildSessionContext(
   const byId = new Map<string, SessionEntry>();
   for (const e of entries) byId.set(e.id, e);
 
-  const piEntries = entries as unknown as PiSessionEntry[];
-  const piCtx = piBuildSessionContext(piEntries, leafId, byId as unknown as Map<string, PiSessionEntry>);
-
-  const contextEntries = piBuildContextEntries(
-    piEntries,
+  const ompEntries = entries as unknown as OmpSessionEntry[];
+  const ompCtx = ompBuildSessionContext(
+    ompEntries,
     leafId,
-    byId as unknown as Map<string, PiSessionEntry>,
+    byId as unknown as Map<string, OmpSessionEntry>,
+    { transcript: true, collapseCompactedHistory: true },
   );
 
-  // Convert the SDK-selected context entries and their IDs together. This keeps
-  // fork/navigation targets aligned while preserving pi's compaction ordering.
+  // Convert the branch entries and their IDs together so fork/navigation
+  // targets stay aligned with what the transcript renders.
   const messages: AgentMessage[] = [];
   const entryIds: string[] = [];
-  for (const entry of contextEntries) {
-    const localEntry = entry as unknown as SessionEntry;
-    const m = entryToUiMessage(localEntry, options);
+  for (const entry of collectDisplayEntries(entries, byId, leafId)) {
+    const m = entryToUiMessage(entry, options);
     if (m) {
       messages.push(m);
-      entryIds.push(localEntry.id);
+      entryIds.push(entry.id);
     }
   }
 
   return {
     messages,
     entryIds,
-    thinkingLevel: piCtx.thinkingLevel,
-    model: piCtx.model,
+    thinkingLevel: ompCtx.thinkingLevel ?? "off",
+    model: parseDefaultModel(ompCtx.models),
   };
 }
 

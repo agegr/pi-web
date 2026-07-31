@@ -1,3 +1,5 @@
+import type { ModelRoleAssignment } from "./model-roles";
+
 export interface ModelsData {
   models: Record<string, string>;
   modelList: { id: string; name: string; provider: string }[];
@@ -6,6 +8,8 @@ export interface ModelsData {
   thinkingLevelMaps: Record<string, Record<string, string | null>>;
   /** `provider/modelId` → thinking level pinned by an `enabledModels` `:level` suffix. */
   thinkingLevelPins: Record<string, string>;
+  /** omp's model roles (default/smol/slow/plan/commit/…) with their assignments. */
+  roles: ModelRoleAssignment[];
   modelError?: string;
   /** Warnings from resolving the `enabledModels` scope (e.g. a pattern matched nothing). */
   modelScopeWarnings?: string[];
@@ -18,21 +22,21 @@ interface ModelsCacheState {
 }
 
 declare global {
-  var __piModelsCacheState: ModelsCacheState | undefined;
+  var __ompModelsCacheState: ModelsCacheState | undefined;
 }
 
 const MODELS_CACHE_TTL_MS = 60_000;
 const MAX_MODELS_CACHE_ENTRIES = 32;
 
 function getModelsCacheState(): ModelsCacheState {
-  if (!globalThis.__piModelsCacheState) {
-    globalThis.__piModelsCacheState = {
+  if (!globalThis.__ompModelsCacheState) {
+    globalThis.__ompModelsCacheState = {
       entries: new Map(),
       inFlight: new Map(),
       generation: 0,
     };
   }
-  return globalThis.__piModelsCacheState;
+  return globalThis.__ompModelsCacheState;
 }
 
 export function invalidateModelsCache(): void {

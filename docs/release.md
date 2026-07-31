@@ -2,8 +2,8 @@
 
 This repo publishes two artifacts for each release:
 
-- npm package: `@agegr/pi-web`
-- GitHub Release: `agegr/pi-web`
+- npm package: `omp-web`
+- GitHub Release: `ddallabenetta/omp-web`
 
 Use this checklist from a clean `main` checkout.
 
@@ -14,6 +14,7 @@ git status --short --branch
 git log --oneline --decorate -5
 gh auth status
 npm whoami
+bun --version   # the published .next is built with Bun; 1.2+ required
 node -e "const p=require('./package.json'); console.log(p.version)"
 ```
 
@@ -21,7 +22,7 @@ Expected:
 
 - `git status` is clean, or only contains changes you intentionally plan to release.
 - GitHub is authenticated as an account that can push and create releases.
-- npm is authenticated as an account that can publish `@agegr/pi-web`.
+- npm is authenticated as an account that can publish `omp-web`.
 
 ## 2. Publish to npm
 
@@ -39,11 +40,11 @@ Notes:
 
 - This bumps `package.json` and `package-lock.json`.
 - It intentionally runs a production build. Do not run `next build` during normal development; release work is the exception.
-- If `npm view @agegr/pi-web version` briefly shows the previous version, check the exact version instead:
+- If `npm view omp-web version` briefly shows the previous version, check the exact version instead:
 
 ```bash
-npm view @agegr/pi-web@<version> version --registry https://registry.npmjs.org/
-npm view @agegr/pi-web versions --json --registry https://registry.npmjs.org/
+npm view omp-web@<version> version --registry https://registry.npmjs.org/
+npm view omp-web versions --json --registry https://registry.npmjs.org/
 ```
 
 ## 3. Commit the Version Bump
@@ -67,7 +68,7 @@ Confirm the tag does not already exist before creating it when unsure:
 
 ```bash
 git ls-remote --tags origin v<version>
-gh release view v<version> --repo agegr/pi-web
+gh release view v<version> --repo ddallabenetta/omp-web
 ```
 
 ## 5. Generate Release Notes from Commits
@@ -103,7 +104,7 @@ Suggested structure:
 
 ### 内部调整
 
-- 发布 npm 包 `@agegr/pi-web@<version>`。
+- 发布 npm 包 `omp-web@<version>`。
 
 ## English
 
@@ -123,7 +124,7 @@ Prepared from commits in `v<previous>..v<version>`.
 
 ### Internal
 
-- Published npm package `@agegr/pi-web@<version>`.
+- Published npm package `omp-web@<version>`.
 ```
 
 ## 6. Create or Update the GitHub Release
@@ -132,7 +133,7 @@ Create a new release:
 
 ```bash
 gh release create v<version> \
-  --repo agegr/pi-web \
+  --repo ddallabenetta/omp-web \
   --verify-tag \
   --title "v<version>" \
   --notes-file release-notes.md
@@ -142,14 +143,14 @@ If the release already exists and only the notes need updating:
 
 ```bash
 gh release edit v<version> \
-  --repo agegr/pi-web \
+  --repo ddallabenetta/omp-web \
   --notes-file release-notes.md
 ```
 
 You can avoid a temporary file by passing notes through stdin:
 
 ```bash
-gh release edit v<version> --repo agegr/pi-web --notes-file - <<'EOF'
+gh release edit v<version> --repo ddallabenetta/omp-web --notes-file - <<'EOF'
 ## 中文
 
 ...
@@ -163,8 +164,8 @@ EOF
 ## 7. Final Verification
 
 ```bash
-gh release view v<version> --repo agegr/pi-web
-npm view @agegr/pi-web@<version> version --registry https://registry.npmjs.org/
+gh release view v<version> --repo ddallabenetta/omp-web
+npm view omp-web@<version> version --registry https://registry.npmjs.org/
 git status --short --branch
 git log --oneline --decorate -3
 ```

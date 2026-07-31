@@ -34,7 +34,7 @@ import {
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
-import type { SessionStatsInfo } from "@/lib/pi-types";
+import type { SessionStatsInfo } from "@/lib/omp-types";
 
 type SessionCopyField = "file" | "id";
 type AutoNameStatus =
@@ -110,7 +110,7 @@ export function AppShell() {
     growthDirection: "right",
     maxWidth: SIDEBAR_MAX_WIDTH,
     minWidth: SIDEBAR_MIN_WIDTH,
-    storageKey: "pi-sidebar-width",
+    storageKey: "omp-sidebar-width",
     widthRef: sidebarWidthRef,
   });
   const rightPanelResizer = useResizablePanel({
@@ -122,7 +122,7 @@ export function AppShell() {
     growthDirection: "left",
     maxWidth: RIGHT_PANEL_MAX_WIDTH,
     minWidth: RIGHT_PANEL_MIN_WIDTH,
-    storageKey: "pi-right-panel-width",
+    storageKey: "omp-right-panel-width",
     widthRef: rightPanelWidthRef,
   });
   const reclampSidebarWidth = sidebarResizer.reclampWidth;
@@ -399,7 +399,7 @@ export function AppShell() {
       .catch(() => {});
   }, []);
 
-  // Called by ChatWindow when a new session gets its real id from pi
+  // Called by ChatWindow when a new session gets its real id from omp
   const handleSessionCreated = useCallback((session: SessionInfo) => {
     setNewSessionCwd(null);
     setSelectedSession(session);
@@ -600,7 +600,7 @@ export function AppShell() {
 
   const activeFileTab = fileTabs.find((t) => t.id === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
-  const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
+  const windowTitle = activeCwdName ? `${activeCwdName} - omp-web` : "omp-web";
 
   useEffect(() => {
     const syncWindowTitle = () => {
@@ -1614,7 +1614,7 @@ export function AppShell() {
         <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
       </svg>
     </button>
-    {modelsConfigOpen && <ModelsConfig onClose={() => { setModelsConfigOpen(false); setModelsRefreshKey((k) => k + 1); }} />}
+    {modelsConfigOpen && <ModelsConfig cwd={projectTrustCwd} onClose={() => { setModelsConfigOpen(false); setModelsRefreshKey((k) => k + 1); }} />}
     {projectTrustDialogOpen && projectTrustCwd && (
       <ProjectTrustDialog
         cwd={projectTrustCwd}

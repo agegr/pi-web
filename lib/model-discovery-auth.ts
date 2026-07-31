@@ -1,7 +1,8 @@
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { kNoAuth, ModelRegistry } from "@oh-my-pi/pi-coding-agent";
+import { getOmpRuntime } from "./omp-runtime";
 
 export interface ModelDiscoveryAuth {
   apiKey?: string;
@@ -23,35 +24,45 @@ export async function resolveModelDiscoveryAuth(
 ): Promise<ModelDiscoveryAuth> {
   let tempDir: string | undefined;
   try {
-    tempDir = mkdtempSync(join(tmpdir(), "pi-web-model-discovery-"));
+    tempDir = mkdtempSync(join(tmpdir(), "omp-web-model-discovery-"));
     const modelsPath = join(tempDir, "models.json");
-    const discoveryModelId = "__pi_web_model_discovery__";
+    const discoveryModelId = "__omp_web_model_discovery__";
+    // omp rejects a custom-model provider without a key unless it declares
+    // `auth: "none"`. Header-only providers (a gateway authenticated through an
+    // `$ENV_VAR` header) are exactly that case, so say so explicitly.
+    const needsKeylessAuth = provider.apiKey === undefined && provider.auth === undefined;
     writeFileSync(modelsPath, JSON.stringify({
       providers: {
         [providerName]: {
           ...provider,
+          ...(needsKeylessAuth ? { auth: "none" } : {}),
           models: [{ id: discoveryModelId }],
         },
       },
     }, null, 2), "utf8");
 
-    const modelRuntime = await ModelRuntime.create({ modelsPath });
-    const loadError = modelRuntime.getError();
-    if (loadError) throw new Error(loadError);
-    const model = modelRuntime.getModel(providerName, discoveryModelId);
+    // A throwaway registry over the submitted provider config, sharing the real
+    // AuthStorage so an already-saved key for this provider still resolves.
+    const { authStorage } = await getOmpRuntime();
+    const registry = new ModelRegistry(authStorage, modelsPath);
+    await registry.refresh("offline");
+    const loadError = registry.getError();
+    if (loadError) throw new Error(loadError.message);
+    const model = registry.find(providerName, discoveryModelId);
     if (!model) throw new Error(`Unable to load provider "${providerName}"`);
 
-    const resolved = await modelRuntime.getAuth(model);
-    if (resolved) {
+    const resolved = await registry.getApiKeyAndHeaders(model);
+    if (resolved.ok) {
+      // Keyless providers advertise omp's `kNoAuth` sentinel rather than a real
+      // key; sending it as a bearer token would be a bogus credential.
+      const apiKey = resolved.apiKey === kNoAuth ? undefined : resolved.apiKey;
       return {
-        apiKey: resolved.auth.apiKey,
-        headers: stringRecord(resolved.auth.headers),
+        ...(apiKey ? { apiKey } : {}),
+        headers: stringRecord(resolved.headers),
       };
     }
 
-    return {
-      headers: stringRecord(modelRuntime.getCompatibilityRequestConfig(model).headers),
-    };
+    return { headers: stringRecord(registry.getProviderHeaders(providerName)) };
   } finally {
     if (tempDir) rmSync(tempDir, { recursive: true, force: true });
   }

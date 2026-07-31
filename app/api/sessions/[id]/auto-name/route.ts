@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { SessionManager, type AgentSession } from "@earendil-works/pi-coding-agent";
+import { SessionManager } from "@oh-my-pi/pi-coding-agent";
 import { generateSessionTitle } from "@/lib/session-title";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
 import { invalidateSessionListCache, resolveSessionPath } from "@/lib/session-reader";
@@ -16,7 +16,7 @@ export async function POST(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const cwd = SessionManager.open(filePath).getHeader()?.cwd ?? process.cwd();
+    const cwd = (await SessionManager.open(filePath)).getHeader()?.cwd ?? process.cwd();
     const existing = getRpcSession(id);
     const { session } = existing?.isAlive()
       ? { session: existing }
@@ -25,7 +25,7 @@ export async function POST(
     // globalThis keeps wrappers alive across dev hot reloads; older instances
     // may predate waitUntilReady(), but those have already completed startup.
     await session.waitUntilReady?.();
-    const result = await generateSessionTitle(session.inner as unknown as AgentSession);
+    const result = await generateSessionTitle(session.inner);
 
     if (!session.isAlive()) {
       return NextResponse.json(
@@ -34,9 +34,15 @@ export async function POST(
       );
     }
 
-    session.inner.setSessionName(result.title);
+    // omp declines to title greetings and other low-signal openers; report that
+    // as a no-op instead of writing a meaningless name.
+    if (!result) {
+      return NextResponse.json({ title: null, skipped: true });
+    }
+
+    await session.inner.sessionManager.setSessionName(result.title, "auto");
     invalidateSessionListCache();
-    return NextResponse.json({ title: result.title, usage: result.usage ?? null });
+    return NextResponse.json({ title: result.title });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },

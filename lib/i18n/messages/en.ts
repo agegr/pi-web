@@ -1,6 +1,6 @@
 import type { LocalePlugin } from "../types";
 
-/** Pi Web 内置英语语言包。 */
+/** omp-web 内置英语语言包。 */
 export const enLocale: LocalePlugin = {
   id: "en",
   label: "English",
@@ -201,6 +201,18 @@ export const enLocale: LocalePlugin = {
     "chat.attachImage": "Attach image",
     "chat.filterModels": "Filter models…",
     "chat.noMatchingModels": "No matching models",
+    "chat.modelRoles": "Roles",
+    "chat.allModels": "All models",
+    "roles.title": "Model roles",
+    "roles.description": "omp routes work by role, not by one current model. Assign a model to each role and both omp-web and the omp CLI use it.",
+    "roles.scope": "Save to",
+    "roles.scopeGlobal": "Global",
+    "roles.scopeProject": "This project",
+    "roles.unset": "— not set —",
+    "roles.needsProject": "Open a project to edit its model roles.",
+    "roles.source.global": "from global config",
+    "roles.source.project": "from project config",
+    "roles.source.default": "omp default",
     "chat.moreControls": "More controls",
     "chat.collapseControls": "Collapse controls",
     "chat.shell": "Shell",
@@ -220,7 +232,7 @@ export const enLocale: LocalePlugin = {
     "chat.stop": "Stop",
     "chat.disableSound": "Disable completion sound",
     "chat.enableSound": "Enable completion sound",
-    "chat.thinkingUseDefault": "Use pi default",
+    "chat.thinkingUseDefault": "Use omp default",
     "chat.thinkingOff": "Reasoning off",
     "chat.thinkingMinimal": "Minimal reasoning",
     "chat.thinkingLow": "Low reasoning",

@@ -14,7 +14,7 @@ function shortenPath(path: string): string {
 }
 
 function normalizePluginSourceInput(value: string): string {
-  const match = value.trim().match(/^\$?\s*pi\s+install\s+(\S+)\s*$/);
+  const match = value.trim().match(/^\$?\s*omp\s+plugin\s+(?:add|install)\s+(\S+)\s*$/);
   return match?.[1] ?? value;
 }
 
@@ -42,8 +42,8 @@ function versionSummary(pkg: PluginPackageInfo, t: ReturnType<typeof useI18n>["t
 
 function installLocation(scope: PluginScope, cwd: string): string {
   return scope === "project"
-    ? `${shortenPath(cwd)}/.pi/agent/{npm,git}`
-    : "~/.pi/agent/{npm,git}";
+    ? `${shortenPath(cwd)}/.omp/plugins`
+    : "~/.omp/plugins";
 }
 
 function findInstalledPackage(
@@ -308,7 +308,7 @@ function AddPluginPanel({
 }) {
   const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
-  const examples = ["npm:@scope/pi-plugin", "git:https://github.com/user/repo", "/absolute/path/to/plugin"];
+  const examples = ["@scope/omp-plugin", "github:user/repo", "pkg[feature]"];
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -322,7 +322,7 @@ function AddPluginPanel({
             {t("i18n.addPlugin")}
           </div>
           <a
-            href="https://pi.dev/packages"
+            href="https://github.com/can1357/oh-my-pi#plugins"
             target="_blank"
             rel="noopener noreferrer"
             style={{
@@ -343,7 +343,7 @@ function AddPluginPanel({
               />
               <path fill="#000" d="M517.36 400H634.72V634.72H517.36Z" />
             </svg>
-            pi.dev/packages
+            oh-my-pi plugins
           </a>
         </div>
         <div style={{ fontSize: 12, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
@@ -368,7 +368,7 @@ function AddPluginPanel({
             onSourceChange(normalized);
           }}
           onBlur={(e) => onSourceChange(normalizePluginSourceInput(e.currentTarget.value))}
-          placeholder="npm:@scope/package"
+          placeholder="@scope/package or github:user/repo"
           style={{
             width: "100%",
             height: 36,

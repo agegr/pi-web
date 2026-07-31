@@ -16,7 +16,7 @@ export function PwaRegistration() {
         scope: "/",
         updateViaCache: "none",
       }).catch((error: unknown) => {
-        console.error("Failed to register the Pi Web service worker:", error);
+        console.error("Failed to register the omp-web service worker:", error);
       });
     };
 

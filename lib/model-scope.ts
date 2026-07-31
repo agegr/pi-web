@@ -1,21 +1,21 @@
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import {
-  resolveModelScopeWithDiagnostics,
-  type ModelRuntime,
-  type ScopedModel,
-} from "@earendil-works/pi-coding-agent";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { ThinkingLevel } from "@oh-my-pi/pi-agent-core";
+import type { ModelRegistry, Settings } from "@oh-my-pi/pi-coding-agent";
+import { resolveModelScope, type ScopedModel } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
+import type { Api, Model } from "@oh-my-pi/pi-ai";
 
 /**
  * Model scoping shared by the UI selector and AgentSession startup.
  *
- * The `enabledModels` setting uses the same syntax as pi's `--models` flag:
- * globs matched with minimatch against `provider/modelId` or a bare `modelId`,
- * fuzzy matching for non-glob patterns, plus an optional `:thinkingLevel` suffix
+ * The `enabledModels` setting uses the same syntax as omp's `--models` flag:
+ * globs matched against `provider/modelId` or a bare `modelId`, fuzzy matching
+ * for non-glob patterns, plus an optional `:thinkingLevel` suffix
  * (`anthropic/*:high`). Exact string comparison silently drops every model
- * behind a pattern like `my-gateway/*` (#307), so delegate to pi's own resolver
+ * behind a pattern like `my-gateway/*`, so delegate to omp's own resolver
  * instead of reimplementing the matching rules here.
  */
+
+/** The slice of `ModelRegistry` model scoping needs. */
+export type ModelScopeRegistry = Pick<ModelRegistry, "getAvailable">;
 
 export interface ModelScopeResult {
   /** Models the UI should offer, in resolver order (all available when unscoped). */
@@ -55,24 +55,33 @@ function matchesModel(
  * the UI without any selectable model.
  */
 export async function resolveVisibleModels(
-  modelRuntime: ModelRuntime,
-  patterns: string[] | undefined,
+  modelRegistry: ModelScopeRegistry,
+  patterns: readonly string[] | undefined,
+  settings?: Settings,
 ): Promise<ModelScopeResult> {
   const cleaned = (patterns ?? []).map((pattern) => pattern.trim()).filter(Boolean);
   if (cleaned.length === 0) {
     return {
-      visible: await modelRuntime.getAvailable(),
+      visible: modelRegistry.getAvailable(),
       scopedModels: [],
       thinkingLevelPins: {},
       warnings: [],
     };
   }
 
-  const { scopedModels, diagnostics } = await resolveModelScopeWithDiagnostics(cleaned, modelRuntime);
-  const warnings = diagnostics.map((diagnostic) => diagnostic.message);
+  const scopedModels = await resolveModelScope(cleaned, modelRegistry, undefined, settings);
+
+  // omp's resolver drops unmatched patterns silently. Re-resolve each pattern on
+  // its own so a typo surfaces in the UI instead of quietly shrinking the list.
+  const warnings: string[] = [];
+  await Promise.all(cleaned.map(async (pattern) => {
+    const matched = await resolveModelScope([pattern], modelRegistry, undefined, settings);
+    if (matched.length === 0) warnings.push(`No model matches "${pattern}" in enabledModels.`);
+  }));
+
   if (scopedModels.length === 0) {
     return {
-      visible: await modelRuntime.getAvailable(),
+      visible: modelRegistry.getAvailable(),
       scopedModels: [],
       thinkingLevelPins: {},
       warnings,
@@ -80,7 +89,7 @@ export async function resolveVisibleModels(
   }
 
   // `anthropic/*:high` pins a thinking level on every model the glob matched.
-  // pi applies the pin of the model a new session starts with; report them all
+  // omp applies the pin of the model a new session starts with; report them all
   // so the client can look up whichever model it pre-selects.
   const thinkingLevelPins: Record<string, string> = {};
   for (const scoped of scopedModels) {
@@ -99,10 +108,10 @@ export async function resolveVisibleModels(
 /**
  * Select the model and thinking level used to create a new AgentSession.
  *
- * This mirrors pi's startup rule: prefer an explicit selection, otherwise use
- * the saved default when it is in scope, then the first resolver-ordered model.
- * A scoped-model thinking pin is applied unless the caller supplied an explicit
- * thinking level.
+ * This mirrors omp's startup rule: prefer an explicit selection, otherwise use
+ * the `default` model role when it is in scope, then the first resolver-ordered
+ * model. A scoped-model thinking pin is applied unless the caller supplied an
+ * explicit thinking level.
  */
 export function selectInitialModelScope(
   scope: ModelScopeResult,

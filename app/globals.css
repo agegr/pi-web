@@ -18,38 +18,68 @@
   --font-mono-font: var(--font-mono);
 }
 
+/* ---------------------------------------------------------------------------
+   omp palette
+   ---------------------------------------------------------------------------
+   Both themes are lifted from omp's own theme files so the browser and the TUI
+   read as one product:
+
+     dark  → `titanium`, omp's default dark theme
+             brushed titanium surfaces, electric blue accent, titanium gold
+     light → omp's `light` theme surfaces, kept on titanium's blue so the accent
+             is one colour across the product (titanium's deeper `deepBlue`
+             carries the contrast that `electricBlue` loses on white)
+
+   Source: @oh-my-pi/pi-coding-agent/src/modes/theme/{defaults/titanium,light}.json
+   --------------------------------------------------------------------------- */
+
 :root {
-  --bg: #ffffff;
-  --bg-panel: #f5f5f5;
+  /* titanium vars, light surfaces */
+  --omp-electric-blue: #00b4ff;
+  --omp-deep-blue: #0082b3;
+  --omp-titanium-gold: #d4c090;
+  --omp-readout-green: #00ff88;
+  --omp-alert-red: #ff4757;
+  --omp-warning-amber: #ffb347;
+
+  --bg: #ffffff;          /* light cardBg */
+  --bg-panel: #f8f8f8;    /* light pageBg */
   --bg-hover: #eeeeee;
-  --bg-selected: #e8e8e8;
-  --border: #e0e0e0;
-  --text: #1a1a1a;
-  --text-muted: #6b7280;
-  --text-dim: #9ca3af;
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --user-bg: #eff6ff;
+  --bg-selected: #d0d0e0; /* light selectedBg */
+  --border: #d8dbe0;
+  --text: #1a1d23;
+  --text-muted: #6c6c6c;  /* light mediumGray */
+  --text-dim: #949aa4;
+  --accent: #0082b3;      /* titanium deepBlue */
+  --accent-hover: #00b4ff;
+  --user-bg: #eef2f6;
   --assistant-bg: #ffffff;
-  --tool-bg: #f9fafb;
-  --bg-subtle: rgba(0,0,0,0.03);
+  --tool-bg: #f4f6f8;
+  --bg-subtle: rgba(0,0,0,0.035);
+  --success: #1f8b4c;
+  --danger: #aa5555;
+  --warning: #9a7326;
 }
 
 html.dark {
-  --bg: #1a1a1a;
-  --bg-panel: #242424;
-  --bg-hover: #2e2e2e;
-  --bg-selected: #383838;
-  --border: #3a3a3a;
-  --text: #e8e8e8;
-  --text-muted: #9ca3af;
+  /* titanium */
+  --bg: #151820;          /* brushedTitanium — pageBg */
+  --bg-panel: #0f1216;    /* darkTitanium — cardBg */
+  --bg-hover: #1f252d;    /* borderMuted */
+  --bg-selected: #1c2b38; /* deepBlue, dimmed to a selection wash */
+  --border: #2a3038;      /* subtleGray */
+  --text: #e8ecf4;        /* brightAluminum */
+  --text-muted: #9ca3b0;  /* dimAluminum */
   --text-dim: #6b7280;
-  --accent: #60a5fa;
-  --accent-hover: #93c5fd;
-  --user-bg: #1e293b;
-  --assistant-bg: #1a1a1a;
-  --tool-bg: #1f2937;
-  --bg-subtle: rgba(255,255,255,0.04);
+  --accent: #00b4ff;      /* electricBlue */
+  --accent-hover: #4fcdff;
+  --user-bg: #0f1216;     /* darkTitanium */
+  --assistant-bg: #151820;
+  --tool-bg: #0f1216;
+  --bg-subtle: rgba(232,236,244,0.05);
+  --success: #00ff88;     /* readoutGreen */
+  --danger: #ff4757;      /* alertRed */
+  --warning: #ffb347;     /* warningAmber */
 }
 
 /* Theme toggle: circular wipe via View Transitions API.
@@ -102,7 +132,10 @@ body {
 }
 
 :root {
-  --font-mono: var(--font-noto-mono), 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, 'PingFang SC', 'Microsoft YaHei', monospace;
+  /* System monospace stack. omp-web is a local tool: it must not depend on a
+     font CDN at build or at runtime, and the terminal-native faces below are
+     already what omp users read code in. CJK fallbacks stay last. */
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Noto Sans Mono', 'DejaVu Sans Mono', Consolas, 'Liberation Mono', 'PingFang SC', 'Microsoft YaHei', monospace;
 }
 
 pre, code {

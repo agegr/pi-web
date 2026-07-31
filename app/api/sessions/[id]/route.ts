@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { SessionManager } from "@oh-my-pi/pi-coding-agent";
 import {
   resolveSessionPath,
   resolveSessionIdByPath,
@@ -124,7 +124,7 @@ export async function GET(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const sm = SessionManager.open(filePath);
+    const sm = await SessionManager.open(filePath);
     const entries = sm.getEntries() as never;
     const leafId = sm.getLeafId();
     const tree = projectTreeForResponse(sm.getTree());
@@ -185,8 +185,8 @@ export async function PATCH(
     if (!filePath) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
-    const sm = SessionManager.open(filePath);
-    sm.appendSessionInfo(name.trim());
+    const sm = await SessionManager.open(filePath);
+    await sm.setSessionName(name.trim(), "user");
     invalidateSessionListCache();
     return NextResponse.json({ ok: true });
   } catch (error) {

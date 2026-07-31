@@ -1,11 +1,11 @@
 import { stat } from "fs/promises";
 import { resolve } from "path";
-import { createAgentSessionServices, getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
-import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
+import { getSupportedEfforts } from "@oh-my-pi/pi-catalog/model-thinking";
 import { loadModelsWithCache, withModelRuntimeError, type ModelsData } from "@/lib/models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope";
+import { listModelRoles, readDefaultModelRole } from "@/lib/model-roles";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
-import { projectTrustReloadOptions } from "@/lib/project-trust";
+import { getOmpRuntime, getSettingsForCwd } from "@/lib/omp-runtime";
 
 export const dynamic = "force-dynamic";
 
@@ -22,31 +22,17 @@ function compareModelEntries(
 
 async function loadModels(cwd: string): Promise<ModelsData> {
   const nameMap = new Map<string, string>();
-  let modelList: { id: string; name: string; provider: string }[] = [];
   let defaultModel: { provider: string; modelId: string } | null = null;
   const thinkingLevels: Record<string, string[]> = {};
-  const thinkingLevelMaps: Record<string, Record<string, string | null>> = {};
 
-  const agentDir = getAgentDir();
-  // Gate untrusted project extensions: enumerating models still imports and
-  // runs a repository's .pi/extensions factories, so honor project trust here
-  // too (see lib/project-trust.ts, #236).
-  const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
-  const services = await createAgentSessionServices({
-    cwd,
-    agentDir,
-    ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
-  });
-  const modelError = services.modelRuntime.getError();
-  const settings: SettingsManager = services.settingsManager;
+  const { modelRegistry } = await getOmpRuntime();
+  const settings = await getSettingsForCwd(cwd);
+  const modelError = modelRegistry.getError()?.message;
   // `enabledModels` supports globs and fuzzy patterns, so resolve it the same
-  // way the CLI does instead of comparing pattern strings literally (#307).
-  const scope = await resolveVisibleModels(
-    services.modelRuntime,
-    settings.getEnabledModels(),
-  );
+  // way the CLI does instead of comparing pattern strings literally.
+  const scope = await resolveVisibleModels(modelRegistry, settings.get("enabledModels"), settings);
   const { visible, thinkingLevelPins, warnings } = scope;
-  modelList = visible.map((m) => ({
+  const modelList = visible.map((m) => ({
     id: m.id,
     name: m.name,
     provider: m.provider,
@@ -54,20 +40,20 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   for (const m of visible) {
     const key = `${m.provider}:${m.id}`;
     nameMap.set(key, m.name);
-    thinkingLevels[key] = getSupportedThinkingLevels(m);
-    if (m.thinkingLevelMap) thinkingLevelMaps[key] = m.thinkingLevelMap;
+    thinkingLevels[key] = [...getSupportedEfforts(m)];
   }
 
-  const defaultProvider = settings.getDefaultProvider();
-  const defaultModelId = settings.getDefaultModel();
+  const defaultRole = readDefaultModelRole(settings);
   const initial = selectInitialModelScope(scope, {
-    ...(defaultProvider && defaultModelId
-      ? { defaultModel: { provider: defaultProvider, modelId: defaultModelId } }
-      : {}),
+    ...(defaultRole ? { defaultModel: defaultRole } : {}),
   });
   if (initial.model) {
     defaultModel = { provider: initial.model.provider, modelId: initial.model.id };
   }
+
+  // omp assigns a model per scope of work; ship the whole role table so the
+  // browser's selector can group models the same way `/model` does.
+  const roles = listModelRoles(settings, [...visible]);
 
   return withModelRuntimeError(
     {
@@ -75,8 +61,9 @@ async function loadModels(cwd: string): Promise<ModelsData> {
       modelList,
       defaultModel,
       thinkingLevels,
-      thinkingLevelMaps,
+      thinkingLevelMaps: {},
       thinkingLevelPins,
+      roles,
       ...(warnings.length > 0 ? { modelScopeWarnings: warnings } : {}),
     },
     modelError,
@@ -90,6 +77,7 @@ const EMPTY_MODELS: ModelsData = {
   thinkingLevels: {},
   thinkingLevelMaps: {},
   thinkingLevelPins: {},
+  roles: [],
 };
 
 export async function GET(req: Request) {

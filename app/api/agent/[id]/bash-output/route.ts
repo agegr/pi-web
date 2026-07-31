@@ -43,7 +43,7 @@ export async function GET(
   try {
     if (download) {
       const { handle } = await openRegularFileNoFollow(resolved);
-      const stream = Readable.toWeb(handle.createReadStream()) as ReadableStream<Uint8Array>;
+      const stream = Readable.toWeb(handle.createReadStream()) as unknown as ReadableStream<Uint8Array>;
       return new Response(stream, {
         headers: {
           "Content-Type": "text/plain; charset=utf-8",

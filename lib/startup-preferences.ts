@@ -1,5 +1,6 @@
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { SettingsManager } from "@earendil-works/pi-coding-agent";
+import type { ThinkingLevel } from "@oh-my-pi/pi-agent-core";
+import type { Settings } from "@oh-my-pi/pi-coding-agent";
+import { formatRoleSelector } from "./model-roles";
 
 export interface ExplicitStartupPreferences {
   model?: { provider: string; modelId: string };
@@ -18,9 +19,13 @@ export interface EffectiveStartupPreferences {
  * The session constructor already records the effective model and thinking
  * level. Calling setModel()/setThinkingLevel() again would append duplicate
  * session entries and emit duplicate extension events.
+ *
+ * A model picked in the browser is stored as omp's `default` model role, which
+ * is the same slot the TUI's `/model` writes — so the next `omp` run in a
+ * terminal starts on the model the browser last selected, and vice versa.
  */
 export async function persistExplicitStartupPreferences(
-  settingsManager: SettingsManager,
+  settings: Settings,
   explicit: ExplicitStartupPreferences,
   effective: EffectiveStartupPreferences,
 ): Promise<{ modelDefaultChanged: boolean }> {
@@ -36,10 +41,7 @@ export async function persistExplicitStartupPreferences(
     && explicit.model.provider === effective.model.provider
     && explicit.model.modelId === effective.model.modelId
   ) {
-    settingsManager.setDefaultModelAndProvider(
-      effective.model.provider,
-      effective.model.modelId,
-    );
+    settings.setModelRole("default", formatRoleSelector(effective.model));
     modelDefaultChanged = true;
   }
 
@@ -47,9 +49,9 @@ export async function persistExplicitStartupPreferences(
     explicit.thinkingLevel
     && (effective.supportsThinking || effective.thinkingLevel !== "off")
   ) {
-    settingsManager.setDefaultThinkingLevel(effective.thinkingLevel);
+    settings.set("defaultThinkingLevel", effective.thinkingLevel as never);
   }
 
-  await settingsManager.flush();
+  await settings.flush();
   return { modelDefaultChanged };
 }

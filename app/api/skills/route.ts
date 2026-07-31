@@ -2,15 +2,17 @@ import { NextResponse } from "next/server";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import path from "path";
-import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@oh-my-pi/pi-coding-agent";
+import { parseFrontmatter } from "@oh-my-pi/pi-utils";
 import { loadSkillsWithInstallInfo } from "@/lib/skills-service";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 
 export const dynamic = "force-dynamic";
 
 // GET /api/skills?cwd=<path>
-// Uses DefaultResourceLoader (same logic as AgentSession startup) so settings.json
-// skill paths, package skills, and .agents/skills directories are all included.
+// Uses omp's own skill discovery (the same `loadSkills` AgentSession startup
+// runs), so `.omp/skills`, `~/.omp/agent/skills`, `.claude/skills`, plugin
+// skills, and `.agents/skills` are all included with identical precedence.
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const cwd = searchParams.get("cwd");
@@ -51,7 +53,7 @@ export async function PATCH(req: Request) {
 
     // Use parseFrontmatter to check current value, then do a surgical line edit
     // to preserve the original YAML formatting of all other fields.
-    const { frontmatter } = parseFrontmatter<Record<string, unknown>>(content);
+    const { frontmatter } = parseFrontmatter(content);
     const alreadySet = Boolean(frontmatter[key]);
 
     let updated = content;
