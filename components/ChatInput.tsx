@@ -1118,7 +1118,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       <div style={{ maxWidth: 820, margin: "0 auto" }}>
         <ModelErrorBanner error={modelError} />
         <ModelScopeWarningBanner warnings={modelScopeWarnings} />
-        {newSessionWorktrees && newSessionWorktrees.length > 1 && (
+        {newSessionWorktrees && newSessionWorktrees.length > 0 && (
           <label style={{ display: "flex", alignItems: "center", gap: 7, margin: "0 0 6px 4px", color: "var(--text-muted)", fontSize: 11 }}>
             <span aria-hidden="true">⌘</span>
             <select
