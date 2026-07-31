@@ -24,6 +24,12 @@ function sourceLabel(skill: Skill): string {
   return "path";
 }
 
+function skillGroupLabel(skill: Skill): string {
+  const source = sourceLabel(skill);
+  if (source === "path") return source;
+  return skill.install?.skillsShUrl ? `${source} / skills.sh` : source;
+}
+
 function updateKey(skill: Skill): string | null {
   return skill.install
     ? `${skill.install.scope}\0${skill.install.package}`
@@ -159,9 +165,11 @@ function SkillDetail({
           loading={toggling}
           onToggle={() => onToggle(skill)}
         />
-        <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0 }}>
-          {t("i18n.appliesToNewSessions")}
-        </span>
+        {!enabled && (
+          <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0 }}>
+            {t("i18n.hiddenButInvocable")}
+          </span>
+        )}
         {saveError && (
           <span style={{ fontSize: 12, color: "#f87171", flexShrink: 0 }}>
             {saveError}
@@ -718,7 +726,16 @@ export function SkillsConfig({
       const list = d.skills ?? [];
       setSkills(list);
       setProjectResourcesLoaded(d.projectResourcesLoaded ?? true);
-      if (list.length > 0 && !selected) setSelected(list[0].filePath);
+      if (list.length > 0 && !selected) {
+        const initialSkill = list.find((skill) => !skill.disableModelInvocation) ?? list[0];
+        setSelected(initialSkill.filePath);
+        if (initialSkill.disableModelInvocation) {
+          setDormantGroupsOpen((current) => ({
+            ...current,
+            [skillGroupLabel(initialSkill)]: true,
+          }));
+        }
+      }
       return list;
     } catch (e) {
       setError(String(e));
@@ -847,6 +864,12 @@ export function SkillsConfig({
             : s,
         ),
       );
+      if (next) {
+        setDormantGroupsOpen((current) => ({
+          ...current,
+          [skillGroupLabel(skill)]: true,
+        }));
+      }
     } catch (e) {
       setSaveError(String(e));
     } finally {

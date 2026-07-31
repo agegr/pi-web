@@ -261,7 +261,7 @@ export const zhCNLocale: LocalePlugin = {
     "i18n.visibleInPrompt": "在模型提示词中可见，点击以禁用",
     "i18n.hiddenFromPrompt": "在模型提示词中隐藏，点击以启用",
     "i18n.dormant": "休眠",
-    "i18n.appliesToNewSessions": "对新会话生效",
+    "i18n.hiddenButInvocable": "对模型隐藏，仍可手动调用",
     "i18n.skillSearchPlaceholder": "例如 react、testing、deploy",
     "i18n.searching": "搜索中…",
     "i18n.noSkills": "未找到技能",

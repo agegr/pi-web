@@ -261,7 +261,7 @@ export const enLocale: LocalePlugin = {
     "i18n.visibleInPrompt": "Visible in model prompt — click to disable",
     "i18n.hiddenFromPrompt": "Hidden from model prompt — click to enable",
     "i18n.dormant": "Dormant",
-    "i18n.appliesToNewSessions": "Applies to new sessions",
+    "i18n.hiddenButInvocable": "Hidden from model, still manually invocable",
     "i18n.skillSearchPlaceholder": "e.g. react, testing, deploy",
     "i18n.searching": "Searching…",
     "i18n.noSkills": "No skills found",

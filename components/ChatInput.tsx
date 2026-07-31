@@ -152,6 +152,33 @@ function isDormantSkillCommand(command: SlashCommandPaletteItem, dormancy: Recor
   return dormancy[command.name.slice("skill:".length)] === true;
 }
 
+export function buildSlashCommandLayout(
+  commands: SlashCommandPaletteItem[],
+  dormancy: Record<string, boolean>,
+) {
+  let index = 0;
+  const groups = SLASH_SOURCES
+    .map((source) => {
+      const sourceCommands = commands.filter((command) => command.source === source);
+      const orderedCommands = source === "skill"
+        ? [
+            ...sourceCommands.filter((command) => !isDormantSkillCommand(command, dormancy)),
+            ...sourceCommands.filter((command) => isDormantSkillCommand(command, dormancy)),
+          ]
+        : sourceCommands;
+      return {
+        source,
+        items: orderedCommands.map((command) => ({ command, index: index++ })),
+      };
+    })
+    .filter((group) => group.items.length > 0);
+
+  return {
+    commands: groups.flatMap((group) => group.items.map(({ command }) => command)),
+    groups,
+  };
+}
+
 function imageToDraftImage(image: AttachedImage): ChatDraftImage {
   return { data: image.data, mimeType: image.mimeType };
 }
@@ -289,7 +316,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [fileIndex, setFileIndex] = useState<{ cwd: string; entries: FileIndexEntry[]; truncated: boolean } | null>(null);
   const [fileIndexLoading, setFileIndexLoading] = useState(false);
   const [atServerResult, setAtServerResult] = useState<{ cwd: string; query: string; matches: FileIndexEntry[] } | null>(null);
-  const [skillDormancy, setSkillDormancy] = useState<Record<string, boolean>>({});
+  const [skillDormancyState, setSkillDormancyState] = useState<{
+    cwd: string;
+    values: Record<string, boolean>;
+  } | null>(null);
+  const skillDormancy = cwd && skillDormancyState?.cwd === cwd
+    ? skillDormancyState.values
+    : {};
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -519,26 +552,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       });
   })();
 
-  const groupedSlashCommands = (() => {
-    const groups = new Map<SlashCommandSource, { source: SlashCommandSource; items: { command: SlashCommandPaletteItem; index: number }[] }>();
-    for (const source of SLASH_SOURCES) {
-      groups.set(source, { source, items: [] });
-    }
-    filteredSlashCommands.forEach((command, index) => {
-      groups.get(command.source)?.items.push({ command, index });
-    });
-    return SLASH_SOURCES
-      .map((source) => groups.get(source)!)
-      .filter((group) => group.items.length > 0)
-      .map((group) => {
-        // Dormant skills (disable-model-invocation) sink to the end of the
-        // skill group; all other groups keep their original order.
-        if (group.source !== "skill") return group;
-        const active = group.items.filter((item) => !isDormantSkillCommand(item.command, skillDormancy));
-        const dormant = group.items.filter((item) => isDormantSkillCommand(item.command, skillDormancy));
-        return { ...group, items: [...active, ...dormant] };
-      });
-  })();
+  const {
+    commands: displayedSlashCommands,
+    groups: groupedSlashCommands,
+  } = buildSlashCommandLayout(filteredSlashCommands, skillDormancy);
 
   const slashCommandCountLabel = filteredSlashCommands.length === 1
     ? t(slashQuery ? "chat.match" : "chat.command")
@@ -748,7 +765,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
-    const lastIndex = filteredSlashCommands.length - 1;
+    const lastIndex = displayedSlashCommands.length - 1;
     if (lastIndex < 0) return 0;
 
     if (direction === "left") return Math.max(0, slashActiveIndex - 1);
@@ -788,7 +805,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     return direction === "down"
       ? Math.min(lastIndex, slashActiveIndex + 1)
       : Math.max(0, slashActiveIndex - 1);
-  }, [filteredSlashCommands.length, slashActiveIndex]);
+  }, [displayedSlashCommands.length, slashActiveIndex]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -853,9 +870,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           setSlashMenuOpen(false);
           return;
         }
-        if ((e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) && filteredSlashCommands[slashActiveIndex]) {
+        if ((e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) && displayedSlashCommands[slashActiveIndex]) {
           e.preventDefault();
-          applySlashCommand(filteredSlashCommands[slashActiveIndex]);
+          applySlashCommand(displayedSlashCommands[slashActiveIndex]);
           return;
         }
       }
@@ -911,7 +928,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }
       }
     },
-    [isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, filteredSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
+    [isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
   );
 
   const handleInput = useCallback(() => {
@@ -950,11 +967,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   // Lazy-load skill dormancy (disable-model-invocation) each time the slash
   // palette opens, so toggles made in the skills panel are reflected on the
   // next open. Failures degrade silently to the unannotated palette.
-  const slashPaletteOpen = slashQuery !== null;
   useEffect(() => {
-    if (!slashPaletteOpen || !cwd) return;
+    if (!slashMenuOpen || !cwd) return;
+    const requestCwd = cwd;
     let cancelled = false;
-    fetch(`/api/skills?cwd=${encodeURIComponent(cwd)}`)
+    setSkillDormancyState({ cwd: requestCwd, values: {} });
+    fetch(`/api/skills?cwd=${encodeURIComponent(requestCwd)}`)
       .then((res) => {
         if (!res.ok) throw new Error(`skills fetch failed: ${res.status}`);
         return res.json() as Promise<Partial<SkillsResponse>>;
@@ -963,25 +981,25 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         if (cancelled) return;
         const dormancy: Record<string, boolean> = {};
         for (const skill of data.skills ?? []) dormancy[skill.name] = skill.disableModelInvocation;
-        setSkillDormancy(dormancy);
+        setSkillDormancyState({ cwd: requestCwd, values: dormancy });
       })
       .catch(() => {
-        // Leave the palette unannotated; the next open retries.
+        if (!cancelled) setSkillDormancyState({ cwd: requestCwd, values: {} });
       });
     return () => {
       cancelled = true;
     };
-  }, [slashPaletteOpen, cwd]);
+  }, [slashMenuOpen, cwd]);
 
   useEffect(() => {
-    if (slashActiveIndex >= filteredSlashCommands.length) {
-      setSlashActiveIndex(Math.max(0, filteredSlashCommands.length - 1));
+    if (slashActiveIndex >= displayedSlashCommands.length) {
+      setSlashActiveIndex(Math.max(0, displayedSlashCommands.length - 1));
     }
-  }, [filteredSlashCommands.length, slashActiveIndex]);
+  }, [displayedSlashCommands.length, slashActiveIndex]);
 
   useEffect(() => {
-    slashItemRefs.current.length = filteredSlashCommands.length;
-  }, [filteredSlashCommands.length]);
+    slashItemRefs.current.length = displayedSlashCommands.length;
+  }, [displayedSlashCommands.length]);
 
   useEffect(() => {
     if (!slashMenuOpen) return;
