@@ -1,6 +1,6 @@
 # Pi Web
 
-[English](./README.md) | [简体中文](./README.zh-CN.md)
+[English](./README.md) | [简体中文](./README.zh-CN.md) | [Русский](./README.ru.md)
 
 [pi コーディングエージェント](https://github.com/badlogic/pi-mono) のローカル Web UI です。Pi Web はローカルの pi セッションファイルを読み込み、セッションの閲覧、リアルタイムチャット、モデル設定、スキル管理、プロジェクトファイルのプレビューを行えるブラウザワークスペースを提供します。
 
@@ -38,10 +38,13 @@ pi-web --no-open                # ブラウザを自動的に開かない
 PORT=8080 pi-web                # 環境変数にも対応
 PI_WEB_HOSTNAME=0.0.0.0 pi-web  # ネットワーク公開を明示的に有効化
 PI_WEB_ALLOWED_HOSTS=pi-web.internal pi-web  # プロキシまたはカスタムホスト名を許可
+PI_WEB_PASSWORD='十分に長いランダムなパスワード' pi-web  # Basic Auth を有効化（ユーザー名: pi）
 PI_WEB_NO_OPEN=1 pi-web         # バックグラウンドサービスとして実行する場合に便利
 ```
 
-Pi Web にはアプリケーションレベルの認証がなく、高権限のエージェントを呼び出せます。インターネットには公開せず、loopback 以外のアドレスは信頼できるネットワークでのみ使用してください。
+`PI_WEB_PASSWORD` を設定すると、Web インターフェースとすべての API エンドポイントが HTTP Basic Auth で保護されます。ユーザー名は常に `pi` です。未設定または空の場合、認証は無効です。
+
+Pi Web は高権限のエージェントを呼び出せます。Basic Auth は転送中のパスワードを暗号化しないため、平文 HTTP をインターネットに公開しないでください。リモートアクセスには、信頼できるリバースプロキシによる HTTPS または信頼できる VPN を使用してください。
 API リクエストでは、loopback 名、IP リテラル、選択したバインドホスト名、および `PI_WEB_ALLOWED_HOSTS` にカンマ区切りで指定した完全一致のホスト名のみを受け入れます。信頼できるリバースプロキシが異なる外部ホスト名を使用する場合は、この変数を設定してください。
 
 ## HTTP プロキシ

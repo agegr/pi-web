@@ -1,6 +1,6 @@
 # Pi Web
 
-[中文文档](./README.zh-CN.md) | [日本語](./README.ja.md)
+[中文文档](./README.zh-CN.md) | [日本語](./README.ja.md) | [Русский](./README.ru.md)
 
 Local web UI for the [pi coding agent](https://github.com/badlogic/pi-mono). Pi Web reads your local pi session files and gives you a browser workspace for session browsing, real-time chat, model configuration, skill management, and project file preview.
 
@@ -38,10 +38,13 @@ pi-web --no-open                # do not open the browser automatically
 PORT=8080 pi-web                # environment variable is also supported
 PI_WEB_HOSTNAME=0.0.0.0 pi-web  # explicit network exposure
 PI_WEB_ALLOWED_HOSTS=pi-web.internal pi-web  # allow an exact proxy/custom hostname
+PI_WEB_PASSWORD='a-long-random-password' pi-web  # require Basic Auth (username: pi)
 PI_WEB_NO_OPEN=1 pi-web         # useful when running as a background service
 ```
 
-Pi Web has no application-level authentication and can invoke a high-privilege agent. Do not expose it to the internet; only use non-loopback bindings on a trusted network.
+Set `PI_WEB_PASSWORD` to protect the web interface and every API endpoint with HTTP Basic Auth. The username is always `pi`. Leaving the variable unset or empty disables authentication.
+
+Pi Web can invoke a high-privilege agent. Basic Auth does not encrypt the password in transit, so do not expose plain HTTP to the internet. Use HTTPS through a trusted reverse proxy or a trusted VPN for remote access.
 API requests accept loopback names, IP literals, the selected bind hostname, and exact comma-separated names in `PI_WEB_ALLOWED_HOSTS`. Configure that variable when a trusted reverse proxy uses a different external hostname.
 
 ## HTTP Proxy

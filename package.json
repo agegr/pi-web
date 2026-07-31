@@ -1,6 +1,6 @@
 {
   "name": "@agegr/pi-web",
-  "version": "0.8.2",
+  "version": "0.8.5",
   "description": "Web UI for the pi coding agent",
   "homepage": "https://github.com/agegr/pi-web#readme",
   "repository": {
@@ -37,11 +37,12 @@
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.82.1",
-    "@earendil-works/pi-ai": "0.82.1",
-    "@earendil-works/pi-coding-agent": "0.82.1",
-    "@earendil-works/pi-tui": "0.82.1",
+    "@earendil-works/pi-agent-core": "0.83.0",
+    "@earendil-works/pi-ai": "0.83.0",
+    "@earendil-works/pi-coding-agent": "0.83.0",
+    "@earendil-works/pi-tui": "0.83.0",
     "next": "16.2.12",
+    "proper-lockfile": "4.1.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "undici": "8.5.0"
@@ -50,6 +51,7 @@
     "@lobehub/icons": "^5.6.0",
     "@tailwindcss/postcss": "^4.2.2",
     "@types/node": "^25",
+    "@types/proper-lockfile": "4.1.4",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/react-syntax-highlighter": "^15.5.13",

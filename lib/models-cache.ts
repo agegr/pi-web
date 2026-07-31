@@ -4,7 +4,11 @@ export interface ModelsData {
   defaultModel: { provider: string; modelId: string } | null;
   thinkingLevels: Record<string, string[]>;
   thinkingLevelMaps: Record<string, Record<string, string | null>>;
+  /** `provider/modelId` → thinking level pinned by an `enabledModels` `:level` suffix. */
+  thinkingLevelPins: Record<string, string>;
   modelError?: string;
+  /** Warnings from resolving the `enabledModels` scope (e.g. a pattern matched nothing). */
+  modelScopeWarnings?: string[];
 }
 
 interface ModelsCacheState {

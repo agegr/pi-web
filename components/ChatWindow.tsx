@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type React
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { countToolCallBlocks, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { extractTurnArtifacts, type TurnArtifact } from "@/lib/turn-artifacts";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
@@ -198,7 +198,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   const {
     loading, error, messages, entryIds, streamState,
-    agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
+    agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
@@ -319,6 +319,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     return history.reverse();
   }, [messages]);
   const messageRefs = useMessageRefs(visibleMessages.length);
+  const revealHistoryForMinimap = useCallback(() => {
+    setVisibleCount((current) => Math.max(current, messages.length * 2));
+  }, [messages.length]);
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
@@ -345,6 +348,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       modelNames={modelNames}
       modelList={modelList}
       modelError={modelError}
+      modelScopeWarnings={modelScopeWarnings}
       onModelChange={handleModelChange}
       onCompact={session || isNew ? handleCompact : undefined}
       onAbortCompaction={handleAbortCompaction}
@@ -631,7 +635,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 const finalProcessMessage = finalSplit.processBlocks.length > 0
                   ? withAssistantBlocks(finalAssistant, finalSplit.processBlocks, { omitUsage: true })
                   : null;
-                const finalAnswerMessage = finalSplit.answerBlocks.length > 0
+                const finalAnswerMessage = finalSplit.answerBlocks.length > 0 || getAssistantErrorMessage(finalAssistant)
                   ? withAssistantBlocks(finalAssistant, finalSplit.answerBlocks)
                   : null;
 
@@ -737,6 +741,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             streamingMessage={streamState.streamingMessage}
             scrollContainer={scrollContainerRef}
             messageRefs={messageRefs}
+            onRevealHistory={revealHistoryForMinimap}
           />
         )}
       </div>

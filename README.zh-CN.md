@@ -1,6 +1,6 @@
 # Pi Web
 
-[English](./README.md) | [日本語](./README.ja.md)
+[English](./README.md) | [日本語](./README.ja.md) | [Русский](./README.ru.md)
 
 [pi 编程智能体](https://github.com/badlogic/pi-mono) 的本地网页界面。它会读取本机的 pi 会话文件，在浏览器里提供会话管理、实时对话、模型配置、技能管理和项目文件预览。
 
@@ -36,10 +36,13 @@ pi-web --no-open                # 不自动打开浏览器
 PORT=8080 pi-web                # 也支持环境变量
 PI_WEB_HOSTNAME=0.0.0.0 pi-web  # 显式开放网络访问
 PI_WEB_ALLOWED_HOSTS=pi-web.internal pi-web  # 允许指定的代理或自定义主机名
+PI_WEB_PASSWORD='足够长的随机密码' pi-web  # 启用 Basic Auth（用户名固定为 pi）
 PI_WEB_NO_OPEN=1 pi-web         # 适用于后台服务或开机自启
 ```
 
-Pi Web 没有应用层身份验证，并且可以调用高权限智能体。请勿将其暴露到互联网；仅在可信网络中使用非 loopback 监听地址。
+设置 `PI_WEB_PASSWORD` 后，网页和所有 API 端点都会启用 HTTP Basic Auth，用户名固定为 `pi`。未设置或设置为空值时不启用认证。
+
+Pi Web 可以调用高权限智能体。Basic Auth 不会加密传输中的密码，因此不要把明文 HTTP 暴露到互联网。远程访问时应使用可信反向代理提供 HTTPS，或通过可信 VPN 访问。
 API 请求仅接受 loopback 名称、IP 字面量、当前监听主机名，以及 `PI_WEB_ALLOWED_HOSTS` 中以逗号分隔的精确主机名。可信反向代理使用不同的外部主机名时，请配置该变量。
 
 ## HTTP 代理

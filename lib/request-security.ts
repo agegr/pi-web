@@ -51,6 +51,23 @@ function getRequestOrigin(request: Request): string | null {
   return host ? canonicalOrigin(`${requestUrl.protocol}//${host}`) : null;
 }
 
+function isUserInitiatedSessionExportNavigation(request: Request): boolean {
+  if (
+    request.method !== "GET"
+    || request.headers.get("sec-fetch-mode") !== "navigate"
+    || request.headers.get("sec-fetch-dest") !== "document"
+    || request.headers.get("sec-fetch-user") !== "?1"
+  ) {
+    return false;
+  }
+
+  try {
+    return /^\/api\/sessions\/[^/]+\/export$/.test(new URL(request.url).pathname);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Only trust local names, IP literals, or the hostname explicitly selected by
  * the operator. IP literals preserve LAN access but cannot be DNS-rebound
@@ -90,6 +107,7 @@ export function isApiRequestAllowed(
   configuredHostnames = configuredHostnamesFromEnvironment(),
 ): boolean {
   if (!isApiRequestHostAllowed(request, configuredHostnames)) return false;
+  if (isUserInitiatedSessionExportNavigation(request)) return true;
   return !shouldCheckApiRequestOrigin(request) || isApiRequestOriginAllowed(request);
 }
 
