@@ -129,52 +129,66 @@ function SkillDetail({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Path + tag + toggle */}
-      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-        <span
+      {/* Path + tag + toggle, with a stable status row below. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          <span
+            style={{
+              fontSize: 10,
+              padding: "1px 5px",
+              borderRadius: 3,
+              flexShrink: 0,
+              background:
+                label === "project"
+                  ? "rgba(99,102,241,0.12)"
+                  : "rgba(120,120,120,0.12)",
+              color:
+                label === "project" ? "rgba(99,102,241,0.8)" : "var(--text-dim)",
+            }}
+          >
+            {label}
+          </span>
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              color: "var(--text-dim)",
+              flex: 1,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {displayPath(skill.filePath)}
+          </span>
+          <Toggle
+            enabled={enabled}
+            loading={toggling}
+            onToggle={() => onToggle(skill)}
+          />
+        </div>
+        <div
           style={{
-            fontSize: 10,
-            padding: "1px 5px",
-            borderRadius: 3,
-            flexShrink: 0,
-            background:
-              label === "project"
-                ? "rgba(99,102,241,0.12)"
-                : "rgba(120,120,120,0.12)",
-            color:
-              label === "project" ? "rgba(99,102,241,0.8)" : "var(--text-dim)",
+            minHeight: 16,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 8,
+            flexWrap: "wrap",
+            textAlign: "right",
           }}
         >
-          {label}
-        </span>
-        <span
-          style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 11,
-            color: "var(--text-dim)",
-            flex: 1,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {displayPath(skill.filePath)}
-        </span>
-        <Toggle
-          enabled={enabled}
-          loading={toggling}
-          onToggle={() => onToggle(skill)}
-        />
-        {!enabled && (
-          <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0 }}>
-            {t("i18n.hiddenButInvocable")}
-          </span>
-        )}
-        {saveError && (
-          <span style={{ fontSize: 12, color: "#f87171", flexShrink: 0 }}>
-            {saveError}
-          </span>
-        )}
+          {!enabled && (
+            <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+              {t("i18n.hiddenButInvocable")}
+            </span>
+          )}
+          {saveError && (
+            <span style={{ fontSize: 12, color: "#f87171", overflowWrap: "anywhere" }}>
+              {saveError}
+            </span>
+          )}
+        </div>
       </div>
 
       {skill.install?.skillsShUrl && (
