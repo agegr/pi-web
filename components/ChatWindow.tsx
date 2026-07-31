@@ -224,6 +224,11 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     soundedExtensionDialogIdRef.current = extensionDialog.id;
     playDoneSoundRef.current();
   }, [extensionDialog]);
+  
+  // Reserve enough bottom padding in the message list so the last message is
+  // not hidden behind the fixed ChatInput. The input area's minimum height is
+  // ~52px (textarea + padding + bottom controls), so we keep a static spacer.
+  const inputHeight = 52;
 
   // Register the abort handler for the global Esc shortcut
   useEffect(() => {
@@ -719,9 +724,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               />
             )}
 
-            {agentRunning && (
-              <div style={{ height: scrollContainerRef.current ? scrollContainerRef.current.clientHeight : "80vh" }} />
-            )}
+            {/* Spacer sized to the bottom input area so the last message is
+                not hidden behind ChatInput, without wasting a full viewport. */}
+            <div style={{ height: inputHeight }} />
 
             <div ref={messagesEndRef} />
             </div>
