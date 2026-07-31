@@ -235,7 +235,8 @@ export function SettingsConfig({ cwd, sessionId, initialSection = "models", onCl
   const filteredFields = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (normalized) return visibleFields.filter((field) => `${field.label} ${field.description} ${field.path} ${field.group ?? ""}`.toLowerCase().includes(normalized));
-    return activeTab ? visibleFields.filter((field) => field.tab === activeTab) : [];
+    if (!activeTab) return [];
+    return visibleFields.filter((field) => field.tab === activeTab && !(activeTab === "appearance" && field.group === "Theme"));
   }, [activeTab, query, visibleFields]);
 
   const close = useCallback(() => { onModelsChanged?.(); onClose(); }, [onClose, onModelsChanged]);
