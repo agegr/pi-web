@@ -63,6 +63,7 @@ app/api/
   models-config/discover/route.ts POST fetch a configured provider's upstream model list
   models-config/test/route.ts     POST test a configured model/provider
   plugins/route.ts                GET/POST package plugin management
+  project-directories/route.ts    GET/POST/DELETE persisted sidebar directories
   skills/route.ts                 GET/PATCH loaded skills and disable-model-invocation
   skills/install/route.ts         POST install skills through npx skills add
   skills/search/route.ts          GET/POST skills.sh search
@@ -76,6 +77,7 @@ lib/
   markdown.ts          shared markdown helpers
   npx.ts               npx runner used by skill install
   pi-types.ts          local structural types for pi SDK objects
+  project-directories.ts persisted directory list in ~/.pi/agent/pi-web-projects.json
   rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
   session-reader.ts   SessionManager wrappers + path cache + buildSessionContext adapter
   tool-presets.ts     PRESET_NONE/DEFAULT/FULL + getPresetFromTools()

@@ -97,3 +97,25 @@ test("renders compact errors above the input as a wrapping alert", () => {
   assert.match(html, /white-space:pre-wrap/);
   assert.ok(html.indexOf('role="alert"') < html.indexOf("<textarea"));
 });
+
+test("renders the worktree selector only for a new session", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        isStreaming: false,
+        cwd: "/repo",
+        newSessionCwd: "/repo-wt",
+        newSessionWorktrees: [
+          { path: "/repo", branch: "main", isMain: true },
+          { path: "/repo-wt", branch: "feature/test", isMain: false },
+        ],
+      }),
+    ),
+  );
+  assert.match(html, /选择 worktree/);
+  assert.match(html, /feature\/test/);
+});

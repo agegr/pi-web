@@ -47,6 +47,14 @@ type AutoNameStatus =
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
 const LANGUAGE_MENU_WIDTH = 176;
 
+/** 仅同步地址栏，不触发 App Router 的服务端导航和聊天区域重复挂载。 */
+function replaceSessionUrl(sessionId: string | null): void {
+  const url = new URL(window.location.href);
+  if (sessionId) url.searchParams.set("session", sessionId);
+  else url.searchParams.delete("session");
+  window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
 export function AppShell() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -58,6 +66,8 @@ export function AppShell() {
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
   // When user clicks +, we only store the cwd — no fake session id
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
+  // 仅当前浏览器内记录每个 cwd 的一个未发送新会话，不写入服务端。
+  const [pendingNewSessionCwds, setPendingNewSessionCwds] = useState<Set<string>>(() => new Set());
   const [initialCwdStatus, setInitialCwdStatus] = useState<"idle" | "validating" | "ready" | "error">(
     () => initialNavigation.requestedCwd ? "validating" : "idle",
   );
@@ -349,6 +359,7 @@ export function AppShell() {
   }, [router, selectedSession]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
+    if (!isRestore && activeSessionIdRef.current === session.id) return;
     setNewSessionCwd(null);
     setSelectedSession(session);
     setSessionKey((k) => k + 1);
@@ -362,14 +373,27 @@ export function AppShell() {
       suppressCwdBumpRef.current = true;
     }
     // Skip router.replace when restoring from URL — the param is already correct
-    // and calling replace in production Next.js triggers a Suspense remount loop
+    // and route navigation would trigger an unnecessary RSC request.
     if (!isRestore) {
-      router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
+      replaceSessionUrl(session.id);
     }
-  }, [router, isMobile]);
+  }, [isMobile]);
 
   const handleNewSession = useCallback((_sessionId: string, cwd: string) => {
     setSelectedSession(null);
+    // 同一目录只复用已有的未发送会话；draft-store 负责恢复输入内容。
+    if (pendingNewSessionCwds.has(cwd)) {
+      setNewSessionCwd(cwd);
+      setSessionKey((k) => k + 1);
+      replaceSessionUrl(null);
+      return;
+    }
+    setPendingNewSessionCwds((current) => {
+      if (current.has(cwd)) return current;
+      const next = new Set(current);
+      next.add(cwd);
+      return next;
+    });
     setNewSessionCwd(cwd);
     setSessionKey((k) => k + 1);
     setBranchTree([]);
@@ -377,8 +401,8 @@ export function AppShell() {
     setSystemPrompt(null);
     setActiveTopPanel(null);
     if (isMobile) setSidebarOpen(false);
-    router.replace("/", { scroll: false });
-  }, [router, isMobile]);
+    replaceSessionUrl(null);
+  }, [isMobile, pendingNewSessionCwds]);
 
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
   useGlobalKeyboardShortcuts({
@@ -404,11 +428,17 @@ export function AppShell() {
   // Called by ChatWindow when a new session gets its real id from pi
   const handleSessionCreated = useCallback((session: SessionInfo) => {
     setNewSessionCwd(null);
+    setPendingNewSessionCwds((current) => {
+      if (!current.has(session.cwd)) return current;
+      const next = new Set(current);
+      next.delete(session.cwd);
+      return next;
+    });
     setSelectedSession(session);
     setRefreshKey((k) => k + 1);
     hydrateSelectedSession(session.id);
-    router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
-  }, [router, hydrateSelectedSession]);
+    replaceSessionUrl(session.id);
+  }, [hydrateSelectedSession]);
 
   const handleAgentEnd = useCallback(() => {
     setRefreshKey((k) => k + 1);
@@ -619,7 +649,6 @@ export function AppShell() {
     <>
       <SessionSidebar
         selectedSessionId={selectedSession?.id ?? null}
-        optimisticSession={selectedSession}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
         initialSessionId={initialSessionId}
@@ -1480,10 +1509,18 @@ export function AppShell() {
         {/* Chat content */}
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
           {showChat ? (
-            <ChatWindow
+      <ChatWindow
               key={sessionKey}
               session={selectedSession}
-              newSessionCwd={effectiveNewSessionCwd}
+        newSessionCwd={effectiveNewSessionCwd}
+        onNewSessionCwdChange={(cwd) => {
+          setPendingNewSessionCwds((current) => {
+            const next = new Set(current);
+            next.add(cwd);
+            return next;
+          });
+          setNewSessionCwd(cwd);
+        }}
               onAgentEnd={handleAgentEnd}
               onSessionCreated={handleSessionCreated}
               onSessionForked={handleSessionForked}
