@@ -1,8 +1,14 @@
 "use client";
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
+import type { WebThemeConfig } from "@/lib/settings-api";
 
 type Theme = "light" | "dark";
+
+const THEME_MODE_KEY = "omp-theme";
+const THEME_CONFIG_KEY = "omp-theme-config";
+let themeConfig: WebThemeConfig | null = null;
+let themeRequestId = 0;
 
 const listeners = new Set<() => void>();
 
@@ -15,7 +21,7 @@ function subscribe(cb: () => void): () => void {
 
 function getSnapshot(): Theme {
   if (typeof document === "undefined") return "light";
-  return document.documentElement.classList.contains("dark") ? "dark" : "light";
+  return document.documentElement.dataset.ompThemeMode === "dark" ? "dark" : "light";
 }
 
 function getServerSnapshot(): Theme {
@@ -24,25 +30,71 @@ function getServerSnapshot(): Theme {
 
 type ToggleOrigin = { x: number; y: number };
 
-export function useTheme() {
+function applyTheme(mode: Theme, persist: boolean): void {
+  const root = document.documentElement;
+  const palette = themeConfig?.palettes[mode];
+  root.dataset.ompThemeMode = mode;
+  root.classList.toggle("dark", palette ? palette.colorScheme === "dark" : mode === "dark");
+  if (palette) {
+    for (const [name, value] of Object.entries(palette.variables)) {
+      root.style.setProperty(name, value);
+    }
+    root.dataset.ompThemeName = palette.name;
+    root.style.colorScheme = palette.colorScheme;
+  }
+  if (persist) {
+    try {
+      localStorage.setItem(THEME_MODE_KEY, mode);
+    } catch {
+      // Ignore storage errors in private mode or at quota.
+    }
+  }
+  listeners.forEach((callback) => callback());
+}
+
+export async function refreshOmpTheme(cwd?: string | null): Promise<void> {
+  const requestId = ++themeRequestId;
+  const query = cwd ? `?cwd=${encodeURIComponent(cwd)}` : "";
+  const response = await fetch(`/api/theme${query}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`Theme request failed (${response.status})`);
+  const nextConfig = await response.json() as WebThemeConfig;
+  if (requestId !== themeRequestId) return;
+  themeConfig = nextConfig;
+  try {
+    localStorage.setItem(THEME_CONFIG_KEY, JSON.stringify(themeConfig));
+  } catch {
+    // The in-memory configuration still applies when storage is unavailable.
+  }
+  applyTheme(getSnapshot(), false);
+}
+
+export function useTheme(options?: { cwd?: string | null; syncWithOmp?: boolean }) {
   const theme = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+
+  useEffect(() => {
+    if (!options?.syncWithOmp) return;
+    let cancelled = false;
+    void refreshOmpTheme(options.cwd).catch(() => {
+      if (cancelled) return;
+      try {
+        const cached = localStorage.getItem(THEME_CONFIG_KEY);
+        if (cached) {
+          themeConfig = JSON.parse(cached) as WebThemeConfig;
+          applyTheme(getSnapshot(), false);
+        }
+      } catch {
+        // Keep the built-in CSS fallback when neither endpoint nor cache works.
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [options?.cwd, options?.syncWithOmp]);
 
   const toggleTheme = useCallback((origin?: ToggleOrigin) => {
     const next: Theme = getSnapshot() === "dark" ? "light" : "dark";
 
-    const apply = () => {
-      if (next === "dark") {
-        document.documentElement.classList.add("dark");
-      } else {
-        document.documentElement.classList.remove("dark");
-      }
-      try {
-        localStorage.setItem("omp-theme", next);
-      } catch {
-        // ignore storage errors (private mode, quota, etc.)
-      }
-      listeners.forEach((cb) => cb());
-    };
+    const apply = () => applyTheme(next, true);
 
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     const supportsVT = typeof document.startViewTransition === "function";

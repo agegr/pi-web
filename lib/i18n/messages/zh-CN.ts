@@ -10,6 +10,7 @@ export const zhCNLocale: LocalePlugin = {
     "common.models": "模型",
     "common.skills": "技能",
     "common.plugins": "插件",
+    "common.settings": "设置",
     "sidebar.hide": "隐藏侧边栏",
     "sidebar.show": "显示侧边栏",
     "theme.light": "切换到浅色模式",

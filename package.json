@@ -35,8 +35,8 @@
     "package.json"
   ],
   "scripts": {
-    "dev": "bun --bun next dev -H 127.0.0.1 -p 30141",
-    "dev:lan": "bun --bun next dev -H 0.0.0.0 -p 30141",
+    "dev": "bun --bun next dev --webpack -H 127.0.0.1 -p 30141",
+    "dev:lan": "bun --bun next dev --webpack -H 0.0.0.0 -p 30141",
     "build": "bun --bun next build --webpack",
     "start": "bun --bun next start -H 127.0.0.1 -p 30141",
     "start:lan": "bun --bun next start -H 0.0.0.0 -p 30141",

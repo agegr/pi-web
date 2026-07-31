@@ -31,8 +31,14 @@ const nextConfig: NextConfig = {
     "@oh-my-pi/pi-tui",
     "@oh-my-pi/pi-utils",
   ],
-  webpack: (config, { isServer }) => {
-    if (!isServer) return config;
+  webpack: (config, { isServer, nextRuntime }) => {
+    if (!isServer || nextRuntime === "edge") {
+      // instrumentation.ts has a Node-only dynamic import guarded by
+      // NEXT_RUNTIME. Webpack still traces it for the browser fallback unless
+      // the server-only module is explicitly excluded.
+      config.resolve.alias["@/lib/http-dispatcher"] = false;
+      return config;
+    }
     const externals = Array.isArray(config.externals) ? config.externals : [config.externals].filter(Boolean);
     config.externals = [
       ({ request }: { request?: string }, callback: (error?: unknown, result?: string) => void) => {
