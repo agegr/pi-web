@@ -3,6 +3,8 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 type Theme = "light" | "dark";
+export type ColorTheme = "default" | "sky" | "lavender" | "mint" | "coral";
+const COLOR_THEMES: ColorTheme[] = ["default", "sky", "lavender", "mint", "coral"];
 
 const listeners = new Set<() => void>();
 
@@ -22,10 +24,22 @@ function getServerSnapshot(): Theme {
   return "light";
 }
 
+function getColorThemeSnapshot(): ColorTheme {
+  if (typeof document === "undefined") return "default";
+  const attr = document.documentElement.getAttribute("data-theme") as ColorTheme | null;
+  if (attr && COLOR_THEMES.includes(attr)) return attr;
+  return "default";
+}
+
+function getColorThemeServerSnapshot(): ColorTheme {
+  return "default";
+}
+
 type ToggleOrigin = { x: number; y: number };
 
 export function useTheme() {
   const theme = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const colorTheme = useSyncExternalStore(subscribe, getColorThemeSnapshot, getColorThemeServerSnapshot);
 
   const toggleTheme = useCallback((origin?: ToggleOrigin) => {
     const next: Theme = getSnapshot() === "dark" ? "light" : "dark";
@@ -81,5 +95,15 @@ export function useTheme() {
       });
   }, []);
 
-  return { theme, toggleTheme, isDark: theme === "dark" };
+  const setColorTheme = useCallback((next: ColorTheme) => {
+    document.documentElement.setAttribute("data-theme", next);
+    try {
+      localStorage.setItem("pi-color-theme", next);
+    } catch {
+      // ignore storage errors (private mode, quota, etc.)
+    }
+    listeners.forEach((cb) => cb());
+  }, []);
+
+  return { theme, toggleTheme, isDark: theme === "dark", colorTheme, setColorTheme };
 }

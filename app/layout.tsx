@@ -59,7 +59,7 @@ export default function RootLayout({
         <meta name="google" content="notranslate" />
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("pi-theme");if(t==="dark")document.documentElement.classList.add("dark")}catch(e){}})();`,
+            __html: `(function(){try{var t=localStorage.getItem("pi-theme");if(t==="dark")document.documentElement.classList.add("dark");var c=localStorage.getItem("pi-color-theme");if(c&&c!=="default")document.documentElement.setAttribute("data-theme",c);}catch(e){}})();`,
           }}
         />
       </head>

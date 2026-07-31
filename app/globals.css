@@ -52,6 +52,210 @@ html.dark {
   --bg-subtle: rgba(255,255,255,0.04);
 }
 
+/* Theme color presets — each provides both light and dark variants.
+   Default colors live in :root and html.dark; they are intentionally not
+   repeated here so existing users are unaffected when no theme is set. */
+
+html[data-theme="sky"]:not(.dark) {
+  --bg: #f0f9ff;
+  --bg-panel: #e0f2fe;
+  --bg-hover: #bae6fd;
+  --bg-selected: #7dd3fc;
+  --border: #bae6fd;
+  --text: #0c4a6e;
+  --text-muted: #0369a1;
+  --text-dim: #38bdf8;
+  --accent: #0284c7;
+  --accent-hover: #0369a1;
+  --user-bg: #bae6fd;
+  --assistant-bg: #ffffff;
+  --tool-bg: #f1f5f9;
+}
+html[data-theme="sky"].dark {
+  --bg: #0c4a6e;
+  --bg-panel: #075985;
+  --bg-hover: #0369a1;
+  --bg-selected: #0ea5e9;
+  --border: #0369a1;
+  --text: #f0f9ff;
+  --text-muted: #bae6fd;
+  --text-dim: #7dd3fc;
+  --accent: #7dd3fc;
+  --accent-hover: #bae6fd;
+  --user-bg: #0369a1;
+  --assistant-bg: #0c4a6e;
+  --tool-bg: #172554;
+}
+
+html[data-theme="lavender"]:not(.dark) {
+  --bg: #faf5ff;
+  --bg-panel: #f3e8ff;
+  --bg-hover: #e9d5ff;
+  --bg-selected: #d8b4fe;
+  --border: #e9d5ff;
+  --text: #2e1065;
+  --text-muted: #6d28d9;
+  --text-dim: #a78bfa;
+  --accent: #7c3aed;
+  --accent-hover: #6d28d9;
+  --user-bg: #e9d5ff;
+  --assistant-bg: #ffffff;
+  --tool-bg: #f5f3ff;
+}
+html[data-theme="lavender"].dark {
+  --bg: #2e1065;
+  --bg-panel: #4c1d95;
+  --bg-hover: #5b21b6;
+  --bg-selected: #7c3aed;
+  --border: #5b21b6;
+  --text: #f5f3ff;
+  --text-muted: #ddd6fe;
+  --text-dim: #c4b5fd;
+  --accent: #c4b5fd;
+  --accent-hover: #ddd6fe;
+  --user-bg: #5b21b6;
+  --assistant-bg: #2e1065;
+  --tool-bg: #312e81;
+}
+
+html[data-theme="mint"]:not(.dark) {
+  --bg: #f0fdf4;
+  --bg-panel: #dcfce7;
+  --bg-hover: #bbf7d0;
+  --bg-selected: #86efac;
+  --border: #bbf7d0;
+  --text: #064e3b;
+  --text-muted: #047857;
+  --text-dim: #34d399;
+  --accent: #059669;
+  --accent-hover: #047857;
+  --user-bg: #bbf7d0;
+  --assistant-bg: #ffffff;
+  --tool-bg: #f1f5f9;
+}
+html[data-theme="mint"].dark {
+  --bg: #064e3b;
+  --bg-panel: #065f46;
+  --bg-hover: #047857;
+  --bg-selected: #10b981;
+  --border: #047857;
+  --text: #ecfdf5;
+  --text-muted: #6ee7b7;
+  --text-dim: #34d399;
+  --accent: #6ee7b7;
+  --accent-hover: #a7f3d0;
+  --user-bg: #047857;
+  --assistant-bg: #064e3b;
+  --tool-bg: #14532d;
+}
+
+html[data-theme="coral"]:not(.dark) {
+  --bg: #fff5f5;
+  --bg-panel: #ffe4e6;
+  --bg-hover: #fecdd3;
+  --bg-selected: #fda4af;
+  --border: #fecdd3;
+  --text: #881337;
+  --text-muted: #be123c;
+  --text-dim: #fb7185;
+  --accent: #e11d48;
+  --accent-hover: #be123c;
+  --user-bg: #fecdd3;
+  --assistant-bg: #ffffff;
+  --tool-bg: #f8fafc;
+}
+html[data-theme="coral"].dark {
+  --bg: #7f1d1d;
+  --bg-panel: #991b1b;
+  --bg-hover: #b91c1c;
+  --bg-selected: #dc2626;
+  --border: #b91c1c;
+  --text: #fff1f2;
+  --text-muted: #fecdd3;
+  --text-dim: #fda4af;
+  --accent: #ff8fa3;
+  --accent-hover: #ffb3c1;
+  --user-bg: #b91c1c;
+  --assistant-bg: #7f1d1d;
+  --tool-bg: #450a0f;
+}
+
+/* Color theme palette — rendered in a portal so it is not clipped by ancestor overflow. */
+.theme-toggle-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.color-theme-palette {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  padding-top: 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 9999;
+  min-width: 160px;
+}
+.theme-toggle-wrap:hover .color-theme-palette,
+.theme-toggle-wrap:has(.color-theme-palette:hover) .color-theme-palette,
+.color-theme-palette:hover {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+  transition-delay: 0s;
+}
+
+.color-theme-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  transition: transform 0.12s ease;
+  padding: 0;
+}
+.color-theme-swatch:hover {
+  transform: scale(1.15);
+}
+.color-theme-swatch.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px var(--accent);
+}
+
+.color-theme-swatch.swatch-default {
+  position: relative;
+  background: #f9fafb;
+  border: 2px solid #9ca3af;
+  overflow: hidden;
+  box-shadow: none;
+}
+.color-theme-swatch.swatch-default::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  background: #4b5563;
+}
+.color-theme-swatch.swatch-sky { background: #0ea5e9; }
+.color-theme-swatch.swatch-lavender { background: #8b5cf6; }
+.color-theme-swatch.swatch-mint { background: #10b981; }
+.color-theme-swatch.swatch-coral { background: #f43f5e; }
+
+.color-theme-palette-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  margin-right: 4px;
+}
+
 /* Theme toggle: circular wipe via View Transitions API.
    Disable the UA cross-fade; the actual clip-path animation is driven by
    Element.animate() in hooks/useTheme.ts after transition.ready resolves. */

@@ -40,3 +40,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .factory
+
+# brainstorming / superpowers scratch
+.superpowers/
+theme-palette-mockup.html
