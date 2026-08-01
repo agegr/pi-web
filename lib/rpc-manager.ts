@@ -228,6 +228,19 @@ export class AgentSessionWrapper {
   loadQueueRecovery(): void {
     const file = this.sessionFile;
     if (!file) return;
+    // Defensive consistency check: pi's steering/follow-up queues live in the
+    // same process as this wrapper, and a brand-new AgentSession always starts
+    // with empty queues. If pi already has queued messages here, the queue
+    // survived (hot reload reused the runtime, future architecture change, …)
+    // and the sidecar is just an older mirror. In that case skip recovery and
+    // resync the mirror from pi instead of offering duplicate entries.
+    const liveSteering = this.inner.getSteeringMessages();
+    const liveFollowUp = this.inner.getFollowUpMessages();
+    if (liveSteering.length > 0 || liveFollowUp.length > 0) {
+      this.queueRecovery = [];
+      this.reconcileQueue([...liveSteering], [...liveFollowUp]);
+      return;
+    }
     const persisted = loadQueue(file);
     if (persisted.length > 0) {
       this.queueRecovery = persisted;
@@ -700,6 +713,173 @@ export class AgentSessionWrapper {
         return this.inner.clearQueue();
       }
 
+      case "move_queue": {
+        // pi has no reorder/single-dequeue API, so reordering is implemented
+        // as clear-all + re-enqueue in the target order. Like pi's own
+        // clearQueue(), this is allowed while the agent runs: the loop only
+        // pulls entries between turns, and clear+requeue within one request is
+        // atomic enough that the queue is repopulated before the next pull.
+        const kind = command.kind as QueueKind | undefined;
+        if (kind !== "steer" && kind !== "followUp") {
+          throw new Error("move_queue requires kind \"steer\" or \"followUp\"");
+        }
+        const fromIndex = Number(command.fromIndex);
+        const toIndex = Number(command.toIndex);
+        if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex)) {
+          throw new Error("move_queue requires integer indexes");
+        }
+        const steeringEntries = this.queueMirror.filter((e) => e.kind === "steer");
+        const followUpEntries = this.queueMirror.filter((e) => e.kind === "followUp");
+        const moving = kind === "steer" ? steeringEntries : followUpEntries;
+        if (fromIndex < 0 || fromIndex >= moving.length || toIndex < 0 || toIndex >= moving.length) {
+          throw new Error("move_queue index out of range");
+        }
+        const [entry] = moving.splice(fromIndex, 1);
+        moving.splice(toIndex, 0, entry);
+        const newSteering = kind === "steer" ? moving : steeringEntries;
+        const newFollowUp = kind === "followUp" ? moving : followUpEntries;
+        // Clear the live pi queue entirely, then re-enqueue both queues in the
+        // new order. Image hints are pushed per entry FIFO so reconcileQueue
+        // can reattach them after each queue_update event.
+        this.inner.clearQueue();
+        this.pendingQueueHints = { steer: [], followUp: [] };
+        for (const e of newSteering) {
+          this.hintQueueImages("steer", e.images);
+          await this.inner.steer(e.text, e.images?.length ? e.images : undefined);
+        }
+        for (const e of newFollowUp) {
+          this.hintQueueImages("followUp", e.images);
+          await this.inner.followUp(e.text, e.images?.length ? e.images : undefined);
+        }
+        this.queueMirror = [...newSteering, ...newFollowUp];
+        this.persistQueue();
+        return { steering: [...this.inner.getSteeringMessages()], followUp: [...this.inner.getFollowUpMessages()] };
+      }
+
+      case "recall_queue_item": {
+        // pi has no single-item dequeue — same clear-all + re-enqueue strategy
+        // as move_queue, minus the recalled entry. Allowed while running, like
+        // pi's own clearQueue().
+        const kind = command.kind as QueueKind | undefined;
+        if (kind !== "steer" && kind !== "followUp") {
+          throw new Error("recall_queue_item requires kind \"steer\" or \"followUp\"");
+        }
+        const index = Number(command.index);
+        if (!Number.isInteger(index)) {
+          throw new Error("recall_queue_item requires an integer index");
+        }
+        const steeringEntries = this.queueMirror.filter((e) => e.kind === "steer");
+        const followUpEntries = this.queueMirror.filter((e) => e.kind === "followUp");
+        const entries = kind === "steer" ? steeringEntries : followUpEntries;
+        if (index < 0 || index >= entries.length) {
+          throw new Error("recall_queue_item index out of range");
+        }
+        const [removed] = entries.splice(index, 1);
+        const newSteering = kind === "steer" ? entries : steeringEntries;
+        const newFollowUp = kind === "followUp" ? entries : followUpEntries;
+        this.inner.clearQueue();
+        this.pendingQueueHints = { steer: [], followUp: [] };
+        for (const e of newSteering) {
+          this.hintQueueImages("steer", e.images);
+          await this.inner.steer(e.text, e.images?.length ? e.images : undefined);
+        }
+        for (const e of newFollowUp) {
+          this.hintQueueImages("followUp", e.images);
+          await this.inner.followUp(e.text, e.images?.length ? e.images : undefined);
+        }
+        this.queueMirror = [...newSteering, ...newFollowUp];
+        this.persistQueue();
+        return {
+          entry: { text: removed.text, images: removed.images ?? [] },
+          steering: [...this.inner.getSteeringMessages()],
+          followUp: [...this.inner.getFollowUpMessages()],
+        };
+      }
+
+      case "requeue_at": {
+        // Put an edited message back into the queue at its original position.
+        // Same clear-all + re-enqueue strategy; the edited entry is inserted at
+        // the given index. Allowed while running, like pi's own clearQueue().
+        const kind = command.kind as QueueKind | undefined;
+        if (kind !== "steer" && kind !== "followUp") {
+          throw new Error("requeue_at requires kind \"steer\" or \"followUp\"");
+        }
+        const index = Number(command.index);
+        if (!Number.isInteger(index)) {
+          throw new Error("requeue_at requires an integer index");
+        }
+        const text = command.text as string | undefined;
+        if (typeof text !== "string" || !text.trim()) {
+          throw new Error("requeue_at requires text");
+        }
+        const rawImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
+        const steeringEntries = this.queueMirror.filter((e) => e.kind === "steer");
+        const followUpEntries = this.queueMirror.filter((e) => e.kind === "followUp");
+        const entries = kind === "steer" ? steeringEntries : followUpEntries;
+        if (index < 0 || index > entries.length) {
+          throw new Error("requeue_at index out of range");
+        }
+        const edited = createQueueEntry(kind, text, rawImages);
+        entries.splice(index, 0, edited);
+        const newSteering = kind === "steer" ? entries : steeringEntries;
+        const newFollowUp = kind === "followUp" ? entries : followUpEntries;
+        this.inner.clearQueue();
+        this.pendingQueueHints = { steer: [], followUp: [] };
+        for (const e of newSteering) {
+          this.hintQueueImages("steer", e.images);
+          await this.inner.steer(e.text, e.images?.length ? e.images : undefined);
+        }
+        for (const e of newFollowUp) {
+          this.hintQueueImages("followUp", e.images);
+          await this.inner.followUp(e.text, e.images?.length ? e.images : undefined);
+        }
+        this.queueMirror = [...newSteering, ...newFollowUp];
+        this.persistQueue();
+        return {
+          steering: [...this.inner.getSteeringMessages()],
+          followUp: [...this.inner.getFollowUpMessages()],
+        };
+      }
+
+      case "remove_queue_item": {
+        // pi has no single-dequeue API either; drop the entry from the mirror
+        // and rebuild the live queue via clear-all + re-enqueue (same strategy
+        // as move_queue).
+        const kind = command.kind as QueueKind | undefined;
+        if (kind !== "steer" && kind !== "followUp") {
+          throw new Error("remove_queue_item requires kind \"steer\" or \"followUp\"");
+        }
+        const index = Number(command.index);
+        if (!Number.isInteger(index)) {
+          throw new Error("remove_queue_item requires integer index");
+        }
+        const steeringEntries = this.queueMirror.filter((e) => e.kind === "steer");
+        const followUpEntries = this.queueMirror.filter((e) => e.kind === "followUp");
+        const entries = kind === "steer" ? steeringEntries : followUpEntries;
+        if (index < 0 || index >= entries.length) {
+          throw new Error("remove_queue_item index out of range");
+        }
+        entries.splice(index, 1);
+        const newSteering = kind === "steer" ? entries : steeringEntries;
+        const newFollowUp = kind === "followUp" ? entries : followUpEntries;
+        this.inner.clearQueue();
+        this.pendingQueueHints = { steer: [], followUp: [] };
+        for (const e of newSteering) {
+          this.hintQueueImages("steer", e.images);
+          await this.inner.steer(e.text, e.images?.length ? e.images : undefined);
+        }
+        for (const e of newFollowUp) {
+          this.hintQueueImages("followUp", e.images);
+          await this.inner.followUp(e.text, e.images?.length ? e.images : undefined);
+        }
+        this.queueMirror = [...newSteering, ...newFollowUp];
+        this.persistQueue();
+        return {
+          steering: [...this.inner.getSteeringMessages()],
+          followUp: [...this.inner.getFollowUpMessages()],
+        };
+      }
+
       case "resolve_recovery": {
         const keptIds = new Set((command.keep as string[] | undefined) ?? []);
         const discardIds = new Set((command.discard as string[] | undefined) ?? []);
@@ -751,7 +931,11 @@ export class AgentSessionWrapper {
           imported += 1;
         }
         this.persistQueue();
-        return { imported };
+        return {
+          imported,
+          steering: [...this.inner.getSteeringMessages()],
+          followUp: [...this.inner.getFollowUpMessages()],
+        };
       }
 
       case "steer": {

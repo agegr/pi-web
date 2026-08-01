@@ -201,9 +201,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     loading, error, messages, entryIds, streamState,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
-    isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
+    isCompacting, compactError, compactResult, compactQueued, cancelCompactQueue, modelSwitchPending, displayModel: displayModelValue, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    pendingRecovery, resolveRecovery, exportQueueData, importQueueData,
+    pendingRecovery, resolveRecovery, exportQueueData, importQueueData, moveQueuedMessage, recallQueuedMessage, requeueAt, removeQueuedMessage,
     notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection,
     agentPhase,
@@ -369,6 +369,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       isCompacting={isCompacting}
       compactError={compactError}
       compactResult={compactResult}
+      compactQueued={compactQueued}
+      modelSwitchPending={modelSwitchPending}
+      onCancelCompactQueue={cancelCompactQueue}
       toolPreset={toolPreset}
       onToolPresetChange={session || isNew ? handleToolPresetChange : undefined}
       thinkingLevel={thinkingLevel}
@@ -381,6 +384,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       onRecallQueue={handleRecallQueue}
       onExportQueue={exportQueueData}
       onImportQueue={importQueueData}
+      onMoveQueue={moveQueuedMessage}
+      onRecallOne={recallQueuedMessage}
+      onRequeueAt={requeueAt}
+      onRemoveQueueItem={removeQueuedMessage}
       slashCommands={slashCommands}
       slashCommandsLoading={slashCommandsLoading}
       onLoadSlashCommands={loadSlashCommands}

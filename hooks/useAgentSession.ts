@@ -11,6 +11,7 @@ import type {
 } from "@/lib/types";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
+import type { ChatDraftImage } from "@/lib/draft-store";
 import type { PendingRecoveryItem, QueueEntry, QueueEntryInput } from "@/lib/queue-store";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -356,6 +357,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelScopeWarnings, setModelScopeWarnings] = useState<string[]>([]);
   const [modelThinkingLevels, setModelThinkingLevels] = useState<Record<string, string[]>>({});
   const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>({});
+  /** A model switch was made while the agent was running — applies next turn. */
+  const [modelSwitchPending, setModelSwitchPending] = useState(false);
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
   const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("default");
@@ -369,6 +372,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [isCompacting, setIsCompacting] = useState(false);
   const [compactError, setCompactError] = useState<string | null>(null);
   const [compactResult, setCompactResult] = useState<CompactResultInfo | null>(null);
+  /** Manual compaction queued while the agent was running; fires on next idle. */
+  const [compactQueued, setCompactQueued] = useState(false);
+  const pendingCompactRef = useRef(false);
   const [agentPhase, setAgentPhase] = useState<AgentPhase>(null);
   const [slashCommands, setSlashCommands] = useState<SlashCommandInfo[]>([]);
   const [slashCommandsLoading, setSlashCommandsLoading] = useState(false);
@@ -1443,14 +1449,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       await sendAgentCommand(sid, { type: "set_model", provider, modelId });
       setCurrentModelOverride({ provider, modelId });
+      // Switching mid-run only takes effect next turn (the in-flight request
+      // still uses the old model). Surface this so the user isn't confused by
+      // the model name updating immediately.
+      if (agentRunning) setModelSwitchPending(true);
     } catch (e) {
       console.error("Failed to set model:", e);
     }
-  }, [isNew, setNewSessionModel]);
+  }, [isNew, setNewSessionModel, agentRunning]);
 
-  const handleCompact = useCallback(async () => {
+  const runCompactNow = useCallback(async () => {
     const sid = sessionIdRef.current;
-    if (!sid || isCompacting) return;
+    if (!sid) return;
     setIsCompacting(true);
     setCompactError(null);
     setCompactResult(null);
@@ -1464,7 +1474,44 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       setIsCompacting(false);
     }
-  }, [isCompacting, loadSession]);
+  }, [loadSession]);
+
+  const handleCompact = useCallback(async () => {
+    const sid = sessionIdRef.current;
+    if (!sid || isCompacting) return;
+    // Agent running (streaming OR executing a tool call): compacting now
+    // would race the active agent loop (both rewrite context + session file).
+    // Queue it for the next idle window.
+    if (agentRunning) {
+      pendingCompactRef.current = true;
+      setCompactQueued(true);
+      setCompactError(null);
+      return;
+    }
+    await runCompactNow();
+  }, [isCompacting, agentRunning, runCompactNow]);
+
+  // Clear the "applies next turn" hint once the agent finishes the run.
+  useEffect(() => {
+    if (!agentRunning) setModelSwitchPending(false);
+  }, [agentRunning]);
+
+  // Drain a queued compaction as soon as the agent is truly idle (covers SSE
+  // events, reconcile, and visibility/online recovery — all paths that clear
+  // isStreaming). prompt_done alone is not enough: retries, auto-compaction,
+  // and queued follow-ups can extend a logical run.
+  useEffect(() => {
+    if (pendingCompactRef.current && !agentRunning && !isCompacting) {
+      pendingCompactRef.current = false;
+      setCompactQueued(false);
+      void runCompactNow();
+    }
+  }, [agentRunning, isCompacting, runCompactNow]);
+
+  const cancelCompactQueue = useCallback(() => {
+    pendingCompactRef.current = false;
+    setCompactQueued(false);
+  }, []);
 
   const loadModels = useCallback(async (signal?: AbortSignal) => {
     const modelCwd = newSessionCwd ?? session?.cwd ?? "";
@@ -1730,12 +1777,121 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current;
     if (!sid) return null;
     try {
-      const result = await sendAgentCommand<{ imported?: number }>(sid, { type: "import_queue", entries });
+      const result = await sendAgentCommand<{ imported?: number; steering?: string[]; followUp?: string[] }>(sid, {
+        type: "import_queue",
+        entries,
+      });
+      // Keep the UI in sync with the freshly imported queue (SSE is idle here,
+      // so the banner would otherwise stay hidden until a reload).
+      if (result) setQueuedMessages(normalizeQueuedMessages(result));
       return result?.imported ?? 0;
     } catch (e) {
       console.error("Failed to import queue:", e);
       addNotice({ type: "error", message: "Failed to import queue" });
       return null;
+    }
+  }, [addNotice]);
+
+  /** Move a queued message within its queue (clear + re-enqueue server-side). */
+  const moveQueuedMessage = useCallback(async (
+    kind: "steer" | "followUp",
+    fromIndex: number,
+    toIndex: number,
+  ): Promise<boolean> => {
+    const sid = sessionIdRef.current;
+    if (!sid) return false;
+    try {
+      const result = await sendAgentCommand<{ steering?: string[]; followUp?: string[] }>(sid, {
+        type: "move_queue",
+        kind,
+        fromIndex,
+        toIndex,
+      });
+      if (result) setQueuedMessages(normalizeQueuedMessages(result));
+      return true;
+    } catch (e) {
+      console.error("Failed to move queued message:", e);
+      addNotice({ type: "error", message: e instanceof Error ? e.message : "Failed to move queued message" });
+      return false;
+    }
+  }, [addNotice]);
+
+  /** Pull one queued message out (clear + re-enqueue the rest); returns its text + images. */
+  const recallQueuedMessage = useCallback(async (
+    kind: "steer" | "followUp",
+    index: number,
+  ): Promise<{ text: string; images?: ChatDraftImage[] } | null> => {
+    const sid = sessionIdRef.current;
+    if (!sid) return null;
+    try {
+      const result = await sendAgentCommand<{ entry?: { text: string; images?: Array<{ type: "image"; data: string; mimeType: string }> }; steering?: string[]; followUp?: string[] }>(sid, {
+        type: "recall_queue_item",
+        kind,
+        index,
+      });
+      if (result && (result.steering !== undefined || result.followUp !== undefined)) {
+        setQueuedMessages(normalizeQueuedMessages(result));
+      }
+      if (!result?.entry) return null;
+      return {
+        text: result.entry.text,
+        images: result.entry.images?.map((img) => ({
+          data: img.data,
+          mimeType: img.mimeType,
+        })),
+      };
+    } catch (e) {
+      console.error("Failed to recall queued message:", e);
+      addNotice({ type: "error", message: e instanceof Error ? e.message : "Failed to recall queued message" });
+      return null;
+    }
+  }, [addNotice]);
+
+  /** Insert an edited message back into the queue at its original position. */
+  const requeueAt = useCallback(async (
+    kind: "steer" | "followUp",
+    index: number,
+    text: string,
+    images?: ChatDraftImage[],
+  ): Promise<boolean> => {
+    const sid = sessionIdRef.current;
+    if (!sid) return false;
+    try {
+      const result = await sendAgentCommand<{ steering?: string[]; followUp?: string[] }>(sid, {
+        type: "requeue_at",
+        kind,
+        index,
+        text,
+        images: images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType })),
+      });
+      if (result) setQueuedMessages(normalizeQueuedMessages(result));
+      return true;
+    } catch (e) {
+      console.error("Failed to requeue message:", e);
+      addNotice({ type: "error", message: e instanceof Error ? e.message : "Failed to requeue message" });
+      return false;
+    }
+  }, [addNotice]);
+
+  /** Remove a single queued message (clear + re-enqueue the rest). */
+  const removeQueuedMessage = useCallback(async (
+    kind: "steer" | "followUp",
+    index: number,
+  ): Promise<boolean> => {
+    const sid = sessionIdRef.current;
+    if (!sid) return false;
+    try {
+      const result = await sendAgentCommand<{ steering?: string[]; followUp?: string[] }>(sid, {
+        type: "remove_queue_item",
+        kind,
+        index,
+      });
+      if (result) setQueuedMessages(normalizeQueuedMessages(result));
+      return true;
+    } catch (e) {
+      console.error("Failed to remove queued message:", e);
+      addNotice({ type: "error", message: e instanceof Error ? e.message : "Failed to remove queued message" });
+      return false;
     }
   }, [addNotice]);
 
@@ -1937,9 +2093,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     data, loading, error, activeLeafId, messages, entryIds, streamState,
     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
-    isCompacting, compactError, compactResult, currentModel, displayModel, sessionStats,
+    isCompacting, compactError, compactResult, compactQueued, cancelCompactQueue, modelSwitchPending, currentModel, displayModel, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
     pendingRecovery, resolveRecovery, exportQueueData, importQueueData,
+    moveQueuedMessage, recallQueuedMessage, requeueAt, removeQueuedMessage,
     notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,
     agentPhase,
