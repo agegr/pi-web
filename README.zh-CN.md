@@ -2,6 +2,24 @@
 
 [English](./README.md) | [日本語](./README.ja.md) | [Русский](./README.ru.md)
 
+## Windows 桌面快捷方式（源码仓库）
+
+如果你从克隆的 Pi Web 仓库运行，请先安装依赖，再用内置脚本创建桌面快捷方式：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\Install-PiWebDesktopLauncher.ps1
+```
+
+该快捷方式使用 Pi Logo；仅当 `127.0.0.1:30141` 没有服务监听时才启动 Pi Web，并在浏览器中打开该本地地址。它不会永久修改 Windows 执行策略，也不会将 Pi Web 暴露到网络。
+
+如需同步源码仓库的远程更新，请先停止 Pi Web，再执行：
+
+```powershell
+git pull --ff-only
+```
+
+如果更新改动了 `package.json` 或 `package-lock.json`，重新使用快捷方式前请执行 `npm install`。如果快速前进拉取失败，说明本地 Git 改动需要先处理；快捷方式不会自动更新仓库。
+
 [pi 编程智能体](https://github.com/badlogic/pi-mono) 的本地网页界面。它会读取本机的 pi 会话文件，在浏览器里提供会话管理、实时对话、模型配置、技能管理和项目文件预览。
 
 中文微信群：请查看 [GitHub Discussions 帖子](https://github.com/agegr/pi-web/discussions/271)。

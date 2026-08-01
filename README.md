@@ -27,6 +27,24 @@ pi-web
 
 Then open [http://127.0.0.1:30141](http://127.0.0.1:30141). The CLI will try to open the browser automatically after the server is ready. Pi Web listens on `127.0.0.1` by default.
 
+### Windows desktop shortcut (source checkout)
+
+If you run Pi Web from a cloned repository, install its dependencies first and then create a Desktop shortcut with the bundled script:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\Install-PiWebDesktopLauncher.ps1
+```
+
+The shortcut uses the Pi Logo, starts Pi Web only when nothing is listening on `127.0.0.1:30141`, and opens that local address in your browser. It does not make a persistent change to Windows execution policy or expose Pi Web to the network.
+
+To update a source checkout deliberately, stop Pi Web and run:
+
+```powershell
+git pull --ff-only
+```
+
+If that update changes `package.json` or `package-lock.json`, run `npm install` before using the shortcut again. A failed fast-forward pull means local Git changes need to be resolved before retrying; the shortcut never updates your checkout automatically.
+
 **Options:**
 
 ```bash
