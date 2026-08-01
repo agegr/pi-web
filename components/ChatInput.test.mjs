@@ -8,7 +8,7 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, filterModelOptions } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, filterModelOptions, getUserMessageText, getUserMessageDraftImages } = await jiti.import("./ChatInput.tsx");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
 test("renders the upstream model error", () => {
@@ -73,6 +73,34 @@ test("filters model options by name and id", () => {
   assert.equal(filterModelOptions(options, "anthropic/claude").length, 0);
   assert.equal(filterModelOptions(options, "missing").length, 0);
   assert.equal(filterModelOptions(options, "  "), options);
+});
+
+test("restores text and base64 images when editing a user message", () => {
+  const message = {
+    role: "user",
+    content: [
+      { type: "text", text: "Review this image @src/example.ts " },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "AQID" } },
+    ],
+  };
+
+  assert.equal(getUserMessageText(message), "Review this image @src/example.ts ");
+  assert.deepEqual(getUserMessageDraftImages(message), [
+    { data: "AQID", mimeType: "image/png" },
+  ]);
+});
+
+test("restores legacy flat image entries when editing a user message", () => {
+  const message = {
+    role: "user",
+    content: [
+      { type: "image", data: "AQID", mimeType: "image/jpeg" },
+    ],
+  };
+
+  assert.deepEqual(getUserMessageDraftImages(message), [
+    { data: "AQID", mimeType: "image/jpeg" },
+  ]);
 });
 
 test("renders compact errors above the input as a wrapping alert", () => {
