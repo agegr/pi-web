@@ -357,8 +357,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelScopeWarnings, setModelScopeWarnings] = useState<string[]>([]);
   const [modelThinkingLevels, setModelThinkingLevels] = useState<Record<string, string[]>>({});
   const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>({});
-  /** A model switch was made while the agent was running — applies next turn. */
-  const [modelSwitchPending, setModelSwitchPending] = useState(false);
+  /** A model switch was made while the agent was running — applies next turn.
+   *  Stores the target model; switching back to the current run's model cancels. */
+  const [modelSwitchPending, setModelSwitchPending] = useState<{ provider: string; modelId: string } | null>(null);
+  /** Model the current agent run started with (agent_start / running transition). */
+  const agentRunModelRef = useRef<{ provider: string; modelId: string } | null>(null);
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
   const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("default");
@@ -1451,8 +1454,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setCurrentModelOverride({ provider, modelId });
       // Switching mid-run only takes effect next turn (the in-flight request
       // still uses the old model). Surface this so the user isn't confused by
-      // the model name updating immediately.
-      if (agentRunning) setModelSwitchPending(true);
+      // the model name updating immediately. Switching back to the model the
+      // current run is using cancels the pending switch instead.
+      if (agentRunning) {
+        const runModel = agentRunModelRef.current;
+        if (runModel && runModel.provider === provider && runModel.modelId === modelId) {
+          setModelSwitchPending(null);
+        } else {
+          setModelSwitchPending({ provider, modelId });
+        }
+      }
     } catch (e) {
       console.error("Failed to set model:", e);
     }
@@ -1491,9 +1502,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     await runCompactNow();
   }, [isCompacting, agentRunning, runCompactNow]);
 
-  // Clear the "applies next turn" hint once the agent finishes the run.
+  // Record the model the current run started with, then clear the "applies
+  // next turn" hint once the agent finishes the run.
   useEffect(() => {
-    if (!agentRunning) setModelSwitchPending(false);
+    if (agentRunning) {
+      if (currentModel) {
+        agentRunModelRef.current = { provider: currentModel.provider, modelId: currentModel.modelId };
+      }
+    } else {
+      agentRunModelRef.current = null;
+      setModelSwitchPending(null);
+    }
+    // Intentionally only reacts to agentRunning: currentModel may change mid-run
+    // when the user switches, which must NOT overwrite the run's start model.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentRunning]);
 
   // Drain a queued compaction as soon as the agent is truly idle (covers SSE

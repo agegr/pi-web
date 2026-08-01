@@ -54,8 +54,9 @@ interface Props {
   /** Manual compaction was queued while the agent was running. */
   compactQueued?: boolean;
   onCancelCompactQueue?: () => void;
-  /** A model switch was made mid-run; applies next turn. */
-  modelSwitchPending?: boolean;
+  /** A model switch was made mid-run; applies next turn. Switching back to the
+   *  current run's model cancels it (null). */
+  modelSwitchPending?: { provider: string; modelId: string } | null;
   toolPreset?: "none" | "default" | "full";
   onToolPresetChange?: (preset: "none" | "default" | "full") => void;
   thinkingLevel?: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
