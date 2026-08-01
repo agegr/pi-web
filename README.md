@@ -6,6 +6,9 @@ The web view for [omp (oh-my-pi)](https://github.com/can1357/oh-my-pi). omp-web 
 
 It is not a separate agent: omp-web runs omp's own SDK in-process, against the same `~/.omp/agent` directory, so a session started in the terminal continues in the browser and back again.
 
+<img width="1912" height="1242" alt="image" src="https://github.com/user-attachments/assets/6a3932c0-5ed2-4682-b4a7-db7837c764ad" />
+
+
 ## Quick Start
 
 omp-web serves its API on **Bun**, because that is what the omp SDK requires (it is published as TypeScript sources and imports `bun:` builtins). Install Bun 1.2 or newer:
