@@ -7,6 +7,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
+import { skillExpansionToCommand } from "@/lib/slash-display";
 import type {
   AgentMessage,
   UserMessage,
@@ -84,6 +85,25 @@ function formatTime(ts?: number): string | null {
   return `${date} ${time}`;
 }
 
+export function replaceUserMessageText(message: UserMessage, text: string): UserMessage {
+  if (typeof message.content === "string") return { ...message, content: text };
+
+  const content: Array<TextContent | ImageContent> = [];
+  let replaced = false;
+  for (const block of message.content) {
+    if (block.type !== "text") {
+      content.push(block);
+      continue;
+    }
+    if (!replaced) {
+      content.push({ ...block, text });
+      replaced = true;
+    }
+  }
+  if (!replaced) content.unshift({ type: "text", text });
+  return { ...message, content };
+}
+
 function haveSameRelevantToolResults(
   message: AgentMessage,
   previous: Map<string, ToolResultMessage> | undefined,
@@ -151,6 +171,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   const { t } = useI18n();
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const content =
     typeof message.content === "string"
@@ -165,12 +186,49 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
       ? []
       : message.content.filter((b): b is ImageContent => b.type === "image");
 
+  const commandText = skillExpansionToCommand(content);
+  const commandSeparator = commandText?.search(/\s/) ?? -1;
+  const commandName = commandText
+    ? commandSeparator === -1 ? commandText : commandText.slice(0, commandSeparator)
+    : "";
+  const commandArgs = commandText && commandSeparator !== -1
+    ? commandText.slice(commandSeparator + 1)
+    : "";
+
   const time = formatTime(message.timestamp);
   const canFork = !!entryId && !!onFork;
+  const copyTarget = commandText ?? content;
+  const editTarget = commandText ? replaceUserMessageText(message, commandText) : message;
+
+  const imageBlocksNode = imageBlocks.length > 0 && (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: content ? 8 : 0 }}>
+      {imageBlocks.map((img, i) => {
+        // lib/types.ts ImageContent uses {source:{type,data,media_type,url}}
+        // pi-ai on-disk format uses flat {data, mimeType} — handle both
+        const flat = img as unknown as { data?: string; mimeType?: string };
+        const src = img.source
+          ? img.source.type === "base64"
+            ? `data:${img.source.media_type};base64,${img.source.data}`
+            : img.source.url ?? ""
+          : flat.data
+            ? `data:${flat.mimeType};base64,${flat.data}`
+            : "";
+        return (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            key={i}
+            src={src}
+            alt=""
+            style={{ maxWidth: 240, maxHeight: 240, borderRadius: 6, objectFit: "contain", display: "block", border: "1px solid rgba(59,130,246,0.15)" }}
+          />
+        );
+      })}
+    </div>
+  );
   const canNavigate = !!prevAssistantEntryId && !!onNavigate;
 
   const copyContent = () => {
-    copyText(content).then(() => {
+    copyText(copyTarget).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
@@ -197,32 +255,71 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
             wordBreak: "break-word",
           }}
         >
-          {imageBlocks.length > 0 && (
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: content ? 8 : 0 }}>
-              {imageBlocks.map((img, i) => {
-                // lib/types.ts ImageContent uses {source:{type,data,media_type,url}}
-                // pi-ai on-disk format uses flat {data, mimeType} — handle both
-                const flat = img as unknown as { data?: string; mimeType?: string };
-                const src = img.source
-                  ? img.source.type === "base64"
-                    ? `data:${img.source.media_type};base64,${img.source.data}`
-                    : img.source.url ?? ""
-                  : flat.data
-                    ? `data:${flat.mimeType};base64,${flat.data}`
-                    : "";
-                return (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    key={i}
-                    src={src}
-                    alt=""
-                    style={{ maxWidth: 240, maxHeight: 240, borderRadius: 6, objectFit: "contain", display: "block", border: "1px solid rgba(59,130,246,0.15)" }}
-                  />
-                );
-              })}
+          {commandText ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
+              {imageBlocksNode}
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  onClick={() => setExpanded((prev) => !prev)}
+                  title={expanded ? t("i18n.collapse") : t("i18n.expand")}
+                  aria-expanded={expanded}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    flexShrink: 0,
+                    padding: 0,
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    color: "var(--accent)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 13,
+                    textAlign: "left",
+                  }}
+                >
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {commandName}
+                  </span>
+                  <svg
+                    width="11"
+                    height="11"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ flexShrink: 0, opacity: 0.75, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}
+                    aria-hidden="true"
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </button>
+                {commandArgs && (
+                  <span style={{
+                    color: "var(--text)",
+                    fontSize: 14,
+                    lineHeight: 1.6,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    minWidth: 0,
+                    flex: 1,
+                  }}>
+                    {commandArgs}
+                  </span>
+                )}
+              </div>
+              {expanded && (
+                <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{content}</MarkdownBody>
+              )}
             </div>
-          )}
+          ) : (
+          <>
+          {imageBlocksNode}
           {content && <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{content}</MarkdownBody>}
+          </>
+          )}
         </div>
 
       </div>
@@ -278,7 +375,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
             }}>
               {canNavigate && (
                 <button
-                  onClick={() => { onNavigate!(prevAssistantEntryId!); onEditContent?.(message); }}
+                  onClick={() => { onNavigate!(prevAssistantEntryId!); onEditContent?.(editTarget); }}
                    title={t("i18n.editFromHereTitle")}
                   style={{
                     display: "flex", alignItems: "center", gap: 4,

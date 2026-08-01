@@ -8,7 +8,7 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { MessageView } = await jiti.import("./MessageView.tsx");
+const { MessageView, replaceUserMessageText } = await jiti.import("./MessageView.tsx");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
 function renderMessage(message) {
@@ -20,6 +20,14 @@ function renderMessage(message) {
     ),
   );
 }
+
+const COMPLETE_SKILL_EXPANSION = `<skill name="review" location="/skills/review/SKILL.md">
+References are relative to /skills/review.
+
+Review the supplied files.
+</skill>
+
+src/main.ts`;
 
 test("renders a provider error when the assistant message has no content", () => {
   const html = renderMessage({
@@ -48,4 +56,42 @@ test("renders partial assistant content before the provider error", () => {
 
   assert.match(html, /Partial response/);
   assert.match(html, /Error: Connection closed/);
+});
+
+test("renders a complete SDK skill expansion as a compact command", () => {
+  const html = renderMessage({
+    role: "user",
+    content: COMPLETE_SKILL_EXPANSION,
+  });
+
+  assert.match(html, /\/skill:review/);
+  assert.match(html, /src\/main\.ts/);
+  assert.match(html, /aria-expanded="false"/);
+  assert.doesNotMatch(html, /Review the supplied files/);
+});
+
+test("does not collapse incomplete skill-looking user text", () => {
+  const html = renderMessage({
+    role: "user",
+    content: '<skill name="review" location="/skills/review/SKILL.md">\nordinary user text',
+  });
+
+  assert.match(html, /ordinary user text/);
+  assert.doesNotMatch(html, /aria-expanded/);
+});
+
+test("keeps attached images when restoring a compact command for editing", () => {
+  const image = {
+    type: "image",
+    source: { type: "base64", media_type: "image/png", data: "QUJDRA==" },
+  };
+  const restored = replaceUserMessageText({
+    role: "user",
+    content: [{ type: "text", text: COMPLETE_SKILL_EXPANSION }, image],
+  }, "/skill:review src/main.ts");
+
+  assert.deepEqual(restored.content, [
+    { type: "text", text: "/skill:review src/main.ts" },
+    image,
+  ]);
 });
