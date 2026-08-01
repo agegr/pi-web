@@ -11,6 +11,7 @@ import type {
 } from "@/lib/types";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
+import type { PendingRecoveryItem, QueueEntry, QueueEntryInput } from "@/lib/queue-store";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 
@@ -77,6 +78,7 @@ type AgentStateResponse = {
   extensionStatuses?: ExtensionStatusItem[];
   extensionWidgets?: ExtensionWidgetItem[];
   queuedMessages?: { steering?: string[]; followUp?: string[] } | null;
+  pendingRecovery?: PendingRecoveryItem[] | null;
 };
 
 export interface QueuedMessages {
@@ -377,6 +379,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessages>({ steering: [], followUp: [] });
+  const [pendingRecovery, setPendingRecovery] = useState<PendingRecoveryItem[]>([]);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const eventSourceSessionIdRef = useRef<string | null>(null);
@@ -498,6 +501,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (liveState.extensionStatuses !== undefined) setExtensionStatuses(liveState.extensionStatuses ?? []);
           if (liveState.extensionWidgets !== undefined) setExtensionWidgets(liveState.extensionWidgets ?? []);
           if (liveState.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(liveState.queuedMessages));
+          if (liveState.pendingRecovery !== undefined) setPendingRecovery(liveState.pendingRecovery ?? []);
         } else if (!agentState.running) {
           setQueuedMessages({ steering: [], followUp: [] });
         }
@@ -994,6 +998,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // (wrapper destroyed) means nothing is compacting.
       setIsCompacting(state?.isCompacting ?? false);
       setQueuedMessages(normalizeQueuedMessages(state?.queuedMessages));
+      setPendingRecovery(state?.pendingRecovery ?? []);
       const busy = data.running && state
         && (state.isStreaming || state.isPromptRunning || state.isCompacting);
       if (busy || !agentRunningRef.current) return;
@@ -1067,6 +1072,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
               // Aborted turns can leave messages queued in pi (delivered with the
               // next turn); dead wrapper (no state) means the queue is gone.
               setQueuedMessages(normalizeQueuedMessages(d.state?.queuedMessages));
+              setPendingRecovery(d.state?.pendingRecovery ?? []);
             })
             .catch(() => {});
         }
@@ -1653,6 +1659,86 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [opts.chatInputRef, addNotice]);
 
+  /**
+   * Decide what to do with pending recovery items: keep (re-queue, optionally
+   * continuing the transcript) and/or discard. Returns the remaining items.
+   */
+  const resolveRecovery = useCallback(async (
+    keep: string[],
+    discard: string[],
+    continueRun = false,
+  ): Promise<PendingRecoveryItem[]> => {
+    const sid = sessionIdRef.current;
+    if (!sid) return pendingRecovery;
+    try {
+      const result = await sendAgentCommand<{ remaining?: PendingRecoveryItem[] }>(sid, {
+        type: "resolve_recovery",
+        keep,
+        discard,
+        continueRun,
+      });
+      const remaining = result?.remaining ?? [];
+      setPendingRecovery(remaining);
+      if (continueRun && keep.length > 0) {
+        // The run was started server-side, possibly before any SSE was
+        // connected (e.g. right after a restart) — pick it up so streaming,
+        // agent_end refresh, and settlement all work as usual.
+        void (async () => {
+          try {
+            const stateRes = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
+            if (!stateRes.ok) return;
+            const agentState = await stateRes.json() as { running?: boolean; state?: AgentStateResponse };
+            const st = agentState.state;
+            if (agentState.running && st && (st.isStreaming || st.isPromptRunning)) {
+              sdkAgentActiveRef.current = Boolean(st.isStreaming);
+              rpcPromptPendingRef.current = Boolean(st.isPromptRunning);
+              agentRunningRef.current = true;
+              setAgentRunning(true);
+              setAgentPhase(st.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
+              dispatch({ type: "start" });
+              void connectEvents(sid);
+              if (!st.isStreaming && st.isPromptRunning) {
+                void waitForPromptSettlement(sid);
+              }
+            }
+          } catch { /* non-critical */ }
+        })();
+      }
+      return remaining;
+    } catch (e) {
+      console.error("Failed to resolve queued message recovery:", e);
+      addNotice({ type: "error", message: "Failed to resolve queued message recovery" });
+      return pendingRecovery;
+    }
+  }, [pendingRecovery, addNotice, connectEvents, waitForPromptSettlement]);
+
+  /** Fetch the full live queue + recovery entries (with images) for export. */
+  const exportQueueData = useCallback(async (): Promise<{ live: QueueEntry[]; recovery: QueueEntry[] } | null> => {
+    const sid = sessionIdRef.current;
+    if (!sid) return null;
+    try {
+      return await sendAgentCommand<{ live: QueueEntry[]; recovery: QueueEntry[] }>(sid, { type: "export_queue" });
+    } catch (e) {
+      console.error("Failed to export queue:", e);
+      addNotice({ type: "error", message: "Failed to export queue" });
+      return null;
+    }
+  }, [addNotice]);
+
+  /** Re-queue entries parsed from an exported .json file. Returns count. */
+  const importQueueData = useCallback(async (entries: QueueEntryInput[]): Promise<number | null> => {
+    const sid = sessionIdRef.current;
+    if (!sid) return null;
+    try {
+      const result = await sendAgentCommand<{ imported?: number }>(sid, { type: "import_queue", entries });
+      return result?.imported ?? 0;
+    } catch (e) {
+      console.error("Failed to import queue:", e);
+      addNotice({ type: "error", message: "Failed to import queue" });
+      return null;
+    }
+  }, [addNotice]);
+
   const handleThinkingLevelChange = useCallback(async (level: ThinkingLevelOption) => {
     setThinkingLevel(level);
     if (isNew && !sessionIdRef.current) {
@@ -1742,7 +1828,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (agentState.state.extensionStatuses !== undefined) setExtensionStatuses(agentState.state.extensionStatuses ?? []);
           if (agentState.state.extensionWidgets !== undefined) setExtensionWidgets(agentState.state.extensionWidgets ?? []);
           if (agentState.state.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(agentState.state.queuedMessages));
+          if (agentState.state.pendingRecovery !== undefined) setPendingRecovery(agentState.state.pendingRecovery ?? []);
         }
+        // After a restart there may be no wrapper yet; fetch the sidecar-based
+        // recovery list directly (no AgentSession is created for this read).
+        void fetch(`/api/sessions/${encodeURIComponent(session.id)}/queue-recovery`)
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data: { items?: PendingRecoveryItem[] } | null) => {
+            if (data?.items && sessionIdRef.current === session.id) {
+              setPendingRecovery(data.items);
+            }
+          })
+          .catch(() => { /* non-critical */ });
       });
     }
     return () => {
@@ -1842,6 +1939,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
+    pendingRecovery, resolveRecovery, exportQueueData, importQueueData,
     notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,
     agentPhase,

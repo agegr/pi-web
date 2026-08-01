@@ -2,6 +2,8 @@
 
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
+import type { QueueEntry, QueueEntryInput } from "@/lib/queue-store";
+import { downloadQueueExport, parseQueueImport } from "@/lib/queue-export";
 import type { SkillsResponse } from "@/lib/api-types";
 import { clearDraft, getDraft, setDraft, type ChatDraftImage } from "@/lib/draft-store";
 import {
@@ -59,6 +61,10 @@ interface Props {
   queuedMessages?: QueuedMessages | null;
   inputHistory?: string[];
   onRecallQueue?: () => void;
+  /** Fetch full queue entries (live + recovery) for export. */
+  onExportQueue?: () => Promise<{ live: QueueEntry[]; recovery: QueueEntry[] } | null>;
+  /** Re-queue entries parsed from an imported .json file. Returns count. */
+  onImportQueue?: (entries: QueueEntryInput[]) => Promise<number | null>;
   slashCommands?: SlashCommandInfo[];
   slashCommandsLoading?: boolean;
   onLoadSlashCommands?: () => Promise<SlashCommandInfo[]> | SlashCommandInfo[];
@@ -316,6 +322,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
+  onExportQueue, onImportQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
   soundEnabled, onSoundToggle, onAudioUnlock,
@@ -364,6 +371,22 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const controlsMenuRef = useRef<HTMLDivElement>(null);
   const historyMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const queueImportFileRef = useRef<HTMLInputElement>(null);
+  // Queue area collapse: null = auto (fold when many messages), otherwise the
+  // user's explicit choice. Mobile is more aggressive to save half-screen space.
+  const [queueCollapsedUser, setQueueCollapsedUser] = useState<boolean | null>(null);
+  const [queueNotice, setQueueNotice] = useState<{ text: string; ok: boolean } | null>(null);
+  const queueNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showQueueNotice = useCallback((text: string, ok: boolean) => {
+    setQueueNotice({ text, ok });
+    if (queueNoticeTimerRef.current) clearTimeout(queueNoticeTimerRef.current);
+    queueNoticeTimerRef.current = setTimeout(() => setQueueNotice(null), 3000);
+  }, []);
+  const queueCount = (queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0);
+  const queueCollapsed = queueCollapsedUser ?? queueCount > (isMobile ? 1 : 3);
+  const toggleQueueCollapsed = useCallback(() => {
+    setQueueCollapsedUser((prev) => !(prev ?? queueCount > (isMobile ? 1 : 3)));
+  }, [queueCount, isMobile]);
   const isComposingRef = useRef(false);
   const lastCompositionEndAtRef = useRef(0);
   const slashCommandsRequestedRef = useRef(false);
@@ -1134,6 +1157,31 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           e.target.value = "";
         }}
       />
+      {/* Hidden queue-import file input */}
+      <input
+        ref={queueImportFileRef}
+        type="file"
+        accept=".json,application/json"
+        style={{ display: "none" }}
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (!file || !onImportQueue) return;
+          try {
+            const entries = parseQueueImport(await file.text());
+            if (entries.length === 0) {
+              showQueueNotice(t("chat.queueImportEmpty"), false);
+              return;
+            }
+            const imported = await onImportQueue(entries);
+            if (imported !== null && imported > 0) {
+              showQueueNotice(t("chat.queueImported", { count: String(imported) }), true);
+            }
+          } catch {
+            showQueueNotice(t("chat.queueImportEmpty"), false);
+          }
+        }}
+      />
       <div style={{ maxWidth: 820, margin: "0 auto" }}>
         <ModelErrorBanner error={modelError} />
         <ModelScopeWarningBanner warnings={modelScopeWarnings} />
@@ -1146,61 +1194,213 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             background: "var(--bg-panel)",
             padding: "5px 0",
           }}>
+          <div style={{
+            display: "flex",
+            flexDirection: isMobile ? "column" : "row",
+            alignItems: isMobile ? "stretch" : "center",
+            justifyContent: "space-between",
+            gap: isMobile ? 2 : 8,
+            padding: isMobile ? "6px 10px 4px" : "2px 10px 2px",
+          }}>
             <div style={{
               display: "flex",
               alignItems: "center",
-              justifyContent: "space-between",
               gap: 8,
-              padding: "2px 8px 4px 10px",
+              minHeight: 24,
             }}>
-              <span style={{
-                fontSize: 10,
-                fontFamily: "var(--font-mono)",
-                color: "var(--text-dim)",
-                textTransform: "uppercase",
-                letterSpacing: 0.4,
-              }}>
-                {t("chat.queued", { count: (queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0) })}
-              </span>
-              {onRecallQueue && (
-                <button
-                  onClick={onRecallQueue}
-                   title={t("chat.recallTitle")}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "4px 12px",
-                    fontSize: 12,
-                    color: "var(--text)",
-                    background: "transparent",
-                    border: "1px solid var(--border)",
-                    borderRadius: 7,
-                    cursor: "pointer",
-                    transition: "background 0.12s, border-color 0.12s",
-                    whiteSpace: "nowrap",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "var(--bg-hover)";
-                    e.currentTarget.style.borderColor = "color-mix(in srgb, var(--accent) 45%, var(--border))";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "transparent";
-                    e.currentTarget.style.borderColor = "var(--border)";
-                  }}
+              <button
+                onClick={toggleQueueCollapsed}
+                title={queueCollapsed ? t("chat.queueExpand") : t("chat.queueCollapse")}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "4px 6px",
+                  border: "none",
+                  background: "transparent",
+                  color: "var(--text-dim)",
+                  cursor: "pointer",
+                  borderRadius: 5,
+                }}
+              >
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ transition: "transform 0.12s", transform: queueCollapsed ? "rotate(-90deg)" : undefined, flexShrink: 0 }}
                 >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="9 14 4 9 9 4" />
-                    <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
-                  </svg>
-                   {t("chat.recall")}
-                </button>
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+                <span style={{
+                  fontSize: 10,
+                  fontFamily: "var(--font-mono)",
+                  color: "var(--text-dim)",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.4,
+                }}>
+                  {t("chat.queued", { count: (queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0) })}
+                </span>
+              </button>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", marginTop: isMobile ? 2 : 0 }}>
+                {onRecallQueue && (
+                  <button
+                    onClick={onRecallQueue}
+                    title={t("chat.recallTitle")}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "3px 10px",
+                      fontSize: 12,
+                      color: "var(--text)",
+                      background: "transparent",
+                      border: "1px solid var(--border)",
+                      borderRadius: 7,
+                      cursor: "pointer",
+                      transition: "background 0.12s, border-color 0.12s",
+                      whiteSpace: "nowrap",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "var(--bg-hover)";
+                      e.currentTarget.style.borderColor = "color-mix(in srgb, var(--accent) 45%, var(--border))";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "transparent";
+                      e.currentTarget.style.borderColor = "var(--border)";
+                    }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="9 14 4 9 9 4" />
+                      <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+                    </svg>
+                    {t("chat.recall")}
+                  </button>
+                )}
+                {(onExportQueue || onImportQueue) && (
+                  <>
+                    {onExportQueue && (
+                      <button
+                        title={t("chat.queueExport")}
+                        onClick={async () => {
+                          const data = await onExportQueue();
+                          if (!data) return;
+                          downloadQueueExport(data.live, { source: "live" }, "json");
+                          showQueueNotice(
+                            t("chat.queueExported", {
+                              count: String((queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)),
+                            }),
+                            true,
+                          );
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          padding: "3px 10px",
+                          fontSize: 12,
+                          color: "var(--text)",
+                          background: "transparent",
+                          border: "1px solid var(--border)",
+                          borderRadius: 7,
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="7 10 12 15 17 10" />
+                          <line x1="12" y1="15" x2="12" y2="3" />
+                        </svg>
+                        {t("chat.queueExport")}
+                      </button>
+                    )}
+                    {onImportQueue && (
+                      <button
+                        title={t("chat.queueImport")}
+                        onClick={() => queueImportFileRef.current?.click()}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          padding: "3px 10px",
+                          fontSize: 12,
+                          color: "var(--text)",
+                          background: "transparent",
+                          border: "1px solid var(--border)",
+                          borderRadius: 7,
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="17 8 12 3 7 8" />
+                          <line x1="12" y1="3" x2="12" y2="15" />
+                        </svg>
+                        {t("chat.queueImport")}
+                      </button>
+                    )}
+                    {queueNotice && (
+                      <span style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        fontSize: 11,
+                        color: queueNotice.ok ? "#16a34a" : "#ef4444",
+                        whiteSpace: "nowrap",
+                      }}>
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                          {queueNotice.ok
+                            ? <><polyline points="20 6 9 17 4 12" /></>
+                            : <><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></>}
+                        </svg>
+                        {queueNotice.text}
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+          </div>
+          {queueCollapsed && queueCount > 0 && (
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "0 12px 4px",
+              fontSize: 11.5,
+              color: "var(--text-dim)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+            }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                {(queuedMessages?.steering?.[0] ?? queuedMessages?.followUp?.[0] ?? "")}
+              </span>
+              {queueCount > 1 && (
+                <span style={{
+                  flexShrink: 0,
+                  fontSize: 10,
+                  color: "var(--text-muted)",
+                  background: "var(--bg-hover)",
+                  border: "1px solid var(--border)",
+                  padding: "0 6px",
+                  borderRadius: 999,
+                  lineHeight: "16px",
+                }}>
+                  +{queueCount - 1}
+                </span>
               )}
             </div>
-            {queuedMessages?.steering.map((text, i) => (
+          )}
+            {!queueCollapsed && queuedMessages?.steering.map((text, i) => (
               <QueuedMessageRow key={`steer-${i}`} kind="steer" text={text} />
             ))}
-            {queuedMessages?.followUp.map((text, i) => (
+            {!queueCollapsed && queuedMessages?.followUp.map((text, i) => (
               <QueuedMessageRow key={`followup-${i}`} kind="follow-up" text={text} />
             ))}
           </div>

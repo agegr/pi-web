@@ -1223,7 +1223,7 @@ export function AppShell() {
                     {costStr}
                   </span>
                 )}
-                {ctxStr && (
+                {!isMobile && ctxStr && (
                   <span style={{ display: "flex", alignItems: "center", gap: 4, color: ctxColor }}>
                     <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M1 9 L1 5 Q1 1 5 1 Q9 1 9 5 L9 9" /><line x1="1" y1="9" x2="9" y2="9" />

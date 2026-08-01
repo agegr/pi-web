@@ -5,6 +5,17 @@ import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
+import {
+  createQueueEntry,
+  loadQueue,
+  removeQueue,
+  saveQueue,
+  type PendingRecoveryItem,
+  type QueueEntry,
+  type QueueEntryInput,
+  type QueueImage,
+  type QueueKind,
+} from "./queue-store";
 import { invalidateModelsCache } from "./models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
@@ -148,6 +159,13 @@ export class AgentSessionWrapper {
   private forceEmptySystemPrompt = false;
   private unsubscribe: (() => void) | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  // Queue persistence & crash recovery — see lib/queue-store.ts.
+  // queueMirror mirrors pi's live steer/follow-up queue (with images).
+  // queueRecovery holds sidecar entries orphaned by a previous wrapper
+  // lifetime; they are surfaced to the UI and never auto-delivered.
+  private queueMirror: QueueEntry[] = [];
+  private queueRecovery: QueueEntry[] = [];
+  private pendingQueueHints: Record<QueueKind, QueueImage[][]> = { steer: [], followUp: [] };
   private onDestroyCallback: (() => void) | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private _alive = true;
@@ -179,12 +197,161 @@ export class AgentSessionWrapper {
       if (event.type === "agent_end") {
         invalidateSessionListCache();
       }
+      if (event.type === "queue_update") {
+        this.reconcileQueue(
+          (event as { steering?: string[] }).steering,
+          (event as { followUp?: string[] }).followUp,
+        );
+      }
       if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
       this.emit(event);
       if (RUNNING_STATE_EVENT_TYPES.has(event.type)) notifyRunningChange();
     });
     this.resetIdleTimer();
     notifyRunningChange();
+  }
+
+  // ==========================================================================
+  // Queue persistence & crash recovery
+  //
+  // pi keeps its steering/follow-up queues in memory only. We mirror every
+  // queue mutation to a per-session sidecar file so that after a server
+  // restart the messages can be offered for manual recovery instead of being
+  // lost. Recovery is NEVER automatic: sidecar entries are surfaced to the UI
+  // (pendingRecovery) and the user decides to re-queue, discard, or export.
+  // ==========================================================================
+
+  /**
+   * Load entries the sidecar inherited from a previous process (or a previous
+   * wrapper lifetime after the 10-minute idle timeout).
+   */
+  loadQueueRecovery(): void {
+    const file = this.sessionFile;
+    if (!file) return;
+    const persisted = loadQueue(file);
+    if (persisted.length > 0) {
+      this.queueRecovery = persisted;
+      console.log(
+        `[pi-web] ${persisted.length} queued message(s) pending recovery for session ${this.sessionId}`,
+      );
+    }
+  }
+
+  private getSidecarEntries(): QueueEntry[] {
+    return [...this.queueRecovery, ...this.queueMirror];
+  }
+
+  private persistQueue(): void {
+    const file = this.sessionFile;
+    if (!file) return;
+    const entries = this.getSidecarEntries();
+    if (entries.length === 0) {
+      removeQueue(file);
+      return;
+    }
+    saveQueue(file, entries);
+  }
+
+  private getPendingRecoveryView(): PendingRecoveryItem[] {
+    return this.queueRecovery.map((entry) => ({
+      id: entry.id,
+      kind: entry.kind,
+      text: entry.text,
+      hasImages: Boolean(entry.images?.length),
+      queuedAt: entry.queuedAt,
+    }));
+  }
+
+  /**
+   * Record an incoming queueable message so its image attachments survive
+   * mirroring. pi reports queued messages by text only and template expansion
+   * may rewrite the text, so hints are consumed FIFO per kind.
+   */
+  private hintQueueImages(kind: QueueKind, images: QueueImage[] | undefined): void {
+    this.pendingQueueHints[kind].push(images && images.length > 0 ? images : []);
+  }
+
+  /**
+   * Sync the mirror with pi's authoritative queue (text-only). Bare entries pi
+   * reports that we have never mirrored consume image hints FIFO.
+   */
+  private reconcileQueue(steering: string[] | undefined, followUp: string[] | undefined): void {
+    const rebuild = (kind: QueueKind, texts: string[] | undefined): QueueEntry[] => {
+      if (!texts) return this.queueMirror.filter((entry) => entry.kind === kind);
+      const used = new Set<QueueEntry>();
+      return texts.map((text) => {
+        const match = this.queueMirror.find(
+          (entry) => entry.kind === kind && entry.text === text && !used.has(entry),
+        );
+        if (match) {
+          used.add(match);
+          return match;
+        }
+        const entry = createQueueEntry(kind, text, this.pendingQueueHints[kind].shift());
+        used.add(entry);
+        return entry;
+      });
+    };
+    this.queueMirror = [
+      ...rebuild("steer", steering),
+      ...rebuild("followUp", followUp),
+    ];
+    this.persistQueue();
+  }
+
+  /** Re-queue a recovered or imported entry into the live queue. */
+  private async requeueEntry(entry: QueueEntry): Promise<void> {
+    this.hintQueueImages(entry.kind, entry.images);
+    if (entry.kind === "steer") {
+      await this.inner.steer(entry.text, entry.images);
+    } else {
+      await this.inner.followUp(entry.text, entry.images);
+    }
+  }
+
+  /**
+   * Ensure the entry is present in the mirror (queue_update may race). Called
+   * after requeue/import so the sidecar is never missing a re-queued message.
+   */
+  private ensureMirrored(entry: QueueEntry): void {
+    const existing = this.queueMirror.find(
+      (e) => e.kind === entry.kind && e.text === entry.text,
+    );
+    if (existing) return;
+    this.queueMirror.push({ ...entry });
+    // No queue_update consumed the image hint (yet) — drop the one we pushed in
+    // requeueEntry so it cannot attach to an unrelated future entry.
+    this.pendingQueueHints[entry.kind].pop();
+  }
+
+  /**
+   * Continue the transcript so queued messages get processed. AgentSession has
+   * no public continue(); invoke the raw agent loop like AgentSession does
+   * internally — events/persistence still flow through its subscriptions.
+   */
+  private runAgentContinue(): void {
+    const continueFn = this.inner.agent.continue;
+    if (typeof continueFn !== "function" || this.inner.isStreaming || this.inner.isBashRunning) return;
+    this.promptRunning = true;
+    notifyRunningChange();
+    Promise.resolve(continueFn.call(this.inner.agent))
+      .then(() => {
+        this.promptRunning = false;
+        this.resetIdleTimer();
+        this.emit({ type: "prompt_done" });
+        notifyRunningChange();
+      })
+      .catch((error: unknown) => {
+        this.promptRunning = false;
+        this.resetIdleTimer();
+        invalidateSessionListCache();
+        this.emit({
+          type: "prompt_error",
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+        this.emit({ type: "prompt_done" });
+        notifyRunningChange();
+      });
   }
 
   setForceEmptySystemPrompt(force: boolean): void {
@@ -354,6 +521,11 @@ export class AgentSessionWrapper {
         // Fire and forget — events come via subscribe
         const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
         const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
+        const queuesMessage = Boolean(streamingBehavior) && this.inner.isStreaming;
+        if (queuesMessage) {
+          // Record image attachments so they survive queue mirroring.
+          this.hintQueueImages(streamingBehavior === "followUp" ? "followUp" : "steer", promptImages);
+        }
         this.promptRunning = true;
         notifyRunningChange();
         this.inner.prompt(command.message as string, {
@@ -402,6 +574,7 @@ export class AgentSessionWrapper {
             steering: [...this.inner.getSteeringMessages()],
             followUp: [...this.inner.getFollowUpMessages()],
           },
+          pendingRecovery: this.getPendingRecoveryView(),
           contextUsage: contextUsage
             ? { percent: contextUsage.percent, contextWindow: contextUsage.contextWindow, tokens: contextUsage.tokens }
             : null,
@@ -521,17 +694,76 @@ export class AgentSessionWrapper {
       case "clear_queue": {
         // Full clear only: pi has no single-item dequeue, and clear+requeue
         // races against the agent loop pulling messages mid-flight.
+        this.queueMirror = [];
+        this.pendingQueueHints = { steer: [], followUp: [] };
+        this.persistQueue();
         return this.inner.clearQueue();
+      }
+
+      case "resolve_recovery": {
+        const keptIds = new Set((command.keep as string[] | undefined) ?? []);
+        const discardIds = new Set((command.discard as string[] | undefined) ?? []);
+        const continueRun = command.continueRun === true;
+        let keptCount = 0;
+        for (const entry of this.queueRecovery) {
+          if (!keptIds.has(entry.id)) continue;
+          await this.requeueEntry(entry);
+          this.ensureMirrored(entry);
+          keptCount += 1;
+        }
+        const remaining = this.queueRecovery.filter(
+          (entry) => !keptIds.has(entry.id) && !discardIds.has(entry.id),
+        );
+        const resolved = this.queueRecovery.length - remaining.length;
+        this.queueRecovery = remaining;
+        this.persistQueue();
+        if (continueRun && keptCount > 0) {
+          this.runAgentContinue();
+        }
+        return {
+          resolved,
+          kept: keptCount,
+          remaining: this.getPendingRecoveryView(),
+        };
+      }
+
+      case "export_queue": {
+        return {
+          live: this.queueMirror.map((entry) => ({ ...entry })),
+          recovery: this.queueRecovery.map((entry) => ({ ...entry })),
+        };
+      }
+
+      case "import_queue": {
+        const rawEntries = command.entries as QueueEntryInput[] | undefined;
+        if (!Array.isArray(rawEntries)) throw new Error("import_queue requires entries[]");
+        let imported = 0;
+        for (const input of rawEntries) {
+          if (
+            (input.kind !== "steer" && input.kind !== "followUp")
+            || typeof input.text !== "string"
+          ) {
+            continue;
+          }
+          const entry = createQueueEntry(input.kind, input.text, input.images);
+          await this.requeueEntry(entry);
+          this.ensureMirrored(entry);
+          imported += 1;
+        }
+        this.persistQueue();
+        return { imported };
       }
 
       case "steer": {
         const steerImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
+        this.hintQueueImages("steer", steerImages);
         await this.inner.steer(command.message as string, steerImages?.length ? steerImages : undefined);
         return null;
       }
 
       case "follow_up": {
         const followImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
+        this.hintQueueImages("followUp", followImages);
         await this.inner.followUp(command.message as string, followImages?.length ? followImages : undefined);
         return null;
       }
@@ -1271,6 +1503,7 @@ export async function startRpcSession(
     if (toolNames?.length === 0) {
       wrapper.setForceEmptySystemPrompt(true);
     }
+    wrapper.loadQueueRecovery();
     wrapper.start();
 
     const realSessionId = inner.sessionId as string;

@@ -147,6 +147,17 @@ On `ChatWindow` mount, `GET /api/agent/[id]` is called. If `state.isStreaming ==
 ### Compaction SSE events
 Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `auto_compaction_start` / `auto_compaction_end`. `handleAgentEvent` accepts both sets to keep `isCompacting` in sync. Manual compact is a blocking POST — the button stays disabled until the response returns.
 
+### Queue persistence & crash recovery (`lib/queue-store.ts`)
+pi keeps steer/follow-up queues in memory only — a server restart would lose them. The wrapper mirrors every queue mutation to a per-session sidecar `<session>.jsonl.queue.json` (atomic tmp+rename). **The sidecar only saves — it never auto-delivers.**
+
+- Wrapper state: `queueMirror` (live queue w/ images), `queueRecovery` (orphans awaiting user decision), `pendingQueueHints` (FIFO image hints — pi reports queue items by text only and template expansion can rewrite text, so hints are consumed FIFO per kind).
+- Mirror sync: `queue_update` events fire on enqueue / drain (message_start) / clear — `reconcileQueue()` rebuilds the mirror from pi's text arrays.
+- Enqueue points: `send("prompt")` with `streamingBehavior` while streaming, `send("steer")`, `send("follow_up")`, `clear_queue`.
+- After a restart (or wrapper idle-destroy), every sidecar entry becomes a `pendingRecovery` item exposed via `get_state.pendingRecovery` and `GET /api/sessions/[id]/queue-recovery` (lightweight file read — does NOT create an AgentSession; when a wrapper is alive its in-memory recovery list wins).
+- `POST /api/agent/[id]` commands: `resolve_recovery {keep, discard, continueRun}` (keep re-queues via `inner.steer()/followUp()`; `continueRun` invokes `this.inner.agent.continue()` directly — AgentSession has no public continue; events/persistence still flow via its subscriptions), `export_queue`, `import_queue`.
+- UI: `QueueRecoveryDialog` (checklist + re-queue / re-queue & continue / discard / export .md/.json / import / dismiss), export/import buttons in the ChatInput queued banner. `lib/queue-export.ts` is client-safe (blob download + `parseQueueImport` for the round-trip).
+- Deleting a session removes the sidecar (`removeQueue`). Image-only queued messages never leave pi's `_steeringMessages` (contentText("") is falsy) — they may surface as already-delivered in recovery; user discards manually.
+
 ### Running state polling + reconciliation
 - The sidebar polls `/api/agent/running` every 2.5 seconds while the tab is visible and pauses polling in background tabs. The session-list response remains the initial fallback.
 - `useAgentSession` treats per-session SSE as primary for chat events and opens it before each prompt. `prompt_done` completes the current UI stage and notification immediately, but the idle SSE stays open for a 30-second grace window and is reused by the next prompt. `agent_start` cancels that close timer; `agent_settled` finishes extension-injected runs that have no wrapper-level `prompt_done` and starts a fresh grace window. Do not close on the first `agent_end`: retries, compaction, and extension-queued messages can continue the same logical prompt.
