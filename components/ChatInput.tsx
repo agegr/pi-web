@@ -442,14 +442,19 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     },
     addFiles(files: File[], dataTransfer?: DataTransfer | null) {
       if (isStreaming) return;
-      const imageFiles = files.filter((f) => f.type.startsWith("image/"));
-      const otherFiles = files.filter((f) => !f.type.startsWith("image/"));
-      if (imageFiles.length) processImageFiles(imageFiles);
-      if (!otherFiles.length) return;
+      // Resolve paths against the full file list so the index aligns with the
+      // text/uri-list entries (which include image files too).
       const uriList = dataTransfer?.getData("text/uri-list") ?? "";
       const plainText = dataTransfer?.getData("text/plain") ?? "";
-      const paths = droppedFilePaths(otherFiles, uriList, plainText);
-      const references = otherFiles.map((file, index) => droppedFileReference(file, paths[index]));
+      const paths = droppedFilePaths(files, uriList, plainText);
+      const imageFiles: File[] = [];
+      const references: string[] = [];
+      files.forEach((file, index) => {
+        if (file.type.startsWith("image/")) imageFiles.push(file);
+        else references.push(droppedFileReference(file, paths[index]));
+      });
+      if (imageFiles.length) processImageFiles(imageFiles);
+      if (!references.length) return;
       insertTextAtCursor(references.join(" "));
     },
   }));
