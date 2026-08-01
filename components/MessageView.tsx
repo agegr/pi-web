@@ -7,6 +7,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
+import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import type {
   AgentMessage,
   UserMessage,
@@ -707,17 +708,37 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
 
 
 function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number }) {
-  const [expanded, setExpanded] = useState(false);
+  const normalizedToolName = block.toolName.toLowerCase();
+  const isEditTool = normalizedToolName === "edit" ||
+    normalizedToolName.startsWith("edit_") ||
+    normalizedToolName.endsWith(".edit") ||
+    normalizedToolName.endsWith("_edit") ||
+    normalizedToolName.includes("str_replace") ||
+    normalizedToolName.includes("replace_editor");
+  const [expanded, setExpanded] = useState(isEditTool);
   const inputStr = JSON.stringify(block.input, null, 2);
-  const isEditTool = isEditToolName(block.toolName);
+  const isTodoTool = normalizedToolName === "todo" || normalizedToolName.endsWith(".todo") || normalizedToolName.endsWith("_todo");
+  const isBashTool = normalizedToolName === "bash" || normalizedToolName.startsWith("bash ") || normalizedToolName.endsWith(".bash") || normalizedToolName.endsWith("_bash");
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
+  const todoPhases = isTodoTool ? getTodoPreviewPhases(block, result) : null;
+  const diffStats = resultDiff
+    ? resultDiff.text.split(/\r?\n/).reduce(
+        (stats, line) => {
+          if (line.startsWith("+") && !line.startsWith("+++")) stats.added += 1;
+          if (line.startsWith("-") && !line.startsWith("---")) stats.removed += 1;
+          return stats;
+        },
+        { added: 0, removed: 0 },
+      )
+    : null;
 
-  // Result display
   const resultText = result
     ? result.content.filter((b): b is { type: "text"; text: string } => b.type === "text").map((b) => b.text).join("\n")
     : null;
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
   const isError = result?.isError ?? false;
+  const hasStructuredPreview = Boolean(todoPhases || resultDiff || isBashTool);
+  const headerPreview = getStructuredToolPreview(block, todoPhases);
 
   return (
     <div
@@ -729,9 +750,9 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
         background: isError ? "rgba(248,113,113,0.05)" : "rgba(34,197,94,0.04)",
       }}
     >
-      {/* ── Tool call header ── */}
       <button
         onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
         style={{
           display: "flex",
           alignItems: "center",
@@ -751,8 +772,18 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
           {block.toolName}
         </span>
         <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-          {getToolPreview(block)}
+          {headerPreview}
         </span>
+        {diffStats && (
+          <span
+            title={`${diffStats.added} lines added, ${diffStats.removed} lines removed`}
+            aria-label={`${diffStats.added} lines added, ${diffStats.removed} lines removed`}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 11, fontVariantNumeric: "tabular-nums" }}
+          >
+            <span style={{ color: "var(--success)" }}>+{diffStats.added}</span>
+            <span style={{ color: "var(--danger)" }}>−{diffStats.removed}</span>
+          </span>
+        )}
         {duration !== undefined && (
           <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
         )}
@@ -761,8 +792,30 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
         </svg>
       </button>
 
-      {/* ── Expanded: input args ── */}
-      {expanded && !isEditTool && (
+      {todoPhases && (
+        <TodoChecklistPreview phases={todoPhases} expanded={expanded} />
+      )}
+
+      {resultDiff && (
+        <div style={{ maxHeight: expanded ? 560 : 260, overflowY: "auto", overflowX: "hidden", borderTop: "1px solid rgba(34,197,94,0.15)" }}>
+          <PairedDiffResult diff={resultDiff} />
+        </div>
+      )}
+
+      {isBashTool && (
+        <ConsoleOutputPreview
+          command={isRecord(block.input) && typeof block.input.command === "string" ? block.input.command : ""}
+          output={resultText ?? ""}
+          pending={!result}
+          expanded={expanded}
+        />
+      )}
+
+      {result && isError && !isBashTool && (
+        <PairedResult text={resultText ?? ""} isEmpty={resultIsEmpty} isError />
+      )}
+
+      {expanded && !hasStructuredPreview && (
         <pre
           style={{
             margin: 0,
@@ -781,22 +834,207 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
         </pre>
       )}
 
-      {/* ── Paired result — only shown when expanded ── */}
-      {expanded && result && (
-        resultDiff ? (
-          <PairedDiffResult
-            diff={resultDiff}
-          />
-        ) : (
-          <PairedResult
-            text={resultText ?? ""}
-            isEmpty={resultIsEmpty}
-            isError={isError}
-          />
-        )
+      {expanded && result && !hasStructuredPreview && !isError && (
+        <PairedResult
+          text={resultText ?? ""}
+          isEmpty={resultIsEmpty}
+          isError={false}
+        />
       )}
     </div>
   );
+}
+
+type TodoPreviewStatus = "pending" | "in_progress" | "completed" | "abandoned" | "blocked";
+
+interface TodoPreviewTask {
+  content: string;
+  status: TodoPreviewStatus;
+  blocker?: string;
+}
+
+interface TodoPreviewPhase {
+  name: string;
+  tasks: TodoPreviewTask[];
+}
+
+function getTodoPreviewPhases(block: ToolCallContent, result?: ToolResultMessage): TodoPreviewPhase[] | null {
+  const details = result?.details;
+  if (isRecord(details) && Array.isArray(details.phases)) {
+    const phases = details.phases.flatMap((phase): TodoPreviewPhase[] => {
+      if (!isRecord(phase) || typeof phase.name !== "string" || !Array.isArray(phase.tasks)) return [];
+      const tasks = phase.tasks.flatMap((task): TodoPreviewTask[] => {
+        if (!isRecord(task) || typeof task.content !== "string" || !isTodoPreviewStatus(task.status)) return [];
+        return [{ content: task.content, status: task.status, blocker: typeof task.blocker === "string" ? task.blocker : undefined }];
+      });
+      return tasks.length > 0 ? [{ name: phase.name, tasks }] : [];
+    });
+    if (phases.length > 0) return phases;
+  }
+
+  const input = block.input;
+  if (!isRecord(input) || !Array.isArray(input.list)) return null;
+  const phases = input.list.flatMap((phase): TodoPreviewPhase[] => {
+    if (!isRecord(phase) || typeof phase.phase !== "string" || !Array.isArray(phase.items)) return [];
+    const tasks = phase.items
+      .filter((item): item is string => typeof item === "string")
+      .map((content) => ({ content, status: "pending" as const }));
+    return tasks.length > 0 ? [{ name: phase.phase, tasks }] : [];
+  });
+  return phases.length > 0 ? phases : null;
+}
+
+function isTodoPreviewStatus(value: unknown): value is TodoPreviewStatus {
+  return value === "pending" || value === "in_progress" || value === "completed" || value === "abandoned" || value === "blocked";
+}
+
+function TodoChecklistPreview({ phases, expanded }: { phases: TodoPreviewPhase[]; expanded: boolean }) {
+  const maxVisibleTasks = expanded ? Number.POSITIVE_INFINITY : 7;
+  const totalTasks = phases.reduce((sum, phase) => sum + phase.tasks.length, 0);
+  let visibleTasks = 0;
+
+  return (
+    <div
+      role="list"
+      style={{
+        borderTop: "1px solid rgba(34,197,94,0.15)",
+        padding: "7px 10px 8px",
+        background: "var(--bg)",
+      }}
+    >
+      {phases.map((phase, phaseIndex) => {
+        const remainingSlots = Math.max(0, maxVisibleTasks - visibleTasks);
+        const tasks = phase.tasks.slice(0, remainingSlots);
+        visibleTasks += tasks.length;
+        if (tasks.length === 0) return null;
+        return (
+          <div key={`${phase.name}-${phaseIndex}`} style={{ marginTop: phaseIndex === 0 ? 0 : 8 }}>
+            {phases.length > 1 && (
+              <div style={{ marginBottom: 4, color: "var(--text-muted)", fontWeight: 600, fontSize: 11 }}>
+                {phase.name}
+              </div>
+            )}
+            {tasks.map((task, taskIndex) => (
+              <TodoChecklistRow key={`${task.content}-${taskIndex}`} task={task} />
+            ))}
+          </div>
+        );
+      })}
+      {visibleTasks < totalTasks && (
+        <div style={{ padding: "3px 0 0 20px", color: "var(--text-dim)", fontSize: 11 }}>
+          … {totalTasks - visibleTasks}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TodoChecklistRow({ task }: { task: TodoPreviewTask }) {
+  const completed = task.status === "completed";
+  const abandoned = task.status === "abandoned";
+  const active = task.status === "in_progress";
+  const blocked = task.status === "blocked";
+  const marker = completed ? "✓" : abandoned ? "×" : blocked ? "!" : active ? "›" : "";
+  const color = completed
+    ? "var(--success)"
+    : abandoned
+    ? "var(--danger)"
+    : blocked
+    ? "var(--warning)"
+    : active
+    ? "var(--accent)"
+    : "var(--text-dim)";
+
+  return (
+    <div
+      role="listitem"
+      aria-label={`${task.status}: ${task.content}`}
+      style={{
+        display: "grid",
+        gridTemplateColumns: "14px minmax(0, 1fr)",
+        gap: 7,
+        alignItems: "start",
+        padding: "2px 0",
+        color: active ? "var(--text)" : "var(--text-muted)",
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          width: 12,
+          height: 12,
+          marginTop: 2,
+          border: `1px solid ${color}`,
+          color,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 10,
+          lineHeight: 1,
+          fontWeight: 700,
+          background: completed ? "rgba(34,197,94,0.1)" : "transparent",
+        }}
+      >
+        {marker}
+      </span>
+      <span style={{ minWidth: 0, overflowWrap: "anywhere", textDecoration: completed || abandoned ? "line-through" : "none" }}>
+        {task.content}
+        {blocked && task.blocker ? <span style={{ color: "var(--warning)" }}> ({task.blocker})</span> : null}
+      </span>
+    </div>
+  );
+}
+
+function ConsoleOutputPreview({ command, output, pending, expanded }: { command: string; output: string; pending: boolean; expanded: boolean }) {
+  const normalizedLines = normalizeCustomPanelLines(output.split(/\r?\n/));
+  const outputLines = normalizedLines.length === 1 && normalizedLines[0] === "" ? [] : normalizedLines;
+  const maxLines = expanded ? Number.POSITIVE_INFINITY : 8;
+  const visibleLines = outputLines.slice(-maxLines);
+  const omittedCount = outputLines.length - visibleLines.length;
+
+  return (
+    <div
+      style={{
+        borderTop: "1px solid rgba(34,197,94,0.15)",
+        maxHeight: expanded ? 420 : 210,
+        overflow: "auto",
+        padding: "8px 10px",
+        background: "var(--tool-bg)",
+        color: "var(--text-muted)",
+        fontFamily: "var(--font-mono)",
+        fontSize: 11,
+        lineHeight: 1.55,
+        whiteSpace: "pre-wrap",
+        overflowWrap: "anywhere",
+      }}
+    >
+      <div><span style={{ color: "var(--success)", userSelect: "none" }}>$ </span>{command}</div>
+      {omittedCount > 0 && <div style={{ color: "var(--text-dim)" }}>… {omittedCount}</div>}
+      {visibleLines.map((line, lineIndex) => (
+        <div key={lineIndex}>
+          {parseAnsiLine(line).map((segment, segmentIndex) => (
+            Object.keys(segment.style).length > 0
+              ? <span key={segmentIndex} style={segment.style}>{segment.text}</span>
+              : <span key={segmentIndex}>{segment.text}</span>
+          ))}
+          {line === "" ? "\u00a0" : null}
+        </div>
+      ))}
+      {pending && (
+        <span className="animate-[pulse_1.2s_infinite]" aria-label="running" style={{ color: "var(--accent)" }}>▋</span>
+      )}
+    </div>
+  );
+}
+
+
+function getStructuredToolPreview(block: ToolCallContent, phases: TodoPreviewPhase[] | null): string {
+  if (phases) {
+    const tasks = phases.flatMap((phase) => phase.tasks);
+    const completed = tasks.filter((task) => task.status === "completed" || task.status === "abandoned").length;
+    return `${completed}/${tasks.length} tasks`;
+  }
+  return getToolPreview(block);
 }
 
 interface ResultDiff {
@@ -825,7 +1063,7 @@ function SplitPatchView({ text }: { text: string }) {
   const showFileHeaders = files.length > 1;
 
   return (
-    <div style={{ maxHeight: 560, overflowY: "auto", overflowX: "hidden", background: "var(--bg)" }}>
+    <div style={{ background: "var(--bg)" }}>
       {files.map((file, fileIndex) => (
         <div
           key={fileIndex}
@@ -961,7 +1199,7 @@ function PatchTextView({ text }: { text: string }) {
   const lines = text.split(/\r?\n/);
 
   return (
-    <div style={{ maxHeight: 520, overflowY: "auto", overflowX: "hidden", fontFamily: "var(--font-mono)", fontSize: 12, lineHeight: 1.55, minWidth: 0 }}>
+    <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, lineHeight: 1.55, minWidth: 0 }}>
       {lines.map((line, i) => {
         const kind =
           line.startsWith("@@") ? "hunk" :
@@ -1031,15 +1269,6 @@ function getResultDiff(result: ToolResultMessage): ResultDiff | null {
   return null;
 }
 
-function isEditToolName(toolName: string): boolean {
-  const name = toolName.toLowerCase();
-  return name === "edit" ||
-    name.startsWith("edit_") ||
-    name.endsWith(".edit") ||
-    name.endsWith("_edit") ||
-    name.includes("str_replace") ||
-    name.includes("replace_editor");
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

@@ -157,6 +157,7 @@ export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" 
 
 const PROGRAMMATIC_SCROLL_IGNORE_MS = 700;
 const USER_SCROLL_INTENT_MS = 1200;
+const AUTO_FOLLOW_BOTTOM_THRESHOLD_PX = 72;
 const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
 const PROMPT_SETTLE_POLL_MS = 600;
 const PROMPT_SETTLE_MAX_MS = 20_000;
@@ -1337,6 +1338,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (agentRunningRef.current || bashRunningRef.current) return;
     const inputText = `${excludeFromContext ? "!!" : "!"}${command}`;
     bashRunningRef.current = true;
+    completionScrollAllowedRef.current = true;
     setPendingBash({ command, excludeFromContext });
     setBashRunning(true);
     try {
@@ -1735,8 +1737,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, []);
 
   const handleScrollPositionChange = useCallback(() => {
-    if (!agentRunningRef.current) return;
+    if (!agentRunningRef.current && !bashRunningRef.current) return;
     if (Date.now() < ignoreProgrammaticScrollUntilRef.current) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distanceFromBottom <= AUTO_FOLLOW_BOTTOM_THRESHOLD_PX) {
+      completionScrollAllowedRef.current = true;
+      return;
+    }
     if (Date.now() > userScrollIntentUntilRef.current) return;
     completionScrollAllowedRef.current = false;
   }, []);
@@ -1815,6 +1824,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       container.removeEventListener("scroll", handleScrollPositionChange);
     };
   }, [messages.length, loading, handleScrollPositionChange, markUserScrollIntent]);
+
+  useEffect(() => {
+    if ((!agentRunning && !bashRunning) || !completionScrollAllowedRef.current) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const frame = requestAnimationFrame(() => {
+      ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
+      container.scrollTo({ top: container.scrollHeight, behavior: "instant" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [agentRunning, bashRunning, messages.length, streamState.streamingMessage, agentPhase, pendingBash]);
 
   useEffect(() => {
     if (messages.length > 0) {
