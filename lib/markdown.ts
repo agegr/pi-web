@@ -14,6 +14,57 @@ const markdownSanitizeSchema = {
   strip: [...(defaultSchema.strip || []), "iframe", "object", "style", "form"],
 };
 
+interface MarkdownTreeNode {
+  type?: string;
+  tagName?: string;
+  properties?: Record<string, unknown>;
+  children?: MarkdownTreeNode[];
+}
+
+function encodeLocalFileHrefForSanitizer(href: string): string {
+  if (/^[^/?#\s]+:\d+(?::\d+)?(?:[#?]|$)/.test(href)) {
+    return href.replace(/:(\d+(?::\d+)?)(?=[#?]|$)/, "%3A$1");
+  }
+  if (/^[a-zA-Z]:[\\/]/.test(href)) {
+    return href.replace(/\\/g, "/").replace(/^([a-zA-Z]):/, "$1%3A");
+  }
+  if (/^file:\/\//i.test(href)) {
+    return href.replace(/^file:/i, "file%3A");
+  }
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/i.test(href)) return href;
+  return href.replace(/:(\d+(?::\d+)?)(?=[#?]|$)/, "%3A$1");
+}
+
+function normalizeLocalFileLinkHrefs() {
+  return (tree: unknown) => {
+    const visit = (node: MarkdownTreeNode) => {
+      if (node.type === "element" && node.tagName === "a" && node.properties && typeof node.properties.href === "string") {
+        node.properties.href = encodeLocalFileHrefForSanitizer(node.properties.href);
+      }
+      node.children?.forEach(visit);
+    };
+    visit(tree as MarkdownTreeNode);
+  };
+}
+
+function normalizeWindowsFileLinkDestination(href: string): string {
+  const isWindowsPath = /^[a-zA-Z]:[\\/]/.test(href)
+    || /^file:\/\/\/?[a-zA-Z]:[\\/]/i.test(href)
+    || /\\[^\\/]+\.[^\\/.?#]+(?:[?#].*)?$/.test(href);
+  return isWindowsPath ? href.replace(/\\/g, "/") : href;
+}
+
+function normalizeWindowsFileLinkDestinations(line: string): string {
+  const normalize = (match: string, prefix: string, href: string, suffix: string) => {
+    const normalized = normalizeWindowsFileLinkDestination(href);
+    return normalized === href ? match : `${prefix}${normalized}${suffix}`;
+  };
+
+  return line
+    .replace(/(\]\(\s*<)([^>\r\n]*\\[^>\r\n]*)(>\s*\))/g, normalize)
+    .replace(/(\]\(\s*)([^)\r\n]*\\[^)\r\n]*)(\s*\))/g, normalize);
+}
+
 export function normalizeDisplayMath(markdown: string): string {
   const lineBreak = markdown.includes("\r\n") ? "\r\n" : "\n";
   const lines = markdown.split(/\r?\n/);
@@ -101,7 +152,7 @@ export function normalizeDisplayMath(markdown: string): string {
       }
     }
 
-    normalized.push(normalizeInlineLatexMath(line));
+    normalized.push(normalizeInlineLatexMath(normalizeWindowsFileLinkDestinations(line)));
   }
 
   return normalized.join(lineBreak);
@@ -165,12 +216,14 @@ export const markdownPreviewRemarkPlugins: ReactMarkdownOptions["remarkPlugins"]
 
 export const markdownRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
   rehypeRaw,
+  normalizeLocalFileLinkHrefs,
   [rehypeSanitize, markdownSanitizeSchema],
   [rehypeKatex, { throwOnError: false, strict: false }],
 ];
 
 export const markdownPreviewRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
   rehypeRaw,
+  normalizeLocalFileLinkHrefs,
   [rehypeSanitize, markdownSanitizeSchema],
   [rehypeKatex, { throwOnError: false, strict: false }],
 ];

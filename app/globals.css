@@ -163,6 +163,32 @@ pre, code {
   text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .markdown-body a:hover { text-decoration-color: var(--accent); }
+.markdown-body .markdown-file-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 1px 2px;
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, var(--accent) 52%, transparent);
+  vertical-align: middle;
+}
+.markdown-body .markdown-file-link:hover {
+  color: var(--accent);
+  text-decoration-color: var(--accent);
+}
+.markdown-body .markdown-file-link-icon {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.markdown-body .markdown-file-link > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .markdown-body img {
   display: block;
   max-width: 100%;

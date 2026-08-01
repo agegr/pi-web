@@ -11,11 +11,12 @@ const jiti = createJiti(import.meta.url, {
 const { MarkdownBody } = await jiti.import("./MarkdownBody.tsx");
 const { normalizeDisplayMath } = await jiti.import("../lib/markdown.ts");
 
-function renderMarkdown(markdown) {
+function renderMarkdown(markdown, extraProps = {}) {
   return renderToStaticMarkup(
     React.createElement(MarkdownBody, {
       cwd: "/home/me/project",
       onOpenFile() {},
+      ...extraProps,
     }, markdown),
   );
 }
@@ -30,11 +31,32 @@ test("opens non-file markdown links in a safe new tab", () => {
   assert.doesNotMatch(html, /\snode=/);
 });
 
-test("keeps local file markdown links in the app", () => {
-  const html = renderMarkdown("[file](components/MarkdownBody.tsx)");
+test("renders local file markdown links as downloadable file chips", () => {
+  const html = renderMarkdown("[file](components/MarkdownBody.tsx)", {
+    sessionId: "11111111-1111-1111-1111-111111111111",
+  });
 
-  assert.match(html, /<a href="components\/MarkdownBody\.tsx">file<\/a>/);
+  assert.match(html, /class="markdown-file-link"/);
+  assert.match(html, /href="\/api\/files\/home\/me\/project\/components\/MarkdownBody\.tsx\?type=download&amp;sessionId=11111111-1111-1111-1111-111111111111"/);
+  assert.match(html, /download="MarkdownBody\.tsx"/);
+  assert.match(html, /<svg/);
   assert.doesNotMatch(html, /target=|rel=|\snode=/);
+});
+
+test("recognizes bare relative file links with line numbers", () => {
+  const html = renderMarkdown("[source](MarkdownBody.tsx:42)");
+
+  assert.match(html, /class="markdown-file-link"/);
+  assert.match(html, /download="MarkdownBody\.tsx"/);
+});
+
+test("renders Windows backslash file links as downloadable file chips", () => {
+  const html = renderMarkdown(String.raw`[下载](D:\\桌面文件\\易智瑞\\数据731\\结果.xlsx)`, {
+    sessionId: "11111111-1111-1111-1111-111111111111",
+  });
+
+  assert.match(html, /class="markdown-file-link"/);
+  assert.match(html, /download="结果\.xlsx"/);
 });
 
 test("renders LaTeX parenthesis delimiters as inline math", () => {

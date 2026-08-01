@@ -1,21 +1,29 @@
 "use client";
 
-import { useMemo, type MouseEvent } from "react";
+import { useMemo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { resolveLocalFileHref } from "@/lib/file-links";
-import { encodeFilePathForApi } from "@/lib/file-paths";
+import { encodeFilePathForApi, getFileName } from "@/lib/file-paths";
 import { markdownRehypePlugins, markdownRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
+import { getFileIcon } from "./FileIcons";
 
 interface MarkdownBodyProps {
   children: string;
   className?: string;
   isStreaming?: boolean;
   cwd?: string;
+  sessionId?: string;
   onOpenFile?: (filePath: string) => void;
 }
 
-export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile }: MarkdownBodyProps) {
+function getFileDownloadHref(filePath: string, sessionId?: string): string {
+  const params = new URLSearchParams({ type: "download" });
+  if (sessionId) params.set("sessionId", sessionId);
+  return `/api/files/${encodeFilePathForApi(filePath)}?${params.toString()}`;
+}
+
+export function MarkdownBody({ children, className, isStreaming, cwd, sessionId, onOpenFile }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
   // Stable renderer identities keep stateful blocks mounted across message hover updates.
   const components = useMemo<Components>(() => ({
@@ -44,27 +52,25 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
     a({ href, children, ...props }) {
       // `node` is react-markdown metadata, not a DOM attribute.
       delete props.node;
-      const filePath = onOpenFile ? resolveLocalFileHref(href, cwd) : null;
-      const openFile = onOpenFile;
-      if (!filePath || !openFile) {
+      const filePath = (onOpenFile || sessionId) ? resolveLocalFileHref(href, cwd) : null;
+      if (filePath) {
+        const fileName = getFileName(filePath);
         return (
-          <a href={href} {...props} target="_blank" rel="noopener noreferrer">
-            {children}
+          <a
+            href={getFileDownloadHref(filePath, sessionId)}
+            download={fileName}
+            {...props}
+            className="markdown-file-link"
+            title={filePath}
+          >
+            <span className="markdown-file-link-icon" aria-hidden="true">{getFileIcon(fileName, 16)}</span>
+            <span>{children}</span>
           </a>
         );
       }
 
-      const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
-        if (event.defaultPrevented || event.button !== 0) return;
-        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-        const target = event.currentTarget.getAttribute("target");
-        if (target && target !== "_self") return;
-        event.preventDefault();
-        openFile(filePath);
-      };
-
       return (
-        <a href={href} {...props} onClick={handleClick}>
+        <a href={href} {...props} target="_blank" rel="noopener noreferrer">
           {children}
         </a>
       );
@@ -86,7 +92,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
         </div>
       );
     },
-  }), [cwd, isStreaming, onOpenFile]);
+  }), [cwd, isStreaming, onOpenFile, sessionId]);
 
   return (
     <div className={["markdown-body", className].filter(Boolean).join(" ")}>

@@ -179,6 +179,9 @@ export function LockFileIcon({ size = 14 }: IconProps) {
     </svg>
   );
 }
+export function SpreadsheetFileIcon({ size = 14 }: IconProps) {
+  return <LabelFileIcon label="XLS" size={size} />;
+}
 export function DocFileIcon({ size = 14 }: IconProps) {
   return <LabelFileIcon label="DOC" size={size} />;
 }
@@ -242,7 +245,10 @@ export function getFileIcon(name: string, size = 14): React.ReactNode {
     case "tf":
     case "hcl":     return <TerraformIcon size={size} />;
     case "docx":    return <DocFileIcon size={size} />;
-    case "pdf":     return <PdfFileIcon size={size} />;
+    case "xls":
+    case "xlsx":
+    case "xlsm":   return <SpreadsheetFileIcon size={size} />;
+    case "pdf":    return <PdfFileIcon size={size} />;
     case "lock":    return <LockFileIcon size={size} />;
     default:        return <GenericFileIcon size={size} />;
   }
