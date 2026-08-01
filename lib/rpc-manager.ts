@@ -343,18 +343,36 @@ export class AgentSessionWrapper {
    * internally — events/persistence still flow through its subscriptions.
    */
   private runAgentContinue(): void {
-    const continueFn = this.inner.agent.continue;
-    if (typeof continueFn !== "function" || this.inner.isStreaming || this.inner.isBashRunning) return;
+    // pi has no public API to resume an idle agent's queue (agent.continue()
+    // only works inside an active _runAgentPrompt loop). So bootstrap a run
+    // by prompting each queued message in series. Capture the entries BEFORE
+    // clearQueue (which fires queue_update and would empty the mirror).
+    if (this.inner.isStreaming || this.inner.isBashRunning || this.promptRunning) return;
+    const all = [...this.queueMirror];
+    if (all.length === 0) return;
+    this.queueMirror = [];
+    this.persistQueue();
     this.promptRunning = true;
     notifyRunningChange();
-    Promise.resolve(continueFn.call(this.inner.agent))
-      .then(() => {
-        this.promptRunning = false;
-        this.resetIdleTimer();
-        this.emit({ type: "prompt_done" });
-        notifyRunningChange();
-      })
-      .catch((error: unknown) => {
+    void this.bootstrapQueuedRun(all);
+  }
+
+  private async bootstrapQueuedRun(all: QueueEntry[]): Promise<void> {
+    // Sequentially prompt each queued message as its own turn. pi's followUp/
+    // steer queues are NOT drained by a prompt-bootstrapped loop (the internal
+    // agent.continue() continuation stalls), so prompting each entry in series
+    // is the robust way to run them all. AgentSession.prompt() awaits its
+    // _runAgentPrompt, so each prompt settles before the next starts.
+    this.inner.clearQueue();
+    this.pendingQueueHints = { steer: [], followUp: [] };
+    for (let i = 0; i < all.length; i++) {
+      const entry = all[i];
+      try {
+        await this.inner.prompt(
+          entry.text,
+          entry.images?.length ? { images: entry.images } : undefined,
+        );
+      } catch (error: unknown) {
         this.promptRunning = false;
         this.resetIdleTimer();
         invalidateSessionListCache();
@@ -364,7 +382,13 @@ export class AgentSessionWrapper {
         });
         this.emit({ type: "prompt_done" });
         notifyRunningChange();
-      });
+        return;
+      }
+    }
+    this.promptRunning = false;
+    this.resetIdleTimer();
+    this.emit({ type: "prompt_done" });
+    notifyRunningChange();
   }
 
   setForceEmptySystemPrompt(force: boolean): void {
@@ -935,6 +959,33 @@ export class AgentSessionWrapper {
           imported,
           steering: [...this.inner.getSteeringMessages()],
           followUp: [...this.inner.getFollowUpMessages()],
+        };
+      }
+
+      case "stage_recovery": {
+        // Stage imported entries as pending recovery (NOT into the live pi
+        // queue) so the QueueRecoveryDialog pops up and the user can choose:
+        // re-queue / re-queue & continue / discard — same flow as crash
+        // recovery. Lets the user decide whether to run an imported queue
+        // instead of auto-executing it.
+        const rawEntries = command.entries as QueueEntryInput[] | undefined;
+        if (!Array.isArray(rawEntries)) throw new Error("stage_recovery requires entries[]");
+        let staged = 0;
+        for (const input of rawEntries) {
+          if (
+            (input.kind !== "steer" && input.kind !== "followUp")
+            || typeof input.text !== "string"
+          ) {
+            continue;
+          }
+          const entry = createQueueEntry(input.kind, input.text, input.images);
+          this.queueRecovery.push(entry);
+          staged += 1;
+        }
+        this.persistQueue();
+        return {
+          staged,
+          pendingRecovery: this.getPendingRecoveryView(),
         };
       }
 

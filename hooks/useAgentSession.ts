@@ -389,6 +389,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessages>({ steering: [], followUp: [] });
   const [pendingRecovery, setPendingRecovery] = useState<PendingRecoveryItem[]>([]);
+  /** True when the current pending-recovery list came from an import (not a
+   *  crash recovery) — drives the dialog's copy. Resets when the list empties. */
+  const [recoveryIsImport, setRecoveryIsImport] = useState(false);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const eventSourceSessionIdRef = useRef<string | null>(null);
@@ -1732,6 +1735,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
    * Decide what to do with pending recovery items: keep (re-queue, optionally
    * continuing the transcript) and/or discard. Returns the remaining items.
    */
+  // Reset the import flag once the recovery list is fully drained so the
+  // next crash recovery shows recovery copy again.
+  useEffect(() => {
+    if (pendingRecovery.length === 0) setRecoveryIsImport(false);
+  }, [pendingRecovery.length]);
   const resolveRecovery = useCallback(async (
     keep: string[],
     discard: string[],
@@ -1810,6 +1818,26 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       console.error("Failed to import queue:", e);
       addNotice({ type: "error", message: "Failed to import queue" });
+      return null;
+    }
+  }, [addNotice]);
+
+  /** Stage imported entries as pending recovery so the recovery dialog pops
+   *  up and the user chooses re-queue / re-queue & continue / discard. */
+  const stageImport = useCallback(async (entries: QueueEntryInput[]): Promise<number | null> => {
+    const sid = sessionIdRef.current;
+    if (!sid) return null;
+    try {
+      const result = await sendAgentCommand<{ staged?: number; pendingRecovery?: PendingRecoveryItem[] }>(sid, {
+        type: "stage_recovery",
+        entries,
+      });
+      if (result?.pendingRecovery) setPendingRecovery(result.pendingRecovery);
+      if ((result?.staged ?? 0) > 0) setRecoveryIsImport(true);
+      return result?.staged ?? 0;
+    } catch (e) {
+      console.error("Failed to stage import:", e);
+      addNotice({ type: "error", message: "Failed to stage imported queue" });
       return null;
     }
   }, [addNotice]);
@@ -2117,7 +2145,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, compactQueued, cancelCompactQueue, modelSwitchPending, currentModel, displayModel, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    pendingRecovery, resolveRecovery, exportQueueData, importQueueData,
+    pendingRecovery, recoveryIsImport, resolveRecovery, exportQueueData, importQueueData, stageImport,
     moveQueuedMessage, recallQueuedMessage, requeueAt, removeQueuedMessage,
     notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,

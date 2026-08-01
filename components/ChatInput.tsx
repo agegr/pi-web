@@ -71,6 +71,8 @@ interface Props {
   onExportQueue?: () => Promise<{ live: QueueEntry[]; recovery: QueueEntry[] } | null>;
   /** Re-queue entries parsed from an imported .json file. Returns count. */
   onImportQueue?: (entries: QueueEntryInput[]) => Promise<number | null>;
+  /** Stage imported entries as pending recovery (pops the recovery dialog). */
+  onStageImport?: (entries: QueueEntryInput[]) => Promise<number | null>;
   /** Move a queued message within its queue (clear + re-enqueue). */
   onMoveQueue?: (kind: "steer" | "followUp", fromIndex: number, toIndex: number) => Promise<boolean>;
   /** Pull one queued message back to the input box; returns its text + images. */
@@ -576,7 +578,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, compactQueued, onCancelCompactQueue, modelSwitchPending, toolPreset, onToolPresetChange,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
-  onExportQueue, onImportQueue, onMoveQueue, onRecallOne, onRequeueAt, onRemoveQueueItem,
+  onExportQueue, onImportQueue, onStageImport, onMoveQueue, onRecallOne, onRequeueAt, onRemoveQueueItem,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
   soundEnabled, onSoundToggle, onAudioUnlock,
@@ -1569,7 +1571,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             color: "var(--text)",
             whiteSpace: "nowrap",
           }}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: swipeHint === "up" ? "rotate(180deg)" : undefined }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: swipeHint === "down" ? "rotate(180deg)" : undefined }}>
               <polyline points="6 15 12 9 18 15" />
             </svg>
             {swipeHint === "down" ? t("chat.swipeCollapse") : t("chat.swipeExpand")}
@@ -1599,16 +1601,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         onChange={async (e) => {
           const file = e.target.files?.[0];
           e.target.value = "";
-          if (!file || !onImportQueue) return;
+          if (!file || !onStageImport) return;
           try {
             const entries = parseQueueImport(await file.text());
             if (entries.length === 0) {
               showQueueNotice(t("chat.queueImportEmpty"), false);
               return;
             }
-            const imported = await onImportQueue(entries);
-            if (imported !== null && imported > 0) {
-              showQueueNotice(t("chat.queueImported", { count: String(imported) }), true);
+            const staged = await onStageImport(entries);
+            if (staged !== null && staged > 0) {
+              showQueueNotice(t("chat.queueImported", { count: String(staged) }), true);
             }
           } catch {
             showQueueNotice(t("chat.queueImportEmpty"), false);
@@ -2377,9 +2379,31 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               paddingRight: 4,
             }}>
               {queueCount > 0 && (
-                <span style={{ fontSize: 11, color: "var(--text-dim)", whiteSpace: "nowrap" }}>
+                <button
+                  onClick={() => cycleBottomMode()}
+                  title={t("chat.restoreBottom")}
+                  style={{
+                    fontSize: 11,
+                    color: "var(--text-dim)",
+                    whiteSpace: "nowrap",
+                    background: "none",
+                    border: "none",
+                    padding: "4px 6px",
+                    borderRadius: 6,
+                    cursor: "pointer",
+                    transition: "background 0.12s, color 0.12s",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "var(--bg-hover)";
+                    e.currentTarget.style.color = "var(--text)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "none";
+                    e.currentTarget.style.color = "var(--text-dim)";
+                  }}
+                >
                   {t("chat.queued", { count: String(queueCount) })}
-                </span>
+                </button>
               )}
               <BottomModeBar mode="minimal" onClick={() => cycleBottomMode()} height={44} />
             </div>

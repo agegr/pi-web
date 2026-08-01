@@ -203,7 +203,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, compactQueued, cancelCompactQueue, modelSwitchPending, displayModel: displayModelValue, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    pendingRecovery, resolveRecovery, exportQueueData, importQueueData, moveQueuedMessage, recallQueuedMessage, requeueAt, removeQueuedMessage,
+    pendingRecovery, recoveryIsImport, resolveRecovery, exportQueueData, importQueueData, stageImport, moveQueuedMessage, recallQueuedMessage, requeueAt, removeQueuedMessage,
     notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection,
     agentPhase,
@@ -384,6 +384,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       onRecallQueue={handleRecallQueue}
       onExportQueue={exportQueueData}
       onImportQueue={importQueueData}
+      onStageImport={stageImport}
       onMoveQueue={moveQueuedMessage}
       onRecallOne={recallQueuedMessage}
       onRequeueAt={requeueAt}
@@ -482,6 +483,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           onExport={exportQueueData}
           onImport={importQueueData}
           onDismiss={() => setRecoveryDismissed(true)}
+          mode={recoveryIsImport ? "import" : "recovery"}
         />
       )}
 

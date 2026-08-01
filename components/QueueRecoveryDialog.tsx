@@ -21,6 +21,7 @@ export function QueueRecoveryDialog({
   onExport,
   onImport,
   onDismiss,
+  mode = "recovery",
 }: {
   items: PendingRecoveryItem[];
   sessionId?: string;
@@ -28,6 +29,8 @@ export function QueueRecoveryDialog({
   onExport: () => Promise<{ live: QueueEntry[]; recovery: QueueEntry[] } | null>;
   onImport: (entries: QueueEntryInput[]) => Promise<number | null>;
   onDismiss: () => void;
+  /** "recovery" = crash-recovery copy; "import" = imported-queue copy. */
+  mode?: "recovery" | "import";
 }) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
@@ -167,7 +170,7 @@ export function QueueRecoveryDialog({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={t("chat.queueRecoveryTitle", { count: String(items.length) })}
+        aria-label={mode === "import" ? t("chat.queueImportTitle", { count: String(items.length) }) : t("chat.queueRecoveryTitle", { count: String(items.length) })}
         style={{
           width: "min(760px, calc(100vw - 32px))",
           maxHeight: "88%",
@@ -209,7 +212,7 @@ export function QueueRecoveryDialog({
           </div>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ color: "var(--text)", fontSize: isMobile ? 14 : 15, fontWeight: 700 }}>
-              {t("chat.queueRecoveryTitle", { count: String(items.length) })}
+              {mode === "import" ? t("chat.queueImportTitle", { count: String(items.length) }) : t("chat.queueRecoveryTitle", { count: String(items.length) })}
             </div>
             <div style={{
               marginTop: 3,
@@ -220,7 +223,9 @@ export function QueueRecoveryDialog({
                 ? {}
                 : { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }),
             }}>
-              {isMobile ? t("chat.queueRecoveryDescShort") : t("chat.queueRecoveryDesc")}
+              {mode === "import"
+                ? (isMobile ? t("chat.queueImportDescShort") : t("chat.queueImportDesc"))
+                : (isMobile ? t("chat.queueRecoveryDescShort") : t("chat.queueRecoveryDesc"))}
             </div>
           </div>
           {/* Header utility actions (compact icon buttons) — wraps to its own row on small screens */}
