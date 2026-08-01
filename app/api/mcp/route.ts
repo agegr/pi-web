@@ -2,13 +2,16 @@ import { existsSync, mkdirSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import { NextResponse } from "next/server";
 import { getAgentDir } from "@oh-my-pi/pi-coding-agent";
+import { loadCapability } from "@oh-my-pi/pi-coding-agent/capability";
+import type { MCPServer } from "@oh-my-pi/pi-coding-agent/capability/mcp";
+import { setMcpServerEnabled } from "@oh-my-pi/pi-coding-agent/mcp/config-writer";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { writePrivateFileAtomicSync } from "@/lib/atomic-file";
 import type { McpConfigResponse, McpScopeConfig, McpServerConfig, McpServerEntry } from "@/lib/settings-api";
 
 export const dynamic = "force-dynamic";
 
-const SERVER_NAME = /^[a-zA-Z0-9_.-]{1,100}$/;
+const SERVER_NAME = /^[a-zA-Z0-9_.:-]{1,100}$/;
 const REDACTED_VALUE = "••••••••";
 const SECRET_ENV_KEY = /(token|key|secret|password|credential|auth)/i;
 const SERVER_KEYS: Record<string, true> = {
@@ -91,11 +94,81 @@ function readScope(scope: "user" | "project", cwd?: string): McpScopeConfig {
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as McpDocument;
     const servers = parsed.mcpServers && typeof parsed.mcpServers === "object"
-      ? Object.entries(parsed.mcpServers).map(([name, config]) => ({ name, config: redactConfig(config) }))
+      ? Object.entries(parsed.mcpServers).map(([name, config]) => ({
+          name,
+          config: redactConfig(config),
+          enabled: config.enabled !== false,
+          editable: true,
+          source: { path, provider: "OMP", level: scope },
+        }))
       : [];
     return { scope, path, servers };
   } catch (error) {
     return { scope, path, servers: [], error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function discoveredConfig(server: MCPServer): McpServerConfig {
+  return redactConfig({
+    ...(server.enabled !== undefined && { enabled: server.enabled }),
+    ...(server.timeout !== undefined && { timeout: server.timeout }),
+    ...(server.transport && { type: server.transport }),
+    ...(server.command !== undefined && { command: server.command }),
+    ...(server.args !== undefined && { args: server.args }),
+    ...(server.env !== undefined && {
+      env: Object.fromEntries(Object.keys(server.env).map((key) => [key, REDACTED_VALUE])),
+    }),
+    ...(server.cwd !== undefined && { cwd: server.cwd }),
+    ...(server.url !== undefined && { url: server.url }),
+    ...(server.headers !== undefined && { headers: server.headers }),
+    ...(server.auth !== undefined && { auth: server.auth }),
+    ...(server.oauth !== undefined && { oauth: server.oauth }),
+  });
+}
+
+async function addDiscoveredServers(response: McpConfigResponse, cwd?: string): Promise<void> {
+  const discovered = await loadCapability<MCPServer>("mcps", {
+    cwd: cwd ?? process.cwd(),
+    includeDisabled: true,
+    includeInvalid: true,
+  });
+  for (const server of discovered.items) {
+    const target = server._source.level === "project"
+      ? response.project
+      : server._source.level === "user"
+        ? response.user
+        : null;
+    if (!target || target.servers.some((entry) => entry.name === server.name)) continue;
+    target.servers.push({
+      name: server.name,
+      config: discoveredConfig(server),
+      enabled: server.enabled !== false,
+      editable: false,
+      source: {
+        path: server._source.path,
+        provider: server._source.providerName,
+        level: server._source.level,
+      },
+    });
+  }
+}
+
+function applyEffectiveEnabledState(response: McpConfigResponse): void {
+  const userPath = configPath("user");
+  let document: McpDocument = {};
+  if (existsSync(userPath)) {
+    try {
+      document = JSON.parse(readFileSync(userPath, "utf8")) as McpDocument;
+    } catch {
+      return;
+    }
+  }
+  const disabled = new Set(document.disabledServers ?? []);
+  const forced = new Set(document.enabledServers ?? []);
+  for (const scope of [response.user, response.project]) {
+    for (const server of scope?.servers ?? []) {
+      server.enabled = !disabled.has(server.name) && (server.config.enabled !== false || forced.has(server.name));
+    }
   }
 }
 
@@ -137,7 +210,7 @@ function validateServer(entry: McpServerEntry): McpServerEntry {
   if (config.oauth !== undefined && (!config.oauth || typeof config.oauth !== "object" || Array.isArray(config.oauth))) {
     throw new Error(`${name}: oauth must be an object`);
   }
-  return { name, config };
+  return { name, config, enabled: config.enabled !== false };
 }
 
 async function validatedCwd(req: Request): Promise<string | undefined> {
@@ -155,10 +228,48 @@ export async function GET(req: Request) {
       user: readScope("user"),
       project: cwd ? readScope("project", cwd) : null,
     };
+    await addDiscoveredServers(response, cwd);
+    applyEffectiveEnabledState(response);
     return NextResponse.json(response);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: message }, { status: message === "Access denied" ? 403 : 500 });
+  }
+}
+
+export async function PATCH(req: Request) {
+  try {
+    const cwd = await validatedCwd(req);
+    const body = await req.json() as {
+      scope?: "user" | "project";
+      name?: string;
+      enabled?: boolean;
+    };
+    if (body.scope !== "user" && body.scope !== "project") throw new Error("Invalid MCP scope");
+    if (body.scope === "project" && !cwd) throw new Error("cwd required for project MCP settings");
+    if (typeof body.name !== "string" || !SERVER_NAME.test(body.name)) throw new Error("Invalid MCP server name");
+    if (typeof body.enabled !== "boolean") throw new Error("enabled must be a boolean");
+
+    const userPath = configPath("user");
+    const projectPath = configPath("project", cwd ?? process.cwd());
+    const scopedPath = body.scope === "user" ? userPath : projectPath;
+    let sourcePath: string | undefined;
+    if (existsSync(scopedPath)) {
+      const document = JSON.parse(readFileSync(scopedPath, "utf8")) as McpDocument;
+      if (document.mcpServers?.[body.name]) sourcePath = scopedPath;
+    }
+
+    await setMcpServerEnabled({
+      userPath,
+      projectPath,
+      sourcePath,
+      name: body.name,
+      enabled: body.enabled,
+    });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: message }, { status: message === "Access denied" ? 403 : 400 });
   }
 }
 

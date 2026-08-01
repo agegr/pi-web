@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { ModelRoleAssignment, ModelRoleScope } from "@/lib/api-types";
 import { useI18n } from "@/hooks/useI18n";
+import { SearchableSelect } from "./SearchableSelect";
 
 interface ModelEntry {
   id: string;
@@ -187,34 +188,24 @@ export function ModelRolesPanel({ cwd, onRolesChanged }: Props) {
                   </div>
                 </div>
 
-                <select
+                <SearchableSelect
                   value={current}
                   disabled={pendingRole === role.role}
-                  onChange={(e) => assign(role.role, e.target.value || null)}
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    padding: "5px 8px",
-                    border: "1px solid var(--border)",
-                    borderRadius: 5,
-                    background: "var(--bg)",
-                    color: "var(--text)",
-                    fontSize: 12,
-                    fontFamily: "var(--font-mono)",
-                  }}
-                >
-                  <option value="">{t("roles.unset")}</option>
-                  {models.map((model) => (
-                    <option key={selectorFor(model)} value={selectorFor(model)}>
-                      {model.name} — {model.provider}
-                    </option>
-                  ))}
-                  {/* A selector configured outside the enabled scope still needs
-                      to render as the current value instead of silently resetting. */}
-                  {current && !models.some((model) => selectorFor(model) === current) && (
-                    <option value={current}>{current}</option>
-                  )}
-                </select>
+                  ariaLabel={role.name}
+                  style={{ flex: 1 }}
+                  onChange={(value) => void assign(role.role, value || null)}
+                  options={[
+                    { value: "", label: t("roles.unset") },
+                    ...models.map((model) => ({
+                      value: selectorFor(model),
+                      label: `${model.name} — ${model.provider}`,
+                      searchText: selectorFor(model),
+                    })),
+                    ...current && !models.some((model) => selectorFor(model) === current)
+                      ? [{ value: current, label: current }]
+                      : [],
+                  ]}
+                />
 
                 {role.warning && (
                   <span title={role.warning} style={{ color: "var(--warning, #ffb347)", fontSize: 12 }}>!</span>

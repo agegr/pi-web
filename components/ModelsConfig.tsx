@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { ModelRolesPanel } from "./ModelRolesPanel";
+import { SearchableSelect } from "./SearchableSelect";
 import { useI18n } from "@/hooks/useI18n";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
 import type { DiscoveredModel } from "@/lib/model-discovery";
@@ -285,11 +286,14 @@ function NumInput({ value, onChange, placeholder }: { value: string; onChange: (
 function Select({ value, onChange, options, required }: { value: string; onChange: (v: string) => void; options: readonly string[]; required?: boolean }) {
   const { t } = useI18n();
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)}
-      style={{ ...inputStyle, color: value ? "var(--text)" : "var(--text-dim)" }}>
-       {!required && <option value="">— {t("i18n.default")} / none —</option>}
-      {options.map((o) => <option key={o} value={o}>{o}</option>)}
-    </select>
+    <SearchableSelect
+      value={value}
+      onChange={onChange}
+      options={[
+        ...(!required ? [{ value: "", label: `— ${t("i18n.default")} / none —` }] : []),
+        ...options.map((option) => ({ value: option, label: option })),
+      ]}
+    />
   );
 }
 

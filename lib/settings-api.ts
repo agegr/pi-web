@@ -72,6 +72,13 @@ export interface McpServerConfig {
 export interface McpServerEntry {
   name: string;
   config: McpServerConfig;
+  enabled: boolean;
+  editable?: boolean;
+  source?: {
+    path: string;
+    provider: string;
+    level: "user" | "project" | "native";
+  };
 }
 
 export interface McpScopeConfig {

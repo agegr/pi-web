@@ -1,0 +1,191 @@
+.root {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  font-family: var(--font-mono);
+}
+
+.trigger {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 9px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+}
+
+.trigger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: var(--bg-hover);
+}
+
+.trigger:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.trigger:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.value,
+.placeholder {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.placeholder {
+  color: var(--text-dim);
+}
+
+.chevron {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: var(--text-dim);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.4;
+}
+
+.popover {
+  position: absolute;
+  z-index: 120;
+  top: calc(100% + 5px);
+  right: 0;
+  width: max(100%, 240px);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, var(--accent));
+  border-radius: 8px;
+  background: var(--bg-panel);
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--bg) 72%, transparent);
+}
+
+.searchWrap {
+  position: relative;
+  padding: 7px;
+  border-bottom: 1px solid var(--border);
+}
+
+.searchIcon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  transform: translateY(-50%);
+  fill: none;
+  stroke: var(--text-dim);
+  stroke-linecap: round;
+  stroke-width: 1.3;
+  pointer-events: none;
+}
+
+.search {
+  width: 100%;
+  height: 31px;
+  padding: 0 9px 0 29px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  outline: none;
+  background: var(--bg);
+  color: var(--text);
+  font: 11px var(--font-mono);
+}
+
+.search:focus {
+  border-color: var(--accent);
+}
+
+.search::placeholder {
+  color: var(--text-dim);
+}
+
+.options {
+  max-height: 250px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 5px;
+}
+
+.option {
+  width: 100%;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: 11px/1.3 var(--font-mono);
+  text-align: left;
+}
+
+.option[data-active="true"] {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.option[data-selected="true"] {
+  color: var(--accent);
+}
+
+.option:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.optionCopy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.optionLabel,
+.optionDescription {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionDescription {
+  color: var(--text-dim);
+  font-size: 9.5px;
+}
+
+.check {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.empty {
+  padding: 18px 12px;
+  color: var(--text-dim);
+  font: 10px var(--font-mono);
+  text-align: center;
+}

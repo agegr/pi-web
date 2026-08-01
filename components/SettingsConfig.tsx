@@ -4,12 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
+import { SearchableSelect } from "./SearchableSelect";
 import { refreshOmpTheme, useTheme } from "@/hooks/useTheme";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type {
   McpConfigResponse,
   McpScopeConfig,
   McpServerConfig,
+  McpServerEntry,
   SettingsField,
   SettingsResponse,
   SettingsValue,
@@ -149,7 +151,7 @@ function MultiSelectSetting({ field, busy, onSave }: { field: SettingsField; bus
 function SettingControl({ field, busy, onSave }: { field: SettingsField; busy: boolean; onSave: (value: SettingsValue) => void }) {
   if (field.type === "boolean") return <button type="button" className={styles.switch} data-on={field.value === true} disabled={busy} aria-pressed={field.value === true} onClick={() => onSave(field.value !== true)} />;
   if (field.type === "select") {
-    return <select className={styles.select} value={String(field.value ?? "")} disabled={busy} onChange={(event) => onSave(typeof field.value === "number" || typeof field.defaultValue === "number" ? Number(event.target.value) : event.target.value)}>{field.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>;
+    return <SearchableSelect value={String(field.value ?? "")} disabled={busy} ariaLabel={field.label} options={(field.options ?? []).map((option) => ({ value: option.value, label: option.label, description: option.description }))} onChange={(value) => onSave(typeof field.value === "number" || typeof field.defaultValue === "number" ? Number(value) : value)} />;
   }
   if (field.type === "multiselect") return <MultiSelectSetting field={field} busy={busy} onSave={onSave} />;
   if (field.type === "providerLimits") return <ProviderLimitsSetting field={field} busy={busy} onSave={onSave} />;
@@ -274,7 +276,7 @@ export function SettingsConfig({ cwd, sessionId, initialSection = "models", onCl
           <div className={styles.themeGrid}>{(["dark", "light"] as const).map((mode) => {
             const field = settings.fields.find((item) => item.path === `theme.${mode}`)!;
             const palette = settings.theme.palettes[mode];
-            return <div className={styles.themeCard} key={mode}><ThemePreview palette={palette} /><div className={styles.themeCardBody}><div className={styles.themeCardHeader}><span className={styles.themeSlot}>{mode} mapping</span>{theme === mode && <span className={styles.themeActive}>Active on web</span>}</div><select className={styles.select} value={String(field.value)} disabled={saving.has(field.path)} onChange={(event) => void saveSetting(field, event.target.value)}>{field.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>{theme !== mode && <button type="button" className={styles.closeButton} style={{ marginTop: 8 }} onClick={() => toggleTheme()}>Preview {mode}</button>}</div></div>;
+            return <div className={styles.themeCard} key={mode}><ThemePreview palette={palette} /><div className={styles.themeCardBody}><div className={styles.themeCardHeader}><span className={styles.themeSlot}>{mode} mapping</span>{theme === mode && <span className={styles.themeActive}>Active on web</span>}</div><SearchableSelect value={String(field.value)} disabled={saving.has(field.path)} ariaLabel={`${mode} theme`} options={(field.options ?? []).map((option) => ({ value: option.value, label: option.label, description: option.description }))} onChange={(value) => void saveSetting(field, value)} />{theme !== mode && <button type="button" className={styles.closeButton} style={{ marginTop: 8 }} onClick={() => toggleTheme()}>Preview {mode}</button>}</div></div>;
           })}</div>
           {renderFields(settings.fields.filter((field) => field.tab === "appearance" && field.group === "Theme" && !field.path.startsWith("theme.")), ["Theme"])}
         </div>
@@ -327,21 +329,22 @@ export function SettingsConfig({ cwd, sessionId, initialSection = "models", onCl
           <div className={styles.closeRail}><button type="button" className={styles.closeButton} onClick={close}><span>Close settings</span><span aria-hidden="true">×</span></button></div>
         </aside>
         <main className={styles.content}>
-          {query.trim() ? renderGenericSettings() : section === "models" ? <ModelsConfig cwd={cwd} embedded onClose={close} /> : section === "themes" ? renderThemeSection() : section === "skills" && cwd ? <SkillsConfig cwd={cwd} embedded onClose={close} /> : section === "plugins" && cwd ? <PluginsConfig cwd={cwd} sessionId={sessionId} embedded onClose={close} onReloaded={onReloaded} /> : section === "mcp" ? <McpSettings cwd={cwd} /> : renderGenericSettings()}
+          {query.trim() ? renderGenericSettings() : section === "models" ? <ModelsConfig cwd={cwd} embedded onClose={close} /> : section === "themes" ? renderThemeSection() : section === "skills" && cwd ? <SkillsConfig cwd={cwd} embedded onClose={close} /> : section === "plugins" && cwd ? <PluginsConfig cwd={cwd} sessionId={sessionId} embedded onClose={close} onReloaded={onReloaded} /> : section === "mcp" ? <McpSettings cwd={cwd} sessionId={sessionId} onReloaded={onReloaded} /> : renderGenericSettings()}
         </main>
       </div>
     </div>
   );
 }
 
-function McpSettings({ cwd }: { cwd?: string | null }) {
+function McpSettings({ cwd, sessionId, onReloaded }: { cwd?: string | null; sessionId?: string | null; onReloaded?: () => void }) {
   const [data, setData] = useState<McpConfigResponse | null>(null);
-  const [scope, setScope] = useState<"user" | "project">(cwd ? "project" : "user");
+  const [scope, setScope] = useState<"user" | "project">("user");
   const [selected, setSelected] = useState(0);
   const [json, setJson] = useState("");
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [toggling, setToggling] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -368,10 +371,14 @@ function McpSettings({ cwd }: { cwd?: string | null }) {
       return scope === "user" ? { ...current, user: updated } : { ...current, project: updated };
     });
   };
-  const commitDraft = (): McpScopeConfig["servers"] => {
-    if (!currentScope || !server) return currentScope?.servers ?? [];
-    const config = JSON.parse(json) as McpServerConfig;
-    return currentScope.servers.map((item, index) => index === selected ? { name, config } : item);
+  const commitDraft = (): Array<Pick<McpServerEntry, "name" | "config">> => {
+    const servers = currentScope?.servers ?? [];
+    const updated = server?.editable === false
+      ? servers
+      : servers.map((item, index) => index === selected
+        ? { ...item, name, config: JSON.parse(json) as McpServerConfig }
+        : item);
+    return updated.filter((item) => item.editable !== false).map(({ name: serverName, config }) => ({ name: serverName, config }));
   };
   const save = async () => {
     if (!currentScope) return;
@@ -390,20 +397,111 @@ function McpSettings({ cwd }: { cwd?: string | null }) {
       setSaving(false);
     }
   };
+  const toggleServer = async (entry: McpServerEntry) => {
+    const key = `${scope}:${entry.name}`;
+    setToggling(key);
+    setError(null);
+    try {
+      const suffix = cwd ? `?cwd=${encodeURIComponent(cwd)}` : "";
+      const response = await fetch(`/api/mcp${suffix}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope, name: entry.name, enabled: !entry.enabled }),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok || result.error) throw new Error(result.error ?? `HTTP ${response.status}`);
+      await load();
+      if (sessionId) {
+        await sendAgentCommand(sessionId, { type: "reload" });
+        onReloaded?.();
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setToggling(null);
+    }
+  };
   const addServer = () => {
     if (!currentScope) return;
     let candidate = "new-server";
     let suffix = 2;
     while (currentScope.servers.some((item) => item.name === candidate)) candidate = `new-server-${suffix++}`;
-    const next = [...currentScope.servers, { name: candidate, config: { type: "stdio" as const, command: "" } }];
+    const next = [...currentScope.servers, { name: candidate, config: { type: "stdio" as const, command: "" }, enabled: true, editable: true }];
     updateServers(next);
     setSelected(next.length - 1);
   };
   const removeServer = () => {
-    if (!currentScope || !server) return;
+    if (!currentScope || !server || server.editable === false) return;
     updateServers(currentScope.servers.filter((_, index) => index !== selected));
     setSelected(Math.max(0, selected - 1));
   };
 
-  return <div className={styles.scrollContent}><header className={styles.contentHeader}><h2 className={styles.contentTitle}>MCP servers</h2><p className={styles.contentDescription}>Manage native OMP MCP configuration at user or project scope. Server objects follow OMP&apos;s official <code>mcp-schema.json</code>; stdio, HTTP, SSE, environment, headers, auth and OAuth fields are preserved.</p></header><div className={styles.settingsBody}>{!data ? <div className={styles.empty}>{error ?? "Loading MCP configuration…"}</div> : <div className={styles.mcpLayout}><aside className={styles.mcpList}><div className={styles.scopeTabs}><button type="button" className={styles.scopeButton} data-active={scope === "user"} onClick={() => { setScope("user"); setSelected(0); }}>User</button><button type="button" className={styles.scopeButton} data-active={scope === "project"} disabled={!data.project} onClick={() => { setScope("project"); setSelected(0); }}>Project</button></div>{currentScope?.error ? <div className={styles.error} style={{ padding: 12 }}>{currentScope.error}</div> : <div className={styles.serverRows}>{currentScope?.servers.map((item, index) => <button type="button" key={`${item.name}-${index}`} className={styles.serverRow} data-active={selected === index} onClick={() => setSelected(index)}><span className={styles.statusDot} data-off={item.config.enabled === false}/><span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</span></button>)}</div>}<button type="button" className={styles.addServer} disabled={Boolean(currentScope?.error)} onClick={addServer}>+ Add server</button></aside><section className={styles.mcpEditor}>{server ? <><div className={styles.editorHeader}><input className={styles.textInput} value={name} onChange={(event) => setName(event.target.value)} placeholder="server-name"/><button type="button" className={styles.dangerButton} onClick={removeServer}>Delete</button></div><textarea className={styles.jsonEditor} value={json} spellCheck={false} onChange={(event) => setJson(event.target.value)}/><div className={styles.editorActions}><div>{error && <div className={styles.error}>{error}</div>}<div className={styles.saveState}>{currentScope?.path}</div></div><button type="button" className={styles.primaryButton} disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save MCP"}</button></div></> : <div className={styles.empty}>Add or select an MCP server.</div>}</section></div>}</div></div>;
+  return (
+    <div className={styles.scrollContent}>
+      <header className={styles.contentHeader}>
+        <h2 className={styles.contentTitle}>MCP servers</h2>
+        <p className={styles.contentDescription}>All MCP servers discovered by OMP are listed by scope and can be enabled or disabled here. Native OMP entries are editable; configurations owned by Claude, Codex, Gemini, plugins, or other providers remain read-only at their source.</p>
+      </header>
+      <div className={styles.settingsBody}>
+        {!data ? <div className={styles.empty}>{error ?? "Loading MCP configuration…"}</div> : (
+          <div className={styles.mcpLayout}>
+            <aside className={styles.mcpList}>
+              <div className={styles.scopeTabs}>
+                <button type="button" className={styles.scopeButton} data-active={scope === "user"} onClick={() => { setScope("user"); setSelected(0); }}>User · {data.user.servers.length}</button>
+                <button type="button" className={styles.scopeButton} data-active={scope === "project"} disabled={!data.project} onClick={() => { setScope("project"); setSelected(0); }}>Project · {data.project?.servers.length ?? 0}</button>
+              </div>
+              {currentScope?.error ? <div className={styles.error} style={{ padding: 12 }}>{currentScope.error}</div> : (
+                <div className={styles.serverRows}>
+                  {currentScope?.servers.length ? currentScope.servers.map((item, index) => {
+                    const toggleKey = `${scope}:${item.name}`;
+                    return (
+                      <div key={`${item.name}-${item.source?.path ?? index}`} className={styles.serverRow} data-active={selected === index}>
+                        <button type="button" className={styles.serverSelect} title={item.source?.path} onClick={() => setSelected(index)}>
+                          <span className={styles.statusDot} data-off={!item.enabled} />
+                          <span className={styles.serverName}>{item.name}</span>
+                          {item.editable === false && <span className={styles.sourceBadge}>{item.source?.provider ?? "external"}</span>}
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.serverToggle}
+                          data-on={item.enabled}
+                          disabled={toggling === toggleKey}
+                          aria-pressed={item.enabled}
+                          aria-label={`${item.enabled ? "Disable" : "Enable"} ${item.name}`}
+                          title={`${item.enabled ? "Disable" : "Enable"} ${item.name}`}
+                          onClick={() => void toggleServer(item)}
+                        >
+                          {toggling === toggleKey ? "…" : item.enabled ? "ON" : "OFF"}
+                        </button>
+                      </div>
+                    );
+                  }) : <div className={styles.serverListEmpty}>No servers in this scope.</div>}
+                </div>
+              )}
+              <button type="button" className={styles.addServer} disabled={Boolean(currentScope?.error)} onClick={addServer}>+ Add OMP server</button>
+            </aside>
+            <section className={styles.mcpEditor}>
+              {server ? (
+                <>
+                  <div className={styles.editorHeader}>
+                    <input className={styles.textInput} value={name} readOnly={server.editable === false} onChange={(event) => setName(event.target.value)} placeholder="server-name" />
+                    {server.editable !== false && <button type="button" className={styles.dangerButton} onClick={removeServer}>Delete</button>}
+                  </div>
+                  {server.editable === false && <div className={styles.readOnlyNotice}>Configuration read-only · managed by {server.source?.provider ?? "an external provider"}. Status can be changed from the server list.</div>}
+                  <textarea className={styles.jsonEditor} value={json} readOnly={server.editable === false} spellCheck={false} onChange={(event) => setJson(event.target.value)} />
+                  <div className={styles.editorActions}>
+                    <div>
+                      {error && <div className={styles.error}>{error}</div>}
+                      <div className={styles.saveState}>{server.source?.path ?? currentScope?.path}</div>
+                    </div>
+                    {server.editable !== false && <button type="button" className={styles.primaryButton} disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save MCP"}</button>}
+                  </div>
+                </>
+              ) : <div className={styles.empty}>Add or select an MCP server.</div>}
+            </section>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }

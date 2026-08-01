@@ -299,12 +299,14 @@
   margin-bottom: 30px;
 }
 .themeCard {
-  overflow: hidden;
+  position: relative;
+  overflow: visible;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--bg-panel);
 }
-.themePreview { height: 118px; padding: 14px; }
+.themeCard:focus-within { z-index: 10; }
+.themePreview { height: 118px; overflow: hidden; padding: 14px; border-radius: 11px 11px 0 0; }
 .themePreviewBar { width: 62%; height: 7px; border-radius: 4px; opacity: .9; }
 .themePreviewPanel { height: 62px; margin-top: 12px; padding: 10px; border: 1px solid; border-radius: 7px; }
 .themePreviewLine { width: 74%; height: 5px; margin-bottom: 7px; border-radius: 3px; }
@@ -320,14 +322,23 @@
 .scopeButton { height: 29px; border: 0; border-radius: 6px; background: transparent; color: var(--text-dim); cursor: pointer; font: 10px var(--font-mono); }
 .scopeButton[data-active="true"] { background: var(--bg-selected); color: var(--text); }
 .serverRows { flex: 1; overflow-y: auto; padding: 7px; }
-.serverRow { width: 100%; display: flex; align-items: center; gap: 8px; padding: 8px; border: 0; border-radius: 7px; background: transparent; color: var(--text-muted); cursor: pointer; text-align: left; font: 11px var(--font-mono); }
+.serverRow { width: 100%; display: flex; align-items: center; gap: 3px; padding: 3px; border-radius: 7px; background: transparent; color: var(--text-muted); font: 11px var(--font-mono); }
 .serverRow[data-active="true"] { background: var(--bg-selected); color: var(--text); }
+.serverSelect { min-width: 0; flex: 1; display: flex; align-items: center; gap: 8px; padding: 5px; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; text-align: left; }
+.serverToggle { width: 30px; height: 23px; flex: 0 0 auto; padding: 0; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--text-dim); cursor: pointer; font: 700 8px var(--font-mono); }
+.serverToggle[data-on="true"] { border-color: color-mix(in srgb, var(--success) 55%, var(--border)); color: var(--success); }
+.serverToggle:disabled { cursor: wait; opacity: .5; }
+.serverName { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sourceBadge { max-width: 76px; overflow: hidden; text-overflow: ellipsis; padding: 2px 4px; border: 1px solid var(--border); border-radius: 4px; color: var(--text-dim); font-size: 8px; white-space: nowrap; }
+.serverListEmpty { padding: 22px 10px; color: var(--text-dim); font: 10px/1.5 var(--font-mono); text-align: center; }
 .statusDot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
 .statusDot[data-off="true"] { background: var(--text-dim); }
 .addServer { margin: 8px; height: 31px; border: 1px dashed var(--border); border-radius: 7px; background: transparent; color: var(--text-muted); cursor: pointer; font: 11px var(--font-mono); }
 .mcpEditor { min-width: 0; padding: 20px; }
 .editorHeader { display: flex; gap: 8px; margin-bottom: 14px; }
 .jsonEditor { min-height: 290px; resize: vertical; padding: 12px; line-height: 1.55; }
+.readOnlyNotice { margin: -5px 0 10px; color: var(--text-dim); font: 10px var(--font-mono); }
+.jsonEditor:read-only, .textInput:read-only { background: var(--bg-subtle); color: var(--text-muted); cursor: default; }
 .editorActions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; }
 .primaryButton, .dangerButton { height: 33px; padding: 0 13px; border: 0; border-radius: 7px; background: var(--accent); color: var(--bg); cursor: pointer; font: 700 11px var(--font-mono); }
 .dangerButton { border: 1px solid var(--border); background: transparent; color: var(--danger); }
