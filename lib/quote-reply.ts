@@ -117,6 +117,30 @@ export function formatQuote(seg: string, value?: string): string {
   return value ? `${quote}\n${value}` : `${quote}\n`;
 }
 
+/**
+ * Extract candidate file paths from plain text (e.g. "design/foo.md" written
+ * inline by the assistant, not as a markdown link). Returns de-duplicated
+ * paths without trailing punctuation. The caller should verify existence via
+ * the backend before offering them as "open" actions.
+ */
+export function extractFilePaths(text: string): string[] {
+  // 1) Paths containing a slash with an extension: dir/name.ext, ./dir/name.ext
+  // 2) Bare filenames with a common source/doc extension
+  const re = /(?:\.[\w-]+\/|[\w-]+\/)+[\w.@-]+\.\w+|\b[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|mjs|cjs|md|mdx|json|py|go|rs|css|scss|html|sh|yml|yaml|toml|lock|txt|sql|env)\b/gu;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const m of text.matchAll(re)) {
+    let p = m[0];
+    // Strip trailing punctuation that the regex might have swallowed.
+    p = p.replace(/[），。、；：!！?？)>"'`]$/u, "");
+    if (p.length >= 3 && !seen.has(p)) {
+      seen.add(p);
+      out.push(p);
+    }
+  }
+  return out;
+}
+
 export interface ParsedSegment {
   /** The cleaned segment text. */
   text: string;

@@ -219,6 +219,7 @@ export const enLocale: LocalePlugin = {
     "chat.compact": "Compact",
     "chat.quoteReply": "Quote reply",
     "chat.quoteReplyHint": "Click to quote reply",
+    "i18n.openFile": "Open",
     "chat.stopAgent": "Stop agent",
     "chat.stop": "Stop",
     "chat.disableSound": "Disable completion sound",

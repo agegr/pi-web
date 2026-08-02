@@ -15,7 +15,7 @@ interface MarkdownBodyProps {
   className?: string;
   isStreaming?: boolean;
   cwd?: string;
-  onOpenFile?: (filePath: string) => void;
+  onOpenFile?: (filePath: string, fileName?: string) => void;
   /** When set (assistant messages), each paragraph becomes hoverable/clickable
    *  to pop a quote-reply popover. */
   onQuoteReply?: (quote: string) => void;
@@ -97,7 +97,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
       const pid = useId();
       if (!onQuoteReply) return <p {...props}>{children}</p>;
       return (
-        <QuoteableParagraph pid={pid} onQuoteReply={onQuoteReply}>
+        <QuoteableParagraph pid={pid} onQuoteReply={onQuoteReply} onOpenFile={onOpenFile} cwd={cwd}>
           {children}
         </QuoteableParagraph>
       );
@@ -107,7 +107,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
       const pid = useId();
       if (!onQuoteReply) return <li {...props}>{children}</li>;
       return (
-        <QuoteableParagraph as="li" pid={pid} onQuoteReply={onQuoteReply}>
+        <QuoteableParagraph as="li" pid={pid} onQuoteReply={onQuoteReply} onOpenFile={onOpenFile} cwd={cwd}>
           {children}
         </QuoteableParagraph>
       );
@@ -124,7 +124,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
       const pid = useId();
       if (!onQuoteReply) return <tr {...props}>{children}</tr>;
       return (
-        <QuoteableParagraph as="tr" pid={pid} onQuoteReply={onQuoteReply}>
+        <QuoteableParagraph as="tr" pid={pid} onQuoteReply={onQuoteReply} onOpenFile={onOpenFile} cwd={cwd}>
           {children}
         </QuoteableParagraph>
       );
@@ -149,7 +149,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
 /** A <p>/<li> whose plain text is parsed on hover (desktop) / click (mobile)
  *  to pop a quote-reply popover. The parse result is locked once shown so a
  *  streaming tail doesn't make the popover flicker; re-engaging re-parses. */
-function QuoteableParagraph({ children, onQuoteReply, as = "p", pid }: { children: ReactNode; onQuoteReply: (quote: string) => void; as?: "p" | "li" | "tr"; pid: string }) {
+function QuoteableParagraph({ children, onQuoteReply, onOpenFile, cwd, as = "p", pid }: { children: ReactNode; onQuoteReply: (quote: string) => void; onOpenFile?: (filePath: string, fileName?: string) => void; cwd?: string; as?: "p" | "li" | "tr"; pid: string }) {
   const { openId, setOpenId } = useContext(QuoteOpenContext);
   const { t } = useI18n();
   const open = openId === pid;
@@ -255,6 +255,8 @@ function QuoteableParagraph({ children, onQuoteReply, as = "p", pid }: { childre
           innerRef={popoverRef}
           segments={segments}
           onPick={(q) => { onQuoteReply(q); closePopover(); }}
+          onOpenFile={onOpenFile}
+          cwd={cwd}
         />
       )}
     </Tag>

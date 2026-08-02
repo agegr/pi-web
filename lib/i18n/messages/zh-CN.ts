@@ -219,6 +219,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.compact": "压缩",
     "chat.quoteReply": "引用回复",
     "chat.quoteReplyHint": "点击引用回复",
+    "i18n.openFile": "打开",
     "chat.stopAgent": "停止 Agent",
     "chat.stop": "停止",
     "chat.disableSound": "关闭完成提示音",

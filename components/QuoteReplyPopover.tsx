@@ -1,14 +1,20 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { Ref } from "react";
+import { encodeFilePathForApi, joinFilePath } from "@/lib/file-paths";
 import type { ParsedSegment, QuoteOption } from "@/lib/quote-reply";
-import { formatQuote } from "@/lib/quote-reply";
+import { extractFilePaths, formatQuote } from "@/lib/quote-reply";
 
 interface Props {
   segments: ParsedSegment[];
   /** Called with the formatted quote-reply text (caller inserts it into the input). */
   onPick: (quote: string) => void;
+  /** Open a file path (from inline paths mentioned in the text). */
+  onOpenFile?: (filePath: string, fileName?: string) => void;
+  /** Session cwd used to resolve relative paths before checking /api/files. */
+  cwd?: string;
   /** Optional ref to the popover element (caller scrolls it into view on open). */
   innerRef?: Ref<HTMLSpanElement>;
 }
@@ -19,12 +25,37 @@ interface Props {
  * single fallback "quote" button. Clicking inserts a quoted reply into the
  * input box — never sends.
  */
-export function QuoteReplyPopover({ segments, onPick, innerRef }: Props) {
+export function QuoteReplyPopover({ segments, onPick, onOpenFile, cwd, innerRef }: Props) {
   const { t } = useI18n();
   // Show every segment: closed questions get option buttons, the rest get a
   // fallback quote button. (Any paragraph is quoteable.)
   const questions = segments;
   if (questions.length === 0) return null;
+
+  // Inline file paths mentioned in the text (assistant often lists files as
+  // plain text, not links). Verify each against the backend before offering
+  // an "open" action so we don't render dead buttons.
+  const [existingFiles, setExistingFiles] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const allPaths = Array.from(new Set(questions.flatMap((seg) => extractFilePaths(seg.text))));
+    const absPaths = allPaths.map((p) =>
+      p.startsWith("/") ? p : (cwd ? joinFilePath(cwd, p) : p),
+    );
+    Promise.all(
+      absPaths.map(async (abs) => {
+        try {
+          const res = await fetch(`/api/files/${encodeFilePathForApi(abs)}?type=meta`);
+          return res.ok ? abs : null;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((found) => {
+      if (!cancelled) setExistingFiles(found.filter((f): f is string => !!f));
+    });
+    return () => { cancelled = true; };
+  }, [questions, cwd]);
 
   return (
     <span
@@ -45,6 +76,37 @@ export function QuoteReplyPopover({ segments, onPick, innerRef }: Props) {
       onMouseDown={(e) => e.preventDefault()}
       onClick={(e) => e.stopPropagation()}
     >
+      {onOpenFile && existingFiles.length > 0 && (
+        <span style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+          {existingFiles.map((abs) => (
+            <button
+              key={abs}
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onOpenFile(abs, abs.split("/").pop() ?? abs); }}
+              title={t("i18n.openFile")}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "3px 9px",
+                fontSize: 12,
+                color: "var(--accent)",
+                background: "color-mix(in srgb, var(--accent) 10%, transparent)",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+                maxWidth: 220,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              <FolderOpenIcon />
+              {t("i18n.openFile")}: {abs.split("/").pop()}
+            </button>
+          ))}
+        </span>
+      )}
       {questions.map((seg, i) => (
         <SegmentRow key={i} segment={seg} onPick={onPick} t={t} />
       ))}
@@ -103,5 +165,13 @@ function SegmentRow({
         </button>
       ))}
     </span>
+  );
+}
+
+function FolderOpenIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+    </svg>
   );
 }
