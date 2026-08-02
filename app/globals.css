@@ -443,6 +443,298 @@ pre, code {
   background: var(--bg-selected);
   color: var(--text);
 }
+.markdown-thinking {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 1px 0 12px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.65;
+  font-style: italic;
+}
+.markdown-thinking-content {
+  min-width: 0;
+  flex: 1;
+}
+.markdown-thinking-body {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.markdown-thinking-body p {
+  margin: 0 0 8px;
+}
+.markdown-thinking-body p:last-child {
+  margin-bottom: 0;
+}
+.markdown-thinking-body strong {
+  color: var(--text-muted);
+  font-weight: 700;
+}
+.markdown-thinking-body em {
+  color: var(--text-muted);
+}
+.markdown-thinking-status,
+.markdown-thinking-error {
+  color: var(--text-dim);
+}
+.markdown-thinking-error {
+  color: var(--danger);
+}
+.markdown-thinking-duration {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-size: 10px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.shell-output-preview {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, var(--text-muted));
+  border-radius: 6px;
+  background: var(--tool-bg);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 45%, transparent);
+}
+.shell-output-preview.is-error {
+  border-color: color-mix(in srgb, var(--danger) 52%, var(--border));
+}
+.shell-command-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+  padding: 11px 13px 9px;
+  background: color-mix(in srgb, var(--tool-bg) 80%, var(--bg-panel));
+}
+.shell-command-prompt {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1.55;
+  user-select: none;
+}
+.shell-command-line > span[style] {
+  flex: 1;
+  min-width: 0;
+}
+.shell-command-line code {
+  font-family: var(--font-mono) !important;
+}
+.shell-command-code {
+  flex: 1;
+  min-width: 0;
+  overflow: visible !important;
+}
+.shell-command-code code {
+  font-family: var(--font-mono) !important;
+}
+.shell-local-label {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border));
+  border-radius: 3px;
+  padding: 1px 5px;
+  color: var(--warning);
+  font-size: 10px;
+  line-height: 1.4;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.shell-output-panel {
+  padding: 0 0 8px;
+  background: var(--tool-bg);
+}
+.shell-output-divider {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+.shell-output-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid color-mix(in srgb, var(--border) 82%, var(--text-muted));
+}
+.shell-output-label {
+  flex: 0 0 auto;
+  margin-top: -1px;
+  padding-right: 2px;
+  background: var(--tool-bg);
+}
+.shell-output-status {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 500;
+}
+.shell-output-status.is-pending {
+  color: var(--accent);
+}
+.shell-output-status.is-error {
+  color: var(--danger);
+}
+.shell-output-body {
+  max-height: 420px;
+  overflow: auto;
+  padding: 8px 13px 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.shell-output-line {
+  min-height: 1.55em;
+}
+.shell-output-line.is-success {
+  color: var(--success);
+}
+.shell-output-line.is-warning {
+  color: var(--warning);
+}
+.shell-output-line.is-error {
+  color: var(--danger);
+}
+.shell-output-empty {
+  color: var(--text-dim);
+  font-style: italic;
+}
+.shell-output-pending {
+  display: inline-block;
+  color: var(--accent);
+  animation: pulse 1.2s infinite;
+}
+.shell-output-footer {
+  padding: 0 13px 8px;
+  color: var(--text-dim);
+  font-size: 10px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.todo-checklist-preview {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0 11px 10px;
+  background: var(--bg);
+  color: var(--text-muted);
+}
+.todo-checklist-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: max-content;
+  max-width: 100%;
+  margin: -9px 0 7px -5px;
+  padding: 0 6px;
+  overflow: hidden;
+  background: var(--bg);
+  font-size: 14px;
+  line-height: 1.2;
+}
+.todo-checklist-icon {
+  flex: 0 0 auto;
+  color: var(--warning);
+}
+.todo-checklist-title {
+  color: var(--warning);
+  font-weight: 700;
+}
+.todo-checklist-count {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.todo-checklist-progress {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.todo-checklist-body {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.todo-checklist-phase + .todo-checklist-phase {
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+.todo-checklist-phase-name {
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+.todo-checklist-row {
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr);
+  gap: 7px;
+  align-items: start;
+  padding: 2px 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.todo-checklist-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+.todo-checklist-row.is-completed {
+  color: var(--success);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.todo-checklist-row.is-completed .todo-checklist-marker {
+  border-color: var(--success);
+  background: var(--success);
+  color: var(--bg);
+}
+.todo-checklist-row.is-abandoned {
+  color: var(--danger);
+  text-decoration: line-through;
+}
+.todo-checklist-row.is-abandoned .todo-checklist-marker {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.todo-checklist-row.is-active {
+  color: var(--text);
+}
+.todo-checklist-row.is-active .todo-checklist-marker {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.todo-checklist-row.is-blocked .todo-checklist-marker {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+.todo-checklist-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.todo-checklist-blocker {
+  color: var(--warning);
+}
 
 .mermaid-block {
   padding: 12px;

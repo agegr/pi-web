@@ -1,13 +1,16 @@
 "use client";
 
 import { memo, useState, useRef, useEffect, useMemo } from "react";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { vs, vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import { MarkdownBody } from "./MarkdownBody";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
+import { useTheme } from "@/hooks/useTheme";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
-import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
+import { normalizeCustomPanelLines, parseAnsiLine, stripAnsi } from "@/lib/ansi";
 import type {
   AgentMessage,
   UserMessage,
@@ -632,75 +635,63 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
   blockIndex: number;
 }) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState(false);
   const [content, setContent] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(block.deferred === true);
   const [error, setError] = useState<string | null>(null);
 
-  const toggle = async () => {
-    const nextExpanded = !expanded;
-    setExpanded(nextExpanded);
-    if (!nextExpanded || !block.deferred || content !== null) return;
-    if (!sessionId || !entryId) {
-      setError(t("i18n.thinkingUnavailable"));
+  useEffect(() => {
+    if (!block.deferred) {
+      setContent(null);
+      setLoading(false);
+      setError(null);
       return;
+    }
+
+    let cancelled = false;
+    if (!sessionId || !entryId) {
+      setLoading(false);
+      setError(t("i18n.thinkingUnavailable"));
+      return () => {
+        cancelled = true;
+      };
     }
 
     setLoading(true);
     setError(null);
-    try {
-      setContent(await loadThinkingContent(sessionId, entryId, blockIndex));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  };
+    void loadThinkingContent(sessionId, entryId, blockIndex)
+      .then((value) => {
+        if (!cancelled) setContent(value);
+      })
+      .catch((reason) => {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [block.deferred, block.thinking, blockIndex, entryId, sessionId, t]);
+
+  const text = block.deferred ? content : block.thinking;
+  const hasText = typeof text === "string" && text.trim().length > 0;
 
   return (
-    <div
-      style={{
-        border: "1px solid var(--border)",
-        borderRadius: 6,
-        overflow: "hidden",
-        fontSize: 13,
-      }}
-    >
-      <button
-        onClick={() => void toggle()}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          width: "100%",
-          padding: "6px 10px",
-          background: "var(--bg-panel)",
-          border: "none",
-          color: "var(--text-muted)",
-          cursor: "pointer",
-          fontSize: 12,
-          textAlign: "left",
-        }}
-      >
-         <span>{t("i18n.thinking")}</span>
-        {duration !== undefined && (
-          <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
+    <div className="markdown-thinking" aria-label={t("i18n.thinking")}>
+      <div className="markdown-thinking-content">
+        {loading ? (
+          <span className="markdown-thinking-status">{t("i18n.loadingThinking")}</span>
+        ) : error ? (
+          <span className="markdown-thinking-error">{error}</span>
+        ) : hasText ? (
+          <MarkdownBody className="markdown-thinking-body">{text}</MarkdownBody>
+        ) : (
+          <span className="markdown-thinking-status">{t("chat.thinking")}</span>
         )}
-      </button>
-      {expanded && (
-        <div
-          style={{
-            padding: "8px 10px",
-            color: error ? "#f87171" : "var(--text-muted)",
-            fontSize: 12,
-            lineHeight: 1.6,
-            whiteSpace: "pre-wrap",
-            background: "var(--bg-panel)",
-            borderTop: "1px solid var(--border)",
-          }}
-        >
-           {loading ? t("i18n.loadingThinking") : error ?? (block.deferred ? content : block.thinking)}
-        </div>
+      </div>
+      {duration !== undefined && hasText && (
+        <span className="markdown-thinking-duration">{duration}s</span>
       )}
     </div>
   );
@@ -737,7 +728,25 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
     : null;
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
   const isError = result?.isError ?? false;
-  const hasStructuredPreview = Boolean(todoPhases || resultDiff || isBashTool);
+
+  if (isBashTool) {
+    return (
+      <ConsoleOutputPreview
+        command={isRecord(block.input) && typeof block.input.command === "string" ? block.input.command : ""}
+        output={resultText ?? ""}
+        pending={!result}
+        isError={isError}
+        duration={duration}
+        local={normalizedToolName.includes("(local)")}
+      />
+    );
+  }
+
+  if (isTodoTool && todoPhases) {
+    return <TodoChecklistPreview phases={todoPhases} />;
+  }
+
+  const hasStructuredPreview = Boolean(todoPhases || resultDiff);
   const headerPreview = getStructuredToolPreview(block, todoPhases);
 
   return (
@@ -792,26 +801,13 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
         </svg>
       </button>
 
-      {todoPhases && (
-        <TodoChecklistPreview phases={todoPhases} expanded={expanded} />
-      )}
-
       {resultDiff && (
         <div style={{ maxHeight: expanded ? 560 : 260, overflowY: "auto", overflowX: "hidden", borderTop: "1px solid rgba(34,197,94,0.15)" }}>
           <PairedDiffResult diff={resultDiff} />
         </div>
       )}
 
-      {isBashTool && (
-        <ConsoleOutputPreview
-          command={isRecord(block.input) && typeof block.input.command === "string" ? block.input.command : ""}
-          output={resultText ?? ""}
-          pending={!result}
-          expanded={expanded}
-        />
-      )}
-
-      {result && isError && !isBashTool && (
+      {result && isError && (
         <PairedResult text={resultText ?? ""} isEmpty={resultIsEmpty} isError />
       )}
 
@@ -888,43 +884,36 @@ function isTodoPreviewStatus(value: unknown): value is TodoPreviewStatus {
   return value === "pending" || value === "in_progress" || value === "completed" || value === "abandoned" || value === "blocked";
 }
 
-function TodoChecklistPreview({ phases, expanded }: { phases: TodoPreviewPhase[]; expanded: boolean }) {
-  const maxVisibleTasks = expanded ? Number.POSITIVE_INFINITY : 7;
+function TodoChecklistPreview({ phases }: { phases: TodoPreviewPhase[] }) {
   const totalTasks = phases.reduce((sum, phase) => sum + phase.tasks.length, 0);
-  let visibleTasks = 0;
+  const completedTasks = phases.reduce(
+    (sum, phase) => sum + phase.tasks.filter((task) => task.status === "completed").length,
+    0,
+  );
 
   return (
-    <div
-      role="list"
-      style={{
-        borderTop: "1px solid rgba(34,197,94,0.15)",
-        padding: "7px 10px 8px",
-        background: "var(--bg)",
-      }}
-    >
-      {phases.map((phase, phaseIndex) => {
-        const remainingSlots = Math.max(0, maxVisibleTasks - visibleTasks);
-        const tasks = phase.tasks.slice(0, remainingSlots);
-        visibleTasks += tasks.length;
-        if (tasks.length === 0) return null;
-        return (
-          <div key={`${phase.name}-${phaseIndex}`} style={{ marginTop: phaseIndex === 0 ? 0 : 8 }}>
-            {phases.length > 1 && (
-              <div style={{ marginBottom: 4, color: "var(--text-muted)", fontWeight: 600, fontSize: 11 }}>
-                {phase.name}
-              </div>
-            )}
-            {tasks.map((task, taskIndex) => (
+    <div className="todo-checklist-preview" role="list" aria-label={`Todo ${totalTasks} tasks`}>
+      <div className="todo-checklist-header">
+        <svg className="todo-checklist-icon" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <path d="M5.5 3.25h7M5.5 7h7M5.5 10.75h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+          <path d="m1.5 3.1 1 1 1.7-1.9M1.5 6.85l1 1 1.7-1.9M1.5 10.6l1 1 1.7-1.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span className="todo-checklist-title">Todo</span>
+        <span className="todo-checklist-count">{totalTasks} {totalTasks === 1 ? "task" : "tasks"}</span>
+        {completedTasks > 0 && completedTasks < totalTasks && (
+          <span className="todo-checklist-progress">{completedTasks}/{totalTasks}</span>
+        )}
+      </div>
+      <div className="todo-checklist-body">
+        {phases.map((phase, phaseIndex) => (
+          <div key={`${phase.name}-${phaseIndex}`} className="todo-checklist-phase">
+            {phases.length > 1 && <div className="todo-checklist-phase-name">{phase.name}</div>}
+            {phase.tasks.map((task, taskIndex) => (
               <TodoChecklistRow key={`${task.content}-${taskIndex}`} task={task} />
             ))}
           </div>
-        );
-      })}
-      {visibleTasks < totalTasks && (
-        <div style={{ padding: "3px 0 0 20px", color: "var(--text-dim)", fontSize: 11 }}>
-          … {totalTasks - visibleTasks}
-        </div>
-      )}
+        ))}
+      </div>
     </div>
   );
 }
@@ -935,93 +924,124 @@ function TodoChecklistRow({ task }: { task: TodoPreviewTask }) {
   const active = task.status === "in_progress";
   const blocked = task.status === "blocked";
   const marker = completed ? "✓" : abandoned ? "×" : blocked ? "!" : active ? "›" : "";
-  const color = completed
-    ? "var(--success)"
+  const statusClass = completed
+    ? "is-completed"
     : abandoned
-    ? "var(--danger)"
+    ? "is-abandoned"
     : blocked
-    ? "var(--warning)"
+    ? "is-blocked"
     : active
-    ? "var(--accent)"
-    : "var(--text-dim)";
+    ? "is-active"
+    : "is-pending";
 
   return (
     <div
       role="listitem"
       aria-label={`${task.status}: ${task.content}`}
-      style={{
-        display: "grid",
-        gridTemplateColumns: "14px minmax(0, 1fr)",
-        gap: 7,
-        alignItems: "start",
-        padding: "2px 0",
-        color: active ? "var(--text)" : "var(--text-muted)",
-      }}
+      className={`todo-checklist-row ${statusClass}`}
     >
-      <span
-        aria-hidden="true"
-        style={{
-          width: 12,
-          height: 12,
-          marginTop: 2,
-          border: `1px solid ${color}`,
-          color,
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: 10,
-          lineHeight: 1,
-          fontWeight: 700,
-          background: completed ? "rgba(34,197,94,0.1)" : "transparent",
-        }}
-      >
+      <span aria-hidden="true" className="todo-checklist-marker">
         {marker}
       </span>
-      <span style={{ minWidth: 0, overflowWrap: "anywhere", textDecoration: completed || abandoned ? "line-through" : "none" }}>
+      <span className="todo-checklist-content">
         {task.content}
-        {blocked && task.blocker ? <span style={{ color: "var(--warning)" }}> ({task.blocker})</span> : null}
+        {blocked && task.blocker ? <span className="todo-checklist-blocker"> ({task.blocker})</span> : null}
       </span>
     </div>
   );
 }
 
-function ConsoleOutputPreview({ command, output, pending, expanded }: { command: string; output: string; pending: boolean; expanded: boolean }) {
+function ConsoleOutputPreview({
+  command,
+  output,
+  pending,
+  isError,
+  duration,
+  local,
+}: {
+  command: string;
+  output: string;
+  pending: boolean;
+  isError: boolean;
+  duration?: number;
+  local?: boolean;
+}) {
+  const { isDark } = useTheme();
+  const { t } = useI18n();
   const normalizedLines = normalizeCustomPanelLines(output.split(/\r?\n/));
   const outputLines = normalizedLines.length === 1 && normalizedLines[0] === "" ? [] : normalizedLines;
-  const maxLines = expanded ? Number.POSITIVE_INFINITY : 8;
-  const visibleLines = outputLines.slice(-maxLines);
-  const omittedCount = outputLines.length - visibleLines.length;
+  const statusLabel = pending ? t("chat.runningCommand") : isError ? "failed" : "";
 
   return (
-    <div
-      style={{
-        borderTop: "1px solid rgba(34,197,94,0.15)",
-        maxHeight: expanded ? 420 : 210,
-        overflow: "auto",
-        padding: "8px 10px",
-        background: "var(--tool-bg)",
-        color: "var(--text-muted)",
-        fontFamily: "var(--font-mono)",
-        fontSize: 11,
-        lineHeight: 1.55,
-        whiteSpace: "pre-wrap",
-        overflowWrap: "anywhere",
-      }}
-    >
-      <div><span style={{ color: "var(--success)", userSelect: "none" }}>$ </span>{command}</div>
-      {omittedCount > 0 && <div style={{ color: "var(--text-dim)" }}>… {omittedCount}</div>}
-      {visibleLines.map((line, lineIndex) => (
-        <div key={lineIndex}>
-          {parseAnsiLine(line).map((segment, segmentIndex) => (
-            Object.keys(segment.style).length > 0
-              ? <span key={segmentIndex} style={segment.style}>{segment.text}</span>
-              : <span key={segmentIndex}>{segment.text}</span>
-          ))}
-          {line === "" ? "\u00a0" : null}
+    <div className={`shell-output-preview${isError ? " is-error" : ""}`}>
+      <div className="shell-command-line">
+        <span className="shell-command-prompt" aria-hidden="true">$</span>
+        <SyntaxHighlighter
+          className="shell-command-code"
+          language="bash"
+          style={isDark ? vscDarkPlus : vs}
+          PreTag="span"
+          CodeTag="span"
+          wrapLongLines
+          customStyle={{
+            flex: 1,
+            minWidth: 0,
+            margin: 0,
+            padding: 0,
+            border: "none",
+            overflow: "visible",
+            background: "transparent",
+            color: "var(--text)",
+            fontFamily: "var(--font-mono)",
+            fontSize: 13,
+            lineHeight: 1.55,
+            whiteSpace: "pre-wrap",
+            overflowWrap: "anywhere",
+          }}
+          codeTagProps={{ style: { fontFamily: "var(--font-mono)" } }}
+        >
+          {command || " "}
+        </SyntaxHighlighter>
+        {local && <span className="shell-local-label">local</span>}
+      </div>
+
+      <div className="shell-output-panel">
+        <div className="shell-output-divider">
+          <span className="shell-output-label">Output</span>
+          {statusLabel && <span className={`shell-output-status${isError ? " is-error" : pending ? " is-pending" : ""}`}>{statusLabel}</span>}
         </div>
-      ))}
-      {pending && (
-        <span className="animate-[pulse_1.2s_infinite]" aria-label="running" style={{ color: "var(--accent)" }}>▋</span>
+        <div className="shell-output-body" aria-live={pending ? "polite" : undefined}>
+          {outputLines.length === 0 && !pending && (
+            <span className="shell-output-empty">{t("i18n.noOutput")}</span>
+          )}
+          {outputLines.map((line, lineIndex) => {
+            const plainLine = stripAnsi(line).trimStart();
+            const lineClass = isError || /^(?:error|fatal|failed|failure|✖|x\b)/i.test(plainLine)
+              ? "is-error"
+              : /^(?:warning|warn|!)/i.test(plainLine)
+              ? "is-warning"
+              : /^(?:success|passed|ok\b|✓|\+)/i.test(plainLine)
+              ? "is-success"
+              : "";
+            return (
+              <div key={lineIndex} className={`shell-output-line ${lineClass}`.trim()}>
+                {parseAnsiLine(line).map((segment, segmentIndex) => (
+                  Object.keys(segment.style).length > 0
+                    ? <span key={segmentIndex} style={segment.style}>{segment.text}</span>
+                    : <span key={segmentIndex}>{segment.text}</span>
+                ))}
+                {line === "" ? "\u00a0" : null}
+              </div>
+            );
+          })}
+          {pending && (
+            <span className="shell-output-pending" aria-label={t("chat.runningCommand")}>▋</span>
+          )}
+        </div>
+      </div>
+
+      {duration !== undefined && (
+        <div className="shell-output-footer">{duration}s</div>
       )}
     </div>
   );
@@ -1662,8 +1682,7 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
     }
   }
 
-  // Reuse the existing ToolCallBlock so user-run bash looks identical to an
-  // agent-run bash tool call: same header, collapse behavior, result pane.
+  // Reuse the terminal renderer so user-run bash matches agent-run shell output.
   // Synthesize an equivalent ToolCallContent + ToolResultMessage pair.
   const toolName = message.excludeFromContext ? "bash (local)" : "bash";
   const block: ToolCallContent = {
