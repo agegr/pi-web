@@ -97,3 +97,24 @@ test("renders compact errors above the input as a wrapping alert", () => {
   assert.match(html, /white-space:pre-wrap/);
   assert.ok(html.indexOf('role="alert"') < html.indexOf("<textarea"));
 });
+
+test("shows context occupancy and warning state", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        isStreaming: false,
+        contextUsage: { tokens: 100_000, contextWindow: 128_000, percent: 78 },
+      }),
+    ),
+  );
+
+  assert.match(html, /role="status"/);
+  assert.match(html, /data-context-level="warning"/);
+  assert.match(html, /100k \/ 128k/);
+  assert.match(html, /78%/);
+  assert.match(html, /Context window is getting full/);
+});

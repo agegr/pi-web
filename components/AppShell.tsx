@@ -1093,7 +1093,10 @@ export function AppShell() {
               const pct = contextUsage.percent;
               if (pct !== null && pct > 90) ctxColor = "#ef4444";
               else if (pct !== null && pct > 70) ctxColor = "rgba(234,179,8,0.95)";
-              ctxStr = pct !== null ? `${pct.toFixed(0)}% / ${fmt(contextUsage.contextWindow)}` : `? / ${fmt(contextUsage.contextWindow)}`;
+              const used = contextUsage.tokens !== null ? fmt(contextUsage.tokens) : "?";
+              ctxStr = pct !== null
+                ? `${pct.toFixed(0)}% · ${used}/${fmt(contextUsage.contextWindow)}`
+                : `? · ${used}/${fmt(contextUsage.contextWindow)}`;
             }
 
             const tooltipParts: string[] = [];
@@ -1106,7 +1109,7 @@ export function AppShell() {
             }
             if (contextUsage?.contextWindow) {
               const pct = contextUsage.percent;
-              tooltipParts.push(`context: ${pct !== null ? pct.toFixed(1) + "%" : "unknown"} of ${contextUsage.contextWindow.toLocaleString()} tokens`);
+              tooltipParts.push(`context: ${contextUsage.tokens !== null ? contextUsage.tokens.toLocaleString(locale) : "?"} / ${contextUsage.contextWindow.toLocaleString(locale)} tokens (${pct !== null ? pct.toFixed(1) + "%" : "unknown"})`);
             }
             const tooltip = tooltipParts.join("  |  ");
 
@@ -1293,7 +1296,7 @@ export function AppShell() {
                     const formatCompact = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
                     const extraTokenRows = [
                        ...(sessionStats.cost > 0 ? [[translate("session.cost"), `$${sessionStats.cost.toFixed(4)}`]] : []),
-                       ...(ctx?.contextWindow ? [[translate("session.context"), `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompact(ctx.contextWindow)}`]] : []),
+                       ...(ctx?.contextWindow ? [[translate("session.context"), `${ctx.tokens !== null ? formatCompact(ctx.tokens) : "?"} / ${formatCompact(ctx.contextWindow)}${ctx.percent !== null ? ` · ${ctx.percent.toFixed(1)}%` : ""}`]] : []),
                     ];
                     const section = (
                       title: string,

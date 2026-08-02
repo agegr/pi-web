@@ -3,6 +3,7 @@
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
 import type { ModelRoleAssignment } from "@/lib/api-types";
+import type { ContextUsage } from "@/lib/omp-types";
 import { clearDraft, getDraft, setDraft, type ChatDraftImage } from "@/lib/draft-store";
 import {
   MAX_ATTACHED_IMAGE_BYTES,
@@ -72,6 +73,7 @@ interface Props {
   draftKey?: string;
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
+  contextUsage?: ContextUsage | null;
 }
 
 export interface ChatInputHandle {
@@ -115,6 +117,7 @@ function formatTokenCount(tokens: number): string {
   if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k`;
   return tokens.toLocaleString();
 }
+
 
 type SlashCommandPaletteItem = SlashCommandInfo | {
   name: string;
@@ -292,6 +295,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
+  contextUsage,
 }: Props, ref) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
@@ -1698,6 +1702,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
              {t("chat.shell")} · {bashExcluded ? t("chat.outputLocal") : t("chat.outputModel")}
           </div>
         )}
+        {isMobile && contextUsage && (
+          <div style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            minWidth: 0,
+            marginTop: 6,
+          }}>
+            <ContextUsageMeter usage={contextUsage} t={t} />
+          </div>
+        )}
 
         {/* Bottom bar: left | center (context) | right */}
         <div style={{
@@ -1980,9 +1994,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             )}
           </div>
 
-          {/* spacer */}
-          {!isMobile && <div style={{ flex: 1 }} />}
-
+          {!isMobile && (
+            <div style={{
+              flex: 1,
+              minWidth: 0,
+              display: "flex",
+              justifyContent: "center",
+            }}>
+              <ContextUsageMeter usage={contextUsage} t={t} />
+            </div>
+          )}
           {/* RIGHT: thinking + tools preset + compact + sound (idle) | Stop + sound (streaming) */}
           <div ref={controlsMenuRef} style={{
             flex: "0 0 auto",
@@ -2383,3 +2404,119 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     </div>
   );
 });
+
+const CONTEXT_WARNING_PERCENT = 70;
+const CONTEXT_CRITICAL_PERCENT = 90;
+
+function getContextPercent(usage: ContextUsage): number | null {
+  if (typeof usage.percent === "number" && Number.isFinite(usage.percent)) return usage.percent;
+  if (
+    typeof usage.tokens === "number"
+    && Number.isFinite(usage.tokens)
+    && Number.isFinite(usage.contextWindow)
+    && usage.contextWindow > 0
+  ) {
+    return (usage.tokens / usage.contextWindow) * 100;
+  }
+  return null;
+}
+
+function ContextUsageMeter({
+  usage,
+  t,
+}: {
+  usage?: ContextUsage | null;
+  t: (key: string, params?: Record<string, string | number>) => string;
+}) {
+  if (!usage) return null;
+
+  const contextWindow = Number.isFinite(usage.contextWindow) && usage.contextWindow > 0
+    ? usage.contextWindow
+    : null;
+  const tokens = typeof usage.tokens === "number" && Number.isFinite(usage.tokens)
+    ? Math.max(0, usage.tokens)
+    : null;
+  const percent = getContextPercent(usage);
+  const level = percent !== null && percent >= CONTEXT_CRITICAL_PERCENT
+    ? "critical"
+    : percent !== null && percent >= CONTEXT_WARNING_PERCENT
+      ? "warning"
+      : "normal";
+  const color = level === "critical"
+    ? "#ef4444"
+    : level === "warning"
+      ? "#eab308"
+      : "var(--text-muted)";
+  const usedLabel = tokens === null ? "?" : formatTokenCount(tokens);
+  const limitLabel = contextWindow === null ? "?" : formatTokenCount(contextWindow);
+  const percentLabel = percent === null ? "?" : `${percent.toFixed(0)}%`;
+  const progress = percent === null ? 0 : Math.min(100, Math.max(0, percent));
+  const status = level === "critical"
+    ? t("chat.contextUsageCritical")
+    : level === "warning"
+      ? t("chat.contextUsageWarning")
+      : null;
+  const title = t("chat.contextUsageTitle", {
+    used: usedLabel,
+    limit: limitLabel,
+    percent: percentLabel,
+  });
+
+  return (
+    <div
+      role="status"
+      aria-label={status ? `${title}. ${status}` : title}
+      title={title}
+      data-context-level={level}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        minWidth: 0,
+        maxWidth: "100%",
+        color,
+        fontSize: 11,
+        fontVariantNumeric: "tabular-nums",
+        whiteSpace: "nowrap",
+      }}
+    >
+      <span style={{ color: "var(--text-dim)", letterSpacing: 0.2 }}>
+        {t("chat.contextUsageLabel")}
+      </span>
+      <span
+        aria-hidden="true"
+        style={{
+          display: "block",
+          width: 58,
+          height: 4,
+          flex: "0 1 58px",
+          overflow: "hidden",
+          borderRadius: 999,
+          background: "var(--bg-subtle)",
+          boxShadow: "inset 0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent)",
+        }}
+      >
+        <span
+          style={{
+            display: "block",
+            width: `${progress}%`,
+            height: "100%",
+            borderRadius: "inherit",
+            background: color,
+            transition: "width 0.2s ease, background 0.2s ease",
+          }}
+        />
+      </span>
+      {level !== "normal" && (
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M6 1.2 11 10.5H1L6 1.2Z" />
+          <path d="M6 4.2v3" />
+          <path d="M6 9h.01" />
+        </svg>
+      )}
+      <span>{usedLabel} / {limitLabel}</span>
+      <span style={{ color: "inherit", opacity: 0.82 }}>{percentLabel}</span>
+    </div>
+  );
+}

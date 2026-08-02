@@ -365,6 +365,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       thinkingLevelMap={currentThinkingLevelMap}
       retryInfo={retryInfo}
       queuedMessages={queuedMessages}
+      contextUsage={contextUsage}
       inputHistory={inputHistory}
       onRecallQueue={handleRecallQueue}
       slashCommands={slashCommands}
