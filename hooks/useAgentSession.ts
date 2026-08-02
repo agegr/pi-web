@@ -374,6 +374,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [noticeState, dispatchNotice] = useReducer(noticeReducer, { visible: [], pending: [] });
   const [sessionStatsOverride, setSessionStatsOverride] = useState<SessionStatsInfo | null>(null);
   const [extensionDialog, setExtensionDialog] = useState<ExtensionUiDialogRequest | null>(null);
+  // 同步弹窗状态：settlement 判定需要知道当前是否有 dialog 在等用户输入
+  const extensionDialogRef = useRef<ExtensionUiDialogRequest | null>(null);
   const [extensionCustomUi, setExtensionCustomUi] = useState<ExtensionUiCustomRequest | null>(null);
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
@@ -409,6 +411,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
   // 每条消息完成时刷新列表的节流：避免流式多事件导致连续全量扫描
   const sessionListRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // waitForPromptSettlement 定义在 respondToExtensionUi 之后，通过 ref 解耦调用
+  const waitForPromptSettlementRef = useRef<((sid: string, runId?: number) => Promise<void>) | null>(null);
 
   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
 
@@ -700,6 +704,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   ) => {
     const sid = sessionIdRef.current;
     setExtensionDialog((current) => current?.id === request.id ? null : current);
+    if (extensionDialogRef.current?.id === request.id) extensionDialogRef.current = null;
     if (!sid) return;
     try {
       await sendAgentCommand(sid, {
@@ -709,6 +714,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       });
     } catch (e) {
       console.error("Failed to send extension UI response:", e);
+    }
+    // dialog 已关闭：重新检查服务器状态 —— 扩展可能已恢复运行（保持流式），
+    // 也可能确实结束（此时补一次结束判定，避免 UI 一直停在运行态）
+    if (agentRunningRef.current) {
+      void waitForPromptSettlementRef.current?.(sid);
     }
   }, []);
 
@@ -750,6 +760,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "input":
       case "editor":
         setExtensionDialog(request);
+        extensionDialogRef.current = request;
         break;
       case "notify": {
         addNotice({
@@ -821,6 +832,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
     while (agentRunningRef.current && Date.now() - startedAt < PROMPT_SETTLE_MAX_MS) {
       if (runId !== undefined && promptRunIdRef.current !== runId) return;
+      // 扩展 dialog（ask 弹窗）在等用户输入时，服务器视角的 prompt 可能已结束
+      // （prompt() resolve），但会话并未真正结束：用户响应后扩展会恢复。
+      // 此时结束 UI 会出现“弹窗还开着但会话已结束、没有 stop 按钮”的错乱。
+      if (extensionDialogRef.current) return;
       try {
         const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
         if (res.ok) {
@@ -837,6 +852,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       await delay(PROMPT_SETTLE_POLL_MS);
     }
   }, [finishPromptWithoutStream]);
+  waitForPromptSettlementRef.current = waitForPromptSettlement;
 
   const waitForBashSettlement = useCallback(async (sid: string) => {
     const recoveryId = bashRecoveryIdRef.current + 1;
@@ -891,6 +907,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const busy = data.running && state
         && (state.isStreaming || state.isPromptRunning || state.isCompacting);
       if (busy || !agentRunningRef.current) return;
+      // 扩展 dialog（ask 弹窗）等待用户输入时服务器可能已 idle，但会话并未
+      // 真正结束：此时结束 UI 会出现“弹窗还在但会话已结束、没有 stop”的错乱。
+      if (extensionDialogRef.current) return;
       if (state) {
         if (state.contextUsage !== undefined) setContextUsage(state.contextUsage ?? null);
         if (state.systemPrompt !== undefined) setSystemPrompt(state.systemPrompt ?? null);
@@ -1242,6 +1261,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       return;
     }
+    // 中止会话后不再等待用户输入，关闭挂起的 dialog 弹窗
+    setExtensionDialog(null);
+    extensionDialogRef.current = null;
     try {
       await sendAgentCommand(sid, { type: "abort" });
     } catch (e) {

@@ -1,7 +1,6 @@
 // 回收站弹窗：按目录分组展示已删除的会话，支持搜索、恢复与彻底删除。
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { useIsMobile } from "@/hooks/useIsMobile";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import type { TrashedSession } from "@/lib/trash";
 
@@ -13,7 +12,6 @@ interface Props {
 
 export function TrashPanel({ onClose, onRestored }: Props) {
   const { t, locale } = useI18n();
-  const isMobile = useIsMobile();
   const [sessions, setSessions] = useState<TrashedSession[] | null>(null);
   const [query, setQuery] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -117,16 +115,13 @@ export function TrashPanel({ onClose, onRestored }: Props) {
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div style={{
-        width: isMobile ? "calc(100vw - 16px)" : 620,
-        maxWidth: "calc(100vw - 16px)",
-        height: isMobile ? "calc(100dvh - 16px)" : "70vh",
-        maxHeight: "calc(100dvh - 16px)",
+        width: "100vw",
+        height: "100dvh",
         background: "var(--bg)",
-        border: "1px solid var(--border)",
-        borderRadius: 10,
+        border: "none",
+        borderRadius: 0,
         display: "flex",
         flexDirection: "column",
-        boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
         overflow: "hidden",
       }}>
         {/* Header */}
@@ -173,7 +168,6 @@ export function TrashPanel({ onClose, onRestored }: Props) {
         {/* Search */}
         <div style={{ padding: "10px 18px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
           <input
-            autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("trash.searchPlaceholder")}
