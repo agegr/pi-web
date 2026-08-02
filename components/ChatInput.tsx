@@ -2315,7 +2315,34 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             )}
 
             {isStreaming && (
-              <button
+              <>
+                {/* 流式时只读展示当前思考强度（不可修改） */}
+                {thinkingLevel !== undefined && (
+                  <div
+                    title={t("chat.currentReasoning", { level: thinkingDisplayLabel })}
+                    style={{
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+                      padding: isMobile ? "0 6px" : "8px 12px",
+                      height: 32,
+                      background: "var(--bg-hover)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 9,
+                      color: "var(--text-muted)",
+                      fontSize: 12,
+                      whiteSpace: "nowrap",
+                      userSelect: "none",
+                      cursor: "default",
+                    }}
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M9.5 2A5.5 5.5 0 0 0 4 7.5c0 1.7.78 3.21 2 4.21V14a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1v-2.29c1.22-1 2-2.51 2-4.21A5.5 5.5 0 0 0 9.5 2z" />
+                      <line x1="7" y1="18" x2="12" y2="18" />
+                      <line x1="8" y1="21" x2="11" y2="21" />
+                    </svg>
+                    {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{thinkingDisplayLabel}</span>}
+                  </div>
+                )}
+                <button
                 onClick={onAbort}
                  title={t("chat.stopAgent")}
                 style={{
@@ -2339,6 +2366,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 </svg>
                  {t("chat.stop")}
               </button>
+              </>
             )}
 
             {onSoundToggle !== undefined && (

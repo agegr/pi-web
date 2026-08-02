@@ -119,3 +119,55 @@ test("renders the worktree selector only for a new session", () => {
   assert.match(html, /选择 worktree/);
   assert.match(html, /feature\/test/);
 });
+
+const thinkingBaseProps = {
+  onSend() {}, onAbort() {}, isStreaming: false,
+  model: "test-model", modelNames: [], modelList: [], modelError: null, modelScopeWarnings: [],
+  onModelChange() {}, thinkingLevel: "high", onThinkingLevelChange() {},
+  availableThinkingLevels: null, thinkingLevelMap: null,
+};
+
+test("streaming shows read-only thinking badge before Stop", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(I18nProvider, null,
+      React.createElement(ChatInput, { ...thinkingBaseProps, isStreaming: true })),
+  );
+  const badgeIndex = html.indexOf(">high</span>");
+  assert.ok(badgeIndex > -1, "badge should show current thinking level");
+  const stopIndex = html.indexOf(">Stop<");
+  assert.ok(stopIndex > -1, "stop button should render");
+  assert.ok(stopIndex > badgeIndex, "badge should appear before stop button");
+  const badgeOpen = html.lastIndexOf("<div", badgeIndex);
+  const beforeBadge = html.slice(Math.max(0, badgeOpen - 200), badgeOpen);
+  assert.ok(!beforeBadge.includes("cursor:pointer"), "badge should not be clickable");
+});
+
+test("idle renders the interactive thinking button instead of the badge", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(I18nProvider, null,
+      React.createElement(ChatInput, thinkingBaseProps)),
+  );
+  assert.ok(html.includes('aria-label="Change reasoning level"'), "idle thinking button has aria-label");
+  assert.ok(!html.includes(">Stop<"), "no stop button when idle");
+});
+
+test("streaming badge shows the mapped level label when thinkingLevelMap is set", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(I18nProvider, null,
+      React.createElement(ChatInput, {
+        ...thinkingBaseProps,
+        isStreaming: true,
+        thinkingLevelMap: { high: "claude thinking" },
+      })),
+  );
+  assert.ok(html.includes(">claude thinking</span>"), "badge should show mapped label");
+});
+
+test("streaming without thinkingLevel hides the badge but keeps Stop", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(I18nProvider, null,
+      React.createElement(ChatInput, { ...thinkingBaseProps, isStreaming: true, thinkingLevel: undefined })),
+  );
+  assert.ok(!html.includes(">high</span>"), "no badge when thinkingLevel is undefined");
+  assert.ok(html.includes(">Stop<"), "stop button still renders");
+});
