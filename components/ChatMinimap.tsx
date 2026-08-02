@@ -2,7 +2,11 @@
 
 import { memo, useEffect, useRef, useState, useCallback, useMemo, type RefObject } from "react";
 import ReactMarkdown from "react-markdown";
-import { markdownPreviewRemarkPlugins } from "@/lib/markdown";
+import {
+  markdownPreviewRehypePlugins,
+  markdownPreviewRemarkPlugins,
+  normalizeDisplayMath,
+} from "@/lib/markdown";
 import { splitFinalAssistantBlocks } from "@/lib/message-display";
 import type { AgentMessage, AssistantMessage, TextContent, UserMessage } from "@/lib/types";
 import styles from "./ChatMinimap.module.css";
@@ -144,6 +148,7 @@ const AssistantOutline = memo(function AssistantOutline({
     <div className={styles.outline}>
       <ReactMarkdown
         remarkPlugins={previewRemarkPlugins}
+        rehypePlugins={markdownPreviewRehypePlugins}
         components={{
           h1: ({ children, node }) => <PreviewHeading level={1} headingIndex={getPreviewHeadingIndex(node)} onClick={onHeadingClick}>{children}</PreviewHeading>,
           h2: ({ children, node }) => <PreviewHeading level={2} headingIndex={getPreviewHeadingIndex(node)} onClick={onHeadingClick}>{children}</PreviewHeading>,
@@ -170,7 +175,7 @@ const AssistantOutline = memo(function AssistantOutline({
           code: ({ children }) => <>{children}</>,
         }}
       >
-        {markdown}
+        {normalizeDisplayMath(markdown)}
       </ReactMarkdown>
     </div>
   );
