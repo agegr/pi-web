@@ -1174,6 +1174,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             return [...prev, delivered];
           });
         } else if (completed) {
+          // If this assistant reply was actually produced by the model the user
+          // switched to mid-run, the switch has now taken effect — clear the
+          // "applies next turn" hint. (The assistant message carries the real
+          // model/provider that generated it.)
+          if (completed.role === "assistant") {
+            const msgModel = (completed as unknown as { model?: string; provider?: string }).model;
+            const msgProvider = (completed as unknown as { model?: string; provider?: string }).provider;
+            if (msgModel && msgProvider) {
+              setModelSwitchPending((prev) =>
+                prev && prev.modelId === msgModel && prev.provider === msgProvider
+                  ? null
+                  : prev,
+              );
+            }
+          }
           setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
         }
         dispatch({ type: "reset" });
