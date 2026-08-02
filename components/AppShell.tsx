@@ -250,16 +250,19 @@ export function AppShell() {
   // read tool resolves it the same way (it strips the @ prefix).
   const handleAtMention = useCallback((relativePath: string, isDir: boolean) => {
     chatInputRef.current?.insertText(buildAtMentionText(relativePath, isDir));
-  }, []);
+    if (isMobile) { setRightPanelOpen(false); setSidebarOpen(false); }
+  }, [isMobile]);
 
   const handleAtMentions = useCallback((relativePaths: string[]) => {
     const mentions = buildFileAtMentionsText(relativePaths);
     if (mentions) chatInputRef.current?.insertText(mentions);
-  }, []);
+    if (isMobile) { setRightPanelOpen(false); setSidebarOpen(false); }
+  }, [isMobile]);
 
   const handleFileLineMention = useCallback((relativePath: string, startLine: number, endLine: number) => {
     chatInputRef.current?.insertText(buildFileLineMentionText(relativePath, startLine, endLine));
-  }, []);
+    if (isMobile) { setRightPanelOpen(false); setSidebarOpen(false); }
+  }, [isMobile]);
 
   const initialSessionId = initialNavigation.sessionId;
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
@@ -1598,6 +1601,7 @@ export function AppShell() {
               gitRefreshKey={explorerRefreshKey}
               initialDisplayMode={activeFileTab.initialDisplayMode}
               onMentionLines={rightPanelOpen ? handleFileLineMention : undefined}
+              onAtMention={handleAtMention}
               onOpenFile={(filePath) => handleOpenFile(
                 filePath,
                 getFileName(filePath),
