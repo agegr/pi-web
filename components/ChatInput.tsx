@@ -1198,12 +1198,29 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     });
   }, []);
 
-  const sendQueued = useCallback((mode: "steer" | "followup") => {
+  const sendQueued = useCallback(async (mode: "steer" | "followup") => {
     const msg = value.trim();
     if (!msg && !attachedImages.length) return;
-    if (attachedImages.length) return;
     onAudioUnlock?.();
+    // An entry pulled out of the queue for editing: sending it (in any mode,
+    // prompt / steer / followUp) puts it back at its original position instead
+    // of dispatching it as a new message.
+    const recalled = recalledRef.current;
+    if (recalled) {
+      recalledRef.current = null;
+      setRecalledVisible(false);
+      if (onRequeueAt) {
+        const ok = await onRequeueAt(recalled.kind, recalled.index, msg, attachedImages.length ? attachedImages : recalled.images);
+        if (!ok) {
+          recalledRef.current = { ...recalled, text: msg };
+          setRecalledVisible(true);
+        }
+        clearInput();
+        return;
+      }
+    }
     const streamingBehavior = mode === "steer" ? "steer" : "followUp";
+    if (attachedImages.length) return;
     if (msg.startsWith("/") && onPromptWithStreamingBehavior) {
       onPromptWithStreamingBehavior(msg, streamingBehavior, attachedImages.length ? attachedImages : undefined);
       clearInput();
@@ -1215,7 +1232,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       onFollowUp(msg, attachedImages.length ? attachedImages : undefined);
     }
     clearInput();
-  }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock]);
+  }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, onRequeueAt]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = displayedSlashCommands.length - 1;
@@ -1375,7 +1392,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         e.preventDefault();
         if (isStreaming && (onSteer || onFollowUp)) {
           // Default Enter sends as steer if available, else followup
-          sendQueued(onSteer ? "steer" : "followup");
+          void sendQueued(onSteer ? "steer" : "followup");
         } else {
           handleSend();
         }
@@ -2477,7 +2494,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
               {onSteer && (
                 <button
-                  onClick={() => sendQueued("steer")}
+                  onClick={() => void sendQueued("steer")}
                   disabled={!canQueueStreamingMessage}
                   title={attachedImages.length ? "Image attachments cannot be queued while the agent is running" : "Interrupt the current run and inject this message now"}
                   style={{
@@ -2500,7 +2517,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               )}
               {onFollowUp && (
                 <button
-                  onClick={() => sendQueued("followup")}
+                  onClick={() => void sendQueued("followup")}
                   disabled={!canQueueStreamingMessage}
                   title={attachedImages.length ? "Image attachments cannot be queued while the agent is running" : "Queue this message after the agent finishes"}
                   style={{
