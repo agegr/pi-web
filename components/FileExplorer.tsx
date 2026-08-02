@@ -1,7 +1,9 @@
 "use client";
 
-import { forwardRef, useState, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
+import { forwardRef, Fragment, useState, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import { getFileIcon, FolderIcon } from "./FileIcons";
+import { InlineFileNameInput } from "./InlineFileNameInput";
+import { FileContextMenu, type ContextMenuItem } from "./FileContextMenu";
 import {
   encodeFilePathForApi,
   getFileDirectory,
@@ -103,6 +105,57 @@ async function fetchGitStatus(cwd: string): Promise<GitStatusResponse> {
   const res = await fetch(`/api/git/status?${params.toString()}`);
   if (!res.ok) throw new Error(`Failed to load Git status (HTTP ${res.status})`);
   return res.json() as Promise<GitStatusResponse>;
+}
+
+interface FileOpErrorResponse {
+  error?: string;
+  exists?: boolean;
+}
+
+/** Rename or move a file/folder to a new absolute path. Rejects overwrite. */
+async function renameOrMovePath(from: string, to: string): Promise<void> {
+  const res = await fetch(`/api/files/${encodeFilePathForApi(from)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ to }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as FileOpErrorResponse;
+    const error = new Error(data.error ?? `HTTP ${res.status}`);
+    (error as Error & { exists?: boolean }).exists = data.exists;
+    throw error;
+  }
+}
+
+/** Move a file/folder to the system trash. */
+async function deletePath(targetPath: string): Promise<void> {
+  const res = await fetch(`/api/files/${encodeFilePathForApi(targetPath)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as FileOpErrorResponse;
+    throw new Error(data.error ?? `HTTP ${res.status}`);
+  }
+}
+
+/** Create an empty file or folder inside a directory. */
+async function createPath(parentDir: string, name: string, isDir: boolean): Promise<void> {
+  const res = await fetch(`/api/files/${encodeFilePathForApi(parentDir)}?type=create`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, isDir }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as FileOpErrorResponse;
+    const error = new Error(data.error ?? `HTTP ${res.status}`);
+    (error as Error & { exists?: boolean }).exists = data.exists;
+    throw error;
+  }
+}
+
+/** True when {@link name} is a non-empty single path component. */
+function isValidFileName(name: string): boolean {
+  return Boolean(name) && name !== "." && name !== ".." && !name.includes("/") && !name.includes("\\") && !name.includes("\0");
 }
 
 const GIT_STATUS_KEYS: Record<GitFileStatusKind, string> = {
@@ -209,6 +262,186 @@ function DismissButton({ onClick, title }: { onClick: () => void; title: string 
   );
 }
 
+interface EditingState {
+  kind: "rename" | "newfile" | "newdir";
+  parentPath: string;
+  /** Set for rename: the entry being renamed. */
+  fullPath?: string;
+}
+
+/** A phantom top-of-list row that creates a new file or folder on commit. */
+function CreatingRow({
+  depth,
+  isDir,
+  onCommit,
+  onCancel,
+}: {
+  depth: number;
+  isDir: boolean;
+  onCommit: (name: string) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+        paddingLeft: 8 + depth * 14,
+        paddingRight: 8,
+        height: 24,
+      }}
+    >
+      {isDir ? (
+        <svg
+          width="10" height="10" viewBox="0 0 10 10" fill="none"
+          stroke="var(--text-dim)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+          style={{ flexShrink: 0 }}
+        >
+          <polyline points="3 2 7 5 3 8" />
+        </svg>
+      ) : (
+        <span style={{ width: 10, flexShrink: 0 }} />
+      )}
+      <span style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>
+        {isDir ? <FolderIcon size={14} open={false} /> : getFileIcon("new.txt", 14)}
+      </span>
+      <InlineFileNameInput
+        initialValue=""
+        selectNameWithoutExtension={false}
+        onCommit={onCommit}
+        onCancel={onCancel}
+      />
+    </div>
+  );
+}
+
+function DeleteConfirmDialog({
+  name,
+  isDir,
+  busy,
+  error,
+  onCancel,
+  onConfirm,
+  t,
+}: {
+  name: string;
+  isDir: boolean;
+  busy: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+  t: Translate;
+}) {
+  return (
+    <div
+      role="presentation"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1100,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+        background: "rgba(0,0,0,0.4)",
+      }}
+      onClick={(event) => {
+        if (!busy && event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="file-delete-title"
+        style={{
+          width: 400,
+          maxWidth: "100%",
+          border: "1px solid var(--border)",
+          borderRadius: 8,
+          background: "var(--bg-panel)",
+          boxShadow: "0 12px 36px rgba(0,0,0,0.24)",
+          overflow: "hidden",
+        }}
+      >
+        <div style={{ display: "flex", gap: 12, padding: "18px 18px 14px" }}>
+          <svg
+            width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444"
+            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+            style={{ flexShrink: 0, marginTop: 1 }}
+          >
+            <path d="M3 6h18" />
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+          </svg>
+          <div style={{ minWidth: 0 }}>
+            <div id="file-delete-title" style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>
+              {t("files.moveToTrash")}
+            </div>
+            <div style={{ marginTop: 7, fontSize: 12, lineHeight: 1.6, color: "var(--text-muted)" }}>
+              {isDir
+                ? t("files.deleteFolderWarning", { name })
+                : t("files.deleteFileWarning", { name })}
+            </div>
+            {error && (
+              <div role="alert" style={{ marginTop: 10, color: "#f87171", fontSize: 12, lineHeight: 1.5, overflowWrap: "anywhere" }}>
+                {error}
+              </div>
+            )}
+          </div>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 8,
+            padding: "10px 18px",
+            borderTop: "1px solid var(--border)",
+          }}
+        >
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            style={{
+              height: 32,
+              padding: "0 12px",
+              border: "1px solid var(--border)",
+              borderRadius: 5,
+              background: "transparent",
+              color: "var(--text-muted)",
+              cursor: busy ? "not-allowed" : "pointer",
+              fontSize: 12,
+            }}
+          >
+            {t("files.cancel")}
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            autoFocus
+            style={{
+              height: 32,
+              padding: "0 12px",
+              border: "1px solid #ef4444",
+              borderRadius: 5,
+              background: "transparent",
+              color: "#ef4444",
+              cursor: busy ? "wait" : "pointer",
+              opacity: busy ? 0.7 : 1,
+              fontSize: 12,
+              fontWeight: 600,
+            }}
+          >
+            {busy ? t("files.deleting") : t("files.moveToTrash")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TreeNode({
   node,
   depth,
@@ -222,6 +455,14 @@ function TreeNode({
   gitStatusByPath,
   changedDirectoryPaths,
   t,
+  onContextMenu,
+  editing,
+  onRenameCommit,
+  onCreateCommit,
+  onCancelEdit,
+  onDragStartNode,
+  onDropOnNode,
+  getDraggedPath,
 }: {
   node: FileNode;
   depth: number;
@@ -235,6 +476,14 @@ function TreeNode({
   gitStatusByPath: Map<string, GitFileStatus>;
   changedDirectoryPaths: Set<string>;
   t: Translate;
+  onContextMenu: (node: FileNode, event: React.MouseEvent) => void;
+  editing: EditingState | null;
+  onRenameCommit: (node: FileNode, name: string) => void;
+  onCreateCommit: (parentPath: string, name: string, isDir: boolean) => void;
+  onCancelEdit: () => void;
+  onDragStartNode: (node: FileNode, event: React.DragEvent) => void;
+  onDropOnNode: (node: FileNode, event: React.DragEvent) => void;
+  getDraggedPath: () => string | null;
 }) {
   const open = expandedPaths.has(node.fullPath);
   const highlighted = highlightedPaths.has(node.fullPath);
@@ -247,6 +496,24 @@ function TreeNode({
   const [loaded, setLoaded] = useState(node.loaded ?? false);
   const [loading, setLoading] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [dropTarget, setDropTarget] = useState(false);
+
+  const isRenaming = editing?.kind === "rename" && editing.fullPath === node.fullPath;
+  const creatingHere =
+    editing && (editing.kind === "newfile" || editing.kind === "newdir") && editing.parentPath === node.fullPath
+      ? editing
+      : null;
+
+  // Only folders accept drops, and never onto the dragged item itself or one
+  // of its descendants (would move a folder into itself).
+  const canAcceptDrop = useCallback(() => {
+    if (!node.isDir) return false;
+    const source = getDraggedPath();
+    if (!source) return false;
+    const src = normalizeFilePathSlashes(source).replace(/\/$/, "");
+    if (normalizedPath === src || normalizedPath.startsWith(`${src}/`)) return false;
+    return true;
+  }, [node.isDir, normalizedPath, getDraggedPath]);
 
   const loadChildren = useCallback(async (force = false) => {
     if (loaded && !force) return;
@@ -286,6 +553,31 @@ function TreeNode({
         onClick={handleClick}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onContextMenu(node, event);
+        }}
+        draggable={!isRenaming}
+        onDragStart={(event) => onDragStartNode(node, event)}
+        onDragOver={(event) => {
+          if (!canAcceptDrop()) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+          setDropTarget(true);
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+            setDropTarget(false);
+          }
+        }}
+        onDrop={(event) => {
+          if (!canAcceptDrop()) return;
+          event.preventDefault();
+          event.stopPropagation();
+          setDropTarget(false);
+          onDropOnNode(node, event);
+        }}
         style={{
           position: "relative",
           display: "flex",
@@ -294,10 +586,13 @@ function TreeNode({
           paddingLeft: 8 + depth * 14,
           paddingRight: 8,
           height: 24,
-          cursor: "pointer",
-          background: hovered ? "var(--bg-hover)" : "transparent",
+          cursor: isRenaming ? "default" : "pointer",
+          background: dropTarget
+            ? "var(--bg-selected)"
+            : hovered ? "var(--bg-hover)" : "transparent",
           borderRadius: 4,
           userSelect: "none",
+          outline: dropTarget ? "1px solid var(--accent)" : "none",
         }}
       >
         {node.isDir && (
@@ -313,19 +608,28 @@ function TreeNode({
         <span style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>
           {node.isDir ? <FolderIcon size={14} open={open} /> : getFileIcon(node.name, 14)}
         </span>
-        <span
-          style={{
-            fontSize: 12,
-            color: "var(--text)",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            flex: 1,
-          }}
-          title={node.fullPath}
-        >
-          {node.name}
-        </span>
+        {isRenaming ? (
+          <InlineFileNameInput
+            initialValue={node.name}
+            selectNameWithoutExtension
+            onCommit={(name) => onRenameCommit(node, name)}
+            onCancel={onCancelEdit}
+          />
+        ) : (
+          <span
+            style={{
+              fontSize: 12,
+              color: "var(--text)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              flex: 1,
+            }}
+            title={node.fullPath}
+          >
+            {node.name}
+          </span>
+        )}
         {highlighted && (
           <span
             title={t("files.newlyUploaded")}
@@ -359,7 +663,7 @@ function TreeNode({
             <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4" />
           </svg>
         )}
-        {onAtMention && hovered && (
+        {onAtMention && hovered && !isRenaming && (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -391,7 +695,7 @@ function TreeNode({
             {t("files.mention")}
           </button>
         )}
-        {hovered && !node.isDir && (
+        {hovered && !node.isDir && !isRenaming && (
           <a
             href={`/api/files/${encodeFilePathForApi(node.fullPath)}?type=download`}
             download
@@ -429,6 +733,14 @@ function TreeNode({
       </div>
       {node.isDir && open && (
         <div>
+          {creatingHere && (
+            <CreatingRow
+              depth={depth + 1}
+              isDir={creatingHere.kind === "newdir"}
+              onCommit={(name) => onCreateCommit(node.fullPath, name, creatingHere.kind === "newdir")}
+              onCancel={onCancelEdit}
+            />
+          )}
           {children.map((child) => (
             <TreeNode
               key={child.fullPath}
@@ -444,9 +756,17 @@ function TreeNode({
               gitStatusByPath={gitStatusByPath}
               changedDirectoryPaths={changedDirectoryPaths}
               t={t}
+              onContextMenu={onContextMenu}
+              editing={editing}
+              onRenameCommit={onRenameCommit}
+              onCreateCommit={onCreateCommit}
+              onCancelEdit={onCancelEdit}
+              onDragStartNode={onDragStartNode}
+              onDropOnNode={onDropOnNode}
+              getDraggedPath={getDraggedPath}
             />
           ))}
-          {children.length === 0 && loaded && (
+          {children.length === 0 && loaded && !creatingHere && (
             <div style={{ paddingLeft: 8 + (depth + 1) * 14, fontSize: 11, color: "var(--text-dim)", height: 22, display: "flex", alignItems: "center" }}>
               empty
             </div>
@@ -543,6 +863,17 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const refreshToken = `${refreshKey ?? 0}:${treeRefreshKey}`;
   const uploadBusy = uploadPhase !== "idle";
 
+  // Right-click context menu, inline rename/new-file editing, delete dialog,
+  // and transient file-operation feedback.
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; node: FileNode | null } | null>(null);
+  const [editing, setEditing] = useState<EditingState | null>(null);
+  const [deleting, setDeleting] = useState<{ node: FileNode; busy: boolean; error: string | null } | null>(null);
+  const [fileOpError, setFileOpError] = useState<string | null>(null);
+  const [fileOpNotice, setFileOpNotice] = useState<string | null>(null);
+  // The path being dragged. dataTransfer is unreadable during dragover, so the
+  // source path is carried in a ref instead (same-page DnD only).
+  const draggedPathRef = useRef<string | null>(null);
+
   const gitStatusByPath = useMemo(() => new Map(
     gitFiles.map((status) => [normalizeFilePathSlashes(status.filePath), status]),
   ), [gitFiles]);
@@ -570,6 +901,162 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       return next;
     });
   }, []);
+
+  const bumpRefresh = useCallback(() => setTreeRefreshKey((key) => key + 1), []);
+
+  // After a folder is renamed/moved, repoint any expanded entries that lived
+  // under its old path so the subtree stays open under the new path.
+  const remapExpandedPaths = useCallback((oldPrefix: string, newPrefix: string) => {
+    setExpandedPaths((prev) => {
+      const next = new Set<string>();
+      for (const p of prev) {
+        if (p === oldPrefix) next.add(newPrefix);
+        else if (p.startsWith(`${oldPrefix}/`)) next.add(newPrefix + p.slice(oldPrefix.length));
+        else next.add(p);
+      }
+      return next;
+    });
+  }, []);
+
+  const removeExpandedUnder = useCallback((deletedPrefix: string) => {
+    setExpandedPaths((prev) => {
+      const next = new Set<string>();
+      for (const p of prev) {
+        if (p === deletedPrefix || p.startsWith(`${deletedPrefix}/`)) continue;
+        next.add(p);
+      }
+      return next;
+    });
+  }, []);
+
+  const cancelEditing = useCallback(() => setEditing(null), []);
+
+  const startRename = useCallback((node: FileNode) => {
+    setEditing({ kind: "rename", parentPath: getFileDirectory(node.fullPath), fullPath: node.fullPath });
+  }, []);
+
+  const startCreate = useCallback((parentPath: string, isDir: boolean) => {
+    // Expand the target folder so the new-item row is visible inside it.
+    if (parentPath !== cwd) handleToggleExpanded(parentPath, true);
+    setEditing({ kind: isDir ? "newdir" : "newfile", parentPath });
+  }, [cwd, handleToggleExpanded]);
+
+  const startDelete = useCallback((node: FileNode) => {
+    setDeleting({ node, busy: false, error: null });
+  }, []);
+
+  const reportError = useCallback((err: unknown, existsKey: string, fallbackKey: string) => {
+    const e = err as Error & { exists?: boolean };
+    setFileOpError(e.exists ? t(existsKey) : (e.message || t(fallbackKey)));
+  }, [t]);
+
+  const commitRename = useCallback(async (node: FileNode, name: string) => {
+    setEditing(null);
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === node.name) return;
+    if (!isValidFileName(trimmed)) {
+      setFileOpError(t("files.invalidName"));
+      return;
+    }
+    const newPath = joinFilePath(getFileDirectory(node.fullPath), trimmed);
+    try {
+      await renameOrMovePath(node.fullPath, newPath);
+      if (node.isDir) remapExpandedPaths(node.fullPath, newPath);
+      bumpRefresh();
+    } catch (err) {
+      reportError(err, "files.nameExists", "files.renameError");
+    }
+  }, [t, remapExpandedPaths, bumpRefresh, reportError]);
+
+  const commitCreate = useCallback(async (parentPath: string, name: string, isDir: boolean) => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setEditing(null);
+      return;
+    }
+    if (!isValidFileName(trimmed)) {
+      setFileOpError(t("files.invalidName"));
+      setEditing(null);
+      return;
+    }
+    try {
+      await createPath(parentPath, trimmed, isDir);
+      setEditing(null);
+      setHighlightedPaths(new Set([joinFilePath(parentPath, trimmed)]));
+      bumpRefresh();
+    } catch (err) {
+      reportError(err, "files.nameExists", "files.createError");
+      setEditing(null);
+    }
+  }, [t, bumpRefresh, reportError]);
+
+  const confirmDelete = useCallback(async () => {
+    if (!deleting) return;
+    const target = deleting.node;
+    setDeleting((prev) => prev ? { ...prev, busy: true, error: null } : prev);
+    try {
+      await deletePath(target.fullPath);
+      removeExpandedUnder(target.fullPath);
+      setDeleting(null);
+      bumpRefresh();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setDeleting((prev) => prev ? { ...prev, busy: false, error: message } : prev);
+    }
+  }, [deleting, removeExpandedUnder, bumpRefresh]);
+
+  const cancelDelete = useCallback(() => {
+    if (deleting?.busy) return;
+    setDeleting(null);
+  }, [deleting]);
+
+  const copyPath = useCallback(async (node: FileNode) => {
+    const rel = getRelativeFilePath(node.fullPath, cwd);
+    try {
+      await navigator.clipboard.writeText(rel);
+      setFileOpNotice(t("files.pathCopied"));
+    } catch {
+      setFileOpError(t("files.copyFailed"));
+    }
+  }, [cwd, t]);
+
+  const handleDragStartNode = useCallback((node: FileNode, event: React.DragEvent) => {
+    draggedPathRef.current = node.fullPath;
+    event.dataTransfer.setData("application/x-pi-file-path", node.fullPath);
+    event.dataTransfer.effectAllowed = "move";
+  }, []);
+
+  const handleDropOnNode = useCallback(async (folder: FileNode) => {
+    const source = draggedPathRef.current;
+    draggedPathRef.current = null;
+    if (!source) return;
+    const newPath = joinFilePath(folder.fullPath, getFileName(source));
+    if (newPath === source) return; // dropped into its current folder
+    try {
+      await renameOrMovePath(source, newPath);
+      remapExpandedPaths(source, newPath);
+      bumpRefresh();
+    } catch (err) {
+      reportError(err, "files.nameExists", "files.moveError");
+    }
+  }, [remapExpandedPaths, bumpRefresh, reportError]);
+
+  const getDraggedPath = useCallback(() => draggedPathRef.current, []);
+
+  const handleContextMenu = useCallback((node: FileNode, event: React.MouseEvent) => {
+    setContextMenu({ x: event.clientX, y: event.clientY, node });
+  }, []);
+
+  const handleBlankContextMenu = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    setContextMenu({ x: event.clientX, y: event.clientY, node: null });
+  }, []);
+
+  useEffect(() => {
+    if (!fileOpNotice) return;
+    const id = setTimeout(() => setFileOpNotice(null), 1500);
+    return () => clearTimeout(id);
+  }, [fileOpNotice]);
 
   const applyUploadResult = useCallback((data: UploadResponse) => {
     const uploaded = data.uploaded ?? [];
@@ -681,6 +1168,11 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       setUploadSummary(null);
       setPendingConflict(null);
       setUploadError(null);
+      setContextMenu(null);
+      setEditing(null);
+      setDeleting(null);
+      setFileOpError(null);
+      setFileOpNotice(null);
     }
 
     setLoading(cwdChanged);
@@ -725,6 +1217,45 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       uploadSummary.uploaded.map((name) => getRelativeFilePath(joinFilePath(cwd, name), cwd)),
     );
   }, [cwd, onAtMentions, uploadSummary]);
+
+  const buildContextMenuItems = useCallback(
+    (node: FileNode | null): ContextMenuItem[] => {
+      const items: ContextMenuItem[] = [];
+      if (node) {
+        items.push({ key: "rename", label: t("files.rename"), onClick: () => startRename(node) });
+        items.push({
+          key: "delete",
+          label: t("files.moveToTrash"),
+          onClick: () => startDelete(node),
+          danger: true,
+          separatorAfter: true,
+        });
+        if (node.isDir) {
+          items.push({ key: "newfile", label: t("files.newFile"), onClick: () => startCreate(node.fullPath, false) });
+          items.push({ key: "newfolder", label: t("files.newFolder"), onClick: () => startCreate(node.fullPath, true), separatorAfter: true });
+        }
+        if (!node.isDir) {
+          items.push({
+            key: "download",
+            label: t("files.download"),
+            onClick: () => window.open(`/api/files/${encodeFilePathForApi(node.fullPath)}?type=download`, "_blank"),
+          });
+        }
+        items.push({ key: "copyPath", label: t("files.copyPath"), onClick: () => void copyPath(node) });
+      } else {
+        items.push({ key: "newfile", label: t("files.newFile"), onClick: () => startCreate(cwd, false) });
+        items.push({ key: "newfolder", label: t("files.newFolder"), onClick: () => startCreate(cwd, true) });
+      }
+      return items;
+    },
+    [t, startRename, startDelete, startCreate, copyPath, cwd],
+  );
+
+  // Root-level phantom row: only when creating at cwd (the root list itself).
+  const rootCreating =
+    editing && (editing.kind === "newfile" || editing.kind === "newdir") && editing.parentPath === cwd
+      ? editing
+      : null;
 
   return (
     <div style={{ minHeight: "100%" }}>
@@ -847,6 +1378,20 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         </div>
       )}
 
+      {(fileOpError || fileOpNotice) && (
+        <div style={{ padding: "4px 8px", borderBottom: "1px solid var(--border)" }}>
+          {fileOpError && (
+            <div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 11, lineHeight: 1.35, color: "#f87171" }}>
+              <span style={{ minWidth: 0, flex: 1, overflowWrap: "anywhere" }}>{fileOpError}</span>
+              <DismissButton onClick={() => setFileOpError(null)} title={t("files.dismissError")} />
+            </div>
+          )}
+          {fileOpNotice && (
+            <div role="status" style={{ fontSize: 11, color: "var(--text-muted)" }}>{fileOpNotice}</div>
+          )}
+        </div>
+      )}
+
       {!changesCollapsed && gitFiles.length > 0 && (
         <div style={{ padding: "0 4px 2px" }}>
           <div
@@ -870,29 +1415,54 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       )}
 
       {(changesCollapsed || gitFiles.length === 0) && (
-        <div style={{ padding: "2px 4px" }}>
+        <div
+          style={{ padding: "2px 4px" }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            handleBlankContextMenu(event);
+          }}
+        >
           {loading ? (
             <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>Loading files...</div>
           ) : error ? (
             <div style={{ padding: "8px 12px", fontSize: 11, color: "#f87171" }}>{error}</div>
           ) : (
-            roots.map((node) => (
-              <TreeNode
-                key={node.fullPath}
-                node={node}
-                depth={0}
-                cwd={cwd}
-                onOpenFile={onOpenFile}
-                onAtMention={onAtMention}
-                expandedPaths={expandedPaths}
-                onToggleExpanded={handleToggleExpanded}
-                refreshToken={refreshToken}
-                highlightedPaths={highlightedPaths}
-                gitStatusByPath={gitStatusByPath}
-                changedDirectoryPaths={changedDirectoryPaths}
-                t={t}
-              />
-            ))
+            <>
+              {rootCreating && (
+                <CreatingRow
+                  depth={0}
+                  isDir={rootCreating.kind === "newdir"}
+                  onCommit={(name) => void commitCreate(cwd, name, rootCreating.kind === "newdir")}
+                  onCancel={cancelEditing}
+                />
+              )}
+              {roots.map((node) => (
+                <TreeNode
+                  key={node.fullPath}
+                  node={node}
+                  depth={0}
+                  cwd={cwd}
+                  onOpenFile={onOpenFile}
+                  onAtMention={onAtMention}
+                  expandedPaths={expandedPaths}
+                  onToggleExpanded={handleToggleExpanded}
+                  refreshToken={refreshToken}
+                  highlightedPaths={highlightedPaths}
+                  gitStatusByPath={gitStatusByPath}
+                  changedDirectoryPaths={changedDirectoryPaths}
+                  t={t}
+                  onContextMenu={handleContextMenu}
+                  editing={editing}
+                  onRenameCommit={commitRename}
+                  onCreateCommit={commitCreate}
+                  onCancelEdit={cancelEditing}
+                  onDragStartNode={handleDragStartNode}
+                  onDropOnNode={(folder) => void handleDropOnNode(folder)}
+                  getDraggedPath={getDraggedPath}
+                />
+              ))}
+            </>
           )}
           {!loading && !error && roots.length === 0 && (
             <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>
@@ -900,6 +1470,27 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
             </div>
           )}
         </div>
+      )}
+
+      {contextMenu && (
+        <FileContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={buildContextMenuItems(contextMenu.node)}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {deleting && (
+        <DeleteConfirmDialog
+          name={deleting.node.name}
+          isDir={deleting.node.isDir}
+          busy={deleting.busy}
+          error={deleting.error}
+          onCancel={cancelDelete}
+          onConfirm={() => void confirmDelete()}
+          t={t}
+        />
       )}
     </div>
   );

@@ -27,6 +27,13 @@ import {
   validateUploadFileNames,
 } from "@/lib/file-upload";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
+import trash from "trash";
+import {
+  FileOpError,
+  authorizeExistingPath,
+  isAncestorOrSelf,
+  validateSingleFileName,
+} from "@/lib/file-ops";
 
 const IGNORED_NAMES = new Set([
   "node_modules", ".git", ".next", "dist", "build", "__pycache__",
@@ -150,6 +157,38 @@ export async function POST(
       return NextResponse.json(inspectUploadTargets(directory, fileNames));
     }
 
+    if (type === "create") {
+      const body = await request.json().catch(() => null) as { name?: unknown; isDir?: unknown } | null;
+      const name = typeof body?.name === "string" ? body.name : null;
+      if (!name) {
+        return NextResponse.json({ error: "name is required" }, { status: 400 });
+      }
+      const nameError = validateSingleFileName(name);
+      if (nameError) {
+        return NextResponse.json({ error: nameError }, { status: 400 });
+      }
+      const target = path.join(directory, name);
+      if (fs.existsSync(target)) {
+        return NextResponse.json(
+          { error: "A file or folder with that name already exists", exists: true },
+          { status: 409 },
+        );
+      }
+      try {
+        if (Boolean(body?.isDir)) {
+          fs.mkdirSync(target);
+        } else {
+          fs.writeFileSync(target, "", { flag: "wx" });
+        }
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : String(error) },
+          { status: 500 },
+        );
+      }
+      return NextResponse.json({ ok: true, path: target });
+    }
+
     if (type !== "upload") {
       return NextResponse.json({ error: "Invalid upload request type" }, { status: 400 });
     }
@@ -238,6 +277,128 @@ export async function POST(
     );
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+  }
+}
+
+function fileOpErrorResponse(error: unknown): NextResponse {
+  if (error instanceof FileOpError) {
+    return NextResponse.json({ error: error.message, ...(error.extra ?? {}) }, { status: error.status });
+  }
+  return NextResponse.json(
+    { error: error instanceof Error ? error.message : String(error) },
+    { status: 500 },
+  );
+}
+
+// Move a file or folder to the system trash. The path is resolved through
+// symlinks (authorizeExistingPath) so a symlink inside an allowed root cannot
+// redirect the deletion outside it.
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ path: string[] }> },
+) {
+  if (!isApiRequestAllowed(request)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+
+  try {
+    const { path: segments } = await params;
+    const filePath = filePathFromSegments(segments);
+
+    let realPath: string;
+    try {
+      realPath = await authorizeExistingPath(filePath);
+    } catch (error) {
+      return fileOpErrorResponse(error);
+    }
+
+    try {
+      await trash(realPath);
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : String(error) },
+        { status: 500 },
+      );
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return fileOpErrorResponse(error);
+  }
+}
+
+// Rename or move a file/folder. Body: { to: string } where `to` is the new
+// absolute path. Rename and move are the same operation (a path change). v1
+// rejects overwrite (409) and never copies - plain drag is always a move.
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ path: string[] }> },
+) {
+  if (!isApiRequestAllowed(request)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+
+  try {
+    const { path: segments } = await params;
+    const source = filePathFromSegments(segments);
+
+    const body = await request.json().catch(() => null) as { to?: unknown } | null;
+    const to = typeof body?.to === "string" ? body.to : null;
+    if (!to) {
+      return NextResponse.json({ error: "Missing \"to\" path" }, { status: 400 });
+    }
+    if (to.includes("\0")) {
+      return NextResponse.json({ error: "Invalid target path" }, { status: 400 });
+    }
+    const nameError = validateSingleFileName(path.basename(to));
+    if (nameError) {
+      return NextResponse.json({ error: nameError }, { status: 400 });
+    }
+    if (to === source) {
+      return NextResponse.json({ error: "Target is the same as the source" }, { status: 400 });
+    }
+
+    let realSource: string;
+    let realTargetParent: string;
+    try {
+      realSource = await authorizeExistingPath(source);
+      realTargetParent = await authorizeExistingPath(path.dirname(to));
+    } catch (error) {
+      return fileOpErrorResponse(error);
+    }
+
+    const realTarget = path.join(realTargetParent, path.basename(to));
+
+    // Block moving a folder into itself or one of its descendants.
+    if (isAncestorOrSelf(realSource, realTarget)) {
+      return NextResponse.json(
+        { error: "Cannot move a folder into itself" },
+        { status: 400 },
+      );
+    }
+
+    if (fs.existsSync(realTarget)) {
+      return NextResponse.json(
+        { error: "A file or folder with that name already exists", exists: true },
+        { status: 409 },
+      );
+    }
+
+    try {
+      fs.renameSync(realSource, realTarget);
+    } catch (error) {
+      // Cross-device rename (e.g. tmpfs -> disk). Fall back to copy + remove.
+      if ((error as NodeJS.ErrnoException).code === "EXDEV") {
+        fs.cpSync(realSource, realTarget, { recursive: true });
+        fs.rmSync(realSource, { recursive: true, force: true });
+      } else {
+        throw error;
+      }
+    }
+
+    return NextResponse.json({ ok: true, from: realSource, to: realTarget });
+  } catch (error) {
+    return fileOpErrorResponse(error);
   }
 }
 
