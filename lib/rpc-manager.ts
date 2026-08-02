@@ -13,7 +13,7 @@ import { persistExplicitStartupPreferences } from "./startup-preferences";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
 import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
-import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS } from "./custom-ui-terminal";
+import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
 
 // ============================================================================
 // Types
@@ -36,6 +36,22 @@ type CustomUiComponent = {
   handleInput?: (data: string) => void;
   dispose?: () => void;
   invalidate?: () => void;
+};
+
+type ExtensionWidgetComponent = {
+  render: (width: number) => unknown;
+  dispose?: () => void;
+};
+
+type ExtensionWidgetFactory = (tui: HeadlessCustomUiTui, theme: Theme) => unknown;
+
+type ActiveExtensionWidget = {
+  key: string;
+  component: ExtensionWidgetComponent;
+  placement: "aboveEditor" | "belowEditor";
+  generation: number;
+  clearEmitted: boolean;
+  rendered: boolean;
 };
 
 type ActiveCustomUi = {
@@ -141,6 +157,8 @@ export class AgentSessionWrapper {
   private activeCustomUis = new Map<string, ActiveCustomUi>();
   private extensionStatuses = new Map<string, string>();
   private extensionWidgets = new Map<string, ExtensionWidgetItem>();
+  private activeExtensionWidgets = new Map<string, ActiveExtensionWidget>();
+  private extensionWidgetGenerations = new Map<string, number>();
   private promptRunning = false;
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
@@ -586,7 +604,7 @@ export class AgentSessionWrapper {
       case "reload": {
         await this.waitForExtensionsBound();
         this.extensionStatuses.clear();
-        this.extensionWidgets.clear();
+        this.resetExtensionWidgetsForReload();
         this.syncProjectTrust();
         await this.inner.reload();
         if (typeof this.inner.bindExtensions !== "function") {
@@ -658,6 +676,7 @@ export class AgentSessionWrapper {
     for (const id of Array.from(this.activeCustomUis.keys())) this.closeCustomUi(id, undefined);
     this.pendingUiResponses.clear();
     this.pendingUiRequests.clear();
+    this.clearExtensionWidgets(false);
     try {
       this.inner.dispose();
     } finally {
@@ -703,6 +722,190 @@ export class AgentSessionWrapper {
 
   private getExtensionWidgets(): ExtensionWidgetItem[] {
     return Array.from(this.extensionWidgets.values());
+  }
+
+  private nextExtensionWidgetGeneration(key: string): number {
+    const generation = (this.extensionWidgetGenerations.get(key) ?? 0) + 1;
+    this.extensionWidgetGenerations.set(key, generation);
+    return generation;
+  }
+
+  private disposeExtensionWidgetComponent(component: unknown): void {
+    if (!component || (typeof component !== "object" && typeof component !== "function")) return;
+    const dispose = (component as { dispose?: unknown }).dispose;
+    if (typeof dispose !== "function") return;
+    try {
+      dispose.call(component);
+    } catch {
+      // Ignore dispose errors from extension widgets.
+    }
+  }
+
+  private emitExtensionWidgetClear(key: string): void {
+    this.emit({
+      type: "extension_ui_request",
+      id: randomUUID(),
+      method: "setWidget",
+      widgetKey: key,
+      widgetLines: undefined,
+      widgetPlacement: undefined,
+    } as ExtensionUiRequest as AgentEvent);
+  }
+
+  private clearExtensionWidget(key: string, emitClear = true): number {
+    const generation = this.nextExtensionWidgetGeneration(key);
+
+    const active = this.activeExtensionWidgets.get(key);
+    this.activeExtensionWidgets.delete(key);
+    this.extensionWidgets.delete(key);
+    if (active) this.disposeExtensionWidgetComponent(active.component);
+    if (emitClear) this.emitExtensionWidgetClear(key);
+    return generation;
+  }
+
+  private clearExtensionWidgets(emitClear: boolean): void {
+    const keys = new Set([
+      ...this.extensionWidgets.keys(),
+      ...this.activeExtensionWidgets.keys(),
+    ]);
+    for (const key of keys) this.clearExtensionWidget(key, emitClear);
+  }
+
+  private resetExtensionWidgetsForReload(): void {
+    const factoryKeys = [...this.activeExtensionWidgets.keys()];
+    for (const key of factoryKeys) this.clearExtensionWidget(key);
+    // Keep the existing array-widget reload behavior: snapshots are reset and
+    // the next extension session_start repopulates them.
+    this.extensionWidgets.clear();
+  }
+
+  private emitExtensionWidgetError(key: string, error: unknown): void {
+    this.emit({
+      type: "extension_error",
+      extensionPath: `extension-widget:${key}`,
+      event: "setWidget",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  private failExtensionWidget(
+    key: string,
+    generation: number,
+    error: unknown,
+    clearEmitted: boolean,
+    component?: unknown,
+  ): void {
+    if (this.extensionWidgetGenerations.get(key) !== generation) {
+      this.disposeExtensionWidgetComponent(component);
+      return;
+    }
+
+    const active = this.activeExtensionWidgets.get(key);
+    let shouldEmitClear = !clearEmitted;
+    if (active?.generation === generation) {
+      shouldEmitClear = active.rendered || !active.clearEmitted;
+      this.activeExtensionWidgets.delete(key);
+      this.disposeExtensionWidgetComponent(active.component);
+    } else {
+      this.disposeExtensionWidgetComponent(component);
+    }
+    this.extensionWidgets.delete(key);
+    if (shouldEmitClear) this.emitExtensionWidgetClear(key);
+    this.emitExtensionWidgetError(key, error);
+  }
+
+  private renderExtensionWidget(active: ActiveExtensionWidget): void {
+    if (
+      this.activeExtensionWidgets.get(active.key) !== active
+      || this.extensionWidgetGenerations.get(active.key) !== active.generation
+    ) return;
+
+    let lines: unknown;
+    try {
+      lines = active.component.render(DEFAULT_CUSTOM_UI_COLUMNS);
+    } catch (error) {
+      this.failExtensionWidget(active.key, active.generation, error, active.clearEmitted);
+      return;
+    }
+    if (!Array.isArray(lines) || !lines.every((line) => typeof line === "string")) {
+      this.failExtensionWidget(
+        active.key,
+        active.generation,
+        new Error("Extension widget render must return string[]"),
+        active.clearEmitted,
+      );
+      return;
+    }
+    if (
+      this.activeExtensionWidgets.get(active.key) !== active
+      || this.extensionWidgetGenerations.get(active.key) !== active.generation
+    ) return;
+
+    const widgetLines = lines as string[];
+    this.extensionWidgets.set(active.key, {
+      key: active.key,
+      lines: widgetLines,
+      placement: active.placement,
+    });
+    active.rendered = true;
+    this.emit({
+      type: "extension_ui_request",
+      id: randomUUID(),
+      method: "setWidget",
+      widgetKey: active.key,
+      widgetLines,
+      widgetPlacement: active.placement,
+    } as ExtensionUiRequest as AgentEvent);
+  }
+
+  private setExtensionWidgetFactory(
+    key: string,
+    factory: ExtensionWidgetFactory,
+    options?: { placement?: "aboveEditor" | "belowEditor" },
+  ): void {
+    const hadPrevious = this.extensionWidgets.has(key) || this.activeExtensionWidgets.has(key);
+    const generation = this.clearExtensionWidget(key, hadPrevious);
+    const tui = createHeadlessCustomUiTui(() => {
+      const active = this.activeExtensionWidgets.get(key);
+      if (active?.generation === generation) this.renderExtensionWidget(active);
+    }, DEFAULT_CUSTOM_UI_COLUMNS);
+
+    let component: unknown;
+    try {
+      component = factory(tui, PLAIN_TEXT_THEME);
+    } catch (error) {
+      this.failExtensionWidget(key, generation, error, hadPrevious);
+      return;
+    }
+    if (this.extensionWidgetGenerations.get(key) !== generation) {
+      this.disposeExtensionWidgetComponent(component);
+      return;
+    }
+    if (
+      !component
+      || (typeof component !== "object" && typeof component !== "function")
+      || typeof (component as { render?: unknown }).render !== "function"
+    ) {
+      this.failExtensionWidget(
+        key,
+        generation,
+        new Error("Extension widget factory must return a component with render(width)"),
+        hadPrevious,
+        component,
+      );
+      return;
+    }
+
+    const active: ActiveExtensionWidget = {
+      key,
+      component: component as ExtensionWidgetComponent,
+      placement: options?.placement ?? "aboveEditor",
+      generation,
+      clearEmitted: hadPrevious,
+      rendered: false,
+    };
+    this.activeExtensionWidgets.set(key, active);
+    this.renderExtensionWidget(active);
   }
 
   private getCustomUiWidth(options: unknown): number {
@@ -938,16 +1141,26 @@ export class AgentSessionWrapper {
       setWorkingIndicator: () => {},
       setHiddenThinkingLabel: () => {},
       setWidget: (key, content, options) => {
+        if (typeof content === "function") {
+          this.setExtensionWidgetFactory(
+            key,
+            content as unknown as ExtensionWidgetFactory,
+            options,
+          );
+          return;
+        }
         if (content !== undefined && !Array.isArray(content)) return;
         if (content === undefined) {
-          this.extensionWidgets.delete(key);
-        } else {
-          this.extensionWidgets.set(key, {
-            key,
-            lines: content,
-            placement: options?.placement ?? "aboveEditor",
-          });
+          this.clearExtensionWidget(key);
+          return;
         }
+        if (this.activeExtensionWidgets.has(key)) this.clearExtensionWidget(key);
+        else this.nextExtensionWidgetGeneration(key);
+        this.extensionWidgets.set(key, {
+          key,
+          lines: content,
+          placement: options?.placement ?? "aboveEditor",
+        });
         this.emit({
           type: "extension_ui_request",
           id: randomUUID(),
@@ -1012,7 +1225,7 @@ export class AgentSessionWrapper {
       switchSession: async () => ({ cancelled: true }),
       reload: async () => {
         this.extensionStatuses.clear();
-        this.extensionWidgets.clear();
+        this.resetExtensionWidgetsForReload();
         this.syncProjectTrust();
         await this.inner.reload({
           beforeSessionStart: () => {
