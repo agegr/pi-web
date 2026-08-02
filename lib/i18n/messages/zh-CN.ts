@@ -299,6 +299,7 @@ export const zhCNLocale: LocalePlugin = {
     "trash.updatedAt": "更新于 {time}",
     "trash.clearAll": "清空回收站",
     "trash.clearConfirm": "将永久删除全部会话，不可恢复",
+    "trash.clearing": "清空中…",
     "i18n.checkUpdates": "检查更新",
     "i18n.updates": "项更新",
     "i18n.noResolvedResources": "没有已解析资源",

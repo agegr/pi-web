@@ -299,6 +299,7 @@ export const enLocale: LocalePlugin = {
     "trash.updatedAt": "Updated {time}",
     "trash.clearAll": "Empty trash",
     "trash.clearConfirm": "Permanently delete all sessions? This cannot be undone.",
+    "trash.clearing": "Emptying…",
     "i18n.checkUpdates": "Check updates",
     "i18n.updates": "updates",
     "i18n.noResolvedResources": "No resolved resources",

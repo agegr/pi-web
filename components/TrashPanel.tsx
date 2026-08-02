@@ -128,25 +128,7 @@ export function TrashPanel({ onClose, onRestored }: Props) {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
           <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>{t("trash.title")}</span>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {sessions !== null && sessions.length > 0 && (confirmClear ? (
-              <>
-                <span style={{ fontSize: 12, color: "#ef4444" }}>{t("trash.clearConfirm")}</span>
-                <button onClick={handleClearAll} disabled={busyKey !== null} style={{
-                  display: "flex", alignItems: "center", gap: 4, height: 26, padding: "0 10px",
-                  background: "#ef4444", border: "none", borderRadius: 6, color: "#fff",
-                  cursor: "pointer", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap",
-                }}>
-                  {t("trash.clearAll")}
-                </button>
-                <button onClick={() => setConfirmClear(false)} style={{
-                  height: 26, padding: "0 10px",
-                  background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6,
-                  color: "var(--text-muted)", cursor: "pointer", fontSize: 12, whiteSpace: "nowrap",
-                }}>
-                  {t("sidebar.cancel")}
-                </button>
-              </>
-            ) : (
+            {sessions !== null && sessions.length > 0 && (
               <button onClick={() => setConfirmClear(true)} title={t("trash.clearAll")} style={{
                 display: "flex", alignItems: "center", gap: 4, height: 26, padding: "0 10px",
                 background: "var(--bg-hover)", border: "1px solid var(--border)", borderRadius: 6,
@@ -160,7 +142,7 @@ export function TrashPanel({ onClose, onRestored }: Props) {
                 </svg>
                 {t("trash.clearAll")}
               </button>
-            ))}
+            )}
             <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: "2px 6px" }}>×</button>
           </div>
         </div>
@@ -233,6 +215,34 @@ export function TrashPanel({ onClose, onRestored }: Props) {
           )}
         </div>
       </div>
+
+      {/* 清空回收站确认弹窗 */}
+      {confirmClear && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="trash-clear-title"
+          style={{ position: "fixed", inset: 0, zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: "rgba(0,0,0,0.42)" }}
+          onClick={(e) => { if (e.target === e.currentTarget && busyKey === null) setConfirmClear(false); }}
+        >
+          <div style={{ width: 380, maxWidth: "100%", padding: 18, border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg)", boxShadow: "0 16px 48px rgba(0,0,0,0.28)" }}>
+            <h2 id="trash-clear-title" style={{ margin: 0, color: "var(--text)", fontSize: 15, lineHeight: 1.4 }}>
+              {t("trash.clearAll")}
+            </h2>
+            <p style={{ margin: "8px 0 0", color: "var(--text-muted)", fontSize: 12, lineHeight: 1.6 }}>
+              {t("trash.clearConfirm")}
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <button type="button" disabled={busyKey !== null} onClick={() => setConfirmClear(false)} style={{ height: 32, padding: "0 12px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-hover)", color: "var(--text-muted)", cursor: busyKey !== null ? "default" : "pointer" }}>
+                {t("sidebar.cancel")}
+              </button>
+              <button type="button" disabled={busyKey !== null} onClick={() => void handleClearAll()} style={{ height: 32, padding: "0 12px", border: 0, borderRadius: 6, background: "#dc2626", color: "#fff", fontWeight: 600, cursor: busyKey !== null ? "default" : "pointer", opacity: busyKey !== null ? 0.65 : 1 }}>
+                {busyKey !== null ? t("trash.clearing") : t("trash.clearAll")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
