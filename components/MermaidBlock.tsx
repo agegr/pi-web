@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
@@ -134,18 +134,39 @@ interface CodeBlockProps {
   code: string;
   lang: string;
   headerAction?: ReactNode;
-  /** Optional cap on the code body height (scrollable). */
-  maxHeight?: number;
 }
 
+/** Collapsed height for chat code fences (all languages). */
+export const CODE_MAX_HEIGHT = 300;
+
 /**
- * Syntax-highlighted code block with copy button.
- * Used as the "source" view for mermaid blocks and for all non-mermaid code fences.
+ * Syntax-highlighted code block with copy button and a capped-height
+ * expand/collapse toggle ("expand full" over a gradient fade). Used for all
+ * chat code fences — plain blocks, mermaid source view and html preview blocks.
  */
-export function CodeBlock({ code, lang, headerAction, maxHeight }: CodeBlockProps) {
+export function CodeBlock({ code, lang, headerAction }: CodeBlockProps) {
   const { isDark } = useTheme();
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+  // The measured element must be the maxHeight wrapper itself: its own
+  // scrollHeight is the full code height, while an outer element's scrollHeight
+  // only reflects the already-clipped descendant box (always false negative).
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  // Detect whether the code exceeds the collapsed height. When expanded, keep
+  // the collapse affordance available no matter how the content changes.
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const measure = () => setOverflowing(expanded ? true : el.scrollHeight > el.clientHeight + 1);
+    measure();
+    // Re-measure once the frame settles so late-loading fonts can't cause a
+    // false "fits" reading right after mount.
+    const frame = requestAnimationFrame(measure);
+    return () => cancelAnimationFrame(frame);
+  }, [code, expanded]);
 
   const copy = () => {
     copyText(code).then(() => {
@@ -155,40 +176,54 @@ export function CodeBlock({ code, lang, headerAction, maxHeight }: CodeBlockProp
   };
 
   return (
-    <div className="markdown-code-block">
-      <div className="markdown-code-header">
-        <span className="markdown-code-lang">{lang || "text"}</span>
-        <div className="markdown-code-actions">
-          {headerAction}
-          <button
-            onClick={copy}
-            className="markdown-code-action"
+    <div className="markdown-code-collapse">
+      <div className="markdown-code-collapse-body">
+        <div className="markdown-code-block">
+          <div className="markdown-code-header">
+            <span className="markdown-code-lang">{lang || "text"}</span>
+            <div className="markdown-code-actions">
+              {headerAction}
+              {overflowing && (
+                <button
+                  type="button"
+                  onClick={() => setExpanded((v) => !v)}
+                  className="markdown-code-action"
+                >
+                  {expanded ? t("i18n.collapseCode") : t("i18n.expandCode")}
+                </button>
+              )}
+              <button
+                onClick={copy}
+                className="markdown-code-action"
+              >
+                {copied ? t("i18n.copied") : t("i18n.copy")}
+              </button>
+            </div>
+          </div>
+          <div ref={bodyRef} style={expanded ? undefined : { maxHeight: CODE_MAX_HEIGHT, overflow: "hidden" }}>
+          <SyntaxHighlighter
+            language={lang || "text"}
+            style={isDark ? vscDarkPlus : vs}
+            showLineNumbers
+            lineNumberStyle={{ color: "var(--text-dim)", fontStyle: "normal" }}
+            customStyle={{
+              margin: 0,
+              padding: "11px 13px",
+              fontSize: 12.5,
+              lineHeight: 1.62,
+              borderRadius: 0,
+              // Longhand only: the prism theme already sets backgroundColor, and
+              // mixing shorthand `background` with it triggers React style warnings.
+              backgroundColor: "color-mix(in srgb, var(--bg) 92%, var(--bg-panel))",
+            }}
+            codeTagProps={{ style: { fontFamily: "var(--font-mono)" } }}
           >
-            {copied ? t("i18n.copied") : t("i18n.copy")}
-          </button>
+            {code}
+          </SyntaxHighlighter>
+          </div>
         </div>
       </div>
-      <div style={maxHeight ? { maxHeight, overflow: "hidden" } : undefined}>
-      <SyntaxHighlighter
-        language={lang || "text"}
-        style={isDark ? vscDarkPlus : vs}
-        showLineNumbers
-        lineNumberStyle={{ color: "var(--text-dim)", fontStyle: "normal" }}
-        customStyle={{
-          margin: 0,
-          padding: "11px 13px",
-          fontSize: 12.5,
-          lineHeight: 1.62,
-          borderRadius: 0,
-          // Longhand only: the prism theme already sets backgroundColor, and
-          // mixing shorthand `background` with it triggers React style warnings.
-          backgroundColor: "color-mix(in srgb, var(--bg) 92%, var(--bg-panel))",
-        }}
-        codeTagProps={{ style: { fontFamily: "var(--font-mono)" } }}
-      >
-        {code}
-      </SyntaxHighlighter>
-      </div>
+      {overflowing && !expanded && <div className="markdown-code-fade" aria-hidden="true" />}
     </div>
   );
 }

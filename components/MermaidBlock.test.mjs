@@ -9,6 +9,7 @@ const jiti = createJiti(import.meta.url, {
   tsconfigPaths: true,
 });
 const { MermaidBlock } = await jiti.import("./MermaidBlock.tsx");
+const { CodeBlock } = await jiti.import("./MermaidBlock.tsx");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
 // Simple sequenceDiagram for testing
@@ -67,4 +68,32 @@ test("MermaidBlock handles Chinese characters in diagram", () => {
 
   assert.doesNotMatch(html, /mermaid-block-error/);
   assert.match(html, /mermaid-block/);
+});
+
+function renderCodeBlock(props) {
+  return renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(CodeBlock, props),
+    ),
+  );
+}
+
+test("CodeBlock caps height at 300px by default", () => {
+  const html = renderCodeBlock({ code: "const x = 1;".repeat(200) });
+
+  assert.match(html, /max-height:300px/);
+  assert.match(html, /overflow:hidden/);
+  // The expand toggle is measured client-side only (useLayoutEffect), so SSR
+  // output stays clean.
+  assert.doesNotMatch(html, /Expand/);
+  assert.doesNotMatch(html, /markdown-code-expand/);
+});
+
+test("CodeBlock renders header actions and copy button", () => {
+  const html = renderCodeBlock({ code: "const x = 1;", lang: "js" });
+
+  assert.match(html, />js</);
+  assert.match(html, />Copy</);
 });

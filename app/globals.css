@@ -439,26 +439,6 @@ pre, code {
   background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--bg) 88%, transparent));
   pointer-events: none;
 }
-.markdown-code-expand {
-  position: absolute;
-  left: 50%;
-  bottom: 8px;
-  transform: translateX(-50%);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 3px 12px;
-  background: var(--bg-panel);
-  color: var(--text-muted);
-  cursor: pointer;
-  font: inherit;
-  font-size: 11px;
-  line-height: 1.4;
-  box-shadow: 0 1px 3px color-mix(in srgb, #000 18%, transparent);
-}
-.markdown-code-expand:hover {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--border) 70%, var(--text-muted));
-}
 
 /* Right panel view switcher — icon buttons, active view uses the accent color */
 .right-panel-view-switch {

@@ -1,11 +1,7 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { CodeBlock } from "./MermaidBlock";
-
-/** Collapsed height for html code blocks in the chat. */
-export const HTML_CODE_MAX_HEIGHT = 300;
 
 /**
  * A preview request emitted by an html code block. `key` uniquely identifies
@@ -47,22 +43,11 @@ interface HtmlPreviewBlockProps {
 }
 
 /**
- * HTML code fence with a capped height ("expand full" toggle) and a "preview"
- * button that opens the content in the right-side preview panel.
+ * HTML code fence with a "preview" button that opens the content in the
+ * right-side preview panel. Height collapse/expand is inherited from CodeBlock.
  */
 export function HtmlPreviewBlock({ code, isStreaming, previewKey, onOpenPreview }: HtmlPreviewBlockProps) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState(false);
-  const [overflowing, setOverflowing] = useState(false);
-  const bodyRef = useRef<HTMLDivElement>(null);
-
-  // Detect whether the code exceeds the collapsed height. When expanded, keep
-  // the collapse affordance available no matter how the content changes.
-  useLayoutEffect(() => {
-    const el = bodyRef.current;
-    if (!el) return;
-    setOverflowing(expanded ? true : el.scrollHeight > el.clientHeight + 1);
-  }, [code, expanded]);
 
   const openPreview = () => {
     if (!previewKey || !onOpenPreview || isStreaming) return;
@@ -85,23 +70,5 @@ export function HtmlPreviewBlock({ code, isStreaming, previewKey, onOpenPreview 
     </button>
   );
 
-  return (
-    <div className="markdown-code-collapse">
-      <div ref={bodyRef} className="markdown-code-collapse-body">
-        <CodeBlock code={code} lang="html" maxHeight={expanded ? undefined : HTML_CODE_MAX_HEIGHT} headerAction={previewButton} />
-      </div>
-      {overflowing && (
-        <>
-          {!expanded && <div className="markdown-code-fade" aria-hidden="true" />}
-          <button
-            type="button"
-            className="markdown-code-expand"
-            onClick={() => setExpanded((v) => !v)}
-          >
-            {expanded ? t("i18n.collapseCode") : t("i18n.expandCode")}
-          </button>
-        </>
-      )}
-    </div>
-  );
+  return <CodeBlock code={code} lang="html" headerAction={previewButton} />;
 }
