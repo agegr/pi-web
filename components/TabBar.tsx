@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { getFileIcon } from "./FileIcons";
 import { useI18n } from "@/hooks/useI18n";
+import { ContextMenu } from "./ContextMenu";
 
 export interface Tab {
   id: string;
@@ -17,11 +18,21 @@ interface Props {
   activeTabId: string;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
+  onCloseOthers?: (id: string) => void;
+  onCloseLeft?: (id: string) => void;
+  onCloseRight?: (id: string) => void;
+  onCloseAll?: () => void;
 }
 
-export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
+export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onCloseOthers, onCloseLeft, onCloseRight, onCloseAll }: Props) {
   const { t } = useI18n();
   const [hoveredClose, setHoveredClose] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ tabId: string; x: number; y: number } | null>(null);
+
+  const closeOthers = onCloseOthers ?? (() => {});
+  const closeLeft = onCloseLeft ?? (() => {});
+  const closeRight = onCloseRight ?? (() => {});
+  const closeAll = onCloseAll ?? (() => {});
 
   return (
     <div
@@ -48,6 +59,10 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
               e.preventDefault();
               e.stopPropagation();
               onCloseTab(tab.id);
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMenu({ tabId: tab.id, x: e.clientX, y: e.clientY });
             }}
             style={{
               display: "flex",
@@ -110,6 +125,32 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
           </div>
         );
       })}
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[
+            { label: t("i18n.close"), onClick: () => onCloseTab(menu.tabId) },
+            {
+              label: t("i18n.closeOthers"),
+              onClick: () => closeOthers(menu.tabId),
+              disabled: tabs.length <= 1,
+            },
+            {
+              label: t("i18n.closeLeft"),
+              onClick: () => closeLeft(menu.tabId),
+              disabled: tabs[0]?.id === menu.tabId,
+            },
+            {
+              label: t("i18n.closeRight"),
+              onClick: () => closeRight(menu.tabId),
+              disabled: tabs[tabs.length - 1]?.id === menu.tabId,
+            },
+            { label: t("i18n.closeAll"), onClick: closeAll },
+          ]}
+        />
+      )}
     </div>
   );
 }

@@ -555,16 +555,34 @@ export function AppShell() {
 
   // Open (or focus) an html preview tab from a chat code block.
   const handleOpenHtmlPreview = useCallback((request: HtmlPreviewRequest) => {
-    const tabId = `preview:${request.key}`;
+    // Tab identity = block identity (sessionId:entryId:blockIndex) — zero
+    // computation at click time. If a session-load race ever hands two
+    // different blocks the same entryId, the existing tab would carry stale
+    // content; detect that by content equality (cheap: same block reuses the
+    // identical string) and give the new content a derived variant identity
+    // instead of overwriting.
+    const baseId = `preview:${request.key}`;
     setHtmlPreviewTabs((prev) => {
-      const existing = prev.find((tab) => tab.id === tabId);
+      const existing = prev.find((tab) => tab.id === baseId);
       if (existing) {
-        if (existing.title === request.title && existing.html === request.html) return prev;
-        return prev.map((tab) => (tab.id === tabId ? { ...tab, title: request.title, html: request.html } : tab));
+        if (existing.html === request.html && existing.title === request.title) return prev;
+        // Same identity, different content — likely a stale/racy entryId.
+        // Keep the old tab untouched and open the new content separately.
+        let n = 2;
+        let variantId = `${baseId}~${n}`;
+        while (prev.some((tab) => tab.id === variantId)) {
+          n += 1;
+          variantId = `${baseId}~${n}`;
+        }
+        return [...prev, { id: variantId, title: request.title, html: request.html }];
       }
-      return [...prev, { id: tabId, title: request.title, html: request.html }];
+      // Disambiguate tabs that share the same <title> ("My Page", "My Page (2)").
+      const base = request.title;
+      const sameTitleCount = prev.filter((tab) => tab.title === base).length;
+      const displayTitle = sameTitleCount === 0 ? base : `${base} (${sameTitleCount + 1})`;
+      return [...prev, { id: baseId, title: displayTitle, html: request.html }];
     });
-    setActiveHtmlPreviewTabId(tabId);
+    setActiveHtmlPreviewTabId(baseId);
     setRightPanelView("preview");
     setRightPanelOpen(true);
     // On mobile the file panel is full-screen; close the drawer so it shows.
@@ -587,6 +605,63 @@ export function AppShell() {
       return remaining.length > 0 ? remaining[remaining.length - 1].id : null;
     });
   }, [htmlPreviewTabs]);
+
+  // Right-click tab menu: close others / close to the right / close all (files)
+  const handleCloseOtherFileTabs = useCallback((tabId: string) => {
+    setFileTabs((prev) => prev.filter((tab) => tab.id === tabId));
+    setActiveFileTabId(tabId);
+  }, []);
+
+  const handleCloseRightFileTabs = useCallback((tabId: string) => {
+    setFileTabs((prev) => {
+      const index = prev.findIndex((tab) => tab.id === tabId);
+      return index < 0 ? prev : prev.slice(0, index + 1);
+    });
+    setActiveFileTabId(tabId);
+  }, []);
+
+  const handleCloseLeftFileTabs = useCallback((tabId: string) => {
+    setFileTabs((prev) => {
+      const index = prev.findIndex((tab) => tab.id === tabId);
+      return index < 0 ? prev : prev.slice(index);
+    });
+    setActiveFileTabId(tabId);
+  }, []);
+
+  const handleCloseAllFileTabs = useCallback(() => {
+    setFileTabs([]);
+    setActiveFileTabId(null);
+    setRightPanelOpen(false);
+  }, []);
+
+  // Right-click tab menu: close others / close to the right / close all (previews)
+  const handleCloseOtherHtmlPreviewTabs = useCallback((tabId: string) => {
+    setHtmlPreviewTabs((prev) => prev.filter((tab) => tab.id === tabId));
+    setActiveHtmlPreviewTabId(tabId);
+  }, []);
+
+  const handleCloseRightHtmlPreviewTabs = useCallback((tabId: string) => {
+    setHtmlPreviewTabs((prev) => {
+      const index = prev.findIndex((tab) => tab.id === tabId);
+      return index < 0 ? prev : prev.slice(0, index + 1);
+    });
+    setActiveHtmlPreviewTabId(tabId);
+  }, []);
+
+  const handleCloseLeftHtmlPreviewTabs = useCallback((tabId: string) => {
+    setHtmlPreviewTabs((prev) => {
+      const index = prev.findIndex((tab) => tab.id === tabId);
+      return index < 0 ? prev : prev.slice(index);
+    });
+    setActiveHtmlPreviewTabId(tabId);
+  }, []);
+
+  const handleCloseAllHtmlPreviewTabs = useCallback(() => {
+    setHtmlPreviewTabs([]);
+    setActiveHtmlPreviewTabId(null);
+    setRightPanelView("files");
+    setRightPanelOpen(false);
+  }, []);
 
   const handleViewFullHistory = useCallback(() => {
     if (!selectedSession) return;
@@ -1642,6 +1717,10 @@ export function AppShell() {
                   activeTabId={activeFileTabId ?? ""}
                   onSelectTab={setActiveFileTabId}
                   onCloseTab={handleCloseFileTab}
+                  onCloseOthers={handleCloseOtherFileTabs}
+                  onCloseLeft={handleCloseLeftFileTabs}
+                  onCloseRight={handleCloseRightFileTabs}
+                  onCloseAll={handleCloseAllFileTabs}
                 />
               </div>
             </div>
@@ -1675,6 +1754,10 @@ export function AppShell() {
             activeTabId={activeHtmlPreviewTabId}
             onSelectTab={setActiveHtmlPreviewTabId}
             onCloseTab={handleCloseHtmlPreviewTab}
+            onCloseOthers={handleCloseOtherHtmlPreviewTabs}
+            onCloseLeft={handleCloseLeftHtmlPreviewTabs}
+            onCloseRight={handleCloseRightHtmlPreviewTabs}
+            onCloseAll={handleCloseAllHtmlPreviewTabs}
             view={rightPanelView}
             onViewChange={setRightPanelView}
           />

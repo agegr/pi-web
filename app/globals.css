@@ -483,6 +483,41 @@ pre, code {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
+/* Right-click context menu (tab bars) — rendered via portal into body */
+.context-menu {
+  position: fixed;
+  z-index: 400;
+  min-width: 160px;
+  padding: 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 24px color-mix(in srgb, #000 22%, transparent);
+  font-size: 12px;
+}
+.context-menu button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+.context-menu button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.context-menu button:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
 .mermaid-block {
   padding: 12px;
   overflow-x: auto;

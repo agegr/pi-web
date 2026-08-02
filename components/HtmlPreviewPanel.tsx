@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { RightPanelViewSwitcher } from "./RightPanelViewSwitcher";
+import { ContextMenu } from "./ContextMenu";
 
 export interface HtmlPreviewTab {
   id: string;
@@ -15,6 +16,10 @@ interface HtmlPreviewPanelProps {
   activeTabId: string | null;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
+  onCloseOthers?: (id: string) => void;
+  onCloseLeft?: (id: string) => void;
+  onCloseRight?: (id: string) => void;
+  onCloseAll?: () => void;
   view: "files" | "preview";
   onViewChange: (view: "files" | "preview") => void;
 }
@@ -27,10 +32,16 @@ const PREVIEW_TAB_WIDTH = 150;
  * becomes one tab (title = document <title>, "untitled" fallback). Content runs
  * in a sandboxed iframe so it cannot touch the host page.
  */
-export function HtmlPreviewPanel({ tabs, activeTabId, onSelectTab, onCloseTab, view, onViewChange }: HtmlPreviewPanelProps) {
+export function HtmlPreviewPanel({ tabs, activeTabId, onSelectTab, onCloseTab, onCloseOthers, onCloseLeft, onCloseRight, onCloseAll, view, onViewChange }: HtmlPreviewPanelProps) {
   const { t } = useI18n();
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
   const [loaded, setLoaded] = useState(false);
+  const [menu, setMenu] = useState<{ tabId: string; x: number; y: number } | null>(null);
+
+  const closeOthers = onCloseOthers ?? (() => {});
+  const closeLeft = onCloseLeft ?? (() => {});
+  const closeRight = onCloseRight ?? (() => {});
+  const closeAll = onCloseAll ?? (() => {});
 
   // A new tab remounts the iframe — reset the loading flag.
   useEffect(() => {
@@ -69,6 +80,10 @@ export function HtmlPreviewPanel({ tabs, activeTabId, onSelectTab, onCloseTab, v
                 e.preventDefault();
                 e.stopPropagation();
                 onCloseTab(tab.id);
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu({ tabId: tab.id, x: e.clientX, y: e.clientY });
               }}
               style={{
                 display: "flex",
@@ -123,6 +138,32 @@ export function HtmlPreviewPanel({ tabs, activeTabId, onSelectTab, onCloseTab, v
             </div>
           );
         })}
+        {menu && (
+          <ContextMenu
+            x={menu.x}
+            y={menu.y}
+            onClose={() => setMenu(null)}
+            items={[
+              { label: t("i18n.close"), onClick: () => onCloseTab(menu.tabId) },
+              {
+                label: t("i18n.closeOthers"),
+                onClick: () => closeOthers(menu.tabId),
+                disabled: tabs.length <= 1,
+              },
+              {
+                label: t("i18n.closeLeft"),
+                onClick: () => closeLeft(menu.tabId),
+                disabled: tabs[0]?.id === menu.tabId,
+              },
+              {
+                label: t("i18n.closeRight"),
+                onClick: () => closeRight(menu.tabId),
+                disabled: tabs[tabs.length - 1]?.id === menu.tabId,
+              },
+              { label: t("i18n.closeAll"), onClick: closeAll },
+            ]}
+          />
+        )}
       </div>
 
       {activeTab ? (
