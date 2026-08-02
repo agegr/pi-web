@@ -46,11 +46,11 @@
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
   },
   "dependencies": {
-    "@oh-my-pi/pi-agent-core": "~17.2.2",
-    "@oh-my-pi/pi-ai": "~17.2.2",
-    "@oh-my-pi/pi-coding-agent": "~17.2.2",
-    "@oh-my-pi/pi-tui": "~17.2.2",
-    "@oh-my-pi/pi-utils": "~17.2.2",
+    "@oh-my-pi/pi-agent-core": "~17.2.4",
+    "@oh-my-pi/pi-ai": "~17.2.4",
+    "@oh-my-pi/pi-coding-agent": "~17.2.4",
+    "@oh-my-pi/pi-tui": "~17.2.4",
+    "@oh-my-pi/pi-utils": "~17.2.4",
     "next": "16.2.12",
     "proper-lockfile": "4.1.2",
     "react": "^19.2.8",
