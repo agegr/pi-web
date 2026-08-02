@@ -119,6 +119,16 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
         </div>
       );
     },
+    tr({ children, ...props }) {
+      delete props.node;
+      const pid = useId();
+      if (!onQuoteReply) return <tr {...props}>{children}</tr>;
+      return (
+        <QuoteableParagraph as="tr" pid={pid} onQuoteReply={onQuoteReply}>
+          {children}
+        </QuoteableParagraph>
+      );
+    },
   }), [cwd, isStreaming, onOpenFile, onQuoteReply]);
 
   return (
@@ -139,7 +149,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
 /** A <p>/<li> whose plain text is parsed on hover (desktop) / click (mobile)
  *  to pop a quote-reply popover. The parse result is locked once shown so a
  *  streaming tail doesn't make the popover flicker; re-engaging re-parses. */
-function QuoteableParagraph({ children, onQuoteReply, as = "p", pid }: { children: ReactNode; onQuoteReply: (quote: string) => void; as?: "p" | "li"; pid: string }) {
+function QuoteableParagraph({ children, onQuoteReply, as = "p", pid }: { children: ReactNode; onQuoteReply: (quote: string) => void; as?: "p" | "li" | "tr"; pid: string }) {
   const { openId, setOpenId } = useContext(QuoteOpenContext);
   const { t } = useI18n();
   const open = openId === pid;
@@ -166,7 +176,12 @@ function QuoteableParagraph({ children, onQuoteReply, as = "p", pid }: { childre
 
   const openPopover = () => {
     if (segments || open) return;
-    const text = ref.current?.textContent ?? "";
+    // For table rows, join cell text with " | " so the quoted line reads like
+    // a markdown row instead of all cells mashed together.
+    const el = ref.current;
+    const text = as === "tr" && el
+      ? Array.from(el.querySelectorAll("td, th")).map((c) => (c.textContent ?? "").trim()).join(" | ")
+      : (el?.textContent ?? "");
     // Any paragraph is quoteable (not just questions): closed questions get
     // option buttons, everything else gets a fallback quote button.
     const parsed = parseParagraph(text);
