@@ -79,6 +79,11 @@ type AgentStateResponse = {
   queuedMessages?: { steering?: string[]; followUp?: string[] } | null;
 };
 
+// ChatWindow instances are replaced when the user switches sessions. Keep the
+// latest in-memory messages briefly at module scope so a running session can
+// be rendered immediately again before its JSONL file catches up.
+const liveSessionMessages = new Map<string, AgentMessage[]>();
+
 export interface QueuedMessages {
   steering: string[];
   followUp: string[];
@@ -143,6 +148,8 @@ export interface UseAgentSessionOptions {
   newSessionCwd: string | null;
   onAgentEnd?: () => void;
   onSessionCreated?: (session: SessionInfo) => void;
+  // 每条消息落盘（message_end）后通知父组件刷新会话列表，让新会话尽快出现在侧边栏
+  onSessionListRefresh?: () => void;
   onSessionForked?: (newSessionId: string) => void;
   modelsRefreshKey?: number;
   chatInputRef?: React.RefObject<ChatInputHandle | null>;
@@ -326,7 +333,7 @@ type SlashCommandsResponse = {
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
-    session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked,
+    session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionListRefresh, onSessionForked,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   } = opts;
 
@@ -372,6 +379,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessages>({ steering: [], followUp: [] });
 
+  useEffect(() => {
+    const sid = sessionIdRef.current;
+    if (!sid || messages.length === 0) return;
+    liveSessionMessages.set(sid, messages);
+  }, [messages]);
+
   const eventSourceRef = useRef<EventSource | null>(null);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
   const agentRunningRef = useRef(false);
@@ -394,6 +407,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const thinkingLevelOverrideRef = useRef<Exclude<ThinkingLevelOption, "auto"> | null>(null);
   const promptRunIdRef = useRef(0);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
+  // 每条消息完成时刷新列表的节流：避免流式多事件导致连续全量扫描
+  const sessionListRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
 
@@ -459,7 +474,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (sessionIdRef.current !== sid) return null;
       setData(d);
       setActiveLeafId(d.leafId);
-      setMessages(d.context.messages);
+      const cachedMessages = liveSessionMessages.get(sid);
+      setMessages(cachedMessages && cachedMessages.length > d.context.messages.length
+        ? cachedMessages
+        : d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
       setCurrentModelOverride(null);
       setError(null);
@@ -986,6 +1004,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // loadSession already loaded this message from the session file —
         // appending it again would duplicate it.
         if (!agentRunningRef.current) break;
+        // 消息落盘后让侧边栏刷新列表（节流 1s）。新会话的 .jsonl 在第一条
+        // assistant 消息之后的 entry 才真正写入，此时刷新才能扫到它。
+        if (!sessionListRefreshTimerRef.current) {
+          sessionListRefreshTimerRef.current = setTimeout(() => {
+            sessionListRefreshTimerRef.current = null;
+          }, 1000);
+          onSessionListRefresh?.();
+        }
         const completed = event.message as AgentMessage | undefined;
         if (completed && completed.role === "user") {
           // Delivered steering/follow-up messages surface here as user
@@ -1065,7 +1091,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, handleExtensionUiRequest, loadSession, waitForPromptSettlement]);
+  }, [addNotice, handleExtensionUiRequest, loadSession, waitForPromptSettlement, onSessionListRefresh]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {

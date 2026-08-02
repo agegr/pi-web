@@ -72,13 +72,9 @@ html.dark {
 }
 
 html, body {
-  width: 100%;
-  height: 100vh;
-  height: 100dvh;
-  height: var(--app-viewport-height, 100dvh);
+  height: 100%;
   margin: 0;
   padding: 0;
-  overflow: hidden;
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -87,8 +83,15 @@ html, body {
 }
 
 body {
-  display: flex;
-  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* 根布局容器：vh 回退保证不支持 dvh 的浏览器/WebView 高度正确，
+   否则 body 可滚动，顶栏会被滚出视口（对话变长后尤其明显）。 */
+.app-shell-root {
+  height: 100vh;
 }
 
 ::-webkit-scrollbar {
@@ -116,9 +119,6 @@ pre, code {
 
 /* react-markdown output styles */
 .markdown-body {
-  min-width: 0;
-  max-width: 100%;
-  overflow-x: hidden;
   font-size: 14px;
   line-height: 1.7;
   color: var(--text);
@@ -366,9 +366,6 @@ pre, code {
 
 .markdown-code-block {
   position: relative;
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
   margin: 6px 0;
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -962,7 +959,7 @@ span.linenumber {
   .right-panel-container {
     position: fixed;
     top: 0;
-    right: env(safe-area-inset-right);
+    right: 0;
     bottom: 0;
     z-index: 250;
     width: min(560px, calc(100vw - 48px));
@@ -992,11 +989,10 @@ span.linenumber {
   .sidebar-container {
     position: fixed !important;
     top: 0;
-    left: env(safe-area-inset-left);
+    left: 0;
     bottom: 0;
     width: 280px;
     max-width: 85vw;
-    height: var(--app-viewport-height, 100dvh);
     transition: transform 0.25s ease, box-shadow 0.25s ease;
   }
   .sidebar-container.sidebar-open {
@@ -1004,20 +1000,19 @@ span.linenumber {
     box-shadow: 4px 0 20px rgba(0,0,0,0.15);
   }
   .sidebar-container.sidebar-closed {
-    transform: translateX(calc(-100% - env(safe-area-inset-left)));
+    transform: translateX(-100%);
     box-shadow: none;
   }
 
   .right-panel-container {
     position: fixed;
-    inset: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
-    height: var(--app-viewport-height, 100dvh);
+    inset: 0;
     z-index: 250;
     overflow: hidden;
     transition: transform 0.2s ease;
   }
   .right-panel-container.right-panel-open {
-    width: auto;
+    width: 100%;
     min-width: 0;
   }
   .right-panel-container.right-panel-closed {
@@ -1045,10 +1040,5 @@ span.linenumber {
   .directory-picker-footer {
     flex-wrap: wrap;
     padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
-  }
-  textarea,
-  input,
-  select {
-    font-size: 16px !important;
   }
 }
