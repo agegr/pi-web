@@ -1,42 +1,111 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState, useCallback, useRef, memo, useMemo } from "react";
-import type { SessionInfo } from "@/lib/types";
-import type { SessionTreeNode } from "@/lib/session-utils";
 import {
-  loadUnreadSessionIds,
-  saveUnreadSessionIds,
-  getRecentProjects,
-  displayCwd,
-  buildSessionTree,
-} from "@/lib/session-utils";
-import { FileExplorer } from "./FileExplorer";
-import { PinnedDirsList } from "./PinnedDirsList";
-import { PinCurrentDirButton } from "./PinCurrentDirButton";
-import { useIsCwdPinned } from "@/hooks/useIsCwdPinned";
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useCallback,
+  useRef,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import type { SessionInfo } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
-import { useExtensions } from "@/hooks/useExtensions";
-import { useOnlineStatus } from "@/hooks/useOnlineStatus";
-import { ErrorState } from "./ErrorState";
-import { PathLabel } from "./PathLabel";
-import { AnimatedDropdown } from "./AnimatedDropdown";
-import { PiAgentTitle } from "./PiAgentTitle";
-import { SessionItem } from "./SessionItem";
-import { Icons } from "./Icons";
+import { DirectoryPicker } from "./DirectoryPicker";
+import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
+
+declare global {
+  interface Window {
+    piDesktop?: {
+      selectDirectory: () => Promise<string | null>;
+    };
+  }
+}
+
+function ToolbarIconButton({
+  onClick,
+  title,
+  disabled,
+  skipHover,
+  color,
+  background = "none",
+  marginRight,
+  ariaPressed,
+  children,
+}: {
+  onClick: () => void;
+  title: string;
+  disabled?: boolean;
+  skipHover?: boolean;
+  color: string;
+  background?: string;
+  marginRight?: number;
+  ariaPressed?: boolean;
+  children: ReactNode;
+}) {
+  const enter = (e: React.MouseEvent<HTMLButtonElement>) => {
+    if (disabled || skipHover) return;
+    e.currentTarget.style.color = "var(--text-muted)";
+    e.currentTarget.style.background = "var(--bg-hover)";
+  };
+  const leave = (e: React.MouseEvent<HTMLButtonElement>) => {
+    if (disabled || skipHover) return;
+    e.currentTarget.style.color = color;
+    e.currentTarget.style.background = background;
+  };
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-label={title}
+      aria-pressed={ariaPressed}
+      style={{
+        position: "relative",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 26,
+        height: 26,
+        padding: 0,
+        marginRight,
+        background,
+        border: "none",
+        color,
+        cursor: disabled ? "default" : "pointer",
+        borderRadius: 5,
+        flexShrink: 0,
+        opacity: disabled ? 0.6 : 1,
+        transition: "color 0.3s, background 0.3s",
+      }}
+      onMouseEnter={enter}
+      onMouseLeave={leave}
+    >
+      {children}
+    </button>
+  );
+}
 
 interface Props {
   selectedSessionId: string | null;
   onSelectSession: (session: SessionInfo, isRestore?: boolean) => void;
   onNewSession?: (sessionId: string, cwd: string) => void;
   initialSessionId?: string | null;
+  skipInitialProjectSelection?: boolean;
   onInitialRestoreDone?: () => void;
   refreshKey?: number;
   onSessionDeleted?: (sessionId: string) => void;
   selectedCwd?: string | null;
   onCwdChange?: (cwd: string | null, projectRoot?: string | null) => void;
-  onOpenFile?: (filePath: string, fileName: string) => void;
+  onOpenFile?: (
+    filePath: string,
+    fileName: string,
+    options?: { sourceSessionId?: string | null; modeHint?: "diff" },
+  ) => void;
   explorerRefreshKey?: number;
+  onExplorerRefresh?: () => void;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
+  onAtMentions?: (relativePaths: string[]) => void;
 }
 
 interface WorktreeEntry {
@@ -56,11 +125,306 @@ interface WorktreeState {
   worktrees: WorktreeEntry[];
 }
 
+const UNREAD_SESSIONS_STORAGE_KEY = "pi-web:unread-session-ids";
+const RUNNING_SESSIONS_POLL_MS = 2500;
+
+function loadUnreadSessionIds(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(UNREAD_SESSIONS_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed))
+      return new Set(parsed.filter((id): id is string => typeof id === "string"));
+    return new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function saveUnreadSessionIds(ids: Set<string>): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (ids.size === 0) window.localStorage.removeItem(UNREAD_SESSIONS_STORAGE_KEY);
+    else window.localStorage.setItem(UNREAD_SESSIONS_STORAGE_KEY, JSON.stringify([...ids]));
+  } catch {
+    // ignore storage quota / privacy-mode errors
+  }
+}
+
+function formatRelativeTime(dateStr: string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diff = now.getTime() - date.getTime();
+  const mins = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  return date.toLocaleDateString();
+}
+
+/**
+ * Return all projects (deduped by projectRoot so worktrees collapse into their
+ * main repo) sorted by most recent session activity.
+ */
+function getRecentProjects(sessions: SessionInfo[]): string[] {
+  const latestByRoot = new Map<string, string>(); // projectRoot -> most recent modified
+  for (const s of sessions) {
+    const root = s.projectRoot ?? s.cwd;
+    if (!root) continue;
+    const prev = latestByRoot.get(root);
+    if (!prev || s.modified > prev) {
+      latestByRoot.set(root, s.modified);
+    }
+  }
+  return [...latestByRoot.entries()].sort((a, b) => b[1].localeCompare(a[1])).map(([root]) => root);
+}
+
+/** Substitute the home dir prefix with ~ (no path truncation — see PathLabel) */
+function displayCwd(cwd: string, homeDir?: string): string {
+  return homeDir && cwd.startsWith(homeDir) ? "~" + cwd.slice(homeDir.length) : cwd;
+}
+
+/**
+ * Path label that ellipsizes on the LEFT, keeping the (most relevant) trailing
+ * segments visible: "…orkspace/pi-web". Shows as much of the path as fits
+ * instead of a fixed number of segments. The rtl container moves the ellipsis
+ * to the left edge; the inner plaintext bidi isolation keeps the path itself
+ * rendered strictly left-to-right (no punctuation reordering).
+ */
+function PathLabel({ text, style }: { text: string; style?: CSSProperties }) {
+  return (
+    <span
+      style={{
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        display: "block",
+        minWidth: 0,
+        lineHeight: 1.35,
+        direction: "rtl",
+        textAlign: "left",
+        ...style,
+      }}
+    >
+      <span style={{ unicodeBidi: "plaintext" }}>{text}</span>
+    </span>
+  );
+}
+
+const DROPDOWN_ANIMATION_MS = 140;
+
+function AnimatedDropdown({
+  open,
+  children,
+  style,
+}: {
+  open: boolean;
+  children: ReactNode;
+  style: CSSProperties;
+}) {
+  const [mounted, setMounted] = useState(open);
+  const [visible, setVisible] = useState(open);
+
+  useEffect(() => {
+    let frame: number | undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+
+    if (open) {
+      setMounted(true);
+      setVisible(false);
+      frame = window.requestAnimationFrame(() => {
+        frame = window.requestAnimationFrame(() => setVisible(true));
+      });
+    } else {
+      setVisible(false);
+      timeout = setTimeout(() => setMounted(false), DROPDOWN_ANIMATION_MS);
+    }
+
+    return () => {
+      if (frame !== undefined) window.cancelAnimationFrame(frame);
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [open]);
+
+  if (!mounted) return null;
+
+  return (
+    <div
+      style={{
+        ...style,
+        opacity: visible ? 1 : 0,
+        transform: visible ? "translateY(0) scale(1)" : "translateY(-8px) scale(0.96)",
+        transformOrigin: "top center",
+        transition: `opacity ${DROPDOWN_ANIMATION_MS}ms ease, transform ${DROPDOWN_ANIMATION_MS}ms ease`,
+        pointerEvents: open ? "auto" : "none",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+interface SessionTreeNode {
+  session: SessionInfo;
+  children: SessionTreeNode[];
+}
+
+function buildSessionTree(sessions: SessionInfo[]): SessionTreeNode[] {
+  const byId = new Map<string, SessionTreeNode>();
+  for (const s of sessions) {
+    byId.set(s.id, { session: s, children: [] });
+  }
+
+  // Build a map of parentSessionId chains so we can resolve missing ancestors
+  const parentOf = new Map<string, string>();
+  for (const s of sessions) {
+    if (s.parentSessionId) parentOf.set(s.id, s.parentSessionId);
+  }
+
+  // Walk up the parentSessionId chain to find the nearest ancestor that exists in byId
+  function resolveAncestor(id: string): string | null {
+    let cur = parentOf.get(id);
+    const visited = new Set<string>();
+    while (cur) {
+      if (visited.has(cur)) return null; // cycle guard
+      visited.add(cur);
+      if (byId.has(cur)) return cur;
+      cur = parentOf.get(cur);
+    }
+    return null;
+  }
+
+  const roots: SessionTreeNode[] = [];
+  for (const node of byId.values()) {
+    const ancestor = resolveAncestor(node.session.id);
+    if (ancestor) {
+      byId.get(ancestor)!.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+
+  // Sort each level by modified desc
+  const sort = (nodes: SessionTreeNode[]) => {
+    nodes.sort((a, b) => b.session.modified.localeCompare(a.session.modified));
+    nodes.forEach((n) => sort(n.children));
+  };
+  sort(roots);
+  return roots;
+}
+
+const SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
+
+function useScramble(target: string, running: boolean): string {
+  const [display, setDisplay] = useState(target);
+  const frameRef = useRef<number | null>(null);
+  const iterRef = useRef(0);
+
+  useEffect(() => {
+    if (!running) {
+      setDisplay(target);
+      return;
+    }
+    iterRef.current = 0;
+    const totalFrames = target.length * 4;
+
+    const step = () => {
+      iterRef.current += 1;
+      const progress = iterRef.current / totalFrames;
+      const resolved = Math.floor(progress * target.length);
+
+      setDisplay(
+        target
+          .split("")
+          .map((char, i) => {
+            if (char === " ") return " ";
+            if (i < resolved) return char;
+            return SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)];
+          })
+          .join(""),
+      );
+
+      if (iterRef.current < totalFrames) {
+        frameRef.current = requestAnimationFrame(step);
+      } else {
+        setDisplay(target);
+      }
+    };
+
+    frameRef.current = requestAnimationFrame(step);
+    return () => {
+      if (frameRef.current) cancelAnimationFrame(frameRef.current);
+    };
+  }, [target, running]);
+
+  return display;
+}
+
+function PiWebTitle() {
+  const [showVersion, setShowVersion] = useState(false);
+  const [scrambling, setScrambling] = useState(false);
+  const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const target = showVersion
+    ? `${process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}p${process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}`
+    : "Pi Web";
+  const display = useScramble(target, scrambling);
+
+  const triggerScramble = useCallback((toVersion: boolean) => {
+    setShowVersion(toVersion);
+    setScrambling(true);
+    setTimeout(() => setScrambling(false), (toVersion ? 6 : 8) * 4 * (1000 / 60) + 100);
+  }, []);
+
+  const handleClick = useCallback(() => {
+    if (revertTimerRef.current) clearTimeout(revertTimerRef.current);
+
+    const next = !showVersion;
+    triggerScramble(next);
+
+    if (next) {
+      revertTimerRef.current = setTimeout(() => triggerScramble(false), 3000);
+    }
+  }, [showVersion, triggerScramble]);
+
+  useEffect(
+    () => () => {
+      if (revertTimerRef.current) clearTimeout(revertTimerRef.current);
+    },
+    [],
+  );
+
+  return (
+    <button
+      onClick={handleClick}
+      style={{
+        background: "none",
+        border: "none",
+        padding: 0,
+        cursor: "default",
+        fontWeight: 700,
+        fontSize: 15,
+        letterSpacing: "-0.01em",
+        color: showVersion ? "var(--accent)" : "var(--text)",
+        fontFamily: "var(--font-mono)",
+        minWidth: "6ch",
+      }}
+    >
+      {display}
+    </button>
+  );
+}
+
 export function SessionSidebar({
   selectedSessionId,
   onSelectSession,
   onNewSession,
   initialSessionId,
+  skipInitialProjectSelection,
   onInitialRestoreDone,
   refreshKey,
   onSessionDeleted,
@@ -68,7 +432,9 @@ export function SessionSidebar({
   onCwdChange,
   onOpenFile,
   explorerRefreshKey,
+  onExplorerRefresh,
   onAtMention,
+  onAtMentions,
 }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
@@ -78,11 +444,11 @@ export function SessionSidebar({
   const [homeDir, setHomeDir] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [projectFilter, setProjectFilter] = useState("");
+  const [wtFilter, setWtFilter] = useState("");
   const [customPathOpen, setCustomPathOpen] = useState(false);
   const [customPathValue, setCustomPathValue] = useState("");
   const [customPathError, setCustomPathError] = useState<string | null>(null);
   const [customPathValidating, setCustomPathValidating] = useState(false);
-  const customPathInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   // Worktree switcher state
   const [worktreeState, setWorktreeState] = useState<WorktreeState | null>(null);
@@ -97,27 +463,22 @@ export function SessionSidebar({
   const wtNewInputRef = useRef<HTMLInputElement>(null);
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [explorerKey, setExplorerKey] = useState(0);
+  const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
+  const [changesCount, setChangesCount] = useState(0);
+  const [changesCollapsed, setChangesCollapsed] = useState(true);
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
-  const [sseConnected, setSseConnected] = useState(true);
-  // Gate the SSE / offline status bar behind a mount flag so it renders
-  // identically on the server and the client's first paint (both skip it).
-  // Showing it during SSR would diverge from the client's real online state
-  // and trigger a hydration mismatch.
-  const [statusMounted, setStatusMounted] = useState(false);
-  useEffect(() => {
-    setStatusMounted(true);
-  }, []);
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() =>
     loadUnreadSessionIds(),
   );
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
-  // Once the SSE stream has delivered a frame it is the source of truth for
+  // Once polling has delivered a snapshot it is the source of truth for
   // running state; late /api/sessions responses must not overwrite it.
-  const sseAuthoritativeRef = useRef(false);
+  const runningPollAuthoritativeRef = useRef(false);
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fileExplorerRef = useRef<FileExplorerHandle>(null);
 
   const loadSessions = useCallback(async (showLoading = false) => {
     try {
@@ -126,9 +487,9 @@ export function SessionSidebar({
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as { sessions: SessionInfo[]; runningSessionIds?: string[] };
       setAllSessions(data.sessions);
-      // Treat the fetched running set as an initial fallback only. Once SSE is
-      // live it owns this state, so a slow fetch can't revive a stale snapshot.
-      if (!sseAuthoritativeRef.current) {
+      // Treat the fetched running set as an initial fallback only. Once the
+      // lightweight poll is live, a slow session-list fetch cannot overwrite it.
+      if (!runningPollAuthoritativeRef.current) {
         setRunningSessionIds(new Set(data.runningSessionIds ?? []));
       }
       // Drop unread markers for sessions that no longer exist (e.g. deleted).
@@ -165,36 +526,63 @@ export function SessionSidebar({
   }, [unreadSessionIds]);
 
   useEffect(() => {
-    // Live running status via SSE — no polling. The server pushes the current
-    // set of running session ids whenever any session starts/stops working.
-    const source = new EventSource("/api/agent/running/events");
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let controller: AbortController | null = null;
 
-    source.onopen = () => setSseConnected(true);
-    source.onmessage = (e) => {
+    const clearTimer = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+    };
+
+    const schedule = () => {
+      clearTimer();
+      if (stopped || document.visibilityState !== "visible") return;
+      timer = setTimeout(() => void poll(), RUNNING_SESSIONS_POLL_MS);
+    };
+
+    const poll = async () => {
+      if (stopped || document.visibilityState !== "visible") return;
+      const current = new AbortController();
+      controller?.abort();
+      controller = current;
       try {
-        const data = JSON.parse(e.data) as { type?: string; runningSessionIds?: string[] };
-        if (data.type === "running") {
-          sseAuthoritativeRef.current = true;
-          setRunningSessionIds(new Set(data.runningSessionIds ?? []));
-        }
-        setSseConnected(true);
+        const res = await fetch("/api/agent/running", {
+          cache: "no-store",
+          signal: current.signal,
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { runningSessionIds?: string[] };
+        if (stopped || controller !== current) return;
+        runningPollAuthoritativeRef.current = true;
+        setRunningSessionIds(new Set(data.runningSessionIds ?? []));
       } catch {
-        // ignore malformed frames
+        // Keep the last known state; the next visible-tab poll retries.
+      } finally {
+        if (controller === current) controller = null;
+        schedule();
       }
     };
-    source.onerror = () => {
-      // EventSource auto-reconnects; surface the gap so the UI isn't silent.
-      setSseConnected(false);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void poll();
+        return;
+      }
+      clearTimer();
+      controller?.abort();
+      controller = null;
     };
 
-    // On error EventSource auto-reconnects; keep the last known state meanwhile.
+    void poll();
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
-      source.close();
-      setSseConnected(false);
+      stopped = true;
+      clearTimer();
+      controller?.abort();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
-
-  const online = useOnlineStatus();
 
   useEffect(() => {
     const previous = previousRunningSessionIdsRef.current;
@@ -211,9 +599,12 @@ export function SessionSidebar({
         return next;
       });
     }
+    if (completedInBackground.length > 0) {
+      loadSessions(false);
+    }
 
     previousRunningSessionIdsRef.current = runningSessionIds;
-  }, [runningSessionIds, selectedSessionId]);
+  }, [runningSessionIds, selectedSessionId, loadSessions]);
 
   useEffect(() => {
     if (!selectedSessionId) return;
@@ -323,7 +714,7 @@ export function SessionSidebar({
 
   // Auto-select cwd and restore session from URL on first load
   useEffect(() => {
-    if (allSessions.length === 0) return;
+    if (allSessions.length === 0 || skipInitialProjectSelection) return;
 
     if (selectedCwd === null) {
       // If restoring a session, set cwd to match that session
@@ -341,36 +732,51 @@ export function SessionSidebar({
       const projects = getRecentProjects(allSessions);
       if (projects.length > 0) setSelectedCwd(projects[0]);
     }
-  }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone]);
+  }, [
+    allSessions,
+    selectedCwd,
+    initialSessionId,
+    skipInitialProjectSelection,
+    onSelectSession,
+    onInitialRestoreDone,
+  ]);
 
-  const commitCustomPath = useCallback(async () => {
-    const path = customPathValue.trim();
-    if (!path || customPathValidating) return;
+  const commitCustomPath = useCallback(
+    async (candidate?: string) => {
+      const path = (candidate ?? customPathValue).trim();
+      if (!path || customPathValidating) return;
 
-    setCustomPathValidating(true);
-    setCustomPathError(null);
-    try {
-      const res = await fetch("/api/cwd/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: path }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { cwd?: string; error?: string };
-      if (!res.ok || data.error) {
-        setCustomPathError(data.error ?? `HTTP ${res.status}`);
-        return;
+      setCustomPathValidating(true);
+      setCustomPathError(null);
+      try {
+        const res = await fetch("/api/cwd/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cwd: path }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { cwd?: string; error?: string };
+        if (!res.ok || data.error) {
+          setCustomPathError(data.error ?? `HTTP ${res.status}`);
+          return;
+        }
+        setSelectedCwd(data.cwd ?? path);
+        setCustomPathOpen(false);
+        setCustomPathValue("");
+        setDropdownOpen(false);
+      } catch (e) {
+        setCustomPathError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setCustomPathValidating(false);
       }
-      setSelectedCwd(data.cwd ?? path);
-      setCustomPathOpen(false);
-      setCustomPathValue("");
-      setDropdownOpen(false);
-    } catch (e) {
-      setCustomPathError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setCustomPathValidating(false);
-    }
-  }, [customPathValue, customPathValidating]);
+    },
+    [customPathValue, customPathValidating],
+  );
 
+  const handleCustomPathClick = useCallback(() => {
+    setCustomPathOpen(true);
+    setCustomPathError(null);
+    setDropdownOpen(false);
+  }, []);
   const handleDefaultCwd = useCallback(async () => {
     try {
       const res = await fetch("/api/default-cwd", { method: "POST" });
@@ -466,9 +872,6 @@ export function SessionSidebar({
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
         setProjectFilter("");
-        setCustomPathOpen(false);
-        setCustomPathValue("");
-        setCustomPathError(null);
       }
       if (wtDropdownRef.current && !wtDropdownRef.current.contains(e.target as Node)) {
         setWtDropdownOpen(false);
@@ -476,6 +879,7 @@ export function SessionSidebar({
         setWtNewBranch("");
         setWtError(null);
         setWtConfirmRemove(null);
+        setWtFilter("");
       }
     };
     document.addEventListener("mousedown", handler);
@@ -505,15 +909,7 @@ export function SessionSidebar({
     onNewSession?.(tempId, selectedCwd);
   }, [selectedCwd, onNewSession]);
 
-  const recentProjects = useMemo(() => getRecentProjects(allSessions), [allSessions]);
-  const isCwdPinnedRaw = useIsCwdPinned(selectedCwd);
-  // Optimistic override: the Pin button flips this immediately on click;
-  // cleared when the bus-driven re-fetch settles (isCwdPinnedRaw changes).
-  const [pinOverride, setPinOverride] = useState<boolean | null>(null);
-  useEffect(() => {
-    setPinOverride(null);
-  }, [isCwdPinnedRaw]);
-  const isCwdPinned = pinOverride ?? isCwdPinnedRaw;
+  const recentProjects = getRecentProjects(allSessions);
   const showProjectFilter = recentProjects.length > 8;
   const visibleProjects = projectFilter.trim()
     ? recentProjects.filter((p) => p.toLowerCase().includes(projectFilter.trim().toLowerCase()))
@@ -521,13 +917,9 @@ export function SessionSidebar({
 
   // Sessions of every worktree in the selected project are shown together
   const selectedProject = projectRootFor(selectedCwd);
-  const filteredSessions = useMemo(
-    () =>
-      selectedProject
-        ? allSessions.filter((s) => (s.projectRoot ?? s.cwd) === selectedProject)
-        : allSessions,
-    [allSessions, selectedProject],
-  );
+  const filteredSessions = selectedProject
+    ? allSessions.filter((s) => (s.projectRoot ?? s.cwd) === selectedProject)
+    : allSessions;
   const showWorktreeSwitcher = Boolean(
     worktreeState?.isGit &&
     worktreeState.isTopLevel &&
@@ -542,11 +934,11 @@ export function SessionSidebar({
       ? worktreeState.isGit
         ? {
             label: t("sidebar.openRepoRoot"),
-            title: t("sidebar.openRepoRootHint"),
+            title: t("sidebar.openRepoRootTitle"),
           }
         : {
             label: t("sidebar.gitRepoRootOnly"),
-            title: t("sidebar.gitRepoRootOnlyHint"),
+            title: t("sidebar.gitRepoRootOnlyTitle"),
           }
       : null;
   const worktreeLoading = Boolean(selectedCwd && worktreeLoadingCwd === selectedCwd);
@@ -554,26 +946,27 @@ export function SessionSidebar({
     worktreeGuide ??
     (worktreeLoading && !showWorktreeSwitcher
       ? {
-          label: t("sidebar.worktreesLoading"),
-          title: t("sidebar.worktreesLoadingHint"),
+          label: t("sidebar.worktrees"),
+          title: t("sidebar.checkingWorktrees"),
         }
       : null);
 
   // Build parent-child tree within the filtered set
-  const sessionTree = useMemo(() => buildSessionTree(filteredSessions), [filteredSessions]);
-
-  // Stable deletion handler so memoized <SessionTreeItem> rows don't re-render
-  // on every parent render (the inline arrow previously broke memoization).
-  const handleSessionDeleted = useCallback(
-    (id: string) => {
-      onSessionDeleted?.(id);
-      loadSessions();
-    },
-    [onSessionDeleted, loadSessions],
-  );
+  const sessionTree = buildSessionTree(filteredSessions);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+      {customPathOpen && (
+        <DirectoryPicker
+          busy={customPathValidating}
+          error={customPathError}
+          onCancel={() => {
+            setCustomPathOpen(false);
+            setCustomPathError(null);
+          }}
+          onSelect={(path) => void commitCustomPath(path)}
+        />
+      )}
       {/* Header */}
       <div
         style={{
@@ -590,7 +983,7 @@ export function SessionSidebar({
             marginBottom: 10,
           }}
         >
-          <PiAgentTitle />
+          <PiWebTitle />
           <div style={{ display: "flex", gap: 6 }}>
             <button
               onClick={handleNewSession}
@@ -616,14 +1009,14 @@ export function SessionSidebar({
               }}
               title={
                 selectedCwd
-                  ? t("sidebar.newSessionIn", { cwd: selectedCwd })
-                  : t("sidebar.selectProjectFirst")
+                  ? t("sidebar.newSessionTitle", { path: selectedCwd })
+                  : t("sidebar.selectProject")
               }
               onMouseEnter={(e) => {
                 if (!selectedCwd) return;
                 e.currentTarget.style.background = "var(--bg-selected)";
                 e.currentTarget.style.color = "var(--accent)";
-                e.currentTarget.style.borderColor = "var(--accent-soft)";
+                e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.background = "var(--bg-hover)";
@@ -631,8 +1024,19 @@ export function SessionSidebar({
                 e.currentTarget.style.borderColor = "var(--border)";
               }}
             >
-              <Icons.Add size={12} />
-              {t("sidebar.newSession")}
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 12 12"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+              >
+                <line x1="6" y1="1" x2="6" y2="11" />
+                <line x1="1" y1="6" x2="11" y2="6" />
+              </svg>
+              {t("sidebar.new")}
             </button>
             <button
               onClick={() => loadSessions(false)}
@@ -640,9 +1044,9 @@ export function SessionSidebar({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                background: sessionRefreshDone ? "var(--success-bg)" : "var(--bg-hover)",
-                border: `1px solid ${sessionRefreshDone ? "var(--success-bg)" : "var(--border)"}`,
-                color: sessionRefreshDone ? "var(--color-success-soft)" : "var(--text-muted)",
+                background: sessionRefreshDone ? "rgba(74,222,128,0.18)" : "var(--bg-hover)",
+                border: `1px solid ${sessionRefreshDone ? "rgba(74,222,128,0.4)" : "var(--border)"}`,
+                color: sessionRefreshDone ? "#4ade80" : "var(--text-muted)",
                 cursor: "pointer",
                 width: 32,
                 height: 32,
@@ -655,7 +1059,7 @@ export function SessionSidebar({
                 if (sessionRefreshDone) return;
                 e.currentTarget.style.background = "var(--bg-selected)";
                 e.currentTarget.style.color = "var(--accent)";
-                e.currentTarget.style.borderColor = "var(--accent-soft)";
+                e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
               }}
               onMouseLeave={(e) => {
                 if (sessionRefreshDone) return;
@@ -671,7 +1075,7 @@ export function SessionSidebar({
                   height="15"
                   viewBox="0 0 24 24"
                   fill="none"
-                  stroke="var(--color-success-soft)"
+                  stroke="#4ade80"
                   strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -699,58 +1103,50 @@ export function SessionSidebar({
 
         {/* CWD picker */}
         <div ref={dropdownRef} style={{ position: "relative" }}>
-          <div style={{ display: "flex", gap: 4, alignItems: "stretch" }}>
-            <button
-              onClick={() => setDropdownOpen((v) => !v)}
-              title={selectedProject ?? selectedCwd ?? ""}
-              style={{
-                flex: 1,
-                minWidth: 0,
-                display: "flex",
-                alignItems: "center",
-                padding: "6px 10px",
-                background: selectedCwd ? "var(--bg-hover)" : "var(--accent-bg)",
-                border: selectedCwd ? "1px solid var(--border)" : "1px solid var(--accent-soft)",
-                borderRadius: 7,
-                cursor: "pointer",
-                fontSize: 12,
-                color: "var(--text)",
-                textAlign: "left",
-                transition: "border-color 0.15s, background 0.15s",
-              }}
-            >
-              {selectedCwd ? (
-                <PathLabel
-                  text={displayCwd(selectedProject ?? selectedCwd, homeDir)}
-                  style={{
-                    flex: 1,
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 11,
-                    color: "var(--text)",
-                  }}
-                />
-              ) : (
-                <span
-                  style={{
-                    flex: 1,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 11,
-                    color: "var(--text-dim)",
-                  }}
-                >
-                  {initialSessionId && !restoredRef.current ? "" : t("sidebar.selectProject")}
-                </span>
-              )}
-            </button>
-            <PinCurrentDirButton
-              cwd={selectedCwd ?? null}
-              isPinned={isCwdPinned}
-              onPinnedChange={setPinOverride}
-            />
-          </div>
+          <button
+            onClick={() => setDropdownOpen((v) => !v)}
+            title={selectedProject ?? selectedCwd ?? ""}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              padding: "6px 10px",
+              background: selectedCwd ? "var(--bg-hover)" : "rgba(37,99,235,0.06)",
+              border: selectedCwd ? "1px solid var(--border)" : "1px solid rgba(37,99,235,0.4)",
+              borderRadius: 7,
+              cursor: "pointer",
+              fontSize: 12,
+              color: "var(--text)",
+              textAlign: "left",
+              transition: "border-color 0.15s, background 0.15s",
+            }}
+          >
+            {selectedCwd ? (
+              <PathLabel
+                text={displayCwd(selectedProject ?? selectedCwd, homeDir)}
+                style={{
+                  flex: 1,
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 11,
+                  color: "var(--text)",
+                }}
+              />
+            ) : (
+              <span
+                style={{
+                  flex: 1,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 11,
+                  color: "var(--text-dim)",
+                }}
+              >
+                {initialSessionId && !restoredRef.current ? "" : t("sidebar.selectProject")}
+              </span>
+            )}
+          </button>
 
           <AnimatedDropdown
             open={dropdownOpen}
@@ -892,146 +1288,43 @@ export function SessionSidebar({
               </button>
             )}
 
-            {/* Custom path entry */}
-            {!customPathOpen ? (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCustomPathOpen(true);
-                  setCustomPathError(null);
-                  setTimeout(() => customPathInputRef.current?.focus(), 0);
-                }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 7,
-                  width: "100%",
-                  padding: "8px 10px",
-                  background: "none",
-                  border: "none",
-                  color: "var(--text-muted)",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  fontSize: 11,
-                }}
+            {/* Custom path directory picker */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCustomPathClick();
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                width: "100%",
+                padding: "8px 10px",
+                background: "none",
+                border: "none",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                textAlign: "left",
+                fontSize: 11,
+              }}
+            >
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 10 10"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.1"
+                strokeLinecap="round"
+                style={{ flexShrink: 0 }}
               >
-                <svg
-                  width="10"
-                  height="10"
-                  viewBox="0 0 10 10"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.1"
-                  strokeLinecap="round"
-                  style={{ flexShrink: 0 }}
-                >
-                  <line x1="5" y1="1" x2="5" y2="9" />
-                  <line x1="1" y1="5" x2="9" y2="5" />
-                </svg>
-                <span>{t("sidebar.customPath")}</span>
-              </button>
-            ) : (
-              <div
-                style={{
-                  padding: "6px 8px",
-                  borderTop: visibleProjects.length > 0 ? "none" : undefined,
-                }}
-              >
-                <input
-                  ref={customPathInputRef}
-                  value={customPathValue}
-                  onChange={(e) => {
-                    setCustomPathValue(e.target.value);
-                    setCustomPathError(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      void commitCustomPath();
-                    }
-                    if (e.key === "Escape") {
-                      setCustomPathOpen(false);
-                      setCustomPathValue("");
-                      setCustomPathError(null);
-                    }
-                  }}
-                  placeholder="/path/to/project"
-                  style={{
-                    width: "100%",
-                    fontSize: 11,
-                    fontFamily: "var(--font-mono)",
-                    padding: "5px 8px",
-                    border: "1px solid var(--accent)",
-                    borderRadius: 5,
-                    outline: "none",
-                    background: "var(--bg)",
-                    color: "var(--text)",
-                    boxSizing: "border-box",
-                  }}
-                />
-                {customPathError && (
-                  <div
-                    style={{
-                      marginTop: 5,
-                      color: "var(--color-error-border)",
-                      fontSize: 11,
-                      lineHeight: 1.35,
-                      overflowWrap: "anywhere",
-                    }}
-                  >
-                    {customPathError}
-                  </div>
-                )}
-                <div style={{ display: "flex", gap: 5, marginTop: 5 }}>
-                  <button
-                    onClick={() => void commitCustomPath()}
-                    disabled={customPathValidating || !customPathValue.trim()}
-                    style={{
-                      flex: 1,
-                      padding: "4px 0",
-                      background: "var(--accent)",
-                      border: "none",
-                      borderRadius: 5,
-                      color: "var(--bg)",
-                      fontSize: 11,
-                      fontWeight: 600,
-                      cursor:
-                        customPathValidating || !customPathValue.trim() ? "not-allowed" : "pointer",
-                      opacity: customPathValidating || !customPathValue.trim() ? 0.65 : 1,
-                    }}
-                  >
-                    {customPathValidating ? t("sidebar.checking") : t("sidebar.open")}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setCustomPathOpen(false);
-                      setCustomPathValue("");
-                      setCustomPathError(null);
-                    }}
-                    style={{
-                      flex: 1,
-                      padding: "4px 0",
-                      background: "var(--bg-hover)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 5,
-                      color: "var(--text-muted)",
-                      fontSize: 11,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {t("common.cancel")}
-                  </button>
-                </div>
-              </div>
-            )}
+                <line x1="5" y1="1" x2="5" y2="9" />
+                <line x1="1" y1="5" x2="9" y2="5" />
+              </svg>
+              <span>{t("sidebar.customPath")}</span>
+            </button>
           </AnimatedDropdown>
         </div>
-
-        {/* Pinned dirs — dedicated section between cwd picker and worktree
-            switcher. Renders nothing when the list is empty. Routes through
-            setSelectedCwd so the useEffect at line ~480 resolves the proper
-            projectRoot (worktree-aware) before notifying the parent. */}
-        <PinnedDirsList onCwdChange={(cwd) => setSelectedCwd(cwd)} />
 
         {/* Worktree switcher — shown only for git projects at a checkout top
             level (repo subdirs keep their own project identity, so switching
@@ -1046,13 +1339,22 @@ export function SessionSidebar({
             const currentWt =
               worktreeState.worktrees.find((w) => w.path === selectedCwd) ??
               worktreeState.worktrees.find((w) => w.isMain);
+            const showWtFilter = worktreeState.worktrees.length >= 8;
+            const visibleWorktrees =
+              showWtFilter && wtFilter.trim()
+                ? worktreeState.worktrees.filter((w) =>
+                    (w.branch ?? displayCwd(w.path, homeDir))
+                      .toLowerCase()
+                      .includes(wtFilter.trim().toLowerCase()),
+                  )
+                : worktreeState.worktrees;
             return (
               <div ref={wtDropdownRef} style={{ position: "relative", marginTop: 6 }}>
                 <button
                   onClick={() => setWtDropdownOpen((v) => !v)}
                   title={
                     currentWt
-                      ? t("sidebar.switchWorktreePath", { path: currentWt.path })
+                      ? t("sidebar.switchWorktreeTitle", { path: currentWt.path })
                       : t("sidebar.switchWorktree")
                   }
                   style={{
@@ -1100,7 +1402,7 @@ export function SessionSidebar({
                   />
                   {currentWt?.isMain && (
                     <span style={{ flexShrink: 0, color: "var(--text-dim)", fontSize: 10 }}>
-                      main
+                      {t("sidebar.main")}
                     </span>
                   )}
                   {worktreeState.worktrees.length > 1 && (
@@ -1138,8 +1440,36 @@ export function SessionSidebar({
                     overflow: "hidden",
                   }}
                 >
+                  {showWtFilter && (
+                    <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
+                      <input
+                        value={wtFilter}
+                        onChange={(e) => setWtFilter(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") {
+                            setWtFilter("");
+                            setWtDropdownOpen(false);
+                          }
+                        }}
+                        placeholder={t("sidebar.filterWorktrees")}
+                        autoFocus
+                        style={{
+                          width: "100%",
+                          fontSize: 11,
+                          fontFamily: "var(--font-mono)",
+                          padding: "5px 8px",
+                          border: "1px solid var(--border)",
+                          borderRadius: 5,
+                          outline: "none",
+                          background: "var(--bg)",
+                          color: "var(--text)",
+                          boxSizing: "border-box",
+                        }}
+                      />
+                    </div>
+                  )}
                   <div style={{ maxHeight: "min(40vh, 300px)", overflowY: "auto" }}>
-                    {worktreeState.worktrees.map((wt) => {
+                    {visibleWorktrees.map((wt) => {
                       const isCurrent =
                         wt.path === selectedCwd ||
                         (wt.isMain && !worktreeState.worktrees.some((w) => w.path === selectedCwd));
@@ -1153,7 +1483,7 @@ export function SessionSidebar({
                               gap: 6,
                               padding: "7px 10px",
                               borderBottom: "1px solid var(--border)",
-                              background: "var(--error-bg)",
+                              background: "rgba(239,68,68,0.06)",
                             }}
                           >
                             <span
@@ -1166,17 +1496,17 @@ export function SessionSidebar({
                                 whiteSpace: "nowrap",
                               }}
                             >
-                              {t("sidebar.forceRemoveConfirm")}
+                              {t("sidebar.forceRemoveCheckout")}
                             </span>
                             <button
                               onClick={() => void handleRemoveWorktree(wt.path, true)}
                               disabled={wtBusy}
                               style={{
                                 padding: "3px 9px",
-                                background: "var(--color-error-border)",
+                                background: "#ef4444",
                                 border: "none",
                                 borderRadius: 5,
-                                color: "var(--bg)",
+                                color: "#fff",
                                 fontSize: 11,
                                 fontWeight: 600,
                                 cursor: "pointer",
@@ -1198,7 +1528,7 @@ export function SessionSidebar({
                                 flexShrink: 0,
                               }}
                             >
-                              {t("common.cancel")}
+                              {t("sidebar.cancel")}
                             </button>
                           </div>
                         );
@@ -1218,6 +1548,7 @@ export function SessionSidebar({
                               setSelectedCwd(wt.path);
                               setWtDropdownOpen(false);
                               setWtError(null);
+                              setWtFilter("");
                             }}
                             title={wt.path}
                             style={{
@@ -1261,7 +1592,7 @@ export function SessionSidebar({
                               <span
                                 style={{ flexShrink: 0, color: "var(--text-dim)", fontSize: 10 }}
                               >
-                                main
+                                {t("sidebar.main")}
                               </span>
                             )}
                           </button>
@@ -1269,7 +1600,7 @@ export function SessionSidebar({
                             <button
                               onClick={() => void handleRemoveWorktree(wt.path, false)}
                               disabled={wtBusy}
-                              title={t("sidebar.removeWorktree", { path: wt.path })}
+                              title={t("sidebar.removeWorktreeTitle", { path: wt.path })}
                               style={{
                                 display: "flex",
                                 alignItems: "center",
@@ -1287,8 +1618,8 @@ export function SessionSidebar({
                                 transition: "color 0.12s, background 0.12s",
                               }}
                               onMouseEnter={(e) => {
-                                e.currentTarget.style.color = "var(--color-error-border)";
-                                e.currentTarget.style.background = "var(--error-bg)";
+                                e.currentTarget.style.color = "#ef4444";
+                                e.currentTarget.style.background = "rgba(239,68,68,0.08)";
                               }}
                               onMouseLeave={(e) => {
                                 e.currentTarget.style.color = "var(--text-dim)";
@@ -1315,6 +1646,11 @@ export function SessionSidebar({
                         </div>
                       );
                     })}
+                    {showWtFilter && visibleWorktrees.length === 0 && wtFilter.trim() && (
+                      <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-dim)" }}>
+                        {t("sidebar.noMatchingWorktrees")}
+                      </div>
+                    )}
                   </div>
 
                   {!wtNewOpen ? (
@@ -1325,7 +1661,7 @@ export function SessionSidebar({
                         setWtError(null);
                         setTimeout(() => wtNewInputRef.current?.focus(), 0);
                       }}
-                      title={t("sidebar.createWorktreeHint")}
+                      title={t("sidebar.createWorktreeTitle")}
                       style={{
                         display: "flex",
                         alignItems: "center",
@@ -1375,7 +1711,7 @@ export function SessionSidebar({
                             setWtError(null);
                           }
                         }}
-                        placeholder={t("sidebar.branchNamePlaceholder")}
+                        placeholder={t("sidebar.branchName")}
                         style={{
                           width: "100%",
                           fontSize: 11,
@@ -1399,7 +1735,7 @@ export function SessionSidebar({
                             background: "var(--accent)",
                             border: "none",
                             borderRadius: 5,
-                            color: "var(--bg)",
+                            color: "#fff",
                             fontSize: 11,
                             fontWeight: 600,
                             cursor: wtBusy || !wtNewBranch.trim() ? "not-allowed" : "pointer",
@@ -1425,7 +1761,7 @@ export function SessionSidebar({
                             cursor: "pointer",
                           }}
                         >
-                          {t("common.cancel")}
+                          {t("sidebar.cancel")}
                         </button>
                       </div>
                     </div>
@@ -1434,7 +1770,7 @@ export function SessionSidebar({
                     <div
                       style={{
                         padding: "5px 10px 8px",
-                        color: "var(--color-error-border)",
+                        color: "#dc2626",
                         fontSize: 11,
                         lineHeight: 1.35,
                         overflowWrap: "anywhere",
@@ -1498,39 +1834,6 @@ export function SessionSidebar({
       </div>
 
       {/* Session list */}
-      {statusMounted && (!online || !sseConnected) && (
-        <div
-          role="status"
-          onClick={() => {
-            if (online) window.location.reload();
-          }}
-          title={online ? t("sidebar.reconnectHint") : t("sidebar.offline")}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "8px 14px",
-            fontSize: 12,
-            color: "var(--text-muted)",
-            background: "color-mix(in srgb, var(--color-error) 8%, var(--bg-panel))",
-            borderBottom: "1px solid var(--border)",
-            cursor: online ? "pointer" : "default",
-          }}
-        >
-          <span
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: "50%",
-              background: "var(--color-error)",
-              animation: online ? "pulse 1.4s ease infinite" : "none",
-              flexShrink: 0,
-            }}
-          />
-          <span>{online ? t("sidebar.reconnecting") : t("sidebar.offline")}</span>
-        </div>
-      )}
-
       <div
         style={{
           flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto",
@@ -1545,13 +1848,7 @@ export function SessionSidebar({
           </div>
         )}
         {error && (
-          <div style={{ padding: "12px 14px" }}>
-            <ErrorState
-              message={t("sidebar.failedToLoadSessions")}
-              details={error}
-              onRetry={loadSessions}
-            />
-          </div>
+          <div style={{ padding: "12px 14px", color: "#f87171", fontSize: 12 }}>{error}</div>
         )}
         {!loading && !error && filteredSessions.length === 0 && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
@@ -1567,7 +1864,10 @@ export function SessionSidebar({
             unreadSessionIds={unreadSessionIds}
             onSelectSession={handleSelectSessionFromList}
             onRenamed={loadSessions}
-            onSessionDeleted={handleSessionDeleted}
+            onSessionDeleted={(id) => {
+              onSessionDeleted?.(id);
+              loadSessions();
+            }}
             depth={0}
           />
         ))}
@@ -1622,11 +1922,61 @@ export function SessionSidebar({
               >
                 <polyline points="3 2 7 5 3 8" />
               </svg>
-              {t("sidebar.explorer")}
+              {t("files.explorer")}
             </button>
-            <button
+            {explorerOpen && changesCount > 0 && (
+              <ToolbarIconButton
+                onClick={() => setChangesCollapsed((v) => !v)}
+                title={t("sidebar.changedFiles", { count: changesCount })}
+                ariaPressed={!changesCollapsed}
+                color={changesCollapsed ? "var(--text-dim)" : "var(--accent)"}
+                background={changesCollapsed ? "none" : "var(--bg-selected)"}
+              >
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M3 12h6" />
+                  <path d="M15 12h6" />
+                </svg>
+              </ToolbarIconButton>
+            )}
+            {explorerOpen && (
+              <ToolbarIconButton
+                onClick={() => fileExplorerRef.current?.openUploadPicker()}
+                disabled={explorerUploadBusy}
+                title={t("sidebar.uploadFilesTitle")}
+                color="var(--text-dim)"
+              >
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <path d="m17 8-5-5-5 5" />
+                  <path d="M12 3v12" />
+                </svg>
+              </ToolbarIconButton>
+            )}
+            <ToolbarIconButton
               onClick={() => {
-                setExplorerKey((k) => k + 1);
+                if (onExplorerRefresh) onExplorerRefresh();
+                else setExplorerKey((k) => k + 1);
                 setExplorerRefreshDone(true);
                 if (explorerRefreshTimerRef.current) clearTimeout(explorerRefreshTimerRef.current);
                 explorerRefreshTimerRef.current = setTimeout(
@@ -1635,32 +1985,10 @@ export function SessionSidebar({
                 );
               }}
               title={t("sidebar.refreshExplorer")}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 26,
-                height: 26,
-                padding: 0,
-                marginRight: 6,
-                background: explorerRefreshDone ? "var(--success-bg)" : "none",
-                border: "none",
-                color: explorerRefreshDone ? "var(--color-success-soft)" : "var(--text-dim)",
-                cursor: "pointer",
-                borderRadius: 5,
-                flexShrink: 0,
-                transition: "color 0.3s, background 0.3s",
-              }}
-              onMouseEnter={(e) => {
-                if (explorerRefreshDone) return;
-                e.currentTarget.style.color = "var(--text-muted)";
-                e.currentTarget.style.background = "var(--bg-hover)";
-              }}
-              onMouseLeave={(e) => {
-                if (explorerRefreshDone) return;
-                e.currentTarget.style.color = "var(--text-dim)";
-                e.currentTarget.style.background = "none";
-              }}
+              skipHover={explorerRefreshDone}
+              color={explorerRefreshDone ? "#4ade80" : "var(--text-dim)"}
+              background={explorerRefreshDone ? "rgba(74,222,128,0.18)" : "none"}
+              marginRight={6}
             >
               {explorerRefreshDone ? (
                 <svg
@@ -1668,7 +1996,7 @@ export function SessionSidebar({
                   height="13"
                   viewBox="0 0 24 24"
                   fill="none"
-                  stroke="var(--color-success-soft)"
+                  stroke="#4ade80"
                   strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -1690,15 +2018,20 @@ export function SessionSidebar({
                   <path d="M3 3v5h5" />
                 </svg>
               )}
-            </button>
+            </ToolbarIconButton>
           </div>
           {explorerOpen && (
             <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
               <FileExplorer
+                ref={fileExplorerRef}
                 cwd={selectedCwd ?? selectedCwdProp!}
                 onOpenFile={onOpenFile ?? (() => {})}
                 refreshKey={explorerKey}
                 onAtMention={onAtMention}
+                onAtMentions={onAtMentions}
+                onUploadBusyChange={setExplorerUploadBusy}
+                changesCollapsed={changesCollapsed}
+                onChangesCountChange={setChangesCount}
               />
             </div>
           )}
@@ -1708,36 +2041,7 @@ export function SessionSidebar({
   );
 }
 
-// SSE ticks produce a brand-new runningSessionIds / unreadSessionIds Set on
-// every push, but a given row only cares whether ITS session id is a member.
-// Compare by per-row membership (plus the stable props) so the other rows skip
-// re-rendering when only a different session flips state.
-function sessionTreeItemEqual(
-  a: {
-    node: SessionTreeNode;
-    selectedSessionId: string | null;
-    runningSessionIds: Set<string>;
-    unreadSessionIds: Set<string>;
-    onSelectSession: (s: SessionInfo) => void;
-    onRenamed?: () => void;
-    onSessionDeleted?: (id: string) => void;
-    depth: number;
-  },
-  b: typeof a,
-): boolean {
-  return (
-    a.node === b.node &&
-    a.selectedSessionId === b.selectedSessionId &&
-    a.depth === b.depth &&
-    a.onSelectSession === b.onSelectSession &&
-    a.onRenamed === b.onRenamed &&
-    a.onSessionDeleted === b.onSessionDeleted &&
-    a.runningSessionIds.has(a.node.session.id) === b.runningSessionIds.has(b.node.session.id) &&
-    a.unreadSessionIds.has(a.node.session.id) === b.unreadSessionIds.has(b.node.session.id)
-  );
-}
-
-const SessionTreeItem = memo(function SessionTreeItem({
+function SessionTreeItem({
   node,
   selectedSessionId,
   runningSessionIds,
@@ -1756,15 +2060,9 @@ const SessionTreeItem = memo(function SessionTreeItem({
   onSessionDeleted?: (id: string) => void;
   depth: number;
 }) {
-  const { getWorkspaceLabelItems } = useExtensions();
   const [collapsed, setCollapsed] = useState(false);
   const hasChildren = node.children.length > 0;
-  // Labels only change when the session itself changes — cache so SSE ticks
-  // (which swap the runningSessionIds Set) don't recompute them per row.
-  const labels = useMemo(
-    () => getWorkspaceLabelItems({ session: node.session, cwd: node.session.cwd, state: {} }),
-    [getWorkspaceLabelItems, node.session],
-  );
+
   return (
     <div>
       <div style={{ position: "relative" }}>
@@ -1794,7 +2092,6 @@ const SessionTreeItem = memo(function SessionTreeItem({
           hasChildren={hasChildren}
           collapsed={collapsed}
           onToggleCollapse={() => setCollapsed((v) => !v)}
-          labels={labels}
         />
       </div>
       {hasChildren && !collapsed && (
@@ -1816,4 +2113,562 @@ const SessionTreeItem = memo(function SessionTreeItem({
       )}
     </div>
   );
-}, sessionTreeItemEqual);
+}
+
+function RunningSessionIndicator() {
+  const { t } = useI18n();
+  return (
+    <span
+      title={t("sidebar.agentRunning")}
+      aria-label={t("sidebar.agentRunning")}
+      style={{
+        width: 14,
+        height: 14,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        color: "var(--accent)",
+      }}
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+        style={{ display: "block" }}
+      >
+        <g>
+          <path
+            d="M21 12a9 9 0 1 1-3.8-7.4"
+            stroke="currentColor"
+            strokeWidth="2.8"
+            strokeLinecap="round"
+          />
+          <animateTransform
+            attributeName="transform"
+            type="rotate"
+            from="0 12 12"
+            to="360 12 12"
+            dur="0.9s"
+            repeatCount="indefinite"
+          />
+        </g>
+      </svg>
+    </span>
+  );
+}
+
+function UnreadSessionIndicator() {
+  const { t } = useI18n();
+  return (
+    <span
+      title={t("sidebar.newActivity")}
+      aria-label={t("sidebar.newSessionActivity")}
+      style={{
+        width: 14,
+        height: 14,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        color: "#0891b2",
+      }}
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 14 14"
+        fill="none"
+        aria-hidden="true"
+        style={{ display: "block" }}
+      >
+        <circle cx="7" cy="7" r="2.5" fill="currentColor" />
+        <circle cx="7" cy="7" r="3" stroke="currentColor" strokeWidth="1.4" opacity="0.32">
+          <animate attributeName="r" values="3;6;3" dur="1.6s" repeatCount="indefinite" />
+          <animate
+            attributeName="opacity"
+            values="0.32;0;0.32"
+            dur="1.6s"
+            repeatCount="indefinite"
+          />
+        </circle>
+      </svg>
+    </span>
+  );
+}
+
+function SessionItem({
+  session,
+  isSelected,
+  isRunning,
+  isUnread,
+  onClick,
+  onRenamed,
+  onDeleted,
+  depth = 0,
+  hasChildren = false,
+  collapsed = false,
+  onToggleCollapse,
+}: {
+  session: SessionInfo;
+  isSelected: boolean;
+  isRunning?: boolean;
+  isUnread?: boolean;
+  onClick: () => void;
+  onRenamed?: () => void;
+  onDeleted?: (id: string) => void;
+  depth?: number;
+  hasChildren?: boolean;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+}) {
+  const { t } = useI18n();
+  const [hovered, setHovered] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const title = session.name || session.firstMessage.slice(0, 50) || session.id.slice(0, 12);
+
+  const startRename = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setRenameValue(session.name ?? "");
+      setRenaming(true);
+      setTimeout(() => inputRef.current?.select(), 0);
+    },
+    [session.name],
+  );
+
+  const commitRename = useCallback(async () => {
+    const name = renameValue.trim();
+    setRenaming(false);
+    if (name === (session.name ?? "")) return;
+    try {
+      await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      onRenamed?.();
+    } catch {
+      // ignore
+    }
+  }, [renameValue, session.id, session.name, onRenamed]);
+
+  const performDelete = useCallback(async () => {
+    setConfirmDelete(false);
+    setDeleting(true);
+    try {
+      await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+      onDeleted?.(session.id);
+    } catch {
+      setDeleting(false);
+    }
+  }, [session.id, onDeleted]);
+
+  const handleDeleteClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (e.shiftKey) {
+        void performDelete();
+      } else {
+        setConfirmDelete(true);
+      }
+    },
+    [performDelete],
+  );
+
+  const handleDeleteConfirm = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      void performDelete();
+    },
+    [performDelete],
+  );
+
+  const handleDeleteCancel = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConfirmDelete(false);
+  }, []);
+
+  // Fixed-height outer wrapper — content swaps in place so the list never reflows
+  const ITEM_HEIGHT = 54;
+
+  return (
+    <div
+      onClick={confirmDelete || renaming ? undefined : onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => {
+        setHovered(false);
+      }}
+      style={{
+        height: ITEM_HEIGHT,
+        display: "flex",
+        alignItems: "center",
+        paddingLeft: depth > 0 ? depth * 12 + 14 : 14,
+        paddingRight: 8,
+        cursor: confirmDelete || renaming ? "default" : "pointer",
+        background: confirmDelete
+          ? "rgba(239,68,68,0.06)"
+          : isSelected
+            ? "var(--bg-selected)"
+            : hovered
+              ? "var(--bg-hover)"
+              : "transparent",
+        borderLeft: confirmDelete
+          ? "2px solid #ef4444"
+          : isSelected
+            ? "2px solid var(--accent)"
+            : "2px solid transparent",
+        transition: "background 0.1s",
+        opacity: deleting ? 0.5 : 1,
+        gap: 6,
+        overflow: "hidden",
+      }}
+    >
+      {confirmDelete ? (
+        /* ── Delete confirmation: same height, two flat buttons ── */
+        <>
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              fontSize: 12,
+              color: "var(--text)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {t("sidebar.deleteSession", {
+              title: title.slice(0, 22) + (title.length > 22 ? "…" : ""),
+            })}
+          </div>
+          <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
+            <button
+              onClick={handleDeleteConfirm}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 4,
+                height: 30,
+                padding: "0 11px",
+                background: "#ef4444",
+                border: "none",
+                borderRadius: 6,
+                color: "#fff",
+                cursor: "pointer",
+                fontSize: 12,
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                <path d="M10 11v6M14 11v6" />
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+              </svg>
+              {t("sidebar.delete")}
+            </button>
+            <button
+              onClick={handleDeleteCancel}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                height: 30,
+                padding: "0 11px",
+                background: "var(--bg)",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                fontSize: 12,
+                fontWeight: 500,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {t("sidebar.cancel")}
+            </button>
+          </div>
+        </>
+      ) : renaming ? (
+        /* ── Rename: input fills the same row ── */
+        <input
+          ref={inputRef}
+          value={renameValue}
+          onChange={(e) => setRenameValue(e.target.value)}
+          onBlur={commitRename}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitRename();
+            if (e.key === "Escape") setRenaming(false);
+          }}
+          autoFocus
+          style={{
+            flex: 1,
+            fontSize: 12,
+            padding: "5px 8px",
+            border: "1px solid var(--accent)",
+            borderRadius: 5,
+            outline: "none",
+            background: "var(--bg)",
+            color: "var(--text)",
+            height: 30,
+          }}
+        />
+      ) : (
+        /* ── Normal view ── */
+        <>
+          {/* Fork indicator for child sessions */}
+          {depth > 0 && (
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="var(--text-dim)"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ flexShrink: 0 }}
+            >
+              <line x1="6" y1="3" x2="6" y2="15" />
+              <circle cx="18" cy="6" r="3" />
+              <circle cx="6" cy="18" r="3" />
+              <path d="M18 9a9 9 0 0 1-9 9" />
+            </svg>
+          )}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                minWidth: 0,
+                fontSize: 12,
+                fontWeight: isSelected ? 500 : 400,
+                lineHeight: 1.4,
+                color: "var(--text)",
+              }}
+              title={title}
+            >
+              <span
+                style={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  minWidth: 0,
+                }}
+              >
+                {title}
+              </span>
+            </div>
+            <div
+              style={{
+                marginTop: 2,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                color: "var(--text-dim)",
+                fontSize: 11,
+                minWidth: 0,
+              }}
+            >
+              {isRunning ? (
+                <RunningSessionIndicator />
+              ) : isUnread ? (
+                <UnreadSessionIndicator />
+              ) : (
+                <span title={session.modified}>{formatRelativeTime(session.modified)}</span>
+              )}
+              <span>{t("sidebar.messagesCount", { count: session.messageCount })}</span>
+              {session.worktreeBranch && (
+                <span
+                  title={`Worktree: ${session.cwd}`}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 3,
+                    color: "var(--accent)",
+                    minWidth: 0,
+                    overflow: "hidden",
+                  }}
+                >
+                  <svg
+                    width="9"
+                    height="9"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ flexShrink: 0 }}
+                  >
+                    <line x1="6" y1="3" x2="6" y2="15" />
+                    <circle cx="18" cy="6" r="3" />
+                    <circle cx="6" cy="18" r="3" />
+                    <path d="M18 9a9 9 0 0 1-9 9" />
+                  </svg>
+                  <span
+                    style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  >
+                    {session.worktreeBranch}
+                  </span>
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Collapse toggle — always visible when has children */}
+          {hasChildren && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleCollapse?.();
+              }}
+              title={collapsed ? "Expand forks" : "Collapse forks"}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 20,
+                height: 20,
+                padding: 0,
+                flexShrink: 0,
+                background: "none",
+                border: "none",
+                color: "var(--text-dim)",
+                cursor: "pointer",
+                transform: collapsed ? "rotate(-90deg)" : "none",
+                transition: "transform 0.15s",
+              }}
+            >
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 10 10"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="2 3.5 5 6.5 8 3.5" />
+              </svg>
+            </button>
+          )}
+
+          {/* Action buttons — shown on hover */}
+          {hovered && (
+            <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+              <button
+                onClick={startRename}
+                title={t("sidebar.rename")}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 32,
+                  height: 32,
+                  padding: 0,
+                  background: "var(--bg-hover)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 7,
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  transition: "background 0.12s, color 0.12s, border-color 0.12s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--bg-selected)";
+                  e.currentTarget.style.color = "var(--accent)";
+                  e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "var(--bg-hover)";
+                  e.currentTarget.style.color = "var(--text-muted)";
+                  e.currentTarget.style.borderColor = "var(--border)";
+                }}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+                </svg>
+              </button>
+              <button
+                onClick={handleDeleteClick}
+                title={t("sidebar.deleteWithShiftClick")}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 32,
+                  height: 32,
+                  padding: 0,
+                  background: "var(--bg-hover)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 7,
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  transition: "background 0.12s, color 0.12s, border-color 0.12s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "rgba(239,68,68,0.08)";
+                  e.currentTarget.style.color = "#ef4444";
+                  e.currentTarget.style.borderColor = "rgba(239,68,68,0.35)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "var(--bg-hover)";
+                  e.currentTarget.style.color = "var(--text-muted)";
+                  e.currentTarget.style.borderColor = "var(--border)";
+                }}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                  <path d="M10 11v6M14 11v6" />
+                  <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                </svg>
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}

@@ -40,7 +40,10 @@ function containsExactPathReference(text: string, filePath: string): boolean {
       while (index !== -1) {
         const before = index === 0 ? "" : haystack[index - 1];
         const afterIndex = index + t.length;
-        if ((index === 0 || !isPathChar(before)) && hasReferenceBoundaryAfter(haystack, afterIndex)) {
+        if (
+          (index === 0 || !isPathChar(before)) &&
+          hasReferenceBoundaryAfter(haystack, afterIndex)
+        ) {
           return true;
         }
         index = haystack.indexOf(t, index + 1);
@@ -71,4 +74,16 @@ export function isFilePathReferencedByEntries(filePath: string, entries: Session
     if (strings.some((text) => containsExactPathReference(text, filePath))) return true;
   }
   return false;
+}
+
+export function isBashOutputPathReferencedByEntries(
+  filePath: string,
+  entries: SessionEntry[],
+): boolean {
+  return entries.some(
+    (entry) =>
+      entry.type === "message" &&
+      entry.message.role === "bashExecution" &&
+      entry.message.fullOutputPath === filePath,
+  );
 }

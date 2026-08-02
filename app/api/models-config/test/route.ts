@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { completeSimple, type AssistantMessage } from "@earendil-works/pi-ai/compat";
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,16 @@ function getAssistantText(message: AssistantMessage): string {
 }
 
 export async function POST(req: Request) {
+  if (!isApiRequestAllowed(req)) {
+    return NextResponse.json({ ok: false, error: "Untrusted API request" }, { status: 403 });
+  }
+  if (!hasJsonContentType(req)) {
+    return NextResponse.json(
+      { ok: false, error: "Content-Type must be application/json" },
+      { status: 415 },
+    );
+  }
+
   let tempDir: string | undefined;
 
   try {
@@ -64,18 +75,18 @@ export async function POST(req: Request) {
       "utf8",
     );
 
-    const registry = ModelRegistry.create(AuthStorage.create(), modelsPath);
-    const loadError = registry.getError();
+    const modelRuntime = await ModelRuntime.create({ modelsPath });
+    const loadError = modelRuntime.getError();
     if (loadError) return NextResponse.json({ ok: false, error: loadError });
 
-    const model = registry.find(providerName, modelId);
+    const model = modelRuntime.getModel(providerName, modelId);
     if (!model)
       return NextResponse.json({ ok: false, error: `Model not found: ${providerName}/${modelId}` });
 
-    const auth = await registry.getApiKeyAndHeaders(model);
-    if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error });
-    if (!auth.apiKey)
+    const resolved = await modelRuntime.getAuth(model);
+    if (!resolved?.auth.apiKey) {
       return NextResponse.json({ ok: false, error: `No API key found for "${providerName}"` });
+    }
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TEST_TIMEOUT_MS);
@@ -95,8 +106,8 @@ export async function POST(req: Request) {
           ],
         },
         {
-          apiKey: auth.apiKey,
-          headers: auth.headers,
+          apiKey: resolved.auth.apiKey,
+          headers: resolved.auth.headers,
           maxTokens: 16,
           timeoutMs: TEST_TIMEOUT_MS,
           maxRetries: 0,

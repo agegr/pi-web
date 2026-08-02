@@ -7,3 +7,9 @@ pnpm-lock.yaml
 package-lock.json
 bun.lock
 coverage
+# 已弃用的独立代码（不参与应用构建，已从 tsconfig 排除），不纳入格式校验
+vendor
+# 内部工具/生成态文件（非应用源码）
+.codebuddy
+.atl
+openspec/**/.comet

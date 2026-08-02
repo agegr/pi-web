@@ -1,6 +1,6 @@
 {
   "name": "@agegr/pi-web",
-  "version": "0.7.9",
+  "version": "0.8.6",
   "description": "Web UI for the pi coding agent",
   "homepage": "https://github.com/agegr/pi-web#readme",
   "repository": {
@@ -11,6 +11,9 @@
     "url": "https://github.com/agegr/pi-web/issues"
   },
   "license": "MIT",
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "bin": {
     "pi-web": "bin/pi-web.js"
   },
@@ -26,9 +29,11 @@
     "extensions"
   ],
   "scripts": {
-    "dev": "next dev -p 30141",
+    "dev": "next dev -H 127.0.0.1 -p 30141",
+    "dev:lan": "next dev -H 0.0.0.0 -p 30141",
     "build": "next build --webpack",
-    "start": "next start -p 30141",
+    "start": "next start -H 127.0.0.1 -p 30141",
+    "start:lan": "next start -H 0.0.0.0 -p 30141",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -39,7 +44,7 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "test:node": "node --test --experimental-strip-types lib/*.test.mjs",
-    "ci": "npm run format:check && npm run lint && npm run type-check && npm run test",
+    "ci": "npm run format:check && npm run lint && npm run type-check && npm run test:node && npm run test:coverage",
     "prepare": "husky || true",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
   },
@@ -53,42 +58,48 @@
     ]
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "^0.80.3",
-    "@earendil-works/pi-coding-agent": "^0.80.3",
-    "@lobehub/icons": "^5.6.0",
-    "katex": "^0.16.47",
-    "mammoth": "^1.12.0",
-    "mermaid": "^11.14.0",
-    "next": "16.2.9",
+    "@earendil-works/pi-agent-core": "0.83.0",
+    "@earendil-works/pi-ai": "0.83.0",
+    "@earendil-works/pi-coding-agent": "0.83.0",
+    "@earendil-works/pi-tui": "0.83.0",
+    "next": "16.2.12",
+    "proper-lockfile": "4.1.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-markdown": "^10.1.0",
-    "react-syntax-highlighter": "^16.1.1",
-    "rehype-katex": "^7.0.1",
-    "rehype-raw": "^7.0.0",
-    "rehype-sanitize": "^6.0.0",
-    "remark-gfm": "^4.0.1",
-    "remark-math": "^6.0.0"
+    "undici": "8.5.0"
   },
   "devDependencies": {
+    "@lobehub/icons": "^5.6.0",
     "@tailwindcss/postcss": "^4.2.2",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^25",
+    "@types/proper-lockfile": "4.1.4",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@vitest/coverage-v8": "^4.1.10",
     "@vitest/ui": "^4.1.10",
     "eslint": "^9",
-    "eslint-config-next": "16.2.9",
+    "eslint-config-next": "16.2.12",
     "husky": "^9",
+    "jiti": "^2.7.0",
     "jsdom": "^29.1.1",
+    "katex": "^0.16.47",
     "lint-staged": "^15",
+    "mammoth": "^1.12.0",
+    "mermaid": "^11.14.0",
     "postcss": "^8",
     "prettier": "^3",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^16.1.1",
+    "rehype-katex": "^7.0.1",
+    "rehype-raw": "^7.0.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "tailwindcss": "^4.2.2",
     "typescript": "^5",
     "vitest": "^4.1.10"

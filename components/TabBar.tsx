@@ -1,23 +1,15 @@
 "use client";
 
-import { memo, useState } from "react";
+import { useState } from "react";
 import { getFileIcon } from "./FileIcons";
 import { useI18n } from "@/hooks/useI18n";
 
 export interface Tab {
   id: string;
   label: string;
-  /** File path for file tabs. Optional for extension panel tabs. */
-  filePath?: string;
+  filePath: string;
   sourceSessionId?: string | null;
-  /** Tab kind: "file" (default), "extension" (rendered by an extension), or "builtin". */
-  kind?: "file" | "extension" | "builtin";
-  /** QualifiedContributionId when kind === "extension". */
-  extensionId?: string;
-  /** Builtin panel id when kind === "builtin" (e.g. "mcp", "web-search", "subagents"). */
-  builtinId?: string;
-  /** Custom icon for extension tabs (overrides file icon). */
-  icon?: React.ReactNode;
+  initialDisplayMode?: "source" | "preview" | "diff";
 }
 
 interface Props {
@@ -27,9 +19,9 @@ interface Props {
   onCloseTab: (id: string) => void;
 }
 
-export const TabBar = memo(function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
-  const [hoveredClose, setHoveredClose] = useState<string | null>(null);
+export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
   const { t } = useI18n();
+  const [hoveredClose, setHoveredClose] = useState<string | null>(null);
 
   return (
     <div
@@ -48,6 +40,15 @@ export const TabBar = memo(function TabBar({ tabs, activeTabId, onSelectTab, onC
           <div
             key={tab.id}
             onClick={() => onSelectTab(tab.id)}
+            onMouseDown={(e) => {
+              if (e.button === 1) e.preventDefault();
+            }}
+            onAuxClick={(e) => {
+              if (e.button !== 1) return;
+              e.preventDefault();
+              e.stopPropagation();
+              onCloseTab(tab.id);
+            }}
             style={{
               display: "flex",
               alignItems: "center",
@@ -76,7 +77,7 @@ export const TabBar = memo(function TabBar({ tabs, activeTabId, onSelectTab, onC
                 alignItems: "center",
               }}
             >
-              {tab.kind === "extension" && tab.icon ? tab.icon : getFileIcon(tab.label, 13)}
+              {getFileIcon(tab.label, 13)}
             </span>
             <span
               style={{
@@ -85,7 +86,7 @@ export const TabBar = memo(function TabBar({ tabs, activeTabId, onSelectTab, onC
                 flex: 1,
                 fontWeight: isActive ? 500 : 400,
               }}
-              title={tab.filePath ?? tab.label}
+              title={tab.filePath}
             >
               {tab.label}
             </span>
@@ -100,27 +101,29 @@ export const TabBar = memo(function TabBar({ tabs, activeTabId, onSelectTab, onC
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                width: 16,
-                height: 16,
+                width: 24,
+                height: 24,
                 background: hoveredClose === tab.id ? "var(--bg-hover)" : "transparent",
                 border: "none",
-                borderRadius: 3,
+                borderRadius: 4,
                 color: hoveredClose === tab.id ? "var(--text)" : "var(--text-dim)",
                 cursor: "pointer",
                 padding: 0,
                 flexShrink: 0,
                 transition: "background 0.1s, color 0.1s",
               }}
-              title={t("tab.close")}
+              title={t("i18n.close")}
+              aria-label={`${t("i18n.close")} ${tab.label}`}
             >
               <svg
-                width="10"
-                height="10"
+                width="11"
+                height="11"
                 viewBox="0 0 10 10"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="1.8"
                 strokeLinecap="round"
+                aria-hidden="true"
               >
                 <line x1="2" y1="2" x2="8" y2="8" />
                 <line x1="8" y1="2" x2="2" y2="8" />
@@ -131,4 +134,4 @@ export const TabBar = memo(function TabBar({ tabs, activeTabId, onSelectTab, onC
       })}
     </div>
   );
-});
+}

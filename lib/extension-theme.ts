@@ -81,6 +81,7 @@ function buildFgColors(): Record<ThemeColor, string | number> {
     thinkingMedium: "#81a2be",
     thinkingHigh: "#b294bb",
     thinkingXhigh: "#d183e8",
+    thinkingMax: "#e0a3f0",
     bashMode: "#b5bd68",
   };
 }

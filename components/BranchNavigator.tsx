@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import type { SessionEntry, SessionTreeNode } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
 
@@ -258,7 +258,7 @@ function TreeNodeView({
   );
 }
 
-export const BranchNavigator = memo(function BranchNavigator({
+export function BranchNavigator({
   tree,
   activeLeafId,
   onLeafChange,
@@ -303,9 +303,9 @@ export const BranchNavigator = memo(function BranchNavigator({
   );
 
   const noBranchReason = !hasSession
-    ? t("branch.noActiveSession")
+    ? t("i18n.noActiveSession")
     : !hasBranch(tree)
-      ? t("branch.noBranches")
+      ? t("i18n.noBranches")
       : null;
 
   // Find first meaningful node (skip pure linear prefix)
@@ -323,7 +323,6 @@ export const BranchNavigator = memo(function BranchNavigator({
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      aria-hidden="true"
       style={{ color: hasContent ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }}
     >
       <line x1="6" y1="3" x2="6" y2="15" />
@@ -381,12 +380,12 @@ export const BranchNavigator = memo(function BranchNavigator({
           onMouseLeave={(e) => {
             e.currentTarget.style.color = open ? "var(--text)" : "var(--text-muted)";
           }}
-          title={t("branch.branches")}
-          aria-label={t("branch.branches")}
+          title={t("i18n.branches")}
+          aria-label={t("i18n.branches")}
           aria-pressed={open}
         >
           {branchIcon}
-          {!compact && <span>{t("branch.branches")}</span>}
+          {!compact && <span>{t("i18n.branches")}</span>}
         </button>
         {open && dropdownPos && (
           <div
@@ -459,7 +458,7 @@ export const BranchNavigator = memo(function BranchNavigator({
         }}
       >
         {branchIcon}
-        <span style={{ color: "var(--text-muted)" }}>{t("branch.branches")}</span>
+        <span style={{ color: "var(--text-muted)" }}>{t("i18n.branches")}</span>
         {chevron}
       </button>
 
@@ -500,11 +499,11 @@ export const BranchNavigator = memo(function BranchNavigator({
                 fontStyle: "italic",
               }}
             >
-              {noBranchReason ?? t("branch.noBranches")}
+              {noBranchReason ?? t("i18n.noBranches")}
             </div>
           )}
         </div>
       )}
     </div>
   );
-});
+}

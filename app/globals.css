@@ -33,36 +33,6 @@
   --assistant-bg: #ffffff;
   --tool-bg: #f9fafb;
   --bg-subtle: rgba(0, 0, 0, 0.03);
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-full: 9999px;
-  --color-error: #ef4444;
-  --color-success: #22c55e;
-  --color-warning: #d97706;
-  --color-info: #2563eb;
-  --tps-fast: #53b3cb;
-  --tps-ok: #9bc53d;
-  --tps-slow: #f9c22e;
-  --tps-crawl: #e01a4f;
-  --git-added: #4ec990;
-  --git-deleted: #f47067;
-  --git-modified: #d4a72c;
-  --git-untracked: #a371f7;
-  /* Semantic color aliases for common states */
-  --color-error-soft: #f87171;
-  --color-success-soft: #4ade80;
-  --color-success-bg: rgba(0, 200, 80, 0.12);
-  --color-error-bg: rgba(240, 60, 60, 0.14);
-  --color-error-border: #ef4444;
-  --color-success-border: #22c55e;
-  --color-doc-bg: #eef1f5;
-  /* Component-level color aliases */
-  --accent-soft: rgba(37, 99, 235, 0.35);
-  --accent-bg: rgba(37, 99, 235, 0.06);
-  --success-bg: rgba(74, 222, 128, 0.18);
-  --error-bg: rgba(239, 68, 68, 0.06);
-  --error-soft: rgba(239, 68, 68, 0.35);
 }
 
 html.dark {
@@ -80,28 +50,9 @@ html.dark {
   --assistant-bg: #1a1a1a;
   --tool-bg: #1f2937;
   --bg-subtle: rgba(255, 255, 255, 0.04);
-  --git-added: #4ec990;
-  --git-deleted: #f47067;
-  --git-modified: #e3b341;
-  --git-untracked: #b18be5;
-  /* Semantic color aliases for common states (dark) */
-  --color-error-soft: #ef4444;
-  --color-success-soft: #22c55e;
-  --color-success-bg: rgba(0, 200, 80, 0.1);
-  --color-error-bg: rgba(240, 60, 60, 0.12);
-  --color-error-border: #ef4444;
-  --color-success-border: #22c55e;
-  --color-doc-bg: #1e1e1e;
-  /* Component-level color aliases (dark) */
-  --accent-soft: rgba(96, 165, 250, 0.35);
-  --accent-bg: rgba(96, 165, 250, 0.08);
-  --success-bg: rgba(74, 222, 128, 0.12);
-  --error-bg: rgba(239, 68, 68, 0.08);
-  --error-soft: rgba(239, 68, 68, 0.35);
 }
 
-/* ── View Transitions API ──
-   Theme toggle uses circular wipe via View Transitions API.
+/* Theme toggle: circular wipe via View Transitions API.
    Disable the UA cross-fade; the actual clip-path animation is driven by
    Element.animate() in hooks/useTheme.ts after transition.ready resolves. */
 ::view-transition-old(root),
@@ -116,51 +67,44 @@ html.dark {
   z-index: 2;
 }
 
-/* ── Box model ── */
 * {
   box-sizing: border-box;
 }
 
 html,
 body {
-  height: 100%;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  height: var(--app-viewport-height, 100dvh);
   margin: 0;
   padding: 0;
+  overflow: hidden;
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 14px;
   overscroll-behavior: none;
-  /* Smoother font rendering */
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
 }
 
 body {
-  height: 100dvh;
+  display: flex;
+  flex-direction: column;
 }
 
-/* ── Scrollbar ── */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 4px;
+  height: 4px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--border);
-  border-radius: 3px;
+  border-radius: 2px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-dim);
-}
-
-/* Firefox scrollbar */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
 }
 
 :root {
@@ -176,6 +120,9 @@ code {
 
 /* react-markdown output styles */
 .markdown-body {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
   font-size: 14px;
   line-height: 1.7;
   color: var(--text);
@@ -249,6 +196,13 @@ code {
 .markdown-body a:hover {
   text-decoration-color: var(--accent);
 }
+.markdown-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 8px 0;
+  border-radius: 6px;
+}
 .markdown-body .markdown-inline-code {
   background: var(--bg-subtle);
   border-radius: 5px;
@@ -263,31 +217,38 @@ code {
   list-style: none;
 }
 .markdown-body .task-list-item {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: 7px;
-  align-items: start;
-  padding-left: 0;
+  display: block;
+  position: relative;
+  padding-left: 25px;
 }
 .markdown-body .task-list-item::marker {
   content: "";
 }
-.markdown-body .task-list-item input[type="checkbox"] {
+.markdown-body .task-list-item > input[type="checkbox"],
+.markdown-body .task-list-item > p:first-child > input[type="checkbox"]:first-child {
   appearance: none;
+  position: absolute;
+  left: 0;
+  top: 0.35em;
   width: 14px;
   height: 14px;
-  margin: 5px 0 0;
+  margin: 0;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--bg);
   display: inline-grid;
   place-content: center;
 }
-.markdown-body .task-list-item input[type="checkbox"]:checked {
+.markdown-body .task-list-item > input[type="checkbox"]:checked,
+.markdown-body .task-list-item > p:first-child > input[type="checkbox"]:first-child:checked {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
   background: color-mix(in srgb, var(--accent) 10%, var(--bg));
 }
-.markdown-body .task-list-item input[type="checkbox"]:checked::before {
+.markdown-body .task-list-item > input[type="checkbox"]:checked::before,
+.markdown-body
+  .task-list-item
+  > p:first-child
+  > input[type="checkbox"]:first-child:checked::before {
   content: "";
   width: 4px;
   height: 8px;
@@ -456,6 +417,9 @@ code {
 
 .markdown-code-block {
   position: relative;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   margin: 6px 0;
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -527,6 +491,296 @@ code {
   font-size: 12px;
 }
 
+.mermaid-preview-button {
+  width: 100%;
+  border: 0;
+  color: inherit;
+  cursor: zoom-in;
+  text-align: left;
+}
+.mermaid-preview-button:hover {
+  opacity: 0.85;
+}
+.mermaid-preview-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.mermaid-zoom-dialog {
+  width: 100vw;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+.mermaid-zoom-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.35);
+}
+.mermaid-zoom-layout {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+}
+.mermaid-zoom-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 7px 10px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+.mermaid-zoom-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mermaid-zoom-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.mermaid-zoom-stepper {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+}
+.mermaid-zoom-stepper button,
+.mermaid-zoom-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.mermaid-zoom-stepper button {
+  height: 22px;
+}
+.mermaid-zoom-stepper button + .mermaid-zoom-value,
+.mermaid-zoom-value + button {
+  border-left: 1px solid var(--border);
+}
+.mermaid-zoom-icon-button {
+  flex: 0 0 24px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+.mermaid-zoom-stepper button:hover:not(:disabled),
+.mermaid-zoom-icon-button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.mermaid-zoom-stepper button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.mermaid-zoom-stepper button:focus-visible,
+.mermaid-zoom-icon-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.mermaid-zoom-value {
+  min-width: 48px;
+  height: 22px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 22px;
+  text-align: center;
+  user-select: none;
+}
+.mermaid-zoom-viewport {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px;
+  background: var(--bg);
+  -webkit-overflow-scrolling: touch;
+}
+.mermaid-zoom-canvas {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-panel);
+  margin: 0 auto;
+  transition: width 0.15s ease;
+}
+.mermaid-zoom-canvas svg {
+  display: block;
+  width: 100% !important;
+  height: auto;
+  max-width: none !important;
+}
+
+@media (max-width: 480px) {
+  .mermaid-zoom-toolbar {
+    padding-inline: 8px;
+  }
+
+  .mermaid-zoom-title {
+    font-size: 10px;
+  }
+
+  .mermaid-zoom-viewport {
+    padding: 12px;
+  }
+}
+
+/* File viewer toolbar */
+.file-viewer-toolbar {
+  min-width: 0;
+  min-height: 35px;
+}
+
+.file-viewer-path {
+  flex: 1 1 auto;
+  min-width: 48px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-viewer-meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-viewer-live-indicator {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 7px;
+}
+
+.file-viewer-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.file-viewer-actions {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  gap: 4px;
+  flex-shrink: 0;
+  order: -1;
+}
+
+.file-viewer-mode-switch {
+  display: flex;
+  height: 24px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.file-viewer-mode-button {
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.file-viewer-mode-button:first-child {
+  border-left: 0;
+}
+
+.file-viewer-mode-button:hover {
+  filter: brightness(1.08);
+}
+
+.file-viewer-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  box-sizing: border-box;
+  flex: 0 0 24px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.file-viewer-icon-button:hover {
+  background: var(--bg-hover) !important;
+  color: var(--text);
+}
+
+.file-viewer-icon-button:disabled {
+  color: var(--text-dim);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.file-viewer-icon-button:disabled:hover {
+  background: transparent !important;
+  color: var(--text-dim);
+}
+
+.file-viewer-mode-button:focus-visible,
+.file-viewer-icon-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.directory-picker-path:focus-visible {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+@media (max-width: 640px) {
+  .file-viewer-meta {
+    display: none;
+  }
+}
+
+@media (max-width: 380px) {
+  .file-viewer-toolbar {
+    gap: 6px !important;
+    padding-inline: 8px !important;
+  }
+
+  .file-viewer-mode-button {
+    padding-inline: 6px;
+  }
+}
+
 /* File viewer markdown preview — larger headings */
 .markdown-file-preview h1 {
   font-size: 1.8em;
@@ -567,44 +821,6 @@ code {
 span.linenumber {
   color: var(--text-dim) !important;
   font-style: normal !important;
-}
-
-/* Click-to-jump scroll highlight. Brief ring around the scrolled-into
-   message so the user can see WHERE the click landed. Class is added
-   by lib/scroll-into-view and removed after SCROLL_HIGHLIGHT_DURATION_MS. */
-@keyframes scroll-highlight-ring {
-  0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent);
-  }
-  20% {
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 55%, transparent);
-  }
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent);
-  }
-}
-.scroll-highlight {
-  animation: scroll-highlight-ring 1.5s ease-out;
-  border-radius: 4px;
-}
-
-/* Task row click feedback. Brief background pulse so the user sees
-   "click registered" before the chat scroll lands. Class is added
-   by InspectorTaskRow on click and removed after
-   TASK_ROW_CLICK_FEEDBACK_MS. */
-@keyframes task-row-click-flash {
-  0% {
-    background: color-mix(in srgb, var(--accent) 0%, transparent);
-  }
-  30% {
-    background: color-mix(in srgb, var(--accent) 22%, transparent);
-  }
-  100% {
-    background: color-mix(in srgb, var(--accent) 0%, transparent);
-  }
-}
-.task-row-clicked {
-  animation: task-row-click-flash 0.3s ease-out;
 }
 
 @keyframes drop-zone-in {
@@ -748,69 +964,35 @@ span.linenumber {
   }
 }
 
-@keyframes skeleton-shimmer {
-  0% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0 50%;
-  }
+/* Keep the panel border as the idle separator; this element only expands the hit target. */
+.panel-resize-handle {
+  position: relative;
+  z-index: 220;
+  width: 12px;
+  margin: 0 -6px;
+  flex: 0 0 12px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
 }
-.skeleton {
-  background: linear-gradient(
-    90deg,
-    var(--bg-hover) 25%,
-    color-mix(in srgb, var(--text-muted) 12%, transparent) 37%,
-    var(--bg-hover) 63%
-  );
-  background-size: 400% 100%;
-  animation: skeleton-shimmer 1.4s ease infinite;
+.panel-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 5px;
+  width: 2px;
+  pointer-events: none;
+  background: transparent;
+  transition: background 0.12s ease;
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .skeleton {
-    animation: none !important;
-    background: var(--bg-hover);
-  }
+.panel-resize-handle:hover::after,
+.panel-resize-handle:focus-visible::after,
+.panel-resize-handle.is-resizing::after {
+  background: color-mix(in srgb, var(--text-muted) 70%, var(--border));
 }
-
-/* ── Micro-interaction utilities ── */
-@keyframes fade-in-up {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-.animate-fade-in-up {
-  animation: fade-in-up 0.25s ease-out both;
-}
-@keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-.animate-fade-in {
-  animation: fade-in 0.2s ease-out both;
-}
-@keyframes scale-in {
-  from {
-    opacity: 0;
-    transform: scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-.animate-scale-in {
-  animation: scale-in 0.18s ease-out both;
+.right-panel-overlay-backdrop {
+  display: none;
 }
 
 /* Desktop sidebar: animate width */
@@ -822,12 +1004,12 @@ span.linenumber {
     position: relative;
     overflow: hidden;
     transition:
-      width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
-      min-width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+      width 0.2s ease,
+      min-width 0.2s ease;
   }
   .sidebar-container.sidebar-open {
-    width: 260px;
-    min-width: 260px;
+    width: var(--sidebar-width, 260px);
+    min-width: var(--sidebar-width, 260px);
   }
   .sidebar-container.sidebar-closed {
     width: 0;
@@ -836,22 +1018,26 @@ span.linenumber {
   }
   /* keep inner content at fixed width so it doesn't reflow during animation */
   .sidebar-container > * {
-    width: 260px;
-    min-width: 260px;
+    width: var(--sidebar-width, 260px);
+    min-width: var(--sidebar-width, 260px);
+  }
+  .sidebar-container.sidebar-resizing,
+  .sidebar-container.sidebar-resizing > * {
+    transition: none !important;
   }
 }
 
-/* Right panel: animate width */
-@media (min-width: 641px) {
+/* Wide desktop file panel: participate in the split layout. */
+@media (min-width: 960px) {
   .right-panel-container {
     overflow: hidden;
     transition:
-      width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
-      min-width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+      width 0.2s ease,
+      min-width 0.2s ease;
     flex-shrink: 0;
   }
   .right-panel-container.right-panel-open {
-    width: 42%;
+    width: var(--right-panel-width, clamp(360px, 42vw, 640px));
     min-width: 300px;
   }
   .right-panel-container.right-panel-closed {
@@ -861,16 +1047,56 @@ span.linenumber {
   }
   /* keep inner content at fixed width so it doesn't reflow during animation */
   .right-panel-container > * {
-    width: 42vw;
+    width: var(--right-panel-width, clamp(360px, 42vw, 640px));
     min-width: 300px;
+  }
+  .right-panel-container.right-panel-resizing,
+  .right-panel-container.right-panel-resizing > * {
+    transition: none !important;
   }
 }
 
-/* ── Reduced motion: instant panel transitions ── */
-@media (prefers-reduced-motion: reduce) {
-  .sidebar-container,
+/* Compact desktop file panel: overlay the chat instead of collapsing it. */
+@media (min-width: 641px) and (max-width: 959px) {
+  .right-panel-resize-handle {
+    display: none;
+  }
+  .right-panel-overlay-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 240;
+    display: block;
+    background: rgba(0, 0, 0, 0.24);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .right-panel-overlay-backdrop.is-open {
+    opacity: 1;
+    pointer-events: auto;
+  }
   .right-panel-container {
-    transition: none !important;
+    position: fixed;
+    top: 0;
+    right: env(safe-area-inset-right);
+    bottom: 0;
+    z-index: 250;
+    width: min(560px, calc(100vw - 48px));
+    min-width: 300px;
+    overflow: hidden;
+    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.18);
+    transition: transform 0.2s ease;
+  }
+  .right-panel-container.right-panel-open {
+    transform: translateX(0);
+  }
+  .right-panel-container.right-panel-closed {
+    transform: translateX(100%);
+    pointer-events: none;
+  }
+  .right-panel-container > * {
+    width: 100%;
+    min-width: 0;
   }
 }
 
@@ -882,10 +1108,11 @@ span.linenumber {
   .sidebar-container {
     position: fixed !important;
     top: 0;
-    left: 0;
+    left: env(safe-area-inset-left);
     bottom: 0;
     width: 280px;
     max-width: 85vw;
+    height: var(--app-viewport-height, 100dvh);
     transition:
       transform 0.25s ease,
       box-shadow 0.25s ease;
@@ -895,19 +1122,20 @@ span.linenumber {
     box-shadow: 4px 0 20px rgba(0, 0, 0, 0.15);
   }
   .sidebar-container.sidebar-closed {
-    transform: translateX(-100%);
+    transform: translateX(calc(-100% - env(safe-area-inset-left)));
     box-shadow: none;
   }
 
   .right-panel-container {
+    position: fixed;
+    inset: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
+    height: var(--app-viewport-height, 100dvh);
+    z-index: 250;
     overflow: hidden;
-    transition:
-      width 0.2s ease,
-      min-width 0.2s ease;
-    flex-shrink: 0;
+    transition: transform 0.2s ease;
   }
   .right-panel-container.right-panel-open {
-    width: 100%;
+    width: auto;
     min-width: 0;
   }
   .right-panel-container.right-panel-closed {
@@ -916,17 +1144,29 @@ span.linenumber {
     border-left: none !important;
     display: none !important;
   }
-}
-
-/* ── Accessibility ────────────────────────────────────────────────────────────
-   Global focus-visible ring for keyboard navigation. Only shows when the user
-   is navigating via keyboard (Tab/Shift+Tab), not on mouse clicks. Interactive
-   elements that already have custom focus styles should override this. */
-*:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-/* Suppress outline for mouse users */
-*:focus:not(:focus-visible) {
-  outline: none;
+  .right-panel-container > * {
+    width: 100%;
+    min-width: 0;
+  }
+  .panel-resize-handle,
+  .right-panel-overlay-backdrop {
+    display: none;
+  }
+  .directory-picker-back,
+  .directory-picker-entry,
+  .directory-picker-action {
+    min-height: 44px !important;
+  }
+  .directory-picker-back {
+    min-width: 44px !important;
+  }
+  .directory-picker-footer {
+    flex-wrap: wrap;
+    padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
+  }
+  textarea,
+  input,
+  select {
+    font-size: 16px !important;
+  }
 }

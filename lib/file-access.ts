@@ -2,6 +2,7 @@ import { readdirSync } from "fs";
 import { homedir } from "os";
 import path from "path";
 import { getAdditionalAllowedRoots, normalizeSlashes } from "./allowed-roots";
+import { isExistingPathWithinRoots } from "./path-security";
 import { listAllSessions } from "./session-reader";
 export { allowFileRoot, normalizeSlashes } from "./allowed-roots";
 
@@ -17,7 +18,9 @@ const ALLOWED_ROOTS_TTL_MS = 5_000;
 const WINDOWS_ABSOLUTE_RE = /^[a-zA-Z]:[\\/]/;
 
 export function isWindowsAbsolutePath(filePath: string): boolean {
-  return WINDOWS_ABSOLUTE_RE.test(filePath) || filePath.startsWith("\\\\") || filePath.startsWith("//");
+  return (
+    WINDOWS_ABSOLUTE_RE.test(filePath) || filePath.startsWith("\\\\") || filePath.startsWith("//")
+  );
 }
 
 export async function getAllowedFileRoots(): Promise<Set<string>> {
@@ -66,4 +69,9 @@ export function isFilePathAllowed(target: string, allowedRoots: Set<string>): bo
     }
   }
   return false;
+}
+
+/** Authorize an existing path after resolving symbolic links. */
+export function isExistingFilePathAllowed(target: string, allowedRoots: Set<string>): boolean {
+  return isExistingPathWithinRoots(target, allowedRoots);
 }

@@ -1,17 +1,29 @@
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import {
   createAgentSessionFromServices,
   createAgentSessionServices,
   getAgentDir,
+  initTheme,
   SessionManager,
+  Theme,
 } from "@earendil-works/pi-coding-agent";
+import {
+  KeybindingsManager as TuiKeybindingsManager,
+  TUI_KEYBINDINGS,
+} from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
-import { createDefaultExtensionTheme } from "./extension-theme";
-import { cacheSessionPath, resolveSessionPath } from "./session-reader";
-import { loadSessionState, recordActiveSession } from "./session-state-store";
-import { getRegistry, getLocks, notifyRunningChange } from "./session-registry";
+import { existsSync, realpathSync, writeFileSync } from "fs";
+import { resolve } from "path";
+import { validateAgentImages } from "./image-attachments";
+import { invalidateModelsCache } from "./models-cache";
+import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
+import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
+import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
+import { persistExplicitStartupPreferences } from "./startup-preferences";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
 import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
+import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS } from "./custom-ui-terminal";
 
 // ============================================================================
 // Types
@@ -65,7 +77,78 @@ type ExtensionBindingOptions = {
   forceEmptySystemPrompt?: boolean;
 };
 
+const RUNNING_STATE_EVENT_TYPES = new Set([
+  "agent_start",
+  "agent_end",
+  "agent_settled",
+  "auto_compaction_start",
+  "auto_compaction_end",
+  "compaction_start",
+  "compaction_end",
+]);
+
+const IDLE_RESET_EVENT_TYPES = new Set([
+  "agent_end",
+  "agent_settled",
+  "auto_compaction_end",
+  "compaction_end",
+]);
+
+export interface RpcSessionStartOptions {
+  toolNames?: string[];
+  initialModel?: { provider: string; modelId: string };
+  thinkingLevel?: ThinkingLevel;
+}
+
 const CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+
+// Extensions require a complete Theme, while the web UI applies its own styling.
+class PlainTextTheme extends Theme {
+  constructor() {
+    super(
+      { thinkingXhigh: "" } as ConstructorParameters<typeof Theme>[0],
+      {} as ConstructorParameters<typeof Theme>[1],
+      "truecolor",
+    );
+  }
+
+  override fg(...[, text]: Parameters<Theme["fg"]>): string {
+    return text;
+  }
+  override bg(...[, text]: Parameters<Theme["bg"]>): string {
+    return text;
+  }
+  override bold(text: string): string {
+    return text;
+  }
+  override italic(text: string): string {
+    return text;
+  }
+  override underline(text: string): string {
+    return text;
+  }
+  override inverse(text: string): string {
+    return text;
+  }
+  override strikethrough(text: string): string {
+    return text;
+  }
+  override getFgAnsi(): string {
+    return "";
+  }
+  override getBgAnsi(): string {
+    return "";
+  }
+  override getThinkingBorderColor(): (text: string) => string {
+    return (text) => text;
+  }
+  override getBashModeBorderColor(): (text: string) => string {
+    return (text) => text;
+  }
+}
+
+const PLAIN_TEXT_THEME = new PlainTextTheme();
+const CUSTOM_UI_KEYBINDINGS = new TuiKeybindingsManager(TUI_KEYBINDINGS);
 
 function withExtensionTools(session: AgentSessionLike, toolNames: string[]): string[] {
   if (toolNames.length === 0) return [];
@@ -99,21 +182,10 @@ export class AgentSessionWrapper {
   private unsubscribe: (() => void) | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private onDestroyCallback: (() => void) | null = null;
+  private shutdownPromise: Promise<void> | null = null;
   private _alive = true;
-  private readonly defaultExtensionTheme: ReturnType<typeof createDefaultExtensionTheme>;
 
-  readonly inner: AgentSessionLike;
-
-  constructor(inner: AgentSessionLike) {
-    this.inner = inner;
-    // Extensions written for pi's TUI assume the `theme` argument to
-    // `ctx.ui.custom((tui, theme, …) => …)` is a real Theme instance.
-    // Without one, `theme.bold(text)` etc. crash inside the extension's
-    // `render(width)` and surface here as
-    //   "Extension custom UI render failed: Cannot read properties of
-    //    undefined (reading 'bold')".
-    this.defaultExtensionTheme = createDefaultExtensionTheme();
-  }
+  constructor(public readonly inner: AgentSessionLike) {}
 
   get sessionId(): string {
     return this.inner.sessionId;
@@ -123,21 +195,32 @@ export class AgentSessionWrapper {
     return this.inner.sessionFile ?? "";
   }
 
+  get cwd(): string {
+    return this.inner.sessionManager.getCwd();
+  }
+
   isAlive(): boolean {
     return this._alive;
   }
 
   isRunning(): boolean {
-    return this._alive && (this.promptRunning || this.inner.isStreaming || this.inner.isCompacting);
+    return (
+      this._alive &&
+      (this.promptRunning ||
+        this.inner.isStreaming ||
+        this.inner.isCompacting ||
+        this.inner.isBashRunning)
+    );
   }
 
   start(): void {
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
-      this.resetIdleTimer();
+      if (event.type === "agent_end") {
+        invalidateSessionListCache();
+      }
+      if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
       this.emit(event);
-      // Streaming / compaction / tool events flow through here; re-broadcast
-      // the running-status snapshot so the sidebar can update live.
-      notifyRunningChange();
+      if (RUNNING_STATE_EVENT_TYPES.has(event.type)) notifyRunningChange();
     });
     this.resetIdleTimer();
     notifyRunningChange();
@@ -155,6 +238,10 @@ export class AgentSessionWrapper {
         err instanceof Error ? err.message : err,
       );
     });
+  }
+
+  async waitUntilReady(): Promise<void> {
+    await this.waitForExtensionsBound();
   }
 
   private ensureExtensionsBound(options: ExtensionBindingOptions = {}): Promise<void> {
@@ -187,8 +274,8 @@ export class AgentSessionWrapper {
               id: randomUUID(),
               method: "notify",
               notifyType: "warning",
-              message: "Extension requested shutdown, but shutdown is not supported in pi-web.",
-            }),
+              message: "Extension requested shutdown, but shutdown is not supported in Pi Web.",
+            } as ExtensionUiRequest as AgentEvent),
           onError: (error) =>
             this.emit({
               type: "extension_error",
@@ -202,7 +289,7 @@ export class AgentSessionWrapper {
       }
       this.extensionsBound = true;
       this.applyForcedEmptySystemPrompt();
-      console.warn(
+      console.log(
         `[pi-web] session_start dispatched to extensions for session ${this.inner.sessionId}`,
       );
     })().catch((err) => {
@@ -234,6 +321,7 @@ export class AgentSessionWrapper {
     try {
       return await operation();
     } finally {
+      this.resetIdleTimer();
       notifyRunningChange();
     }
   }
@@ -250,7 +338,40 @@ export class AgentSessionWrapper {
 
   private resetIdleTimer(): void {
     if (this.idleTimer) clearTimeout(this.idleTimer);
-    this.idleTimer = setTimeout(() => this.destroy(), 10 * 60 * 1000);
+    this.idleTimer = setTimeout(
+      () => {
+        if (this.isRunning()) {
+          this.resetIdleTimer();
+          return;
+        }
+        void this.shutdown().catch((error) => {
+          console.error(
+            "[pi-web] failed to shut down idle session:",
+            error instanceof Error ? error.message : error,
+          );
+        });
+      },
+      10 * 60 * 1000,
+    );
+  }
+
+  private persistBashOnlySession(): void {
+    const manager = this.inner.sessionManager;
+    const sessionFile = manager.getSessionFile();
+    if (!sessionFile || existsSync(sessionFile)) return;
+
+    const header = manager.getHeader();
+    if (!header) return;
+
+    const content =
+      [header, ...manager.getEntries()].map((entry) => JSON.stringify(entry)).join("\n") + "\n";
+    writeFileSync(sessionFile, content, { encoding: "utf8", flag: "wx" });
+
+    // Pi normally delays the first flush until an assistant message exists.
+    // A leading shell command has no assistant message, so mark this SDK
+    // manager as flushed after writing its own generated entries.
+    (manager as unknown as { flushed: boolean }).flushed = true;
+    cacheSessionPath(this.inner.sessionId, sessionFile);
   }
 
   onEvent(listener: EventListener): () => void {
@@ -271,8 +392,16 @@ export class AgentSessionWrapper {
     const type = command.type as string;
     if (this.shouldWaitForExtensions(type)) await this.waitForExtensionsBound();
 
+    if (type === "prompt" || type === "steer" || type === "follow_up") {
+      const imageError = validateAgentImages(command.images);
+      if (imageError) throw new Error(imageError);
+    }
+
     switch (type) {
       case "prompt": {
+        if (this.inner.isBashRunning) {
+          throw new Error("Cannot send a prompt while a shell command is running");
+        }
         // Fire and forget — events come via subscribe
         const promptImages = command.images as
           Array<{ type: "image"; data: string; mimeType: string }> | undefined;
@@ -287,11 +416,14 @@ export class AgentSessionWrapper {
           })
           .then(() => {
             this.promptRunning = false;
+            this.resetIdleTimer();
             if (!streamingBehavior) this.emit({ type: "prompt_done" });
             notifyRunningChange();
           })
           .catch((error) => {
             this.promptRunning = false;
+            this.resetIdleTimer();
+            invalidateSessionListCache();
             this.emit({
               type: "prompt_error",
               errorMessage: error instanceof Error ? error.message : String(error),
@@ -314,6 +446,7 @@ export class AgentSessionWrapper {
           sessionFile: this.inner.sessionFile ?? "",
           isStreaming: this.inner.isStreaming,
           isPromptRunning: this.promptRunning,
+          isBashRunning: this.inner.isBashRunning,
           isCompacting: this.inner.isCompacting,
           autoCompactionEnabled: this.inner.autoCompactionEnabled,
           autoRetryEnabled: this.inner.autoRetryEnabled,
@@ -340,14 +473,22 @@ export class AgentSessionWrapper {
 
       case "set_model": {
         const { provider, modelId } = command as { provider: string; modelId: string };
-        const registry = this.inner.modelRegistry;
-        const model = registry.find(provider, modelId);
+        let model = this.inner.modelRuntime.getModel(provider, modelId);
+        if (!model) {
+          await this.inner.modelRuntime.refresh({ allowNetwork: false });
+          model = this.inner.modelRuntime.getModel(provider, modelId);
+        }
         if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
         await this.inner.setModel(model);
+        invalidateModelsCache();
+        invalidateSessionListCache();
         return { id: model.id, provider: model.provider };
       }
 
       case "fork": {
+        if (this.inner.isBashRunning) {
+          throw new Error("Cannot fork while a shell command is running");
+        }
         const entryId = command.entryId as string;
         const sessionManager = this.inner.sessionManager;
         const currentSessionFile = this.inner.sessionFile;
@@ -376,11 +517,15 @@ export class AgentSessionWrapper {
 
         const newSessionId = SessionManager.open(newSessionFile, sessionDir).getSessionId();
         cacheSessionPath(newSessionId, newSessionFile);
-        this.destroy();
+        invalidateSessionListCache();
+        await this.shutdown();
         return { cancelled: false, newSessionId };
       }
 
       case "navigate_tree": {
+        if (this.inner.isBashRunning) {
+          throw new Error("Cannot navigate while a shell command is running");
+        }
         const result = await this.inner.navigateTree(command.targetId as string, {});
         return { cancelled: result.cancelled };
       }
@@ -399,20 +544,25 @@ export class AgentSessionWrapper {
         ) {
           this.inner.agent.state.thinkingLevel = "xhigh";
         }
+        invalidateSessionListCache();
         return null;
       }
 
       case "compact": {
-        const result = await this.withFinalRunningNotification(() =>
-          this.inner.compact(command.customInstructions as string | undefined),
-        );
-        return result;
+        try {
+          return await this.withFinalRunningNotification(() =>
+            this.inner.compact(command.customInstructions as string | undefined),
+          );
+        } finally {
+          invalidateSessionListCache();
+        }
       }
 
       case "set_session_name": {
         const name = (command.name as string | undefined)?.trim();
         if (!name) throw new Error("Session name cannot be empty");
         this.inner.setSessionName(name);
+        invalidateSessionListCache();
         return null;
       }
 
@@ -500,10 +650,7 @@ export class AgentSessionWrapper {
       case "set_tools": {
         const toolNames = command.toolNames as string[];
         this.setForceEmptySystemPrompt(toolNames.length === 0);
-        // The per-tool config panel sends the complete user-chosen tool list
-        // (built-in + extension tools), so apply it directly without re-unioning
-        // — otherwise toggling an extension tool off would immediately re-enable it.
-        this.inner.setActiveToolsByName(toolNames);
+        this.inner.setActiveToolsByName(withExtensionTools(this.inner, toolNames));
         this.applyForcedEmptySystemPrompt();
         return null;
       }
@@ -512,11 +659,13 @@ export class AgentSessionWrapper {
         await this.waitForExtensionsBound();
         this.extensionStatuses.clear();
         this.extensionWidgets.clear();
+        this.syncProjectTrust();
         await this.inner.reload();
         if (typeof this.inner.bindExtensions !== "function") {
           this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
         }
         this.applyForcedEmptySystemPrompt();
+        invalidateModelsCache();
         return { success: true };
       }
 
@@ -540,6 +689,35 @@ export class AgentSessionWrapper {
         return null;
       }
 
+      case "bash": {
+        if (
+          this.promptRunning ||
+          this.inner.isStreaming ||
+          this.inner.isCompacting ||
+          this.inner.isBashRunning
+        ) {
+          throw new Error("Cannot run a shell command while the session is busy");
+        }
+        const execution = this.inner.executeBash(command.command as string, undefined, {
+          excludeFromContext: command.excludeFromContext as boolean | undefined,
+        });
+        notifyRunningChange();
+        try {
+          const result = await execution;
+          this.persistBashOnlySession();
+          return result;
+        } finally {
+          this.resetIdleTimer();
+          invalidateSessionListCache();
+          notifyRunningChange();
+        }
+      }
+
+      case "abort_bash": {
+        this.inner.abortBash();
+        return null;
+      }
+
       default:
         throw new Error(`Unsupported command: ${type}`);
     }
@@ -549,13 +727,43 @@ export class AgentSessionWrapper {
     if (!this._alive) return;
     this._alive = false;
     if (this.idleTimer) clearTimeout(this.idleTimer);
+    if (this.inner.isBashRunning) this.inner.abortBash();
     this.unsubscribe?.();
     for (const pending of this.pendingUiResponses.values()) pending.cancel();
     for (const id of Array.from(this.activeCustomUis.keys())) this.closeCustomUi(id, undefined);
     this.pendingUiResponses.clear();
     this.pendingUiRequests.clear();
-    this.onDestroyCallback?.();
-    notifyRunningChange();
+    try {
+      this.inner.dispose();
+    } finally {
+      try {
+        this.onDestroyCallback?.();
+      } finally {
+        notifyRunningChange();
+      }
+    }
+  }
+
+  async shutdown(): Promise<void> {
+    if (this.shutdownPromise) return this.shutdownPromise;
+    if (!this._alive) return;
+
+    this.shutdownPromise = (async () => {
+      try {
+        try {
+          await this.waitForExtensionsBound();
+        } catch (error) {
+          console.error(
+            "[pi-web] extension binding failed before session shutdown:",
+            error instanceof Error ? error.message : error,
+          );
+        }
+        await this.inner.extensionRunner.emit?.({ type: "session_shutdown", reason: "quit" });
+      } finally {
+        this.destroy();
+      }
+    })();
+    return this.shutdownPromise;
   }
 
   private resolveExtensionUiResponse(response: ExtensionUiResponse): void {
@@ -573,10 +781,10 @@ export class AgentSessionWrapper {
   }
 
   private getCustomUiWidth(options: unknown): number {
-    if (!options || typeof options !== "object") return 92;
+    if (!options || typeof options !== "object") return DEFAULT_CUSTOM_UI_COLUMNS;
     const overlayOptions = (options as { overlayOptions?: unknown }).overlayOptions;
     const resolved = typeof overlayOptions === "function" ? overlayOptions() : overlayOptions;
-    if (!resolved || typeof resolved !== "object") return 92;
+    if (!resolved || typeof resolved !== "object") return DEFAULT_CUSTOM_UI_COLUMNS;
     const width = (resolved as { width?: unknown }).width;
     return typeof width === "number" && Number.isFinite(width)
       ? Math.max(40, Math.min(140, Math.round(width)))
@@ -597,7 +805,7 @@ export class AgentSessionWrapper {
       id,
       method: "custom",
       lines,
-    };
+    } as ExtensionUiRequest as AgentEvent;
     this.pendingUiRequests.set(id, event);
     this.emit(event);
   }
@@ -619,7 +827,7 @@ export class AgentSessionWrapper {
       method: "custom",
       lines: [],
       closed: true,
-    });
+    } as ExtensionUiRequest as AgentEvent);
     custom.resolve(value);
   }
 
@@ -647,42 +855,61 @@ export class AgentSessionWrapper {
     const width = this.getCustomUiWidth(options);
 
     return new Promise<T>((resolve) => {
-      const tui = {
-        requestRender: () => {
-          const custom = this.activeCustomUis.get(id);
-          if (custom) this.emitCustomUiRender(id, custom);
-        },
+      let completed = false;
+      const tui = createHeadlessCustomUiTui(() => {
+        const custom = this.activeCustomUis.get(id);
+        if (custom) this.emitCustomUiRender(id, custom);
+      }, width);
+      const finish = (value: T) => {
+        if (completed) return;
+        completed = true;
+        resolve(value);
       };
-      const done = (value: T) => this.closeCustomUi(id, value);
+      const done = (value: T) => {
+        if (this.activeCustomUis.has(id)) {
+          this.closeCustomUi(id, value);
+        } else {
+          finish(value);
+        }
+      };
 
       Promise.resolve()
-        .then(() => factory(tui, this.defaultExtensionTheme, undefined, done))
+        .then(() => factory(tui, PLAIN_TEXT_THEME, CUSTOM_UI_KEYBINDINGS, done))
         .then((component) => {
+          if (completed) {
+            try {
+              (component as CustomUiComponent | undefined)?.dispose?.();
+            } catch {
+              // Ignore dispose errors from a component completed before mounting.
+            }
+            return;
+          }
           if (
             !component ||
             typeof component !== "object" ||
             typeof (component as CustomUiComponent).render !== "function"
           ) {
-            resolve(undefined as T);
+            finish(undefined as T);
             return;
           }
           const custom: ActiveCustomUi = {
             component: component as CustomUiComponent,
             width,
-            resolve: (value) => resolve(value as T),
+            resolve: (value) => finish(value as T),
             settled: false,
           };
           this.activeCustomUis.set(id, custom);
           this.emitCustomUiRender(id, custom);
         })
         .catch((error) => {
+          if (completed) return;
           this.emit({
             type: "extension_error",
             extensionPath: `custom-ui:${id}`,
             event: "custom_ui",
             error: error instanceof Error ? error.message : String(error),
           });
-          resolve(undefined as T);
+          finish(undefined as T);
         });
     });
   }
@@ -731,7 +958,6 @@ export class AgentSessionWrapper {
   }
 
   private createExtensionUiContext(): ExtensionUiContextLike {
-    const theme = this.defaultExtensionTheme;
     return {
       select: (title, options, opts) =>
         this.requestExtensionUi(
@@ -787,7 +1013,7 @@ export class AgentSessionWrapper {
           method: "notify",
           message,
           notifyType: type,
-        });
+        } as ExtensionUiRequest as AgentEvent);
       },
       onTerminalInput: () => () => {},
       setStatus: (key, text) => {
@@ -799,7 +1025,7 @@ export class AgentSessionWrapper {
           method: "setStatus",
           statusKey: key,
           statusText: text,
-        });
+        } as ExtensionUiRequest as AgentEvent);
       },
       setWorkingMessage: () => {},
       setWorkingVisible: () => {},
@@ -823,7 +1049,7 @@ export class AgentSessionWrapper {
           widgetKey: key,
           widgetLines: content,
           widgetPlacement: options?.placement,
-        });
+        } as ExtensionUiRequest as AgentEvent);
       },
       setFooter: () => {},
       setHeader: () => {},
@@ -833,7 +1059,7 @@ export class AgentSessionWrapper {
           id: randomUUID(),
           method: "setTitle",
           title,
-        });
+        } as ExtensionUiRequest as AgentEvent);
       },
       custom: <T = unknown>(factory: unknown, options?: unknown) =>
         this.requestExtensionCustomUi<T>(factory, options),
@@ -843,7 +1069,7 @@ export class AgentSessionWrapper {
           id: randomUUID(),
           method: "set_editor_text",
           text,
-        });
+        } as ExtensionUiRequest as AgentEvent);
       },
       setEditorText: (text) => {
         this.emit({
@@ -851,20 +1077,20 @@ export class AgentSessionWrapper {
           id: randomUUID(),
           method: "set_editor_text",
           text,
-        });
+        } as ExtensionUiRequest as AgentEvent);
       },
       getEditorText: () => "",
       addAutocompleteProvider: () => {},
       setEditorComponent: () => {},
       getEditorComponent: () => undefined,
       get theme() {
-        return theme;
+        return PLAIN_TEXT_THEME;
       },
       getAllThemes: () => [],
       getTheme: () => undefined,
       setTheme: () => ({
         success: false,
-        error: "Theme switching is not supported in pi-web extension UI yet",
+        error: "Theme switching is not supported in Pi Web extension UI yet",
       }),
       getToolsExpanded: () => false,
       setToolsExpanded: () => {},
@@ -887,6 +1113,7 @@ export class AgentSessionWrapper {
       reload: async () => {
         this.extensionStatuses.clear();
         this.extensionWidgets.clear();
+        this.syncProjectTrust();
         await this.inner.reload({
           beforeSessionStart: () => {
             this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
@@ -896,68 +1123,181 @@ export class AgentSessionWrapper {
       },
     };
   }
+
+  private syncProjectTrust(): void {
+    const status = getProjectTrustStatus(this.cwd, getAgentDir());
+    this.inner.settingsManager.setProjectTrusted(status.trusted);
+  }
 }
 
 // ============================================================================
-// Session registry (extracted to session-registry.ts for testability)
+// Session registry
 // ============================================================================
-// getRegistry, getLocks, getRpcSession, subscribeRunningSessions,
-// notifyRunningChange are imported from ./session-registry.
-// AgentSessionWrapper satisfies SessionHandle structurally.
 
-/** Re-export for API route consumers. */
-export { subscribeRunningSessions } from "./session-registry";
-export { getRunningRpcSessionIds } from "./session-registry";
+declare global {
+  var __piSessions: Map<string, AgentSessionWrapper> | undefined;
+  var __piStartLocks:
+    Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> | undefined;
+  var __piStartingSessionCwds: Map<string, number> | undefined;
+  var __piRunningListeners: Set<(ids: string[]) => void> | undefined;
+}
 
-/** Typed wrapper — registry stores SessionHandle, callers get AgentSessionWrapper. */
+function getRegistry(): Map<string, AgentSessionWrapper> {
+  if (!globalThis.__piSessions) {
+    globalThis.__piSessions = new Map();
+    const cleanup = () => globalThis.__piSessions?.forEach((s) => s.destroy());
+    process.once("exit", cleanup);
+    process.once("SIGINT", cleanup);
+    process.once("SIGTERM", cleanup);
+  }
+  return globalThis.__piSessions;
+}
+
+function getLocks(): Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> {
+  if (!globalThis.__piStartLocks) globalThis.__piStartLocks = new Map();
+  return globalThis.__piStartLocks;
+}
+
+function normalizeRpcCwd(cwd: string): string {
+  const resolvedCwd = resolve(cwd);
+  try {
+    return realpathSync(resolvedCwd);
+  } catch {
+    return resolvedCwd;
+  }
+}
+
+function getStartingSessionCwds(): Map<string, number> {
+  if (!globalThis.__piStartingSessionCwds) globalThis.__piStartingSessionCwds = new Map();
+  return globalThis.__piStartingSessionCwds;
+}
+
+function trackStartingSession(cwd: string): () => void {
+  const startingCwds = getStartingSessionCwds();
+  const key = normalizeRpcCwd(cwd);
+  startingCwds.set(key, (startingCwds.get(key) ?? 0) + 1);
+  return () => {
+    const remaining = (startingCwds.get(key) ?? 1) - 1;
+    if (remaining > 0) startingCwds.set(key, remaining);
+    else startingCwds.delete(key);
+  };
+}
+
 export function getRpcSession(sessionId: string): AgentSessionWrapper | undefined {
-  return getRegistry().get(sessionId) as AgentSessionWrapper | undefined;
+  return getRegistry().get(sessionId);
 }
 
-// One-time process cleanup + sidecar restore (added to getRegistry on first call).
-let registryInitialized = false;
-function ensureRegistryInitialized(): void {
-  if (registryInitialized) return;
-  registryInitialized = true;
-  const cleanup = () => getRegistry().forEach((s) => s.destroy());
-  process.once("exit", cleanup);
-  process.once("SIGINT", cleanup);
-  process.once("SIGTERM", cleanup);
-  maybeRestore();
-  // Auto-install recommended plugins if missing (fire-and-forget).
-  void import("./plugin-auto-install").then(({ ensureRecommendedPlugins }) => {
-    void ensureRecommendedPlugins();
-  });
+export function hasBusyRpcSessionForCwd(cwd: string): boolean {
+  const targetCwd = normalizeRpcCwd(cwd);
+  if (getStartingSessionCwds().has(targetCwd)) return true;
+  return Array.from(getRegistry().values()).some(
+    (session) => normalizeRpcCwd(session.cwd) === targetCwd && session.isRunning(),
+  );
+}
+
+export async function destroyRpcSessionsForCwd(cwd: string): Promise<number> {
+  const targetCwd = normalizeRpcCwd(cwd);
+  const sessions = Array.from(getRegistry().values()).filter(
+    (session) => normalizeRpcCwd(session.cwd) === targetCwd,
+  );
+  await Promise.all(sessions.map((session) => session.shutdown()));
+  return sessions.length;
+}
+
+export function getRunningRpcSessionIds(): string[] {
+  const ids = new Set<string>();
+  for (const [sessionId, session] of getRegistry()) {
+    if (session.isRunning()) ids.add(session.sessionId || sessionId);
+  }
+  return [...ids];
+}
+
+// ----------------------------------------------------------------------------
+// Running-status broadcaster
+//
+// Pushes the current set of running session ids to subscribers whenever any
+// session's running state may have changed. This lets the sidebar receive live
+// updates over SSE instead of polling. Listeners live on globalThis so they
+// survive Next.js hot-reload.
+// ----------------------------------------------------------------------------
+
+function getRunningListeners(): Set<(ids: string[]) => void> {
+  if (!globalThis.__piRunningListeners) globalThis.__piRunningListeners = new Set();
+  return globalThis.__piRunningListeners;
+}
+
+/** Subscribe to running-session-id changes. Returns an unsubscribe function. */
+export function subscribeRunningSessions(listener: (ids: string[]) => void): () => void {
+  const listeners = getRunningListeners();
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+let lastRunningSnapshot = "";
+
+/**
+ * Recompute the running-session-id set and, if it changed since the last
+ * notification, broadcast it to subscribers.
+ */
+export function notifyRunningChange(): void {
+  const listeners = getRunningListeners();
+  if (listeners.size === 0) {
+    // A future subscriber receives its own initial snapshot. Clear this one so
+    // its first state transition cannot match stale state from an old listener.
+    lastRunningSnapshot = "";
+    return;
+  }
+  const ids = getRunningRpcSessionIds();
+  const snapshot = JSON.stringify([...ids].sort());
+  if (snapshot === lastRunningSnapshot) return;
+  lastRunningSnapshot = snapshot;
+  for (const listener of listeners) {
+    try {
+      listener(ids);
+    } catch {
+      /* ignore listener errors */
+    }
+  }
 }
 
 /**
  * Get or create an AgentSession for the given session.
  * For new sessions (sessionFile === ""), pi generates its own id.
- * Pass toolNames to pre-configure active tools (empty array = all tools disabled).
+ * New sessions resolve enabledModels before construction so the initial model,
+ * thinking pin, and SDK scopedModels share one settings snapshot.
+ * Pass options.toolNames to pre-configure active tools (empty = all disabled).
  */
 export async function startRpcSession(
   sessionId: string,
   sessionFile: string,
-  cwd: string,
-  toolNames?: string[],
+  cwd: string | undefined,
+  options: RpcSessionStartOptions = {},
 ): Promise<{ session: AgentSessionWrapper; realSessionId: string }> {
-  ensureRegistryInitialized();
+  const { toolNames, initialModel, thinkingLevel } = options;
   const registry = getRegistry();
   const locks = getLocks();
 
   const existing = registry.get(sessionId);
-  if (existing?.isAlive())
-    return { session: existing as AgentSessionWrapper, realSessionId: sessionId };
+  if (existing?.isAlive()) return { session: existing, realSessionId: sessionId };
 
   const inflight = locks.get(sessionId);
-  if (inflight) return inflight as Promise<{ session: AgentSessionWrapper; realSessionId: string }>;
+  if (inflight) return inflight;
 
+  let sessionManager: SessionManager;
+  if (sessionFile) {
+    sessionManager = SessionManager.open(sessionFile, undefined);
+  } else {
+    if (!cwd) throw new Error("cwd is required for a new session");
+    sessionManager = SessionManager.create(cwd, undefined);
+  }
+  const sessionCwd = sessionManager.getCwd();
+  const finishStartingSession = trackStartingSession(sessionCwd);
   const starting = (async () => {
+    // Some extensions access the SDK's global theme even outside the terminal UI.
+    initTheme();
     const agentDir = getAgentDir();
-
-    const sessionManager = sessionFile
-      ? SessionManager.open(sessionFile, undefined)
-      : SessionManager.create(cwd, undefined);
 
     // Determine which tools to pass based on requested toolNames.
     // Since v0.68.0, session creation expects string[] tool names instead of Tool[] instances.
@@ -967,7 +1307,7 @@ export async function startRpcSession(
       // Otherwise DO NOT pass a builtin-only allow-list: passing CODING_TOOL_NAMES
       // set allowedToolNames to coding builtins only, which filtered every
       // extension/package-provided tool (e.g. subagents, web access) out of the
-      // tool registry — so they were unavailable in pi-web sessions even though the
+      // tool registry — so they were unavailable in Pi Web sessions even though the
       // `pi` CLI keeps them. Leaving the allow-list unset lets the SDK register all
       // tools (and activate extension tools); we narrow the ACTIVE set below.
       toolsOption = toolNames.length === 0 ? [] : undefined;
@@ -975,16 +1315,60 @@ export async function startRpcSession(
 
     // Build services first so extension-registered providers are available
     // before the SDK restores the saved model from the session file.
-    const services = await createAgentSessionServices({ cwd, agentDir });
+    // Gate untrusted project extensions so opening a repository does not run
+    // its .pi/extensions code automatically (see lib/project-trust.ts, #236).
+    const trustReloadOptions = projectTrustReloadOptions(sessionCwd, agentDir);
+    const services = await createAgentSessionServices({
+      cwd: sessionCwd,
+      agentDir,
+      ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
+    });
+    const scope = await resolveVisibleModels(
+      services.modelRuntime,
+      services.settingsManager.getEnabledModels(),
+    );
+    const defaultProvider = services.settingsManager.getDefaultProvider();
+    const defaultModelId = services.settingsManager.getDefaultModel();
+    const hasExistingMessages = sessionManager
+      .getBranch()
+      .some((entry) => entry.type === "message");
+    const initial = hasExistingMessages
+      ? { scopedModels: [...scope.scopedModels] }
+      : selectInitialModelScope(scope, {
+          ...(initialModel ? { requestedModel: initialModel } : {}),
+          ...(defaultProvider && defaultModelId
+            ? { defaultModel: { provider: defaultProvider, modelId: defaultModelId } }
+            : {}),
+          ...(thinkingLevel ? { thinkingLevel } : {}),
+        });
     const { session: inner } = await createAgentSessionFromServices({
       services,
       sessionManager,
+      ...(initial.model ? { model: initial.model } : {}),
+      ...(initial.thinkingLevel ? { thinkingLevel: initial.thinkingLevel } : {}),
+      ...(initial.scopedModels.length > 0 ? { scopedModels: initial.scopedModels } : {}),
       ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
     });
 
+    const persistedPreferences = await persistExplicitStartupPreferences(
+      services.settingsManager,
+      {
+        ...(initialModel ? { model: initialModel } : {}),
+        ...(thinkingLevel ? { thinkingLevel } : {}),
+      },
+      {
+        ...(inner.model
+          ? { model: { provider: inner.model.provider, modelId: inner.model.id } }
+          : {}),
+        thinkingLevel: inner.thinkingLevel,
+        supportsThinking: inner.supportsThinking(),
+      },
+    );
+    if (persistedPreferences.modelDefaultChanged) invalidateModelsCache();
+
     // If specific tool names were requested (non-empty), set the active tools to the
     // requested builtin coding tools PLUS all extension/package tools, so installed
-    // extensions stay usable in pi-web just like in the `pi` CLI.
+    // extensions stay usable in Pi Web just like in the `pi` CLI.
     if (toolNames && toolNames.length > 0) {
       inner.setActiveToolsByName(withExtensionTools(inner, toolNames));
     }
@@ -1006,51 +1390,12 @@ export async function startRpcSession(
     registry.set(realSessionId, wrapper);
     wrapper.beginExtensionBinding({ forceEmptySystemPrompt: toolNames?.length === 0 });
 
-    // Persist to sidecar so this session can be pre-warmed after a process restart.
-    recordActiveSession(realSessionId, toolNames?.length === 0);
-
     return { session: wrapper, realSessionId };
-  })();
+  })().finally(() => {
+    locks.delete(sessionId);
+    finishStartingSession();
+  });
 
-  // Set the lock BEFORE the IIFE can yield — prevents concurrent callers from
-  // passing the inflight check above and creating duplicate sessions.
   locks.set(sessionId, starting);
-  return starting.finally(() => locks.delete(sessionId));
-}
-
-// ----------------------------------------------------------------------------
-// Restart recovery — pre-warm recently active sessions from the sidecar.
-//
-// Called once (lazily) when the registry is first accessed after a process
-// restart. Fire-and-forget: failures don't block the app from starting.
-// ----------------------------------------------------------------------------
-
-let restoreStarted = false;
-
-export async function restoreActiveSessions(): Promise<void> {
-  const state = loadSessionState();
-  // Only pre-warm the 5 most recent — avoids heavy I/O on startup.
-  const recent = [...state.activeSessions].sort((a, b) => b.lastActive - a.lastActive).slice(0, 5);
-
-  for (const entry of recent) {
-    try {
-      const filePath = await resolveSessionPath(entry.sessionId);
-      if (!filePath) continue; // session deleted from disk — skip
-      const cwd = SessionManager.open(filePath).getHeader()?.cwd;
-      if (!cwd) continue;
-      // toolNames=undefined lets the SDK restore the saved tool set from .jsonl;
-      // we re-apply toolsDisabled separately via setForceEmptySystemPrompt.
-      const { session } = await startRpcSession(entry.sessionId, filePath, cwd, undefined);
-      if (entry.toolsDisabled) session.setForceEmptySystemPrompt(true);
-    } catch {
-      // Individual session restore failure is non-fatal — skip and continue.
-    }
-  }
-}
-
-/** Lazy trigger: runs restoreActiveSessions exactly once on first registry access. */
-function maybeRestore(): void {
-  if (restoreStarted) return;
-  restoreStarted = true;
-  void restoreActiveSessions();
+  return starting;
 }

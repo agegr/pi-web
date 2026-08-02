@@ -2,15 +2,21 @@
 "use strict";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { spawn, execSync } = require("child_process");
+const { getUnsupportedNodeVersionMessage, isNodeVersionSupported } = require("./node-version");
+
+if (!isNodeVersionSupported(process.versions.node)) {
+  console.error(getUnsupportedNodeVersionMessage(process.versions.node));
+  process.exit(1);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { spawn } = require("child_process");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require("path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fs = require("fs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const os = require("os");
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { parseArgs } = require("util");
+const { parseLaunchOptions } = require("./pi-web-options");
 
 const pkgDir = path.join(__dirname, "..");
 const nextDir = path.join(pkgDir, ".next");
@@ -30,233 +36,45 @@ try {
   }
 }
 
-const { values: cliArgs, positionals } = parseArgs({
-  options: {
-    port: { type: "string", short: "p" },
-    hostname: { type: "string", short: "H" },
-  },
-  allowPositionals: true,
-  strict: false,
-});
+const { port, hostname, openBrowser } = parseLaunchOptions();
+const loopbackHostnames = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+const passwordEnabled = Boolean(process.env.PI_WEB_PASSWORD);
 
-const port = cliArgs.port ?? process.env.PORT ?? "30141";
-const hostname = cliArgs.hostname ?? process.env.HOSTNAME ?? null;
-const subcommand = positionals[0]; // "install" | "uninstall" | undefined (= start)
-
-// ============================================================================
-// Subcommands: install / uninstall — register pi-web as a system service so it
-// auto-starts on login and restarts on crash. Linux uses a systemd user unit;
-// macOS uses a launchd plist.
-// ============================================================================
-
-const SERVICE_NAME = "pi-web";
-const LABEL = "com.pi-web";
-
-/** Absolute path to this bin script — used as ExecStart in service files. */
-function binAbsPath() {
-  // process.argv[1] is the script path when invoked via node; __dirname is a
-  // reliable fallback for bundled/packed scenarios.
-  return fs.realpathSync(process.argv[1] || __filename);
-}
-
-/** Run a shell command, throwing on failure with a readable message. */
-function run(cmd, opts) {
-  try {
-    return execSync(cmd, { stdio: "pipe", ...opts })
-      .toString()
-      .trim();
-  } catch (e) {
-    const stderr = e.stderr ? e.stderr.toString().trim() : e.message;
-    throw new Error(`Command failed: ${cmd}\n${stderr}`);
-  }
-}
-
-function installLinux(port) {
-  const systemdDir = path.join(os.homedir(), ".config", "systemd", "user");
-  const unitFile = path.join(systemdDir, `${SERVICE_NAME}.service`);
-  fs.mkdirSync(systemdDir, { recursive: true });
-
-  const execStart = `${binAbsPath()} start -p ${port}`;
-  const unit = [
-    "[Unit]",
-    "Description=Pi Agent Web",
-    "After=network.target",
-    "",
-    "[Service]",
-    "Type=simple",
-    `ExecStart=${execStart}`,
-    "Restart=on-failure",
-    "RestartSec=3",
-    "Environment=NODE_ENV=production",
-    "",
-    "[Install]",
-    "WantedBy=default.target",
-    "",
-  ].join("\n");
-
-  fs.writeFileSync(unitFile, unit, "utf8");
-  console.log(`Written ${unitFile}`);
-
-  run("systemctl --user daemon-reload");
-  run(`systemctl --user enable ${SERVICE_NAME}`);
-  run(`systemctl --user restart ${SERVICE_NAME}`);
-
-  // Enable lingering so the user service runs even when not logged in.
-  try {
-    run(`loginctl enable-linger ${os.userInfo().username}`);
-    console.log("Enabled lingering (service runs without active login).");
-  } catch {
-    console.warn("Could not enable linger — service will only run while you are logged in.");
-  }
-
-  console.log(`\n✓ pi-web installed. Auto-starts on login, restarts on crash.`);
-  console.log(`  Status:  systemctl --user status ${SERVICE_NAME}`);
-  console.log(`  Stop:    systemctl --user stop ${SERVICE_NAME}`);
-  console.log(`  Logs:    journalctl --user -u ${SERVICE_NAME} -f`);
-}
-
-function uninstallLinux() {
-  try {
-    run(`systemctl --user stop ${SERVICE_NAME}`);
-  } catch {
-    /* not running */
-  }
-  try {
-    run(`systemctl --user disable ${SERVICE_NAME}`);
-  } catch {
-    /* not enabled */
-  }
-
-  const unitFile = path.join(os.homedir(), ".config", "systemd", "user", `${SERVICE_NAME}.service`);
-  if (fs.existsSync(unitFile)) {
-    fs.unlinkSync(unitFile);
-    console.log(`Removed ${unitFile}`);
-  }
-  run("systemctl --user daemon-reload");
-  console.log("\n✓ pi-web uninstalled.");
-}
-
-function installMac(port) {
-  const plistDir = path.join(os.homedir(), "Library", "LaunchAgents");
-  const plistFile = path.join(plistDir, `${LABEL}.plist`);
-  fs.mkdirSync(plistDir, { recursive: true });
-
-  const binPath = binAbsPath();
-  const plist = [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
-    '<plist version="1.0">',
-    "<dict>",
-    `  <key>Label</key><string>${LABEL}</string>`,
-    "  <key>ProgramArguments</key>",
-    "  <array>",
-    `    <string>${binPath}</string>`,
-    "    <string>start</string>",
-    "    <string>-p</string>",
-    `    <string>${port}</string>`,
-    "  </array>",
-    "  <key>RunAtLoad</key><true/>",
-    "  <key>KeepAlive</key><true/>",
-    "  <key>StandardOutPath</key><string>/tmp/pi-web.log</string>",
-    "  <key>StandardErrorPath</key><string>/tmp/pi-web.err.log</string>",
-    "</dict>",
-    "</plist>",
-    "",
-  ].join("\n");
-
-  fs.writeFileSync(plistFile, plist, "utf8");
-  console.log(`Written ${plistFile}`);
-
-  try {
-    run(`launchctl unload ${plistFile}`);
-  } catch {
-    /* not loaded */
-  }
-  run(`launchctl load ${plistFile}`);
-  console.log(`\n✓ pi-web installed. Auto-starts on login, restarts on crash.`);
-  console.log(`  Status:  launchctl list | grep ${LABEL}`);
-  console.log(`  Stop:    launchctl unload ${plistFile}`);
-  console.log(`  Logs:    tail -f /tmp/pi-web.log`);
-}
-
-function uninstallMac() {
-  const plistFile = path.join(os.homedir(), "Library", "LaunchAgents", `${LABEL}.plist`);
-  try {
-    run(`launchctl unload ${plistFile}`);
-  } catch {
-    /* not loaded */
-  }
-  if (fs.existsSync(plistFile)) {
-    fs.unlinkSync(plistFile);
-    console.log(`Removed ${plistFile}`);
-  }
-  console.log("\n✓ pi-web uninstalled.");
-}
-
-// ============================================================================
-// Main
-// ============================================================================
-
-if (subcommand === "install") {
-  if (!fs.existsSync(nextDir)) {
-    console.error(
-      "Build artifacts not found. Run `pi-web` once first (or `npm run build`), then `pi-web install`.",
-    );
-    process.exit(1);
-  }
-  try {
-    if (process.platform === "darwin") installMac(port);
-    else if (process.platform === "linux") installLinux(port);
-    else {
-      console.error(`Auto-start is not supported on ${process.platform}.`);
-      process.exit(1);
-    }
-  } catch (e) {
-    console.error(e.message);
-    process.exit(1);
-  }
-  process.exit(0);
-}
-
-if (subcommand === "uninstall") {
-  try {
-    if (process.platform === "darwin") uninstallMac();
-    else if (process.platform === "linux") uninstallLinux();
-    else {
-      console.error(`Auto-start is not supported on ${process.platform}.`);
-      process.exit(1);
-    }
-  } catch (e) {
-    console.error(e.message);
-    process.exit(1);
-  }
-  process.exit(0);
-}
-
-// Default: start the server (original behavior, unchanged)
 if (!fs.existsSync(nextDir)) {
   console.error("Build artifacts not found. Please report this issue.");
   process.exit(1);
 }
 
+if (!loopbackHostnames.has(hostname)) {
+  if (passwordEnabled) {
+    console.warn(
+      `Warning: pi-web is listening on ${hostname} with Basic Auth over HTTP. Use HTTPS or a trusted VPN to protect the password in transit.`,
+    );
+  } else {
+    console.warn(
+      `Warning: pi-web is listening on ${hostname} without authentication. Only use this on a trusted network.`,
+    );
+  }
+}
+
 const nextArgs = ["start", "-p", port];
-if (hostname) nextArgs.push("-H", hostname);
+nextArgs.push("-H", hostname);
 
 // Always run next's JS entry with node directly — avoids .bin symlink issues
 // and path-with-spaces problems on Windows when shell: true is used.
 const child = spawn(process.execPath, [nextBin, ...nextArgs], {
   cwd: pkgDir,
   stdio: ["inherit", "pipe", "inherit"],
-  env: { ...process.env },
+  env: { ...process.env, PI_WEB_HOSTNAME: hostname },
 });
 
 let browserOpened = false;
-const url = `http://${hostname ?? "localhost"}:${port}`;
+const url = `http://${hostname}:${port}`;
 
 child.stdout.on("data", (chunk) => {
   const text = chunk.toString();
   process.stdout.write(text);
-  if (!browserOpened && text.includes("Ready")) {
+  if (openBrowser && !browserOpened && text.includes("Ready")) {
     browserOpened = true;
     const isWindows = process.platform === "win32";
     const isMac = process.platform === "darwin";

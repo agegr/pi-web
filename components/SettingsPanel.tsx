@@ -712,11 +712,11 @@ export function SettingsPanel({
                 {t("settings.languageEn")}
               </button>
               <button
-                onClick={() => setLocale("zh")}
+                onClick={() => setLocale("zh-CN")}
                 style={{
                   ...segBtnStyle,
-                  background: locale === "zh" ? "var(--bg-selected)" : "none",
-                  color: locale === "zh" ? "var(--text)" : "var(--text-muted)",
+                  background: locale === "zh-CN" ? "var(--bg-selected)" : "none",
+                  color: locale === "zh-CN" ? "var(--text)" : "var(--text-muted)",
                 }}
               >
                 {t("settings.languageZh")}

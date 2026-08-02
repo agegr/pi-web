@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
-import { join, dirname } from "path";
+import { existsSync, mkdirSync, readFileSync } from "fs";
+import { dirname, join } from "path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { writePrivateFileAtomicSync } from "@/lib/atomic-file";
+import { invalidateModelsCache } from "@/lib/models-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +25,7 @@ function writeModelsJson(data: Record<string, unknown>): void {
   const path = getModelsPath();
   const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(path, JSON.stringify(data, null, 2), "utf8");
+  writePrivateFileAtomicSync(path, JSON.stringify(data, null, 2));
 }
 
 export async function GET() {
@@ -34,7 +36,7 @@ export async function PUT(req: Request) {
   try {
     const body = (await req.json()) as Record<string, unknown>;
     writeModelsJson(body);
-    // Model registry refreshes on each /api/models request (no local cache to invalidate)
+    invalidateModelsCache();
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

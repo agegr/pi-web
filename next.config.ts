@@ -14,14 +14,13 @@ try {
 }
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["@earendil-works/pi-coding-agent", "@earendil-works/pi-ai"],
-  // Reduce client JS size and skip shipping source maps in production
-  productionBrowserSourceMaps: false,
-  poweredByHeader: false,
-  compress: true,
-  reactStrictMode: true,
-  // Optimize CSS: Tailwind v4 handles this automatically, but the explicit
-  // config ensures Next.js applies its own CSS optimizations in prod builds.
+  serverExternalPackages: [
+    "undici",
+    "@earendil-works/pi-coding-agent",
+    "@earendil-works/pi-agent-core",
+    "@earendil-works/pi-ai",
+    "@earendil-works/pi-tui",
+  ],
   allowedDevOrigins: [
     "192.168.*.*",
     "10.*.*.*",
@@ -71,6 +70,19 @@ const nextConfig: NextConfig = {
     result.push({
       source: "/",
       headers: [{ key: "Cache-Control", value: "private, no-cache, max-age=0, must-revalidate" }],
+    });
+
+    // PWA service worker + manifest (from upstream v0.8.x)
+    result.push({
+      source: "/sw.js",
+      headers: [
+        { key: "Cache-Control", value: "public, max-age=0, must-revalidate" },
+        { key: "Service-Worker-Allowed", value: "/" },
+      ],
+    });
+    result.push({
+      source: "/manifest.webmanifest",
+      headers: [{ key: "Cache-Control", value: "public, max-age=0, must-revalidate" }],
     });
 
     // Security headers

@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 const ANSI_ESCAPE_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g;
 const ANSI_ESCAPE_AT_START_RE = /^\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/;
 const ANSI_SGR_RE = /\x1B\[([0-9;]*)m/g;
+const TUI_CURSOR_MARKER_RE = /\x1B_pi:c\x07/g;
 
 const ANSI_8_COLORS = [
   "#1f2937",
@@ -32,7 +33,7 @@ export interface AnsiSegment {
 }
 
 export function stripAnsi(text: string): string {
-  return text.replace(ANSI_ESCAPE_RE, "");
+  return text.replace(TUI_CURSOR_MARKER_RE, "").replace(ANSI_ESCAPE_RE, "");
 }
 
 function visibleCharPositions(text: string): Array<{ start: number; end: number; char: string }> {
@@ -89,10 +90,11 @@ export function normalizeCustomPanelLines(lines: string[]): string[] {
   const normalized: string[] = [];
 
   for (const rawLine of lines) {
-    const plain = stripAnsi(rawLine).trimEnd();
+    const lineWithoutCursor = rawLine.replace(TUI_CURSOR_MARKER_RE, "");
+    const plain = stripAnsi(lineWithoutCursor).trimEnd();
     if (horizontalFrameLine.test(plain)) continue;
 
-    let line = rawLine;
+    let line = lineWithoutCursor;
     const first = firstVisibleChar(line);
     if (first === "│" || first === "┃") {
       line = removeVisibleCharAt(line, 0);

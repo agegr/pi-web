@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render as tlRender, screen, fireEvent, waitFor } from "@testing-library/react";
 import { PinCurrentDirButton } from "./PinCurrentDirButton";
 import { mockFetchSequence } from "@/lib/test-fetch-mock";
+import { I18nProvider } from "@/hooks/useI18n";
+
+function renderWithI18n(ui: React.ReactElement) {
+  return tlRender(<I18nProvider>{ui}</I18nProvider>);
+}
 
 /**
  * PinCurrentDirButton — small icon button that pins/unpins the user's
@@ -28,28 +33,28 @@ describe("PinCurrentDirButton", () => {
   });
 
   it("renders the pin affordance when cwd is set and not pinned", () => {
-    render(
+    renderWithI18n(
       <PinCurrentDirButton cwd="/Users/me/projects/x" isPinned={false} onPinnedChange={() => {}} />,
     );
     expect(screen.getByRole("button", { name: /pin this directory/i })).toBeInTheDocument();
   });
 
   it("renders the unpin affordance when already pinned", () => {
-    render(
+    renderWithI18n(
       <PinCurrentDirButton cwd="/Users/me/projects/x" isPinned={true} onPinnedChange={() => {}} />,
     );
     expect(screen.getByRole("button", { name: /unpin this directory/i })).toBeInTheDocument();
   });
 
   it("is disabled when cwd is null (nothing to pin)", () => {
-    render(<PinCurrentDirButton cwd={null} isPinned={false} onPinnedChange={() => {}} />);
+    renderWithI18n(<PinCurrentDirButton cwd={null} isPinned={false} onPinnedChange={() => {}} />);
     expect(screen.getByRole("button")).toBeDisabled();
   });
 
   it("click on pin POSTs /api/pinned-dirs and emits the bus", async () => {
     mockFetchSequence([{ body: { pinnedDir: { path: "/Users/me/projects/x", pinnedAt: 0 } } }]);
     const onPinnedChange = vi.fn();
-    render(
+    renderWithI18n(
       <PinCurrentDirButton
         cwd="/Users/me/projects/x"
         isPinned={false}
@@ -72,7 +77,7 @@ describe("PinCurrentDirButton", () => {
   it("click on unpin DELETEs /api/pinned-dirs and emits the bus", async () => {
     mockFetchSequence([{ body: { removed: true } }]);
     const onPinnedChange = vi.fn();
-    render(
+    renderWithI18n(
       <PinCurrentDirButton
         cwd="/Users/me/projects/x"
         isPinned={true}
@@ -94,7 +99,7 @@ describe("PinCurrentDirButton", () => {
   it("rolls back optimistic toggle when the API rejects", async () => {
     mockFetchSequence([{ body: { error: "boom" }, status: 500 }]);
     const onPinnedChange = vi.fn();
-    render(
+    renderWithI18n(
       <PinCurrentDirButton
         cwd="/Users/me/projects/x"
         isPinned={false}
@@ -112,7 +117,7 @@ describe("PinCurrentDirButton", () => {
 
   it("does not POST when cwd is null even if clicked", async () => {
     mockFetchSequence([]);
-    render(<PinCurrentDirButton cwd={null} isPinned={false} onPinnedChange={() => {}} />);
+    renderWithI18n(<PinCurrentDirButton cwd={null} isPinned={false} onPinnedChange={() => {}} />);
     const btn = screen.getByRole("button");
     expect(btn).toBeDisabled();
     // disabled buttons don't fire click in jsdom's fireEvent, but even if

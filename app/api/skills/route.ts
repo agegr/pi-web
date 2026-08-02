@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server";
 import { existsSync, readFileSync, writeFileSync } from "fs";
-import { resolve } from "path";
-import {
-  DefaultResourceLoader,
-  getAgentDir,
-  parseFrontmatter,
-} from "@earendil-works/pi-coding-agent";
-import { getAllowedFileRoots, isFilePathAllowed } from "@/lib/file-access";
+import { homedir } from "os";
+import path from "path";
+import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { loadSkillsWithInstallInfo } from "@/lib/skills-service";
+import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 
 export const dynamic = "force-dynamic";
 
@@ -19,10 +17,11 @@ export async function GET(req: Request) {
   if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
 
   try {
-    const loader = new DefaultResourceLoader({ cwd, agentDir: getAgentDir() });
-    await loader.reload();
-    const { skills, diagnostics } = loader.getSkills();
-    return NextResponse.json({ skills, diagnostics });
+    const allowedRoots = await getAllowedFileRoots();
+    if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    }
+    return NextResponse.json(await loadSkillsWithInstallInfo(cwd));
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
@@ -34,21 +33,21 @@ export async function PATCH(req: Request) {
     const body = (await req.json()) as { filePath: string; disableModelInvocation: boolean };
     const { filePath, disableModelInvocation } = body;
     if (!filePath) return NextResponse.json({ error: "filePath required" }, { status: 400 });
-
-    // Prevent path traversal: only allow files within allowed roots
-    const resolved = resolve(filePath);
-    const allowedRoots = await getAllowedFileRoots();
-    if (!isFilePathAllowed(resolved, allowedRoots)) {
-      // Also allow files under the agent dir itself (for user-scoped skills)
-      const agentDir = resolve(getAgentDir());
-      if (!resolved.startsWith(agentDir)) {
-        return NextResponse.json({ error: "forbidden" }, { status: 403 });
-      }
-    }
-    if (!existsSync(resolved))
+    if (!existsSync(filePath))
       return NextResponse.json({ error: "file not found" }, { status: 404 });
+    const allowedRoots = new Set(await getAllowedFileRoots());
+    allowedRoots.add(getAgentDir());
+    // Globally installed skills live in ~/.agents/skills and are symlinked into
+    // the agent's skills dir; isExistingFilePathAllowed resolves the symlink, so
+    // the real target sits outside getAgentDir(). Allow the global skills root
+    // too (the SDK always treats ~/.agents/skills as trusted).
+    const globalSkillsDir = path.join(homedir(), ".agents", "skills");
+    if (existsSync(globalSkillsDir)) allowedRoots.add(globalSkillsDir);
+    if (!isExistingFilePathAllowed(filePath, allowedRoots)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    }
 
-    const content = readFileSync(resolved, "utf8");
+    const content = readFileSync(filePath, "utf8");
     const key = "disable-model-invocation";
 
     // Use parseFrontmatter to check current value, then do a surgical line edit
@@ -67,7 +66,7 @@ export async function PATCH(req: Request) {
       updated = content.replace(new RegExp(`^${key}\\s*:.*\\r?\\n`, "m"), "");
     }
 
-    writeFileSync(resolved, updated, "utf8");
+    writeFileSync(filePath, updated, "utf8");
     return NextResponse.json({ success: true });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

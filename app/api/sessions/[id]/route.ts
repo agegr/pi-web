@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
 import { readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
-import { join } from "path";
+import { dirname, join } from "path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   resolveSessionPath,
+  resolveSessionIdByPath,
   invalidateSessionPathCache,
+  invalidateSessionListCache,
   buildSessionContext,
-  listAllSessions,
+  readSessionHeader,
 } from "@/lib/session-reader";
+import { sessionPathKey } from "@/lib/session-path";
 import { getRpcSession } from "@/lib/rpc-manager";
 
 // BranchNavigator still traverses recursively, so keep the response tree shallow.
@@ -117,7 +120,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const entries = sm.getEntries() as never;
     const leafId = sm.getLeafId();
     const tree = projectTreeForResponse(sm.getTree());
-    const context = buildSessionContext(entries, leafId);
+    const searchParams = new URL(req.url).searchParams;
+    const deferThinking = searchParams.has("deferThinking");
+    const deferToolResultImages = searchParams.has("deferMedia");
+    const context = buildSessionContext(entries, leafId, { deferThinking, deferToolResultImages });
 
     const header = sm.getHeader();
     let modified = header?.timestamp ?? new Date().toISOString();
@@ -126,8 +132,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     } catch {
       /* use header timestamp */
     }
-    const allSessions = await listAllSessions();
-    const parentSessionId = allSessions.find((s) => s.id === id)?.parentSessionId;
+    const parentSessionId = header?.parentSession
+      ? await resolveSessionIdByPath(header.parentSession)
+      : undefined;
     const info = header
       ? {
           path: filePath,
@@ -155,18 +162,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         }
       : null;
 
-    const url = new URL(req.url);
-    let agentState: { running: boolean; state?: unknown } | undefined;
-    if (url.searchParams.has("includeState")) {
-      const rpc = getRpcSession(id);
-      if (rpc?.isAlive()) {
-        const state = await rpc.send({ type: "get_state" });
-        agentState = { running: true, state };
-      } else {
-        agentState = { running: false };
-      }
-    }
-
     return NextResponse.json({
       sessionId: id,
       filePath,
@@ -174,7 +169,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       leafId,
       tree,
       context,
-      ...(agentState !== undefined ? { agentState } : {}),
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
@@ -195,6 +189,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
     const sm = SessionManager.open(filePath);
     sm.appendSessionInfo(name.trim());
+    invalidateSessionListCache();
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
@@ -210,22 +205,16 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    // Read header before deleting to get parentSession path
-    const firstLine = readFileSync(filePath, "utf8").split("\n")[0];
-    let parentSessionPath: string | undefined;
-    try {
-      const header = JSON.parse(firstLine) as { type?: string; parentSession?: string };
-      if (header.type === "session") parentSessionPath = header.parentSession;
-    } catch {
-      /* ignore */
-    }
+    // Read only the bounded header before deleting.
+    const parentSessionPath = readSessionHeader(filePath)?.parentSession;
 
     // Re-attach all direct children to this session's parent (cascade re-parent)
     // Scan sibling files in the same directory
-    const dir = filePath.replace(/\\/g, "/").split("/").slice(0, -1).join("/");
+    const targetPathKey = sessionPathKey(filePath);
+    const dir = dirname(filePath);
     try {
       const files = readdirSync(dir).filter(
-        (f) => f.endsWith(".jsonl") && join(dir, f) !== filePath,
+        (file) => file.endsWith(".jsonl") && sessionPathKey(join(dir, file)) !== targetPathKey,
       );
       for (const file of files) {
         const childPath = join(dir, file);
@@ -233,7 +222,11 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
           const content = readFileSync(childPath, "utf8");
           const lines = content.split("\n");
           const header = JSON.parse(lines[0]) as { type?: string; parentSession?: string };
-          if (header.type === "session" && header.parentSession === filePath) {
+          if (
+            header.type === "session" &&
+            header.parentSession &&
+            sessionPathKey(header.parentSession) === targetPathKey
+          ) {
             // Rewrite header with new parentSession
             header.parentSession = parentSessionPath;
             lines[0] = JSON.stringify(header);
@@ -247,9 +240,10 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       /* skip if dir unreadable */
     }
 
-    getRpcSession(id)?.destroy();
+    await getRpcSession(id)?.shutdown();
     unlinkSync(filePath);
     invalidateSessionPathCache(id);
+    invalidateSessionListCache();
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

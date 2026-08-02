@@ -13,7 +13,12 @@ export function isEmptyThinkingBlock(
   block: AssistantContentBlock,
   options: DisplayOptions = {},
 ): block is ThinkingContent {
-  return block.type === "thinking" && !options.isStreaming && block.thinking.trim() === "";
+  return (
+    block.type === "thinking" &&
+    !block.deferred &&
+    !options.isStreaming &&
+    block.thinking.trim() === ""
+  );
 }
 
 export function getDisplayableAssistantBlocks(
@@ -21,6 +26,14 @@ export function getDisplayableAssistantBlocks(
   options: DisplayOptions = {},
 ): AssistantContentBlock[] {
   return (message.content ?? []).filter((block) => !isEmptyThinkingBlock(block, options));
+}
+
+export function getAssistantErrorMessage(
+  message: AssistantMessage,
+  options: DisplayOptions = {},
+): string | null {
+  if (options.isStreaming || message.stopReason !== "error") return null;
+  return message.errorMessage?.trim() || "Unknown provider error";
 }
 
 function isFinalAnswerBlock(block: AssistantContentBlock): boolean {

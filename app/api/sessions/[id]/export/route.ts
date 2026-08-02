@@ -37,9 +37,10 @@ function encodeHeaderValue(value: string): string {
   );
 }
 
-function getAttachmentDisposition(fileName: string): string {
+function getContentDisposition(fileName: string, inline: boolean): string {
   const fallback = fileName.replace(/[^\x20-\x7E]|["\\;\r\n]/g, "_") || "session.html";
-  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeHeaderValue(fileName)}`;
+  const disposition = inline ? "inline" : "attachment";
+  return `${disposition}; filename="${fallback}"; filename*=UTF-8''${encodeHeaderValue(fileName)}`;
 }
 
 async function getPiCliPath(): Promise<string | null> {
@@ -236,8 +237,9 @@ async function exportSession(filePath: string, outputPath: string): Promise<void
   await exportFromFile(filePath, outputPath);
 }
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const inline = new URL(req.url).searchParams.get("inline") === "1";
 
   try {
     const filePath = await resolveSessionPath(id);
@@ -260,8 +262,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       return new Response(patchedHtml, {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
-          "Content-Disposition": getAttachmentDisposition(fileName),
+          "Content-Disposition": getContentDisposition(fileName, inline),
           "Cache-Control": "no-cache",
+          "Content-Security-Policy": "frame-ancestors 'none'",
+          "X-Content-Type-Options": "nosniff",
+          "X-Frame-Options": "DENY",
         },
       });
     } finally {

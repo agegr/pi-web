@@ -1,137 +1,154 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useMemo, lazy } from "react";
-import type { ReactNode } from "react";
-import * as React from "react";
-import * as ReactDOM from "react-dom";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar } from "./SessionSidebar";
-import { ChatWindow, type ChatWindowHandle } from "./ChatWindow";
+import { ChatWindow } from "./ChatWindow";
+import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
-import { McpConfigPanel } from "./McpConfigPanel";
-import { WebSearchConfigPanel } from "./WebSearchConfigPanel";
-import { SubagentsPanel } from "./SubagentsPanel";
-import { SubagentBadge } from "./SubagentBadge";
-import { TokenUsageIndicator } from "./TokenUsageIndicator";
-import { LazyLoader } from "./LazyLoader";
-
-// Lazy-loaded: these heavy config panels and the file viewer are only
-// needed when explicitly opened by the user. This reduces initial bundle size.
-const FileViewer = lazy(() => import("./FileViewer").then((m) => ({ default: m.FileViewer })));
-const ModelsConfig = lazy(() =>
-  import("./ModelsConfig").then((m) => ({ default: m.ModelsConfig })),
-);
-const SkillsConfig = lazy(() =>
-  import("./SkillsConfig").then((m) => ({ default: m.SkillsConfig })),
-);
-const PluginsConfig = lazy(() =>
-  import("./PluginsConfig").then((m) => ({ default: m.PluginsConfig })),
-);
-const InspectorPanel = lazy(() =>
-  import("./InspectorPanel").then((m) => ({ default: m.InspectorPanel })),
-);
-import { ExtensionsConfig } from "./ExtensionsConfig";
-import { AgentsConfig } from "./AgentsConfig";
-import { SettingsPanel } from "./SettingsPanel";
-import { CommandPalette } from "./CommandPalette";
+import { ModelsConfig } from "./ModelsConfig";
+import { SkillsConfig } from "./SkillsConfig";
+import { PluginsConfig } from "./PluginsConfig";
+import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { BranchNavigator } from "./BranchNavigator";
-import { Icons } from "./Icons";
-import { useIsMobile } from "@/hooks/useIsMobile";
+import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
-import { useExtensions } from "@/hooks/useExtensions";
-import { usePersistentState } from "@/hooks/usePersistentState";
-import { useAgentRuntime } from "@/lib/agent-runtime-store";
-import { translate } from "@/lib/i18n";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { useViewportHeight } from "@/hooks/useViewportHeight";
+import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
-import { buildAtMentionText } from "@/lib/file-fuzzy";
+import {
+  buildAtMentionText,
+  buildFileAtMentionsText,
+  buildFileLineMentionText,
+} from "@/lib/file-fuzzy";
+import { getInitialNavigation } from "@/lib/initial-navigation";
+import {
+  getDefaultRightPanelWidth,
+  getRightPanelMaxWidth,
+  getSidebarMaxWidth,
+  RIGHT_PANEL_FALLBACK_WIDTH,
+  RIGHT_PANEL_MAX_WIDTH,
+  RIGHT_PANEL_MIN_WIDTH,
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+} from "@/lib/panel-layout";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
+import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
-import { SUPPORTED_TOKEN_USAGE_PROVIDERS } from "@/lib/token-usage";
-import { useConfiguredProviders } from "@/hooks/useConfiguredProviders";
 
 type SessionCopyField = "file" | "id";
+type AutoNameStatus =
+  { kind: "idle" } | { kind: "naming" } | { kind: "success" } | { kind: "error"; message: string };
+
+const TOP_BAR_ICON_BUTTON_SIZE = 36;
+const LANGUAGE_MENU_WIDTH = 176;
 
 export function AppShell() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [initialNavigation] = useState(() => getInitialNavigation(searchParams));
+  const { isDark, toggleTheme } = useTheme();
+  const { locale, setLocale, t: translate, supportedLocales } = useI18n();
   const isMobile = useIsMobile();
-  const { locale, t } = useI18n();
-  const { getActions, getActionDisabledReason, getWorkspacePanels, extensions } = useExtensions();
-  const { configured: configuredProviders, loading: providersLoading } = useConfiguredProviders();
-  const runtime = useAgentRuntime();
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [extensionsConfigOpen, setExtensionsConfigOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [agentsConfigOpen, setAgentsConfigOpen] = useState(false);
-
-  // Expose React on window so extension modules (loaded via dynamic import) share
-  // the same React instance — otherwise hooks break across instance boundaries.
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      (window as unknown as { React: typeof React }).React = React;
-      (window as unknown as { ReactDOM: typeof ReactDOM }).ReactDOM = ReactDOM;
-    }
-  }, []);
-
-  // Cmd+K / Ctrl+K to open the command palette.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setCommandPaletteOpen((v) => !v);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  useViewportHeight();
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
   // When user clicks +, we only store the cwd — no fake session id
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
+  const [initialCwdStatus, setInitialCwdStatus] = useState<
+    "idle" | "validating" | "ready" | "error"
+  >(() => (initialNavigation.requestedCwd ? "validating" : "idle"));
+  const [initialCwdError, setInitialCwdError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [pluginsRefreshKey, setPluginsRefreshKey] = useState(0);
-  // extensionRenderKey is intentionally unused as a value — bumping it just
-  // forces a normal AppShell re-render so extension panels re-run their
-  // badge/visible/render() callbacks. (Previously this used the global
-  // sessionKey which forced a full ChatWindow remount — wildly over budget.)
-  const [, setExtensionRenderKey] = useState(0);
+  const [sessionKey, setSessionKey] = useState(0);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [modelsConfigOpen, setModelsConfigOpen] = useState(false);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [pluginsConfigOpen, setPluginsConfigOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = usePersistentState<boolean>("sidebar-open", true);
+  const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
+  const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
+  const [projectTrustBusy, setProjectTrustBusy] = useState(false);
+  const [projectTrustError, setProjectTrustError] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
+  const sidebarWidthRef = useRef(SIDEBAR_DEFAULT_WIDTH);
+  const rightPanelWidthRef = useRef(RIGHT_PANEL_FALLBACK_WIDTH);
+  const getResponsiveRightPanelWidth = useCallback(
+    () =>
+      typeof window === "undefined"
+        ? RIGHT_PANEL_FALLBACK_WIDTH
+        : getDefaultRightPanelWidth(window.innerWidth),
+    [],
+  );
+  const getResponsiveSidebarMaxWidth = useCallback(
+    () =>
+      typeof window === "undefined"
+        ? SIDEBAR_MAX_WIDTH
+        : getSidebarMaxWidth({
+            viewportWidth: window.innerWidth,
+            rightPanelOpen,
+            rightPanelWidth: rightPanelWidthRef.current,
+          }),
+    [rightPanelOpen],
+  );
+  const getResponsiveRightPanelMaxWidth = useCallback(
+    () =>
+      typeof window === "undefined"
+        ? RIGHT_PANEL_MAX_WIDTH
+        : getRightPanelMaxWidth({
+            viewportWidth: window.innerWidth,
+            sidebarOpen,
+            sidebarWidth: sidebarWidthRef.current,
+          }),
+    [sidebarOpen],
+  );
+  const sidebarResizer = useResizablePanel({
+    ariaLabel: translate("layout.resizeSidebar"),
+    cssVariable: "--sidebar-width",
+    defaultWidth: SIDEBAR_DEFAULT_WIDTH,
+    getMaxWidth: getResponsiveSidebarMaxWidth,
+    growthDirection: "right",
+    maxWidth: SIDEBAR_MAX_WIDTH,
+    minWidth: SIDEBAR_MIN_WIDTH,
+    storageKey: "pi-sidebar-width",
+    widthRef: sidebarWidthRef,
+  });
+  const rightPanelResizer = useResizablePanel({
+    ariaLabel: translate("layout.resizeFilePanel"),
+    cssVariable: "--right-panel-width",
+    defaultWidth: RIGHT_PANEL_FALLBACK_WIDTH,
+    getDefaultWidth: getResponsiveRightPanelWidth,
+    getMaxWidth: getResponsiveRightPanelMaxWidth,
+    growthDirection: "left",
+    maxWidth: RIGHT_PANEL_MAX_WIDTH,
+    minWidth: RIGHT_PANEL_MIN_WIDTH,
+    storageKey: "pi-right-panel-width",
+    widthRef: rightPanelWidthRef,
+  });
+  const reclampSidebarWidth = sidebarResizer.reclampWidth;
+  const reclampRightPanelWidth = rightPanelResizer.reclampWidth;
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
   // is visible on load. Runs once the breakpoint resolves after hydration.
   useEffect(() => {
     if (isMobile) setSidebarOpen(false);
-  }, [isMobile, setSidebarOpen]);
+  }, [isMobile]);
   useEffect(() => {
     setMobileSidebarReady(true);
   }, []);
-  const chatInputRef = useRef<ChatInputHandle | null>(null);
-  // Holds the imperative ChatWindow handle (currently: scrollToEntry).
-  // Populated by ChatWindow via useImperativeHandle on the ref we pass
-  // down (ref={...}, standard React forwardRef pattern).
-  const chatWindowRef = useRef<ChatWindowHandle | null>(null);
-  const topBarRef = useRef<HTMLDivElement>(null);
-
-  // ── Keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      // Ctrl+J / Cmd+J → focus chat input
-      if ((e.ctrlKey || e.metaKey) && e.key === "j") {
-        e.preventDefault();
-        // The ChatInput exposes a ref; focus its textarea via the DOM
-        const textarea = document.querySelector<HTMLTextAreaElement>("[data-chat-input-textarea]");
-        textarea?.focus();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
+    if (!rightPanelOpen) return;
+    reclampSidebarWidth();
+    reclampRightPanelWidth();
+  }, [reclampRightPanelWidth, reclampSidebarWidth, rightPanelOpen]);
+  const chatInputRef = useRef<ChatInputHandle | null>(null);
+  const topBarRef = useRef<HTMLDivElement>(null);
+  const languageBtnRef = useRef<HTMLButtonElement>(null);
 
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
   const [branchTree, setBranchTree] = useState<SessionTreeNode[]>([]);
@@ -164,6 +181,10 @@ export function AppShell() {
 
   // Session stats (tokens + cost) — populated by ChatWindow, displayed in top bar
   const [sessionStats, setSessionStats] = useState<SessionStatsInfo | null>(null);
+  const [autoNameStatus, setAutoNameStatus] = useState<AutoNameStatus>({ kind: "idle" });
+  const autoNameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeSessionIdRef = useRef<string | null>(selectedSession?.id ?? null);
+  activeSessionIdRef.current = selectedSession?.id ?? null;
   const handleSessionStatsChange = useCallback((stats: SessionStatsInfo | null) => {
     setSessionStats(stats);
   }, []);
@@ -180,6 +201,7 @@ export function AppShell() {
   useEffect(() => {
     return () => {
       if (sessionCopyTimerRef.current) clearTimeout(sessionCopyTimerRef.current);
+      if (autoNameTimerRef.current) clearTimeout(autoNameTimerRef.current);
     };
   }, []);
 
@@ -198,9 +220,8 @@ export function AppShell() {
 
   // Single active panel — only one dropdown open at a time
   const [activeTopPanel, setActiveTopPanel] = useState<
-    "branches" | "system" | "session" | "panels" | "subagents" | null
+    "branches" | "system" | "session" | "language" | null
   >(null);
-  const [activePanelTab, setActivePanelTab] = useState<"mcp" | "web-search">("mcp");
   const [topPanelPos, setTopPanelPos] = useState<{
     top: number;
     left: number;
@@ -208,89 +229,49 @@ export function AppShell() {
   } | null>(null);
 
   const toggleTopPanel = useCallback(
-    (panel: "branches" | "system" | "session" | "panels" | "subagents") => {
+    (panel: "branches" | "system" | "session" | "language") => {
       if (isMobile) setSidebarOpen(false);
       setActiveTopPanel((cur) => (cur === panel ? null : panel));
     },
-    [isMobile, setSidebarOpen],
+    [isMobile],
   );
-
-  // Stable callback for SubagentBadge — keeps the badge's React.memo effective
-  // when AppShell re-renders for unrelated reasons (modal toggles, etc.).
-  const openSubagentsPanel = useCallback(() => toggleTopPanel("subagents"), [toggleTopPanel]);
-
-  // Stable callback for BranchNavigator (memo'd).
-  const toggleBranchesPanel = useCallback(() => toggleTopPanel("branches"), [toggleTopPanel]);
-
-  // Stable callbacks for InspectorPanel — same rationale: the panel is
-  // memo'd, so these need stable identity across AppShell re-renders.
-  // Defined later (after the relevant state is declared) since they close
-  // over setTodoSidebarOpen and chatWindowRef.
 
   const openSessionStatsPanel = useCallback(() => {
     if (isMobile) setSidebarOpen(false);
     setActiveTopPanel("session");
-  }, [isMobile, setSidebarOpen]);
+  }, [isMobile]);
 
   const handleSidebarToggle = useCallback(() => {
     if (isMobile) setActiveTopPanel(null);
     setSidebarOpen((open) => !open);
-  }, [isMobile, setSidebarOpen]);
+  }, [isMobile]);
 
   useEffect(() => {
     if (!activeTopPanel || !topBarRef.current) return;
-    const bar = topBarRef.current;
     const update = () => {
-      const el = topBarRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      setTopPanelPos({ top: rect.bottom, left: rect.left, width: rect.width });
+      const topBarRect = topBarRef.current!.getBoundingClientRect();
+      if (activeTopPanel === "language" && !isMobile && languageBtnRef.current) {
+        const buttonRect = languageBtnRef.current.getBoundingClientRect();
+        const width = Math.min(LANGUAGE_MENU_WIDTH, topBarRect.width);
+        const left = Math.min(
+          buttonRect.left - 1,
+          Math.max(topBarRect.left, topBarRect.right - width),
+        );
+        setTopPanelPos({ top: topBarRect.bottom, left, width });
+        return;
+      }
+      setTopPanelPos({ top: topBarRect.bottom, left: topBarRect.left, width: topBarRect.width });
     };
     update();
     const ro = new ResizeObserver(update);
-    ro.observe(bar);
+    ro.observe(topBarRef.current);
+    if (languageBtnRef.current) ro.observe(languageBtnRef.current);
     return () => ro.disconnect();
-  }, [activeTopPanel]);
+  }, [activeTopPanel, isMobile]);
 
   // Right panel — file tabs only
-  const [fileTabs, setFileTabs] = usePersistentState<Tab[]>("file-tabs", []);
-  const [activeFileTabId, setActiveFileTabId] = usePersistentState<string | null>(
-    "active-file-tab-id",
-    null,
-  );
-  const [rightPanelOpen, setRightPanelOpen] = usePersistentState<boolean>(
-    "right-panel-open",
-    false,
-  );
-  const [todoSidebarOpen, setTodoSidebarOpen] = usePersistentState<boolean>(
-    "todo-sidebar-open",
-    false,
-  );
-
-  // Stable callbacks for InspectorPanel (memo'd) — keep these refs stable so
-  // the panel doesn't re-render on unrelated AppShell state changes.
-  const toggleTodoSidebar = useCallback(() => setTodoSidebarOpen((v) => !v), [setTodoSidebarOpen]);
-  const scrollChatToEntry = useCallback(
-    (entryId: string) => {
-      chatWindowRef.current?.scrollToEntry(entryId);
-    },
-    [], // chatWindowRef is a stable ref — empty deps, callback never changes
-  );
-
-  // Reconcile persisted UI state after load: if the persisted active tab no
-  // longer exists (user closed it, file was deleted, etc.), drop the pointer.
-  // Also closes the right panel if its tab list became empty.
-  useEffect(() => {
-    if (fileTabs.length === 0) {
-      if (activeFileTabId !== null) setActiveFileTabId(null);
-      if (rightPanelOpen) setRightPanelOpen(false);
-      return;
-    }
-    if (activeFileTabId && !fileTabs.some((t) => t.id === activeFileTabId)) {
-      setActiveFileTabId(fileTabs[fileTabs.length - 1].id);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileTabs]);
+  const [fileTabs, setFileTabs] = useState<Tab[]>([]);
+  const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
 
   // Same @mention format as the chat input's @ autocomplete, so the agent's
   // read tool resolves it the same way (it strips the @ prefix).
@@ -298,71 +279,76 @@ export function AppShell() {
     chatInputRef.current?.insertText(buildAtMentionText(relativePath, isDir));
   }, []);
 
-  // Stable callback used by extension panels to ask AppShell to re-evaluate
-  // their badge/visible/render outputs. Previously this bumped a global
-  // sessionKey that remounted ChatWindow (~1100-line subtree) — wildly
-  // disproportionate. Now it bumps a dedicated counter that only triggers
-  // a normal AppShell re-render (which is what extension panels actually
-  // need to re-run their render() callbacks).
-  const requestExtensionRender = useCallback(() => {
-    setExtensionRenderKey((k) => k + 1);
+  const handleAtMentions = useCallback((relativePaths: string[]) => {
+    const mentions = buildFileAtMentionsText(relativePaths);
+    if (mentions) chatInputRef.current?.insertText(mentions);
   }, []);
 
-  const [initialSessionId] = useState<string | null>(() => searchParams.get("session"));
+  const handleFileLineMention = useCallback(
+    (relativePath: string, startLine: number, endLine: number) => {
+      chatInputRef.current?.insertText(buildFileLineMentionText(relativePath, startLine, endLine));
+    },
+    [],
+  );
+
+  const initialSessionId = initialNavigation.sessionId;
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
-  // Build the shared extension runtime state (agent data injected for extensions).
-  // Each piece is memoized independently so identity stays stable across renders
-  // that don't change it — otherwise extension panels that receive these as
-  // `state={extState}` re-render on every AppShell render (AppShell owns ~12
-  // useState hooks that fire on sidebar/panel toggles, so this happens a lot).
-  const extSession = useMemo(
-    () =>
-      selectedSession
-        ? { id: selectedSession.id, cwd: selectedSession.cwd, name: selectedSession.name }
-        : null,
-    [selectedSession],
-  );
-  const activeToolNames = useMemo(
-    () => runtime.tools.filter((t) => t.active).map((t) => t.name),
-    [runtime.tools],
-  );
-  const extStats = useMemo(
-    () =>
-      runtime.sessionStats
-        ? {
-            totalMessages: runtime.sessionStats.totalMessages,
-            toolCalls: runtime.sessionStats.toolCalls,
-            tokens: { total: runtime.sessionStats.tokens.total },
-            cost: runtime.sessionStats.cost,
-          }
-        : null,
-    [runtime.sessionStats],
-  );
-  const extState = useMemo(
-    () => ({
-      selectedSession: extSession,
-      selectedCwd: activeCwd ?? newSessionCwd ?? null,
-      agentRunning: runtime.agentRunning,
-      activeTools: activeToolNames,
-      sessionStats: extStats,
-    }),
-    [extSession, activeCwd, newSessionCwd, runtime.agentRunning, activeToolNames, extStats],
-  );
+  const activeProjectRootRef = useRef<string | null>(null);
   // True once the initial ?session= URL param has been resolved (or confirmed absent)
   const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(
-    () => !searchParams.get("session"),
+    () => !initialSessionId,
   );
-  // Suppresses the redundant ChatWindow remount that would come from the
-  // onCwdChange effect firing after setSelectedCwd in the sidebar during the
-  // initial URL restore (since chatWindowKey is derived from session/cwd,
-  // triggering both updates in quick succession would remount ChatWindow twice).
+  // Suppresses sessionKey bump in handleCwdChange during the initial URL restore
   const suppressCwdBumpRef = useRef(false);
+
+  useEffect(() => {
+    const requestedCwd = initialNavigation.requestedCwd;
+    if (!requestedCwd) return;
+
+    const controller = new AbortController();
+    setInitialCwdStatus("validating");
+    setInitialCwdError(null);
+
+    void fetch("/api/cwd/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: requestedCwd }),
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const data = (await response.json().catch(() => ({}))) as { cwd?: string; error?: string };
+        if (!response.ok || !data.cwd) {
+          throw new Error(data.error ?? `HTTP ${response.status}`);
+        }
+
+        // The sidebar will notify us when it adopts this cwd. Avoid remounting
+        // the just-created empty chat during that initial synchronization.
+        suppressCwdBumpRef.current = true;
+        setNewSessionCwd(data.cwd);
+        setInitialCwdStatus("ready");
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setInitialCwdError(error instanceof Error ? error.message : String(error));
+        setInitialCwdStatus("error");
+      });
+
+    return () => controller.abort();
+  }, [initialNavigation]);
 
   const handleCwdChange = useCallback(
     (cwd: string | null, projectRoot?: string | null) => {
       setActiveCwd(cwd);
-      // Skip if cwd is null (initial mount) or during the initial URL restore.
+      // Skip if cwd is null (initial mount).
       if (!cwd) return;
+      const newProject = projectRoot ?? cwd;
+      const currentProject =
+        activeProjectRootRef.current ??
+        (selectedSession ? (selectedSession.projectRoot ?? selectedSession.cwd) : null);
+      activeProjectRootRef.current = newProject;
+
+      // Keep the project identity in sync during the initial URL restore without
+      // remounting the just-created or restored chat.
       if (suppressCwdBumpRef.current) {
         suppressCwdBumpRef.current = false;
         return;
@@ -370,8 +356,7 @@ export function AppShell() {
       // Worktrees of one repo share a project root. Moving the effective cwd
       // within the same project (e.g. switching worktree, or clicking a session
       // that lives in another worktree) must not close the open session.
-      const newProject = projectRoot ?? cwd;
-      if (selectedSession && (selectedSession.projectRoot ?? selectedSession.cwd) === newProject) {
+      if (currentProject === newProject) {
         return;
       }
       // Close any session that belongs to a different project — it no longer
@@ -381,10 +366,19 @@ export function AppShell() {
         if (prev && prev !== cwd) return null;
         return prev;
       });
+      setSessionKey((k) => k + 1);
       setBranchTree([]);
       setBranchActiveLeafId(null);
       setSystemPrompt(null);
       setActiveTopPanel(null);
+      // File tabs are keyed by absolute path, so tabs opened in the previous
+      // project would otherwise linger after switching to a different project.
+      // Reached only past the same-project early return above, so worktrees of
+      // one repo keep their open tabs. Mirror handleCloseFileTab and close the
+      // now-empty right panel.
+      setFileTabs([]);
+      setActiveFileTabId(null);
+      setRightPanelOpen(false);
       router.replace("/", { scroll: false });
     },
     [router, selectedSession],
@@ -394,12 +388,13 @@ export function AppShell() {
     (session: SessionInfo, isRestore = false) => {
       setNewSessionCwd(null);
       setSelectedSession(session);
+      setSessionKey((k) => k + 1);
       setSystemPrompt(null);
       setInitialSessionRestored(true);
       // On mobile, collapse the overlay drawer so the chat is revealed after pick.
       if (isMobile && !isRestore) setSidebarOpen(false);
       if (isRestore) {
-        // Suppress the redundant ChatWindow remount that would come from the
+        // Suppress the redundant sessionKey bump that would come from the
         // onCwdChange effect firing after setSelectedCwd in the sidebar
         suppressCwdBumpRef.current = true;
       }
@@ -409,13 +404,14 @@ export function AppShell() {
         router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
       }
     },
-    [router, isMobile, setSidebarOpen],
+    [router, isMobile],
   );
 
   const handleNewSession = useCallback(
     (_sessionId: string, cwd: string) => {
       setSelectedSession(null);
       setNewSessionCwd(cwd);
+      setSessionKey((k) => k + 1);
       setBranchTree([]);
       setBranchActiveLeafId(null);
       setSystemPrompt(null);
@@ -423,8 +419,14 @@ export function AppShell() {
       if (isMobile) setSidebarOpen(false);
       router.replace("/", { scroll: false });
     },
-    [router, isMobile, setSidebarOpen],
+    [router, isMobile],
   );
+
+  // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
+  useGlobalKeyboardShortcuts({
+    onNewSession: (cwd: string) => handleNewSession(`kb-${Date.now()}`, cwd),
+    activeCwd,
+  });
 
   // Client-built transient SessionInfo (new session / fork) lacks the
   // server-computed projectRoot, which the same-project check in
@@ -460,9 +462,54 @@ export function AppShell() {
     setExplorerRefreshKey((k) => k + 1);
   }, []);
 
+  const handleAutoName = useCallback(async () => {
+    const sessionId = selectedSession?.id;
+    if (!sessionId || autoNameStatus.kind === "naming") return;
+    if (autoNameTimerRef.current) clearTimeout(autoNameTimerRef.current);
+    setActiveTopPanel(null);
+    setAutoNameStatus({ kind: "naming" });
+
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/auto-name`, {
+        method: "POST",
+      });
+      const body = (await response.json().catch(() => ({}))) as { title?: string; error?: string };
+      if (!response.ok || !body.title) {
+        throw new Error(body.error || `HTTP ${response.status}`);
+      }
+
+      const title = body.title.trim();
+      setRefreshKey((key) => key + 1);
+      if (activeSessionIdRef.current !== sessionId) return;
+      setSelectedSession((current) =>
+        current?.id === sessionId ? { ...current, name: title } : current,
+      );
+      setSessionStats((current) =>
+        current?.sessionId === sessionId ? { ...current, sessionName: title } : current,
+      );
+      setAutoNameStatus({ kind: "success" });
+      autoNameTimerRef.current = setTimeout(() => setAutoNameStatus({ kind: "idle" }), 1800);
+    } catch (error) {
+      if (activeSessionIdRef.current !== sessionId) return;
+      const message = error instanceof Error ? error.message : String(error);
+      setAutoNameStatus({ kind: "error", message });
+      autoNameTimerRef.current = setTimeout(() => setAutoNameStatus({ kind: "idle" }), 5000);
+    }
+  }, [autoNameStatus.kind, selectedSession?.id]);
+
+  useEffect(() => {
+    if (autoNameTimerRef.current) clearTimeout(autoNameTimerRef.current);
+    setAutoNameStatus({ kind: "idle" });
+  }, [selectedSession?.id]);
+
+  const handleExplorerRefresh = useCallback(() => {
+    setExplorerRefreshKey((k) => k + 1);
+  }, []);
+
   const handleSessionForked = useCallback(
     (newSessionId: string) => {
       setRefreshKey((k) => k + 1);
+      setSessionKey((k) => k + 1);
       setNewSessionCwd(null);
       setSelectedSession((prev) => ({
         ...(prev ?? {
@@ -492,6 +539,7 @@ export function AppShell() {
         const cwd = selectedSession.cwd;
         setSelectedSession(null);
         setNewSessionCwd(cwd ?? null);
+        setSessionKey((k) => k + 1);
         setBranchTree([]);
         setBranchActiveLeafId(null);
         setSystemPrompt(null);
@@ -503,25 +551,52 @@ export function AppShell() {
   );
 
   const handleOpenFile = useCallback(
-    (filePath: string, fileName: string, sourceSessionId?: string | null) => {
+    (
+      filePath: string,
+      fileName: string,
+      options?: { sourceSessionId?: string | null; modeHint?: "diff" },
+    ) => {
+      const sourceSessionId = options?.sourceSessionId;
+      const modeHint = options?.modeHint;
       const tabId = `file:${filePath}`;
       setFileTabs((prev) => {
         const existing = prev.find((t) => t.id === tabId);
-        if (!existing) return [...prev, { id: tabId, label: fileName, filePath, sourceSessionId }];
-        if (!sourceSessionId || existing.sourceSessionId === sourceSessionId) return prev;
-        return prev.map((t) => (t.id === tabId ? { ...t, sourceSessionId } : t));
+        if (!existing) {
+          return [
+            ...prev,
+            {
+              id: tabId,
+              label: fileName,
+              filePath,
+              sourceSessionId,
+              initialDisplayMode: modeHint,
+            },
+          ];
+        }
+        const sourceUnchanged = !sourceSessionId || existing.sourceSessionId === sourceSessionId;
+        const modeUnchanged = !modeHint || existing.initialDisplayMode === modeHint;
+        if (sourceUnchanged && modeUnchanged) return prev;
+        return prev.map((t) => {
+          if (t.id !== tabId) return t;
+          const next: Tab = { ...t };
+          if (sourceSessionId) next.sourceSessionId = sourceSessionId;
+          if (modeHint) next.initialDisplayMode = modeHint;
+          return next;
+        });
       });
       setActiveFileTabId(tabId);
       setRightPanelOpen(true);
       // On mobile the file panel is full-screen; close the drawer so it shows.
       if (isMobile) setSidebarOpen(false);
     },
-    [isMobile, setFileTabs, setActiveFileTabId, setRightPanelOpen, setSidebarOpen],
+    [isMobile],
   );
 
   const handleOpenLinkedFile = useCallback(
     (filePath: string) => {
-      handleOpenFile(filePath, getFileName(filePath), selectedSession?.id ?? null);
+      handleOpenFile(filePath, getFileName(filePath), {
+        sourceSessionId: selectedSession?.id ?? null,
+      });
     },
     [handleOpenFile, selectedSession?.id],
   );
@@ -539,63 +614,85 @@ export function AppShell() {
         return remaining.length > 0 ? remaining[remaining.length - 1].id : null;
       });
     },
-    [fileTabs, setFileTabs, setActiveFileTabId, setRightPanelOpen],
+    [fileTabs],
   );
 
-  /** Open an extension panel as a tab in the right-side panel area. */
-  const handleOpenExtensionPanel = useCallback(
-    (qualifiedId: string, title: string, icon?: ReactNode) => {
-      const tabId = `ext:${qualifiedId}`;
-      setFileTabs((prev) => {
-        const existing = prev.find((t) => t.id === tabId);
-        if (!existing)
-          return [
-            ...prev,
-            { id: tabId, label: title, kind: "extension" as const, extensionId: qualifiedId, icon },
-          ];
-        return prev;
-      });
-      setActiveFileTabId(tabId);
-      setRightPanelOpen(true);
-      if (isMobile) setSidebarOpen(false);
-    },
-    [isMobile, setFileTabs, setActiveFileTabId, setRightPanelOpen, setSidebarOpen],
-  );
-
-  const handleExportSession = useCallback(() => {
+  const handleViewFullHistory = useCallback(() => {
     if (!selectedSession) return;
-    window.location.href = `/api/sessions/${encodeURIComponent(selectedSession.id)}/export`;
+    window.open(
+      `/api/sessions/${encodeURIComponent(selectedSession.id)}/export?inline=1`,
+      "_blank",
+      "noopener,noreferrer",
+    );
   }, [selectedSession]);
 
   // Show chat area if a session is selected, or if we have a cwd to start a new session in
-  // Memoized so React.memo'd children that depend on these stay stable when
-  // unrelated state (modal toggles, refresh counters, etc.) changes.
-  const effectiveNewSessionCwd = useMemo(
-    () => newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null),
-    [newSessionCwd, selectedSession, activeCwd],
-  );
+  const effectiveNewSessionCwd =
+    newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
   const showChat = selectedSession !== null || effectiveNewSessionCwd !== null;
+  const projectTrustCwd = selectedSession?.cwd ?? effectiveNewSessionCwd;
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat;
 
-  const activeFileTab = useMemo(
-    () => fileTabs.find((t) => t.id === activeFileTabId) ?? null,
-    [fileTabs, activeFileTabId],
-  );
+  useEffect(() => {
+    setProjectTrust(null);
+    setProjectTrustDialogOpen(false);
+    setProjectTrustError(null);
+    if (!projectTrustCwd) return;
 
-  // ChatWindow's key. Previously this was a counter (sessionKey) bumped on
-  // *any* session-touching action, which forced ChatWindow to fully unmount
-  // and remount — expensive (1110-line subtree, 1618-line useAgentSession
-  // hook, EventSource teardown/setup, scroll/draft state reset). Using the
-  // session id (or cwd for new sessions) as the key means the remount only
-  // happens when the actual session identity changes; lighter operations
-  // like plugin reload use pluginsRefreshKey instead and refresh tools
-  // in-place via a useEffect (see hooks/useAgentSession.ts).
-  const chatWindowKey = useMemo(
-    () =>
-      selectedSession?.id ?? (effectiveNewSessionCwd ? `new:${effectiveNewSessionCwd}` : "empty"),
-    [selectedSession?.id, effectiveNewSessionCwd],
-  );
+    const controller = new AbortController();
+    fetch(`/api/project-trust?cwd=${encodeURIComponent(projectTrustCwd)}`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const data = (await response.json()) as ProjectTrustStatus & { error?: string };
+        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+        setProjectTrust(data);
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        console.error("Failed to load project trust:", error);
+      });
+    return () => controller.abort();
+  }, [projectTrustCwd]);
+
+  const handleTrustProject = useCallback(async () => {
+    if (!projectTrustCwd || projectTrustBusy) return;
+    setProjectTrustBusy(true);
+    setProjectTrustError(null);
+    try {
+      const response = await fetch("/api/project-trust", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: projectTrustCwd }),
+      });
+      const data = (await response.json()) as ProjectTrustStatus & { error?: string };
+      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      setProjectTrust(data);
+      setProjectTrustDialogOpen(false);
+      setModelsRefreshKey((key) => key + 1);
+      setSessionKey((key) => key + 1);
+    } catch (error) {
+      setProjectTrustError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setProjectTrustBusy(false);
+    }
+  }, [projectTrustBusy, projectTrustCwd]);
+
+  const activeFileTab = fileTabs.find((t) => t.id === activeFileTabId) ?? null;
+  const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
+  const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
+
+  useEffect(() => {
+    const syncWindowTitle = () => {
+      if (document.title !== windowTitle) document.title = windowTitle;
+    };
+
+    syncWindowTitle();
+    const observer = new MutationObserver(syncWindowTitle);
+    observer.observe(document.head, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, [windowTitle]);
 
   const sidebarContent = (
     <>
@@ -604,6 +701,7 @@ export function AppShell() {
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
         initialSessionId={initialSessionId}
+        skipInitialProjectSelection={initialNavigation.requestedCwd !== null}
         onInitialRestoreDone={handleInitialRestoreDone}
         refreshKey={refreshKey}
         onSessionDeleted={handleSessionDeleted}
@@ -611,7 +709,9 @@ export function AppShell() {
         onCwdChange={handleCwdChange}
         onOpenFile={handleOpenFile}
         explorerRefreshKey={explorerRefreshKey}
+        onExplorerRefresh={handleExplorerRefresh}
         onAtMention={handleAtMention}
+        onAtMentions={handleAtMentions}
       />
       <div
         style={{
@@ -625,28 +725,75 @@ export function AppShell() {
         {(
           [
             {
-              label: t("sidebar.models"),
+              label: translate("common.models"),
               onClick: () => setModelsConfigOpen(true),
               disabled: false,
-              icon: <Icons.Model size={14} />,
+              icon: (
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="4" y="4" width="16" height="16" rx="2" />
+                  <rect x="9" y="9" width="6" height="6" />
+                  <line x1="9" y1="1" x2="9" y2="4" />
+                  <line x1="15" y1="1" x2="15" y2="4" />
+                  <line x1="9" y1="20" x2="9" y2="23" />
+                  <line x1="15" y1="20" x2="15" y2="23" />
+                  <line x1="20" y1="9" x2="23" y2="9" />
+                  <line x1="20" y1="14" x2="23" y2="14" />
+                  <line x1="1" y1="9" x2="4" y2="9" />
+                  <line x1="1" y1="14" x2="4" y2="14" />
+                </svg>
+              ),
             },
             {
-              label: t("sidebar.skills"),
+              label: translate("common.skills"),
               onClick: () => setSkillsConfigOpen(true),
               disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
-              icon: <Icons.Skills size={14} />,
+              icon: (
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                  <path d="M2 17l10 5 10-5" />
+                  <path d="M2 12l10 5 10-5" />
+                </svg>
+              ),
             },
             {
-              label: t("sidebar.plugins"),
+              label: translate("common.plugins"),
               onClick: () => setPluginsConfigOpen(true),
               disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
-              icon: <Icons.Plugins size={14} />,
-            },
-            {
-              label: t("sidebar.extensions"),
-              onClick: () => setExtensionsConfigOpen(true),
-              disabled: false,
-              icon: <Icons.Extensions size={14} />,
+              icon: (
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M9 7V2" />
+                  <path d="M15 7V2" />
+                  <path d="M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0Z" />
+                  <path d="M12 19v3" />
+                </svg>
+              ),
             },
           ] as Array<{
             label: string;
@@ -764,13 +911,21 @@ export function AppShell() {
           pointer-events: none !important;
         }
         .sidebar-container.sidebar-mobile-pending.sidebar-open {
-          transform: translateX(-100%);
+          transform: translateX(calc(-100% - env(safe-area-inset-left)));
           box-shadow: none;
         }
       }
     `}</style>
       <div
-        style={{ display: "flex", height: "100dvh", overflow: "hidden", background: "var(--bg)" }}
+        style={{
+          display: "flex",
+          width: "100%",
+          height: "var(--app-viewport-height, 100dvh)",
+          paddingLeft: "env(safe-area-inset-left)",
+          paddingRight: "env(safe-area-inset-right)",
+          overflow: "hidden",
+          background: "var(--bg)",
+        }}
       >
         {/* Mobile overlay backdrop */}
         <div
@@ -781,28 +936,42 @@ export function AppShell() {
             inset: 0,
             zIndex: 199,
             background: "rgba(0,0,0,0.4)",
-            backdropFilter: sidebarOpen ? "blur(1px)" : "none",
-            WebkitBackdropFilter: sidebarOpen ? "blur(1px)" : "none",
             opacity: sidebarOpen ? 1 : 0,
             pointerEvents: sidebarOpen ? "auto" : "none",
-            transition: "opacity 0.25s ease, backdrop-filter 0.25s ease",
+            transition: "opacity 0.25s ease",
           }}
         />
 
         {/* Left sidebar */}
         <div
-          className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
-          style={{
-            background: "var(--bg-panel)",
-            borderRight: "1px solid var(--border)",
-            display: "flex",
-            flexDirection: "column",
-            flexShrink: 0,
-            zIndex: 200,
-          }}
+          ref={sidebarResizer.panelRef}
+          id="session-sidebar"
+          className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${sidebarResizer.isResizing ? " sidebar-resizing" : ""}`}
+          style={
+            {
+              "--sidebar-width": `${sidebarResizer.width}px`,
+              background: "var(--bg-panel)",
+              borderRight: "1px solid var(--border)",
+              display: "flex",
+              flexDirection: "column",
+              flexShrink: 0,
+              paddingTop: "env(safe-area-inset-top)",
+              paddingBottom: "env(safe-area-inset-bottom)",
+              zIndex: 200,
+            } as React.CSSProperties
+          }
         >
           {sidebarContent}
         </div>
+        {sidebarOpen && (
+          <div
+            {...sidebarResizer.separatorProps}
+            aria-controls="session-sidebar"
+            className={`panel-resize-handle sidebar-resize-handle${sidebarResizer.isResizing ? " is-resizing" : ""}`}
+            data-resize-handle="sidebar"
+            title={`${translate("layout.resizeSidebar")}: ${translate("layout.resizeHint")}`}
+          />
+        )}
 
         {/* Center: chat */}
         <div
@@ -822,20 +991,21 @@ export function AppShell() {
               alignItems: "center",
               flexShrink: 0,
               borderBottom: "1px solid var(--border)",
-              height: 36,
+              height: "calc(36px + env(safe-area-inset-top))",
+              paddingTop: "env(safe-area-inset-top)",
               background: "var(--bg-panel)",
             }}
           >
             <button
               onClick={handleSidebarToggle}
-              title={sidebarOpen ? t("topbar.hideSidebar") : t("topbar.showSidebar")}
-              aria-label={sidebarOpen ? t("topbar.hideSidebar") : t("topbar.showSidebar")}
+              title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
+              aria-label={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
               style={{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                width: 36,
-                height: 36,
+                width: TOP_BAR_ICON_BUTTON_SIZE,
+                height: TOP_BAR_ICON_BUTTON_SIZE,
                 padding: 0,
                 background: "none",
                 border: "none",
@@ -852,18 +1022,50 @@ export function AppShell() {
                 e.currentTarget.style.color = "var(--text-muted)";
               }}
             >
-              {sidebarOpen ? <Icons.SidebarClose size={16} /> : <Icons.SidebarOpen size={18} />}
+              {sidebarOpen ? (
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <line x1="9" y1="3" x2="9" y2="21" />
+                </svg>
+              ) : (
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                >
+                  <line x1="3" y1="6" x2="21" y2="6" />
+                  <line x1="3" y1="12" x2="21" y2="12" />
+                  <line x1="3" y1="18" x2="21" y2="18" />
+                </svg>
+              )}
             </button>
             <button
-              onClick={() => setSettingsOpen(true)}
-              title={t("settings.title")}
-              aria-label={t("settings.title")}
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                toggleTheme({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+              }}
+              title={isDark ? translate("theme.light") : translate("theme.dark")}
+              aria-label={isDark ? translate("theme.light") : translate("theme.dark")}
+              aria-pressed={isDark}
               style={{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                width: 36,
-                height: 36,
+                width: TOP_BAR_ICON_BUTTON_SIZE,
+                height: TOP_BAR_ICON_BUTTON_SIZE,
                 padding: 0,
                 background: "none",
                 border: "none",
@@ -880,15 +1082,143 @@ export function AppShell() {
                 e.currentTarget.style.color = "var(--text-muted)";
               }}
             >
-              <Icons.Settings size={16} />
+              {isDark ? (
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="12" cy="12" r="5" />
+                  <line x1="12" y1="1" x2="12" y2="3" />
+                  <line x1="12" y1="21" x2="12" y2="23" />
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                  <line x1="1" y1="12" x2="3" y2="12" />
+                  <line x1="21" y1="12" x2="23" y2="12" />
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                </svg>
+              ) : (
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                </svg>
+              )}
             </button>
+            <button
+              ref={languageBtnRef}
+              type="button"
+              onClick={() => toggleTopPanel("language")}
+              title={translate("common.language")}
+              aria-label={translate("common.language")}
+              aria-haspopup="menu"
+              aria-expanded={activeTopPanel === "language"}
+              aria-pressed={activeTopPanel === "language"}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: TOP_BAR_ICON_BUTTON_SIZE,
+                height: TOP_BAR_ICON_BUTTON_SIZE,
+                padding: 0,
+                background: activeTopPanel === "language" ? "var(--bg-selected)" : "none",
+                border: "none",
+                borderRight: "1px solid var(--border)",
+                color: activeTopPanel === "language" ? "var(--text)" : "var(--text-muted)",
+                cursor: "pointer",
+                flexShrink: 0,
+                transition: "color 0.12s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "var(--text)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color =
+                  activeTopPanel === "language" ? "var(--text)" : "var(--text-muted)";
+              }}
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m5 8 6 6" />
+                <path d="m4 14 6-6 2-3" />
+                <path d="M2 5h12" />
+                <path d="M7 2h1" />
+                <path d="m22 22-5-10-5 10" />
+                <path d="M14 18h6" />
+              </svg>
+            </button>
+            {showChat && projectTrust?.requiresTrust && !projectTrust.trusted && (
+              <button
+                type="button"
+                onClick={() => {
+                  setProjectTrustError(null);
+                  setProjectTrustDialogOpen(true);
+                }}
+                title={translate("trust.resourcesNotLoaded")}
+                aria-label={translate("trust.resourcesNotLoaded")}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  height: "100%",
+                  padding: isMobile ? "0 10px" : "0 12px",
+                  background: "none",
+                  border: "none",
+                  borderRight: "1px solid var(--border)",
+                  color: "#d97706",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  fontSize: 11,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
+                  <path d="M12 8v4" />
+                  <path d="M12 16h.01" />
+                </svg>
+                {!isMobile && <span>{translate("trust.resourcesNotLoaded")}</span>}
+              </button>
+            )}
             {showChat && (
               <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
                 <button
-                  onClick={handleExportSession}
+                  onClick={handleViewFullHistory}
                   disabled={!selectedSession}
-                  title={selectedSession ? t("topbar.exportHtml") : t("topbar.exportDisabled")}
-                  aria-label={t("topbar.exportHtml")}
+                  title={selectedSession ? translate("history.full") : translate("history.unsaved")}
+                  aria-label={translate("history.full")}
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -919,23 +1249,157 @@ export function AppShell() {
                     e.currentTarget.style.background = "none";
                   }}
                 >
-                  <span
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      width: 18,
-                      height: 18,
-                      borderRadius: 5,
-                      background: "transparent",
                       color: selectedSession ? "var(--text-muted)" : "var(--text-dim)",
                       flexShrink: 0,
                     }}
                   >
-                    <Icons.Export size={12} />
-                  </span>
-                  {!isMobile && <span>{t("topbar.export")}</span>}
+                    <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+                    <path d="M3 3v5h5" />
+                    <path d="M12 7v5l3 2" />
+                  </svg>
+                  {!isMobile && <span>{translate("history.label")}</span>}
                 </button>
+                {(() => {
+                  const hasMessages = Boolean(
+                    selectedSession &&
+                    (sessionStats?.userMessages ?? selectedSession.messageCount) > 0,
+                  );
+                  const disabled =
+                    !selectedSession || !hasMessages || autoNameStatus.kind === "naming";
+                  const isSuccess = autoNameStatus.kind === "success";
+                  const isError = autoNameStatus.kind === "error";
+                  const label =
+                    autoNameStatus.kind === "naming"
+                      ? translate("title.generating")
+                      : isSuccess
+                        ? translate("title.updated")
+                        : isError
+                          ? translate("title.failed")
+                          : translate("title.generate");
+                  const title = !selectedSession
+                    ? translate("title.unsaved")
+                    : !hasMessages
+                      ? translate("title.noMessages")
+                      : isError
+                        ? autoNameStatus.message
+                        : translate("title.generateSession");
+
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => void handleAutoName()}
+                      disabled={disabled}
+                      title={title}
+                      aria-label={label}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        height: "100%",
+                        padding: "0 12px",
+                        background: "none",
+                        border: "none",
+                        borderTop: "2px solid transparent",
+                        borderRight: "1px solid var(--border)",
+                        color: isError
+                          ? "#dc2626"
+                          : isSuccess
+                            ? "var(--accent)"
+                            : disabled
+                              ? "var(--text-dim)"
+                              : "var(--text-muted)",
+                        cursor: disabled ? "not-allowed" : "pointer",
+                        opacity: disabled && autoNameStatus.kind !== "naming" ? 0.45 : 1,
+                        flexShrink: 0,
+                        fontSize: 11,
+                        whiteSpace: "nowrap",
+                        transition: "color 0.1s, background 0.1s, opacity 0.1s",
+                      }}
+                      onMouseEnter={(e) => {
+                        if (disabled) return;
+                        e.currentTarget.style.color = isError ? "#dc2626" : "var(--text)";
+                        e.currentTarget.style.background = "var(--bg-hover)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.color = isError
+                          ? "#dc2626"
+                          : isSuccess
+                            ? "var(--accent)"
+                            : disabled
+                              ? "var(--text-dim)"
+                              : "var(--text-muted)";
+                        e.currentTarget.style.background = "none";
+                      }}
+                    >
+                      {autoNameStatus.kind === "naming" ? (
+                        <svg
+                          className="animate-spin"
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          aria-hidden="true"
+                        >
+                          <circle
+                            cx="12"
+                            cy="12"
+                            r="9"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            opacity="0.25"
+                          />
+                          <path
+                            d="M21 12a9 9 0 0 0-9-9"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                      ) : isSuccess ? (
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      ) : (
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="m15 4 5 5L7 22l-5-5Z" />
+                          <path d="m14 5 5 5" />
+                          <path d="M6 4V2M5 3H3M19 19v3M17.5 20.5h3" />
+                        </svg>
+                      )}
+                      {!isMobile && <span>{label}</span>}
+                    </button>
+                  );
+                })()}
                 <BranchNavigator
                   tree={branchTree}
                   activeLeafId={branchActiveLeafId}
@@ -944,14 +1408,14 @@ export function AppShell() {
                   compact={isMobile}
                   containerRef={topBarRef}
                   open={activeTopPanel === "branches"}
-                  onToggle={toggleBranchesPanel}
+                  onToggle={() => toggleTopPanel("branches")}
                   hasSession
                 />
                 <button
                   ref={systemBtnRef}
                   onClick={() => toggleTopPanel("system")}
-                  title={t("topbar.systemPrompt")}
-                  aria-label={t("topbar.systemPrompt")}
+                  title={translate("system.prompt")}
+                  aria-label={translate("system.prompt")}
                   aria-pressed={activeTopPanel === "system"}
                   style={{
                     display: "flex",
@@ -980,110 +1444,34 @@ export function AppShell() {
                       activeTopPanel === "system" ? "var(--text)" : "var(--text-muted)";
                   }}
                 >
-                  <Icons.SystemDoc
-                    size={12}
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                     style={{
                       color: systemPrompt ? "var(--accent)" : "var(--text-dim)",
                       flexShrink: 0,
                     }}
-                  />
-                  {!isMobile && <span>{t("topbar.system")}</span>}
-                </button>
-                <button
-                  onClick={() => toggleTopPanel("subagents")}
-                  title={t("panels.subagents")}
-                  aria-label={t("panels.subagents")}
-                  aria-pressed={activeTopPanel === "subagents"}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    height: "100%",
-                    padding: "0 12px",
-                    background: activeTopPanel === "subagents" ? "var(--bg-selected)" : "none",
-                    border: "none",
-                    borderTop:
-                      activeTopPanel === "subagents"
-                        ? "2px solid var(--accent)"
-                        : "2px solid transparent",
-                    borderRight: "1px solid var(--border)",
-                    cursor: "pointer",
-                    color: activeTopPanel === "subagents" ? "var(--text)" : "var(--text-muted)",
-                    fontSize: 11,
-                    whiteSpace: "nowrap",
-                    transition: "color 0.1s, background 0.1s",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.color = "var(--text)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.color =
-                      activeTopPanel === "subagents" ? "var(--text)" : "var(--text-muted)";
-                  }}
-                >
-                  <Icons.Subagent size={12} style={{ flexShrink: 0 }} />
-                  {!isMobile && <span>{t("panels.subagents")}</span>}
-                </button>
-                <button
-                  onClick={() => toggleTopPanel("panels")}
-                  title={t("panels.title")}
-                  aria-label={t("panels.title")}
-                  aria-pressed={activeTopPanel === "panels"}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    height: "100%",
-                    padding: "0 12px",
-                    background: activeTopPanel === "panels" ? "var(--bg-selected)" : "none",
-                    border: "none",
-                    borderTop:
-                      activeTopPanel === "panels"
-                        ? "2px solid var(--accent)"
-                        : "2px solid transparent",
-                    borderRight: "1px solid var(--border)",
-                    cursor: "pointer",
-                    color: activeTopPanel === "panels" ? "var(--text)" : "var(--text-muted)",
-                    fontSize: 11,
-                    whiteSpace: "nowrap",
-                    transition: "color 0.1s, background 0.1s",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.color = "var(--text)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.color =
-                      activeTopPanel === "panels" ? "var(--text)" : "var(--text-muted)";
-                  }}
-                >
-                  <Icons.Panels size={12} style={{ flexShrink: 0 }} />
-                  {!isMobile && <span>{t("panels.title")}</span>}
+                  >
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="8" y1="13" x2="16" y2="13" />
+                    <line x1="8" y1="17" x2="13" y2="17" />
+                  </svg>
+                  {!isMobile && <span>{translate("system.label")}</span>}
                 </button>
               </div>
             )}
-            {/* Subagent status badge — shows when subagents are running */}
-            {showChat && <SubagentBadge onClick={openSubagentsPanel} />}
-            {/* Provider token-plan usage pills — one per supported provider that
-              actually has an API key configured. Skipping unconfigured ones
-              avoids mounting a polling hook (and its fetches) for providers
-              with nothing to show. While the auth list loads, render nothing
-              rather than risk a flash of soon-unmounted hooks. */}
-            {showChat &&
-              !providersLoading &&
-              Object.values(SUPPORTED_TOKEN_USAGE_PROVIDERS)
-                .filter((cfg) => configuredProviders.has(cfg.id))
-                .map((cfg) => (
-                  <TokenUsageIndicator
-                    key={cfg.id}
-                    config={{ provider: cfg.id, displayName: cfg.displayName }}
-                    onConfigure={() => setModelsConfigOpen(true)}
-                  />
-                ))}
             {/* Session stats — right-aligned in top bar */}
             {showChat &&
               (sessionStats || contextUsage) &&
               (() => {
-                const t = sessionStats?.tokens;
+                const tokens = sessionStats?.tokens;
                 const c = sessionStats?.cost ?? 0;
                 const fmt = (n: number) =>
                   n >= 1_000_000
@@ -1106,44 +1494,18 @@ export function AppShell() {
                 }
 
                 const tooltipParts: string[] = [];
-                if (t) {
-                  tooltipParts.push(
-                    translate(locale, "topbar.statIn", { value: t.input.toLocaleString() }),
-                  );
-                  tooltipParts.push(
-                    translate(locale, "topbar.statOut", { value: t.output.toLocaleString() }),
-                  );
-                  tooltipParts.push(
-                    translate(locale, "topbar.statCacheRead", {
-                      value: t.cacheRead.toLocaleString(),
-                    }),
-                  );
-                  tooltipParts.push(
-                    translate(locale, "topbar.statCacheWrite", {
-                      value: t.cacheWrite.toLocaleString(),
-                    }),
-                  );
-                  if (c > 0)
-                    tooltipParts.push(
-                      translate(locale, "topbar.statCost", { value: `$${c.toFixed(4)}` }),
-                    );
+                if (tokens) {
+                  tooltipParts.push(`in: ${tokens.input.toLocaleString(locale)}`);
+                  tooltipParts.push(`out: ${tokens.output.toLocaleString(locale)}`);
+                  tooltipParts.push(`cache read: ${tokens.cacheRead.toLocaleString(locale)}`);
+                  tooltipParts.push(`cache write: ${tokens.cacheWrite.toLocaleString(locale)}`);
+                  if (c > 0) tooltipParts.push(`cost: $${c.toFixed(4)}`);
                 }
                 if (contextUsage?.contextWindow) {
                   const pct = contextUsage.percent;
-                  if (pct !== null) {
-                    tooltipParts.push(
-                      translate(locale, "topbar.statContext", {
-                        pct: pct.toFixed(1) + "%",
-                        window: contextUsage.contextWindow.toLocaleString(),
-                      }),
-                    );
-                  } else {
-                    tooltipParts.push(
-                      translate(locale, "topbar.statContextUnknown", {
-                        window: contextUsage.contextWindow.toLocaleString(),
-                      }),
-                    );
-                  }
+                  tooltipParts.push(
+                    `context: ${pct !== null ? pct.toFixed(1) + "%" : "unknown"} of ${contextUsage.contextWindow.toLocaleString()} tokens`,
+                  );
                 }
                 const tooltip = tooltipParts.join("  |  ");
 
@@ -1151,8 +1513,8 @@ export function AppShell() {
                   <button
                     type="button"
                     onClick={() => toggleTopPanel("session")}
-                    title={tooltip || translate(locale, "topbar.sessionInfo")}
-                    aria-label={translate(locale, "topbar.sessionInfo")}
+                    title={tooltip || translate("session.title")}
+                    aria-label={translate("session.title")}
                     aria-pressed={activeTopPanel === "session"}
                     style={{
                       marginLeft: "auto",
@@ -1200,22 +1562,58 @@ export function AppShell() {
                         <line x1="12" y1="8" x2="12.01" y2="8" />
                       </svg>
                     )}
-                    {!isMobile && t && t.input > 0 && (
+                    {!isMobile && tokens && tokens.input > 0 && (
                       <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <Icons.TokenIn size={12} />
-                        {fmt(t.input)}
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 10 10"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <line x1="5" y1="8.5" x2="5" y2="1.5" />
+                          <polyline points="2 4 5 1.5 8 4" />
+                        </svg>
+                        {fmt(tokens.input)}
                       </span>
                     )}
-                    {!isMobile && t && t.output > 0 && (
+                    {!isMobile && tokens && tokens.output > 0 && (
                       <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <Icons.TokenOut size={12} />
-                        {fmt(t.output)}
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 10 10"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <line x1="5" y1="1.5" x2="5" y2="8.5" />
+                          <polyline points="2 6 5 8.5 8 6" />
+                        </svg>
+                        {fmt(tokens.output)}
                       </span>
                     )}
-                    {!isMobile && t && t.cacheRead > 0 && (
+                    {!isMobile && tokens && tokens.cacheRead > 0 && (
                       <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <Icons.TokenCache size={12} />
-                        {fmt(t.cacheRead)}
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 10 10"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M8.5 5a3.5 3.5 0 1 1-1-2.45" />
+                          <polyline points="6.5 1.5 8.5 2.5 7.5 4.5" />
+                        </svg>
+                        {fmt(tokens.cacheRead)}
                       </span>
                     )}
                     {!isMobile && costStr && (
@@ -1234,7 +1632,19 @@ export function AppShell() {
                       <span
                         style={{ display: "flex", alignItems: "center", gap: 4, color: ctxColor }}
                       >
-                        <Icons.ContextUsage size={12} />
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 10 10"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M1 9 L1 5 Q1 1 5 1 Q9 1 9 5 L9 9" />
+                          <line x1="1" y1="9" x2="9" y2="9" />
+                        </svg>
                         {ctxStr}
                       </span>
                     )}
@@ -1244,7 +1654,6 @@ export function AppShell() {
             {/* Top panel dropdown — shared, only one active at a time */}
             {activeTopPanel && topPanelPos && (
               <div
-                className="animate-fade-in-up"
                 style={{
                   position: "fixed",
                   top: topPanelPos.top,
@@ -1255,6 +1664,58 @@ export function AppShell() {
                   zIndex: 500,
                 }}
               >
+                {activeTopPanel === "language" && (
+                  <div
+                    role="menu"
+                    aria-label={translate("common.language")}
+                    style={{
+                      background: "var(--bg-panel)",
+                      borderLeft: "1px solid var(--border)",
+                      borderRight: "1px solid var(--border)",
+                      borderBottom: "1px solid var(--border)",
+                      overflow: "hidden",
+                      padding: 4,
+                    }}
+                  >
+                    {supportedLocales.map((plugin) => (
+                      <button
+                        key={plugin.id}
+                        type="button"
+                        onClick={() => {
+                          setLocale(plugin.id as typeof locale);
+                          setActiveTopPanel(null);
+                        }}
+                        role="menuitemradio"
+                        aria-checked={locale === plugin.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          width: "100%",
+                          height: 34,
+                          padding: "0 10px",
+                          border: "none",
+                          borderRadius: 4,
+                          background: locale === plugin.id ? "var(--bg-selected)" : "transparent",
+                          color: "var(--text)",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          fontSize: 12,
+                          transition: "background 0.1s",
+                        }}
+                        onMouseEnter={(e) => {
+                          if (locale !== plugin.id)
+                            e.currentTarget.style.background = "var(--bg-hover)";
+                        }}
+                        onMouseLeave={(e) => {
+                          if (locale !== plugin.id)
+                            e.currentTarget.style.background = "transparent";
+                        }}
+                      >
+                        <span>{plugin.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {activeTopPanel === "system" && (
                   <div
                     style={{
@@ -1286,7 +1747,7 @@ export function AppShell() {
                           fontStyle: "italic",
                         }}
                       >
-                        {t("systemPrompt.empty")}
+                        {translate("system.empty")}
                       </div>
                     ) : (
                       <div
@@ -1297,7 +1758,7 @@ export function AppShell() {
                           fontStyle: "italic",
                         }}
                       >
-                        {t("systemPrompt.loadHint")}
+                        {translate("system.load")}
                       </div>
                     )}
                   </div>
@@ -1318,53 +1779,74 @@ export function AppShell() {
                           ...(sessionStats.sessionName
                             ? [
                                 {
-                                  label: t("sessionInfo.name"),
+                                  label: translate("session.name"),
                                   value: sessionStats.sessionName,
                                   copyField: null,
                                 },
                               ]
                             : []),
                           {
-                            label: t("sessionInfo.file"),
-                            value: sessionStats.sessionFile ?? t("sessionInfo.inMemory"),
+                            label: translate("session.file"),
+                            value: sessionStats.sessionFile ?? translate("session.inMemory"),
                             copyField: "file" as const,
                           },
                           {
-                            label: t("sessionInfo.id"),
+                            label: translate("session.id"),
                             value: sessionStats.sessionId,
                             copyField: "id" as const,
                           },
                         ];
                         const messageRows = [
-                          [t("sessionInfo.user"), sessionStats.userMessages.toLocaleString()],
                           [
-                            t("sessionInfo.assistant"),
-                            sessionStats.assistantMessages.toLocaleString(),
+                            translate("session.user"),
+                            sessionStats.userMessages.toLocaleString(locale),
                           ],
-                          [t("sessionInfo.toolCalls"), sessionStats.toolCalls.toLocaleString()],
-                          [t("sessionInfo.toolResults"), sessionStats.toolResults.toLocaleString()],
-                          [t("sessionInfo.total"), sessionStats.totalMessages.toLocaleString()],
+                          [
+                            translate("session.assistant"),
+                            sessionStats.assistantMessages.toLocaleString(locale),
+                          ],
+                          [
+                            translate("session.toolCalls"),
+                            sessionStats.toolCalls.toLocaleString(locale),
+                          ],
+                          [
+                            translate("session.toolResults"),
+                            sessionStats.toolResults.toLocaleString(locale),
+                          ],
+                          [
+                            translate("session.total"),
+                            sessionStats.totalMessages.toLocaleString(locale),
+                          ],
                         ];
                         const tokenRows = [
-                          [t("sessionInfo.input"), sessionStats.tokens.input.toLocaleString()],
-                          [t("sessionInfo.output"), sessionStats.tokens.output.toLocaleString()],
+                          [
+                            translate("session.input"),
+                            sessionStats.tokens.input.toLocaleString(locale),
+                          ],
+                          [
+                            translate("session.output"),
+                            sessionStats.tokens.output.toLocaleString(locale),
+                          ],
                           ...(sessionStats.tokens.cacheRead > 0
                             ? [
                                 [
-                                  t("sessionInfo.cacheRead"),
-                                  sessionStats.tokens.cacheRead.toLocaleString(),
+                                  translate("session.cacheRead"),
+                                  sessionStats.tokens.cacheRead.toLocaleString(locale),
                                 ],
                               ]
                             : []),
                           ...(sessionStats.tokens.cacheWrite > 0
                             ? [
                                 [
-                                  t("sessionInfo.cacheWrite"),
-                                  sessionStats.tokens.cacheWrite.toLocaleString(),
+                                  translate("session.cacheWrite"),
+                                  sessionStats.tokens.cacheWrite.toLocaleString(locale),
                                 ],
                               ]
                             : []),
-                          [t("sessionInfo.total"), sessionStats.tokens.total.toLocaleString()],
+                          [
+                            translate("session.total"),
+                            sessionStats.tokens.total.toLocaleString(locale),
+                          ],
                         ];
                         const ctx = contextUsage ?? sessionStats.contextUsage;
                         const formatCompact = (n: number) =>
@@ -1375,12 +1857,12 @@ export function AppShell() {
                               : String(n);
                         const extraTokenRows = [
                           ...(sessionStats.cost > 0
-                            ? [[t("sessionInfo.cost"), `$${sessionStats.cost.toFixed(4)}`]]
+                            ? [[translate("session.cost"), `$${sessionStats.cost.toFixed(4)}`]]
                             : []),
                           ...(ctx?.contextWindow
                             ? [
                                 [
-                                  t("sessionInfo.context"),
+                                  translate("session.context"),
                                   `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompact(ctx.contextWindow)}`,
                                 ],
                               ]
@@ -1442,10 +1924,10 @@ export function AppShell() {
                               type="button"
                               title={
                                 copied
-                                  ? t("sessionInfo.copied")
-                                  : field === "file"
-                                    ? t("sessionInfo.copyFilePath")
-                                    : t("sessionInfo.copySessionId")
+                                  ? translate("session.copied")
+                                  : translate(
+                                      field === "file" ? "session.copyFile" : "session.copyId",
+                                    )
                               }
                               onClick={() => handleCopySessionField(field, value)}
                               style={{
@@ -1477,7 +1959,36 @@ export function AppShell() {
                                 e.currentTarget.style.background = "transparent";
                               }}
                             >
-                              {copied ? <Icons.Check size={12} /> : <Icons.Copy size={12} />}
+                              {copied ? (
+                                <svg
+                                  width="12"
+                                  height="12"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  aria-hidden="true"
+                                >
+                                  <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                              ) : (
+                                <svg
+                                  width="12"
+                                  height="12"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  aria-hidden="true"
+                                >
+                                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                </svg>
+                              )}
                             </button>
                           );
                         };
@@ -1491,7 +2002,7 @@ export function AppShell() {
                                 marginBottom: 6,
                               }}
                             >
-                              {t("sessionInfo.title")}
+                              {translate("session.infoSection")}
                             </div>
                             <div
                               style={{
@@ -1544,9 +2055,9 @@ export function AppShell() {
                             }}
                           >
                             {sessionInfoSection}
-                            {section(t("sessionInfo.messages"), messageRows)}
+                            {section(translate("session.messages"), messageRows)}
                             {section(
-                              t("sessionInfo.tokens"),
+                              translate("session.tokens"),
                               [...tokenRows, ...extraTokenRows],
                               "right",
                               true,
@@ -1558,75 +2069,9 @@ export function AppShell() {
                       <div
                         style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}
                       >
-                        {t("sessionInfo.empty")}
+                        {translate("session.load")}
                       </div>
                     )}
-                  </div>
-                )}
-                {activeTopPanel === "panels" && (
-                  <div
-                    style={{
-                      background: "var(--bg-panel)",
-                      borderBottom: "1px solid var(--border)",
-                      maxHeight: "min(600px, 75vh)",
-                      overflowY: "auto",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: 0,
-                        borderBottom: "1px solid var(--border)",
-                        position: "sticky",
-                        top: 0,
-                        background: "var(--bg-panel)",
-                        zIndex: 1,
-                      }}
-                    >
-                      {(
-                        [
-                          { id: "mcp", label: t("panels.mcp") },
-                          { id: "web-search", label: t("panels.webSearch") },
-                        ] as const
-                      ).map((tab) => (
-                        <button
-                          key={tab.id}
-                          onClick={() => setActivePanelTab(tab.id)}
-                          style={{
-                            padding: "8px 14px",
-                            fontSize: 11,
-                            fontWeight: 500,
-                            background: activePanelTab === tab.id ? "var(--bg-selected)" : "none",
-                            border: "none",
-                            borderBottom:
-                              activePanelTab === tab.id
-                                ? "2px solid var(--accent)"
-                                : "2px solid transparent",
-                            color: activePanelTab === tab.id ? "var(--text)" : "var(--text-muted)",
-                            cursor: "pointer",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {tab.label}
-                        </button>
-                      ))}
-                    </div>
-                    <div style={{ maxHeight: "min(560px, 70vh)", overflowY: "auto" }}>
-                      {activePanelTab === "mcp" && <McpConfigPanel />}
-                      {activePanelTab === "web-search" && <WebSearchConfigPanel />}
-                    </div>
-                  </div>
-                )}
-                {activeTopPanel === "subagents" && (
-                  <div
-                    style={{
-                      background: "var(--bg-panel)",
-                      borderBottom: "1px solid var(--border)",
-                      maxHeight: "min(600px, 75vh)",
-                      overflowY: "auto",
-                    }}
-                  >
-                    <SubagentsPanel />
                   </div>
                 )}
               </div>
@@ -1635,28 +2080,16 @@ export function AppShell() {
 
           {/* Chat content */}
           <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
-            {showChat && (
-              <LazyLoader
-                component={InspectorPanel}
-                sessionId={selectedSession?.id ?? null}
-                cwd={activeCwd ?? selectedSession?.cwd ?? newSessionCwd ?? null}
-                open={todoSidebarOpen}
-                onToggle={toggleTodoSidebar}
-                onTaskClick={scrollChatToEntry}
-              />
-            )}
             {showChat ? (
               <ChatWindow
-                key={chatWindowKey}
+                key={sessionKey}
                 session={selectedSession}
                 newSessionCwd={effectiveNewSessionCwd}
                 onAgentEnd={handleAgentEnd}
                 onSessionCreated={handleSessionCreated}
                 onSessionForked={handleSessionForked}
                 modelsRefreshKey={modelsRefreshKey}
-                pluginsRefreshKey={pluginsRefreshKey}
                 chatInputRef={chatInputRef}
-                ref={chatWindowRef}
                 onBranchDataChange={handleBranchDataChange}
                 onSystemPromptChange={handleSystemPromptChange}
                 onSessionStatsChange={handleSessionStatsChange}
@@ -1664,10 +2097,68 @@ export function AppShell() {
                 onContextUsageChange={handleContextUsageChange}
                 onOpenFile={handleOpenLinkedFile}
               />
+            ) : initialCwdStatus === "validating" ? (
+              <div
+                role="status"
+                style={{
+                  height: "100%",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  padding: 24,
+                  color: "var(--text-muted)",
+                  textAlign: "center",
+                }}
+              >
+                <div style={{ fontSize: 14, color: "var(--text)" }}>
+                  {translate("workspace.opening")}
+                </div>
+                <div
+                  style={{
+                    maxWidth: "min(720px, 100%)",
+                    overflowWrap: "anywhere",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                  }}
+                >
+                  {initialNavigation.requestedCwd}
+                </div>
+              </div>
+            ) : initialCwdStatus === "error" ? (
+              <div
+                role="alert"
+                style={{
+                  height: "100%",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  padding: 24,
+                  color: "var(--text-muted)",
+                  textAlign: "center",
+                }}
+              >
+                <div style={{ fontSize: 14, color: "#dc2626" }}>
+                  {translate("workspace.unable")}
+                </div>
+                <div
+                  style={{
+                    maxWidth: "min(720px, 100%)",
+                    overflowWrap: "anywhere",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                  }}
+                >
+                  {initialNavigation.requestedCwd}
+                </div>
+                <div style={{ maxWidth: 720, fontSize: 12 }}>{initialCwdError}</div>
+              </div>
             ) : showPlaceholder ? (
               activeCwd ? (
                 <div
-                  className="animate-fade-in"
                   style={{
                     height: "100%",
                     display: "flex",
@@ -1677,11 +2168,10 @@ export function AppShell() {
                     fontSize: 15,
                   }}
                 >
-                  {t("empty.selectSession")}
+                  {translate("workspace.selectSession")}
                 </div>
               ) : (
                 <div
-                  className="animate-fade-in-up"
                   style={{
                     position: "absolute",
                     top: 12,
@@ -1716,16 +2206,14 @@ export function AppShell() {
                         marginBottom: 8,
                       }}
                     >
-                      {t("empty.getStarted")}
+                      {translate("workspace.getStarted")}
                     </div>
                     <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.8 }}>
                       <span style={{ color: "var(--text-dim)", marginRight: 6 }}>1.</span>
-                      {t("empty.step1")}
+                      {translate("workspace.selectProject")}
                       <br />
                       <span style={{ color: "var(--text-dim)", marginRight: 6 }}>2.</span>
-                      {t("empty.step2Before")}
-                      <strong style={{ color: "var(--text)" }}>{t("sidebar.models")}</strong>
-                      {t("empty.step2After")}
+                      {translate("workspace.addModels")}
                     </div>
                   </div>
                 </div>
@@ -1734,15 +2222,35 @@ export function AppShell() {
           </div>
         </div>
 
+        <div
+          aria-hidden="true"
+          className={`right-panel-overlay-backdrop${rightPanelOpen ? " is-open" : ""}`}
+          onClick={() => setRightPanelOpen(false)}
+        />
+        {rightPanelOpen && (
+          <div
+            {...rightPanelResizer.separatorProps}
+            aria-controls="file-panel"
+            className={`panel-resize-handle right-panel-resize-handle${rightPanelResizer.isResizing ? " is-resizing" : ""}`}
+            data-resize-handle="right-panel"
+            title={`${translate("layout.resizeFilePanel")}: ${translate("layout.resizeHint")}`}
+          />
+        )}
+
         {/* Right panel: file viewer — always mounted, width animated via CSS */}
         <div
-          className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}`}
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            borderLeft: "1px solid var(--border)",
-            background: "var(--bg)",
-          }}
+          ref={rightPanelResizer.panelRef}
+          id="file-panel"
+          className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}${rightPanelResizer.isResizing ? " right-panel-resizing" : ""}`}
+          style={
+            {
+              "--right-panel-width": `${rightPanelResizer.width}px`,
+              display: "flex",
+              flexDirection: "column",
+              borderLeft: "1px solid var(--border)",
+              background: "var(--bg)",
+            } as React.CSSProperties
+          }
         >
           {/* Right panel tab bar */}
           <div
@@ -1750,9 +2258,10 @@ export function AppShell() {
               display: "flex",
               alignItems: "center",
               flexShrink: 0,
+              height: "calc(36px + env(safe-area-inset-top))",
+              paddingTop: "env(safe-area-inset-top)",
               background: "var(--bg-panel)",
               borderBottom: "1px solid var(--border)",
-              height: 36,
             }}
           >
             <div style={{ flex: 1, overflow: "hidden" }}>
@@ -1766,62 +2275,22 @@ export function AppShell() {
           </div>
 
           {/* File content */}
-          <div style={{ flex: 1, overflow: "hidden" }}>
-            {activeFileTab?.kind === "builtin" && activeFileTab.builtinId ? (
-              activeFileTab.builtinId === "mcp" ? (
-                <McpConfigPanel />
-              ) : activeFileTab.builtinId === "web-search" ? (
-                <WebSearchConfigPanel />
-              ) : activeFileTab.builtinId === "subagents" ? (
-                <SubagentsPanel />
-              ) : (
-                <div
-                  style={{
-                    height: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "var(--text-dim)",
-                    fontSize: 12,
-                  }}
-                >
-                  Unknown panel
-                </div>
-              )
-            ) : activeFileTab?.kind === "extension" && activeFileTab.extensionId ? (
-              (() => {
-                const panel = getWorkspacePanels().find(
-                  (p) => p.qualifiedId === activeFileTab.extensionId,
-                );
-                if (!panel) {
-                  return (
-                    <div
-                      style={{
-                        height: "100%",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        color: "var(--text-dim)",
-                        fontSize: 12,
-                      }}
-                    >
-                      {t("empty.noFileOpen")}
-                    </div>
-                  );
-                }
-                return panel.render({
-                  session: extSession,
-                  cwd: activeCwd ?? undefined,
-                  state: extState,
-                  requestRender: requestExtensionRender,
-                });
-              })()
-            ) : activeFileTab?.filePath ? (
-              <LazyLoader
-                component={FileViewer}
+          <div
+            style={{ flex: 1, overflow: "hidden", paddingBottom: "env(safe-area-inset-bottom)" }}
+          >
+            {activeFileTab?.filePath ? (
+              <FileViewer
                 filePath={activeFileTab.filePath}
                 cwd={activeCwd ?? undefined}
                 sourceSessionId={activeFileTab.sourceSessionId}
+                gitRefreshKey={explorerRefreshKey}
+                initialDisplayMode={activeFileTab.initialDisplayMode}
+                onMentionLines={rightPanelOpen ? handleFileLineMention : undefined}
+                onOpenFile={(filePath) =>
+                  handleOpenFile(filePath, getFileName(filePath), {
+                    sourceSessionId: activeFileTab.sourceSessionId,
+                  })
+                }
               />
             ) : (
               <div
@@ -1834,7 +2303,7 @@ export function AppShell() {
                   fontSize: 12,
                 }}
               >
-                {t("empty.noFileOpen")}
+                {translate("files.noneOpen")}
               </div>
             )}
           </div>
@@ -1843,12 +2312,14 @@ export function AppShell() {
       {/* File panel toggle — always visible at top-right */}
       <button
         onClick={() => setRightPanelOpen((v) => !v)}
-        title={rightPanelOpen ? t("filePanel.hide") : t("filePanel.show")}
-        aria-label={rightPanelOpen ? t("filePanel.hide") : t("filePanel.show")}
+        aria-controls="file-panel"
+        aria-expanded={rightPanelOpen}
+        title={rightPanelOpen ? translate("files.hidePanel") : translate("files.showPanel")}
+        aria-label={rightPanelOpen ? translate("files.hidePanel") : translate("files.showPanel")}
         style={{
           position: "fixed",
-          top: 0,
-          right: 0,
+          top: "env(safe-area-inset-top)",
+          right: "env(safe-area-inset-right)",
           zIndex: 300,
           display: "flex",
           alignItems: "center",
@@ -1871,87 +2342,50 @@ export function AppShell() {
           e.currentTarget.style.color = rightPanelOpen ? "var(--text)" : "var(--text-muted)";
         }}
       >
-        <Icons.FilePanel size={16} />
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <line x1="15" y1="3" x2="15" y2="21" />
+        </svg>
       </button>
       {modelsConfigOpen && (
-        <LazyLoader
-          component={ModelsConfig}
+        <ModelsConfig
           onClose={() => {
             setModelsConfigOpen(false);
             setModelsRefreshKey((k) => k + 1);
           }}
         />
       )}
-      {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
-        <LazyLoader
-          component={SkillsConfig}
-          cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!}
-          onClose={() => setSkillsConfigOpen(false)}
+      {projectTrustDialogOpen && projectTrustCwd && (
+        <ProjectTrustDialog
+          cwd={projectTrustCwd}
+          busy={projectTrustBusy}
+          error={projectTrustError}
+          onCancel={() => {
+            if (!projectTrustBusy) setProjectTrustDialogOpen(false);
+          }}
+          onConfirm={() => void handleTrustProject()}
         />
       )}
-      {pluginsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
-        <LazyLoader
-          component={PluginsConfig}
-          cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!}
+      {skillsConfigOpen && projectTrustCwd && (
+        <SkillsConfig cwd={projectTrustCwd} onClose={() => setSkillsConfigOpen(false)} />
+      )}
+      {pluginsConfigOpen && projectTrustCwd && (
+        <PluginsConfig
+          cwd={projectTrustCwd}
           sessionId={selectedSession?.id ?? null}
           onClose={() => setPluginsConfigOpen(false)}
-          onReloaded={() => setPluginsRefreshKey((k) => k + 1)}
+          onReloaded={() => setSessionKey((k) => k + 1)}
         />
       )}
-      {extensionsConfigOpen && (
-        <ExtensionsConfig extensions={extensions} onClose={() => setExtensionsConfigOpen(false)} />
-      )}
-      {settingsOpen && (
-        <SettingsPanel
-          onClose={() => setSettingsOpen(false)}
-          onOpenModels={() => setModelsConfigOpen(true)}
-          onOpenSkills={() => setSkillsConfigOpen(true)}
-          onOpenPlugins={() => setPluginsConfigOpen(true)}
-          onOpenExtensions={() => setExtensionsConfigOpen(true)}
-          onOpenAgents={() => setAgentsConfigOpen(true)}
-        />
-      )}
-      {agentsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
-        <AgentsConfig
-          cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!}
-          onClose={() => setAgentsConfigOpen(false)}
-        />
-      )}
-      <CommandPalette
-        open={commandPaletteOpen}
-        onClose={() => setCommandPaletteOpen(false)}
-        actions={getActions({
-          state: extState,
-          focusPrompt: () => {
-            document.querySelector<HTMLTextAreaElement>("textarea")?.focus();
-          },
-          openFilePanel: () => setRightPanelOpen(true),
-          openExtensionPanel: (qualifiedId, title) => {
-            const panel = getWorkspacePanels().find((p) => p.qualifiedId === qualifiedId);
-            handleOpenExtensionPanel(
-              qualifiedId,
-              title ?? panel?.title ?? "Extension",
-              panel?.icon,
-            );
-          },
-        })}
-        getDisabledReason={getActionDisabledReason}
-        context={{
-          state: extState,
-          focusPrompt: () => {
-            document.querySelector<HTMLTextAreaElement>("textarea")?.focus();
-          },
-          openFilePanel: () => setRightPanelOpen(true),
-          openExtensionPanel: (qualifiedId, title) => {
-            const panel = getWorkspacePanels().find((p) => p.qualifiedId === qualifiedId);
-            handleOpenExtensionPanel(
-              qualifiedId,
-              title ?? panel?.title ?? "Extension",
-              panel?.icon,
-            );
-          },
-        }}
-      />
     </>
   );
 }

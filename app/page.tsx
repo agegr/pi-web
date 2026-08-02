@@ -1,13 +1,13 @@
 import { Suspense } from "react";
 import { AppShell } from "@/components/AppShell";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { I18nProvider } from "@/hooks/useI18n";
 
 export default function Home() {
   return (
-    <ErrorBoundary>
-      <Suspense>
+    <Suspense>
+      <I18nProvider>
         <AppShell />
-      </Suspense>
-    </ErrorBoundary>
+      </I18nProvider>
+    </Suspense>
   );
 }

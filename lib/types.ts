@@ -34,6 +34,8 @@ export interface ImageContent {
 export interface ThinkingContent {
   type: "thinking";
   thinking: string;
+  /** Historical content omitted from the initial response and loaded on demand. */
+  deferred?: boolean;
 }
 
 export interface ToolCallContent {
@@ -93,7 +95,20 @@ export interface CustomMessage {
   timestamp?: number;
 }
 
-export type AgentMessage = UserMessage | AssistantMessage | ToolResultMessage | CustomMessage;
+export interface BashExecutionMessage {
+  role: "bashExecution";
+  command: string;
+  output: string;
+  exitCode?: number;
+  cancelled?: boolean;
+  truncated?: boolean;
+  fullOutputPath?: string;
+  excludeFromContext?: boolean;
+  timestamp?: number;
+}
+
+export type AgentMessage =
+  UserMessage | AssistantMessage | ToolResultMessage | CustomMessage | BashExecutionMessage;
 
 export type ExtensionUiRequest =
   | {

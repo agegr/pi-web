@@ -1,7 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Mono } from "next/font/google";
+import { PwaRegistration } from "@/components/PwaRegistration";
 import "katex/dist/katex.min.css";
 import "./globals.css";
+// 注入本地增强的补充翻译键（settings/inspector/prompts 等），详见 lib/i18n/ours-messages.ts
+import "@/lib/i18n/ours-messages";
 
 const notoSansMono = Noto_Sans_Mono({
   subsets: ["latin", "cyrillic"],
@@ -9,20 +12,46 @@ const notoSansMono = Noto_Sans_Mono({
   display: "swap",
 });
 
+export const metadata: Metadata = {
+  title: "Pi Web",
+  description: "Pi Web interface for the pi coding agent",
+  applicationName: "Pi Web",
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [
+      {
+        url: "/icons/icon-192.png",
+        sizes: "192x192",
+        type: "image/png",
+      },
+    ],
+    apple: [
+      {
+        url: "/icons/apple-touch-icon.png",
+        sizes: "180x180",
+        type: "image/png",
+      },
+    ],
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Pi Web",
+  },
+  formatDetection: {
+    telephone: false,
+  },
+};
+
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  viewportFit: "cover",
+  interactiveWidget: "resizes-content",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
     { media: "(prefers-color-scheme: dark)", color: "#1a1a1a" },
   ],
-};
-
-export const metadata: Metadata = {
-  title: "Pi Agent Web",
-  description: "Pi Coding Agent Web Interface",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -35,21 +64,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     >
       <head>
         <meta name="google" content="notranslate" />
-        {/* Preload theme + lang before first paint to eliminate FOUC.
-            Must be inline (blocking) so <html> classes are set before
-            the browser paints the first frame. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("pi-theme");if(t==="dark")document.documentElement.classList.add("dark");var l=localStorage.getItem("pi-language");if(l==="zh"){var d=document.documentElement;d.setAttribute("data-lang","zh");d.lang="zh"}}catch(e){}})();`,
+            __html: `(function(){try{var t=localStorage.getItem("pi-theme");if(t==="dark")document.documentElement.classList.add("dark")}catch(e){}})();`,
           }}
         />
       </head>
-      <body
-        translate="no"
-        className="notranslate"
-        style={{ height: "100dvh", display: "flex", flexDirection: "column" }}
-      >
+      <body translate="no" className="notranslate">
         {children}
+        <PwaRegistration />
       </body>
     </html>
   );

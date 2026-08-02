@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render as tlRender, screen, fireEvent, waitFor } from "@testing-library/react";
 import { PinnedDirsList, type PinnedDir } from "./PinnedDirsList";
 import { mockFetchSequence } from "@/lib/test-fetch-mock";
+import { I18nProvider } from "@/hooks/useI18n";
+
+function renderWithI18n(ui: React.ReactElement) {
+  return tlRender(<I18nProvider>{ui}</I18nProvider>);
+}
 
 const sample: PinnedDir[] = [
   { path: "/Users/me/projects/pi-web", alias: "pi-web", pinnedAt: 1700000000000 },
@@ -19,7 +24,7 @@ describe("PinnedDirsList", () => {
 
   it("renders the pinned dirs from /api/pinned-dirs on mount", async () => {
     mockFetchSequence([{ body: { pinnedDirs: sample } }]);
-    render(<PinnedDirsList onCwdChange={() => {}} />);
+    renderWithI18n(<PinnedDirsList onCwdChange={() => {}} />);
     // Two list items, one per pinned dir. Use data-pinned-label to avoid
     // collisions with the basename span shown when alias is set.
     const labels = await screen.findAllByText("pi-web");
@@ -33,7 +38,7 @@ describe("PinnedDirsList", () => {
   it("calls onCwdChange with the path when a pinned dir is clicked", async () => {
     mockFetchSequence([{ body: { pinnedDirs: sample } }]);
     const onCwdChange = vi.fn();
-    render(<PinnedDirsList onCwdChange={onCwdChange} />);
+    renderWithI18n(<PinnedDirsList onCwdChange={onCwdChange} />);
     // Wait for the two rows to appear.
     await waitFor(() => {
       expect(document.querySelectorAll("[data-pinned-row]").length).toBe(2);
@@ -51,7 +56,7 @@ describe("PinnedDirsList", () => {
       { body: { pinnedDirs: sample } }, // initial GET
       { body: { removed: true } }, // DELETE response
     ]);
-    render(<PinnedDirsList onCwdChange={() => {}} />);
+    renderWithI18n(<PinnedDirsList onCwdChange={() => {}} />);
     await waitFor(() => {
       expect(document.querySelectorAll("[data-pinned-row]").length).toBe(2);
     });
@@ -67,7 +72,7 @@ describe("PinnedDirsList", () => {
 
   it("renders nothing when the pinned list is empty (no header)", async () => {
     mockFetchSequence([{ body: { pinnedDirs: [] } }]);
-    render(<PinnedDirsList onCwdChange={() => {}} />);
+    renderWithI18n(<PinnedDirsList onCwdChange={() => {}} />);
     // Wait a microtask for the fetch resolution.
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByText(/pinned/i)).toBeNull();
@@ -76,14 +81,14 @@ describe("PinnedDirsList", () => {
   it("does not crash on a 500 response", async () => {
     mockFetchSequence([{ body: { error: "boom" }, status: 500 }]);
     const onCwdChange = vi.fn();
-    expect(() => render(<PinnedDirsList onCwdChange={onCwdChange} />)).not.toThrow();
+    expect(() => renderWithI18n(<PinnedDirsList onCwdChange={onCwdChange} />)).not.toThrow();
   });
 
   // --- Inline alias editing ---
 
   it("shows an edit (pencil) button on each row", async () => {
     mockFetchSequence([{ body: { pinnedDirs: sample } }]);
-    render(<PinnedDirsList onCwdChange={() => {}} />);
+    renderWithI18n(<PinnedDirsList onCwdChange={() => {}} />);
     await waitFor(() => {
       expect(document.querySelectorAll("[data-pinned-row]").length).toBe(2);
     });
@@ -92,7 +97,7 @@ describe("PinnedDirsList", () => {
 
   it("clicking the pencil reveals an inline input pre-filled with the alias", async () => {
     mockFetchSequence([{ body: { pinnedDirs: sample } }]);
-    render(<PinnedDirsList onCwdChange={() => {}} />);
+    renderWithI18n(<PinnedDirsList onCwdChange={() => {}} />);
     await waitFor(() => {
       expect(document.querySelectorAll("[data-pinned-row]").length).toBe(2);
     });
@@ -110,7 +115,7 @@ describe("PinnedDirsList", () => {
         body: { pinnedDir: { path: "/Users/me/projects/pi-web", alias: "my-alias", pinnedAt: 0 } },
       },
     ]);
-    render(<PinnedDirsList onCwdChange={() => {}} />);
+    renderWithI18n(<PinnedDirsList onCwdChange={() => {}} />);
     await waitFor(() => {
       expect(document.querySelectorAll("[data-pinned-row]").length).toBe(2);
     });
@@ -132,7 +137,7 @@ describe("PinnedDirsList", () => {
 
   it("Escape cancels editing without POSTing", async () => {
     mockFetchSequence([{ body: { pinnedDirs: sample } }]);
-    render(<PinnedDirsList onCwdChange={() => {}} />);
+    renderWithI18n(<PinnedDirsList onCwdChange={() => {}} />);
     await waitFor(() => {
       expect(document.querySelectorAll("[data-pinned-row]").length).toBe(2);
     });
@@ -151,7 +156,7 @@ describe("PinnedDirsList", () => {
 
   it("blur without changes does not POST (skips unnecessary write)", async () => {
     mockFetchSequence([{ body: { pinnedDirs: sample } }]);
-    render(<PinnedDirsList onCwdChange={() => {}} />);
+    renderWithI18n(<PinnedDirsList onCwdChange={() => {}} />);
     await waitFor(() => {
       expect(document.querySelectorAll("[data-pinned-row]").length).toBe(2);
     });
@@ -169,7 +174,7 @@ describe("PinnedDirsList", () => {
   it("clicking unpin while editing does not race with a save POST", async () => {
     // Initial GET + DELETE response for the unpin.
     mockFetchSequence([{ body: { pinnedDirs: sample } }, { body: { removed: true } }]);
-    render(<PinnedDirsList onCwdChange={() => {}} />);
+    renderWithI18n(<PinnedDirsList onCwdChange={() => {}} />);
     await waitFor(() => {
       expect(document.querySelectorAll("[data-pinned-row]").length).toBe(2);
     });

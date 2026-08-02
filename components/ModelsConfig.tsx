@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
+import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
+import type { DiscoveredModel } from "@/lib/model-discovery";
 // Color icons (have their own fill colors — no background needed)
 import AnthropicIcon from "@lobehub/icons/es/Anthropic/components/Mono";
 import OpenAIIcon from "@lobehub/icons/es/OpenAI/components/Mono";
@@ -90,6 +92,8 @@ interface OAuthProvider {
   name: string;
   usesCallbackServer: boolean;
   loggedIn: boolean;
+  /** Provider also accepts an API key, so it appears in both picker sections. */
+  supportsApiKey?: boolean;
 }
 
 interface ApiKeyProvider {
@@ -98,6 +102,8 @@ interface ApiKeyProvider {
   configured: boolean;
   source?: string;
   modelCount: number;
+  /** Provider also supports OAuth, so it appears in both picker sections. */
+  supportsOAuth?: boolean;
 }
 
 type OAuthLoginState =
@@ -154,6 +160,18 @@ type ModelTestState =
   | { phase: "testing" }
   | { phase: "success"; latencyMs?: number; status?: number; responseText?: string }
   | { phase: "error"; message: string; latencyMs?: number; status?: number };
+
+type ModelDiscoveryState =
+  | { phase: "idle" }
+  | { phase: "loading" }
+  | { phase: "success"; models: DiscoveredModel[]; endpoint: string }
+  | { phase: "error"; message: string };
+
+type ModelCatalogState =
+  | { phase: "idle" }
+  | { phase: "loading" }
+  | { phase: "success"; recommendation: ModelCatalogRecommendation; appliedCount: number }
+  | { phase: "error"; message: string };
 
 type Selection =
   | { type: "provider"; name: string }
@@ -257,8 +275,8 @@ function SecretTextInput({
       <button
         type="button"
         onClick={() => setVisible((v) => !v)}
-        aria-label={visible ? t("models.hideApiKey") : t("models.showApiKey")}
-        title={visible ? t("models.hideApiKey") : t("models.showApiKey")}
+        aria-label={visible ? t("i18n.hideDetails") : t("i18n.showDetails")}
+        title={visible ? t("i18n.hideDetails") : t("i18n.showDetails")}
         style={{
           position: "absolute",
           right: 5,
@@ -350,7 +368,7 @@ function Select({
       onChange={(e) => onChange(e.target.value)}
       style={{ ...inputStyle, color: value ? "var(--text)" : "var(--text-dim)" }}
     >
-      {!required && <option value="">{t("models.inheritNone")}</option>}
+      {!required && <option value="">— {t("i18n.default")} / none —</option>}
       {options.map((o) => (
         <option key={o} value={o}>
           {o}
@@ -416,16 +434,23 @@ function ProviderDetail({
   onChange,
   onRename,
   onDelete,
+  onAddModels,
 }: {
   name: string;
   provider: ProviderEntry;
   onChange: (p: ProviderEntry) => void;
   onRename: (n: string) => void;
   onDelete: () => void;
+  onAddModels: (models: DiscoveredModel[]) => void;
 }) {
-  const [editingName, setEditingName] = useState(name);
-  useEffect(() => setEditingName(name), [name]);
   const { t } = useI18n();
+  const [editingName, setEditingName] = useState(name);
+  const [discoveryState, setDiscoveryState] = useState<ModelDiscoveryState>({ phase: "idle" });
+  const [discoveryQuery, setDiscoveryQuery] = useState("");
+  const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
+  const discoveryRequestIdRef = useRef(0);
+  const selectShownRef = useRef<HTMLInputElement>(null);
+  useEffect(() => setEditingName(name), [name]);
   const set = <K extends keyof ProviderEntry>(k: K, v: ProviderEntry[K]) =>
     onChange({ ...provider, [k]: v });
 
@@ -434,10 +459,102 @@ function ProviderDetail({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider.api]);
 
+  useEffect(() => {
+    discoveryRequestIdRef.current += 1;
+    setDiscoveryState({ phase: "idle" });
+    setDiscoveryQuery("");
+    setSelectedModelIds([]);
+  }, [name, provider.baseUrl, provider.api, provider.apiKey]);
+
+  const handleDiscoverModels = useCallback(async () => {
+    if (!provider.baseUrl?.trim() || discoveryState.phase === "loading") return;
+    const requestId = ++discoveryRequestIdRef.current;
+    setDiscoveryState({ phase: "loading" });
+    setSelectedModelIds([]);
+    try {
+      const res = await fetch("/api/models-config/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerName: name, provider: { ...provider, models: undefined } }),
+      });
+      const data = (await res.json()) as {
+        models?: DiscoveredModel[];
+        endpoint?: string;
+        error?: string;
+      };
+      if (requestId !== discoveryRequestIdRef.current) return;
+      if (!res.ok || data.error || !data.models) {
+        setDiscoveryState({ phase: "error", message: data.error ?? `HTTP ${res.status}` });
+        return;
+      }
+      setDiscoveryState({
+        phase: "success",
+        models: data.models,
+        endpoint: data.endpoint ?? provider.baseUrl,
+      });
+    } catch (error) {
+      if (requestId !== discoveryRequestIdRef.current) return;
+      setDiscoveryState({
+        phase: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [discoveryState.phase, name, provider]);
+
+  const existingModelIds = new Set((provider.models ?? []).map((model) => model.id));
+  const discoveredModels = discoveryState.phase === "success" ? discoveryState.models : [];
+  const normalizedDiscoveryQuery = discoveryQuery.trim().toLocaleLowerCase();
+  const filteredDiscoveredModels = discoveredModels.filter(
+    (model) =>
+      !normalizedDiscoveryQuery ||
+      model.id.toLocaleLowerCase().includes(normalizedDiscoveryQuery) ||
+      model.name?.toLocaleLowerCase().includes(normalizedDiscoveryQuery),
+  );
+  const shownDiscoveredModels = filteredDiscoveredModels.slice(0, 300);
+  const selectableShownIds = shownDiscoveredModels
+    .filter((model) => !existingModelIds.has(model.id))
+    .map((model) => model.id);
+  const selectedCount = selectedModelIds.filter((id) => !existingModelIds.has(id)).length;
+  const allShownSelected =
+    selectableShownIds.length > 0 &&
+    selectableShownIds.every((id) => selectedModelIds.includes(id));
+  const someShownSelected =
+    !allShownSelected && selectableShownIds.some((id) => selectedModelIds.includes(id));
+
+  useEffect(() => {
+    if (selectShownRef.current) selectShownRef.current.indeterminate = someShownSelected;
+  }, [someShownSelected]);
+
+  const toggleDiscoveredModel = (id: string) => {
+    setSelectedModelIds((current) =>
+      current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id],
+    );
+  };
+
+  const toggleShownModels = () => {
+    const shownIds = new Set(selectableShownIds);
+    setSelectedModelIds((current) =>
+      allShownSelected
+        ? current.filter((id) => !shownIds.has(id))
+        : Array.from(new Set([...current, ...selectableShownIds])),
+    );
+  };
+
+  const addSelectedModels = () => {
+    if (discoveryState.phase !== "success") return;
+    const selected = new Set(selectedModelIds);
+    const additions = discoveryState.models.filter(
+      (model) => selected.has(model.id) && !existingModelIds.has(model.id),
+    );
+    if (additions.length === 0) return;
+    onAddModels(additions);
+    setSelectedModelIds([]);
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <SectionTitle>{t("models.provider")}</SectionTitle>
+        <SectionTitle>{t("i18n.provider")}</SectionTitle>
         <button
           onClick={onDelete}
           style={{
@@ -450,11 +567,11 @@ function ProviderDetail({
             fontSize: 11,
           }}
         >
-          {t("models.delete")}
+          {t("i18n.delete")}
         </button>
       </div>
 
-      <Field label={t("models.providerName")}>
+      <Field label={t("i18n.providerName")}>
         <TextInput value={editingName} onChange={setEditingName} placeholder="provider-name" mono />
         {editingName !== name && editingName.trim() && (
           <button
@@ -471,12 +588,12 @@ function ProviderDetail({
               alignSelf: "flex-start",
             }}
           >
-            {t("models.rename")}
+            {t("i18n.rename")}
           </button>
         )}
       </Field>
 
-      <Field label={t("models.baseUrl")}>
+      <Field label="Base URL">
         <TextInput
           value={provider.baseUrl ?? ""}
           onChange={(v) => set("baseUrl", v || undefined)}
@@ -485,7 +602,7 @@ function ProviderDetail({
         />
       </Field>
 
-      <Field label={t("models.apiKey")}>
+      <Field label="API Key">
         <SecretTextInput
           value={provider.apiKey ?? ""}
           onChange={(v) => set("apiKey", v || undefined)}
@@ -493,13 +610,12 @@ function ProviderDetail({
           mono
         />
         <span style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
-          {t("models.apiKeyHintBefore")}
-          <code style={{ fontFamily: "var(--font-mono)" }}>!</code>
-          {t("models.apiKeyHintAfter")}
+          Prefix with <code style={{ fontFamily: "var(--font-mono)" }}>!</code> to run a shell
+          command, or use an env var name
         </span>
       </Field>
 
-      <Field label={t("models.api")}>
+      <Field label="API">
         <Select
           value={provider.api ?? "openai-completions"}
           onChange={(v) => set("api", v)}
@@ -507,13 +623,239 @@ function ProviderDetail({
           required
         />
       </Field>
+
+      <div
+        style={{
+          borderTop: "1px solid var(--border)",
+          paddingTop: 14,
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+        }}
+      >
+        {discoveryState.phase !== "success" && (
+          <button
+            onClick={handleDiscoverModels}
+            disabled={!provider.baseUrl?.trim() || discoveryState.phase === "loading"}
+            style={{
+              alignSelf: "flex-start",
+              height: 30,
+              padding: "0 12px",
+              border: "1px solid var(--border)",
+              borderRadius: 5,
+              background: "var(--bg-panel)",
+              color:
+                !provider.baseUrl?.trim() || discoveryState.phase === "loading"
+                  ? "var(--text-dim)"
+                  : "var(--text-muted)",
+              cursor:
+                !provider.baseUrl?.trim() || discoveryState.phase === "loading"
+                  ? "not-allowed"
+                  : "pointer",
+              fontSize: 11,
+            }}
+          >
+            {discoveryState.phase === "loading"
+              ? t("models.discoveryFetching")
+              : t("models.discoveryFetch")}
+          </button>
+        )}
+
+        {discoveryState.phase === "error" && (
+          <div
+            style={{
+              padding: "7px 9px",
+              border: "1px solid rgba(239,68,68,0.3)",
+              borderRadius: 5,
+              color: "#ef4444",
+              fontSize: 11,
+              lineHeight: 1.4,
+            }}
+          >
+            {discoveryState.message}
+          </div>
+        )}
+
+        {discoveryState.phase === "success" && (
+          <>
+            <input
+              value={discoveryQuery}
+              onChange={(event) => setDiscoveryQuery(event.target.value)}
+              placeholder={t("models.discoveryFilterPlaceholder", {
+                count: discoveryState.models.length,
+              })}
+              aria-label={t("models.discoveryFilter")}
+              style={{ ...inputStyle, width: "100%", minWidth: 0 }}
+            />
+
+            <div
+              style={{
+                maxHeight: 220,
+                overflowY: "auto",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                background: "var(--bg-panel)",
+              }}
+            >
+              <label
+                style={{
+                  minHeight: 32,
+                  padding: "5px 9px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  position: "sticky",
+                  top: 0,
+                  zIndex: 1,
+                  borderBottom: "1px solid var(--border)",
+                  background: "var(--bg)",
+                  cursor: selectableShownIds.length ? "pointer" : "default",
+                  color: "var(--text-muted)",
+                  fontSize: 10,
+                  fontWeight: 600,
+                }}
+              >
+                <input
+                  ref={selectShownRef}
+                  type="checkbox"
+                  checked={allShownSelected}
+                  disabled={selectableShownIds.length === 0}
+                  onChange={toggleShownModels}
+                  style={{ width: 13, height: 13, accentColor: "var(--accent)", flexShrink: 0 }}
+                />
+                {t("models.discoverySelectShown")}
+              </label>
+              {shownDiscoveredModels.length === 0 ? (
+                <div style={{ padding: 12, color: "var(--text-dim)", fontSize: 11 }}>
+                  {t("models.discoveryNoMatches")}
+                </div>
+              ) : (
+                shownDiscoveredModels.map((model, index) => {
+                  const alreadyAdded = existingModelIds.has(model.id);
+                  const checked = selectedModelIds.includes(model.id);
+                  return (
+                    <label
+                      key={model.id}
+                      style={{
+                        minHeight: 36,
+                        padding: "6px 9px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        borderTop: index === 0 ? "none" : "1px solid var(--border)",
+                        cursor: alreadyAdded ? "default" : "pointer",
+                        opacity: alreadyAdded ? 0.65 : 1,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked || alreadyAdded}
+                        disabled={alreadyAdded}
+                        onChange={() => toggleDiscoveredModel(model.id)}
+                        style={{
+                          width: 13,
+                          height: 13,
+                          accentColor: "var(--accent)",
+                          flexShrink: 0,
+                        }}
+                      />
+                      <span style={{ minWidth: 0, flex: 1 }}>
+                        <span
+                          style={{
+                            display: "block",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            color: "var(--text)",
+                            fontSize: 11,
+                          }}
+                        >
+                          {model.name ?? model.id}
+                        </span>
+                        {model.name && (
+                          <code
+                            style={{
+                              display: "block",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                              color: "var(--text-dim)",
+                              fontSize: 10,
+                              fontFamily: "var(--font-mono)",
+                            }}
+                          >
+                            {model.id}
+                          </code>
+                        )}
+                      </span>
+                      {alreadyAdded && (
+                        <span style={{ color: "var(--text-dim)", fontSize: 10 }}>
+                          {t("models.discoveryAdded")}
+                        </span>
+                      )}
+                    </label>
+                  );
+                })
+              )}
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
+              }}
+            >
+              <span
+                title={discoveryState.endpoint}
+                style={{
+                  minWidth: 0,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  color: "var(--text-dim)",
+                  fontSize: 10,
+                }}
+              >
+                {filteredDiscoveredModels.length > shownDiscoveredModels.length
+                  ? t("models.discoveryShowing", {
+                      shown: shownDiscoveredModels.length,
+                      total: filteredDiscoveredModels.length,
+                    })
+                  : t("models.discoveryFetched", { count: discoveryState.models.length })}
+              </span>
+              <button
+                onClick={addSelectedModels}
+                disabled={selectedCount === 0}
+                style={{
+                  height: 28,
+                  padding: "0 11px",
+                  border: "none",
+                  borderRadius: 5,
+                  background: selectedCount ? "var(--accent)" : "var(--bg-panel)",
+                  color: selectedCount ? "#fff" : "var(--text-dim)",
+                  cursor: selectedCount ? "pointer" : "not-allowed",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {selectedCount
+                  ? t("models.discoveryAddSelectedCount", { count: selectedCount })
+                  : t("models.discoveryAddSelected")}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
 
 // ── ThinkingLevelMap editor ───────────────────────────────────────────────────
 
-const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 
 const LEVEL_COLORS: Record<ThinkingLevel, string> = {
@@ -523,6 +865,7 @@ const LEVEL_COLORS: Record<ThinkingLevel, string> = {
   medium: "#a78bfa",
   high: "#f472b6",
   xhigh: "#fb923c",
+  max: "#ef4444",
 };
 
 function ThinkingLevelMapEditor({
@@ -532,7 +875,6 @@ function ThinkingLevelMapEditor({
   value: Record<string, string | null> | undefined;
   onChange: (v: Record<string, string | null> | undefined) => void;
 }) {
-  const { t } = useI18n();
   const map = value ?? {};
 
   const setLevel = (level: ThinkingLevel, entry: string | null | "omit") => {
@@ -632,7 +974,7 @@ function ThinkingLevelMapEditor({
                 onClick={() => setLevel(level, "omit")}
                 style={{ ...btnBase, ...(state === "omit" ? btnActive : {}) }}
               >
-                {t("models.default")}
+                Default
               </button>
               <button
                 onClick={() => setLevel(level, null)}
@@ -642,7 +984,7 @@ function ThinkingLevelMapEditor({
                   ...(state === "null" ? btnActiveDisabled : {}),
                 }}
               >
-                {t("models.disabled")}
+                Disabled
               </button>
             </div>
 
@@ -665,7 +1007,7 @@ function ThinkingLevelMapEditor({
                   flexShrink: 0,
                 }}
               >
-                {t("models.custom")}
+                Custom
               </button>
               <input
                 value={strVal}
@@ -717,6 +1059,48 @@ function setDeepseekCompat(model: ModelEntry, enabled: boolean): ModelEntry {
   return { ...model, compat: Object.keys(rest).length ? rest : undefined };
 }
 
+function fillEmptyModelFields(
+  model: ModelEntry,
+  preset: ModelCatalogPreset,
+): { model: ModelEntry; appliedCount: number } {
+  const next = { ...model };
+  let appliedCount = 0;
+  if (!model.name?.trim() && preset.name) {
+    next.name = preset.name;
+    appliedCount += 1;
+  }
+  if (model.reasoning === undefined && preset.reasoning === true) {
+    next.reasoning = true;
+    appliedCount += 1;
+  }
+  if (!model.input?.length && preset.input?.length) {
+    next.input = [...preset.input];
+    appliedCount += 1;
+  }
+  if (model.contextWindow === undefined && preset.contextWindow !== undefined) {
+    next.contextWindow = preset.contextWindow;
+    appliedCount += 1;
+  }
+  if (model.maxTokens === undefined && preset.maxTokens !== undefined) {
+    next.maxTokens = preset.maxTokens;
+    appliedCount += 1;
+  }
+
+  if (preset.cost) {
+    const cost = { ...(model.cost ?? {}) };
+    let costChanged = false;
+    for (const key of ["input", "output", "cacheRead", "cacheWrite"] as const) {
+      if (cost[key] === undefined && preset.cost[key] !== undefined) {
+        cost[key] = preset.cost[key];
+        costChanged = true;
+        appliedCount += 1;
+      }
+    }
+    if (costChanged) next.cost = cost;
+  }
+  return { model: next, appliedCount };
+}
+
 function ModelDetail({
   providerName,
   provider,
@@ -732,6 +1116,9 @@ function ModelDetail({
 }) {
   const [testState, setTestState] = useState<ModelTestState>({ phase: "idle" });
   const { t } = useI18n();
+  const [catalogState, setCatalogState] = useState<ModelCatalogState>({ phase: "idle" });
+  const catalogRequestIdRef = useRef(0);
+  const catalogUndoRef = useRef<ModelEntry | null>(null);
   const set = <K extends keyof ModelEntry>(k: K, v: ModelEntry[K]) =>
     onChange({ ...model, [k]: v });
   const costVal = (k: keyof NonNullable<ModelEntry["cost"]>) =>
@@ -742,22 +1129,28 @@ function ModelDetail({
   };
   const testSummary = (() => {
     if (testState.phase === "idle") return null;
-    if (testState.phase === "testing") return t("models.testingConnection");
+    if (testState.phase === "testing") return t("i18n.testingModel");
     const meta = [
       testState.latencyMs !== undefined ? `${testState.latencyMs}ms` : null,
       testState.status !== undefined ? `HTTP ${testState.status}` : null,
     ].filter(Boolean);
     if (testState.phase === "success") {
-      return [t("models.connected"), ...meta, testState.responseText || null]
+      return [t("i18n.connected"), ...meta, testState.responseText || null]
         .filter(Boolean)
         .join(" · ");
     }
-    return [t("models.failed"), ...meta, testState.message].filter(Boolean).join(" · ");
+    return [t("i18n.failed"), ...meta, testState.message].filter(Boolean).join(" · ");
   })();
 
   useEffect(() => {
     setTestState({ phase: "idle" });
   }, [providerName, provider.baseUrl, provider.api, provider.apiKey, model.id, model.api]);
+
+  useEffect(() => {
+    catalogRequestIdRef.current += 1;
+    setCatalogState({ phase: "idle" });
+    catalogUndoRef.current = null;
+  }, [providerName, provider.baseUrl, model.id]);
 
   const handleTest = useCallback(async () => {
     if (!model.id.trim() || testState.phase === "testing") return;
@@ -795,10 +1188,98 @@ function ModelDetail({
     }
   }, [model, provider, providerName, testState.phase]);
 
+  const handleCatalogFill = useCallback(async () => {
+    const query = model.id.trim();
+    if (!query || catalogState.phase === "loading") return;
+    const requestId = ++catalogRequestIdRef.current;
+    setCatalogState({ phase: "loading" });
+    try {
+      const params = new URLSearchParams({ q: query, provider: providerName, limit: "50" });
+      if (provider.baseUrl?.trim()) params.set("baseUrl", provider.baseUrl.trim());
+      const res = await fetch(`/api/models-config/catalog?${params}`);
+      const data = (await res.json()) as {
+        recommendation?: ModelCatalogRecommendation;
+        error?: string;
+      };
+      if (requestId !== catalogRequestIdRef.current) return;
+      if (!res.ok || data.error || !data.recommendation) {
+        setCatalogState({ phase: "error", message: data.error ?? `HTTP ${res.status}` });
+        return;
+      }
+      const filled = fillEmptyModelFields(model, data.recommendation.preset);
+      if (filled.appliedCount > 0) {
+        catalogUndoRef.current = model;
+        onChange(filled.model);
+      }
+      setCatalogState({
+        phase: "success",
+        recommendation: data.recommendation,
+        appliedCount: filled.appliedCount,
+      });
+    } catch (error) {
+      if (requestId !== catalogRequestIdRef.current) return;
+      setCatalogState({
+        phase: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [catalogState.phase, model, onChange, provider.baseUrl, providerName]);
+
+  const undoCatalogFill = () => {
+    const previous = catalogUndoRef.current;
+    if (!previous) return;
+    catalogUndoRef.current = null;
+    onChange(previous);
+    setCatalogState({ phase: "idle" });
+  };
+
+  const catalogResultSummary = (() => {
+    if (catalogState.phase !== "success") return null;
+    const { recommendation, appliedCount } = catalogState;
+    const applied =
+      appliedCount > 0
+        ? t("models.catalogFilled", { count: appliedCount })
+        : t("models.catalogNoEmptyFields");
+    if (recommendation.price.status === "unreliable") {
+      const price =
+        recommendation.price.reason === "no-exact-match"
+          ? t("models.catalogNoExactMatch")
+          : t("models.catalogPriceUnreliable");
+      return `${applied} · ${price}`;
+    }
+    const price =
+      recommendation.price.method === "provider"
+        ? t("models.catalogPriceProvider", {
+            provider:
+              recommendation.price.providerName ?? recommendation.price.providerId ?? providerName,
+          })
+        : recommendation.price.method === "base-url"
+          ? t("models.catalogPriceBaseUrl", {
+              provider:
+                recommendation.price.providerName ??
+                recommendation.price.providerId ??
+                providerName,
+            })
+          : t("models.catalogPriceConsensus", {
+              support: recommendation.price.support,
+              total: recommendation.price.total,
+            });
+    return `${applied} · ${price}`;
+  })();
+  const catalogStatusText =
+    catalogState.phase === "error" ? catalogState.message : catalogResultSummary;
+  const catalogStatusColor =
+    catalogState.phase === "error"
+      ? "#ef4444"
+      : catalogState.phase === "success" &&
+          catalogState.recommendation.price.status === "unreliable"
+        ? "#d97706"
+        : "var(--text-dim)";
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <SectionTitle>{t("models.model")}</SectionTitle>
+        <SectionTitle>{t("i18n.model")}</SectionTitle>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {testSummary && (
             <span
@@ -831,7 +1312,7 @@ function ModelDetail({
           <button
             onClick={handleTest}
             disabled={!model.id.trim() || testState.phase === "testing"}
-            title={t("models.testConnection")}
+            title={t("i18n.testConnection")}
             style={{
               height: 24,
               padding: "0 8px",
@@ -868,10 +1349,10 @@ function ModelDetail({
               </svg>
             )}
             {testState.phase === "testing"
-              ? t("models.testing")
+              ? t("i18n.checking")
               : testState.phase === "success"
-                ? t("models.ok")
-                : t("models.test")}
+                ? t("common.ok")
+                : t("i18n.test")}
           </button>
           <button
             onClick={onDelete}
@@ -887,25 +1368,113 @@ function ModelDetail({
               boxSizing: "border-box",
             }}
           >
-            {t("models.remove")}
+            {t("i18n.remove")}
           </button>
         </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Field label={t("models.idRequired")}>
+        <Field label="ID *">
           <TextInput value={model.id} onChange={(v) => set("id", v)} placeholder="model-id" mono />
         </Field>
-        <Field label={t("models.name")}>
+        <Field label="Name">
           <TextInput
             value={model.name ?? ""}
             onChange={(v) => set("name", v || undefined)}
-            placeholder={t("models.displayName")}
+            placeholder="Display name"
           />
         </Field>
       </div>
 
-      <Field label={t("models.apiOverride")}>
+      <div
+        style={{
+          padding: "10px 0",
+          borderTop: "1px solid var(--border)",
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <button
+            onClick={() => void handleCatalogFill()}
+            disabled={!model.id.trim() || catalogState.phase === "loading"}
+            style={{
+              height: 28,
+              padding: "0 10px",
+              border: "1px solid var(--border)",
+              borderRadius: 5,
+              background: "var(--bg-panel)",
+              color:
+                !model.id.trim() || catalogState.phase === "loading"
+                  ? "var(--text-dim)"
+                  : "var(--text-muted)",
+              cursor:
+                !model.id.trim() || catalogState.phase === "loading" ? "not-allowed" : "pointer",
+              fontSize: 11,
+            }}
+          >
+            {catalogState.phase === "loading"
+              ? t("models.catalogFilling")
+              : t("models.catalogFill")}
+          </button>
+          <a
+            href="https://github.com/anomalyco/models.dev"
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              marginLeft: "auto",
+              color: "var(--text-dim)",
+              fontSize: 10,
+              textDecoration: "none",
+            }}
+          >
+            {t("models.catalogSource")}
+          </a>
+        </div>
+
+        <div
+          aria-live="polite"
+          style={{
+            marginTop: 6,
+            height: 20,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+            color: catalogStatusColor,
+            fontSize: 10,
+          }}
+        >
+          <span
+            title={catalogStatusText ?? undefined}
+            style={{
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {catalogStatusText}
+          </span>
+          {catalogUndoRef.current && (
+            <button
+              onClick={undoCatalogFill}
+              style={{
+                flexShrink: 0,
+                padding: "0 2px",
+                border: "none",
+                background: "none",
+                color: "var(--accent)",
+                cursor: "pointer",
+                fontSize: 10,
+              }}
+            >
+              {t("models.catalogUndo")}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <Field label="API override">
         <Select
           value={model.api ?? ""}
           onChange={(v) => set("api", v || undefined)}
@@ -915,12 +1484,12 @@ function ModelDetail({
 
       <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
         <Check
-          label={t("models.reasoningThinking")}
+          label="Reasoning / thinking"
           checked={model.reasoning ?? false}
           onChange={(v) => set("reasoning", v || undefined)}
         />
         <Check
-          label={t("models.imageInput")}
+          label="Image input"
           checked={model.input?.includes("image") ?? false}
           onChange={(v) => set("input", v ? ["text", "image"] : undefined)}
         />
@@ -929,7 +1498,7 @@ function ModelDetail({
       {model.reasoning && (
         <>
           <Check
-            label={t("models.deepseekCompat")}
+            label="DeepSeek thinking compat"
             checked={hasDeepseekCompat(model)}
             onChange={(v) => onChange(setDeepseekCompat(model, v))}
           />
@@ -942,7 +1511,7 @@ function ModelDetail({
                 marginBottom: 8,
               }}
             >
-              <SectionTitle>{t("models.thinkingLevelMap")}</SectionTitle>
+              <SectionTitle>Thinking level map</SectionTitle>
               {model.thinkingLevelMap && (
                 <button
                   onClick={() => set("thinkingLevelMap", undefined)}
@@ -956,7 +1525,7 @@ function ModelDetail({
                     cursor: "pointer",
                   }}
                 >
-                  {t("models.clearAll")}
+                  clear all
                 </button>
               )}
             </div>
@@ -969,14 +1538,14 @@ function ModelDetail({
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Field label={t("models.contextWindow")}>
+        <Field label="Context window (tokens)">
           <NumInput
             value={model.contextWindow !== undefined ? String(model.contextWindow) : ""}
             onChange={(v) => set("contextWindow", v ? parseInt(v) : undefined)}
             placeholder="128000"
           />
         </Field>
-        <Field label={t("models.maxOutputTokens")}>
+        <Field label="Max output tokens">
           <NumInput
             value={model.maxTokens !== undefined ? String(model.maxTokens) : ""}
             onChange={(v) => set("maxTokens", v ? parseInt(v) : undefined)}
@@ -986,7 +1555,7 @@ function ModelDetail({
       </div>
 
       <div>
-        <SectionTitle>{t("models.costPerMillion")}</SectionTitle>
+        <SectionTitle>Cost (per million tokens)</SectionTitle>
         <div
           style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}
         >
@@ -1005,10 +1574,10 @@ function ModelDetail({
 
 function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefresh: () => void }) {
   const [loginState, setLoginState] = useState<OAuthLoginState>({ phase: "idle" });
+  const { t } = useI18n();
   const [inputValue, setInputValue] = useState("");
   const eventSourceRef = useRef<EventSource | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const { t } = useI18n();
 
   useEffect(() => {
     if (loginState.phase === "auth" || loginState.phase === "prompt") {
@@ -1100,10 +1669,10 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
     es.onerror = () => {
       es.close();
       setLoginState((prev) =>
-        prev.phase === "success" ? prev : { phase: "error", message: t("models.connectionLost") },
+        prev.phase === "success" ? prev : { phase: "error", message: "Connection lost" },
       );
     };
-  }, [provider.id, onRefresh, t]);
+  }, [provider.id, onRefresh]);
 
   const handleLogout = useCallback(async () => {
     await fetch(`/api/auth/logout/${encodeURIComponent(provider.id)}`, { method: "POST" });
@@ -1114,7 +1683,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
   const submitCode = useCallback(
     async (token: string, code: string) => {
       if (!code.trim()) return;
-      setLoginState({ phase: "progress", message: t("models.verifying") });
+      setLoginState({ phase: "progress", message: "Verifying…" });
       try {
         const res = await fetch(`/api/auth/login/${encodeURIComponent(provider.id)}`, {
           method: "POST",
@@ -1131,16 +1700,16 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
       } catch (e) {
         setLoginState({
           phase: "error",
-          message: e instanceof Error ? e.message : t("models.networkError"),
+          message: e instanceof Error ? e.message : "Network error",
         });
       }
     },
-    [provider.id, t],
+    [provider.id],
   );
 
   const submitSelection = useCallback(
     async (token: string, value: string) => {
-      setLoginState({ phase: "progress", message: t("models.continuing") });
+      setLoginState({ phase: "progress", message: "Continuing…" });
       try {
         const res = await fetch(`/api/auth/login/${encodeURIComponent(provider.id)}`, {
           method: "POST",
@@ -1154,11 +1723,11 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
       } catch (e) {
         setLoginState({
           phase: "error",
-          message: e instanceof Error ? e.message : t("models.networkError"),
+          message: e instanceof Error ? e.message : "Network error",
         });
       }
     },
-    [provider.id, t],
+    [provider.id],
   );
 
   const isWorking =
@@ -1172,7 +1741,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <SectionTitle>{t("models.subscription")}</SectionTitle>
+        <SectionTitle>{t("i18n.subscription")}</SectionTitle>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span
             style={{
@@ -1184,7 +1753,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
             }}
           />
           <span style={{ fontSize: 11, color: provider.loggedIn ? "#4ade80" : "var(--text-dim)" }}>
-            {provider.loggedIn ? t("models.statusConnected") : t("models.notConnected")}
+            {provider.loggedIn ? t("i18n.connected") : t("i18n.notConnected")}
           </span>
         </div>
       </div>
@@ -1194,13 +1763,13 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
         {loginState.phase === "idle" && (
           <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
             {provider.loggedIn
-              ? t("models.alreadyConnected")
-              : t("models.connectAccount", { name: provider.name })}
+              ? "Already connected. You can re-login or disconnect."
+              : `Connect your ${provider.name} account.`}
           </p>
         )}
         {loginState.phase === "connecting" && (
           <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>
-            {t("models.openingBrowser")}
+            {t("i18n.openingBrowser")}
           </p>
         )}
         {loginState.phase === "select" && (
@@ -1233,20 +1802,22 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
         {(loginState.phase === "auth" || loginState.phase === "prompt") && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-              {loginState.phase === "auth" ? t("models.completeSignIn") : loginState.message}
+              {loginState.phase === "auth"
+                ? "Complete sign-in in the browser, then copy the redirect URL from the address bar and paste it below."
+                : loginState.message}
             </p>
             {loginState.phase === "auth" && (
               <p style={{ margin: 0, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>
-                {t("models.browserDidNotOpenBefore")}{" "}
+                If the browser window did not open,{" "}
                 <a
                   href={loginState.url}
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{ color: "var(--accent)", wordBreak: "break-all" }}
                 >
-                  {t("models.clickToOpenLogin")}
+                  click here to open the login page
                 </a>
-                {t("models.browserDidNotOpenAfter")}
+                .
               </p>
             )}
             <div style={{ display: "flex", gap: 6 }}>
@@ -1260,7 +1831,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
                 placeholder={
                   loginState.phase === "auth"
                     ? "http://localhost:1455/auth/callback?code=…"
-                    : (loginState.placeholder ?? t("models.enterValue"))
+                    : (loginState.placeholder ?? "Enter value…")
                 }
                 style={{
                   flex: 1,
@@ -1290,7 +1861,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
                   flexShrink: 0,
                 }}
               >
-                {t("models.submit")}
+                {t("i18n.submit")}
               </button>
             </div>
           </div>
@@ -1298,7 +1869,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
         {loginState.phase === "device_code" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-              {t("models.openVerificationPage")}
+              Open the verification page and enter this code:
             </p>
             <div
               style={{
@@ -1325,7 +1896,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
                 {loginState.verificationUri}
               </a>
               {loginState.expiresInSeconds
-                ? ` ${t("models.expiresInMinutes", { count: Math.ceil(loginState.expiresInSeconds / 60) })}`
+                ? ` Expires in ${Math.ceil(loginState.expiresInSeconds / 60)} minutes.`
                 : ""}
             </p>
           </div>
@@ -1337,7 +1908,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
         )}
         {loginState.phase === "success" && (
           <p style={{ margin: 0, fontSize: 12, color: "#4ade80" }}>
-            {t("models.connectedSuccessfully")}
+            {t("i18n.connectedSuccessfully")}
           </p>
         )}
         {loginState.phase === "error" && (
@@ -1363,7 +1934,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
               fontSize: 12,
             }}
           >
-            {t("models.cancel")}
+            {t("i18n.cancel")}
           </button>
         ) : (
           <>
@@ -1380,7 +1951,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
                 fontWeight: 600,
               }}
             >
-              {provider.loggedIn ? t("models.relogin") : t("models.login")}
+              {provider.loggedIn ? t("i18n.relogin") : t("i18n.login")}
             </button>
             {provider.loggedIn && (
               <button
@@ -1395,7 +1966,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
                   fontSize: 12,
                 }}
               >
-                {t("models.disconnect")}
+                {t("i18n.disconnect")}
               </button>
             )}
           </>
@@ -1475,7 +2046,7 @@ function ApiKeyDetail({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <SectionTitle>{t("models.apiKey")}</SectionTitle>
+        <SectionTitle>API Key</SectionTitle>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span
             style={{
@@ -1489,18 +2060,18 @@ function ApiKeyDetail({
           <span
             style={{ fontSize: 11, color: provider.configured ? "#4ade80" : "var(--text-dim)" }}
           >
-            {provider.configured ? t("models.configured") : t("models.notConfigured")}
+            {provider.configured ? t("i18n.configured") : t("i18n.notConfigured")}
           </span>
         </div>
       </div>
 
       <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
         {provider.configured
-          ? t("models.apiKeyStored")
-          : t("models.enterApiKey", { name: provider.displayName, count: provider.modelCount })}
+          ? `API key is stored. Enter a new key below to replace it, or disconnect to remove it.`
+          : `Enter your ${provider.displayName} API key to enable ${provider.modelCount} model${provider.modelCount !== 1 ? "s" : ""}.`}
       </p>
 
-      <Field label={t("models.apiKey")}>
+      <Field label="API Key">
         <div style={{ display: "flex", gap: 6 }}>
           <SecretTextInput
             value={apiKey}
@@ -1508,7 +2079,7 @@ function ApiKeyDetail({
             onKeyDown={(e) => {
               if (e.key === "Enter" && apiKey.trim()) handleSave();
             }}
-            placeholder={provider.configured ? t("models.enterNewKey") : "sk-…"}
+            placeholder={provider.configured ? "Enter new key to replace…" : "sk-…"}
             style={{ flex: 1 }}
             autoComplete="off"
             spellCheck={false}
@@ -1546,7 +2117,7 @@ function ApiKeyDetail({
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             )}
-            {savedOk ? t("models.saved") : saving ? t("models.saving") : t("models.save")}
+            {savedOk ? t("i18n.saved") : saving ? t("i18n.saving") : t("i18n.save")}
           </button>
         </div>
       </Field>
@@ -1568,7 +2139,7 @@ function ApiKeyDetail({
             fontSize: 12,
           }}
         >
-          {removing ? t("models.removing") : t("models.disconnect")}
+          {removing ? t("i18n.removing") : t("i18n.disconnect")}
         </button>
       )}
     </div>
@@ -1636,8 +2207,8 @@ function AddProviderPicker({
   onClose,
 }: AddProviderPickerProps) {
   const [search, setSearch] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
   const { t } = useI18n();
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 30);
@@ -1739,7 +2310,7 @@ function AddProviderPicker({
             onKeyDown={(e) => {
               if (e.key === "Escape") onClose();
             }}
-            placeholder={t("models.searchProviders")}
+            placeholder={t("i18n.searchProviders")}
             style={{
               flex: 1,
               background: "none",
@@ -1763,7 +2334,7 @@ function AddProviderPicker({
                 textAlign: "center",
               }}
             >
-              {t("models.noProvidersMatch")}
+              {t("i18n.noProviders")}
             </div>
           ) : (
             <div
@@ -1784,7 +2355,7 @@ function AddProviderPicker({
                     letterSpacing: "0.07em",
                   }}
                 >
-                  {t("models.custom")}
+                  {t("i18n.custom")}
                 </div>
               )}
               {showCustom && (
@@ -1815,10 +2386,10 @@ function AddProviderPicker({
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {t("models.openaiAnthropicCompatible")}
+                      OpenAI / Anthropic compatible
                     </div>
                     <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
-                      {t("models.customEndpointFormat")}
+                      {t("i18n.customEndpoint")}
                     </div>
                   </div>
                   <span
@@ -1864,7 +2435,7 @@ function AddProviderPicker({
                     letterSpacing: "0.07em",
                   }}
                 >
-                  {t("models.subscriptions")}
+                  {t("i18n.subscriptions")}
                 </div>
               )}
               {availableOAuth.map((p) => (
@@ -1899,7 +2470,7 @@ function AddProviderPicker({
                       {p.name}
                     </div>
                     <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
-                      {t("models.oauth")}
+                      OAuth
                     </div>
                   </div>
                   <ProviderIcon id={p.id} size={28} />
@@ -1918,7 +2489,7 @@ function AddProviderPicker({
                     letterSpacing: "0.07em",
                   }}
                 >
-                  {t("models.apiKey")}
+                  API Key
                 </div>
               )}
               {availableApiKey.map((p) => (
@@ -1953,7 +2524,7 @@ function AddProviderPicker({
                       {p.displayName}
                     </div>
                     <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
-                      {t("models.modelCount", { count: p.modelCount })}
+                      {p.modelCount} models
                     </div>
                   </div>
                   <ProviderIcon id={p.id} size={28} />
@@ -1984,23 +2555,26 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
 
   const loadOAuthProviders = useCallback(() => {
     fetch("/api/auth/providers")
-      .then((r) => {
-        if (!r.ok) throw new Error(`Auth providers load failed: ${r.status}`);
-        return r.json();
-      })
+      .then((r) => r.json())
       .then((d: { providers: OAuthProvider[] }) => setOauthProviders(d.providers))
-      .catch((err) => console.error("Failed to load OAuth providers:", err));
+      .catch(() => {});
   }, []);
 
   const loadApiKeyProviders = useCallback(() => {
     fetch("/api/auth/all-providers")
-      .then((r) => {
-        if (!r.ok) throw new Error(`API key providers load failed: ${r.status}`);
-        return r.json();
-      })
+      .then((r) => r.json())
       .then((d: { providers: ApiKeyProvider[] }) => setApiKeyProviders(d.providers))
-      .catch((err) => console.error("Failed to load API key providers:", err));
+      .catch(() => {});
   }, []);
+
+  // A dual-auth provider moves between the two lists when its credential type
+  // changes, so any auth change has to reload both — refreshing only one leaves
+  // the provider rendered twice, and disconnecting the stale row would delete
+  // the credential that was just created (#309).
+  const refreshAuthProviders = useCallback(() => {
+    loadOAuthProviders();
+    loadApiKeyProviders();
+  }, [loadOAuthProviders, loadApiKeyProviders]);
 
   useEffect(() => {
     fetch("/api/models-config")
@@ -2013,9 +2587,8 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
       })
       .catch(() => setConfig({ providers: {} }))
       .finally(() => setLoading(false));
-    loadOAuthProviders();
-    loadApiKeyProviders();
-  }, [loadOAuthProviders, loadApiKeyProviders]);
+    refreshAuthProviders();
+  }, [refreshAuthProviders]);
 
   const addCustomProvider = useCallback(() => {
     let finalName = "new-provider";
@@ -2076,6 +2649,23 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
       const idx = (prev.providers?.[providerName]?.models?.length ?? 1) - 1;
       setSelection({ type: "model", providerName, index: idx });
       return prev;
+    });
+  }, []);
+
+  const addDiscoveredModels = useCallback((providerName: string, discovered: DiscoveredModel[]) => {
+    setConfig((prev) => {
+      const provider = prev.providers?.[providerName] ?? {};
+      const models = [...(provider.models ?? [])];
+      const existingIds = new Set(models.map((model) => model.id));
+      for (const discoveredModel of discovered) {
+        if (existingIds.has(discoveredModel.id)) continue;
+        existingIds.add(discoveredModel.id);
+        models.push({ id: discoveredModel.id, name: discoveredModel.name });
+      }
+      return {
+        ...prev,
+        providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models } },
+      };
     });
   }, []);
 
@@ -2140,12 +2730,12 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     if (selection.type === "oauth") {
       const p = oauthProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <OAuthDetail key={p.id} provider={p} onRefresh={loadOAuthProviders} />;
+      return <OAuthDetail key={p.id} provider={p} onRefresh={refreshAuthProviders} />;
     }
     if (selection.type === "apikey") {
       const p = apiKeyProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <ApiKeyDetail key={p.id} provider={p} onRefresh={loadApiKeyProviders} />;
+      return <ApiKeyDetail key={p.id} provider={p} onRefresh={refreshAuthProviders} />;
     }
     if (selection.type === "provider") {
       const provider = config.providers?.[selection.name];
@@ -2158,6 +2748,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
           onChange={(p) => updateProvider(selection.name, p)}
           onRename={(n) => renameProvider(selection.name, n)}
           onDelete={() => deleteProvider(selection.name)}
+          onAddModels={(models) => addDiscoveredModels(selection.name, models)}
         />
       );
     }
@@ -2220,7 +2811,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
           >
             <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
               <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>
-                {t("models.models")}
+                {t("common.models")}
               </span>
               <code
                 style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
@@ -2355,7 +2946,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                 {/* Custom providers */}
                 {loading ? (
                   <div style={{ padding: "10px 8px", fontSize: 12, color: "var(--text-muted)" }}>
-                    {t("models.loading")}
+                    {t("i18n.loading")}
                   </div>
                 ) : (
                   providers.map(([pName, pData]) => {
@@ -2462,7 +3053,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                                   whiteSpace: "nowrap",
                                 }}
                               >
-                                {m.id || t("models.newModel")}
+                                {m.id || t("i18n.newModel")}
                               </span>
                               {m.reasoning && (
                                 <span
@@ -2506,7 +3097,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                             e.currentTarget.style.background = "none";
                           }}
                         >
-                          <span style={{ fontSize: 11 }}>+ {t("models.model")}</span>
+                          <span style={{ fontSize: 11 }}>+ {t("i18n.model")}</span>
                         </div>
                       </div>
                     );
@@ -2541,7 +3132,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                     e.currentTarget.style.color = "var(--text-muted)";
                   }}
                 >
-                  + {t("models.addProvider")}
+                  + {t("i18n.addProvider")}
                 </button>
               </div>
             </div>
@@ -2561,7 +3152,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                         fontSize: 13,
                       }}
                     >
-                      {t("models.selectProviderOrModel")}
+                      {t("i18n.selectProviderModel")}
                     </div>
                   ))}
             </div>
@@ -2594,7 +3185,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                 fontSize: 13,
               }}
             >
-              {t("models.cancel")}
+              {t("i18n.cancel")}
             </button>
             <button
               onClick={handleSave}
@@ -2637,9 +3228,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
               )}
-              <span>
-                {savedOk ? t("models.saved") : saving ? t("models.saving") : t("models.save")}
-              </span>
+              <span>{savedOk ? t("i18n.saved") : saving ? t("i18n.saving") : t("i18n.save")}</span>
             </button>
           </div>
         </div>

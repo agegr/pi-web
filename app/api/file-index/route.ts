@@ -3,7 +3,12 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import fs from "fs";
 import path from "path";
-import { getAllowedFileRoots, isFilePathAllowed, isWindowsAbsolutePath } from "@/lib/file-access";
+import {
+  getAllowedFileRoots,
+  isExistingFilePathAllowed,
+  isFilePathAllowed,
+  isWindowsAbsolutePath,
+} from "@/lib/file-access";
 import { buildEntriesFromFiles, filterFileEntries, type FileIndexEntry } from "@/lib/file-fuzzy";
 
 const execFileAsync = promisify(execFile);
@@ -143,6 +148,9 @@ export async function GET(req: NextRequest) {
     }
     if (!stat.isDirectory()) {
       return NextResponse.json({ error: "Not a directory" }, { status: 400 });
+    }
+    if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
     const cache = getIndexCache();

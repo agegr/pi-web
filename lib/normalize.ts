@@ -32,6 +32,8 @@ function normalizeToolCallBlock(block: unknown): ToolCallContent | null {
 }
 
 export function normalizeToolCalls(msg: AgentMessage): AgentMessage {
+  // Non-assistant roles (user, toolResult, bashExecution, custom) are returned
+  // unchanged — only assistant messages go through tool-call field normalization.
   if (msg.role !== "assistant") return msg;
   const content = (msg as AssistantMessage).content;
   if (!Array.isArray(content)) return msg;
