@@ -528,6 +528,9 @@ export function AppShell() {
       });
     });
     setActiveFileTabId(tabId);
+    // A file open always surfaces the files view, even when the panel was
+    // showing html previews.
+    setRightPanelView("files");
     setRightPanelOpen(true);
     // On mobile the file panel is full-screen; close the drawer so it shows.
     if (isMobile) setSidebarOpen(false);
