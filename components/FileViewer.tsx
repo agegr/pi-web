@@ -1215,7 +1215,8 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
               margin: 0,
               padding: 0,
               border: 0,
-              background: "var(--bg)",
+              // Longhand only: the prism theme already sets backgroundColor.
+              backgroundColor: "var(--bg)",
               ...FILE_CODE_STYLE,
               width: wrapLines ? "100%" : "max-content",
               minWidth: "100%",

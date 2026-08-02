@@ -134,13 +134,15 @@ interface CodeBlockProps {
   code: string;
   lang: string;
   headerAction?: ReactNode;
+  /** Optional cap on the code body height (scrollable). */
+  maxHeight?: number;
 }
 
 /**
  * Syntax-highlighted code block with copy button.
  * Used as the "source" view for mermaid blocks and for all non-mermaid code fences.
  */
-export function CodeBlock({ code, lang, headerAction }: CodeBlockProps) {
+export function CodeBlock({ code, lang, headerAction, maxHeight }: CodeBlockProps) {
   const { isDark } = useTheme();
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
@@ -166,6 +168,7 @@ export function CodeBlock({ code, lang, headerAction }: CodeBlockProps) {
           </button>
         </div>
       </div>
+      <div style={maxHeight ? { maxHeight, overflow: "hidden" } : undefined}>
       <SyntaxHighlighter
         language={lang || "text"}
         style={isDark ? vscDarkPlus : vs}
@@ -177,12 +180,15 @@ export function CodeBlock({ code, lang, headerAction }: CodeBlockProps) {
           fontSize: 12.5,
           lineHeight: 1.62,
           borderRadius: 0,
-          background: "color-mix(in srgb, var(--bg) 92%, var(--bg-panel))",
+          // Longhand only: the prism theme already sets backgroundColor, and
+          // mixing shorthand `background` with it triggers React style warnings.
+          backgroundColor: "color-mix(in srgb, var(--bg) 92%, var(--bg-panel))",
         }}
         codeTagProps={{ style: { fontFamily: "var(--font-mono)" } }}
       >
         {code}
       </SyntaxHighlighter>
+      </div>
     </div>
   );
 }

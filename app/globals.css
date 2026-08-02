@@ -422,6 +422,67 @@ pre, code {
   color: var(--text);
 }
 
+/* HTML code block: collapsed height + expand toggle */
+.markdown-code-collapse {
+  position: relative;
+}
+.markdown-code-collapse-body {
+  position: relative;
+}
+.markdown-code-fade {
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  bottom: 0;
+  height: 64px;
+  border-radius: 0 0 7px 7px;
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--bg) 88%, transparent));
+  pointer-events: none;
+}
+.markdown-code-expand {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 12px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  box-shadow: 0 1px 3px color-mix(in srgb, #000 18%, transparent);
+}
+.markdown-code-expand:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--border) 70%, var(--text-muted));
+}
+
+/* Right panel view switcher — icon buttons, active view uses the accent color */
+.right-panel-view-switch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.right-panel-view-switch:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.right-panel-view-switch.is-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
 .mermaid-block {
   padding: 12px;
   overflow-x: auto;

@@ -7,6 +7,9 @@ import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
+import { HtmlPreviewPanel, type HtmlPreviewTab } from "./HtmlPreviewPanel";
+import { RightPanelViewSwitcher } from "./RightPanelViewSwitcher";
+import type { HtmlPreviewRequest } from "./HtmlPreviewBlock";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
@@ -246,6 +249,11 @@ export function AppShell() {
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
 
+  // Right panel — html preview tabs (separate view from file tabs)
+  const [htmlPreviewTabs, setHtmlPreviewTabs] = useState<HtmlPreviewTab[]>([]);
+  const [activeHtmlPreviewTabId, setActiveHtmlPreviewTabId] = useState<string | null>(null);
+  const [rightPanelView, setRightPanelView] = useState<"files" | "preview">("files");
+
   // Same @mention format as the chat input's @ autocomplete, so the agent's
   // read tool resolves it the same way (it strips the @ prefix).
   const handleAtMention = useCallback((relativePath: string, isDir: boolean) => {
@@ -344,6 +352,9 @@ export function AppShell() {
     // now-empty right panel.
     setFileTabs([]);
     setActiveFileTabId(null);
+    setHtmlPreviewTabs([]);
+    setActiveHtmlPreviewTabId(null);
+    setRightPanelView("files");
     setRightPanelOpen(false);
     router.replace("/", { scroll: false });
   }, [router, selectedSession]);
@@ -538,6 +549,41 @@ export function AppShell() {
       return remaining.length > 0 ? remaining[remaining.length - 1].id : null;
     });
   }, [fileTabs]);
+
+  // Open (or focus) an html preview tab from a chat code block.
+  const handleOpenHtmlPreview = useCallback((request: HtmlPreviewRequest) => {
+    const tabId = `preview:${request.key}`;
+    setHtmlPreviewTabs((prev) => {
+      const existing = prev.find((tab) => tab.id === tabId);
+      if (existing) {
+        if (existing.title === request.title && existing.html === request.html) return prev;
+        return prev.map((tab) => (tab.id === tabId ? { ...tab, title: request.title, html: request.html } : tab));
+      }
+      return [...prev, { id: tabId, title: request.title, html: request.html }];
+    });
+    setActiveHtmlPreviewTabId(tabId);
+    setRightPanelView("preview");
+    setRightPanelOpen(true);
+    // On mobile the file panel is full-screen; close the drawer so it shows.
+    if (isMobile) setSidebarOpen(false);
+  }, [isMobile]);
+
+  const handleCloseHtmlPreviewTab = useCallback((tabId: string) => {
+    setHtmlPreviewTabs((prev) => {
+      const next = prev.filter((tab) => tab.id !== tabId);
+      if (next.length === 0) {
+        setActiveHtmlPreviewTabId(null);
+        setRightPanelView("files");
+        setRightPanelOpen(false);
+      }
+      return next;
+    });
+    setActiveHtmlPreviewTabId((cur) => {
+      if (cur !== tabId) return cur;
+      const remaining = htmlPreviewTabs.filter((tab) => tab.id !== tabId);
+      return remaining.length > 0 ? remaining[remaining.length - 1].id : null;
+    });
+  }, [htmlPreviewTabs]);
 
   const handleViewFullHistory = useCallback(() => {
     if (!selectedSession) return;
@@ -1494,6 +1540,7 @@ export function AppShell() {
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onContextUsageChange={handleContextUsageChange}
               onOpenFile={handleOpenLinkedFile}
+              onOpenHtmlPreview={handleOpenHtmlPreview}
             />
           ) : initialCwdStatus === "validating" ? (
             <div
@@ -1554,7 +1601,7 @@ export function AppShell() {
         />
       )}
 
-      {/* Right panel: file viewer — always mounted, width animated via CSS */}
+      {/* Right panel: file viewer + html preview — always mounted, width animated via CSS */}
       <div
         ref={rightPanelResizer.panelRef}
         id="file-panel"
@@ -1567,49 +1614,68 @@ export function AppShell() {
           background: "var(--bg)",
         } as React.CSSProperties}
       >
-        {/* Right panel tab bar */}
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          flexShrink: 0,
-          height: "calc(36px + env(safe-area-inset-top))",
-          paddingTop: "env(safe-area-inset-top)",
-          background: "var(--bg-panel)",
-          borderBottom: "1px solid var(--border)",
-        }}>
-          <div style={{ flex: 1, overflow: "hidden" }}>
-            <TabBar
-              tabs={fileTabs}
-              activeTabId={activeFileTabId ?? ""}
-              onSelectTab={setActiveFileTabId}
-              onCloseTab={handleCloseFileTab}
-            />
-          </div>
-
-        </div>
-
-        {/* File content */}
-        <div style={{ flex: 1, overflow: "hidden", paddingBottom: "env(safe-area-inset-bottom)" }}>
-          {activeFileTab?.filePath ? (
-            <FileViewer
-              filePath={activeFileTab.filePath}
-              cwd={activeCwd ?? undefined}
-              sourceSessionId={activeFileTab.sourceSessionId}
-              gitRefreshKey={explorerRefreshKey}
-              initialDisplayMode={activeFileTab.initialDisplayMode}
-              onMentionLines={rightPanelOpen ? handleFileLineMention : undefined}
-              onOpenFile={(filePath) => handleOpenFile(
-                filePath,
-                getFileName(filePath),
-                { sourceSessionId: activeFileTab.sourceSessionId },
-              )}
-            />
-          ) : (
-            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
-               {translate("files.noneOpen")}
+        {rightPanelView === "files" ? (
+          <>
+            {/* Right panel tab bar with view switcher — same height as the main top bar */}
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              flexShrink: 0,
+              height: "calc(36px + env(safe-area-inset-top))",
+              paddingTop: "env(safe-area-inset-top)",
+              background: "var(--bg-panel)",
+              borderBottom: "1px solid var(--border)",
+            }}>
+              <div style={{ alignSelf: "center" }}>
+                <RightPanelViewSwitcher
+                  view={rightPanelView}
+                  onViewChange={setRightPanelView}
+                  previewAvailable={htmlPreviewTabs.length > 0}
+                />
+              </div>
+              <div style={{ flex: 1, overflow: "hidden" }}>
+                <TabBar
+                  tabs={fileTabs}
+                  activeTabId={activeFileTabId ?? ""}
+                  onSelectTab={setActiveFileTabId}
+                  onCloseTab={handleCloseFileTab}
+                />
+              </div>
             </div>
-          )}
-        </div>
+
+            {/* File content */}
+            <div style={{ flex: 1, overflow: "hidden", paddingBottom: "env(safe-area-inset-bottom)" }}>
+              {activeFileTab?.filePath ? (
+                <FileViewer
+                  filePath={activeFileTab.filePath}
+                  cwd={activeCwd ?? undefined}
+                  sourceSessionId={activeFileTab.sourceSessionId}
+                  gitRefreshKey={explorerRefreshKey}
+                  initialDisplayMode={activeFileTab.initialDisplayMode}
+                  onMentionLines={rightPanelOpen ? handleFileLineMention : undefined}
+                  onOpenFile={(filePath) => handleOpenFile(
+                    filePath,
+                    getFileName(filePath),
+                    { sourceSessionId: activeFileTab.sourceSessionId },
+                  )}
+                />
+              ) : (
+                <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
+                   {translate("files.noneOpen")}
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <HtmlPreviewPanel
+            tabs={htmlPreviewTabs}
+            activeTabId={activeHtmlPreviewTabId}
+            onSelectTab={setActiveHtmlPreviewTabId}
+            onCloseTab={handleCloseHtmlPreviewTab}
+            view={rightPanelView}
+            onViewChange={setRightPanelView}
+          />
+        )}
       </div>
     </div>
     {/* File panel toggle — always visible at top-right */}

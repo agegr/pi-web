@@ -6,6 +6,7 @@ import { resolveLocalFileHref } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
 import { markdownRehypePlugins, markdownRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
+import { HtmlPreviewBlock, type HtmlPreviewRequest } from "./HtmlPreviewBlock";
 
 interface MarkdownBodyProps {
   children: string;
@@ -13,9 +14,12 @@ interface MarkdownBodyProps {
   isStreaming?: boolean;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
+  /** Stable block identity for html preview tabs (sessionId:entryId:blockIndex). */
+  previewKey?: string;
+  onOpenHtmlPreview?: (request: HtmlPreviewRequest) => void;
 }
 
-export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile }: MarkdownBodyProps) {
+export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, previewKey, onOpenHtmlPreview }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
   // Stable renderer identities keep stateful blocks mounted across message hover updates.
   const components = useMemo<Components>(() => ({
@@ -26,6 +30,9 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
       if (isBlock) {
         if (lang === "mermaid") {
           return <MermaidBlock code={raw.replace(/\n$/, "")} isStreaming={isStreaming} defaultPreview />;
+        }
+        if (lang === "html") {
+          return <HtmlPreviewBlock code={raw.replace(/\n$/, "")} isStreaming={isStreaming} previewKey={previewKey} onOpenPreview={onOpenHtmlPreview} />;
         }
         return <CodeBlock code={raw.replace(/\n$/, "")} lang={lang} />;
       }
@@ -86,7 +93,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
         </div>
       );
     },
-  }), [cwd, isStreaming, onOpenFile]);
+  }), [cwd, isStreaming, onOpenFile, previewKey, onOpenHtmlPreview]);
 
   return (
     <div className={["markdown-body", className].filter(Boolean).join(" ")}>
