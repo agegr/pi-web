@@ -196,6 +196,11 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     chatInputRef?.current?.insertIfEmpty(content);
   }, [chatInputRef]);
 
+  /** Insert a quoted reply into the input box (user decides how to send it). */
+  const handleQuoteReply = useCallback((quote: string) => {
+    chatInputRef?.current?.prependText(quote);
+  }, [chatInputRef]);
+
   const {
     loading, error, messages, entryIds, streamState,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
@@ -584,6 +589,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     onNavigate={sessionBusy ? undefined : handleNavigate}
                     prevAssistantEntryId={sessionBusy ? undefined : prevAssistantEntryId}
                     onEditContent={handleEditContent}
+                    onQuoteReply={handleQuoteReply}
                     showTimestamp={showTimestamp}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
