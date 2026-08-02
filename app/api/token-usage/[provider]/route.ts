@@ -11,11 +11,21 @@
 // We return 200 with `ok: false` for the common "nothing to show" cases so
 // the client can render a single empty state instead of branching on HTTP
 // codes. 5xx is reserved for unexpected local errors.
+//
+// 跟随上游重写（2026-08-02）：原 AuthStorage.create().getApiKey 来自
+// @earendil-works/pi-coding-agent/core/auth-storage，SDK 0.83.0 已移除该
+// 子路径。改为经 ModelRuntime 取该 provider 的已配置模型并解析其凭证
+// （与 lib/model-discovery-auth.ts 同范式），其余逻辑（dedup、序列化、
+// fetchTokenPlanRemains）保持不变。该路由为只读 GET，前端裸 fetch，不校验 CSRF。
 
-import { AuthStorage } from "@earendil-works/pi-coding-agent/core/auth-storage";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { NextResponse } from "next/server";
 
-import { SUPPORTED_TOKEN_USAGE_PROVIDERS, fetchTokenPlanRemains } from "@/lib/token-usage";
+import {
+  SUPPORTED_TOKEN_USAGE_PROVIDERS,
+  fetchTokenPlanRemains,
+  type TokenUsageInfo,
+} from "@/lib/token-usage";
 
 export const dynamic = "force-dynamic";
 
@@ -57,12 +67,18 @@ async function handleRequest(providerId: string): Promise<Response> {
     return NextResponse.json({ ok: false, reason: "unsupported" }, { status: 404 });
   }
 
+  // SDK 0.83.0：经 ModelRuntime 取该 provider 的已配置模型并解析其 API key。
+  // 任一环节失败都视为 not_configured，UI 静默隐藏用量 pill。
   let apiKey: string | undefined;
   try {
-    const authStorage = AuthStorage.create();
-    apiKey = await authStorage.getApiKey(providerId);
+    const modelRuntime = await ModelRuntime.create();
+    const models = modelRuntime.getModels(providerId);
+    if (models.length === 0) {
+      return NextResponse.json({ ok: false, reason: "not_configured" });
+    }
+    const resolved = await modelRuntime.getAuth(models[0]);
+    apiKey = resolved?.auth?.apiKey;
   } catch {
-    // Storage layer may fail — treat as not configured; UI will silently hide.
     return NextResponse.json({ ok: false, reason: "not_configured" });
   }
 
@@ -103,7 +119,7 @@ async function handleRequest(providerId: string): Promise<Response> {
  * Convert a TokenUsageInfo into a JSON-safe shape so `info` rides the wire
  * without Date serialization surprises.
  */
-function serializeInfo(info: import("@/lib/token-usage").TokenUsageInfo) {
+function serializeInfo(info: TokenUsageInfo) {
   // Pull per-model rows out of the MiniMax envelope so the UI can render a
   // breakdown in a future tooltip without re-fetching. Other providers'
   // `raw` payloads pass through unchanged.
