@@ -11,6 +11,7 @@ import { getExtensionRegistry } from "./registry";
 import type { PiWebExtension } from "./types";
 import { TodoPanel } from "@/components/TodoPanel";
 import { InspectorPanel } from "@/components/InspectorPanel";
+import { PromptsConfig } from "@/components/PromptsConfig";
 
 const BUILTIN_ID = "pi-web-builtin";
 
@@ -41,6 +42,12 @@ export function registerBuiltinExtensions(): void {
               onToggle={() => {}}
             />
           ),
+        },
+        {
+          id: "prompts",
+          title: "Prompts",
+          order: 1300,
+          render: (ctx) => <PromptsConfig cwd={ctx.cwd ?? null} onClose={() => {}} />,
         },
       ],
     }),
