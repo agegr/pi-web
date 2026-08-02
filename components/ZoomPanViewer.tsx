@@ -451,14 +451,24 @@ export function prepareSvgForZoomPan(svg: string): {
   width: number;
   height: number;
 } {
+  // Mermaid renders multi-line node labels as <br> (HTML syntax) inside
+  // foreignObject, which is invalid XML. Normalize to <br/> up front so the
+  // SVG is well-formed no matter which parser path runs.
+  const normalizedSvg = svg.replace(/<br>/gi, "<br/>");
+
   if (typeof DOMParser === "undefined") {
-    return { html: svg, width: 800, height: 600 };
+    return prepareSvgFallback(normalizedSvg);
   }
 
-  const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
-  const el = doc.documentElement;
-  if (!el || el.tagName.toLowerCase() !== "svg") {
-    return { html: svg, width: 800, height: 600 };
+  // Parse as HTML, not strict XML: mermaid emits <br> (never <br/>) inside
+  // foreignObject labels, which makes XML parsing fail and used to drop us into
+  // the wrong-size 800×600 fallback (viewer showed the chart with a huge empty
+  // band below it). The HTML parser tolerates <br> and still builds proper
+  // SVG-namespaced elements.
+  const doc = new DOMParser().parseFromString(normalizedSvg, "text/html");
+  const el = doc.querySelector("svg");
+  if (!el) {
+    return prepareSvgFallback(normalizedSvg);
   }
 
   let width = 0;
@@ -482,8 +492,7 @@ export function prepareSvgForZoomPan(svg: string): {
   }
 
   if (!(width > 0 && height > 0)) {
-    width = 800;
-    height = 600;
+    return prepareSvgFallback(normalizedSvg);
   }
 
   // Resolution-independent: drop the fixed pixel size and stretch constraints.
@@ -498,4 +507,46 @@ export function prepareSvgForZoomPan(svg: string): {
   }
 
   return { html: el.outerHTML, width, height };
+}
+
+/**
+ * Regex-based fallback for environments without DOMParser (SSR, tests) or when
+ * the SVG cannot be parsed at all. Extracts the real size from viewBox/width/
+ * height and strips fixed-size constraints so the SVG scales with the viewer.
+ */
+function prepareSvgFallback(svg: string): {
+  html: string;
+  width: number;
+  height: number;
+} {
+  let width = 0;
+  let height = 0;
+
+  const viewBox = /viewBox=["']\s*([\d.eE+-]+)[\s,]+([\d.eE+-]+)[\s,]+([\d.eE+-]+)[\s,]+([\d.eE+-]+)\s*["']/i.exec(svg);
+  if (viewBox) {
+    width = Number(viewBox[3]);
+    height = Number(viewBox[4]);
+  }
+  if (!(width > 0 && height > 0)) {
+    const w = /<svg[^>]*\swidth=["']([\d.]+)["']/i.exec(svg);
+    const h = /<svg[^>]*\sheight=["']([\d.]+)["']/i.exec(svg);
+    if (w && h) {
+      width = Number(w[1]);
+      height = Number(h[1]);
+    }
+  }
+  if (!(width > 0 && height > 0)) {
+    return { html: svg, width: 800, height: 600 };
+  }
+
+  // Strip fixed width/height attributes and max-width so the SVG fills the
+  // viewer canvas and keeps its aspect ratio from viewBox alone.
+  const html = svg
+    .replace(/\swidth="[^"]*"/i, "")
+    .replace(/\sheight="[^"]*"/i, "")
+    .replace(/style="([^"]*)"/i, (match, style: string) => {
+      const rest = style.replace(/max-width:[^;]*;?/gi, "").trim();
+      return rest ? ` style="${rest}"` : "";
+    });
+  return { html, width, height };
 }
