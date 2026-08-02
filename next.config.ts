@@ -16,6 +16,10 @@ const nextConfig: NextConfig = {
     "@earendil-works/pi-agent-core",
     "@earendil-works/pi-ai",
     "@earendil-works/pi-tui",
+    // trash is ESM-only; bundling it with webpack corrupts its path handling
+    // (errors with "The 'path' argument must be of type string... Received an
+    // instance of URL"). Keep it as a runtime require from node_modules.
+    "trash",
   ],
   allowedDevOrigins: ['192.168.*.*'],
   async headers() {
