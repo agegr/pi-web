@@ -49,3 +49,36 @@ test("renders partial assistant content before the provider error", () => {
   assert.match(html, /Partial response/);
   assert.match(html, /Error: Connection closed/);
 });
+
+test("collapses expanded skill blocks in user messages", () => {
+  const html = renderMessage({
+    role: "user",
+    content: '<skill name="git" location="/home/me/.pi/skills/git/SKILL.md">\nReferences are relative to /home/me/.pi/skills/git.\n\nRun the standard git workflow.\n</skill>',
+  });
+
+  // Header is visible with the skill name and location
+  assert.match(html, /skill: git/);
+  assert.match(html, /\/home\/me\/\.pi\/skills\/git\/SKILL\.md/);
+  // The verbose body is collapsed by default
+  assert.doesNotMatch(html, /Run the standard git workflow/);
+});
+
+test("keeps user messages without skill blocks intact", () => {
+  const html = renderMessage({
+    role: "user",
+    content: "Please run the git workflow",
+  });
+
+  assert.match(html, /Please run the git workflow/);
+});
+
+test("keeps text around collapsed skill blocks", () => {
+  const html = renderMessage({
+    role: "user",
+    content: 'intro\n\n<skill name="git" location="/x/SKILL.md">\nSecret body text.\n</skill>\n\noutro',
+  });
+
+  assert.match(html, /intro/);
+  assert.match(html, /outro/);
+  assert.doesNotMatch(html, /Secret body text/);
+});

@@ -7,6 +7,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
+import { splitSkillBlocks } from "@/lib/skill-block";
 import type {
   AgentMessage,
   UserMessage,
@@ -137,6 +138,79 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.sessionId === next.sessionId;
 });
 
+function SkillBlock({ name, location, content, cwd, onOpenFile }: {
+  name: string;
+  location: string;
+  content: string;
+  cwd?: string;
+  onOpenFile?: (filePath: string) => void;
+}) {
+  const { t } = useI18n();
+  const [expanded, setExpanded] = useState(false);
+  const lineCount = content.split("\n").length;
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: 6,
+        overflow: "hidden",
+        fontSize: 13,
+      }}
+    >
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        title={expanded ? t("i18n.collapse") : t("i18n.expand")}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          width: "100%",
+          padding: "6px 10px",
+          background: "var(--bg-panel)",
+          border: "none",
+          color: "var(--text-muted)",
+          cursor: "pointer",
+          fontSize: 12,
+          textAlign: "left",
+        }}
+      >
+        <span style={{ flexShrink: 0 }}>{expanded ? "▾" : "▸"}</span>
+        <span style={{ fontWeight: 600, color: "var(--text)", flexShrink: 0 }}>skill: {name}</span>
+        {location && (
+          <span
+            style={{
+              color: "var(--text-dim)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              minWidth: 0,
+              flex: 1,
+            }}
+          >
+            {location}
+          </span>
+        )}
+        <span style={{ marginLeft: "auto", flexShrink: 0, color: "var(--text-dim)", whiteSpace: "nowrap" }}>
+          {lineCount} {t("chat.lines")} · {expanded ? t("i18n.collapse") : t("i18n.expand")}
+        </span>
+      </button>
+      {expanded && (
+        <div
+          style={{
+            padding: "8px 10px",
+            borderTop: "1px solid var(--border)",
+            maxHeight: 420,
+            overflowY: "auto",
+            background: "var(--bg)",
+          }}
+        >
+          <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{content}</MarkdownBody>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent }: {
   message: UserMessage;
   cwd?: string;
@@ -164,6 +238,9 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
     typeof message.content === "string"
       ? []
       : message.content.filter((b): b is ImageContent => b.type === "image");
+
+  const segments = useMemo(() => splitSkillBlocks(content), [content]);
+  const hasSkillBlocks = segments.some((s) => s.type === "skill");
 
   const time = formatTime(message.timestamp);
   const canFork = !!entryId && !!onFork;
@@ -222,7 +299,21 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
               })}
             </div>
           )}
-          {content && <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{content}</MarkdownBody>}
+          {content && (
+            hasSkillBlocks ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {segments.map((seg, i) =>
+                  seg.type === "skill" ? (
+                    <SkillBlock key={i} name={seg.name} location={seg.location} content={seg.content} cwd={cwd} onOpenFile={onOpenFile} />
+                  ) : seg.text ? (
+                    <MarkdownBody key={i} className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{seg.text}</MarkdownBody>
+                  ) : null,
+                )}
+              </div>
+            ) : (
+              <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{content}</MarkdownBody>
+            )
+          )}
         </div>
 
       </div>

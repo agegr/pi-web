@@ -241,6 +241,7 @@ export const enLocale: LocalePlugin = {
     "chat.commandCopy": "Copy the last assistant message",
     "chat.compacted": "Compacted",
     "chat.tokensSaved": "{saved} saved",
+    "chat.lines": "lines",
     "i18n.close": "Close",
     "i18n.copy": "Copy",
     "i18n.copied": "Copied",
