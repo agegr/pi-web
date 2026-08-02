@@ -7,6 +7,7 @@ import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
+import { WorkspacePanelsHost } from "./WorkspacePanelsHost";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
@@ -2236,6 +2237,9 @@ export function AppShell() {
             title={`${translate("layout.resizeFilePanel")}: ${translate("layout.resizeHint")}`}
           />
         )}
+
+        {/* 工作区面板（我们的独有 UI 增强，经上游扩展机制挂载；逻辑在 WorkspacePanelsHost，不污染 AppShell 核心） */}
+        <WorkspacePanelsHost sessionId={selectedSession?.id ?? null} cwd={activeCwd ?? null} />
 
         {/* Right panel: file viewer — always mounted, width animated via CSS */}
         <div
