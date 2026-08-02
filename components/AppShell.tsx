@@ -413,7 +413,21 @@ export function AppShell() {
   const handleAgentEnd = useCallback(() => {
     setRefreshKey((k) => k + 1);
     setExplorerRefreshKey((k) => k + 1);
-  }, []);
+
+    if (document.visibilityState === "visible") return;
+    if (!("Notification" in window)) return;
+
+    const fire = () => {
+      const title = selectedSession?.name ?? translate("i18n.sessionComplete");
+      new Notification(title, { body: translate("i18n.taskFinished") });
+    };
+
+    if (Notification.permission === "granted") {
+      fire();
+    } else if (Notification.permission === "default") {
+      void Notification.requestPermission().then((p) => { if (p === "granted") fire(); });
+    }
+  }, [selectedSession, translate]);
 
   const handleAutoName = useCallback(async () => {
     const sessionId = selectedSession?.id;
