@@ -149,6 +149,15 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
 /** A <p>/<li> whose plain text is parsed on hover (desktop) / click (mobile)
  *  to pop a quote-reply popover. The parse result is locked once shown so a
  *  streaming tail doesn't make the popover flicker; re-engaging re-parses. */
+/** Plain text of a quoteable element, excluding transient UI children (the
+ *  follow-mouse tooltip) so the quoted reply isn't polluted. */
+function getQuoteText(el: HTMLElement | null): string {
+  if (!el) return "";
+  const clone = el.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll("[data-quote-tip]").forEach((n) => n.remove());
+  return clone.textContent ?? "";
+}
+
 function QuoteableParagraph({ children, onQuoteReply, onOpenFile, cwd, as = "p", pid }: { children: ReactNode; onQuoteReply: (quote: string) => void; onOpenFile?: (filePath: string, fileName?: string) => void; cwd?: string; as?: "p" | "li" | "tr"; pid: string }) {
   const { openId, setOpenId } = useContext(QuoteOpenContext);
   const { t } = useI18n();
@@ -181,7 +190,7 @@ function QuoteableParagraph({ children, onQuoteReply, onOpenFile, cwd, as = "p",
     const el = ref.current;
     const text = as === "tr" && el
       ? Array.from(el.querySelectorAll("td, th")).map((c) => (c.textContent ?? "").trim()).join(" | ")
-      : (el?.textContent ?? "");
+      : getQuoteText(el);
     // Any paragraph is quoteable (not just questions): closed questions get
     // option buttons, everything else gets a fallback quote button.
     const parsed = parseParagraph(text);
@@ -232,6 +241,7 @@ function QuoteableParagraph({ children, onQuoteReply, onOpenFile, cwd, as = "p",
       {showTip && !segments && (
         <span
           ref={tipRef}
+          data-quote-tip
           style={{
             position: "fixed",
             left: -9999,
