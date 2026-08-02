@@ -5,6 +5,7 @@ import type { SessionInfo } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
+import { TrashPanel } from "./TrashPanel";
 
 declare global {
   interface Window {
@@ -433,6 +434,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
   const [changesCount, setChangesCount] = useState(0);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
+  const [trashOpen, setTrashOpen] = useState(false);
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
@@ -562,6 +564,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         void poll();
+        // 切回标签页时顺带刷新会话列表：配合 /api/sessions 的 running 兜底，
+        // 新会话落盘后即使错过 SSE 失效也能尽快出现
+        void loadSessions(false);
         return;
       }
       clearTimer();
@@ -577,7 +582,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       controller?.abort();
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, []);
+  }, [loadSessions]);
 
   useEffect(() => {
     const previous = previousRunningSessionIdsRef.current;
@@ -918,6 +923,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           onSelect={(path) => void commitCustomPath(path)}
         />
       )}
+      {trashOpen && (
+        <TrashPanel
+          onClose={() => setTrashOpen(false)}
+          // 恢复后保持面板打开，便于连续恢复多个会话；侧边栏同步刷新
+          onRestored={() => loadSessions()}
+        />
+      )}
       {projectPendingRemoval && (
         <div
           role="dialog"
@@ -1034,6 +1046,39 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   <path d="M3 3v5h5" />
                 </svg>
               )}
+            </button>
+            <button
+              onClick={() => setTrashOpen(true)}
+              title={t("trash.title")}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: "var(--bg-hover)",
+                border: "1px solid var(--border)",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                width: 32, height: 32,
+                borderRadius: 7,
+                padding: 0,
+                flexShrink: 0,
+                transition: "background 0.12s, color 0.12s, border-color 0.12s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "var(--bg-selected)";
+                e.currentTarget.style.color = "var(--accent)";
+                e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "var(--bg-hover)";
+                e.currentTarget.style.color = "var(--text-muted)";
+                e.currentTarget.style.borderColor = "var(--border)";
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                <path d="M10 11v6M14 11v6" />
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+              </svg>
             </button>
           </div>
         </div>
@@ -1862,12 +1907,20 @@ function SessionItem({
     setConfirmDelete(false);
     setDeleting(true);
     try {
-      await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+      const res = await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+      if (!res.ok) {
+        // 删除失败（如移入回收站出错）时保留会话，避免列表闪动和选中态丢失
+        console.error(`删除会话失败: HTTP ${res.status}`);
+        return;
+      }
       onDeleted?.(session.id);
-    } catch {
+    } catch (e) {
+      console.error("删除会话失败", e);
+    } finally {
       setDeleting(false);
     }
   }, [session.id, onDeleted]);
+
 
   const handleDeleteClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();

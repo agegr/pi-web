@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
@@ -12,6 +12,7 @@ import {
 } from "@/lib/session-reader";
 import { sessionPathKey } from "@/lib/session-path";
 import { getRpcSession } from "@/lib/rpc-manager";
+import { trashSessionFile } from "@/lib/trash";
 
 // BranchNavigator still traverses recursively, so keep the response tree shallow.
 const MAX_PROJECTED_TREE_DEPTH = 200;
@@ -193,7 +194,6 @@ export async function PATCH(
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }
-
 // DELETE /api/sessions/[id]
 export async function DELETE(
   _req: Request,
@@ -238,7 +238,7 @@ export async function DELETE(
     } catch { /* skip if dir unreadable */ }
 
     await getRpcSession(id)?.shutdown();
-    unlinkSync(filePath);
+    trashSessionFile(filePath);
     invalidateSessionPathCache(id);
     invalidateSessionListCache();
     return NextResponse.json({ ok: true });
