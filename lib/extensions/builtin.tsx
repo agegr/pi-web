@@ -13,6 +13,7 @@ import { TodoPanel } from "@/components/TodoPanel";
 import { InspectorPanel } from "@/components/InspectorPanel";
 import { PromptsConfig } from "@/components/PromptsConfig";
 import { PlanPanel } from "@/components/PlanPanel";
+import { EngineDashboard } from "@/components/EngineDashboard";
 
 const BUILTIN_ID = "pi-web-builtin";
 
@@ -55,6 +56,12 @@ export function registerBuiltinExtensions(): void {
           title: "Plan",
           order: 1400,
           render: () => <PlanPanel />,
+        },
+        {
+          id: "engine",
+          title: "Engine",
+          order: 1500,
+          render: () => <EngineDashboard />,
         },
       ],
     }),

@@ -24,19 +24,7 @@ import type { AgentRunner, LlmCompletion } from "./runner";
 import { createMockRunner, formatCompactTranscript } from "./runner";
 import { arbiterSignalsConsensus, evaluateConvergence, roundFingerprint } from "./convergence";
 import { createController, type DiscussionController } from "./controller";
-// —— 本地日志占位（Engine 步骤接回 lib/engine-logger 后改回 import）
-// 当前 Plan 步骤不依赖 Engine 运行时；log 仅做 best-effort 控制台输出，不阻断编排。
-type LogLevel = "debug" | "info" | "warn" | "error";
-function log(
-  level: LogLevel,
-  _scope: string,
-  message: string,
-  _meta?: Record<string, unknown>,
-): void {
-  if (level === "error") console.error(`[orchestrator] ${message}`);
-  else if (level === "warn") console.warn(`[orchestrator] ${message}`);
-  else if (process.env.PI_WEB_DEBUG) console.debug(`[orchestrator:${level}] ${message}`);
-}
+import { log } from "../engine-logger";
 import { saveOrchestratorSnapshot, loadAllOrchestratorSnapshots } from "./persistence";
 import { buildSynthesisUserMessage, parseRecommendationPlans } from "./plan-synthesizer";
 import type { ConfirmPayload } from "./task-scheduler";
