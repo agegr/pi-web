@@ -276,6 +276,15 @@ const enExtra: Record<string, string> = {
   "engine.terminal": "Terminal",
   "engine.terminalClosed": "Terminal closed.",
   "engine.terminalEmpty": "No terminal output.",
+  "inspector.completedN": "{count} completed",
+  "inspector.showCompleted": "Show {count} completed",
+  "inspector.updatedAgo": "Updated {time} ago",
+  "plan.tokensSaved": "Tokens saved",
+  "todo.panel": "Todo",
+  "inspector.panel": "Inspector",
+  "prompts.panel": "Prompts",
+  "plan.panel": "Plan",
+  "engine.panel": "Engine",
 };
 
 const zhCNExtra: Record<string, string> = {
@@ -546,6 +555,15 @@ const zhCNExtra: Record<string, string> = {
   "engine.terminal": "终端",
   "engine.terminalClosed": "终端已关闭。",
   "engine.terminalEmpty": "无终端输出。",
+  "inspector.completedN": "{count} 项已完成",
+  "inspector.showCompleted": "显示 {count} 项已完成",
+  "inspector.updatedAgo": "{time} 前更新",
+  "plan.tokensSaved": "已节省令牌",
+  "todo.panel": "待办",
+  "inspector.panel": "检视",
+  "prompts.panel": "提示词",
+  "plan.panel": "计划",
+  "engine.panel": "引擎",
 };
 
 // 幂等注入：重复加载模块也不会重复注册 locale（registerLocale 会抛错），

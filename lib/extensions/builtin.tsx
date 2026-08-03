@@ -28,13 +28,13 @@ export function registerBuiltinExtensions(): void {
       workspacePanels: [
         {
           id: "todo",
-          title: "Todo",
+          title: "todo.panel",
           order: 1100,
           render: () => <TodoPanel />,
         },
         {
           id: "inspector",
-          title: "Inspector",
+          title: "inspector.panel",
           order: 1200,
           render: (ctx) => (
             <InspectorPanel
@@ -47,19 +47,19 @@ export function registerBuiltinExtensions(): void {
         },
         {
           id: "prompts",
-          title: "Prompts",
+          title: "prompts.panel",
           order: 1300,
           render: (ctx) => <PromptsConfig cwd={ctx.cwd ?? null} onClose={() => {}} />,
         },
         {
           id: "plan",
-          title: "Plan",
+          title: "plan.panel",
           order: 1400,
           render: () => <PlanPanel />,
         },
         {
           id: "engine",
-          title: "Engine",
+          title: "engine.panel",
           order: 1500,
           render: () => <EngineDashboard />,
         },

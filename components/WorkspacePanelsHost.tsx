@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { useExtensions } from "@/hooks/useExtensions";
+import { useI18n } from "@/hooks/useI18n";
 import { registerBuiltinExtensions } from "@/lib/extensions/builtin";
 import type { WorkspacePanelContext } from "@/lib/extensions/types";
 
@@ -20,6 +21,7 @@ export function WorkspacePanelsHost({
   cwd: string | null;
 }) {
   const { getWorkspacePanels } = useExtensions();
+  const { t } = useI18n();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -96,7 +98,7 @@ export function WorkspacePanelsHost({
               whiteSpace: "nowrap",
             }}
           >
-            {p.title}
+            {t(p.title)}
           </button>
         ))}
         <button
