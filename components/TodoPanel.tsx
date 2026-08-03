@@ -16,9 +16,15 @@ import type { TodoTask } from "@/lib/todo-types";
  *
  * 进度环从 InspectorPanel 迁入（inspector 专注 Git 后不再需要）。
  */
-export function TodoPanel({ onTaskClick }: { onTaskClick?: (entryId: string) => void }) {
+export function TodoPanel({
+  sessionId,
+  onTaskClick,
+}: {
+  sessionId: string | null;
+  onTaskClick?: (entryId: string) => void;
+}) {
   const { t } = useI18n();
-  const { tasks, entryIds, loading, error, reload } = useTodoTasks();
+  const { tasks, entryIds, loading, error, reload } = useTodoTasks(sessionId);
   const handleTaskClick = onTaskClick ?? (() => {});
 
   if (loading)

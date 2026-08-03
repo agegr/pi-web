@@ -8,20 +8,19 @@ import type { TodoTask } from "@/lib/todo-types";
 /**
  * 统一的 todo 数据 hook —— 合并 fetch + 实时刷新 + agent 运行结束后重取。
  *
- * 此前 TodoPanel / TodoBadge / InspectorPanel 各自实现了一份 reload 逻辑
- *（fetch /api/task-list + useTodoLiveRefresh + agentRunning 监听），三份重复。
- * 收敛到此，消费者一行接入。
- *
- * sessionId 从 useAgentRuntime 内部自取，消费者无需传入。
+ * sessionId 由调用方传入（TodoPanel 从 WorkspacePanelContext.session.id，
+ * 即真实选中会话）。不依赖 agent-runtime-store.sessionId——该 store 的
+ * snapshot 当前未被填充（遗留缺陷，见 docs/TODO-INSPECTOR-CLEANUP.md Bug-D），
+ * 故 sessionId 走参数注入。
  *
  * - 挂载时 fetch 一次；
  * - todo 工具完成时（tool_execution_end）实时刷新（debounce 80ms）；
- * - agent 运行结束后重取（捕捉 agent 期间产生的 todo 更新）。
+ * - agent 运行结束后重取（runtime.agentRunning 兜底；liveRefresh 已覆盖主要场景）。
  *
- * @returns tasks 任务列表；entryIds taskId→消息 entryId（点击跳转用，P1）；
- *          loading 初始加载；error 失败信息（null=成功/未失败）；reload 手动刷新。
+ * @returns tasks 任务列表；entryIds taskId→消息 entryId（点击跳转用）；
+ *          loading 初始加载；error 失败信息；reload 手动刷新。
  */
-export function useTodoTasks(): {
+export function useTodoTasks(sessionId: string | null | undefined): {
   tasks: TodoTask[];
   entryIds: Record<number, string>;
   loading: boolean;
@@ -29,7 +28,6 @@ export function useTodoTasks(): {
   reload: () => Promise<void>;
 } {
   const runtime = useAgentRuntime();
-  const sessionId = runtime.sessionId;
   const [tasks, setTasks] = useState<TodoTask[]>([]);
   const [entryIds, setEntryIds] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);

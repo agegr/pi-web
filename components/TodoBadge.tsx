@@ -15,9 +15,9 @@ import type { TodoTask } from "@/lib/todo-types";
  * 数据获取统一走 useTodoTasks（与 TodoPanel 共享）。当前为孤儿组件（未挂载），
  * 待 P2 接回顶栏。
  */
-export function TodoBadge() {
+export function TodoBadge({ sessionId }: { sessionId: string | null }) {
   const { t } = useI18n();
-  const { tasks } = useTodoTasks();
+  const { tasks } = useTodoTasks(sessionId);
   const [open, setOpen] = useState(false);
 
   // Close dropdown on outside click.
