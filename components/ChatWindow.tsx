@@ -476,10 +476,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         />
       )}
 
-      {!isNew && pendingRecovery.length > 0 && !recoveryDismissed && (
+      {pendingRecovery.length > 0 && !recoveryDismissed && (
         <QueueRecoveryDialog
           items={pendingRecovery}
-          sessionId={session?.id}
+          sessionId={session?.id ?? sessionIdRef.current ?? undefined}
           onResolve={resolveRecovery}
           onExport={exportQueueData}
           onImport={importQueueData}

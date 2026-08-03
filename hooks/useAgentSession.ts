@@ -1836,8 +1836,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   /** Re-queue entries parsed from an exported .json file. Returns count. */
   const importQueueData = useCallback(async (entries: QueueEntryInput[]): Promise<number | null> => {
-    const sid = sessionIdRef.current;
-    if (!sid) return null;
+    let sid = sessionIdRef.current;
+    if (!sid) {
+      sid = await ensureNewSession();
+      if (!sid) return null;
+    }
     try {
       const result = await sendAgentCommand<{ imported?: number; steering?: string[]; followUp?: string[] }>(sid, {
         type: "import_queue",
@@ -1852,13 +1855,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       addNotice({ type: "error", message: "Failed to import queue" });
       return null;
     }
-  }, [addNotice]);
+  }, [addNotice, ensureNewSession]);
 
   /** Stage imported entries as pending recovery so the recovery dialog pops
    *  up and the user chooses re-queue / re-queue & continue / discard. */
   const stageImport = useCallback(async (entries: QueueEntryInput[]): Promise<number | null> => {
-    const sid = sessionIdRef.current;
-    if (!sid) return null;
+    let sid = sessionIdRef.current;
+    // A brand-new session has no id yet — create it first so the imported
+    // queue can be staged against a real session (otherwise nothing happens
+    // and the dialog never pops up).
+    if (!sid) {
+      sid = await ensureNewSession();
+      if (!sid) return null;
+    }
     try {
       const result = await sendAgentCommand<{ staged?: number; pendingRecovery?: PendingRecoveryItem[] }>(sid, {
         type: "stage_recovery",
@@ -1872,7 +1881,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       addNotice({ type: "error", message: "Failed to stage imported queue" });
       return null;
     }
-  }, [addNotice]);
+  }, [addNotice, ensureNewSession]);
 
   /** Move a queued message within its queue (clear + re-enqueue server-side). */
   const moveQueuedMessage = useCallback(async (
