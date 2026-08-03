@@ -392,6 +392,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const eventSourceRef = useRef<EventSource | null>(null);
   const eventStreamGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eventStreamGraceGenerationRef = useRef(0);
+  // 仅记录已成功启动且声明 auto-resume 的 detached 子代理，普通会话不能进入等待窗口。
+  const detachedSubagentResumePendingRef = useRef(false);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
   const agentRunningRef = useRef(false);
   const bashRunningRef = useRef(false);
@@ -821,6 +823,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // Bail out before loadSession too: a stale finish for a previous run
     // must not overwrite the messages of the run currently streaming.
     if (runId !== undefined && promptRunIdRef.current !== runId) return;
+    cancelEventStreamGrace();
     try {
       if (sid) await loadSession(sid);
     } finally {
@@ -836,7 +839,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       dispatch({ type: "end" });
       onAgentEnd?.();
     }
-  }, [closeEvents, loadSession, onAgentEnd]);
+  }, [cancelEventStreamGrace, closeEvents, loadSession, onAgentEnd]);
 
   const scheduleEventStreamClose = useCallback((sid: string, runId?: number) => {
     cancelEventStreamGrace();
@@ -863,6 +866,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), EVENT_STREAM_IDLE_GRACE_MS);
   }, [cancelEventStreamGrace, finishPromptWithoutStream]);
 
+  const settleIdleSession = useCallback((sid: string, runId?: number) => {
+    if (detachedSubagentResumePendingRef.current) {
+      scheduleEventStreamClose(sid, runId);
+      return;
+    }
+    void finishPromptWithoutStream(sid, runId);
+  }, [finishPromptWithoutStream, scheduleEventStreamClose]);
+
   const waitForPromptSettlement = useCallback(async (sid: string, runId?: number) => {
     await delay(PROMPT_SETTLE_INITIAL_DELAY_MS);
     const startedAt = Date.now();
@@ -879,7 +890,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
           const state = data.state;
           if (!data.running || !state || (!state.isStreaming && !state.isPromptRunning)) {
-            scheduleEventStreamClose(sid, runId);
+            settleIdleSession(sid, runId);
             return;
           }
         }
@@ -888,7 +899,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       await delay(PROMPT_SETTLE_POLL_MS);
     }
-  }, [scheduleEventStreamClose]);
+  }, [settleIdleSession]);
   waitForPromptSettlementRef.current = waitForPromptSettlement;
 
   const waitForBashSettlement = useCallback(async (sid: string) => {
@@ -953,11 +964,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (state.extensionStatuses !== undefined) setExtensionStatuses(state.extensionStatuses ?? []);
         if (state.extensionWidgets !== undefined) setExtensionWidgets(state.extensionWidgets ?? []);
       }
-      scheduleEventStreamClose(sid, runId);
+      settleIdleSession(sid, runId);
     } catch {
       // Network still down — the next poll / visibility / online tick retries.
     }
-  }, [scheduleEventStreamClose]);
+  }, [settleIdleSession]);
 
   // Recovery net for missed SSE events: while the agent is running, verify
   // against the server periodically and whenever the tab returns to the
@@ -991,6 +1002,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     switch (event.type) {
       case "agent_start":
         cancelEventStreamGrace();
+        detachedSubagentResumePendingRef.current = false;
         agentRunningRef.current = true;
         setAgentRunning(true);
         setAgentPhase({ kind: "waiting_model" });
@@ -1023,9 +1035,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "agent_settled":
       case "prompt_done":
         if (!agentRunningRef.current || !sessionIdRef.current) break;
-        // 父轮完成并不代表异步扩展已结束。保护窗口内维持运行态和 SSE，
-        // 等待后台子代理完成后自动注入的下一轮 agent_start。
-        scheduleEventStreamClose(sessionIdRef.current, promptRunIdRef.current);
+        settleIdleSession(sessionIdRef.current, promptRunIdRef.current);
         break;
       case "prompt_error":
         addNotice({ type: "error", message: (event.errorMessage as string | undefined) ?? "Command failed" });
@@ -1103,6 +1113,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       case "tool_execution_end": {
         const id = event.toolCallId as string;
+        if (event.toolName === "subagent_spawn" && event.isError !== true) {
+          const resultText = JSON.stringify(event.result ?? "");
+          detachedSubagentResumePendingRef.current = resultText.includes("auto-resume will request synthesis");
+        }
         setAgentPhase((prev) => {
           if (prev?.kind !== "running_tools") return prev;
           const tools = prev.tools.filter((t) => t.id !== id);
@@ -1144,7 +1158,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, onSessionListRefresh, scheduleEventStreamClose]);
+  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, onSessionListRefresh, settleIdleSession]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
