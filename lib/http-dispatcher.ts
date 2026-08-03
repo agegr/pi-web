@@ -1,15 +1,20 @@
 import { EventEmitter } from "node:events";
 import * as undici from "undici";
+import type { EffectiveNetworkProxyConfig, ProxySettings } from "@/lib/network-proxy";
 
 export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 300_000;
 
 type DispatcherGlobal = typeof globalThis & {
-  __piWebHttpDispatcherConfigured?: boolean;
+  __piWebHttpDispatcherState?: {
+    fingerprint: string;
+    dispatcher: undici.Dispatcher;
+  };
 };
 
 const dispatcherGlobal = globalThis as DispatcherGlobal;
 const originalGlobalFetch = globalThis.fetch;
 const ignoreUndiciDispatcherError = (): void => {};
+let applyQueue = Promise.resolve();
 
 function parseHttpIdleTimeoutMs(value: unknown): number | undefined {
   if (typeof value === "string") {
@@ -55,25 +60,73 @@ function createUndiciOriginDispatcher(origin: string | URL, options: object): un
   );
 }
 
-export function configureHttpDispatcher(
-  timeoutMs: number = DEFAULT_HTTP_IDLE_TIMEOUT_MS,
-): void {
-  if (dispatcherGlobal.__piWebHttpDispatcherConfigured) return;
-
+function normalizeTimeout(timeoutMs: number): number {
   const normalizedTimeoutMs = parseHttpIdleTimeoutMs(timeoutMs);
   if (normalizedTimeoutMs === undefined) {
     throw new Error(`Invalid HTTP idle timeout: ${String(timeoutMs)}`);
   }
+  return normalizedTimeoutMs;
+}
 
-  const dispatcher = withUndiciErrorListener(
-    new undici.EnvHttpProxyAgent({
-      allowH2: false,
-      bodyTimeout: normalizedTimeoutMs,
-      headersTimeout: normalizedTimeoutMs,
-      clientFactory: createUndiciClient,
+function environmentProxySettings(): ProxySettings {
+  const allProxy = process.env.ALL_PROXY ?? process.env.all_proxy;
+  const httpProxy = process.env.HTTP_PROXY ?? process.env.http_proxy ?? allProxy;
+  const httpsProxy = process.env.HTTPS_PROXY ?? process.env.https_proxy ?? allProxy;
+  return {
+    enabled: Boolean(httpProxy || httpsProxy),
+    httpProxy,
+    httpsProxy,
+    noProxy: process.env.NO_PROXY ?? process.env.no_proxy ?? "localhost,127.0.0.1,::1",
+  };
+}
+
+export function createHttpDispatcher(
+  settings: ProxySettings,
+  timeoutMs: number = DEFAULT_HTTP_IDLE_TIMEOUT_MS,
+): undici.Dispatcher {
+  const normalizedTimeoutMs = normalizeTimeout(timeoutMs);
+  const commonOptions = {
+    allowH2: false,
+    bodyTimeout: normalizedTimeoutMs,
+    headersTimeout: normalizedTimeoutMs,
+    clientFactory: createUndiciClient,
+    factory: createUndiciOriginDispatcher,
+  };
+
+  if (!settings.enabled || (!settings.httpProxy && !settings.httpsProxy)) {
+    return withUndiciErrorListener(new undici.Agent({
+      ...commonOptions,
       factory: createUndiciOriginDispatcher,
-    }),
-  );
+    }));
+  }
+
+  return withUndiciErrorListener(new undici.EnvHttpProxyAgent({
+    ...commonOptions,
+    httpProxy: settings.httpProxy,
+    httpsProxy: settings.httpsProxy,
+    noProxy: settings.noProxy,
+  }));
+}
+
+function dispatcherFingerprint(settings: ProxySettings, timeoutMs: number): string {
+  return JSON.stringify({
+    timeoutMs: normalizeTimeout(timeoutMs),
+    enabled: settings.enabled,
+    httpProxy: settings.httpProxy ?? "",
+    httpsProxy: settings.httpsProxy ?? "",
+    noProxy: settings.noProxy,
+  });
+}
+
+export function applyHttpDispatcher(
+  settings: ProxySettings,
+  timeoutMs: number = DEFAULT_HTTP_IDLE_TIMEOUT_MS,
+): boolean {
+  const fingerprint = dispatcherFingerprint(settings, timeoutMs);
+  const current = dispatcherGlobal.__piWebHttpDispatcherState;
+  if (current?.fingerprint === fingerprint) return false;
+
+  const dispatcher = createHttpDispatcher(settings, timeoutMs);
   undici.setGlobalDispatcher(dispatcher);
 
   // Keep fetch and the dispatcher on the same undici implementation. Preserve
@@ -82,5 +135,25 @@ export function configureHttpDispatcher(
     undici.install?.();
   }
 
-  dispatcherGlobal.__piWebHttpDispatcherConfigured = true;
+  dispatcherGlobal.__piWebHttpDispatcherState = { fingerprint, dispatcher };
+  // Do not close the previous dispatcher here. It may still own a long-running
+  // streaming model response; the process will reclaim retired dispatchers on exit.
+  return true;
+}
+
+export function applyEffectiveProxyConfiguration(
+  settings: EffectiveNetworkProxyConfig,
+  timeoutMs: number = DEFAULT_HTTP_IDLE_TIMEOUT_MS,
+): Promise<boolean> {
+  const next = applyQueue.then(() => applyHttpDispatcher(settings, timeoutMs));
+  applyQueue = next.then(() => undefined, () => undefined);
+  return next;
+}
+
+/** Backward-compatible environment-only configuration entrypoint. */
+export function configureHttpDispatcher(
+  timeoutMs: number = DEFAULT_HTTP_IDLE_TIMEOUT_MS,
+): void {
+  if (dispatcherGlobal.__piWebHttpDispatcherState) return;
+  applyHttpDispatcher(environmentProxySettings(), timeoutMs);
 }

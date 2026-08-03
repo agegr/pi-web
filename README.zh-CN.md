@@ -47,7 +47,18 @@ API 请求仅接受 loopback 名称、IP 字面量、当前监听主机名，以
 
 ## HTTP 代理
 
-Pi Web 的服务端模型请求和 API 请求会读取标准的 `HTTP_PROXY`、`HTTPS_PROXY` 和 `NO_PROXY` 环境变量。
+Pi Web 的服务端模型请求和 API 请求按以下优先级选择网络代理：
+
+1. `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY` 和 `NO_PROXY` 环境变量
+2. **网络**面板保存的覆盖配置（`~/.pi/agent/pi-web-network.json`）
+3. 当前 Windows 用户 Internet Settings 中的固定代理
+4. 直接连接
+
+在 Windows 上，Pi Web 会读取 Chrome/Edge 使用的当前用户 WinINET 固定代理。网络面板会显示固定代理、绕过列表、PAC 地址和 WPAD 自动检测状态。PAC/WPAD 目前仅用于诊断：Pi Web 不会下载或执行 PAC JavaScript；如果 Windows 只提供自动配置脚本，请在页面中填写固定代理地址。
+
+容器中的 Pi Web 无法读取 Windows 宿主用户的注册表。请把代理环境变量传入运行中的容器，或使用页面覆盖配置；如果代理运行在 Docker Desktop 宿主机上，应使用 `host.docker.internal`，而不是容器自身的 `127.0.0.1`。如果公司代理会进行 TLS 检查，请为 Node 配置 `NODE_EXTRA_CA_CERTS`，不要关闭证书校验。
+
+仍然可以显式设置标准环境变量。环境变量优先级最高，在网络面板中会显示为只读。
 
 macOS 或 Linux：
 
