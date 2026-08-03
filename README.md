@@ -49,7 +49,18 @@ API requests accept loopback names, IP literals, the selected bind hostname, and
 
 ## HTTP Proxy
 
-Pi Web reads the standard `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` environment variables for server-side model and API requests.
+Pi Web uses the following precedence for server-side model and API requests:
+
+1. `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` environment variables
+2. A saved override from the **Network** panel (`~/.pi/agent/pi-web-network.json`)
+3. The current Windows user's fixed Internet Settings proxy
+4. A direct connection
+
+On Windows, Pi Web detects the fixed proxy used by Chrome/Edge through the current user's WinINET settings. The Network panel shows fixed proxy, bypass, PAC URL, and WPAD status. PAC/WPAD are diagnostic only: Pi Web does not download or execute PAC JavaScript, so enter a fixed proxy override when Windows only reports an automatic configuration script.
+
+Containerized Pi Web cannot read the Windows host user's registry. Pass proxy environment variables into the running container or use the page override; when a proxy runs on Docker Desktop's host, use `host.docker.internal` instead of container-local `127.0.0.1`. If the company proxy performs TLS inspection, configure Node with `NODE_EXTRA_CA_CERTS` rather than disabling certificate verification.
+
+You can still configure standard environment variables explicitly. Environment variables have the highest priority and appear read-only in the Network panel.
 
 On macOS or Linux:
 
