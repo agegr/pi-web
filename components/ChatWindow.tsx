@@ -350,25 +350,30 @@ export function ChatWindow({
 
   // 跳转通道：register 消息 DOM → scrollTo；注册到 runtime store 供面板（TodoPanel）
   // 经 WorkspacePanelContext.scrollToEntry 调用，实现「点击任务→跳转聊天对应消息」。
-  const { register, scrollTo } = useMessageScroll();
+  const { register, scrollTo, hasEntry } = useMessageScroll();
   useEffect(() => {
     // 虚拟滚动跳转：目标消息可能被裁剪（不在 visibleCount），先扩 visibleCount
-    // 加载它，rAF 后 register 已挂目标 DOM，scrollTo 才能命中。
+    // 加载它，然后 polling 等 register 挂上目标 DOM（渲染需几帧），再 scrollTo。
     const jumpTo = (entryId: string) => {
       const idx = entryIds.indexOf(entryId);
       if (idx < 0) {
         scrollTo(entryId);
         return;
       }
-      setVisibleCount((vc) => {
-        const need = messages.length - idx + 5;
-        return need > vc ? need : vc;
-      });
-      requestAnimationFrame(() => scrollTo(entryId));
+      setVisibleCount((vc) => Math.max(vc, messages.length - idx + 5));
+      let attempts = 10;
+      const tryScroll = () => {
+        if (hasEntry(entryId) || attempts-- <= 0) {
+          scrollTo(entryId);
+          return;
+        }
+        requestAnimationFrame(tryScroll);
+      };
+      tryScroll();
     };
     getAgentRuntimeStore().setScrollToEntry(jumpTo);
     return () => getAgentRuntimeStore().setScrollToEntry(null);
-  }, [entryIds, messages.length, scrollTo]);
+  }, [entryIds, messages.length, scrollTo, hasEntry]);
 
   useEffect(() => {
     if (!extensionDialog || soundedExtensionDialogIdRef.current === extensionDialog.id) return;

@@ -31,6 +31,7 @@ import { scrollIntoView } from "@/lib/scroll-into-view";
 export function useMessageScroll(): {
   register: (entryId: string, element: HTMLElement | null) => void;
   scrollTo: (entryId: string) => void;
+  hasEntry: (entryId: string) => boolean;
 } {
   const refs = useRef(new Map<string, HTMLElement>());
 
@@ -45,15 +46,14 @@ export function useMessageScroll(): {
       scrollIntoView(exact);
       return;
     }
-    // Fallback: scroll to the most recently registered element that's still
-    // present in the map. Useful when a task's session entryId was wiped
-    // (e.g. session reloaded, history pruned) — instead of silently no-op,
-    // we land the user somewhere reasonable: the latest visible message.
-    // Map iteration order is insertion order, so we walk in reverse.
+    // Fallback: scroll to the most recently registered element.
     let latest: HTMLElement | undefined;
     for (const el of refs.current.values()) latest = el;
     scrollIntoView(latest);
   }, []);
 
-  return { register, scrollTo };
+  // 供 jumpTo polling 检查目标是否已 register（虚拟滚动渲染后才挂上）
+  const hasEntry = useCallback((entryId: string) => refs.current.has(entryId), []);
+
+  return { register, scrollTo, hasEntry };
 }
