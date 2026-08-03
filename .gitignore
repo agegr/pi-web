@@ -47,3 +47,11 @@ next-env.d.ts
 .atl/
 .codegraph/
 openspec/
+
+# local heavy deps（方案 C 后增量）
+# - vendor/：autoplan/comet 二进制依赖（75M）。autoplan 后端已纯 TS 化
+#   （lib/unified-engine/autoplan-adapter.ts），comet 仅 existsSync 探测，
+#   优雅降级；本地需要时用户自行 clone。
+# - .playwright-mcp/：e2e 截图缓存（50K），不入库。
+/vendor/
+/.playwright-mcp/
