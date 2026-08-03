@@ -58,14 +58,21 @@ export function findEntryForTask<T extends ResolverEntry>(
   entries: readonly T[],
   taskId: number,
 ): T | null {
-  let found: T | null = null;
-  for (const entry of entries) {
-    const msg = entry.message;
+  let toolResultIdx = -1;
+  for (let i = 0; i < entries.length; i++) {
+    const msg = entries[i].message;
     if (!msg || msg.role !== "toolResult" || msg.toolName !== "todo") continue;
     if (!isTodoDetails(msg.details)) continue;
     if (!msg.details.tasks.some((t) => t.id === taskId)) continue;
-    // Keep updating — last match wins.
-    found = entry;
+    toolResultIdx = i; // last match wins
   }
-  return found;
+  if (toolResultIdx === -1) return null;
+  // 往前找最近的 user/assistant entry 作为跳转目标——toolResult 不单独渲染
+  // （作为 assistant 的附属），跳到所属 user/assistant 才能命中 ChatWindow
+  // 的 register（只挂 user/assistant DOM）。
+  for (let i = toolResultIdx; i >= 0; i--) {
+    const role = entries[i].message?.role;
+    if (role === "user" || role === "assistant") return entries[i];
+  }
+  return entries[toolResultIdx];
 }
