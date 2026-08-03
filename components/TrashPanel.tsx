@@ -1,5 +1,6 @@
 // 回收站弹窗：按目录分组展示已删除的会话，支持搜索、恢复与彻底删除。
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useI18n } from "@/hooks/useI18n";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import type { TrashedSession } from "@/lib/trash";
@@ -18,6 +19,7 @@ export function TrashPanel({ onClose, onRestored }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [confirmPurge, setConfirmPurge] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
 
   const load = useCallback(() => {
     fetch("/api/trash")
@@ -30,6 +32,12 @@ export function TrashPanel({ onClose, onRestored }: Props) {
   }, []);
 
   useEffect(load, [load]);
+
+  // 渲染到 body，脱离侧边栏容器的层叠上下文（z-index 200），
+  // 避免右上角的文件面板切换按钮（z-index 300）盖住关闭按钮
+  useEffect(() => {
+    setPortalTarget(document.body);
+  }, []);
 
   // Esc 关闭面板（与项目内其它 modal 行为一致）
   useEffect(() => {
@@ -109,7 +117,8 @@ export function TrashPanel({ onClose, onRestored }: Props) {
     }
   };
 
-  return (
+  if (!portalTarget) return null;
+  return createPortal(
     <div
       style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
@@ -243,7 +252,8 @@ export function TrashPanel({ onClose, onRestored }: Props) {
           </div>
         </div>
       )}
-    </div>
+    </div>,
+    portalTarget,
   );
 }
 
