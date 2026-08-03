@@ -329,7 +329,7 @@ export function SettingsConfig({ cwd, sessionId, initialSection = "models", onCl
           <div className={styles.closeRail}><button type="button" className={styles.closeButton} onClick={close}><span>Close settings</span><span aria-hidden="true">×</span></button></div>
         </aside>
         <main className={styles.content}>
-          {query.trim() ? renderGenericSettings() : section === "models" ? <ModelsConfig cwd={cwd} embedded onClose={close} /> : section === "themes" ? renderThemeSection() : section === "skills" && cwd ? <SkillsConfig cwd={cwd} embedded onClose={close} /> : section === "plugins" && cwd ? <PluginsConfig cwd={cwd} sessionId={sessionId} embedded onClose={close} onReloaded={onReloaded} /> : section === "mcp" ? <McpSettings cwd={cwd} sessionId={sessionId} onReloaded={onReloaded} /> : renderGenericSettings()}
+          {query.trim() ? renderGenericSettings() : section === "models" ? <ModelsConfig cwd={cwd} embedded onClose={close} onModelsChanged={onModelsChanged} /> : section === "themes" ? renderThemeSection() : section === "skills" && cwd ? <SkillsConfig cwd={cwd} embedded onClose={close} /> : section === "plugins" && cwd ? <PluginsConfig cwd={cwd} sessionId={sessionId} embedded onClose={close} onReloaded={onReloaded} /> : section === "mcp" ? <McpSettings cwd={cwd} sessionId={sessionId} onReloaded={onReloaded} /> : renderGenericSettings()}
         </main>
       </div>
     </div>

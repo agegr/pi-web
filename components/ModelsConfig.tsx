@@ -1653,7 +1653,7 @@ function AddProviderPicker({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ModelsConfig({ cwd, onClose, embedded = false }: { cwd?: string | null; onClose: () => void; embedded?: boolean }) {
+export function ModelsConfig({ cwd, onClose, embedded = false, onModelsChanged }: { cwd?: string | null; onClose: () => void; embedded?: boolean; onModelsChanged?: () => void }) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
   const [config, setConfig] = useState<ModelsJson>({ providers: {} });
@@ -1799,13 +1799,17 @@ export function ModelsConfig({ cwd, onClose, embedded = false }: { cwd?: string 
       });
       const d = await res.json() as { success?: boolean; error?: string };
       if (!res.ok || d.error) setSaveError(d.error ?? `HTTP ${res.status}`);
-      else { setSavedOk(true); setTimeout(() => setSavedOk(false), 2000); }
+      else {
+        setSavedOk(true);
+        onModelsChanged?.();
+        setTimeout(() => setSavedOk(false), 2000);
+      }
     } catch (e) {
       setSaveError(String(e));
     } finally {
       setSaving(false);
     }
-  }, [config]);
+  }, [config, onModelsChanged]);
 
   const providers = Object.entries(config.providers ?? {});
   const activeOAuth = oauthProviders.filter((p) => p.loggedIn);
@@ -1815,7 +1819,7 @@ export function ModelsConfig({ cwd, onClose, embedded = false }: { cwd?: string 
   const detailContent = (() => {
     if (!selection) return null;
     if (selection.type === "roles") {
-      return <ModelRolesPanel cwd={cwd ?? null} />;
+      return <ModelRolesPanel cwd={cwd ?? null} onRolesChanged={onModelsChanged} />;
     }
     if (selection.type === "oauth") {
       const p = oauthProviders.find((p) => p.id === selection.providerId);

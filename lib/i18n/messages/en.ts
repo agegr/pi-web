@@ -218,6 +218,8 @@ export const enLocale: LocalePlugin = {
     "roles.source.global": "from global config",
     "roles.source.project": "from project config",
     "roles.source.default": "omp default",
+    "roles.thinking": "Thinking",
+    "roles.thinkingInherit": "Use the configured default thinking level",
     "chat.moreControls": "More controls",
     "chat.collapseControls": "Collapse controls",
     "chat.shell": "Shell",

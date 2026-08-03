@@ -218,6 +218,8 @@ export const zhCNLocale: LocalePlugin = {
     "roles.source.global": "来自全局配置",
     "roles.source.project": "来自项目配置",
     "roles.source.default": "omp 默认值",
+    "roles.thinking": "推理",
+    "roles.thinkingInherit": "使用配置的默认推理级别",
     "chat.moreControls": "更多控件",
     "chat.collapseControls": "收起控件",
     "chat.shell": "Shell",
