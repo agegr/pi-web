@@ -1816,22 +1816,22 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const spacerH = agentRunningRef.current ? 96 : 0;
     const lastMsgBottom = endTop - 28 - spacerH;
     // Step-follow: when new content pushes the last message past the small
-    // keep-out zone, step so the last message lands at the top 1/3 of the
-    // viewport. The bottom 2/3 refills as the output grows — gentler than a
+    // keep-out zone, step so the last message lands at the top 1/4 of the
+    // viewport. The bottom 3/4 refills as the output grows — gentler than a
     // full jump-to-bottom every message, and the output is always visible.
     if (lastMsgBottom > container.clientHeight - 40) {
       const lastMsgAbs =
         end.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - 28 - spacerH;
-      // Land the last message at the top 1/3 of the viewport: more room below
-      // for the output to grow, so steps are less frequent and the agent has
-      // longer to stream before the next jump.
-      const target = Math.max(0, lastMsgAbs - container.clientHeight / 3);
-      // Longer programmatic-scroll grace than 700ms: the step covers 2/3 of
-      // the viewport and its smooth animation can exceed the default window,
-      // which would mark the tail of the animation as a manual scroll and
-      // pause follow for USER_SCROLL_INTENT_MS.
+      // Land the last message at the top 1/4 of the viewport: plenty of room
+      // below for the output to grow before the next step. INSTANT, not
+      // smooth: a streaming chunk arrives every few hundred ms and re-runs
+      // this check — a smooth animation gets cancelled mid-flight by the next
+      // chunk's scrollTo, so the step never completes and the view only
+      // creeps up a little (no big blank area below). Instant lands the full
+      // step every time.
+      const target = Math.max(0, lastMsgAbs - container.clientHeight / 4);
       ignoreProgrammaticScrollUntilRef.current = Date.now() + 1200;
-      container.scrollTo({ top: target, behavior: "smooth" });
+      container.scrollTo({ top: target, behavior: "instant" });
     }
   }, [opts.followStreamingRef, scrollContainerRef, messagesEndRef]);
 
