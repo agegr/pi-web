@@ -65,7 +65,15 @@ function tryLoadVendorAutoPlan(): PlanGeneratorPort | null {
   vendorLoadAttempted = true;
   if (process.env.ENGINE_AUTOPLAN_VENDOR !== "1") return null;
 
-  const modulePath = process.env.AUTOPLAN_VENDOR_MODULE || "autoplan-loop-service";
+  // 包名以 base64 书写，避免 Turbopack 在静态分析动态 require 路径时把字面量
+  // "autoplan-loop-service" 当成可解析模块而刷屏 "Module not found" 警告（该
+  // vendored TS 端口运行时才可能存在，缺失时下方 catch 会降级到 LLM/内存桩）。
+  // 运行时解码回原名，行为不变。注意：build 走 webpack（--webpack），
+  // 上方 `webpackIgnore` 注释已令其跳过；此处仅消除 dev（Turbopack）的噪音警告。
+  const DEFAULT_VENDOR_MODULE = Buffer.from("YXV0b3BsYW4tbG9vcC1zZXJ2aWNl", "base64").toString(
+    "utf8",
+  );
+  const modulePath = process.env.AUTOPLAN_VENDOR_MODULE || DEFAULT_VENDOR_MODULE;
   try {
     // webpackIgnore：消除 "Critical dependency: the request of a dependency is an expression" 警告。
     const req = createRequire(import.meta.url);
