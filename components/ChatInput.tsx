@@ -1015,6 +1015,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     : t(slashQuery ? "chat.matches" : "chat.commands", { count: filteredSlashCommands.length });
   const hasInputText = Boolean(value.trim());
   const canQueueStreamingMessage = hasInputText && attachedImages.length === 0;
+  // With no typed text, the steer button still works when the queue holds a
+  // follow-up: clicking it dispatches the FIRST queued follow-up as a steer
+  // (same action as the row/collapsed-bar steer button).
+  const canSteerFromQueue = !hasInputText && !attachedImages.length && (queuedMessages?.followUp?.length ?? 0) > 0;
 
   // ── @ file autocomplete ──────────────────────────────────────────────────
   // Recomputed from the text before the caret on every change/caret move.
@@ -1200,7 +1204,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const sendQueued = useCallback((mode: "steer" | "followup") => {
     const msg = value.trim();
-    if (!msg && !attachedImages.length) return;
+    // No typed text: the steer button dispatches the first queued follow-up
+    // as a steer (interrupt now) instead of doing nothing.
+    if (!msg && !attachedImages.length) {
+      if (mode === "steer") {
+        const fu = queuedMessages?.followUp?.[0];
+        if (fu && onQueueSteerSend) {
+          onAudioUnlock?.();
+          recalledRef.current = null;
+          setRecalledVisible(false);
+          onQueueSteerSend(fu);
+          void handleRemoveQueueItem("followUp", 0);
+        }
+      }
+      return;
+    }
     if (attachedImages.length) return;
     onAudioUnlock?.();
     // The user explicitly chose a send mode (steer / followUp): dispatch as
@@ -1219,7 +1237,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       onFollowUp(msg, attachedImages.length ? attachedImages : undefined);
     }
     clearInput();
-  }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock]);
+  }, [value, attachedImages, queuedMessages, onPromptWithStreamingBehavior, onSteer, onFollowUp, onQueueSteerSend, handleRemoveQueueItem, clearInput, onAudioUnlock]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = displayedSlashCommands.length - 1;
@@ -2520,16 +2538,20 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               {onSteer && (
                 <button
                   onClick={() => sendQueued("steer")}
-                  disabled={!canQueueStreamingMessage}
-                  title={attachedImages.length ? "Image attachments cannot be queued while the agent is running" : "Interrupt the current run and inject this message now"}
+                  disabled={!canQueueStreamingMessage && !canSteerFromQueue}
+                  title={attachedImages.length
+                    ? "Image attachments cannot be queued while the agent is running"
+                    : canSteerFromQueue
+                      ? "Interrupt now with the first queued follow-up"
+                      : "Interrupt the current run and inject this message now"}
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
                     padding: "7px 12px",
-                    background: canQueueStreamingMessage ? "rgba(234,179,8,0.12)" : "none",
+                    background: (canQueueStreamingMessage || canSteerFromQueue) ? "rgba(234,179,8,0.12)" : "none",
                     border: "1px solid rgba(234,179,8,0.35)",
                     borderRadius: 8,
-                    color: canQueueStreamingMessage ? "rgba(180,130,0,1)" : "var(--text-dim)",
-                    cursor: canQueueStreamingMessage ? "pointer" : "not-allowed",
+                    color: (canQueueStreamingMessage || canSteerFromQueue) ? "rgba(180,130,0,1)" : "var(--text-dim)",
+                    cursor: (canQueueStreamingMessage || canSteerFromQueue) ? "pointer" : "not-allowed",
                     fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
                     transition: "background 0.12s",
                   }}
