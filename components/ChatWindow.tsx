@@ -28,6 +28,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
 import { useMessageScroll } from "@/hooks/useMessageScroll";
 import { getAgentRuntimeStore } from "@/lib/agent-runtime-store";
+import { scrollIntoView } from "@/lib/scroll-into-view";
 import { useAudio } from "@/hooks/useAudio";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -361,10 +362,14 @@ export function ChatWindow({
         return;
       }
       setVisibleCount((vc) => Math.max(vc, messages.length - idx + 5));
+      // register 只挂 attachRef 的消息（group 内 process assistant 无），故用
+      // data-entry-id + querySelector 定位（renderMessage 已给所有消息加该属性）。
       let attempts = 10;
       const tryScroll = () => {
-        if (hasEntry(entryId) || attempts-- <= 0) {
-          scrollTo(entryId);
+        const el = document.querySelector<HTMLElement>(`[data-entry-id="${entryId}"]`);
+        if (el || attempts-- <= 0) {
+          if (el) scrollIntoView(el);
+          else scrollTo(entryId);
           return;
         }
         requestAnimationFrame(tryScroll);
@@ -870,9 +875,21 @@ export function ChatWindow({
                         />
                       );
                       if (!isVisible || options.attachRef === false || currentRefIdx === undefined)
-                        return view;
+                        return (
+                          <div
+                            key={`${keyPrefix}-wrap-${idx}`}
+                            data-entry-id={entryIds[idx]}
+                            style={{ display: "contents" }}
+                          >
+                            {view}
+                          </div>
+                        );
                       return (
-                        <div key={`${keyPrefix}-${idx}`} ref={attachVisibleRef(idx, currentRefIdx)}>
+                        <div
+                          key={`${keyPrefix}-${idx}`}
+                          ref={attachVisibleRef(idx, currentRefIdx)}
+                          data-entry-id={entryIds[idx]}
+                        >
                           {view}
                         </div>
                       );
