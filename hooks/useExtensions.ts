@@ -1,5 +1,16 @@
 "use client";
 
+// 浏览器侧扩展通过 window.React 创建元素（见 lib/extensions/types.ts 注释）。
+// 本模块是扩展加载的唯一入口——模块顶层在 loadExtensions()（useEffect 内）
+// 之前执行，故在此挂载时机正确，保证扩展 import 时 window.React 已就绪。
+// 历史缺陷：此前 window.React 从未被挂载，导致 git-status 等扩展 activate()
+// 内 React.createElement 抛 TypeError、被 loadExtensions 的 catch 吞掉、
+// console.warn 后不注册——整个浏览器侧扩展加载链路全断。
+import * as React from "react";
+if (typeof window !== "undefined") {
+  (window as unknown as { React: typeof React }).React = React;
+}
+
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { getExtensionRegistry } from "@/lib/extensions/registry";
 import type {
