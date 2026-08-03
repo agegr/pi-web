@@ -26,6 +26,8 @@ import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { useI18n } from "@/hooks/useI18n";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
+import { useMessageScroll } from "@/hooks/useMessageScroll";
+import { getAgentRuntimeStore } from "@/lib/agent-runtime-store";
 import { useAudio } from "@/hooks/useAudio";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -345,6 +347,14 @@ export function ChatWindow({
     onSessionStatsPanelOpen,
   });
   const sessionBusy = agentRunning || bashRunning;
+
+  // 跳转通道：register 消息 DOM → scrollTo；注册到 runtime store 供面板（TodoPanel）
+  // 经 WorkspacePanelContext.scrollToEntry 调用，实现「点击任务→跳转聊天对应消息」。
+  const { register, scrollTo } = useMessageScroll();
+  useEffect(() => {
+    getAgentRuntimeStore().setScrollToEntry(scrollTo);
+    return () => getAgentRuntimeStore().setScrollToEntry(null);
+  }, [scrollTo]);
 
   useEffect(() => {
     if (!extensionDialog || soundedExtensionDialogIdRef.current === extensionDialog.id) return;
@@ -770,6 +780,7 @@ export function ChatWindow({
                         if (idx === lastUserIdx) {
                           (lastUserMsgRef as { current: HTMLDivElement | null }).current = el;
                         }
+                        register(entryIds[idx], el);
                       };
 
                     const renderMessage = (

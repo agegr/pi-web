@@ -93,6 +93,8 @@ export interface WorkspaceContext {
 export interface WorkspacePanelContext extends WorkspaceContext {
   /** Ask the host to re-evaluate badge/visible/render (escape hatch for side effects). */
   requestRender: () => void;
+  /** Scroll the chat to the message matching entryId (click-to-jump from panels). */
+  scrollToEntry?: (entryId: string) => void;
 }
 
 /** Context for workspace labels. Same shape as WorkspaceContext. */

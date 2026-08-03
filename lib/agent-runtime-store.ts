@@ -82,6 +82,18 @@ class AgentRuntimeStore {
     this.version++;
     this.listeners.forEach((cb) => cb());
   }
+
+  // ---- scrollToEntry 命令通道（不进 snapshot，不触发 notify）----
+  // 函数无法序列化，故 update() 的 JSON.stringify 深比较会失真；命令通道独立于
+  // 渲染状态。ChatWindow 挂载时注册，面板（TodoPanel）经 WorkspacePanelContext
+  // 的 scrollToEntry 调用，实现「点击任务→跳转聊天对应消息」。
+  private scrollToEntryFn: ((entryId: string) => void) | null = null;
+  setScrollToEntry(fn: ((entryId: string) => void) | null): void {
+    this.scrollToEntryFn = fn;
+  }
+  scrollToEntry(entryId: string): void {
+    this.scrollToEntryFn?.(entryId);
+  }
 }
 
 declare global {

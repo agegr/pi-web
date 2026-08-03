@@ -3,17 +3,23 @@
 import { useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useTodoTasks } from "@/hooks/useTodoTasks";
+import { getEntryIdForTask } from "@/lib/inspector-task-id";
+import { InspectorTaskRow } from "./InspectorTaskRow";
 import type { TodoTask } from "@/lib/todo-types";
 
 /**
- * Todo panel — reads the latest todo snapshot from the current session branch.
+ * Todo panel — 唯一任务中心（方案C）。
  *
- * 数据来源：上游插件 @juicesharp/rpiv-todo 的 tool-result details（只读展示）。
- * mutations happen through the agent conversation. 数据获取/刷新统一走 useTodoTasks。
+ * 数据走 useTodoTasks（与 TodoBadge 共享）。任务行复用 InspectorTaskRow
+ * （含状态点、activeForm 脉冲、点击反馈）。点击任务 → onTaskClick(entryId)
+ * → 经 WorkspacePanelContext.scrollToEntry → ChatWindow 滚动到对应消息。
+ *
+ * 进度环从 InspectorPanel 迁入（inspector 专注 Git 后不再需要）。
  */
-export function TodoPanel() {
+export function TodoPanel({ onTaskClick }: { onTaskClick?: (entryId: string) => void }) {
   const { t } = useI18n();
-  const { tasks, loading, error, reload } = useTodoTasks();
+  const { tasks, entryIds, loading, error, reload } = useTodoTasks();
+  const handleTaskClick = onTaskClick ?? (() => {});
 
   if (loading)
     return (
@@ -23,9 +29,27 @@ export function TodoPanel() {
     );
   if (error) return <div style={{ padding: 16, color: "#f87171", fontSize: 12 }}>{error}</div>;
 
+  const completed = tasks.filter((t) => t.status === "completed");
   const inProgress = tasks.filter((t) => t.status === "in_progress");
   const pending = tasks.filter((t) => t.status === "pending");
-  const completed = tasks.filter((t) => t.status === "completed");
+  const total = tasks.length;
+  const progressPct = total ? completed.length / total : 0;
+  const allDone = total > 0 && completed.length === total;
+  const progressColor = allDone
+    ? "var(--git-added)"
+    : completed.length === 0
+      ? "var(--text-dim)"
+      : "var(--git-modified)";
+
+  const rowFor = (task: TodoTask, variant: "active" | "pending" | "done") => (
+    <InspectorTaskRow
+      key={task.id}
+      task={task}
+      variant={variant}
+      entryId={getEntryIdForTask(entryIds, task.id)}
+      onTaskClick={handleTaskClick}
+    />
+  );
 
   return (
     <div style={{ padding: 12, fontSize: 12, height: "100%", overflowY: "auto" }}>
@@ -37,12 +61,19 @@ export function TodoPanel() {
           marginBottom: 12,
         }}
       >
-        <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>
+        <h3
+          style={{
+            margin: 0,
+            fontSize: 13,
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            gap: 7,
+          }}
+        >
           {t("todo.title")}
-          {tasks.length > 0 && (
-            <span style={{ color: "var(--text-dim)", fontWeight: 400, marginLeft: 6 }}>
-              ({completed.length}/{tasks.length})
-            </span>
+          {total > 0 && (
+            <ProgressRing pct={progressPct} color={progressColor} value={completed.length} />
           )}
         </h3>
         <button onClick={() => void reload()} style={btnStyle}>
@@ -50,19 +81,24 @@ export function TodoPanel() {
         </button>
       </div>
 
-      {tasks.length === 0 ? (
+      {total === 0 ? (
         <div style={{ color: "var(--text-dim)", padding: "8px 0" }}>{t("todo.empty")}</div>
       ) : (
         <>
-          {/* In progress */}
           {inProgress.length > 0 && (
-            <TodoSection label={t("todo.inProgress")} tasks={inProgress} accent />
+            <Section label={t("todo.inProgress")} tasks={inProgress.length} accent>
+              {inProgress.map((t) => rowFor(t, "active"))}
+            </Section>
           )}
-          {/* Pending */}
-          {pending.length > 0 && <TodoSection label={t("todo.pending")} tasks={pending} />}
-          {/* Completed */}
+          {pending.length > 0 && (
+            <Section label={t("todo.pending")} tasks={pending.length}>
+              {pending.map((t) => rowFor(t, "pending"))}
+            </Section>
+          )}
           {completed.length > 0 && (
-            <TodoSection label={t("todo.completed")} tasks={completed} collapsed />
+            <Section label={t("todo.completed")} tasks={completed.length} collapsed>
+              {completed.map((t) => rowFor(t, "done"))}
+            </Section>
           )}
         </>
       )}
@@ -70,16 +106,18 @@ export function TodoPanel() {
   );
 }
 
-function TodoSection({
+function Section({
   label,
   tasks,
   accent,
   collapsed,
+  children,
 }: {
   label: string;
-  tasks: TodoTask[];
+  tasks: number;
   accent?: boolean;
   collapsed?: boolean;
+  children: React.ReactNode;
 }) {
   const [show, setShow] = useState(!collapsed);
   return (
@@ -98,94 +136,64 @@ function TodoSection({
           color: accent ? "var(--accent)" : "var(--text-dim)",
         }}
       >
-        {show ? "▾" : "▸"} {label} ({tasks.length})
+        {show ? "▾" : "▸"} {label} ({tasks})
       </button>
       {show && (
         <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
-          {tasks.map((task) => (
-            <TodoRow key={task.id} task={task} />
-          ))}
+          {children}
         </div>
       )}
     </div>
   );
 }
 
-function TodoRow({ task }: { task: TodoTask }) {
-  const done = task.status === "completed";
-  const active = task.status === "in_progress";
+/** 圆形进度环（从 InspectorPanel 迁入）。30px 直径，中心显示完成数。 */
+function ProgressRing({ pct, color, value }: { pct: number; color: string; value: number }) {
+  const size = 30;
+  const stroke = 3;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const offset = c * (1 - Math.min(1, Math.max(0, pct)));
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "flex-start",
-        gap: 8,
-        padding: "6px 8px",
-        background: active ? "var(--bg-selected)" : "var(--bg-panel)",
-        border: "1px solid var(--border)",
-        borderRadius: 6,
-      }}
-    >
-      <span
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink: 0 }}>
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        fill="none"
+        stroke="var(--bg-subtle)"
+        strokeWidth={stroke}
+      />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        fill="none"
+        stroke={color}
+        strokeWidth={stroke}
+        strokeDasharray={c}
+        strokeDashoffset={offset}
+        strokeLinecap="round"
+        transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        style={{ transition: "stroke-dashoffset 0.3s cubic-bezier(.4,0,.2,1), stroke 0.2s" }}
+      />
+      <text
+        x={size / 2}
+        y={size / 2}
+        textAnchor="middle"
+        dominantBaseline="central"
+        fontSize="10"
+        fontWeight="700"
+        fill={color}
         style={{
-          width: 14,
-          height: 14,
-          borderRadius: "50%",
-          flexShrink: 0,
-          marginTop: 1,
-          border: done ? "none" : active ? "2px solid var(--accent)" : "2px solid var(--border)",
-          background: done ? "var(--accent)" : active ? "var(--accent)" : "none",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          fontVariantNumeric: "tabular-nums",
+          fontFamily: "var(--font-mono)",
+          transition: "fill 0.2s",
         }}
       >
-        {done && (
-          <svg
-            width="9"
-            height="9"
-            viewBox="0 0 10 10"
-            fill="none"
-            stroke="var(--bg)"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="1.5 5 4 7.5 8.5 2.5" />
-          </svg>
-        )}
-        {active && (
-          <span style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--bg)" }} />
-        )}
-      </span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: active ? 600 : 400,
-            color: done ? "var(--text-dim)" : "var(--text)",
-            textDecoration: done ? "line-through" : "none",
-          }}
-        >
-          {task.subject}
-        </div>
-        {task.description && (
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-            {task.description}
-          </div>
-        )}
-        {task.activeForm && active && (
-          <div style={{ fontSize: 10, color: "var(--accent)", marginTop: 2, fontStyle: "italic" }}>
-            ⟳ {task.activeForm}
-          </div>
-        )}
-        {task.blockedBy && task.blockedBy.length > 0 && (
-          <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
-            ⛔ blocked by: {task.blockedBy.join(", ")}
-          </div>
-        )}
-      </div>
-    </div>
+        {value}
+      </text>
+    </svg>
   );
 }
 

@@ -30,7 +30,7 @@ export function registerBuiltinExtensions(): void {
           id: "todo",
           title: "todo.panel",
           order: 1100,
-          render: () => <TodoPanel />,
+          render: (ctx) => <TodoPanel onTaskClick={ctx.scrollToEntry} />,
         },
         {
           id: "inspector",

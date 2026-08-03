@@ -22,6 +22,7 @@ import { useExtensions } from "@/hooks/useExtensions";
 import { useI18n } from "@/hooks/useI18n";
 import { registerBuiltinExtensions } from "@/lib/extensions/builtin";
 import { getPanelController, usePanelController, type PanelId } from "@/lib/panel-controller";
+import { getAgentRuntimeStore } from "@/lib/agent-runtime-store";
 import type { QualifiedPanel, WorkspacePanelContext } from "@/lib/extensions/types";
 
 /** qualifiedId（"pi-web-builtin:plan"）→ local id（"plan"）。 */
@@ -185,6 +186,7 @@ export function WorkspacePanelsHost({
           cwd: cwd ?? undefined,
           state: {} as WorkspacePanelContext["state"],
           requestRender: () => {},
+          scrollToEntry: (entryId: string) => getAgentRuntimeStore().scrollToEntry(entryId),
         })}
       </div>
     </div>
