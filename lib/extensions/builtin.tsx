@@ -36,14 +36,7 @@ export function registerBuiltinExtensions(): void {
           id: "inspector",
           title: "inspector.panel",
           order: 1200,
-          render: (ctx) => (
-            <InspectorPanel
-              sessionId={ctx.session?.id ?? null}
-              cwd={ctx.cwd ?? null}
-              open
-              onToggle={() => {}}
-            />
-          ),
+          render: (ctx) => <InspectorPanel cwd={ctx.cwd ?? null} />,
         },
         {
           id: "prompts",
