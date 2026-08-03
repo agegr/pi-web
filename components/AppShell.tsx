@@ -8,6 +8,7 @@ import { ChatWindow } from "./ChatWindow";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { WorkspacePanelsHost } from "./WorkspacePanelsHost";
+import { TodoBadge } from "./TodoBadge";
 import { CommandPaletteHost } from "./CommandPaletteHost";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
@@ -1518,145 +1519,148 @@ export function AppShell() {
                 const tooltip = tooltipParts.join("  |  ");
 
                 return (
-                  <button
-                    type="button"
-                    onClick={() => toggleTopPanel("session")}
-                    title={tooltip || translate("session.title")}
-                    aria-label={translate("session.title")}
-                    aria-pressed={activeTopPanel === "session"}
-                    style={{
-                      marginLeft: "auto",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      paddingLeft: 12,
-                      paddingRight: rightPanelOpen ? 12 : 48,
-                      height: "100%",
-                      background: activeTopPanel === "session" ? "var(--bg-selected)" : "none",
-                      border: "none",
-                      borderTop:
-                        activeTopPanel === "session"
-                          ? "2px solid var(--accent)"
-                          : "2px solid transparent",
-                      fontSize: 11,
-                      color: "var(--text-muted)",
-                      whiteSpace: "nowrap",
-                      cursor: "pointer",
-                      fontVariantNumeric: "tabular-nums",
-                      transition: "color 0.1s, background 0.1s",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.color = "var(--text)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.color =
-                        activeTopPanel === "session" ? "var(--text)" : "var(--text-muted)";
-                    }}
-                  >
-                    {isMobile && (
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
-                      >
-                        <circle cx="12" cy="12" r="10" />
-                        <line x1="12" y1="16" x2="12" y2="12" />
-                        <line x1="12" y1="8" x2="12.01" y2="8" />
-                      </svg>
-                    )}
-                    {!isMobile && tokens && tokens.input > 0 && (
-                      <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => toggleTopPanel("session")}
+                      title={tooltip || translate("session.title")}
+                      aria-label={translate("session.title")}
+                      aria-pressed={activeTopPanel === "session"}
+                      style={{
+                        marginLeft: "auto",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        paddingLeft: 12,
+                        paddingRight: rightPanelOpen ? 12 : 48,
+                        height: "100%",
+                        background: activeTopPanel === "session" ? "var(--bg-selected)" : "none",
+                        border: "none",
+                        borderTop:
+                          activeTopPanel === "session"
+                            ? "2px solid var(--accent)"
+                            : "2px solid transparent",
+                        fontSize: 11,
+                        color: "var(--text-muted)",
+                        whiteSpace: "nowrap",
+                        cursor: "pointer",
+                        fontVariantNumeric: "tabular-nums",
+                        transition: "color 0.1s, background 0.1s",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.color = "var(--text)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.color =
+                          activeTopPanel === "session" ? "var(--text)" : "var(--text-muted)";
+                      }}
+                    >
+                      {isMobile && (
                         <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 10 10"
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
                           fill="none"
                           stroke="currentColor"
-                          strokeWidth="1.2"
+                          strokeWidth="2"
                           strokeLinecap="round"
                           strokeLinejoin="round"
+                          aria-hidden="true"
                         >
-                          <line x1="5" y1="8.5" x2="5" y2="1.5" />
-                          <polyline points="2 4 5 1.5 8 4" />
+                          <circle cx="12" cy="12" r="10" />
+                          <line x1="12" y1="16" x2="12" y2="12" />
+                          <line x1="12" y1="8" x2="12.01" y2="8" />
                         </svg>
-                        {fmt(tokens.input)}
-                      </span>
-                    )}
-                    {!isMobile && tokens && tokens.output > 0 && (
-                      <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 10 10"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
+                      )}
+                      {!isMobile && tokens && tokens.input > 0 && (
+                        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 10 10"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <line x1="5" y1="8.5" x2="5" y2="1.5" />
+                            <polyline points="2 4 5 1.5 8 4" />
+                          </svg>
+                          {fmt(tokens.input)}
+                        </span>
+                      )}
+                      {!isMobile && tokens && tokens.output > 0 && (
+                        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 10 10"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <line x1="5" y1="1.5" x2="5" y2="8.5" />
+                            <polyline points="2 6 5 8.5 8 6" />
+                          </svg>
+                          {fmt(tokens.output)}
+                        </span>
+                      )}
+                      {!isMobile && tokens && tokens.cacheRead > 0 && (
+                        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 10 10"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M8.5 5a3.5 3.5 0 1 1-1-2.45" />
+                            <polyline points="6.5 1.5 8.5 2.5 7.5 4.5" />
+                          </svg>
+                          {fmt(tokens.cacheRead)}
+                        </span>
+                      )}
+                      {!isMobile && costStr && (
+                        <span
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            color: "var(--text)",
+                            fontWeight: 500,
+                          }}
                         >
-                          <line x1="5" y1="1.5" x2="5" y2="8.5" />
-                          <polyline points="2 6 5 8.5 8 6" />
-                        </svg>
-                        {fmt(tokens.output)}
-                      </span>
-                    )}
-                    {!isMobile && tokens && tokens.cacheRead > 0 && (
-                      <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 10 10"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
+                          {costStr}
+                        </span>
+                      )}
+                      {ctxStr && (
+                        <span
+                          style={{ display: "flex", alignItems: "center", gap: 4, color: ctxColor }}
                         >
-                          <path d="M8.5 5a3.5 3.5 0 1 1-1-2.45" />
-                          <polyline points="6.5 1.5 8.5 2.5 7.5 4.5" />
-                        </svg>
-                        {fmt(tokens.cacheRead)}
-                      </span>
-                    )}
-                    {!isMobile && costStr && (
-                      <span
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          color: "var(--text)",
-                          fontWeight: 500,
-                        }}
-                      >
-                        {costStr}
-                      </span>
-                    )}
-                    {ctxStr && (
-                      <span
-                        style={{ display: "flex", alignItems: "center", gap: 4, color: ctxColor }}
-                      >
-                        <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 10 10"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M1 9 L1 5 Q1 1 5 1 Q9 1 9 5 L9 9" />
-                          <line x1="1" y1="9" x2="9" y2="9" />
-                        </svg>
-                        {ctxStr}
-                      </span>
-                    )}
-                  </button>
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 10 10"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M1 9 L1 5 Q1 1 5 1 Q9 1 9 5 L9 9" />
+                            <line x1="1" y1="9" x2="9" y2="9" />
+                          </svg>
+                          {ctxStr}
+                        </span>
+                      )}
+                    </button>
+                    <TodoBadge sessionId={selectedSession?.id ?? null} />
+                  </>
                 );
               })()}
             {/* Top panel dropdown — shared, only one active at a time */}
