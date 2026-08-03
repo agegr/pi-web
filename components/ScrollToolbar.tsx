@@ -58,6 +58,9 @@ export function ScrollToolbar({
   // Set when a tap (touch pointerup without drag) already navigated, so the
   // trailing click doesn't navigate twice.
   const tapNavigatedRef = useRef(false);
+  // Element whose action menu was revealed by the last prev/next jump; the
+  // next jump hides it again before revealing the new target's menu.
+  const lastNavTargetRef = useRef<HTMLElement | null>(null);
   // Mirror of pos so the pointer-up handler can persist the LATEST dragged
   // position (the pos state captured in its closure would be stale).
   const posRef = useRef(pos);
@@ -282,7 +285,14 @@ export function ScrollToolbar({
         // must bubble THROUGH the message container that owns onMouseEnter;
         // messageRefs points at the wrapper div around the message, so target
         // its first child (the actual message container).
-        (el.firstElementChild ?? el).dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+        const menuTarget = (el.firstElementChild ?? el) as HTMLElement;
+        // Restore the previously revealed message's menu before showing the
+        // new target's, so switching never leaves two action menus open.
+        if (lastNavTargetRef.current && lastNavTargetRef.current !== menuTarget) {
+          lastNavTargetRef.current.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
+        }
+        menuTarget.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+        lastNavTargetRef.current = menuTarget;
         return;
       }
     } else {
@@ -303,7 +313,14 @@ export function ScrollToolbar({
         const elTop = el.getBoundingClientRect().top - c.getBoundingClientRect().top + c.scrollTop;
         c.scrollTo({ top: Math.max(0, elTop - 24), behavior: "smooth" });
         // Reveal the target message's action menu (see prev branch).
-        (el.firstElementChild ?? el).dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+        const menuTarget = (el.firstElementChild ?? el) as HTMLElement;
+        // Restore the previously revealed message's menu before showing the
+        // new target's, so switching never leaves two action menus open.
+        if (lastNavTargetRef.current && lastNavTargetRef.current !== menuTarget) {
+          lastNavTargetRef.current.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
+        }
+        menuTarget.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+        lastNavTargetRef.current = menuTarget;
         return;
       }
     }
