@@ -84,6 +84,37 @@ type AgentStateResponse = {
 // be rendered immediately again before its JSONL file catches up.
 const liveSessionMessages = new Map<string, AgentMessage[]>();
 
+function contentText(content: string | Array<{ type: string; text?: string }>): string {
+  if (typeof content === "string") return content;
+  return content.map((block) => block.type === "text" ? block.text ?? "" : "").join("\n");
+}
+
+function completedDetachedSubagentIds(message: AgentMessage): string[] {
+  if (message.role !== "custom" || message.customType !== "pi-subagent-completion") return [];
+  const details = message.details as {
+    agentId?: unknown;
+    completions?: Array<{ agentId?: unknown }>;
+  } | undefined;
+  if (typeof details?.agentId === "string") return [details.agentId];
+  return details?.completions
+    ?.map((completion) => completion.agentId)
+    .filter((agentId): agentId is string => typeof agentId === "string") ?? [];
+}
+
+function pendingDetachedSubagentIds(messages: AgentMessage[]): Set<string> {
+  const pending = new Set<string>();
+  for (const message of messages) {
+    if (message.role === "toolResult" && message.toolName === "subagent_spawn" && !message.isError) {
+      const text = contentText(message.content);
+      const agentId = text.match(/\b(sa_[0-9a-f-]+)\b/i)?.[1];
+      if (agentId && text.includes("auto-resume will request synthesis")) pending.add(agentId);
+      continue;
+    }
+    for (const agentId of completedDetachedSubagentIds(message)) pending.delete(agentId);
+  }
+  return pending;
+}
+
 export interface QueuedMessages {
   steering: string[];
   followUp: string[];
@@ -392,8 +423,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const eventSourceRef = useRef<EventSource | null>(null);
   const eventStreamGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eventStreamGraceGenerationRef = useRef(0);
-  // 仅记录已成功启动且声明 auto-resume 的 detached 子代理，普通会话不能进入等待窗口。
-  const detachedSubagentResumePendingRef = useRef(false);
+  // detached 子代理可能跨越多个父轮，必须按 agentId 保持到对应 completion 到达。
+  const pendingDetachedSubagentIdsRef = useRef(new Set<string>());
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
   const agentRunningRef = useRef(false);
   const bashRunningRef = useRef(false);
@@ -485,9 +516,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setData(d);
       setActiveLeafId(d.leafId);
       const cachedMessages = liveSessionMessages.get(sid);
-      setMessages(cachedMessages && cachedMessages.length > d.context.messages.length
+      const loadedMessages = cachedMessages && cachedMessages.length > d.context.messages.length
         ? cachedMessages
-        : d.context.messages);
+        : d.context.messages;
+      pendingDetachedSubagentIdsRef.current = pendingDetachedSubagentIds(loadedMessages);
+      setMessages(loadedMessages);
       setEntryIds(d.context.entryIds ?? []);
       setCurrentModelOverride(null);
       setError(null);
@@ -853,7 +886,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const state = data.state;
         const subagentsActive = Boolean(state?.extensionStatuses?.some((status) => status.key === "subagents"));
         const busy = Boolean(data.running && state && (state.isStreaming || state.isPromptRunning || state.isCompacting));
-        if (busy || subagentsActive) {
+        if (busy || subagentsActive || pendingDetachedSubagentIdsRef.current.size > 0) {
           eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), PROMPT_SETTLE_POLL_MS);
           return;
         }
@@ -867,7 +900,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [cancelEventStreamGrace, finishPromptWithoutStream]);
 
   const settleIdleSession = useCallback((sid: string, runId?: number) => {
-    if (detachedSubagentResumePendingRef.current) {
+    if (pendingDetachedSubagentIdsRef.current.size > 0) {
       scheduleEventStreamClose(sid, runId);
       return;
     }
@@ -1002,7 +1035,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     switch (event.type) {
       case "agent_start":
         cancelEventStreamGrace();
-        detachedSubagentResumePendingRef.current = false;
         agentRunningRef.current = true;
         setAgentRunning(true);
         setAgentPhase({ kind: "waiting_model" });
@@ -1076,6 +1108,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           onSessionListRefresh?.();
         }
         const completed = event.message as AgentMessage | undefined;
+        if (completed?.role === "toolResult" && completed.toolName === "subagent_spawn" && !completed.isError) {
+          const text = contentText(completed.content);
+          const agentId = text.match(/\b(sa_[0-9a-f-]+)\b/i)?.[1];
+          if (agentId && text.includes("auto-resume will request synthesis")) {
+            pendingDetachedSubagentIdsRef.current.add(agentId);
+          }
+        }
+        for (const agentId of completed ? completedDetachedSubagentIds(completed) : []) {
+          pendingDetachedSubagentIdsRef.current.delete(agentId);
+        }
         if (completed && completed.role === "user") {
           // Delivered steering/follow-up messages surface here as user
           // messages. The run's initial prompt also emits one, but handleSend
@@ -1113,10 +1155,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       case "tool_execution_end": {
         const id = event.toolCallId as string;
-        if (event.toolName === "subagent_spawn" && event.isError !== true) {
-          const resultText = JSON.stringify(event.result ?? "");
-          detachedSubagentResumePendingRef.current = resultText.includes("auto-resume will request synthesis");
-        }
         setAgentPhase((prev) => {
           if (prev?.kind !== "running_tools") return prev;
           const tools = prev.tools.filter((t) => t.id !== id);
@@ -1686,6 +1724,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (agentState.state.extensionStatuses !== undefined) setExtensionStatuses(agentState.state.extensionStatuses ?? []);
           if (agentState.state.extensionWidgets !== undefined) setExtensionWidgets(agentState.state.extensionWidgets ?? []);
           if (agentState.state.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(agentState.state.queuedMessages));
+        }
+        if (!agentRunningRef.current && pendingDetachedSubagentIdsRef.current.size > 0) {
+          agentRunningRef.current = true;
+          setAgentRunning(true);
+          dispatch({ type: "start" });
+          void connectEvents(session.id);
+          scheduleEventStreamClose(session.id);
         }
       });
     }

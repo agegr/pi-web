@@ -4,52 +4,77 @@ import test from "node:test";
 
 const source = await readFile(new URL("./useAgentSession.ts", import.meta.url), "utf8");
 
-test("waits for auto-resume only after a detached subagent starts successfully", () => {
+test("tracks detached subagents by id across parent turns", () => {
   const eventSource = source.slice(
     source.lastIndexOf("const handleAgentEvent = useCallback"),
     source.indexOf("handleAgentEventRef.current = handleAgentEvent"),
   );
+  const agentStartSource = eventSource.slice(
+    eventSource.indexOf('case "agent_start"'),
+    eventSource.indexOf('case "agent_end"'),
+  );
+
+  assert.match(eventSource, /completed\.toolName === "subagent_spawn" && !completed\.isError/);
+  assert.match(eventSource, /pendingDetachedSubagentIdsRef\.current\.add\(agentId\)/);
+  assert.doesNotMatch(agentStartSource, /pendingDetachedSubagentIdsRef/);
+});
+
+test("removes only completed detached subagent ids", () => {
+  const completionSource = source.slice(
+    source.indexOf("function completedDetachedSubagentIds"),
+    source.indexOf("function pendingDetachedSubagentIds"),
+  );
+  const eventSource = source.slice(
+    source.lastIndexOf("const handleAgentEvent = useCallback"),
+    source.indexOf("handleAgentEventRef.current = handleAgentEvent"),
+  );
+
+  assert.match(completionSource, /message\.customType !== "pi-subagent-completion"/);
+  assert.match(completionSource, /details\?\.completions/);
+  assert.match(eventSource, /completedDetachedSubagentIds\(completed\)/);
+  assert.match(eventSource, /pendingDetachedSubagentIdsRef\.current\.delete\(agentId\)/);
+});
+
+test("restores unfinished detached subagents from session history", () => {
+  const rebuildSource = source.slice(
+    source.indexOf("function pendingDetachedSubagentIds"),
+    source.indexOf("export interface QueuedMessages"),
+  );
+  const loadSource = source.slice(
+    source.indexOf("const loadSession = useCallback"),
+    source.indexOf("const scheduleSessionListRefresh"),
+  );
+  const mountSource = source.slice(
+    source.indexOf("// Load session on mount"),
+    source.indexOf("onSystemPromptChange?."),
+  );
+
+  assert.match(rebuildSource, /pending\.add\(agentId\)/);
+  assert.match(rebuildSource, /completedDetachedSubagentIds\(message\)/);
+  assert.match(loadSource, /pendingDetachedSubagentIdsRef\.current = pendingDetachedSubagentIds\(loadedMessages\)/);
+  assert.match(mountSource, /pendingDetachedSubagentIdsRef\.current\.size > 0/);
+  assert.match(mountSource, /connectEvents\(session\.id\)/);
+});
+
+test("finishes ordinary prompts immediately but keeps active detached subagents running", () => {
   const settleSource = source.slice(
     source.indexOf("const settleIdleSession"),
     source.indexOf("const waitForPromptSettlement = useCallback"),
   );
-
-  assert.match(eventSource, /event\.toolName === "subagent_spawn" && event\.isError !== true/);
-  assert.match(eventSource, /resultText\.includes\("auto-resume will request synthesis"\)/);
-  assert.match(eventSource, /case "agent_start":[\s\S]*?detachedSubagentResumePendingRef\.current = false/);
-  assert.match(settleSource, /if \(detachedSubagentResumePendingRef\.current\) \{[\s\S]*?scheduleEventStreamClose\(sid, runId\)/);
-  assert.match(settleSource, /void finishPromptWithoutStream\(sid, runId\)/);
-});
-
-test("finishes ordinary prompts immediately instead of entering the subagent grace window", () => {
-  const eventSource = source.slice(
-    source.lastIndexOf("const handleAgentEvent = useCallback"),
-    source.indexOf("handleAgentEventRef.current = handleAgentEvent"),
-  );
-  const settlementSource = source.slice(
-    source.indexOf("const waitForPromptSettlement = useCallback"),
-    source.indexOf("const waitForBashSettlement"),
-  );
-  const reconcileSource = source.slice(
-    source.indexOf("const reconcileAgentState"),
-    source.indexOf("// Recovery net for missed SSE events"),
-  );
-
-  assert.match(eventSource, /case "agent_settled":\s*case "prompt_done":[\s\S]*?settleIdleSession\(sessionIdRef\.current, promptRunIdRef\.current\)/);
-  assert.match(settlementSource, /settleIdleSession\(sid, runId\)/);
-  assert.match(reconcileSource, /settleIdleSession\(sid, runId\)/);
-});
-
-test("keeps the event stream alive while auto-resume is pending", () => {
   const graceSource = source.slice(
     source.lastIndexOf("const scheduleEventStreamClose"),
     source.indexOf("const settleIdleSession", source.lastIndexOf("const scheduleEventStreamClose")),
   );
+  const eventSource = source.slice(
+    source.lastIndexOf("const handleAgentEvent = useCallback"),
+    source.indexOf("handleAgentEventRef.current = handleAgentEvent"),
+  );
 
-  assert.match(source, /const EVENT_STREAM_IDLE_GRACE_MS = 30_000/);
-  assert.match(graceSource, /fetch\(`\/api\/agent\/\$\{encodeURIComponent\(sid\)\}`\)/);
-  assert.match(graceSource, /setTimeout\(\(\) => void checkServerIdle\(\), EVENT_STREAM_IDLE_GRACE_MS\)/);
-  assert.match(graceSource, /finishPromptWithoutStream\(sid, runId\)/);
+  assert.match(settleSource, /pendingDetachedSubagentIdsRef\.current\.size > 0/);
+  assert.match(settleSource, /scheduleEventStreamClose\(sid, runId\)/);
+  assert.match(settleSource, /void finishPromptWithoutStream\(sid, runId\)/);
+  assert.match(graceSource, /pendingDetachedSubagentIdsRef\.current\.size > 0/);
+  assert.match(eventSource, /case "agent_settled":\s*case "prompt_done":[\s\S]*?settleIdleSession\(sessionIdRef\.current, promptRunIdRef\.current\)/);
 });
 
 test("refuses a normal send while the hook knows an asynchronous run is active", () => {
