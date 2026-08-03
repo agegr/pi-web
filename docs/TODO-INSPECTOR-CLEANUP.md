@@ -302,6 +302,14 @@ if (typeof window !== "undefined") {
 - 测试 `InspectorTaskRow.test.tsx:140-190` 只断言 class 名 → 通过但反馈失效。
 - 修复：`globals.css` 补 `.task-row-clicked { background: var(--bg-hover); transition: background 0.15s; }`（P0）。
 
+### Bug-C（确认）：扩展 actions 链路全断（比 H1 更深的基础设施问题）
+
+- `CommandPalette.tsx`（Cmd+K 命令面板）**从未渲染**（全项目 `<CommandPalette` 渲染点 no-output）——孤儿组件。
+- `ExtensionRuntimeContext` 三方法（`openExtensionPanel`/`focusPrompt`/`openFilePanel`）**全项目零实现**（仅 types.ts 声明 + git-status 调用）。
+- 后果：即便 P-1 修复让扩展加载，其 actions 仍无法触发（无面板入口 + context 未实现）。
+- 影响 git-status 降级：action 部分**当前无效**（指向 inspector 的铺路改动），label 部分独立有效（SessionItem 消费，P-1 后即生效）。
+- 处置：**建议单独立项**（类比 P-1），不在本方案范围。修复需：挂载 CommandPalette（绑 Cmd+K）+ 实现 ExtensionRuntimeContext 三方法（`openExtensionPanel`→`panel-controller.navigate`）。
+
 ### E2：方案 C 后的回归
 
 - 面板列只有一个 Git tab（=inspector）；Cmd+K "Show Git Status" 切到它；会话列表有分支名。
@@ -327,8 +335,8 @@ if (typeof window !== "undefined") {
 ├─ 抽 components/ui/MiniToggle.tsx（从 PromptsConfig，L2 开关用）
 ├─ 删 TodoSidebar.tsx（孤儿）
 ├─ inspector 删任务区/死按钮/pin/收起pill，专注 Git，title→"Git"
-├─ git-status 扩展删 workspacePanels，action.run→navigate("inspector")，保留 label
-├─ 重编 extensions/git-status/index.js
+├─ ✅ git-status 扩展删 workspacePanels，action→openExtensionPanel("pi-web-builtin:inspector")，保留 label
+├─ ✅ 重编 extensions/git-status/index.js（手动同步，项目无构建脚本）
 └─ 抽 lib/todo-types.ts + hooks/useTodoTasks.ts 收敛重复
 ```
 
