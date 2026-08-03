@@ -36,6 +36,8 @@ interface Props {
   onAbort: () => void;
   onSteer?: (message: string, images?: AttachedImage[]) => void;
   onFollowUp?: (message: string, images?: AttachedImage[]) => void;
+  /** Send a queued follow-up as a steer (interrupt now). Available even when idle. */
+  onQueueSteerSend?: (message: string) => void;
   onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", images?: AttachedImage[]) => void;
   isStreaming: boolean;
   model?: { provider: string; modelId: string } | null;
@@ -239,7 +241,7 @@ function revokeImagePreview(image: AttachedImage): void {
   }
 }
 
-function QueuedMessageRow({ kind, text, index, total, onMove, onRecall, onRemove, onDragStart, onDragOver, onDrop, dragging, onTouchMoveTo }: {
+function QueuedMessageRow({ kind, text, index, total, onMove, onRecall, onRemove, onSteerSend, onDragStart, onDragOver, onDrop, dragging, onTouchMoveTo }: {
   kind: "steer" | "follow-up";
   text: string;
   index: number;
@@ -247,6 +249,8 @@ function QueuedMessageRow({ kind, text, index, total, onMove, onRecall, onRemove
   onMove?: (dir: -1 | 1) => void;
   onRecall?: () => void;
   onRemove?: () => void;
+  /** Follow-up rows: dispatch this message as a steer (interrupt now). */
+  onSteerSend?: () => void;
   onDragStart?: (index: number) => void;
   onDragOver?: (index: number) => void;
   onDrop?: (targetIndex: number) => void;
@@ -422,6 +426,24 @@ function QueuedMessageRow({ kind, text, index, total, onMove, onRecall, onRemove
           </button>
         </span>
       )}
+      {onSteerSend && kind === "follow-up" && (
+        <button
+          title={t("chat.queueSteerSend")}
+          aria-label="queueSteerSend"
+          onClick={onSteerSend}
+          style={{ ...iconBtn, color: "rgba(180,130,0,1)" }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "rgba(234,179,8,0.12)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "transparent";
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12h14" /><polyline points="12 5 19 12 12 19" />
+          </svg>
+        </button>
+      )}
       {onRecall && (
         <button
           title={t("chat.queueRecallOne")}
@@ -430,8 +452,8 @@ function QueuedMessageRow({ kind, text, index, total, onMove, onRecall, onRemove
           style={iconBtn}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="1 4 1 10 7 10" />
-            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+            <polyline points="9 14 4 9 9 4" />
+            <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
           </svg>
         </button>
       )}
@@ -464,20 +486,23 @@ function QueuedMessageRow({ kind, text, index, total, onMove, onRecall, onRemove
 
 /** Windows-10 "show desktop"-style thin vertical bar cycling the bottom panel states.
  *  The visible line stays thin, but the tap target is 32px wide (mobile-friendly). */
-function BottomModeBar({ mode, onClick, height = 32, tapWidth = 32 }: {
+function BottomModeBar({ mode, onClick, height = 32, tapWidth = 32, count, label }: {
   mode: "full" | "queueHidden" | "minimal";
   onClick: () => void;
   height?: number;
   tapWidth?: number;
+  count?: number;
+  label?: string;
 }) {
   const { t } = useI18n();
-  const label = mode === "full" ? t("chat.minimizeQueue") : mode === "queueHidden" ? t("chat.minimizeInput") : t("chat.restoreBottom");
+  const defaultLabel = mode === "full" ? t("chat.minimizeQueue") : mode === "queueHidden" ? t("chat.minimizeInput") : t("chat.restoreBottom");
+  const effectiveLabel = label ?? defaultLabel;
   return (
     <button
       type="button"
       onClick={onClick}
-      title={label}
-      aria-label={label}
+      title={effectiveLabel}
+      aria-label={effectiveLabel}
       style={{
         flexShrink: 0,
         display: "flex",
@@ -504,6 +529,19 @@ function BottomModeBar({ mode, onClick, height = 32, tapWidth = 32 }: {
         e.currentTarget.style.color = "var(--text-muted)";
       }}
     >
+      {typeof count === "number" && count > 0 && (
+        <span
+          style={{
+            flexShrink: 0,
+            fontSize: 10.5,
+            fontFamily: "var(--font-mono)",
+            color: mode === "minimal" ? "var(--accent)" : "inherit",
+            lineHeight: 1,
+          }}
+        >
+          {count}
+        </span>
+      )}
       <svg width="2" height="16" viewBox="0 0 2 16" style={{ flexShrink: 0, borderRadius: 1 }}>
         <rect x="0" y="0" width="2" height="16" fill={mode === "minimal" ? "var(--accent)" : "currentColor"} />
       </svg>
@@ -574,7 +612,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange,
+  onSend, onAbort, onSteer, onFollowUp, onQueueSteerSend, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange,
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, compactQueued, onCancelCompactQueue, modelSwitchPending, toolPreset, onToolPresetChange,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
@@ -740,6 +778,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   // Entry pulled out for editing; sending re-inserts it at its original spot.
   const recalledRef = useRef<{ kind: "steer" | "followUp"; index: number; text: string; images?: ChatDraftImage[] } | null>(null);
   const [recalledVisible, setRecalledVisible] = useState(false);
+  // When the input is crowded (small screens / lots of text), the
+  // steer/followUp buttons collapse to icons so they don't push the textarea
+  // or wrap awkwardly. Measured from the input row container.
+  const [queueButtonsCollapsed, setQueueButtonsCollapsed] = useState(false);
+  const [buttonsWrapped, setButtonsWrapped] = useState(false);
+  const inputRowRef = useRef<HTMLDivElement>(null);
   const handleRecallOne = useCallback(async (kind: "steer" | "followUp", index: number) => {
     if (!onRecallOne) return;
     const entry = await onRecallOne(kind, index);
@@ -964,6 +1008,46 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     ta.style.height = "auto";
     if (value) ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
   }, [value]);
+
+  // Collapse the steer/followUp button labels when the input row gets
+  // crowded (narrow viewport or long text), so buttons stay icon-only
+  // instead of squeezing the textarea or wrapping onto their own row.
+  useEffect(() => {
+    const el = inputRowRef.current;
+    const ta = textareaRef.current;
+    if (!el || !ta) return;
+    const measure = () => {
+      const rowWidth = el.clientWidth;
+      // Measure on a detached clone at the FULL row width so results do not
+      // depend on the textarea's current width — otherwise toggling flex-basis
+      // changes the width, which changes scrollHeight/scrollWidth, which can
+      // flip the flags forever (page jumping, especially on narrow screens
+      // with long unbroken strings).
+      const clone = ta.cloneNode(true) as HTMLTextAreaElement;
+      clone.style.position = "absolute";
+      clone.style.visibility = "hidden";
+      clone.style.width = `${el.clientWidth - 2}px`;
+      clone.style.height = "auto";
+      clone.style.minHeight = "0";
+      document.body.appendChild(clone);
+      const fullWidthHeight = clone.scrollHeight;
+      const fullWidthScrollW = clone.scrollWidth;
+      const fullWidthClientW = clone.clientWidth;
+      clone.remove();
+      // Collapse button labels only when the text itself overflows the
+      // textarea at full width AND the row is tight (small screens keep full
+      // labels by wrapping the buttons instead of hiding text).
+      setQueueButtonsCollapsed(fullWidthScrollW > fullWidthClientW + 4 && rowWidth < 720);
+      // Buttons wrap below only once the textarea grows past a single line
+      // (multi-line input), so the default layout stays one row: textarea
+      // filling the space + buttons on the right.
+      setButtonsWrapped(fullWidthHeight > 30);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [value, isStreaming]);
 
   useEffect(() => {
     return () => {
@@ -1734,14 +1818,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 >
                   <polyline points="6 9 12 15 18 9" />
                 </svg>
-                <span style={{
-                  fontSize: 10,
-                  fontFamily: "var(--font-mono)",
-                  color: "var(--text-dim)",
-                  textTransform: "uppercase",
-                  letterSpacing: 0.4,
-                }}>
-                  {t("chat.queued", { count: (queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0) })}
+                {/* Queued-count label next to the collapse button so the header
+                    is not a lone chevron on any screen size. */}
+                <span style={{ fontSize: 11.5, color: "var(--text-dim)", whiteSpace: "nowrap", lineHeight: 1 }}>
+                  {t("chat.queued", { count: String(queueCount) })}
                 </span>
               </button>
             </div>
@@ -1970,6 +2050,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 onMove={(dir) => void handleMoveQueue("followUp", i, dir)}
                 onRecall={() => void handleRecallOne("followUp", i)}
                 onRemove={() => void handleRemoveQueueItem("followUp", i)}
+                onSteerSend={() => { onQueueSteerSend?.(text); void handleRemoveQueueItem("followUp", i); }}
                 onDragStart={(idx) => handleDragStart("followUp", idx)}
                 onDragOver={(idx) => handleDragOver("followUp", idx)}
                 onDrop={(idx) => handleDrop("followUp", idx)}
@@ -2485,13 +2566,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   {t("chat.queued", { count: String(queueCount) })}
                 </button>
               )}
-              <BottomModeBar mode="minimal" onClick={() => cycleBottomMode()} height={44} />
+              <BottomModeBar mode="minimal" onClick={() => cycleBottomMode()} height={44} count={queueCount} />
             </div>
           ) : (
           <div
+            ref={inputRowRef}
             style={{
               minWidth: 0,
               display: "flex",
+              flexWrap: "wrap",
               gap: 8,
               alignItems: "center",
               background: "var(--bg)",
@@ -2536,9 +2619,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             }
             rows={1}
             style={{
-              flex: 1,
+              flex: buttonsWrapped ? "1 1 100%" : "1 1 0",
               minWidth: 0,
-              width: "100%",
               background: "none",
               border: "none",
               outline: "none",
@@ -2554,7 +2636,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           />
 
           {isStreaming ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end", marginLeft: "auto" }}>
               {onSteer && (
                 <button
                   onClick={() => sendQueued("steer")}
@@ -2579,7 +2661,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
                   </svg>
-                  {t("chat.steer")}
+                  {!queueButtonsCollapsed && t("chat.steer")}
                 </button>
               )}
               {onFollowUp && (
@@ -2603,7 +2685,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     <line x1="5" y1="1" x2="5" y2="6" /><polyline points="2.5 3.5 5 1 7.5 3.5" />
                     <line x1="2" y1="9" x2="8" y2="9" />
                   </svg>
-                  {t("chat.followUp")}
+                  {!queueButtonsCollapsed && t("chat.followUp")}
                 </button>
               )}
             </div>
@@ -2614,6 +2696,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               style={{
                 flexShrink: 0,
                 alignSelf: "flex-end",
+                marginLeft: "auto",
                 display: "flex", alignItems: "center", gap: 6,
                 padding: "7px 14px",
                 background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
@@ -2632,7 +2715,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <line x1="2" y1="7" x2="11" y2="7" />
                 <polyline points="7.5 3 12 7 7.5 11" />
               </svg>
-              {t("chat.send")}
+              {!queueButtonsCollapsed && t("chat.send")}
             </button>
           )}
           </div>
@@ -3287,7 +3370,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </button>
             )}
             </div>
-            {isMobile && <BottomModeBar mode={bottomMode} onClick={() => cycleBottomMode()} />}
+            <BottomModeBar
+              mode={bottomMode}
+              onClick={isMobile ? () => cycleBottomMode() : toggleQueueCollapsed}
+              label={isMobile ? undefined : (queueCollapsed ? t("chat.queueExpand") : t("chat.queueCollapse"))}
+              count={queueCount}
+            />
           </div>
         </div>
         )}
