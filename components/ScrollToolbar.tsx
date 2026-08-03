@@ -544,10 +544,12 @@ export function ScrollToolbar({
                 aria-label="scrollToLatest"
                 onMouseEnter={(e) => {
                   // The "long-press to follow" hint is only useful while the
-                  // user is learning the gesture; once follow has been
-                  // enabled a few times this session, stop showing ANY
-                  // tooltip for this button.
-                  if (followHintCountRef.current < 3) setScrollTooltip("latest");
+                  // user is learning the gesture; show it a few times this
+                  // session (hover counts, not just long-press enables —
+                  // otherwise it pops on every scroll over the button), then
+                  // stop showing ANY tooltip for this button.
+                  followHintCountRef.current += 1;
+                  if (followHintCountRef.current <= 3) setScrollTooltip("latest");
                   e.currentTarget.style.background = followStreaming
                     ? "color-mix(in srgb, var(--accent) 26%, var(--bg-panel))"
                     : "var(--bg-hover)";
