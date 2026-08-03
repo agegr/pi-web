@@ -97,9 +97,67 @@ export async function GET(req: Request) {
           if (y !== " " && y !== "?") modified++;
         }
       }
+
+      const files: Array<{
+        path: string;
+        status: string;
+        where: "unstaged" | "staged" | "untracked";
+        added: number;
+        deleted: number;
+      }> = [];
+      const numstatMap = (out: string) => {
+        const m = new Map<string, { added: number; deleted: number }>();
+        for (const line of out.split("\n")) {
+          if (!line.trim()) continue;
+          const parts = line.split("\t");
+          if (parts.length < 3) continue;
+          const a = parseInt(parts[0], 10);
+          const d = parseInt(parts[1], 10);
+          m.set(parts[2], {
+            added: Number.isFinite(a) ? a : 0,
+            deleted: Number.isFinite(d) ? d : 0,
+          });
+        }
+        return m;
+      };
+      // File-level list for click-to-expand in inspector. XY = index/worktree status.
+      // ?? = untracked; R/C = rename/copy (path kept as-is, may contain " -> ").
+      try {
+        const porcelain = await git(cwd, ["status", "--porcelain"]);
+        const unstagedNS = numstatMap(await git(cwd, ["diff", "--numstat"]).catch(() => ""));
+        const stagedNS = numstatMap(
+          await git(cwd, ["diff", "--cached", "--numstat"]).catch(() => ""),
+        );
+        for (const line of porcelain.split("\n")) {
+          if (line.length < 4) continue;
+          const x = line[0];
+          const y = line[1];
+          const path = line.slice(3);
+          if (x === "?" && y === "?") {
+            files.push({ path, status: "??", where: "untracked", added: 0, deleted: 0 });
+          } else if (x !== " " && x !== "?") {
+            const n = stagedNS.get(path) ?? { added: 0, deleted: 0 };
+            files.push({ path, status: x, where: "staged", ...n });
+          } else if (y !== " " && y !== "?") {
+            const n = unstagedNS.get(path) ?? { added: 0, deleted: 0 };
+            files.push({ path, status: y, where: "unstaged", ...n });
+          }
+          // R/C rename/copy: status="R"/"C" with path possibly containing " -> " — kept as-is above.
+        }
+      } catch {
+        /* ignore file-level errors; aggregate counts still returned */
+      }
     } catch {
       /* ignore */
     }
+
+    const files: Array<{
+      path: string;
+      status: string;
+      where: "unstaged" | "staged" | "untracked";
+      added: number;
+      deleted: number;
+    }> = [];
 
     return NextResponse.json({
       isGit: true,
@@ -109,6 +167,7 @@ export async function GET(req: Request) {
       modified,
       staged: stagedCount,
       untracked,
+      files,
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
