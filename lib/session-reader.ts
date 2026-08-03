@@ -4,10 +4,14 @@ import {
   getAgentDir,
   listAllSessions as ompListAllSessions,
 } from "@oh-my-pi/pi-coding-agent";
+import type { AgentMessage as OmpAgentMessage } from "@oh-my-pi/pi-agent-core";
+import { calculatePromptTokens, estimateTokens, hasContextTokenUsage } from "@oh-my-pi/pi-agent-core/compaction";
 import { closeSync, openSync, readSync } from "fs";
 import { normalize as normalizePath } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
+import type { ContextUsage } from "./omp-types";
 import type { SessionEntry as OmpSessionEntry, SessionInfo as OmpSessionInfo } from "@oh-my-pi/pi-coding-agent";
+import { getOmpRuntime } from "./omp-runtime";
 import { normalizeToolCalls } from "./normalize";
 import { sessionPathKey } from "./session-path";
 import { resolveProject, type ProjectInfo } from "./worktree";
@@ -310,6 +314,113 @@ export function buildSessionContext(
     entryIds,
     thinkingLevel: ompCtx.thinkingLevel ?? "off",
     model: parseDefaultModel(ompCtx.models),
+  };
+}
+
+type HistoricalAssistantMessage = Extract<OmpAgentMessage, { role: "assistant" }>;
+
+function readContextSnapshot(message: OmpAgentMessage): Record<string, unknown> | undefined {
+  if (!isRecord(message) || !("contextSnapshot" in message)) return undefined;
+  return isRecord(message.contextSnapshot) ? message.contextSnapshot : undefined;
+}
+
+/**
+ * Reconstruct the context usage recorded by omp for a historical session.
+ *
+ * A stopped session has no AgentSession wrapper, so there is no live stats
+ * tracker to query. The latest successful assistant response carries the
+ * provider's prompt-token snapshot; use it as the anchor and estimate only
+ * messages appended after that response (for example, a pending tool result).
+ */
+export async function getHistoricalContextUsage(
+  entries: SessionEntry[],
+  leafId?: string | null,
+): Promise<ContextUsage | undefined> {
+  const byId = new Map<string, SessionEntry>();
+  for (const entry of entries) byId.set(entry.id, entry);
+
+  const ompEntries = entries as unknown as OmpSessionEntry[];
+  const ompById = byId as unknown as Map<string, OmpSessionEntry>;
+  const ompContext = ompBuildSessionContext(ompEntries, leafId, ompById);
+  const modelSelector = parseDefaultModel(ompContext.models);
+  if (!modelSelector) return undefined;
+
+  let contextWindowValue: number | null | undefined;
+  try {
+    const { modelRegistry } = await getOmpRuntime();
+    contextWindowValue = modelRegistry.find(modelSelector.provider, modelSelector.modelId)?.contextWindow;
+  } catch {
+    return undefined;
+  }
+  if (typeof contextWindowValue !== "number" || !Number.isFinite(contextWindowValue) || contextWindowValue <= 0) {
+    return undefined;
+  }
+  const contextWindow = contextWindowValue;
+
+  const branch = collectBranchPath(entries, byId, leafId);
+  let latestCompactionIndex = -1;
+  for (let index = branch.length - 1; index >= 0; index -= 1) {
+    if (branch[index].type === "compaction") {
+      latestCompactionIndex = index;
+      break;
+    }
+  }
+
+  let anchor: HistoricalAssistantMessage | undefined;
+  for (let index = branch.length - 1; index > latestCompactionIndex; index -= 1) {
+    const entry = branch[index];
+    if (entry.type !== "message" || entry.message.role !== "assistant") continue;
+    const assistant = entry.message as unknown as HistoricalAssistantMessage;
+    const snapshot = readContextSnapshot(assistant);
+    if (
+      assistant.stopReason === "aborted"
+      || assistant.stopReason === "error"
+      || !assistant.usage
+      || (!snapshot && !hasContextTokenUsage(assistant.usage))
+    ) {
+      continue;
+    }
+    anchor = assistant;
+    break;
+  }
+  if (!anchor) return undefined;
+
+  const snapshot = readContextSnapshot(anchor);
+  const snapshotPromptTokens = snapshot?.promptTokens;
+  const promptTokens = typeof snapshotPromptTokens === "number" && Number.isFinite(snapshotPromptTokens)
+    ? snapshotPromptTokens
+    : calculatePromptTokens(anchor.usage);
+
+  if (!Number.isFinite(promptTokens) || promptTokens < 0) return undefined;
+
+  const activeMessages = ompContext.messages as OmpAgentMessage[];
+  let anchorIndex = -1;
+  for (let index = activeMessages.length - 1; index >= 0; index -= 1) {
+    const message = activeMessages[index];
+    if (
+      message === anchor
+      || (
+        message.role === "assistant"
+        && message.timestamp === anchor.timestamp
+      )
+    ) {
+      anchorIndex = index;
+      break;
+    }
+  }
+
+  let tailTokens = 0;
+  if (anchorIndex >= 0) {
+    for (let index = anchorIndex + 1; index < activeMessages.length; index += 1) {
+      tailTokens += estimateTokens(activeMessages[index]);
+    }
+  }
+
+  const tokens = Math.max(0, promptTokens + tailTokens);
+  return {
+    tokens,
+    contextWindow,
+    percent: (tokens / contextWindow) * 100,
   };
 }
 

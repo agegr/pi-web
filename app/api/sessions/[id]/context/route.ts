@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent";
-import { resolveSessionPath, buildSessionContext } from "@/lib/session-reader";
+import { resolveSessionPath, buildSessionContext, getHistoricalContextUsage } from "@/lib/session-reader";
 
 export async function GET(
   req: Request,
@@ -19,12 +19,17 @@ export async function GET(
     }
 
     const sm = await SessionManager.open(filePath);
-    const context = buildSessionContext(sm.getEntries() as never, leafId, {
+    const entries = sm.getEntries() as never;
+    const context = buildSessionContext(entries, leafId, {
       deferThinking,
       deferToolResultImages,
     });
+    const contextUsage = await getHistoricalContextUsage(entries, leafId);
 
-    return NextResponse.json({ context });
+    return NextResponse.json({
+      context,
+      ...(contextUsage ? { contextUsage } : {}),
+    });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

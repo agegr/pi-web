@@ -14,7 +14,7 @@ import { normalizeToolCalls } from "@/lib/normalize";
 import { stripAnsi } from "@/lib/ansi";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
-import type { SessionStatsInfo, SlashCommandInfo } from "@/lib/omp-types";
+import type { ContextUsage, SessionStatsInfo, SlashCommandInfo } from "@/lib/omp-types";
 import type { ModelRoleAssignment } from "@/lib/api-types";
 
 export interface SessionData {
@@ -22,6 +22,7 @@ export interface SessionData {
   filePath: string;
   tree: SessionTreeNode[];
   leafId: string | null;
+  contextUsage?: ContextUsage;
   context: {
     messages: AgentMessage[];
     entryIds: string[];
@@ -153,6 +154,7 @@ const PROMPT_SETTLE_POLL_MS = 600;
 const PROMPT_SETTLE_MAX_MS = 20_000;
 const EVENT_STREAM_IDLE_GRACE_MS = 30_000;
 const AGENT_STATE_RECONCILE_MS = 15_000;
+const CONTEXT_USAGE_REFRESH_MS = 1000;
 const BASH_STATE_RECONCILE_MS = 1_000;
 const EVENT_STREAM_CONNECT_TIMEOUT_MS = 5_000;
 const MAX_NOTICES = 5;
@@ -400,6 +402,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const newSessionModelOverrideRef = useRef<SelectedModel | null>(null);
   const thinkingLevelOverrideRef = useRef<Exclude<ThinkingLevelOption, "auto"> | null>(null);
   const promptRunIdRef = useRef(0);
+  const contextUsageRequestIdRef = useRef(0);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
 
   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
@@ -468,6 +471,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setActiveLeafId(d.leafId);
       setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
+      setContextUsage(d.contextUsage ?? null);
       setCurrentModelOverride(null);
       setError(null);
       if (d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
@@ -515,9 +519,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const url = `/api/sessions/${encodeURIComponent(sid)}/context?${params}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[] } };
+      const d = await res.json() as {
+        context: { messages: AgentMessage[]; entryIds: string[] };
+        contextUsage?: ContextUsage;
+      };
       setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
+      setContextUsage(d.contextUsage ?? null);
     } catch (e) {
       console.error("Failed to load context:", e);
     }
@@ -999,11 +1007,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // (wrapper destroyed) means nothing is compacting.
       setIsCompacting(state?.isCompacting ?? false);
       setQueuedMessages(normalizeQueuedMessages(state?.queuedMessages));
+      if (state?.contextUsage !== undefined) setContextUsage(state.contextUsage ?? null);
       const busy = data.running && state
         && (state.isStreaming || state.isPromptRunning || state.isCompacting);
       if (busy || !agentRunningRef.current) return;
       if (state) {
-        if (state.contextUsage !== undefined) setContextUsage(state.contextUsage ?? null);
         if (state.systemPrompt !== undefined) setSystemPrompt(state.systemPrompt ?? null);
         if (state.extensionStatuses !== undefined) setExtensionStatuses(state.extensionStatuses ?? []);
         if (state.extensionWidgets !== undefined) setExtensionWidgets(state.extensionWidgets ?? []);
@@ -1013,6 +1021,38 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // Network still down — the next poll / visibility / online tick retries.
     }
   }, [finishPromptWithoutStream]);
+  const refreshContextUsage = useCallback(async (sid: string, runId = promptRunIdRef.current) => {
+    const requestId = contextUsageRequestIdRef.current + 1;
+    contextUsageRequestIdRef.current = requestId;
+    try {
+      const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
+      if (!res.ok) return;
+      const data = await res.json() as { state?: AgentStateResponse };
+      if (
+        requestId !== contextUsageRequestIdRef.current
+        || sessionIdRef.current !== sid
+        || promptRunIdRef.current !== runId
+      ) return;
+      if (data.state?.contextUsage !== undefined) setContextUsage(data.state.contextUsage ?? null);
+    } catch {
+      // The next refresh retries; state reconciliation owns error recovery.
+    }
+  }, []);
+
+  // Context usage changes after each model/tool turn, not only when the prompt
+  // settles. Poll the lightweight state endpoint while the session is active
+  // so the meter follows those changes even if an SSE event is missed.
+  useEffect(() => {
+    if (!agentRunning && !isCompacting) return;
+    const refresh = () => {
+      const sid = sessionIdRef.current;
+      if (sid) void refreshContextUsage(sid);
+    };
+    refresh();
+    const interval = setInterval(refresh, CONTEXT_USAGE_REFRESH_MS);
+    return () => clearInterval(interval);
+  }, [agentRunning, isCompacting, refreshContextUsage]);
+
 
   // Recovery net for missed SSE events: while the agent is running, verify
   // against the server periodically and whenever the tab returns to the
@@ -1163,6 +1203,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         } else if (completed) {
           setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
         }
+        const sid = sessionIdRef.current;
+        if (sid) void refreshContextUsage(sid);
         dispatch({ type: "reset" });
         setAgentPhase({ kind: "waiting_model" });
         break;
@@ -1213,14 +1255,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           setCompactResult(null);
         } else if (!event.aborted) {
           setCompactResult(readCompactResult(event.result, (event.reason as string | undefined) ?? "auto"));
-          if (sessionIdRef.current) loadSession(sessionIdRef.current);
+          const sid = sessionIdRef.current;
+          if (sid) {
+            void loadSession(sid);
+            void refreshContextUsage(sid);
+          }
         }
         break;
       case "extension_ui_request":
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, settleUiStage]);
+  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, refreshContextUsage, scheduleEventStreamClose, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {

@@ -1720,7 +1720,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
              {t("chat.shell")} · {bashExcluded ? t("chat.outputLocal") : t("chat.outputModel")}
           </div>
         )}
-        {isMobile && contextUsage && (
+        {isMobile && (
           <div style={{
             display: "flex",
             justifyContent: "flex-end",
@@ -2446,15 +2446,13 @@ function ContextUsageMeter({
   usage?: ContextUsage | null;
   t: (key: string, params?: Record<string, string | number>) => string;
 }) {
-  if (!usage) return null;
-
-  const contextWindow = Number.isFinite(usage.contextWindow) && usage.contextWindow > 0
+  const contextWindow = usage && Number.isFinite(usage.contextWindow) && usage.contextWindow > 0
     ? usage.contextWindow
     : null;
-  const tokens = typeof usage.tokens === "number" && Number.isFinite(usage.tokens)
+  const tokens = usage && typeof usage.tokens === "number" && Number.isFinite(usage.tokens)
     ? Math.max(0, usage.tokens)
     : null;
-  const percent = getContextPercent(usage);
+  const percent = usage ? getContextPercent(usage) : null;
   const level = percent !== null && percent >= CONTEXT_CRITICAL_PERCENT
     ? "critical"
     : percent !== null && percent >= CONTEXT_WARNING_PERCENT
@@ -2483,9 +2481,11 @@ function ContextUsageMeter({
   return (
     <div
       role="status"
+      aria-live="polite"
       aria-label={status ? `${title}. ${status}` : title}
       title={title}
       data-context-level={level}
+      data-context-available={usage ? "true" : "false"}
       style={{
         display: "flex",
         alignItems: "center",
