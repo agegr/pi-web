@@ -40,3 +40,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .factory
+
+# Playwright MCP test artifacts
+.playwright-mcp/

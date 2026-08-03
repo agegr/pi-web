@@ -10,9 +10,22 @@ try {
 } catch { /* package not found, use default */ }
 
 // Optional sub-path deployment, e.g. PI_WEB_BASE_PATH=/dev serves the app at
-// https://host/dev/. Client code reads NEXT_PUBLIC_BASE_PATH via
-// lib/base-path.ts. Empty (default) = root deployment.
-const basePath = (process.env.PI_WEB_BASE_PATH ?? "").replace(/\/+$/, "");
+// https://host/dev/. Empty string = root deployment.
+//
+// Safety: a production build must never accidentally inherit the dev server's
+// basePath (builds spawned from the dev process env do). If PI_WEB_BASE_PATH
+// is set during a production build, it is ignored unless the operator
+// explicitly opts in with PI_WEB_BUILD_BASEPATH=1.
+const envBasePath = (process.env.PI_WEB_BASE_PATH ?? "").replace(/\/+$/, "");
+const isProdBuild = process.env.NODE_ENV === "production" && !process.env.PI_WEB_DEV_DIST;
+const allowProdBasePath = process.env.PI_WEB_BUILD_BASEPATH === "1";
+const basePath =
+  isProdBuild && envBasePath && !allowProdBasePath
+    ? (console.warn(
+        `[pi-web] Ignoring PI_WEB_BASE_PATH="${envBasePath}" for the production build (set PI_WEB_BUILD_BASEPATH=1 to allow it).`,
+      ),
+      "")
+    : envBasePath;
 
 const nextConfig: NextConfig = {
   basePath: basePath || undefined,
