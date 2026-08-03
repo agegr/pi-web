@@ -500,11 +500,23 @@ export function ScrollToolbar({
                 longPressTimerRef.current = setTimeout(() => {
                   didLongPressRef.current = true;
                   // Toggle: long-press again turns follow OFF.
-                  updateFollowStreaming(!(followStreamingRef.current ?? false));
-                  setFollowToast(true);
+                  const nowOn = !(followStreamingRef.current ?? false);
+                  updateFollowStreaming(nowOn);
                   document.getSelection()?.removeAllRanges();
                   const prev = document.body.style.userSelect;
                   document.body.style.userSelect = "none";
+                  // The "following on" toast is only useful the first few
+                  // times; after that it's noise (it fires on every
+                  // long-press). Show it at most 3 times, tracked in
+                  // localStorage.
+                  if (nowOn) {
+                    let shown = 0;
+                    try { shown = parseInt(localStorage.getItem("pi-follow-toast-shown") ?? "0", 10) || 0; } catch { /* ignore */ }
+                    if (shown < 3) {
+                      try { localStorage.setItem("pi-follow-toast-shown", String(shown + 1)); } catch { /* ignore */ }
+                      setFollowToast(true);
+                    }
+                  }
                   if (followToastTimerRef.current) clearTimeout(followToastTimerRef.current);
                   followToastTimerRef.current = setTimeout(() => {
                     setFollowToast(false);
