@@ -8,11 +8,11 @@ import { getModules } from "./registry";
 import { parseAgentsMd, readAgentsMdContent } from "./agents-md-modules";
 
 /** 聚合当前所有可管理的提示词模块（app 来源来自注册表，agents-md 来自文件解析）。 */
-export function gatherManagedModules(): PromptModule[] {
+export function gatherManagedModules(cwd?: string): PromptModule[] {
   const appMods = getModules();
   let agentsMods: PromptModule[] = [];
   try {
-    const content = readAgentsMdContent();
+    const content = readAgentsMdContent(cwd);
     if (content) agentsMods = parseAgentsMd(content);
   } catch {
     // 无 AGENTS.md 或读取失败 → 仅返回 app 模块
@@ -21,7 +21,7 @@ export function gatherManagedModules(): PromptModule[] {
 }
 
 /** 按 id 从聚合清单取模块（app 注册表优先，其次 agents-md 解析结果）。 */
-export function findManagedModule(id: string): PromptModule | undefined {
-  const all = gatherManagedModules();
+export function findManagedModule(id: string, cwd?: string): PromptModule | undefined {
+  const all = gatherManagedModules(cwd);
   return all.find((m) => m.id === id);
 }

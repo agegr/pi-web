@@ -5,15 +5,15 @@
 // 写入 engine-runtime-store，组件按切片渲染；不再存在平行状态面（消除 useUnifiedEngine）。
 // 三看板：进程监控 / 需求生命周期 / 任务状态；下方为选中运行的 per-run 详情（阶段/任务/控制/日志）。
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useEngineRuntime } from "@/hooks/useEngineRuntime";
-import { useIsMobile } from "@/hooks/useIsMobile";
 import { StageStepper } from "./StageStepper";
 import { PlanTaskCard } from "./PlanTaskCard";
 import { TerminalPanel } from "./TerminalPanel";
 import { ProcessTree } from "./ProcessTree";
 import { Skeleton } from "./Skeleton";
 import { useI18n } from "@/hooks/useI18n";
+import { getPanelController } from "@/lib/panel-controller";
 import { stripAnsi } from "@/lib/ansi";
 import type { RunState } from "@/lib/unified-engine/unified-engine-types";
 import type {
@@ -269,7 +269,6 @@ const boardTitleStyle: CSSProperties = {
 
 export function EngineDashboard() {
   const { t } = useI18n();
-  const isMobile = useIsMobile();
   const {
     runs,
     processes,
@@ -282,6 +281,17 @@ export function EngineDashboard() {
     processTree,
     guardStatus,
   } = useEngineRuntime();
+
+  // 引擎完成/出错且用户不在引擎 tab 时，侧栏 tab 亮徽标。
+  const prevPhaseRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevPhaseRef.current;
+    prevPhaseRef.current = phase;
+    if (prev === null || prev === phase) return;
+    if (phase !== "done" && phase !== "error") return;
+    if (getPanelController().getPanelSnapshot().activeId === "engine") return;
+    getPanelController().bumpBadge("engine");
+  }, [phase]);
 
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
@@ -373,32 +383,31 @@ export function EngineDashboard() {
   };
 
   const boards = (
-    <div
-      style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 10 }}
-    >
-      {(!isMobile || boardTab === "process") && (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
+      {boardTab === "process" && (
         <ProcessMonitor
           processes={processes}
           selectedRunId={selectedRunId}
           onSelect={setSelectedRunId}
         />
       )}
-      {(!isMobile || boardTab === "requirement") && (
+      {boardTab === "requirement" && (
         <RequirementLifecycleBoard
           nodes={requirementLifecycle}
           runs={runs}
           onSelectRun={setSelectedRunId}
         />
       )}
-      {(!isMobile || boardTab === "task") && <TaskStatusBoard taskStatus={taskStatus} />}
+      {boardTab === "task" && <TaskStatusBoard taskStatus={taskStatus} />}
     </div>
   );
 
   return (
     <div
       style={{
-        width: "min(1120px, 94vw)",
-        height: "min(78vh, 760px)",
+        width: "100%",
+        height: "100%",
+        minHeight: 0,
         display: "flex",
         flexDirection: "column",
         gap: 10,
@@ -464,33 +473,31 @@ export function EngineDashboard() {
         {error && <span style={{ color: "#EF4444", fontSize: 12 }}>{error}</span>}
       </div>
 
-      {isMobile && (
-        <div style={{ display: "flex", gap: 4 }}>
-          {(
-            [
-              { id: "process", label: t("engine.processMonitor") },
-              { id: "requirement", label: t("engine.requirementLifecycle") },
-              { id: "task", label: t("engine.taskStatus") },
-            ] as const
-          ).map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setBoardTab(tab.id)}
-              style={{
-                padding: "4px 10px",
-                borderRadius: 7,
-                border: `1px solid ${boardTab === tab.id ? "var(--accent)" : "var(--border)"}`,
-                background: boardTab === tab.id ? "var(--accent-bg)" : "none",
-                color: boardTab === tab.id ? "var(--accent)" : "var(--text-muted)",
-                fontSize: 12,
-                cursor: "pointer",
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      )}
+      <div style={{ display: "flex", gap: 4 }}>
+        {(
+          [
+            { id: "process", label: t("engine.processMonitor") },
+            { id: "requirement", label: t("engine.requirementLifecycle") },
+            { id: "task", label: t("engine.taskStatus") },
+          ] as const
+        ).map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setBoardTab(tab.id)}
+            style={{
+              padding: "4px 10px",
+              borderRadius: 7,
+              border: `1px solid ${boardTab === tab.id ? "var(--accent)" : "var(--border)"}`,
+              background: boardTab === tab.id ? "var(--accent-bg)" : "none",
+              color: boardTab === tab.id ? "var(--accent)" : "var(--text-muted)",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
       {boards}
 

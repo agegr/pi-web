@@ -33,6 +33,13 @@
   --assistant-bg: #ffffff;
   --tool-bg: #f9fafb;
   --bg-subtle: rgba(0, 0, 0, 0.03);
+  --git-added: #16a34a;
+  --git-modified: #ca8a04;
+  --git-deleted: #dc2626;
+  --git-untracked: #0891b2;
+  --accent-text: #ffffff;
+  --color-warning: #d97706;
+  --color-error-soft: #ef4444;
 }
 
 html.dark {
@@ -50,6 +57,13 @@ html.dark {
   --assistant-bg: #1a1a1a;
   --tool-bg: #1f2937;
   --bg-subtle: rgba(255, 255, 255, 0.04);
+  --git-added: #4ade80;
+  --git-modified: #fbbf24;
+  --git-deleted: #f87171;
+  --git-untracked: #38bdf8;
+  --accent-text: #0f172a;
+  --color-warning: #f59e0b;
+  --color-error-soft: #fca5a5;
 }
 
 /* Theme toggle: circular wipe via View Transitions API.
@@ -1169,4 +1183,41 @@ span.linenumber {
   select {
     font-size: 16px !important;
   }
+}
+
+/* ===== 任务行/面板动效（从 InspectorPanel 内联 <style> 搬迁，供 InspectorTaskRow / TodoPanel 共用）===== */
+@keyframes inspector-fade-down {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes inspector-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.7);
+  }
+}
+@keyframes inspector-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* 任务行点击反馈（InspectorTaskRow add/remove 此 class；历史缺陷：曾无 CSS 规则导致反馈失效） */
+.task-row-clicked {
+  background: var(--bg-hover) !important;
+  transition: background 0.15s ease-out;
 }

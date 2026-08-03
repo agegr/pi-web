@@ -12,6 +12,9 @@ import type {
 import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
+import { startPlanDiscussion } from "@/lib/plan-starter";
+import { setPlanMode, setOrchestratorId } from "@/lib/plan-mode-store";
+import { getPanelController } from "@/lib/panel-controller";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 
 export interface SessionData {
@@ -1779,6 +1782,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             return complete({ handled: true, message: "Copied last assistant message" });
           }
 
+          case "plan": {
+            if (!args) return complete({ handled: true, error: "Usage: /plan <需求描述>" });
+            const planCwd = newSessionCwd ?? session?.cwd ?? undefined;
+            const planId = await startPlanDiscussion(args, { cwd: planCwd });
+            if (!planId) return complete({ handled: true, error: "发起计划讨论失败" });
+            setPlanMode(true);
+            setOrchestratorId(planId);
+            getPanelController().navigate("plan");
+            return complete({ handled: true, message: "计划讨论已启动" });
+          }
+
           default:
             return { handled: false };
         }
@@ -1798,6 +1812,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       loadTools,
       promoteNewSession,
       onSessionStatsPanelOpen,
+      newSessionCwd,
+      session,
     ],
   );
 

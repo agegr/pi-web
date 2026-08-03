@@ -14,6 +14,7 @@ import {
 import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
+import { getPromptModuleLoaderOptions } from "./prompt-loader-options";
 import { validateAgentImages } from "./image-attachments";
 import { invalidateModelsCache } from "./models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
@@ -1322,6 +1323,7 @@ export async function startRpcSession(
       cwd: sessionCwd,
       agentDir,
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
+      resourceLoaderOptions: getPromptModuleLoaderOptions(),
     });
     const scope = await resolveVisibleModels(
       services.modelRuntime,

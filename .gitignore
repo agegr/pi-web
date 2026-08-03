@@ -43,3 +43,7 @@ next-env.d.ts
 
 # editor / agent tooling
 .zcode/
+.codebuddy/
+.atl/
+.codegraph/
+openspec/

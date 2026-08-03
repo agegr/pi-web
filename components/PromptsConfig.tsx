@@ -2,12 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { ConfigModal, ConfigListRow, ModalButton } from "@/components/ui/ConfigModal";
+import { ModalButton } from "@/components/ui/ConfigModal";
+import { MiniToggle } from "@/components/ui/MiniToggle";
 
 // 跟随上游重写（2026-08-02）：上游已移除 csrf header 机制（见 components/AgentsConfig），
 // 这里用原生 fetch 替代已删的 csrfFetchJson，保持 { ok, data } 调用契约。
-// init 用宽松类型以兼容原 csrfFetchJson 调用方在 body 里直接传对象的写法，
-// 函数内将对象 body 自动 JSON 序列化。
 async function apiFetchJson<T = unknown>(
   url: string,
   init?: Record<string, unknown>,
@@ -71,7 +70,7 @@ interface PreviewResponse {
 
 const SOURCE_ORDER = ["app", "agents-md", "orchestrator", "engine"] as const;
 
-// Category → dot color (aligns with design token palette).
+// Category → dot color（类别语义色板，固定 hex 合理，非主题色）。
 const CATEGORY_COLOR: Record<string, string> = {
   identity: "#6366F1",
   constraints: "#EF4444",
@@ -89,7 +88,16 @@ interface Props {
   onClose: () => void;
 }
 
-export function PromptsConfig({ cwd, onClose }: Props) {
+/**
+ * 提示词栏 —— 模块化系统提示词管理（单栏主从切换）。
+ *
+ * 嵌入 WorkspacePanelsHost 右侧栏（340px），不再用 ConfigModal 双栏（原 880px 双栏在
+ * 窄栏严重挤爆）。主视图=模块列表（开关/分组），从视图=模块详情（压缩/对比）。
+ *
+ * 接通：rpc-manager 经 lib/prompt-loader-options 的 agentsFilesOverride 把 AGENTS.md 按
+ * 开关裁剪后注入上游 systemPrompt（见 docs/PROMPTS-PANEL-PLAN.md 三、源头注入）。
+ */
+export function PromptsConfig({ cwd, onClose: _onClose }: Props) {
   const { t } = useI18n();
   const [modules, setModules] = useState<ModuleRow[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -105,25 +113,29 @@ export function PromptsConfig({ cwd, onClose }: Props) {
   const [previewRunning, setPreviewRunning] = useState(false);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
-    const { ok, data } = await apiFetchJson<ModulesResponse>("/api/prompts/modules", {
-      method: "GET",
-    });
-    if (!ok || !Array.isArray(data.modules)) {
-      setLoadError(t("promptOpt.loadFailed"));
+  const load = useCallback(
+    async (silent = true) => {
+      if (!silent) setLoading(true);
+      setLoadError(null);
+      const modulesUrl = `/api/prompts/modules${cwd ? `?cwd=${encodeURIComponent(cwd)}` : ""}`;
+      const { ok, data } = await apiFetchJson<ModulesResponse>(modulesUrl, {
+        method: "GET",
+      });
+      if (!ok || !Array.isArray(data.modules)) {
+        setLoadError(t("promptOpt.loadFailed"));
+        setLoading(false);
+        return;
+      }
+      setModules(data.modules);
+      setSummary(data.summary);
+      setAgentsMdModular(Boolean(data.agentsMdModular));
       setLoading(false);
-      return;
-    }
-    setModules(data.modules);
-    setSummary(data.summary);
-    setAgentsMdModular(Boolean(data.agentsMdModular));
-    setLoading(false);
-  }, [t]);
+    },
+    [t, cwd],
+  );
 
   useEffect(() => {
-    void load();
+    void load(false);
   }, [load]);
 
   const selected = useMemo(
@@ -166,20 +178,18 @@ export function PromptsConfig({ cwd, onClose }: Props) {
     async (m: ModuleRow) => {
       if (m.alwaysOn) return;
       const next = !m.enabled;
-      // Optimistic update
       setModules((prev) => prev.map((x) => (x.id === m.id ? { ...x, enabled: next } : x)));
       const { ok } = await apiFetchJson("/api/prompts/modules", {
         method: "PUT",
-        body: { id: m.id, enabled: next },
+        body: { id: m.id, enabled: next, cwd: cwd ?? undefined },
       });
       if (!ok) {
-        // revert on failure
         setModules((prev) => prev.map((x) => (x.id === m.id ? { ...x, enabled: !next } : x)));
         return;
       }
       void load();
     },
-    [load],
+    [cwd, load],
   );
 
   const toggleAgentsMdModular = useCallback(async () => {
@@ -215,7 +225,7 @@ export function PromptsConfig({ cwd, onClose }: Props) {
       setBusyId(m.id);
       const { ok } = await apiFetchJson("/api/prompts/modules", {
         method: "PUT",
-        body: { id: m.id, compressedOverride: null },
+        body: { id: m.id, compressedOverride: null, cwd: cwd ?? undefined },
       });
       setBusyId(null);
       if (ok) {
@@ -225,7 +235,7 @@ export function PromptsConfig({ cwd, onClose }: Props) {
       }
       void load();
     },
-    [load],
+    [cwd, load],
   );
 
   const runPreview = useCallback(async () => {
@@ -239,33 +249,39 @@ export function PromptsConfig({ cwd, onClose }: Props) {
     if (ok) setPreview(data);
   }, [previewInput, previewUseLlm, cwd]);
 
-  // ── Render helpers ────────────────────────────────────────────────────────
+  const previewSelectedIds = new Set(preview?.selected.map((s) => s.id) ?? []);
 
-  const renderLeft = () => {
+  // ── 主视图：模块列表 ──────────────────────────────────────────────────────
+  const renderList = () => {
     if (loading) return <div style={hintStyle}>…</div>;
-    if (loadError) return <div style={{ ...hintStyle, color: "#ef4444" }}>{loadError}</div>;
+    if (loadError)
+      return <div style={{ ...hintStyle, color: "var(--color-error-soft)" }}>{loadError}</div>;
     if (modules.length === 0) return <div style={hintStyle}>{t("promptOpt.empty")}</div>;
     return grouped.map((g) => (
       <div key={g.source} style={{ marginBottom: 10 }}>
         <div style={groupHeaderStyle}>{sourceLabel(g.source)}</div>
         {g.items.map((m) => (
-          <ConfigListRow
+          <div
             key={m.id}
-            selected={m.id === selectedId}
             onClick={() => setSelectedId(m.id)}
-            leading={
-              <span
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: "50%",
-                  flexShrink: 0,
-                  background: CATEGORY_COLOR[m.category] ?? "#94A3B8",
-                  opacity: m.enabled || m.alwaysOn ? 1 : 0.35,
-                }}
-              />
-            }
+            style={rowStyle}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "var(--bg-hover)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+            }}
           >
+            <span
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                flexShrink: 0,
+                background: CATEGORY_COLOR[m.category] ?? "#94A3B8",
+                opacity: m.enabled || m.alwaysOn ? 1 : 0.35,
+              }}
+            />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={rowTitleStyle}>{m.heading ?? m.id}</div>
               <div style={rowMetaStyle}>
@@ -281,15 +297,15 @@ export function PromptsConfig({ cwd, onClose }: Props) {
                 void toggleModule(m);
               }}
             />
-          </ConfigListRow>
+          </div>
         ))}
       </div>
     ));
   };
 
+  // ── 从视图：模块详情 ──────────────────────────────────────────────────────
   const renderDetail = () => {
-    if (!selected)
-      return <div style={{ ...hintStyle, paddingTop: 40 }}>{t("promptOpt.selectModule")}</div>;
+    if (!selected) return null;
     const m = selected;
     const original = m.text;
     const compressed = m.compressedText;
@@ -299,238 +315,218 @@ export function PromptsConfig({ cwd, onClose }: Props) {
         : null;
     const busy = busyId === m.id;
     return (
-      <div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+      <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+        {/* 返回 + 标题 */}
+        <div
+          style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, marginBottom: 8 }}
+        >
+          <button onClick={() => setSelectedId(null)} style={backBtnStyle} title={t("common.back")}>
+            ‹
+          </button>
           <span
             style={{
               width: 9,
               height: 9,
               borderRadius: "50%",
+              flexShrink: 0,
               background: CATEGORY_COLOR[m.category] ?? "#94A3B8",
             }}
           />
-          <span style={{ fontSize: 15, fontWeight: 600, color: "var(--text)" }}>
+          <span
+            style={{
+              fontSize: 14,
+              fontWeight: 600,
+              color: "var(--text)",
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
             {m.heading ?? m.id}
           </span>
           {m.alwaysOn && <span style={badgeStyle}>{t("promptOpt.alwaysOn")}</span>}
         </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-          <span style={tagStyle}>{t(`promptOpt.category.${m.category}` as never)}</span>
-          {m.tags.map((tag) => (
-            <span key={tag} style={tagStyle}>
-              #{tag}
-            </span>
-          ))}
-          <span style={tagStyle}>
-            {m.estimatedTokens} {t("promptOpt.tokens")}
-          </span>
-          {ratio !== null && (
-            <span style={{ ...tagStyle, color: "#22C55E", borderColor: "rgba(34,197,94,0.4)" }}>
-              {t("promptOpt.ratioLabel")} -{ratio}%
-            </span>
-          )}
-        </div>
 
-        {/* Action bar */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-          <ModalButton variant="primary" disabled={busy} onClick={() => void compress(m, false)}>
-            {busy ? t("promptOpt.compressing") : t("promptOpt.compress")}
-          </ModalButton>
-          <ModalButton variant="secondary" disabled={busy} onClick={() => void compress(m, true)}>
-            {t("promptOpt.llmRefine")}
-          </ModalButton>
-          {compressed && (
-            <ModalButton variant="danger" disabled={busy} onClick={() => void resetCompression(m)}>
-              {t("promptOpt.reset")}
-            </ModalButton>
-          )}
-        </div>
-
-        {/* Diff preview (original vs compressed) */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div>
-            <div style={diffLabelStyle}>{t("promptOpt.original")}</div>
-            <pre style={{ ...codeBlockStyle, color: "var(--text-muted)" }}>{original}</pre>
+        {/* 可滚动区 */}
+        <div style={{ flex: 1, overflowY: "auto", minHeight: 0, paddingRight: 2 }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+            <span style={tagStyle}>{t(`promptOpt.category.${m.category}` as never)}</span>
+            {m.tags.map((tag) => (
+              <span key={tag} style={tagStyle}>
+                #{tag}
+              </span>
+            ))}
+            <span style={tagStyle}>
+              {m.estimatedTokens} {t("promptOpt.tokens")}
+            </span>
+            {ratio !== null && (
+              <span
+                style={{
+                  ...tagStyle,
+                  color: "var(--git-added)",
+                  borderColor: "color-mix(in srgb, var(--git-added) 40%, transparent)",
+                }}
+              >
+                {t("promptOpt.ratioLabel")} -{ratio}%
+              </span>
+            )}
           </div>
-          {compressed && (
+
+          {/* 操作 */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            <ModalButton variant="primary" disabled={busy} onClick={() => void compress(m, false)}>
+              {busy ? t("promptOpt.compressing") : t("promptOpt.compress")}
+            </ModalButton>
+            <ModalButton variant="secondary" disabled={busy} onClick={() => void compress(m, true)}>
+              {t("promptOpt.llmRefine")}
+            </ModalButton>
+            {compressed && (
+              <ModalButton
+                variant="danger"
+                disabled={busy}
+                onClick={() => void resetCompression(m)}
+              >
+                {t("promptOpt.reset")}
+              </ModalButton>
+            )}
+          </div>
+
+          {/* 原文 / 压缩 对比 */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div>
-              <div style={{ ...diffLabelStyle, color: "#22C55E" }}>{t("promptOpt.compressed")}</div>
-              <pre style={{ ...codeBlockStyle, color: "var(--text)" }}>{compressed}</pre>
+              <div style={diffLabelStyle}>{t("promptOpt.original")}</div>
+              <pre style={{ ...codeBlockStyle, color: "var(--text-muted)" }}>{original}</pre>
             </div>
-          )}
+            {compressed && (
+              <div>
+                <div style={{ ...diffLabelStyle, color: "var(--git-added)" }}>
+                  {t("promptOpt.compressed")}
+                </div>
+                <pre style={{ ...codeBlockStyle, color: "var(--text)" }}>{compressed}</pre>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );
   };
 
-  const previewSelectedIds = new Set(preview?.selected.map((s) => s.id) ?? []);
-
-  const rightPane = (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      {/* Summary + master switch */}
-      <div style={summaryBarStyle}>
-        {summary && (
-          <div style={{ display: "flex", gap: 18 }}>
-            <SummaryStat label={t("promptOpt.summaryModules")} value={String(summary.count)} />
-            <SummaryStat
-              label={t("promptOpt.summaryTokens")}
-              value={String(summary.enabledTokens)}
-            />
-            <SummaryStat
-              label={t("promptOpt.summarySaved")}
-              value={String(summary.savedTokens)}
-              accent="#22C55E"
-            />
-          </div>
-        )}
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+  return (
+    <div style={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column" }}>
+      {/* 概览统计 + AGENTS.md 模块化总闸（仅列表态显示） */}
+      {!selected && (
+        <div style={summaryBarStyle}>
+          {summary && (
+            <div style={{ display: "flex", gap: 14 }}>
+              <SummaryStat label={t("promptOpt.summaryModules")} value={String(summary.count)} />
+              <SummaryStat
+                label={t("promptOpt.summaryTokens")}
+                value={String(summary.enabledTokens)}
+              />
+              <SummaryStat
+                label={t("promptOpt.summarySaved")}
+                value={String(summary.savedTokens)}
+                accent="var(--git-added)"
+              />
+            </div>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text)" }}>
               {t("promptOpt.agentsMdModular")}
             </span>
-            <span
-              style={{ fontSize: 10, color: "var(--text-dim)", maxWidth: 220, textAlign: "right" }}
+            <MiniToggle enabled={agentsMdModular} onToggle={() => void toggleAgentsMdModular()} />
+          </div>
+        </div>
+      )}
+
+      {/* 主从切换 */}
+      <div style={{ flex: 1, overflowY: "auto", minHeight: 0, paddingRight: 2 }}>
+        {selected ? renderDetail() : renderList()}
+      </div>
+
+      {/* 动态预览（仅列表态） */}
+      {!selected && (
+        <div style={previewBoxStyle}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", marginBottom: 6 }}>
+            {t("promptOpt.previewTitle")}
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+            <input
+              value={previewInput}
+              onChange={(e) => setPreviewInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void runPreview();
+              }}
+              placeholder={t("promptOpt.previewPlaceholder")}
+              style={previewInputStyle}
+            />
+            <ModalButton
+              variant="primary"
+              disabled={previewRunning || !previewInput.trim()}
+              onClick={() => void runPreview()}
             >
-              {t("promptOpt.agentsMdModularHint")}
-            </span>
+              {previewRunning ? t("promptOpt.previewRunning") : t("promptOpt.previewRun")}
+            </ModalButton>
           </div>
-          <MiniToggle enabled={agentsMdModular} onToggle={() => void toggleAgentsMdModular()} />
-        </div>
-      </div>
-
-      {/* Detail (scrollable) */}
-      <div style={{ flex: 1, overflowY: "auto", paddingRight: 2 }}>{renderDetail()}</div>
-
-      {/* Dynamic submission preview */}
-      <div style={previewBoxStyle}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", marginBottom: 6 }}>
-          {t("promptOpt.previewTitle")}
-        </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
-          <input
-            value={previewInput}
-            onChange={(e) => setPreviewInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void runPreview();
-            }}
-            placeholder={t("promptOpt.previewPlaceholder")}
-            style={previewInputStyle}
-          />
-          <ModalButton
-            variant="primary"
-            disabled={previewRunning || !previewInput.trim()}
-            onClick={() => void runPreview()}
-          >
-            {previewRunning ? t("promptOpt.previewRunning") : t("promptOpt.previewRun")}
-          </ModalButton>
-        </div>
-        <label style={llmCheckStyle}>
-          <input
-            type="checkbox"
-            checked={previewUseLlm}
-            onChange={(e) => setPreviewUseLlm(e.target.checked)}
-          />
-          {t("promptOpt.useLlm")}
-        </label>
-        {preview && (
-          <div style={{ marginTop: 8 }}>
-            <div style={{ fontSize: 12, color: "#22C55E", fontWeight: 600, marginBottom: 6 }}>
-              {t("promptOpt.previewResult")
-                .replace("{selected}", String(preview.selected.length))
-                .replace("{saved}", String(preview.tokensSaved))}
+          <label style={llmCheckStyle}>
+            <input
+              type="checkbox"
+              checked={previewUseLlm}
+              onChange={(e) => setPreviewUseLlm(e.target.checked)}
+            />
+            {t("promptOpt.useLlm")}
+          </label>
+          {preview && (
+            <div style={{ marginTop: 8 }}>
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "var(--git-added)",
+                  fontWeight: 600,
+                  marginBottom: 6,
+                }}
+              >
+                {t("promptOpt.previewResult", {
+                  selected: String(preview.selected.length),
+                  saved: String(preview.tokensSaved),
+                })}
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {modules
+                  .filter((m) => m.enabled || m.alwaysOn)
+                  .map((m) => (
+                    <span
+                      key={m.id}
+                      style={{
+                        ...tagStyle,
+                        opacity: previewSelectedIds.has(m.id) ? 1 : 0.35,
+                        borderColor: previewSelectedIds.has(m.id)
+                          ? "color-mix(in srgb, var(--git-added) 50%, transparent)"
+                          : "var(--border)",
+                        color: previewSelectedIds.has(m.id)
+                          ? "var(--git-added)"
+                          : "var(--text-dim)",
+                      }}
+                    >
+                      {m.heading ?? m.id}
+                    </span>
+                  ))}
+              </div>
             </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {modules
-                .filter((m) => m.enabled || m.alwaysOn)
-                .map((m) => (
-                  <span
-                    key={m.id}
-                    style={{
-                      ...tagStyle,
-                      opacity: previewSelectedIds.has(m.id) ? 1 : 0.35,
-                      borderColor: previewSelectedIds.has(m.id)
-                        ? "rgba(34,197,94,0.5)"
-                        : "var(--border)",
-                      color: previewSelectedIds.has(m.id) ? "#22C55E" : "var(--text-dim)",
-                    }}
-                  >
-                    {m.heading ?? m.id}
-                  </span>
-                ))}
-            </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
-  );
-
-  return (
-    <ConfigModal
-      title={t("promptOpt.title")}
-      subtitle={t("promptOpt.subtitle")}
-      width={880}
-      onClose={onClose}
-      left={renderLeft()}
-      right={rightPane}
-      footer={
-        <ModalButton variant="secondary" onClick={onClose}>
-          {t("common.close")}
-        </ModalButton>
-      }
-    />
   );
 }
 
 // ── Small sub-components ──────────────────────────────────────────────────────
 
-function MiniToggle({
-  enabled,
-  disabled,
-  onToggle,
-}: {
-  enabled: boolean;
-  disabled?: boolean;
-  onToggle: (e: React.MouseEvent) => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      disabled={disabled}
-      style={{
-        flexShrink: 0,
-        width: 34,
-        height: 18,
-        borderRadius: 9,
-        border: "none",
-        padding: 0,
-        cursor: disabled ? "not-allowed" : "pointer",
-        background: enabled ? "var(--accent)" : "var(--border)",
-        position: "relative",
-        transition: "background 0.18s",
-        opacity: disabled ? 0.5 : 1,
-      }}
-    >
-      <span
-        style={{
-          position: "absolute",
-          top: 2,
-          left: enabled ? 18 : 2,
-          width: 14,
-          height: 14,
-          borderRadius: "50%",
-          background: "#fff",
-          transition: "left 0.18s",
-        }}
-      />
-    </button>
-  );
-}
-
 function SummaryStat({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
     <div style={{ display: "flex", flexDirection: "column" }}>
-      <span style={{ fontSize: 16, fontWeight: 700, color: accent ?? "var(--text)" }}>{value}</span>
+      <span style={{ fontSize: 15, fontWeight: 700, color: accent ?? "var(--text)" }}>{value}</span>
       <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{label}</span>
     </div>
   );
@@ -541,7 +537,7 @@ function SummaryStat({ label, value, accent }: { label: string; value: string; a
 const hintStyle: React.CSSProperties = {
   fontSize: 12,
   color: "var(--text-dim)",
-  padding: "8px 6px",
+  padding: "16px 6px",
   textAlign: "center",
 };
 
@@ -552,6 +548,16 @@ const groupHeaderStyle: React.CSSProperties = {
   textTransform: "uppercase",
   letterSpacing: 0.5,
   padding: "4px 8px",
+};
+
+const rowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  padding: "6px 8px",
+  borderRadius: 6,
+  cursor: "pointer",
+  transition: "background 0.1s",
 };
 
 const rowTitleStyle: React.CSSProperties = {
@@ -572,9 +578,10 @@ const summaryBarStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  gap: 12,
-  paddingBottom: 12,
-  marginBottom: 12,
+  gap: 8,
+  flexWrap: "wrap",
+  paddingBottom: 10,
+  marginBottom: 10,
   borderBottom: "1px solid var(--border)",
   flexShrink: 0,
 };
@@ -584,8 +591,9 @@ const badgeStyle: React.CSSProperties = {
   fontWeight: 600,
   padding: "1px 6px",
   borderRadius: 4,
-  background: "rgba(99,102,241,0.15)",
-  color: "#818cf8",
+  background: "color-mix(in srgb, var(--accent) 15%, transparent)",
+  color: "var(--accent)",
+  flexShrink: 0,
 };
 
 const tagStyle: React.CSSProperties = {
@@ -623,8 +631,8 @@ const codeBlockStyle: React.CSSProperties = {
 
 const previewBoxStyle: React.CSSProperties = {
   flexShrink: 0,
-  marginTop: 12,
-  paddingTop: 12,
+  marginTop: 10,
+  paddingTop: 10,
   borderTop: "1px solid var(--border)",
 };
 
@@ -647,4 +655,20 @@ const llmCheckStyle: React.CSSProperties = {
   color: "var(--text-muted)",
   marginTop: 6,
   cursor: "pointer",
+};
+
+const backBtnStyle: React.CSSProperties = {
+  flexShrink: 0,
+  width: 24,
+  height: 24,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: 6,
+  border: "1px solid var(--border)",
+  background: "var(--bg-panel)",
+  color: "var(--text-muted)",
+  cursor: "pointer",
+  fontSize: 16,
+  lineHeight: 1,
 };

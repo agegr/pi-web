@@ -12,13 +12,16 @@ import {
 } from "@/lib/prompt-modules-state";
 import { effectiveText } from "@/lib/prompt-system/switches";
 import { estimateTokens } from "@/lib/prompt-system/tokenize";
+// 副作用 import：触发 enhance 模块注册（registerModules），使 app 模块在 gather 时可见。
+import "@/lib/prompt-system/enhance-modules";
 
 export const dynamic = "force-dynamic";
 
 // GET /api/prompts/modules → 列出全部可管理模块 + 开关/压缩态 + Token 概览
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const modules = gatherManagedModules();
+    const cwd = req.nextUrl.searchParams.get("cwd") ?? undefined;
+    const modules = gatherManagedModules(cwd);
     const list = modules.map((m) => ({
       id: m.id,
       source: m.source,
@@ -62,6 +65,7 @@ export async function PUT(req: NextRequest) {
       enabled?: boolean;
       compressedOverride?: string | null;
       agentsMdModular?: boolean;
+      cwd?: string;
     }>(req);
     if (parseError) return parseError;
 
@@ -75,7 +79,7 @@ export async function PUT(req: NextRequest) {
     if (!id) return errorResponse("Missing module id", 400);
 
     // 校验模块存在（避免对任意 id 写状态）
-    const mod = findManagedModule(id);
+    const mod = findManagedModule(id, body.cwd);
     if (!mod) return errorResponse(`Unknown module: ${id}`, 404);
 
     if (typeof body.enabled === "boolean") {

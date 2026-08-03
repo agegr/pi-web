@@ -4,6 +4,16 @@ import { useState, useEffect, useCallback } from "react";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
 import { useAudio } from "@/hooks/useAudio";
+import { getPanelController, usePanelController, type PanelId } from "@/lib/panel-controller";
+
+const PANEL_IDS: PanelId[] = ["todo", "inspector", "prompts", "plan", "engine"];
+const PANEL_TITLE_KEYS: Record<PanelId, string> = {
+  todo: "todo.panel",
+  inspector: "inspector.panel",
+  prompts: "prompts.panel",
+  plan: "plan.panel",
+  engine: "engine.panel",
+};
 
 interface PiSettings {
   defaultProvider: string | null;
@@ -82,6 +92,11 @@ export function SettingsPanel({
   const { isDark, toggleTheme } = useTheme();
   const { locale, setLocale, t } = useI18n();
   const { soundEnabled, onSoundToggle } = useAudio();
+
+  // 面板可见性开关（lib/panel-controller）：setVisible 后经 usePanelController 重渲染。
+  const panelController = getPanelController();
+  usePanelController();
+  const panelVisibility = panelController.getVisibility();
 
   const [piSettings, setPiSettings] = useState<PiSettings | null>(null);
   const [models, setModels] = useState<ModelOption[]>([]);
@@ -208,6 +223,17 @@ export function SettingsPanel({
 
         {/* Body */}
         <div style={{ flex: 1, overflowY: "auto", padding: "0" }}>
+          {/* ===== Section: Workspace panels ===== */}
+          <SectionHeader label={t("settings.workspacePanels")} />
+          {PANEL_IDS.map((id) => (
+            <ToggleRow
+              key={id}
+              label={t(PANEL_TITLE_KEYS[id])}
+              checked={panelVisibility[id] !== false}
+              onChange={(v) => panelController.setVisible(id, v)}
+            />
+          ))}
+
           {/* ===== Section: Agent Configuration ===== */}
           <SectionHeader label={t("settings.agent")} />
 

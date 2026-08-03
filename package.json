@@ -43,7 +43,7 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
-    "test:node": "node --test --experimental-strip-types lib/*.test.mjs",
+    "test:node": "node --test --experimental-strip-types lib/*.test.mjs $(find app/api -name '*.test.mjs')",
     "ci": "npm run format:check && npm run lint && npm run type-check && npm run test:node && npm run test:coverage",
     "prepare": "husky || true",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"

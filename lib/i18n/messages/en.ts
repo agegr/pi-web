@@ -244,6 +244,9 @@ export const enLocale: LocalePlugin = {
     "chat.skills": "Skills",
     "chat.dormant": "dormant",
     "chat.commandCompact": "Compress context, optionally with instructions",
+    "chat.commandPlan": "Start a multi-agent plan discussion", // —— 本地增强补充键
+    "chat.planModeHint":
+      "Plan discussion in progress — type /plan to start a new one, or wait for the current to finish", // —— 本地增强补充键
     "chat.commandReload": "Reload extensions, skills, prompts, and tools",
     "chat.commandName": "Set the session display name",
     "chat.commandSession": "Show session message, token, and cost stats",

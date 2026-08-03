@@ -242,6 +242,8 @@ export const zhCNLocale: LocalePlugin = {
     "chat.skills": "技能",
     "chat.dormant": "休眠",
     "chat.commandCompact": "压缩上下文，可选附加说明",
+    "chat.commandPlan": "发起多 Agent 计划讨论", // —— 本地增强补充键
+    "chat.planModeHint": "计划讨论进行中——输入 /plan 发起新讨论，或等待当前讨论完成", // —— 本地增强补充键
     "chat.commandReload": "重新加载扩展、技能、提示词和工具",
     "chat.commandName": "设置会话显示名称",
     "chat.commandSession": "显示会话消息、Token 和费用统计",

@@ -33,6 +33,7 @@ import {
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
+import { usePlanMode } from "@/lib/plan-mode-store";
 
 export interface AttachedImage {
   data: string; // base64, no prefix
@@ -171,6 +172,7 @@ const BUILTIN_SLASH_COMMANDS: SlashCommandPaletteItem[] = [
   { name: "name", description: "chat.commandName", source: "builtin" },
   { name: "session", description: "chat.commandSession", source: "builtin" },
   { name: "copy", description: "chat.commandCopy", source: "builtin" },
+  { name: "plan", description: "chat.commandPlan", source: "builtin" },
 ];
 
 const SLASH_SOURCES: SlashCommandSource[] = ["builtin", "extension", "prompt", "skill"];
@@ -416,6 +418,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
   ref,
 ) {
   const { t } = useI18n();
+  const { planMode, orchestratorId } = usePlanMode();
+  const inPlanDiscussion = planMode && !!orchestratorId;
   const isMobile = useIsMobile();
   const [value, setValue] = useState(() => (draftKey ? (getDraft(draftKey)?.value ?? "") : ""));
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
@@ -1981,6 +1985,20 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
               } as React.CSSProperties
             }
           >
+            {inPlanDiscussion && (
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "var(--accent)",
+                  padding: "4px 8px",
+                  marginBottom: 6,
+                  background: "color-mix(in srgb, var(--accent) 10%, transparent)",
+                  borderRadius: 6,
+                }}
+              >
+                {t("chat.planModeHint")}
+              </div>
+            )}
             <textarea
               ref={textareaRef}
               value={value}

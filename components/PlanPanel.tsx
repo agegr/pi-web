@@ -43,13 +43,14 @@ import {
   stashResumable,
   resumeOrchestrator,
   discardResumable,
-  requestOpenEngine as setRequestOpenEngine,
-  type PlanConfigSlice,
-  type ControllerMode,
 } from "@/lib/plan-mode-store";
+import { getPanelController } from "@/lib/panel-controller";
 import type { OrchestrationSnapshot, RecommendationPlan } from "@/lib/agent-orchestrator";
 import { PlanMarkdownBody } from "./PlanMarkdownBody";
 import { SkeletonLines } from "./Skeleton";
+import { ConfigSection } from "./plan/ConfigSection";
+import { LogHistorySection } from "./plan/LogHistorySection";
+import { PlanList } from "./plan/PlanList";
 
 const COLOR_DOT: Record<string, string> = {
   sky: "background:#0ea5e9",
@@ -278,15 +279,25 @@ export function PlanPanel() {
       es.onmessage = (ev) => {
         try {
           const e = JSON.parse(ev.data) as { type: string; snapshot?: OrchestrationSnapshot };
+          const apply = (snap: OrchestrationSnapshot) => {
+            const prev = statusRef.current;
+            statusRef.current = snap.status;
+            setSnapshot(snap);
+            setPlanStatus(snap.status);
+            // 讨论结束（待确认/完成）且用户不在 plan tab 时，侧栏 tab 亮徽标。
+            if (
+              prev !== snap.status &&
+              (snap.status === "awaiting_confirm" || snap.status === "done") &&
+              getPanelController().getPanelSnapshot().activeId !== "plan"
+            ) {
+              getPanelController().bumpBadge("plan");
+            }
+          };
           if (e.type === "snapshot" && e.snapshot) {
-            statusRef.current = e.snapshot.status;
-            setSnapshot(e.snapshot);
-            setPlanStatus(e.snapshot.status);
+            apply(e.snapshot);
           } else if (e.type === "done" && e.snapshot) {
             // done 事件携带完整快照，直接更新避免再发一次 GET。
-            statusRef.current = e.snapshot.status;
-            setSnapshot(e.snapshot);
-            setPlanStatus(e.snapshot.status);
+            apply(e.snapshot);
           } else {
             void refresh(id);
           }
@@ -379,8 +390,8 @@ export function PlanPanel() {
         setPlanStatus("idle");
         setPlanMode(false); // 关闭计划模式，回到普通聊天
         if (mode === "engine") {
-          // 引擎模式：AppShell 打开引擎面板，观察自主编程循环。
-          setRequestOpenEngine(true);
+          // 引擎模式：切到引擎面板，观察自主编程循环。
+          getPanelController().navigate("engine");
         } else {
           // 普通模式：不进引擎。方案文档已落盘，提示用户路径。
           if (data.docPath) {
@@ -1081,7 +1092,7 @@ export function PlanPanel() {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
+                      gridTemplateColumns: "1fr",
                       gap: 8,
                       marginTop: 8,
                     }}
@@ -1207,7 +1218,7 @@ export function PlanPanel() {
               setOrchestratorId(null);
               setPlanStatus("idle");
               setPlanMode(false);
-              setRequestOpenEngine(true);
+              getPanelController().navigate("engine");
             }}
             style={{
               padding: "9px 14px",
@@ -1223,265 +1234,6 @@ export function PlanPanel() {
           </button>
         )}
       </div>
-    </div>
-  );
-}
-
-function Slider({
-  label,
-  min,
-  max,
-  step = 1,
-  value,
-  onChange,
-}: {
-  label: string;
-  min: number;
-  max: number;
-  step?: number;
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <span style={{ fontSize: 12, color: "var(--text)", width: 84, flexShrink: 0 }}>{label}</span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        style={{ flex: 1, accentColor: "var(--accent)" }}
-      />
-      <span style={{ fontSize: 11, color: "var(--text-muted)", width: 36, textAlign: "right" }}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function ConfigSection({
-  planConfig,
-  onConfig,
-  roles,
-  modelOptions,
-  roleModels,
-  onRoleModel,
-}: {
-  planConfig: PlanConfigSlice;
-  onConfig: (patch: Partial<PlanConfigSlice>) => void;
-  roles: Array<{ id: string; name: string; modelId: string | null }>;
-  modelOptions: Array<{ id: string; name: string; provider: string }>;
-  roleModels: Record<string, string>;
-  onRoleModel: (roleId: string, modelId: string) => void;
-}) {
-  const { t } = useI18n();
-  const modes: ControllerMode[] = ["hybrid", "deterministic", "llm"];
-  return (
-    <div
-      style={{
-        borderBottom: "1px solid var(--border)",
-        padding: 12,
-        display: "flex",
-        flexDirection: "column",
-        gap: 10,
-        background: "color-mix(in srgb, var(--bg) 60%, transparent)",
-      }}
-    >
-      <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("plan.configHint")}</div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 12, color: "var(--text)", width: 84, flexShrink: 0 }}>
-          {t("plan.controllerMode")}
-        </span>
-        <div style={{ display: "flex", gap: 6 }}>
-          {modes.map((m) => {
-            const active = planConfig.controllerMode === m;
-            return (
-              <button
-                key={m}
-                onClick={() => onConfig({ controllerMode: m })}
-                style={{
-                  padding: "3px 9px",
-                  borderRadius: 7,
-                  border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
-                  background: active
-                    ? "color-mix(in srgb, var(--accent) 14%, transparent)"
-                    : "none",
-                  color: active ? "var(--text)" : "var(--text-muted)",
-                  fontSize: 11,
-                  cursor: "pointer",
-                }}
-              >
-                {t(`plan.controller.${m}`)}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <Slider
-        label={t("plan.maxRounds")}
-        min={1}
-        max={8}
-        value={planConfig.maxRounds}
-        onChange={(v) => onConfig({ maxRounds: v })}
-      />
-      <Slider
-        label={t("plan.stabilizeThreshold")}
-        min={0.5}
-        max={0.99}
-        step={0.01}
-        value={planConfig.stabilizeThreshold}
-        onChange={(v) => onConfig({ stabilizeThreshold: v })}
-      />
-      <Slider
-        label={t("plan.concurrency")}
-        min={1}
-        max={4}
-        value={planConfig.concurrency}
-        onChange={(v) => onConfig({ concurrency: v })}
-      />
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <span style={{ fontSize: 12, color: "var(--text)", fontWeight: 500 }}>
-          {t("plan.roleModel")}
-        </span>
-        {roles.length === 0 ? (
-          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{t("plan.emptyHistory")}</span>
-        ) : (
-          roles.map((r) => (
-            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 11, color: "var(--text-muted)", width: 90, flexShrink: 0 }}>
-                {r.name}
-              </span>
-              <select
-                value={roleModels[r.id] ?? ""}
-                onChange={(e) => void onRoleModel(r.id, e.target.value)}
-                style={{
-                  flex: 1,
-                  background: "var(--bg)",
-                  color: "var(--text)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 6,
-                  fontSize: 11,
-                  padding: "3px 6px",
-                }}
-              >
-                <option value="">{t("plan.roleModelDefault")}</option>
-                {modelOptions.map((m) => (
-                  <option key={`${m.provider}/${m.id}`} value={`${m.provider}/${m.id}`}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
-function LogHistorySection({
-  logs,
-  history,
-}: {
-  logs: Array<Record<string, unknown>>;
-  history: Array<Record<string, unknown>>;
-}) {
-  const { t } = useI18n();
-  const levelColor: Record<string, string> = {
-    debug: "#64748b",
-    info: "#3b82f6",
-    warn: "#f59e0b",
-    error: "#f43f5e",
-  };
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 12 }}>
-      <div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>
-          {t("plan.log")}
-        </div>
-        {logs.length === 0 ? (
-          <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{t("plan.emptyLog")}</div>
-        ) : (
-          <div
-            style={{
-              maxHeight: 200,
-              overflow: "auto",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-            }}
-          >
-            {logs.map((l, i) => (
-              <div
-                key={i}
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  padding: "4px 8px",
-                  borderBottom: "1px solid var(--border)",
-                  fontSize: 11,
-                  alignItems: "baseline",
-                }}
-              >
-                <span style={{ color: levelColor[String(l.level)] ?? "#64748b" }}>●</span>
-                <span style={{ color: "var(--text-muted)", flexShrink: 0 }}>
-                  {String(l.at).slice(11, 19)}
-                </span>
-                <span style={{ color: "var(--text)" }}>{String(l.message)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>
-          {t("plan.history")}
-        </div>
-        {history.length === 0 ? (
-          <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{t("plan.emptyHistory")}</div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {history.map((h, i) => (
-              <div
-                key={i}
-                style={{
-                  border: "1px solid var(--border)",
-                  borderRadius: 8,
-                  padding: 8,
-                  fontSize: 11,
-                }}
-              >
-                <div style={{ color: "var(--text)" }}>{String(h.requirement)}</div>
-                <div style={{ color: "var(--text-muted)", marginTop: 2 }}>
-                  {String(h.status)} · {t("plan.round", { round: Number(h.roundCount ?? 0) })} ·{" "}
-                  {t("plan.tokensSaved")} ≈{Number(h.tokensSavedEstimate || 0)}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function PlanList({ title, items, color }: { title: string; items: string[]; color: string }) {
-  if (!items || items.length === 0) return null;
-  return (
-    <div style={{ marginTop: 6 }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color, marginBottom: 2 }}>{title}</div>
-      <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: "var(--text)" }}>
-        {items.map((it, i) => (
-          <li key={i} style={{ marginBottom: 2 }}>
-            <PlanMarkdownBody>{it}</PlanMarkdownBody>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }

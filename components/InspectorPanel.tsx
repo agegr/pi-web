@@ -32,13 +32,9 @@ interface TodoTask {
 // ---- Component ----
 
 /**
- * Floating inspector panel — bottom-right taskbar.
- *
- * Two mutually exclusive states:
- * - collapsed → small floating pill at bottom-right showing change stats
- * - expanded → floating glass panel above where the pill would be, with a
- *   circular close (X) in the panel's top-right corner and a 3-dot menu
- *   inside the header. The pill disappears while expanded.
+ * Inspector panel — git change stats, branch, and the current session's
+ * task list. Mounted as a right-side workspace panel via the builtin
+ * extension (lib/extensions/builtin.tsx).
  */
 export const InspectorPanel = memo(function InspectorPanel({
   sessionId,
@@ -87,7 +83,6 @@ export const InspectorPanel = memo(function InspectorPanel({
   const taskListRef = useRef<HTMLDivElement | null>(null);
   const handleTaskKeyDown = useTaskKeyboardNav(taskListRef, !tasksCollapsed);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [closeHover, setCloseHover] = useState(false);
 
   const menuRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -210,33 +205,6 @@ export const InspectorPanel = memo(function InspectorPanel({
     }
   }, [runtime.agentRunning, reloadGit, reloadTodos]);
 
-  // ---- Auto-fit expanded panel width to content (clamped by container) ----
-  useEffect(() => {
-    if (!open) return;
-    const container = containerRef.current;
-    const panel = panelRef.current;
-    if (!container || !panel) return;
-    const measure = () => {
-      const p = panelRef.current;
-      const c = containerRef.current;
-      if (!p || !c) return;
-      p.style.width = "auto";
-      const natural = p.scrollWidth;
-      const maxWidth = Math.max(260, c.clientWidth - 24);
-      const next = Math.min(natural, maxWidth);
-      p.style.width = `${next}px`;
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(container);
-    ro.observe(panel);
-    window.addEventListener("resize", measure);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", measure);
-    };
-  }, [open, gitData?.isGit, tasks.length, tasksCollapsed]);
-
   // ---- Close the 3-dot menu on outside click ----
   useEffect(() => {
     if (!menuOpen) return;
@@ -278,30 +246,13 @@ export const InspectorPanel = memo(function InspectorPanel({
     <div
       ref={containerRef}
       style={{
-        position: "absolute",
-        top: 14,
-        right: 14,
-        zIndex: 200,
         display: "flex",
         flexDirection: "column",
-        alignItems: "flex-end",
+        width: "100%",
+        height: "100%",
+        minHeight: 0,
       }}
     >
-      <style>{`
-        @keyframes inspector-fade-down {
-          from { opacity: 0; transform: translateY(-8px) scale(0.985); }
-          to   { opacity: 1; transform: translateY(0)    scale(1); }
-        }
-        @keyframes inspector-pulse {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50%      { opacity: 0.4; transform: scale(0.7); }
-        }
-        @keyframes inspector-shimmer {
-          0%   { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
-        }
-      `}</style>
-
       {/* ======================================================
           EXPANDED — floating panel (only shown when open)
          ====================================================== */}
@@ -312,70 +263,11 @@ export const InspectorPanel = memo(function InspectorPanel({
             position: "relative",
             display: "flex",
             flexDirection: "column",
-            minWidth: 260,
-            maxWidth: "100%",
-            marginBottom: 10, // gap from pill area below
-            background: "color-mix(in srgb, var(--bg-panel) 90%, transparent)",
-            backdropFilter: "blur(16px) saturate(150%)",
-            WebkitBackdropFilter: "blur(16px) saturate(150%)",
-            border: "1px solid color-mix(in srgb, var(--border) 80%, transparent)",
-            borderRadius: 14,
-            boxShadow:
-              "0 16px 48px rgba(0,0,0,0.25), 0 4px 12px rgba(0,0,0,0.10), inset 0 1px 0 rgba(255,255,255,0.04)",
-            animation: "inspector-fade-down 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
-            transformOrigin: "top right",
-            overflow: "visible", // allow floating close button to protrude
+            flex: 1,
+            minHeight: 0,
+            overflow: "hidden",
           }}
         >
-          {/* ---- Floating circular close button (top-right, protrudes) ---- */}
-          <button
-            onClick={onToggle}
-            onMouseEnter={() => setCloseHover(true)}
-            onMouseLeave={() => setCloseHover(false)}
-            title={t("common.close")}
-            aria-label={t("common.close")}
-            style={{
-              position: "absolute",
-              top: -10,
-              right: -10,
-              width: 28,
-              height: 28,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 0,
-              borderRadius: "50%",
-              border: "1px solid color-mix(in srgb, var(--border) 80%, transparent)",
-              background: closeHover
-                ? "color-mix(in srgb, var(--git-deleted) 18%, var(--bg-panel))"
-                : "color-mix(in srgb, var(--bg-panel) 95%, transparent)",
-              backdropFilter: "blur(12px) saturate(160%)",
-              WebkitBackdropFilter: "blur(12px) saturate(160%)",
-              boxShadow: closeHover
-                ? "0 4px 14px rgba(244,112,103,0.35), 0 2px 6px rgba(0,0,0,0.18)"
-                : "0 4px 10px rgba(0,0,0,0.20), 0 1px 3px rgba(0,0,0,0.12)",
-              cursor: "pointer",
-              color: closeHover ? "var(--git-deleted)" : "var(--text-muted)",
-              transition: "background 0.15s, color 0.15s, box-shadow 0.15s, transform 0.15s",
-              transform: closeHover ? "scale(1.06)" : "scale(1)",
-              zIndex: 2,
-            }}
-          >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-
           {/* ---- Header ---- */}
           <div
             style={{
@@ -408,9 +300,6 @@ export const InspectorPanel = memo(function InspectorPanel({
                   <path d="M15 21h6" />
                   <path d="M18 18v3" />
                 </svg>
-                <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>
-                  {t("inspector.title")}
-                </span>
                 {pinned && (
                   <span
                     title={t("inspector.pinned")}
