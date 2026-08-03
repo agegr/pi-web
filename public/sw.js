@@ -1,13 +1,24 @@
+// Service worker for pi-web.
+//
+// Scope-aware: when the app is served under a sub-path (Next.js basePath),
+// this worker is registered at e.g. /dev/sw.js and its scope is /dev/.
+// All URL paths below are derived from self.registration.scope so the same
+// worker works for both root and sub-path deployments.
+
 const CACHE_PREFIX = "pi-web";
 const CACHE_VERSION = new URL(self.location.href).searchParams.get("v") || "dev";
 const STATIC_CACHE = `${CACHE_PREFIX}-static-${CACHE_VERSION}`;
-const OFFLINE_URL = "/offline.html";
+
+// self.registration.scope is "/" for root deployments and "/dev/" etc. for
+// sub-path deployments.
+const SCOPE = self.registration.scope.replace(/\/+$/, "") + "/";
+const OFFLINE_URL = `${SCOPE}offline.html`;
 const PRECACHE_URLS = [
   OFFLINE_URL,
-  "/manifest.webmanifest",
-  "/icons/icon-192.png",
-  "/icons/icon-512.png",
-  "/icons/apple-touch-icon.png",
+  `${SCOPE}manifest.webmanifest`,
+  `${SCOPE}icons/icon-192.png`,
+  `${SCOPE}icons/icon-512.png`,
+  `${SCOPE}icons/apple-touch-icon.png`,
 ];
 
 self.addEventListener("install", (event) => {
@@ -42,7 +53,7 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   // Session data and live agent traffic must always come from the local server.
-  if (url.pathname.startsWith("/api/") || url.pathname === "/sw.js") return;
+  if (url.pathname.startsWith(`${SCOPE}api/`) || url.pathname === `${SCOPE}sw.js`) return;
 
   if (request.mode === "navigate") {
     event.respondWith(
@@ -55,7 +66,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   const isStaticAsset =
-    url.pathname.startsWith("/_next/static/") ||
+    url.pathname.startsWith(`${SCOPE}_next/static/`) ||
     PRECACHE_URLS.includes(url.pathname);
 
   if (isStaticAsset) {
