@@ -1815,20 +1815,22 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const endTop = end.getBoundingClientRect().top - container.getBoundingClientRect().top;
     const spacerH = agentRunningRef.current ? 96 : 0;
     const lastMsgBottom = endTop - 28 - spacerH;
-    // Half-viewport step-follow: when new content pushes the last message past
-    // the small keep-out zone, step so the last message lands at ~55% of the
-    // viewport height. The growing output refills the lower half before the
-    // next step — gentler than a full jump-to-bottom every message, and the
-    // output is always visible.
+    // Step-follow: when new content pushes the last message past the small
+    // keep-out zone, step so the last message lands at the top 1/3 of the
+    // viewport. The bottom 2/3 refills as the output grows — gentler than a
+    // full jump-to-bottom every message, and the output is always visible.
     if (lastMsgBottom > container.clientHeight - 40) {
       const lastMsgAbs =
         end.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - 28 - spacerH;
       // Land the last message at the top 1/3 of the viewport: more room below
       // for the output to grow, so steps are less frequent and the agent has
-      // longer to stream before the next jump. The bottom 2/3 refills as the
-      // output grows.
+      // longer to stream before the next jump.
       const target = Math.max(0, lastMsgAbs - container.clientHeight / 3);
-      ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
+      // Longer programmatic-scroll grace than 700ms: the step covers 2/3 of
+      // the viewport and its smooth animation can exceed the default window,
+      // which would mark the tail of the animation as a manual scroll and
+      // pause follow for USER_SCROLL_INTENT_MS.
+      ignoreProgrammaticScrollUntilRef.current = Date.now() + 1200;
       container.scrollTo({ top: target, behavior: "smooth" });
     }
   }, [opts.followStreamingRef, scrollContainerRef, messagesEndRef]);

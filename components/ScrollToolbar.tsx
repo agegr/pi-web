@@ -208,8 +208,9 @@ export function ScrollToolbar({
     // container). Compute the end sentinel's position inside the container
     // via getBoundingClientRect, then back off by the spacer height AND the
     // viewport height so the last message lands at the bottom and the spacer
-    // stays below the fold (no blank screen). Keep ~100px of breathing room
-    // below the last message (sentinel is 28px tall → extra 100-28).
+    // stays below the fold (no blank screen). ≈40px visual keep-out below the
+    // last message (sentinel 28px + the last message's own ~16px bottom
+    // margin → extra 40-28-16 = -4).
     const end = messagesEndRef.current;
     if (end) {
       const endInContainer =
@@ -388,7 +389,6 @@ export function ScrollToolbar({
                 const drag = dragRef.current;
                 if (drag && !drag.moved) {
                   tapNavigatedRef.current = true;
-                  
                   scrollToUserMessage(-1);
                 }
               }}
@@ -436,7 +436,6 @@ export function ScrollToolbar({
                 const drag = dragRef.current;
                 if (drag && !drag.moved) {
                   tapNavigatedRef.current = true;
-                  
                   scrollToUserMessage(1);
                 }
               }}
