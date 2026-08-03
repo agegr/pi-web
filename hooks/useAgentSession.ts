@@ -1823,7 +1823,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (lastMsgBottom > container.clientHeight - 40) {
       const lastMsgAbs =
         end.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - 28 - spacerH;
-      const target = Math.max(0, lastMsgAbs - container.clientHeight * 0.55);
+      // Land the last message at the top 1/3 of the viewport: more room below
+      // for the output to grow, so steps are less frequent and the agent has
+      // longer to stream before the next jump. The bottom 2/3 refills as the
+      // output grows.
+      const target = Math.max(0, lastMsgAbs - container.clientHeight / 3);
       ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
       container.scrollTo({ top: target, behavior: "smooth" });
     }
