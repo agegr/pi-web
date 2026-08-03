@@ -2,6 +2,8 @@
 
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
+import type { QueueEntry, QueueEntryInput } from "@/lib/queue-store";
+import { downloadQueueExport, parseQueueImport } from "@/lib/queue-export";
 import type { SkillsResponse } from "@/lib/api-types";
 import { clearDraft, getDraft, setDraft, type ChatDraftImage } from "@/lib/draft-store";
 import {
@@ -34,6 +36,8 @@ interface Props {
   onAbort: () => void;
   onSteer?: (message: string, images?: AttachedImage[]) => void;
   onFollowUp?: (message: string, images?: AttachedImage[]) => void;
+  /** Send a queued follow-up as a steer (interrupt now). Available even when idle. */
+  onQueueSteerSend?: (message: string) => void;
   onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", images?: AttachedImage[]) => void;
   isStreaming: boolean;
   model?: { provider: string; modelId: string } | null;
@@ -49,6 +53,12 @@ interface Props {
   isCompacting?: boolean;
   compactError?: string | null;
   compactResult?: CompactResultInfo | null;
+  /** Manual compaction was queued while the agent was running. */
+  compactQueued?: boolean;
+  onCancelCompactQueue?: () => void;
+  /** A model switch was made mid-run; applies next turn. Switching back to the
+   *  current run's model cancels it (null). */
+  modelSwitchPending?: { provider: string; modelId: string } | null;
   toolPreset?: "none" | "default" | "full";
   onToolPresetChange?: (preset: "none" | "default" | "full") => void;
   thinkingLevel?: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -59,6 +69,20 @@ interface Props {
   queuedMessages?: QueuedMessages | null;
   inputHistory?: string[];
   onRecallQueue?: () => void;
+  /** Fetch full queue entries (live + recovery) for export. */
+  onExportQueue?: () => Promise<{ live: QueueEntry[]; recovery: QueueEntry[] } | null>;
+  /** Re-queue entries parsed from an imported .json file. Returns count. */
+  onImportQueue?: (entries: QueueEntryInput[]) => Promise<number | null>;
+  /** Stage imported entries as pending recovery (pops the recovery dialog). */
+  onStageImport?: (entries: QueueEntryInput[]) => Promise<number | null>;
+  /** Move a queued message within its queue (clear + re-enqueue). */
+  onMoveQueue?: (kind: "steer" | "followUp", fromIndex: number, toIndex: number) => Promise<boolean>;
+  /** Pull one queued message back to the input box; returns its text + images. */
+  onRecallOne?: (kind: "steer" | "followUp", index: number) => Promise<{ text: string; images?: ChatDraftImage[] } | null>;
+  /** Insert an edited message back into the queue at its original position. */
+  onRequeueAt?: (kind: "steer" | "followUp", index: number, text: string, images?: ChatDraftImage[]) => Promise<boolean>;
+  /** Remove a single queued message. */
+  onRemoveQueueItem?: (kind: "steer" | "followUp", index: number) => Promise<boolean>;
   slashCommands?: SlashCommandInfo[];
   slashCommandsLoading?: boolean;
   onLoadSlashCommands?: () => Promise<SlashCommandInfo[]> | SlashCommandInfo[];
@@ -217,10 +241,136 @@ function revokeImagePreview(image: AttachedImage): void {
   }
 }
 
-function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: string }) {
+function QueuedMessageRow({ kind, text, index, total, onMove, onRecall, onRemove, onSteerSend, onDragStart, onDragOver, onDrop, dragging, onTouchMoveTo }: {
+  kind: "steer" | "follow-up";
+  text: string;
+  index: number;
+  total: number;
+  onMove?: (dir: -1 | 1) => void;
+  onRecall?: () => void;
+  onRemove?: () => void;
+  /** Follow-up rows: dispatch this message as a steer (interrupt now). */
+  onSteerSend?: () => void;
+  onDragStart?: (index: number) => void;
+  onDragOver?: (index: number) => void;
+  onDrop?: (targetIndex: number) => void;
+  dragging?: boolean;
+  /** Touch drag on mobile: move this row to the given target index. */
+  onTouchMoveTo?: (targetIndex: number) => void;
+}) {
+  const { t } = useI18n();
+  const canUp = onMove && index > 0;
+  const canDown = onMove && index < total - 1;
+  // Disable the HTML5 drag source on coarse-pointer (touch) devices: they get
+  // the dedicated touch-drag implementation below instead.
+  const [isCoarsePointer, setIsCoarsePointer] = useState(false);
+  useEffect(() => {
+    setIsCoarsePointer(typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches);
+  }, []);
+  const iconBtn: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 20,
+    height: 20,
+    padding: 0,
+    border: "none",
+    borderRadius: 5,
+    background: "transparent",
+    color: "var(--text-dim)",
+    cursor: "pointer",
+    flexShrink: 0,
+  };
+  // Touch drag state (mobile). touchOverEl is the row currently highlighted as
+  // the drop target; styled via direct DOM writes to avoid per-frame re-renders.
+  const touchDragRef = useRef<{ y: number; moved: boolean } | null>(null);
+  const touchOverElRef = useRef<HTMLElement | null>(null);
+  const clearTouchOver = () => {
+    if (touchOverElRef.current) {
+      touchOverElRef.current.style.background = "";
+      touchOverElRef.current.style.borderRadius = "";
+      touchOverElRef.current = null;
+    }
+  };
+  const handleTouchStart = (e: React.TouchEvent) => {
+    // Buttons are taps, not drags; stop propagation so the bottom-panel swipe
+    // gesture (full → queueHidden → minimal) does not fight the row drag.
+    if (e.target instanceof Element && e.target.closest("button")) return;
+    e.stopPropagation();
+    touchDragRef.current = { y: e.touches[0].clientY, moved: false };
+  };
+  const handleTouchMove = (e: React.TouchEvent) => {
+    const d = touchDragRef.current;
+    if (!d) return;
+    const t = e.touches[0];
+    const dy = t.clientY - d.y;
+    if (!d.moved) {
+      if (Math.abs(dy) < 8) return;
+      d.moved = true;
+      const el = e.currentTarget as HTMLElement;
+      el.style.opacity = "0.45";
+      el.style.background = "color-mix(in srgb, var(--accent) 8%, transparent)";
+      el.style.borderRadius = "6px";
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    const el = document.elementFromPoint(t.clientX, t.clientY);
+    const row = el?.closest?.("[data-queue-row]");
+    if (row && row !== e.currentTarget) {
+      const target = row as HTMLElement;
+      if (touchOverElRef.current !== target) {
+        clearTouchOver();
+        touchOverElRef.current = target;
+        target.style.background = "color-mix(in srgb, var(--accent) 14%, transparent)";
+        target.style.borderRadius = "6px";
+      }
+    } else if (touchOverElRef.current) {
+      clearTouchOver();
+    }
+  };
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const d = touchDragRef.current;
+    touchDragRef.current = null;
+    const rowEl = e.currentTarget as HTMLElement;
+    rowEl.style.opacity = "";
+    rowEl.style.background = "";
+    rowEl.style.borderRadius = "";
+    clearTouchOver();
+    if (!d?.moved) return;
+    e.stopPropagation();
+    const el = document.elementFromPoint(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+    const row = el?.closest?.("[data-queue-row]") as HTMLElement | null;
+    if (!row || row === e.currentTarget) return;
+    const to = Number(row.dataset.queueIndex);
+    if (!Number.isNaN(to) && to !== index && onTouchMoveTo) onTouchMoveTo(to);
+  };
   return (
     <div
       title={text}
+      data-queue-row="1"
+      data-queue-kind={kind}
+      data-queue-index={index}
+      draggable={Boolean(onDragStart) && !isCoarsePointer}
+      onDragStart={(e) => {
+        onDragStart?.(index);
+        e.dataTransfer.effectAllowed = "move";
+        try { e.dataTransfer.setData("text/plain", String(index)); } catch { /* ignore */ }
+      }}
+      onDragOver={(e) => {
+        if (!onDragOver) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        onDragOver(index);
+      }}
+      onDrop={(e) => {
+        if (!onDrop) return;
+        e.preventDefault();
+        onDrop(index);
+      }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
       style={{
         display: "flex",
         alignItems: "center",
@@ -229,6 +379,11 @@ function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: s
         fontSize: 12,
         color: "var(--text-muted)",
         minWidth: 0,
+        touchAction: "none",
+        cursor: onDragStart && !isCoarsePointer ? "grab" : "default",
+        ...(dragging
+          ? { opacity: 0.45, background: "color-mix(in srgb, var(--accent) 8%, transparent)", borderRadius: 6 }
+          : {}),
       }}
     >
       <span
@@ -244,8 +399,153 @@ function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: s
       >
         {kind}
       </span>
-      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{text}</span>
+      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{text}</span>
+      {onMove && total > 1 && (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+          <button
+            title={t("chat.queueMoveUp")}
+            aria-label="queueMoveUp"
+            disabled={!canUp}
+            onClick={() => onMove(-1)}
+            style={{ ...iconBtn, cursor: canUp ? "pointer" : "default", opacity: canUp ? 1 : 0.3 }}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="18 15 12 9 6 15" />
+            </svg>
+          </button>
+          <button
+            title={t("chat.queueMoveDown")}
+            aria-label="queueMoveDown"
+            disabled={!canDown}
+            onClick={() => onMove(1)}
+            style={{ ...iconBtn, cursor: canDown ? "pointer" : "default", opacity: canDown ? 1 : 0.3 }}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+        </span>
+      )}
+      {onSteerSend && kind === "follow-up" && (
+        <button
+          title={t("chat.queueSteerSend")}
+          aria-label="queueSteerSend"
+          onClick={onSteerSend}
+          style={{ ...iconBtn, color: "rgba(180,130,0,1)" }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "rgba(234,179,8,0.12)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "transparent";
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12h14" /><polyline points="12 5 19 12 12 19" />
+          </svg>
+        </button>
+      )}
+      {onRecall && (
+        <button
+          title={t("chat.queueRecallOne")}
+          aria-label="queueRecallOne"
+          onClick={onRecall}
+          style={iconBtn}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="9 14 4 9 9 4" />
+            <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+          </svg>
+        </button>
+      )}
+      {onRemove && (
+        <button
+          title={t("chat.queueRemove")}
+          aria-label="queueRemoveOne"
+          onClick={onRemove}
+          style={{ ...iconBtn, color: "var(--text-dim)" }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = "#ef4444";
+            e.currentTarget.style.background = "rgba(239,68,68,0.12)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = "var(--text-dim)";
+            e.currentTarget.style.background = "transparent";
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="3 6 5 6 21 6" />
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            <line x1="10" y1="11" x2="10" y2="17" />
+            <line x1="14" y1="11" x2="14" y2="17" />
+          </svg>
+        </button>
+      )}
     </div>
+  );
+}
+
+/** Windows-10 "show desktop"-style thin vertical bar cycling the bottom panel states.
+ *  The visible line stays thin, but the tap target is 32px wide (mobile-friendly). */
+function BottomModeBar({ mode, onClick, height = 32, tapWidth = 32, count, label }: {
+  mode: "full" | "queueHidden" | "minimal";
+  onClick: () => void;
+  height?: number;
+  tapWidth?: number;
+  count?: number;
+  label?: string;
+}) {
+  const { t } = useI18n();
+  const defaultLabel = mode === "full" ? t("chat.minimizeQueue") : mode === "queueHidden" ? t("chat.minimizeInput") : t("chat.restoreBottom");
+  const effectiveLabel = label ?? defaultLabel;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={effectiveLabel}
+      aria-label={effectiveLabel}
+      style={{
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: tapWidth,
+        height,
+        padding: 0,
+        background: "none",
+        border: "none",
+        borderRadius: 7,
+        color: "var(--text-muted)",
+        cursor: "pointer",
+        transition: "background 0.12s, color 0.12s, box-shadow 0.12s",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = "var(--bg-hover)";
+        e.currentTarget.style.boxShadow = "0 0 0 1px var(--border)";
+        e.currentTarget.style.color = "var(--text)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "none";
+        e.currentTarget.style.boxShadow = "none";
+        e.currentTarget.style.color = "var(--text-muted)";
+      }}
+    >
+      {typeof count === "number" && count > 0 && (
+        <span
+          style={{
+            flexShrink: 0,
+            fontSize: 10.5,
+            fontFamily: "var(--font-mono)",
+            color: mode === "minimal" ? "var(--accent)" : "inherit",
+            lineHeight: 1,
+          }}
+        >
+          {count}
+        </span>
+      )}
+      <svg width="2" height="16" viewBox="0 0 2 16" style={{ flexShrink: 0, borderRadius: 1 }}>
+        <rect x="0" y="0" width="2" height="16" fill={mode === "minimal" ? "var(--accent)" : "currentColor"} />
+      </svg>
+    </button>
   );
 }
 
@@ -312,10 +612,11 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange,
-  onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
+  onSend, onAbort, onSteer, onFollowUp, onQueueSteerSend, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange,
+  onCompact, onAbortCompaction, isCompacting, compactError, compactResult, compactQueued, onCancelCompactQueue, modelSwitchPending, toolPreset, onToolPresetChange,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
+  onExportQueue, onImportQueue, onStageImport, onMoveQueue, onRecallOne, onRequeueAt, onRemoveQueueItem,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
   soundEnabled, onSoundToggle, onAudioUnlock,
@@ -364,6 +665,170 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const controlsMenuRef = useRef<HTMLDivElement>(null);
   const historyMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const queueImportFileRef = useRef<HTMLInputElement>(null);
+  // Mobile-only: cycle the bottom panels (queue banner + input + toolbar) to
+  // leave more room for the conversation during long runs. Persisted so the
+  // choice survives reloads.
+  //   full        → everything visible
+  //   queueHidden → queue banner hidden, input + toolbar visible
+  //   minimal     → only a slim capsule bar (with the cycle button) remains
+  type BottomMode = "full" | "queueHidden" | "minimal";
+  const [bottomMode, setBottomMode] = useState<BottomMode>(() => {
+    if (typeof window === "undefined") return "full";
+    try {
+      const v = window.localStorage.getItem("pi-chat-bottom-mode");
+      return v === "queueHidden" || v === "minimal" ? v : "full";
+    } catch { return "full"; }
+  });
+  const bottomModeRef = useRef(bottomMode);
+  useEffect(() => { bottomModeRef.current = bottomMode; }, [bottomMode]);
+  // Mirrors the live queue count for cycleBottomMode (defined before queueCount).
+  const queueCountRef = useRef(0);
+  const cycleBottomMode = useCallback((dir: 1 | -1 = 1, wrap = true) => {
+    const prev = bottomModeRef.current;
+    // With no queued messages the "queue hidden" level is pointless, so both
+    // swipes and click-cycles skip it: full ↔ minimal directly.
+    const order: BottomMode[] = queueCountRef.current === 0
+      ? ["full", "minimal"]
+      : ["full", "queueHidden", "minimal"];
+    const idx = order.indexOf(prev);
+    // Swipe gestures must NOT wrap: swiping up from "full" (already fully
+    // expanded) must stay at "full" instead of cycling to "minimal" (which
+    // collapses the input area); same for swiping down from "minimal".
+    const nextIdx = wrap
+      ? (idx + dir + order.length) % order.length
+      : Math.min(order.length - 1, Math.max(0, idx + dir));
+    const next = order[nextIdx];
+    try { window.localStorage.setItem("pi-chat-bottom-mode", next); } catch { /* ignore */ }
+    if (next === "minimal") {
+      setControlsMenuOpen(false);
+      setModelDropdownOpen(false);
+    }
+    setBottomMode(next);
+  }, []);
+
+  // Swipe gestures on the bottom panels: swipe down collapses one level
+  // (full → queueHidden → minimal), swipe up expands one level back.
+  const SWIPE_THRESHOLD = 44;
+  const touchStartRef = useRef<{ y: number; x: number; active: boolean } | null>(null);
+  const [swipeHint, setSwipeHint] = useState<"up" | "down" | null>(null);
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (!isMobile) return;
+    // Text editing / scrolling inside the textarea takes priority.
+    if (e.target instanceof Element && e.target.closest("textarea")) {
+      touchStartRef.current = null;
+      return;
+    }
+    const t = e.touches[0];
+    touchStartRef.current = { y: t.clientY, x: t.clientX, active: true };
+  }, [isMobile]);
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    const s = touchStartRef.current;
+    if (!s || !s.active || !isMobile) return;
+    const t = e.touches[0];
+    const dy = t.clientY - s.y;
+    const dx = t.clientX - s.x;
+    // Horizontal-dominant gesture: cancel (edge swipes / other horizontal UX).
+    if (Math.abs(dx) > Math.abs(dy) * 1.5 && Math.abs(dx) > 24) {
+      touchStartRef.current = null;
+      setSwipeHint(null);
+      return;
+    }
+    if (dy > SWIPE_THRESHOLD) setSwipeHint("down");
+    else if (dy < -SWIPE_THRESHOLD) setSwipeHint("up");
+    else setSwipeHint(null);
+  }, [isMobile]);
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    setSwipeHint(null);
+    const s = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!s || !s.active || !isMobile) return;
+    const t = e.changedTouches[0];
+    const dy = t.clientY - s.y;
+    if (Math.abs(dy) < SWIPE_THRESHOLD) return;
+    // Swipe down = collapse further (full→queueHidden→minimal), swipe up = expand back.
+    // No wrapping: hitting either end keeps that state.
+    cycleBottomMode(dy > 0 ? 1 : -1, false);
+  }, [isMobile, cycleBottomMode]);
+  // Queue area collapse: null = auto (fold when many messages), otherwise the
+  // user's explicit choice. Mobile is more aggressive to save half-screen space.
+  const [queueCollapsedUser, setQueueCollapsedUser] = useState<boolean | null>(null);
+  const [queueNotice, setQueueNotice] = useState<{ text: string; ok: boolean } | null>(null);
+  const queueNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showQueueNotice = useCallback((text: string, ok: boolean) => {
+    setQueueNotice({ text, ok });
+    if (queueNoticeTimerRef.current) clearTimeout(queueNoticeTimerRef.current);
+    queueNoticeTimerRef.current = setTimeout(() => setQueueNotice(null), 3000);
+  }, []);
+  const queueCount = (queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0);
+  const queueCollapsed = queueCollapsedUser ?? queueCount > (isMobile ? 1 : 3);
+  const toggleQueueCollapsed = useCallback(() => {
+    setQueueCollapsedUser((prev) => !(prev ?? queueCount > (isMobile ? 1 : 3)));
+  }, [queueCount, isMobile]);
+  const handleMoveQueue = useCallback(async (kind: "steer" | "followUp", index: number, dir: -1 | 1) => {
+    if (!onMoveQueue) return;
+    const ok = await onMoveQueue(kind, index, index + dir);
+    if (ok) setQueueCollapsedUser(null);
+  }, [onMoveQueue]);
+  const handleRemoveQueueItem = useCallback(async (kind: "steer" | "followUp", index: number) => {
+    if (!onRemoveQueueItem) return;
+    const ok = await onRemoveQueueItem(kind, index);
+    if (ok) setQueueCollapsedUser(null);
+  }, [onRemoveQueueItem]);
+  // Entry pulled out for editing; sending re-inserts it at its original spot.
+  const recalledRef = useRef<{ kind: "steer" | "followUp"; index: number; text: string; images?: ChatDraftImage[] } | null>(null);
+  const [recalledVisible, setRecalledVisible] = useState(false);
+  // When the input is crowded (small screens / lots of text), the
+  // steer/followUp buttons collapse to icons so they don't push the textarea
+  // or wrap awkwardly. Measured from the input row container.
+  const [queueButtonsCollapsed, setQueueButtonsCollapsed] = useState(false);
+  const [buttonsWrapped, setButtonsWrapped] = useState(false);
+  const inputRowRef = useRef<HTMLDivElement>(null);
+  const handleRecallOne = useCallback(async (kind: "steer" | "followUp", index: number) => {
+    if (!onRecallOne) return;
+    const entry = await onRecallOne(kind, index);
+    if (!entry) return;
+    recalledRef.current = { kind, index, text: entry.text, images: entry.images };
+    setRecalledVisible(true);
+    const ta = textareaRef.current;
+    const current = ta ? ta.value : value;
+    const combined = [entry.text, current].filter((t) => t.trim()).join("\n\n");
+    setValue(combined);
+    setAtQuery(null);
+    requestAnimationFrame(() => {
+      if (!ta) return;
+      ta.focus();
+      // Cursor lands at the END of the inserted (recalled) text, not the end
+      // of the whole combined value (which sits below the user's existing
+      // input when they already typed something).
+      ta.setSelectionRange(entry.text.length, entry.text.length);
+      ta.style.height = "auto";
+      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+    });
+    setQueueCollapsedUser(null);
+  }, [onRecallOne, value]);
+  const cancelRecall = useCallback(() => {
+    recalledRef.current = null;
+    setRecalledVisible(false);
+  }, []);
+  // Drag & drop reordering (desktop); up/down buttons remain for mobile.
+  const dragFromRef = useRef<{ kind: "steer" | "followUp"; index: number } | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<{ kind: "steer" | "followUp"; index: number } | null>(null);
+  const handleDragStart = useCallback((kind: "steer" | "followUp", index: number) => {
+    dragFromRef.current = { kind, index };
+  }, []);
+  const handleDragOver = useCallback((kind: "steer" | "followUp", index: number) => {
+    setDragOverIndex({ kind, index });
+  }, []);
+  const handleDrop = useCallback((kind: "steer" | "followUp", targetIndex: number) => {
+    const from = dragFromRef.current;
+    dragFromRef.current = null;
+    setDragOverIndex(null);
+    if (!from || from.kind !== kind || from.index === targetIndex || !onMoveQueue) return;
+    void onMoveQueue(kind, from.index, targetIndex).then((ok) => {
+      if (ok) setQueueCollapsedUser(null);
+    });
+  }, [onMoveQueue]);
   const isComposingRef = useRef(false);
   const lastCompositionEndAtRef = useRef(0);
   const slashCommandsRequestedRef = useRef(false);
@@ -374,10 +839,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const fileIndexFetchingRef = useRef<string | null>(null);
   const draftKeyRef = useRef(draftKey);
   const valueRef = useRef(value);
-  const attachedImagesRef = useRef(attachedImages);
-  const pendingImageCountRef = useRef(0);
+  const attachedImagesRef = useRef(attachedImages);  const pendingImageCountRef = useRef(0);
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
+  queueCountRef.current = (queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0);
 
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
@@ -405,7 +870,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();
-        ta.setSelectionRange(combined.length, combined.length);
+        // Cursor lands at the END of the prepended text (not the end of the
+        // whole combined value), so further typing continues the recalled
+        // message instead of jumping below the user's existing input.
+        ta.setSelectionRange(text.length, text.length);
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
@@ -541,6 +1009,46 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (value) ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
   }, [value]);
 
+  // Collapse the steer/followUp button labels when the input row gets
+  // crowded (narrow viewport or long text), so buttons stay icon-only
+  // instead of squeezing the textarea or wrapping onto their own row.
+  useEffect(() => {
+    const el = inputRowRef.current;
+    const ta = textareaRef.current;
+    if (!el || !ta) return;
+    const measure = () => {
+      const rowWidth = el.clientWidth;
+      // Measure on a detached clone at the FULL row width so results do not
+      // depend on the textarea's current width — otherwise toggling flex-basis
+      // changes the width, which changes scrollHeight/scrollWidth, which can
+      // flip the flags forever (page jumping, especially on narrow screens
+      // with long unbroken strings).
+      const clone = ta.cloneNode(true) as HTMLTextAreaElement;
+      clone.style.position = "absolute";
+      clone.style.visibility = "hidden";
+      clone.style.width = `${el.clientWidth - 2}px`;
+      clone.style.height = "auto";
+      clone.style.minHeight = "0";
+      document.body.appendChild(clone);
+      const fullWidthHeight = clone.scrollHeight;
+      const fullWidthScrollW = clone.scrollWidth;
+      const fullWidthClientW = clone.clientWidth;
+      clone.remove();
+      // Collapse button labels only when the text itself overflows the
+      // textarea at full width AND the row is tight (small screens keep full
+      // labels by wrapping the buttons instead of hiding text).
+      setQueueButtonsCollapsed(fullWidthScrollW > fullWidthClientW + 4 && rowWidth < 720);
+      // Buttons wrap below only once the textarea grows past a single line
+      // (multi-line input), so the default layout stays one row: textarea
+      // filling the space + buttons on the right.
+      setButtonsWrapped(fullWidthHeight > 30);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [value, isStreaming]);
+
   useEffect(() => {
     return () => {
       attachedImagesRef.current.forEach(revokeImagePreview);
@@ -552,6 +1060,23 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (!msg && !attachedImages.length) return;
     if (isStreaming) return;
     onAudioUnlock?.();
+    // Edited entry pulled out of the queue: sending puts it back at its
+    // original position instead of dispatching it as a new prompt.
+    const recalled = recalledRef.current;
+    if (recalled) {
+      recalledRef.current = null;
+      setRecalledVisible(false);
+      if (onRequeueAt) {
+        const ok = await onRequeueAt(recalled.kind, recalled.index, msg, attachedImages.length ? attachedImages : recalled.images);
+        if (!ok) {
+          // Failed to requeue: restore the edit state so the user can retry.
+          recalledRef.current = { ...recalled, text: msg };
+          setRecalledVisible(true);
+        }
+        clearInput();
+        return;
+      }
+    }
     if (!attachedImages.length && msg.startsWith("/") && onBuiltinCommand) {
       const result = await onBuiltinCommand(msg);
       if (result.handled) {
@@ -561,7 +1086,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
     onSend(msg, attachedImages.length ? attachedImages : undefined);
     clearInput();
-  }, [value, attachedImages, isStreaming, onBuiltinCommand, onSend, clearInput, onAudioUnlock]);
+  }, [value, attachedImages, isStreaming, onBuiltinCommand, onSend, clearInput, onAudioUnlock, onRequeueAt]);
 
   const slashQuery = value.startsWith("/") && !/\s/.test(value.slice(1))
     ? value.slice(1).toLowerCase()
@@ -594,6 +1119,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     : t(slashQuery ? "chat.matches" : "chat.commands", { count: filteredSlashCommands.length });
   const hasInputText = Boolean(value.trim());
   const canQueueStreamingMessage = hasInputText && attachedImages.length === 0;
+  // With no typed text, the steer button still works when the queue holds a
+  // follow-up: clicking it dispatches the FIRST queued follow-up as a steer
+  // (same action as the row/collapsed-bar steer button).
+  const canSteerFromQueue = !hasInputText && !attachedImages.length && (queuedMessages?.followUp?.length ?? 0) > 0;
 
   // ── @ file autocomplete ──────────────────────────────────────────────────
   // Recomputed from the text before the caret on every change/caret move.
@@ -779,9 +1308,27 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const sendQueued = useCallback((mode: "steer" | "followup") => {
     const msg = value.trim();
-    if (!msg && !attachedImages.length) return;
+    // No typed text: the steer button dispatches the first queued follow-up
+    // as a steer (interrupt now) instead of doing nothing.
+    if (!msg && !attachedImages.length) {
+      if (mode === "steer") {
+        const fu = queuedMessages?.followUp?.[0];
+        if (fu && onQueueSteerSend) {
+          onAudioUnlock?.();
+          recalledRef.current = null;
+          setRecalledVisible(false);
+          onQueueSteerSend(fu);
+          void handleRemoveQueueItem("followUp", 0);
+        }
+      }
+      return;
+    }
     if (attachedImages.length) return;
     onAudioUnlock?.();
+    // The user explicitly chose a send mode (steer / followUp): dispatch as
+    // such instead of putting the recalled entry back into the queue.
+    recalledRef.current = null;
+    setRecalledVisible(false);
     const streamingBehavior = mode === "steer" ? "steer" : "followUp";
     if (msg.startsWith("/") && onPromptWithStreamingBehavior) {
       onPromptWithStreamingBehavior(msg, streamingBehavior, attachedImages.length ? attachedImages : undefined);
@@ -794,7 +1341,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       onFollowUp(msg, attachedImages.length ? attachedImages : undefined);
     }
     clearInput();
-  }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock]);
+  }, [value, attachedImages, queuedMessages, onPromptWithStreamingBehavior, onSteer, onFollowUp, onQueueSteerSend, handleRemoveQueueItem, clearInput, onAudioUnlock]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = displayedSlashCommands.length - 1;
@@ -1114,12 +1661,49 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   return (
     <div
       style={{
+        position: "relative",
         flexShrink: 0,
         background: "transparent",
         padding: "0 16px 8px",
         paddingRight: isMobile ? 16 : 52, // desktop: 16px base + 36px for ChatMinimap alignment
       }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
     >
+      {/* Swipe direction hint (mobile) */}
+      {swipeHint && (
+        <div style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: "calc(100% - 6px)",
+          display: "flex",
+          justifyContent: "center",
+          pointerEvents: "none",
+          zIndex: 70,
+        }}>
+          <div style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            padding: "4px 10px",
+            borderRadius: 999,
+            background: "color-mix(in srgb, var(--bg-panel) 92%, var(--bg))",
+            border: "1px solid var(--border)",
+            boxShadow: "0 4px 14px rgba(0,0,0,0.12)",
+            fontSize: 11.5,
+            color: "var(--text)",
+            whiteSpace: "nowrap",
+          }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: swipeHint === "down" ? "rotate(180deg)" : undefined }}>
+              <polyline points="6 15 12 9 18 15" />
+            </svg>
+            {swipeHint === "down" ? t("chat.swipeCollapse") : t("chat.swipeExpand")}
+          </div>
+        </div>
+      )}
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -1134,11 +1718,57 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           e.target.value = "";
         }}
       />
+      {/* Hidden queue-import file input */}
+      <input
+        ref={queueImportFileRef}
+        type="file"
+        accept=".json,application/json"
+        style={{ display: "none" }}
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (!file || !onStageImport) return;
+          try {
+            const entries = parseQueueImport(await file.text());
+            if (entries.length === 0) {
+              showQueueNotice(t("chat.queueImportEmpty"), false);
+              return;
+            }
+            const staged = await onStageImport(entries);
+            if (staged !== null && staged > 0) {
+              showQueueNotice(t("chat.queueImported", { count: String(staged) }), true);
+            }
+          } catch {
+            showQueueNotice(t("chat.queueImportEmpty"), false);
+          }
+        }}
+      />
       <div style={{ maxWidth: 820, margin: "0 auto" }}>
         <ModelErrorBanner error={modelError} />
         <ModelScopeWarningBanner warnings={modelScopeWarnings} />
+        {/* Queue import/export feedback — rendered outside the banner so it is
+            visible even when the queue is empty (import history entry point). */}
+        {queueNotice && (
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+            <span style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 11,
+              color: queueNotice.ok ? "#16a34a" : "#ef4444",
+              whiteSpace: "nowrap",
+            }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                {queueNotice.ok
+                  ? <><polyline points="20 6 9 17 4 12" /></>
+                  : <><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></>}
+              </svg>
+              {queueNotice.text}
+            </span>
+          </div>
+        )}
         {/* Queued steering / follow-up messages (delivered by pi on upcoming turns) */}
-        {((queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)) > 0 && (
+        {bottomMode === "full" && ((queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)) > 0 && (
           <div style={{
             marginBottom: 8,
             border: "1px solid var(--border)",
@@ -1146,62 +1776,287 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             background: "var(--bg-panel)",
             padding: "5px 0",
           }}>
+          <div style={{
+            display: "flex",
+            flexDirection: isMobile ? "column" : "row",
+            alignItems: isMobile ? "stretch" : "center",
+            justifyContent: "space-between",
+            gap: isMobile ? 2 : 8,
+            padding: isMobile ? "6px 10px 4px" : "2px 10px 2px",
+          }}>
             <div style={{
               display: "flex",
               alignItems: "center",
-              justifyContent: "space-between",
               gap: 8,
-              padding: "2px 8px 4px 10px",
+              minHeight: 24,
             }}>
-              <span style={{
-                fontSize: 10,
-                fontFamily: "var(--font-mono)",
+              <button
+                onClick={toggleQueueCollapsed}
+                title={queueCollapsed ? t("chat.queueExpand") : t("chat.queueCollapse")}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "4px 6px",
+                  border: "none",
+                  background: "transparent",
+                  color: "var(--text-dim)",
+                  cursor: "pointer",
+                  borderRadius: 5,
+                }}
+              >
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ transition: "transform 0.12s", transform: queueCollapsed ? "rotate(-90deg)" : undefined, flexShrink: 0 }}
+                >
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+                {/* Queued-count label next to the collapse button so the header
+                    is not a lone chevron on any screen size. */}
+                <span style={{ fontSize: 11.5, color: "var(--text-dim)", whiteSpace: "nowrap", lineHeight: 1 }}>
+                  {t("chat.queued", { count: String(queueCount) })}
+                </span>
+              </button>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", marginTop: isMobile ? 2 : 0 }}>
+                {onRecallQueue && (
+                  <button
+                    onClick={onRecallQueue}
+                    title={t("chat.recallTitle")}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "3px 10px",
+                      fontSize: 12,
+                      color: "var(--text)",
+                      background: "transparent",
+                      border: "1px solid var(--border)",
+                      borderRadius: 7,
+                      cursor: "pointer",
+                      transition: "background 0.12s, border-color 0.12s",
+                      whiteSpace: "nowrap",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "var(--bg-hover)";
+                      e.currentTarget.style.borderColor = "color-mix(in srgb, var(--accent) 45%, var(--border))";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "transparent";
+                      e.currentTarget.style.borderColor = "var(--border)";
+                    }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="9 14 4 9 9 4" />
+                      <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+                    </svg>
+                    {t("chat.recall")}
+                  </button>
+                )}
+                {(onExportQueue || onImportQueue) && (
+                  <>
+                    {onExportQueue && (
+                      <button
+                        title={t("chat.queueExport")}
+                        onClick={async () => {
+                          const data = await onExportQueue();
+                          if (!data) return;
+                          downloadQueueExport(data.live, { source: "live" }, "json");
+                          showQueueNotice(
+                            t("chat.queueExported", {
+                              count: String((queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)),
+                            }),
+                            true,
+                          );
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          padding: "3px 10px",
+                          fontSize: 12,
+                          color: "var(--text)",
+                          background: "transparent",
+                          border: "1px solid var(--border)",
+                          borderRadius: 7,
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="7 10 12 15 17 10" />
+                          <line x1="12" y1="15" x2="12" y2="3" />
+                        </svg>
+                        {t("chat.queueExport")}
+                      </button>
+                    )}
+                    {onImportQueue && (
+                      <button
+                        title={t("chat.queueImport")}
+                        onClick={() => queueImportFileRef.current?.click()}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          padding: "3px 10px",
+                          fontSize: 12,
+                          color: "var(--text)",
+                          background: "transparent",
+                          border: "1px solid var(--border)",
+                          borderRadius: 7,
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="17 8 12 3 7 8" />
+                          <line x1="12" y1="3" x2="12" y2="15" />
+                        </svg>
+                        {t("chat.queueImport")}
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+          </div>
+          {queueCollapsed && queueCount > 0 && (
+            <div
+              onClick={toggleQueueCollapsed}
+              title={t("chat.queueExpand")}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  toggleQueueCollapsed();
+                }
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                margin: "0 6px 4px",
+                padding: "3px 6px",
+                borderRadius: 6,
+                fontSize: 11.5,
                 color: "var(--text-dim)",
-                textTransform: "uppercase",
-                letterSpacing: 0.4,
-              }}>
-                {t("chat.queued", { count: (queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0) })}
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                cursor: "pointer",
+                transition: "background 0.12s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "var(--bg-hover)";
+                e.currentTarget.style.color = "var(--text)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "";
+                e.currentTarget.style.color = "var(--text-dim)";
+              }}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: "rotate(-90deg)" }}>
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>
+                {(queuedMessages?.steering?.[0] ?? queuedMessages?.followUp?.[0] ?? "")}
               </span>
-              {onRecallQueue && (
+              {queueCount > 1 && (
+                <span style={{
+                  flexShrink: 0,
+                  fontSize: 10,
+                  color: "var(--text-muted)",
+                  background: "var(--bg-hover)",
+                  border: "1px solid var(--border)",
+                  padding: "0 6px",
+                  borderRadius: 999,
+                  lineHeight: "16px",
+                }}>
+                  +{queueCount - 1}
+                </span>
+              )}
+              {/* First message is a follow-up: expose a steer-send button right in
+                  the collapsed bar (same action as the row button), always
+                  clickable without expanding. */}
+              {!queuedMessages?.steering?.[0] && queuedMessages?.followUp?.[0] && (
                 <button
-                  onClick={onRecallQueue}
-                   title={t("chat.recallTitle")}
+                  aria-label="queueSteerSendFirst"
+                  title={t("chat.queueSteerSend")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onQueueSteerSend?.(queuedMessages?.followUp?.[0] ?? "");
+                    void handleRemoveQueueItem("followUp", 0);
+                  }}
                   style={{
-                    display: "flex",
+                    flexShrink: 0,
+                    display: "inline-flex",
                     alignItems: "center",
-                    gap: 6,
-                    padding: "4px 12px",
-                    fontSize: 12,
-                    color: "var(--text)",
+                    justifyContent: "center",
+                    width: 20,
+                    height: 20,
+                    padding: 0,
+                    border: "none",
+                    borderRadius: 5,
                     background: "transparent",
-                    border: "1px solid var(--border)",
-                    borderRadius: 7,
+                    color: "rgba(180,130,0,1)",
                     cursor: "pointer",
-                    transition: "background 0.12s, border-color 0.12s",
-                    whiteSpace: "nowrap",
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "var(--bg-hover)";
-                    e.currentTarget.style.borderColor = "color-mix(in srgb, var(--accent) 45%, var(--border))";
+                    e.currentTarget.style.background = "rgba(234,179,8,0.12)";
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.background = "transparent";
-                    e.currentTarget.style.borderColor = "var(--border)";
                   }}
                 >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="9 14 4 9 9 4" />
-                    <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 12h14" /><polyline points="12 5 19 12 12 19" />
                   </svg>
-                   {t("chat.recall")}
                 </button>
               )}
             </div>
-            {queuedMessages?.steering.map((text, i) => (
-              <QueuedMessageRow key={`steer-${i}`} kind="steer" text={text} />
+          )}
+            {!queueCollapsed && queuedMessages?.steering.map((text, i) => (
+              <QueuedMessageRow
+                key={`steer-${i}`}
+                kind="steer"
+                text={text}
+                index={i}
+                total={queuedMessages?.steering.length ?? 0}
+                onMove={(dir) => void handleMoveQueue("steer", i, dir)}
+                onRecall={() => void handleRecallOne("steer", i)}
+                onRemove={() => void handleRemoveQueueItem("steer", i)}
+                onDragStart={(idx) => handleDragStart("steer", idx)}
+                onDragOver={(idx) => handleDragOver("steer", idx)}
+                onDrop={(idx) => handleDrop("steer", idx)}
+                onTouchMoveTo={(to) => void handleMoveQueue("steer", i, (to - i) as 1 | -1)}
+                dragging={dragOverIndex?.kind === "steer" && dragOverIndex.index === i}
+              />
             ))}
-            {queuedMessages?.followUp.map((text, i) => (
-              <QueuedMessageRow key={`followup-${i}`} kind="follow-up" text={text} />
+            {!queueCollapsed && queuedMessages?.followUp.map((text, i) => (
+              <QueuedMessageRow
+                key={`followup-${i}`}
+                kind="follow-up"
+                text={text}
+                index={i}
+                total={queuedMessages?.followUp.length ?? 0}
+                onMove={(dir) => void handleMoveQueue("followUp", i, dir)}
+                onRecall={() => void handleRecallOne("followUp", i)}
+                onRemove={() => void handleRemoveQueueItem("followUp", i)}
+                onSteerSend={() => { onQueueSteerSend?.(text); void handleRemoveQueueItem("followUp", i); }}
+                onDragStart={(idx) => handleDragStart("followUp", idx)}
+                onDragOver={(idx) => handleDragOver("followUp", idx)}
+                onDrop={(idx) => handleDrop("followUp", idx)}
+                onTouchMoveTo={(to) => void handleMoveQueue("followUp", i, (to - i) as 1 | -1)}
+                dragging={dragOverIndex?.kind === "followUp" && dragOverIndex.index === i}
+              />
             ))}
           </div>
         )}
@@ -1613,10 +2468,113 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </div>
             );
           })()}
+          {bottomMode !== "minimal" && recalledVisible && recalledRef.current && (
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 6,
+              padding: "6px 10px",
+              borderRadius: 8,
+              fontSize: 12,
+              color: "var(--text-muted)",
+              background: "color-mix(in srgb, var(--accent) 8%, transparent)",
+              border: "1px solid color-mix(in srgb, var(--accent) 30%, var(--border))",
+              flexWrap: "wrap",
+            }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: "var(--accent)" }}>
+                <polyline points="1 4 1 10 7 10" />
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+              </svg>
+              <span style={{ minWidth: 0, flex: 1 }}>
+                {t("chat.recalledEditing", { pos: String(recalledRef.current.index + 1) })}
+              </span>
+              <button
+                onClick={() => void handleSend()}
+                title={t("chat.recalledRequeue")}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "3px 10px",
+                  borderRadius: 6,
+                  border: "1px solid color-mix(in srgb, var(--accent) 50%, var(--border))",
+                  background: "var(--accent)",
+                  color: "#fff",
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {t("chat.recalledRequeue")}
+              </button>
+              <button
+                onClick={cancelRecall}
+                title={t("chat.recalledCancel")}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "3px 8px",
+                  borderRadius: 6,
+                  border: "1px solid var(--border)",
+                  background: "transparent",
+                  color: "var(--text-muted)",
+                  fontSize: 11.5,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {t("chat.recalledCancel")}
+              </button>
+            </div>
+          )}
+          {bottomMode === "minimal" ? (
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-end",
+              gap: 8,
+              minHeight: 44,
+              paddingRight: 4,
+            }}>
+              {queueCount > 0 && (
+                <button
+                  onClick={() => cycleBottomMode()}
+                  title={t("chat.restoreBottom")}
+                  style={{
+                    fontSize: 11,
+                    color: "var(--text-dim)",
+                    whiteSpace: "nowrap",
+                    background: "none",
+                    border: "none",
+                    padding: "4px 6px",
+                    borderRadius: 6,
+                    cursor: "pointer",
+                    transition: "background 0.12s, color 0.12s",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "var(--bg-hover)";
+                    e.currentTarget.style.color = "var(--text)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "none";
+                    e.currentTarget.style.color = "var(--text-dim)";
+                  }}
+                >
+                  {t("chat.queued", { count: String(queueCount) })}
+                </button>
+              )}
+              <BottomModeBar mode="minimal" onClick={() => cycleBottomMode()} height={44} count={queueCount} />
+            </div>
+          ) : (
           <div
+            ref={inputRowRef}
             style={{
               minWidth: 0,
               display: "flex",
+              flexWrap: "wrap",
               gap: 8,
               alignItems: "center",
               background: "var(--bg)",
@@ -1661,9 +2619,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             }
             rows={1}
             style={{
-              flex: 1,
+              flex: buttonsWrapped ? "1 1 100%" : "1 1 0",
               minWidth: 0,
-              width: "100%",
               background: "none",
               border: "none",
               outline: "none",
@@ -1679,20 +2636,24 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           />
 
           {isStreaming ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end", marginLeft: "auto" }}>
               {onSteer && (
                 <button
                   onClick={() => sendQueued("steer")}
-                  disabled={!canQueueStreamingMessage}
-                  title={attachedImages.length ? "Image attachments cannot be queued while the agent is running" : "Interrupt the current run and inject this message now"}
+                  disabled={!canQueueStreamingMessage && !canSteerFromQueue}
+                  title={attachedImages.length
+                    ? "Image attachments cannot be queued while the agent is running"
+                    : canSteerFromQueue
+                      ? "Interrupt now with the first queued follow-up"
+                      : "Interrupt the current run and inject this message now"}
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
                     padding: "7px 12px",
-                    background: canQueueStreamingMessage ? "rgba(234,179,8,0.12)" : "none",
+                    background: (canQueueStreamingMessage || canSteerFromQueue) ? "rgba(234,179,8,0.12)" : "none",
                     border: "1px solid rgba(234,179,8,0.35)",
                     borderRadius: 8,
-                    color: canQueueStreamingMessage ? "rgba(180,130,0,1)" : "var(--text-dim)",
-                    cursor: canQueueStreamingMessage ? "pointer" : "not-allowed",
+                    color: (canQueueStreamingMessage || canSteerFromQueue) ? "rgba(180,130,0,1)" : "var(--text-dim)",
+                    cursor: (canQueueStreamingMessage || canSteerFromQueue) ? "pointer" : "not-allowed",
                     fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
                     transition: "background 0.12s",
                   }}
@@ -1700,7 +2661,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
                   </svg>
-                  {t("chat.steer")}
+                  {!queueButtonsCollapsed && t("chat.steer")}
                 </button>
               )}
               {onFollowUp && (
@@ -1724,7 +2685,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     <line x1="5" y1="1" x2="5" y2="6" /><polyline points="2.5 3.5 5 1 7.5 3.5" />
                     <line x1="2" y1="9" x2="8" y2="9" />
                   </svg>
-                  {t("chat.followUp")}
+                  {!queueButtonsCollapsed && t("chat.followUp")}
                 </button>
               )}
             </div>
@@ -1735,6 +2696,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               style={{
                 flexShrink: 0,
                 alignSelf: "flex-end",
+                marginLeft: "auto",
                 display: "flex", alignItems: "center", gap: 6,
                 padding: "7px 14px",
                 background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
@@ -1753,20 +2715,22 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <line x1="2" y1="7" x2="11" y2="7" />
                 <polyline points="7.5 3 12 7 7.5 11" />
               </svg>
-              {t("chat.send")}
+              {!queueButtonsCollapsed && t("chat.send")}
             </button>
           )}
           </div>
+          )}
         </div>
 
         {/* Bash mode status label */}
-        {bashMode && (
+        {bottomMode !== "minimal" && bashMode && (
           <div className="text-xs px-2 py-1" style={{ color: bashExcluded ? "var(--text-muted)" : "var(--accent)", marginTop: 4 }}>
              {t("chat.shell")} · {bashExcluded ? t("chat.outputLocal") : t("chat.outputModel")}
           </div>
         )}
 
         {/* Bottom bar: left | center (context) | right */}
+        {bottomMode !== "minimal" && (
         <div style={{
           marginTop: 8,
           display: isMobile ? "grid" : "flex",
@@ -1819,7 +2783,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                         return !open;
                       });
                     }}
-                    disabled={isStreaming}
                     style={{
                       display: "flex", alignItems: "center", gap: 6,
                       justifyContent: isMobile ? "flex-start" : undefined,
@@ -1832,13 +2795,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       border: "none",
                       borderRadius: 9,
                       color: "var(--text-muted)",
-                      cursor: isStreaming ? "not-allowed" : "pointer",
+                      cursor: "pointer",
                       fontSize: 12,
-                      opacity: isStreaming ? 0.5 : 1,
+                      opacity: 1,
                       transition: "background 0.12s, color 0.12s",
                     }}
                     onMouseEnter={(e) => {
-                      if (isStreaming) return;
                       e.currentTarget.style.background = "var(--bg-hover)";
                       e.currentTarget.style.color = "var(--text)";
                     }}
@@ -1846,7 +2808,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       e.currentTarget.style.background = modelDropdownOpen ? "var(--bg-hover)" : "none";
                       e.currentTarget.style.color = "var(--text-muted)";
                     }}
-                    title={modelOptions.length > 0 ? "Change model" : "No available models"}
+                    title={modelOptions.length > 0 ? (isStreaming ? t("chat.modelSwitchStreaming") : t("chat.changeModel")) : t("chat.noModels")}
                   >
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <rect x="4" y="4" width="16" height="16" rx="2" />
@@ -1859,6 +2821,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                       {currentName ?? (modelOptions.length > 0 ? "Select model" : "No models")}
                     </span>
+                    {modelSwitchPending && (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 3, flexShrink: 0, marginLeft: 4, fontSize: 10, color: "#d97706", whiteSpace: "nowrap", fontWeight: 600 }}>
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                        {t("chat.modelSwitchPendingBadge")}
+                      </span>
+                    )}
                   </button>
                   {modelDropdownOpen && modelDropdownRect && (() => {
                     const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
@@ -2209,38 +3177,43 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </div>
             )}
 
-            {!isStreaming && onCompact && (
+            {onCompact && (
               <div>
                 <button
-                  onClick={isCompacting ? onAbortCompaction : onCompact}
-                  disabled={isStreaming && !isCompacting}
+                  onClick={() => {
+                    if (isCompacting) onAbortCompaction?.();
+                    else if (compactQueued) onCancelCompactQueue?.();
+                    else onCompact();
+                  }}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
                     padding: isMobile ? "0 6px" : "8px 12px",
                     width: isMobile ? "auto" : undefined,
                     height: 32,
-                    background: isCompacting ? "rgba(239,68,68,0.08)" : "none",
+                    background: isCompacting ? "rgba(239,68,68,0.08)" : compactQueued ? "rgba(217,119,6,0.1)" : "none",
                     border: "none",
                     borderRadius: 9,
-                    color: isCompacting ? "#ef4444" : "var(--text-muted)",
-                    cursor: (isStreaming && !isCompacting) ? "not-allowed" : "pointer",
-                    fontSize: 12, opacity: (isStreaming && !isCompacting) ? 0.5 : 1,
+                    color: isCompacting ? "#ef4444" : compactQueued ? "#d97706" : "var(--text-muted)",
+                    cursor: "pointer",
+                    fontSize: 12, opacity: 1,
+                    whiteSpace: "nowrap",
                     transition: "background 0.12s, color 0.12s",
                   }}
                   onMouseEnter={(e) => {
-                    if (isStreaming && !isCompacting) return;
-                    e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.16)" : "var(--bg-hover)";
-                    e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text)";
+                    e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.16)" : compactQueued ? "rgba(217,119,6,0.2)" : "var(--bg-hover)";
+                    e.currentTarget.style.color = isCompacting ? "#ef4444" : compactQueued ? "#d97706" : "var(--text)";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.08)" : "none";
-                    e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text-muted)";
+                    e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.08)" : compactQueued ? "rgba(217,119,6,0.1)" : "none";
+                    e.currentTarget.style.color = isCompacting ? "#ef4444" : compactQueued ? "#d97706" : "var(--text-muted)";
                   }}
-                   title={isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
-                   aria-label={isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
+                   title={isCompacting ? t("chat.stopCompaction") : compactQueued ? t("chat.cancelCompactQueue") : t("chat.compactContext")}
+                   aria-label={isCompacting ? t("chat.stopCompaction") : compactQueued ? t("chat.cancelCompactQueue") : t("chat.compactContext")}
                 >
                   {isCompacting ? (
                     <><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" /></svg>{(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{t("chat.compacting")}</span>}</>
+                  ) : compactQueued ? (
+                    <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>{(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{t("chat.compactQueued")}</span>}</>
                   ) : (
                     <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" />
@@ -2322,6 +3295,40 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 )}
               </button>
             )}
+            {/* Import queue history — always available, even with an empty queue. */}
+            {onImportQueue !== undefined && (
+              <button
+                onClick={() => queueImportFileRef.current?.click()}
+                title={t("chat.queueImport")}
+                aria-label={t("chat.queueImport")}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+                  width: isMobile ? 32 : 32,
+                  height: 32,
+                  padding: 0,
+                  background: "none",
+                  border: "none",
+                  borderRadius: 9,
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                  transition: "background 0.12s, color 0.12s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--bg-hover)";
+                  e.currentTarget.style.color = "var(--text)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "none";
+                  e.currentTarget.style.color = "var(--text-muted)";
+                }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+              </button>
+            )}
             {isMobile && controlsMenuOpen && (
               <button
                 type="button"
@@ -2363,10 +3370,17 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </button>
             )}
             </div>
+            <BottomModeBar
+              mode={bottomMode}
+              onClick={isMobile ? () => cycleBottomMode() : toggleQueueCollapsed}
+              label={isMobile ? undefined : (queueCollapsed ? t("chat.queueExpand") : t("chat.queueCollapse"))}
+              count={queueCount}
+            />
           </div>
+        </div>
+        )}
 
         </div>
       </div>
-    </div>
   );
 });

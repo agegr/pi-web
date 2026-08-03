@@ -10,6 +10,9 @@ try {
 } catch { /* package not found, use default */ }
 
 const nextConfig: NextConfig = {
+  // Dev server runs against its own build directory (.next-dev) so it can
+  // coexist with the production `next start` (.next) on a different port.
+  distDir: process.env.PI_WEB_DEV_DIST ? ".next-dev" : ".next",
   serverExternalPackages: [
     "undici",
     "@earendil-works/pi-coding-agent",

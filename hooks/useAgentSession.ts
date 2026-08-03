@@ -11,6 +11,8 @@ import type {
 } from "@/lib/types";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
+import type { ChatDraftImage } from "@/lib/draft-store";
+import type { PendingRecoveryItem, QueueEntry, QueueEntryInput } from "@/lib/queue-store";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 
@@ -77,6 +79,7 @@ type AgentStateResponse = {
   extensionStatuses?: ExtensionStatusItem[];
   extensionWidgets?: ExtensionWidgetItem[];
   queuedMessages?: { steering?: string[]; followUp?: string[] } | null;
+  pendingRecovery?: PendingRecoveryItem[] | null;
 };
 
 export interface QueuedMessages {
@@ -354,6 +357,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelScopeWarnings, setModelScopeWarnings] = useState<string[]>([]);
   const [modelThinkingLevels, setModelThinkingLevels] = useState<Record<string, string[]>>({});
   const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>({});
+  /** A model switch was made while the agent was running — applies next turn.
+   *  Stores the target model; switching back to the current run's model cancels. */
+  const [modelSwitchPending, setModelSwitchPending] = useState<{ provider: string; modelId: string } | null>(null);
+  /** Model the current agent run started with (agent_start / running transition). */
+  const agentRunModelRef = useRef<{ provider: string; modelId: string } | null>(null);
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
   const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("default");
@@ -367,6 +375,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [isCompacting, setIsCompacting] = useState(false);
   const [compactError, setCompactError] = useState<string | null>(null);
   const [compactResult, setCompactResult] = useState<CompactResultInfo | null>(null);
+  /** Manual compaction queued while the agent was running; fires on next idle. */
+  const [compactQueued, setCompactQueued] = useState(false);
+  const pendingCompactRef = useRef(false);
   const [agentPhase, setAgentPhase] = useState<AgentPhase>(null);
   const [slashCommands, setSlashCommands] = useState<SlashCommandInfo[]>([]);
   const [slashCommandsLoading, setSlashCommandsLoading] = useState(false);
@@ -377,6 +388,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessages>({ steering: [], followUp: [] });
+  const [pendingRecovery, setPendingRecovery] = useState<PendingRecoveryItem[]>([]);
+  /** True when the current pending-recovery list came from an import (not a
+   *  crash recovery) — drives the dialog's copy. Resets when the list empties. */
+  const [recoveryIsImport, setRecoveryIsImport] = useState(false);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const eventSourceSessionIdRef = useRef<string | null>(null);
@@ -498,6 +513,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (liveState.extensionStatuses !== undefined) setExtensionStatuses(liveState.extensionStatuses ?? []);
           if (liveState.extensionWidgets !== undefined) setExtensionWidgets(liveState.extensionWidgets ?? []);
           if (liveState.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(liveState.queuedMessages));
+          if (liveState.pendingRecovery !== undefined) setPendingRecovery(liveState.pendingRecovery ?? []);
         } else if (!agentState.running) {
           setQueuedMessages({ steering: [], followUp: [] });
         }
@@ -994,6 +1010,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // (wrapper destroyed) means nothing is compacting.
       setIsCompacting(state?.isCompacting ?? false);
       setQueuedMessages(normalizeQueuedMessages(state?.queuedMessages));
+      setPendingRecovery(state?.pendingRecovery ?? []);
       const busy = data.running && state
         && (state.isStreaming || state.isPromptRunning || state.isCompacting);
       if (busy || !agentRunningRef.current) return;
@@ -1067,6 +1084,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
               // Aborted turns can leave messages queued in pi (delivered with the
               // next turn); dead wrapper (no state) means the queue is gone.
               setQueuedMessages(normalizeQueuedMessages(d.state?.queuedMessages));
+              setPendingRecovery(d.state?.pendingRecovery ?? []);
             })
             .catch(() => {});
         }
@@ -1156,6 +1174,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             return [...prev, delivered];
           });
         } else if (completed) {
+          // If this assistant reply was actually produced by the model the user
+          // switched to mid-run, the switch has now taken effect — clear the
+          // "applies next turn" hint. (The assistant message carries the real
+          // model/provider that generated it.)
+          if (completed.role === "assistant") {
+            const msgModel = (completed as unknown as { model?: string; provider?: string }).model;
+            const msgProvider = (completed as unknown as { model?: string; provider?: string }).provider;
+            if (msgModel && msgProvider) {
+              setModelSwitchPending((prev) =>
+                prev && prev.modelId === msgModel && prev.provider === msgProvider
+                  ? null
+                  : prev,
+              );
+            }
+          }
           setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
         }
         dispatch({ type: "reset" });
@@ -1437,14 +1470,26 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       await sendAgentCommand(sid, { type: "set_model", provider, modelId });
       setCurrentModelOverride({ provider, modelId });
+      // Switching mid-run only takes effect next turn (the in-flight request
+      // still uses the old model). Surface this so the user isn't confused by
+      // the model name updating immediately. Switching back to the model the
+      // current run is using cancels the pending switch instead.
+      if (agentRunning) {
+        const runModel = agentRunModelRef.current;
+        if (runModel && runModel.provider === provider && runModel.modelId === modelId) {
+          setModelSwitchPending(null);
+        } else {
+          setModelSwitchPending({ provider, modelId });
+        }
+      }
     } catch (e) {
       console.error("Failed to set model:", e);
     }
-  }, [isNew, setNewSessionModel]);
+  }, [isNew, setNewSessionModel, agentRunning]);
 
-  const handleCompact = useCallback(async () => {
+  const runCompactNow = useCallback(async () => {
     const sid = sessionIdRef.current;
-    if (!sid || isCompacting) return;
+    if (!sid) return;
     setIsCompacting(true);
     setCompactError(null);
     setCompactResult(null);
@@ -1458,7 +1503,55 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       setIsCompacting(false);
     }
-  }, [isCompacting, loadSession]);
+  }, [loadSession]);
+
+  const handleCompact = useCallback(async () => {
+    const sid = sessionIdRef.current;
+    if (!sid || isCompacting) return;
+    // Agent running (streaming OR executing a tool call): compacting now
+    // would race the active agent loop (both rewrite context + session file).
+    // Queue it for the next idle window.
+    if (agentRunning) {
+      pendingCompactRef.current = true;
+      setCompactQueued(true);
+      setCompactError(null);
+      return;
+    }
+    await runCompactNow();
+  }, [isCompacting, agentRunning, runCompactNow]);
+
+  // Record the model the current run started with, then clear the "applies
+  // next turn" hint once the agent finishes the run.
+  useEffect(() => {
+    if (agentRunning) {
+      if (currentModel) {
+        agentRunModelRef.current = { provider: currentModel.provider, modelId: currentModel.modelId };
+      }
+    } else {
+      agentRunModelRef.current = null;
+      setModelSwitchPending(null);
+    }
+    // Intentionally only reacts to agentRunning: currentModel may change mid-run
+    // when the user switches, which must NOT overwrite the run's start model.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentRunning]);
+
+  // Drain a queued compaction as soon as the agent is truly idle (covers SSE
+  // events, reconcile, and visibility/online recovery — all paths that clear
+  // isStreaming). prompt_done alone is not enough: retries, auto-compaction,
+  // and queued follow-ups can extend a logical run.
+  useEffect(() => {
+    if (pendingCompactRef.current && !agentRunning && !isCompacting) {
+      pendingCompactRef.current = false;
+      setCompactQueued(false);
+      void runCompactNow();
+    }
+  }, [agentRunning, isCompacting, runCompactNow]);
+
+  const cancelCompactQueue = useCallback(() => {
+    pendingCompactRef.current = false;
+    setCompactQueued(false);
+  }, []);
 
   const loadModels = useCallback(async (signal?: AbortSignal) => {
     const modelCwd = newSessionCwd ?? session?.cwd ?? "";
@@ -1653,6 +1746,220 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [opts.chatInputRef, addNotice]);
 
+  /**
+   * Decide what to do with pending recovery items: keep (re-queue, optionally
+   * continuing the transcript) and/or discard. Returns the remaining items.
+   */
+  // Reset the import flag once the recovery list is fully drained so the
+  // next crash recovery shows recovery copy again.
+  useEffect(() => {
+    if (pendingRecovery.length === 0) setRecoveryIsImport(false);
+  }, [pendingRecovery.length]);
+  const resolveRecovery = useCallback(async (
+    keep: string[],
+    discard: string[],
+    continueRun = false,
+  ): Promise<PendingRecoveryItem[]> => {
+    const sid = sessionIdRef.current;
+    if (!sid) return pendingRecovery;
+    try {
+      const result = await sendAgentCommand<{ remaining?: PendingRecoveryItem[] }>(sid, {
+        type: "resolve_recovery",
+        keep,
+        discard,
+        continueRun,
+      });
+      const remaining = result?.remaining ?? [];
+      setPendingRecovery(remaining);
+      if (continueRun && keep.length > 0) {
+        // The run was started server-side, possibly before any SSE was
+        // connected (e.g. right after a restart) — pick it up so streaming,
+        // agent_end refresh, and settlement all work as usual.
+        void (async () => {
+          try {
+            const stateRes = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
+            if (!stateRes.ok) return;
+            const agentState = await stateRes.json() as { running?: boolean; state?: AgentStateResponse };
+            const st = agentState.state;
+            if (agentState.running && st && (st.isStreaming || st.isPromptRunning)) {
+              sdkAgentActiveRef.current = Boolean(st.isStreaming);
+              rpcPromptPendingRef.current = Boolean(st.isPromptRunning);
+              agentRunningRef.current = true;
+              setAgentRunning(true);
+              setAgentPhase(st.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
+              dispatch({ type: "start" });
+              void connectEvents(sid);
+              if (!st.isStreaming && st.isPromptRunning) {
+                void waitForPromptSettlement(sid);
+              }
+            }
+          } catch { /* non-critical */ }
+        })();
+      }
+      return remaining;
+    } catch (e) {
+      console.error("Failed to resolve queued message recovery:", e);
+      addNotice({ type: "error", message: "Failed to resolve queued message recovery" });
+      return pendingRecovery;
+    }
+  }, [pendingRecovery, addNotice, connectEvents, waitForPromptSettlement]);
+
+  /** Fetch the full live queue + recovery entries (with images) for export. */
+  const exportQueueData = useCallback(async (): Promise<{ live: QueueEntry[]; recovery: QueueEntry[] } | null> => {
+    const sid = sessionIdRef.current;
+    if (!sid) return null;
+    try {
+      return await sendAgentCommand<{ live: QueueEntry[]; recovery: QueueEntry[] }>(sid, { type: "export_queue" });
+    } catch (e) {
+      console.error("Failed to export queue:", e);
+      addNotice({ type: "error", message: "Failed to export queue" });
+      return null;
+    }
+  }, [addNotice]);
+
+  /** Re-queue entries parsed from an exported .json file. Returns count. */
+  const importQueueData = useCallback(async (entries: QueueEntryInput[]): Promise<number | null> => {
+    const sid = sessionIdRef.current;
+    if (!sid) return null;
+    try {
+      const result = await sendAgentCommand<{ imported?: number; steering?: string[]; followUp?: string[] }>(sid, {
+        type: "import_queue",
+        entries,
+      });
+      // Keep the UI in sync with the freshly imported queue (SSE is idle here,
+      // so the banner would otherwise stay hidden until a reload).
+      if (result) setQueuedMessages(normalizeQueuedMessages(result));
+      return result?.imported ?? 0;
+    } catch (e) {
+      console.error("Failed to import queue:", e);
+      addNotice({ type: "error", message: "Failed to import queue" });
+      return null;
+    }
+  }, [addNotice]);
+
+  /** Stage imported entries as pending recovery so the recovery dialog pops
+   *  up and the user chooses re-queue / re-queue & continue / discard. */
+  const stageImport = useCallback(async (entries: QueueEntryInput[]): Promise<number | null> => {
+    const sid = sessionIdRef.current;
+    if (!sid) return null;
+    try {
+      const result = await sendAgentCommand<{ staged?: number; pendingRecovery?: PendingRecoveryItem[] }>(sid, {
+        type: "stage_recovery",
+        entries,
+      });
+      if (result?.pendingRecovery) setPendingRecovery(result.pendingRecovery);
+      if ((result?.staged ?? 0) > 0) setRecoveryIsImport(true);
+      return result?.staged ?? 0;
+    } catch (e) {
+      console.error("Failed to stage import:", e);
+      addNotice({ type: "error", message: "Failed to stage imported queue" });
+      return null;
+    }
+  }, [addNotice]);
+
+  /** Move a queued message within its queue (clear + re-enqueue server-side). */
+  const moveQueuedMessage = useCallback(async (
+    kind: "steer" | "followUp",
+    fromIndex: number,
+    toIndex: number,
+  ): Promise<boolean> => {
+    const sid = sessionIdRef.current;
+    if (!sid) return false;
+    try {
+      const result = await sendAgentCommand<{ steering?: string[]; followUp?: string[] }>(sid, {
+        type: "move_queue",
+        kind,
+        fromIndex,
+        toIndex,
+      });
+      if (result) setQueuedMessages(normalizeQueuedMessages(result));
+      return true;
+    } catch (e) {
+      console.error("Failed to move queued message:", e);
+      addNotice({ type: "error", message: e instanceof Error ? e.message : "Failed to move queued message" });
+      return false;
+    }
+  }, [addNotice]);
+
+  /** Pull one queued message out (clear + re-enqueue the rest); returns its text + images. */
+  const recallQueuedMessage = useCallback(async (
+    kind: "steer" | "followUp",
+    index: number,
+  ): Promise<{ text: string; images?: ChatDraftImage[] } | null> => {
+    const sid = sessionIdRef.current;
+    if (!sid) return null;
+    try {
+      const result = await sendAgentCommand<{ entry?: { text: string; images?: Array<{ type: "image"; data: string; mimeType: string }> }; steering?: string[]; followUp?: string[] }>(sid, {
+        type: "recall_queue_item",
+        kind,
+        index,
+      });
+      if (result && (result.steering !== undefined || result.followUp !== undefined)) {
+        setQueuedMessages(normalizeQueuedMessages(result));
+      }
+      if (!result?.entry) return null;
+      return {
+        text: result.entry.text,
+        images: result.entry.images?.map((img) => ({
+          data: img.data,
+          mimeType: img.mimeType,
+        })),
+      };
+    } catch (e) {
+      console.error("Failed to recall queued message:", e);
+      addNotice({ type: "error", message: e instanceof Error ? e.message : "Failed to recall queued message" });
+      return null;
+    }
+  }, [addNotice]);
+
+  /** Insert an edited message back into the queue at its original position. */
+  const requeueAt = useCallback(async (
+    kind: "steer" | "followUp",
+    index: number,
+    text: string,
+    images?: ChatDraftImage[],
+  ): Promise<boolean> => {
+    const sid = sessionIdRef.current;
+    if (!sid) return false;
+    try {
+      const result = await sendAgentCommand<{ steering?: string[]; followUp?: string[] }>(sid, {
+        type: "requeue_at",
+        kind,
+        index,
+        text,
+        images: images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType })),
+      });
+      if (result) setQueuedMessages(normalizeQueuedMessages(result));
+      return true;
+    } catch (e) {
+      console.error("Failed to requeue message:", e);
+      addNotice({ type: "error", message: e instanceof Error ? e.message : "Failed to requeue message" });
+      return false;
+    }
+  }, [addNotice]);
+
+  /** Remove a single queued message (clear + re-enqueue the rest). */
+  const removeQueuedMessage = useCallback(async (
+    kind: "steer" | "followUp",
+    index: number,
+  ): Promise<boolean> => {
+    const sid = sessionIdRef.current;
+    if (!sid) return false;
+    try {
+      const result = await sendAgentCommand<{ steering?: string[]; followUp?: string[] }>(sid, {
+        type: "remove_queue_item",
+        kind,
+        index,
+      });
+      if (result) setQueuedMessages(normalizeQueuedMessages(result));
+      return true;
+    } catch (e) {
+      console.error("Failed to remove queued message:", e);
+      addNotice({ type: "error", message: e instanceof Error ? e.message : "Failed to remove queued message" });
+      return false;
+    }
+  }, [addNotice]);
+
   const handleThinkingLevelChange = useCallback(async (level: ThinkingLevelOption) => {
     setThinkingLevel(level);
     if (isNew && !sessionIdRef.current) {
@@ -1742,7 +2049,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (agentState.state.extensionStatuses !== undefined) setExtensionStatuses(agentState.state.extensionStatuses ?? []);
           if (agentState.state.extensionWidgets !== undefined) setExtensionWidgets(agentState.state.extensionWidgets ?? []);
           if (agentState.state.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(agentState.state.queuedMessages));
+          if (agentState.state.pendingRecovery !== undefined) setPendingRecovery(agentState.state.pendingRecovery ?? []);
         }
+        // After a restart there may be no wrapper yet; fetch the sidecar-based
+        // recovery list directly (no AgentSession is created for this read).
+        void fetch(`/api/sessions/${encodeURIComponent(session.id)}/queue-recovery`)
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data: { items?: PendingRecoveryItem[] } | null) => {
+            if (data?.items && sessionIdRef.current === session.id) {
+              setPendingRecovery(data.items);
+            }
+          })
+          .catch(() => { /* non-critical */ });
       });
     }
     return () => {
@@ -1840,8 +2158,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     data, loading, error, activeLeafId, messages, entryIds, streamState,
     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
-    isCompacting, compactError, compactResult, currentModel, displayModel, sessionStats,
+    isCompacting, compactError, compactResult, compactQueued, cancelCompactQueue, modelSwitchPending, currentModel, displayModel, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
+    pendingRecovery, recoveryIsImport, resolveRecovery, exportQueueData, importQueueData, stageImport,
+    moveQueuedMessage, recallQueuedMessage, requeueAt, removeQueuedMessage,
     notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,
     agentPhase,
