@@ -215,7 +215,7 @@ export function ScrollToolbar({
     if (end) {
       const endInContainer =
         end.getBoundingClientRect().top - c.getBoundingClientRect().top + c.scrollTop;
-      const spacerH = agentRunning ? 96 : 0;
+      const spacerH = agentRunning ? c.clientHeight * 0.75 : 0;
       // ≈40px visual keep-out below the last message (sentinel 28px + the
       // last message's own ~16px bottom margin → extra 40-28-16 = -4).
       const target = Math.max(0, endInContainer - spacerH - c.clientHeight - 4);

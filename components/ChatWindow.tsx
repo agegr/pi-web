@@ -725,12 +725,12 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             )}
 
             {agentRunning && (
-              /* Short buffer below the last message while the agent runs.
-                 Was a full viewport tall (clientHeight) — that put a whole
-                 blank screen under the message right after sending (the
-                 message is scrolled to the top). A small spacer keeps the
-                 scroll-lock intent without the white void. */
-              <div style={{ height: 96 }} />
+              /* Room below the last message while the agent runs so the
+                 follow-step can land the last message at the top 1/4 of the
+                 viewport with 3/4 of blank space below for the output to
+                 grow. (Was a full viewport, then 96px — both broke the step's
+                 landing.) */
+              <div style={{ height: scrollContainerRef.current ? scrollContainerRef.current.clientHeight * 0.75 : "60vh" }} />
             )}
 
             <div ref={messagesEndRef} />
