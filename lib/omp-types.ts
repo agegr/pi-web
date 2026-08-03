@@ -2,7 +2,7 @@ import type {
   AgentSessionEvent,
   SessionManager,
   Settings,
-  SlashCommandInfo,
+  SlashCommandInfo as OmpSlashCommandInfo,
   Theme,
 } from "@oh-my-pi/pi-coding-agent";
 
@@ -10,6 +10,19 @@ export interface ContextUsage {
   percent: number | null;
   contextWindow: number;
   tokens: number | null;
+}
+
+export type SlashCommandSource = "builtin" | "extension" | "prompt" | "skill" | "custom" | "mcp_prompt" | "file";
+
+export interface SlashCommandInfo {
+  name: string;
+  aliases?: string[];
+  description?: string;
+  input?: { hint: string };
+  subcommands?: Array<{ name: string; description?: string; usage?: string }>;
+  source: SlashCommandSource;
+  location?: "user" | "project" | "path";
+  path?: string;
 }
 
 export interface ModelLike {
@@ -49,7 +62,7 @@ export interface SessionStatsInfo {
 }
 
 /** Where a slash command came from, in the shape the browser consumes. */
-export type SlashCommandOrigin = Pick<SlashCommandInfo, "location" | "path">;
+export type SlashCommandOrigin = Pick<OmpSlashCommandInfo, "location" | "path">;
 
 interface PromptTemplateLike {
   name: string;

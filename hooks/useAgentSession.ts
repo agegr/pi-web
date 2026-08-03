@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo, useReducer } from "react";
 import type {
   AgentMessage,
+  CustomMessage,
   ExtensionStatusItem,
   ExtensionUiRequest,
   ExtensionWidgetItem,
@@ -10,9 +11,10 @@ import type {
   SessionTreeNode,
 } from "@/lib/types";
 import { normalizeToolCalls } from "@/lib/normalize";
+import { stripAnsi } from "@/lib/ansi";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
-import type { SessionStatsInfo } from "@/lib/omp-types";
+import type { SessionStatsInfo, SlashCommandInfo } from "@/lib/omp-types";
 import type { ModelRoleAssignment } from "@/lib/api-types";
 
 export interface SessionData {
@@ -122,22 +124,10 @@ export interface CompactResultInfo {
   estimatedTokensAfter: number;
 }
 
-export interface SlashCommandInfo {
-  name: string;
-  description?: string;
-  source: "extension" | "prompt" | "skill";
-  sourceInfo?: {
-    path: string;
-    source: string;
-    scope: "user" | "project" | "temporary";
-    origin: "package" | "top-level";
-    baseDir?: string;
-  };
-}
 
 export type BuiltinSlashCommandResult =
   | { handled: false }
-  | { handled: true; message?: string; error?: string; action?: "openSessionStats" };
+  | { handled: true; message?: string; error?: string; prompt?: string; action?: "openSessionStats" };
 
 export interface UseAgentSessionOptions {
   session: SessionInfo | null;
@@ -774,6 +764,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         type: notice.type ?? "info",
       },
     });
+  }, []);
+  const appendCommandOutput = useCallback((text: string) => {
+    const content = stripAnsi(text).trim();
+    const message: CustomMessage = {
+      role: "custom",
+      customType: "command",
+      content,
+      display: true,
+      timestamp: Date.now(),
+    };
+    setMessages((previous) => [...previous, message]);
   }, []);
 
   const handleExtensionUiRequest = useCallback((request: ExtensionUiRequest) => {
@@ -1595,15 +1596,30 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           return complete({ handled: true, message: "Copied last assistant message" });
         }
 
-        default:
-          return { handled: false };
+        default: {
+          if (!sid) return complete({ handled: true, error: "No active session" });
+          const result = await sendAgentCommand<{
+            handled: boolean;
+            output?: string[];
+            prompt?: string;
+          }>(sid, {
+            type: "execute_slash_command",
+            message: text,
+          });
+          if (!result?.handled) return { handled: false };
+          const output = result.output?.filter((line) => line.trim()).join("\n\n") ?? "";
+          if (output) appendCommandOutput(output);
+          if (result.prompt) return { handled: true, prompt: result.prompt };
+          if (output) return { handled: true };
+          return complete({ handled: true, message: "Command completed" });
+        }
       }
     } catch (e) {
       return complete({ handled: true, error: e instanceof Error ? e.message : String(e) });
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [addNotice, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionStatsPanelOpen]);
+  }, [addNotice, appendCommandOutput, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionStatsPanelOpen]);
 
   // Queued (undelivered) messages live in the queue panel only; the chat gets
   // the real user message when pi delivers it (user message_end event). An

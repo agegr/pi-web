@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
-import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
+import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages } from "@/hooks/useAgentSession";
 import type { ModelRoleAssignment } from "@/lib/api-types";
-import type { ContextUsage } from "@/lib/omp-types";
+import type { ContextUsage, SlashCommandInfo } from "@/lib/omp-types";
 import { clearDraft, getDraft, setDraft, type ChatDraftImage } from "@/lib/draft-store";
 import {
   MAX_ATTACHED_IMAGE_BYTES,
@@ -119,36 +119,44 @@ function formatTokenCount(tokens: number): string {
 }
 
 
-type SlashCommandPaletteItem = SlashCommandInfo | {
+type LocalBuiltinSlashCommand = {
   name: string;
-  description: string;
+  descriptionKey: string;
   source: "builtin";
 };
 
+type SlashCommandPaletteItem = SlashCommandInfo | LocalBuiltinSlashCommand;
+
 type SlashCommandSource = SlashCommandPaletteItem["source"];
 
-const BUILTIN_SLASH_COMMANDS: SlashCommandPaletteItem[] = [
-  { name: "compact", description: "chat.commandCompact", source: "builtin" },
-  { name: "reload", description: "chat.commandReload", source: "builtin" },
-  { name: "name", description: "chat.commandName", source: "builtin" },
-  { name: "session", description: "chat.commandSession", source: "builtin" },
-  { name: "copy", description: "chat.commandCopy", source: "builtin" },
+const BUILTIN_SLASH_COMMANDS: LocalBuiltinSlashCommand[] = [
+  { name: "compact", descriptionKey: "chat.commandCompact", source: "builtin" },
+  { name: "reload", descriptionKey: "chat.commandReload", source: "builtin" },
+  { name: "name", descriptionKey: "chat.commandName", source: "builtin" },
+  { name: "session", descriptionKey: "chat.commandSession", source: "builtin" },
+  { name: "copy", descriptionKey: "chat.commandCopy", source: "builtin" },
 ];
 
-const SLASH_SOURCES: SlashCommandSource[] = ["builtin", "extension", "prompt", "skill"];
+const SLASH_SOURCES: SlashCommandSource[] = ["builtin", "extension", "custom", "mcp_prompt", "prompt", "file", "skill"];
 
 const SLASH_SOURCE_GROUP_LABEL_KEYS: Record<SlashCommandSource, string> = {
   builtin: "chat.builtIn",
   extension: "chat.extensions",
+  custom: "chat.customCommands",
+  mcp_prompt: "chat.mcpPrompts",
   prompt: "chat.prompts",
+  file: "chat.fileCommands",
   skill: "chat.skills",
 };
 
 const SLASH_SOURCE_ORDER: Record<SlashCommandSource, number> = {
   builtin: 0,
   extension: 1,
-  prompt: 2,
-  skill: 3,
+  custom: 2,
+  mcp_prompt: 3,
+  prompt: 4,
+  file: 5,
+  skill: 6,
 };
 
 function slashMatchRank(command: SlashCommandPaletteItem, query: string, t: (key: string) => string): number {
@@ -162,7 +170,7 @@ function slashMatchRank(command: SlashCommandPaletteItem, query: string, t: (key
 }
 
 function getSlashDescription(command: SlashCommandPaletteItem, t: (key: string) => string): string {
-  return command.source === "builtin" ? t(command.description) : command.description ?? "";
+  return "descriptionKey" in command ? t(command.descriptionKey) : command.description ?? "";
 }
 
 function imageToDraftImage(image: AttachedImage): ChatDraftImage {
@@ -522,7 +530,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (!attachedImages.length && msg.startsWith("/") && onBuiltinCommand) {
       const result = await onBuiltinCommand(msg);
       if (result.handled) {
-        if (!result.error) clearInput();
+        if (!result.error) {
+          clearInput();
+          if (result.prompt) onSend(result.prompt);
+        }
         return;
       }
     }
@@ -537,6 +548,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const filteredSlashCommands = (() => {
     if (slashQuery === null) return [];
     const commands = [...(isStreaming ? [] : BUILTIN_SLASH_COMMANDS), ...(slashCommands ?? [])];
+    const seenNames = new Set<string>();
     return [...commands]
       .filter((command) => {
         const name = command.name.toLowerCase();
@@ -548,6 +560,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         if (rankDelta !== 0) return rankDelta;
         return SLASH_SOURCE_ORDER[a.source] - SLASH_SOURCE_ORDER[b.source]
           || MODEL_OPTION_COLLATOR.compare(a.name, b.name);
+      })
+      .filter((command) => {
+        const normalizedName = command.name.toLowerCase();
+        if (seenNames.has(normalizedName)) return false;
+        seenNames.add(normalizedName);
+        return true;
       });
   })();
 
@@ -1433,7 +1451,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                               }}>
                                 /{command.name}
                               </span>
-                               {command.description && (
+                              {getSlashDescription(command, t) && (
                                 <span style={{
                                   display: "-webkit-box",
                                   WebkitBoxOrient: "vertical",

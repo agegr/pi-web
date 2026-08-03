@@ -16,10 +16,10 @@ description: "Use when the user is debugging a bug, tracing an error, or asking 
 ## Workflow
 
 ```
-1. query({search_query: "<error or symptom>"})            → Find related execution flows
+1. query({query: "<error or symptom>"})            → Find related execution flows
 2. context({name: "<suspect>"})                    → See callers/callees/processes
 3. READ gitnexus://repo/{name}/process/{name}                → Trace execution flow
-4. cypher({statement: "MATCH path..."})                 → Custom traces if needed
+4. cypher({query: "MATCH path..."})                 → Custom traces if needed
 ```
 
 > If "Index is stale" → run `node .gitnexus/run.cjs analyze` in terminal.
@@ -45,14 +45,13 @@ description: "Use when the user is debugging a bug, tracing an error, or asking 
 | Intermittent failure | `context` → look for external calls, async deps            |
 | Performance issue    | `context` → find symbols with many callers (hot paths)     |
 | Recent regression    | `detect_changes` to see what your changes affect           |
-| "How does A reach B?" | `trace` between the two symbols — shortest call chain in one call |
 
 ## Tools
 
 **query** — find code related to error:
 
 ```
-query({search_query: "payment validation error"})
+query({query: "payment validation error"})
 → Processes: CheckoutFlow, ErrorHandling
 → Symbols: validatePayment, handlePaymentError, PaymentException
 ```
@@ -73,21 +72,10 @@ MATCH path = (a)-[:CodeRelation {type: 'CALLS'}*1..2]->(b:Function {name: "valid
 RETURN [n IN nodes(path) | n.name] AS chain
 ```
 
-**trace** — shortest call chain between two symbols ("how does A reach B?"), one call instead of chaining `context` hops:
-
-```
-trace({ from: "processCheckout", to: "fetchRates" })
-→ status: ok, hopCount: 3
-→ hops: processCheckout → validatePayment → verifyCard → fetchRates
-→ edges: CALLS (1.0), CALLS (0.95), CALLS (1.0)
-```
-
-When no path exists, `trace` reports the furthest reachable node — exactly where the chain breaks (dynamic dispatch, reflection, or an external boundary).
-
 ## Example: "Payment endpoint returns 500 intermittently"
 
 ```
-1. query({search_query: "payment error handling"})
+1. query({query: "payment error handling"})
    → Processes: CheckoutFlow, ErrorHandling
    → Symbols: validatePayment, handlePaymentError
 

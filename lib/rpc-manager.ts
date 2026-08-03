@@ -7,6 +7,9 @@ import {
   SessionManager,
   Theme,
 } from "@oh-my-pi/pi-coding-agent";
+import { buildAvailableSlashCommands } from "@oh-my-pi/pi-coding-agent/slash-commands/available-commands";
+import { BUILTIN_SLASH_COMMAND_DEFS } from "@oh-my-pi/pi-coding-agent/slash-commands/builtin-registry";
+import { executeAcpBuiltinSlashCommand, type AcpBuiltinSlashCommandResult } from "@oh-my-pi/pi-coding-agent/slash-commands/acp-builtins";
 import { discoverCustomToolPaths } from "@oh-my-pi/pi-coding-agent/extensibility/custom-tools";
 import { initializeExtensions } from "@oh-my-pi/pi-coding-agent/modes/runtime-init";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@oh-my-pi/pi-tui";
@@ -21,7 +24,7 @@ import { untrustedProjectSessionOptions } from "./project-trust";
 import { readDefaultModelRole } from "./model-roles";
 import { getOmpRuntime, getSettingsForCwd } from "./omp-runtime";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
-import type { SlashCommandInfo } from "@oh-my-pi/pi-coding-agent";
+import type { SlashCommandInfo } from "./omp-types";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./omp-types";
 import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS } from "./custom-ui-terminal";
@@ -121,6 +124,63 @@ function listTools(session: AgentSessionLike): ToolInfo[] {
     name,
     description: session.getToolByName(name)?.description ?? "",
   }));
+}
+
+type AvailableCommandsSession = Parameters<typeof buildAvailableSlashCommands>[0];
+
+function appendSlashCommand(
+  commands: SlashCommandInfo[],
+  seenNames: Set<string>,
+  command: SlashCommandInfo,
+): void {
+  const name = command.name.trim();
+  if (!name || seenNames.has(name)) return;
+  seenNames.add(name);
+  commands.push({ ...command, name });
+}
+
+/**
+ * Keep the browser palette aligned with omp's own command registry and
+ * discovery pipeline. The SDK's ACP list intentionally omits TUI-only
+ * commands; the web palette still exposes their canonical metadata because
+ * they are part of omp's user-facing slash-command surface.
+ */
+export async function getAvailableSlashCommands(session: AgentSessionLike): Promise<SlashCommandInfo[]> {
+  const commands: SlashCommandInfo[] = [];
+  const seenNames = new Set<string>();
+
+  for (const builtin of BUILTIN_SLASH_COMMAND_DEFS) {
+    const hint = builtin.inlineHint;
+    appendSlashCommand(commands, seenNames, {
+      name: builtin.name,
+      aliases: builtin.aliases,
+      description: builtin.description,
+      source: "builtin",
+      ...(hint ? { input: { hint } } : {}),
+      ...(builtin.subcommands ? { subcommands: builtin.subcommands } : {}),
+    });
+  }
+
+  const discovered = await buildAvailableSlashCommands(session as unknown as AvailableCommandsSession);
+  for (const command of discovered) {
+    // Builtins were taken from the complete registry above, including
+    // commands without an ACP/text-mode handler such as /plan and /handoff.
+    if (command.source === "builtin") continue;
+    appendSlashCommand(commands, seenNames, command);
+  }
+
+  // Prompt templates are a separate SDK resource from custom commands and
+  // file-based commands, so retain them explicitly in the browser contract.
+  for (const template of session.promptTemplates) {
+    appendSlashCommand(commands, seenNames, {
+      name: template.name,
+      description: template.description,
+      source: "prompt",
+      ...(template.source ? { path: template.source } : {}),
+    });
+  }
+
+  return commands;
 }
 
 // ============================================================================
@@ -258,7 +318,7 @@ export class AgentSessionWrapper {
   }
 
   private shouldWaitForExtensions(type: string): boolean {
-    return type === "prompt" || type === "steer" || type === "follow_up" || type === "get_commands";
+    return type === "prompt" || type === "steer" || type === "follow_up" || type === "get_commands" || type === "execute_slash_command";
   }
 
   private async withFinalRunningNotification<T>(operation: () => Promise<T>): Promise<T> {
@@ -550,32 +610,37 @@ export class AgentSessionWrapper {
       }
 
       case "get_commands": {
-        const commands: SlashCommandInfo[] = [];
-        for (const registered of this.inner.extensionRunner?.getRegisteredCommands() ?? []) {
-          commands.push({
-            name: registered.name,
-            description: registered.description,
-            source: "extension",
-          });
-        }
-        for (const template of this.inner.promptTemplates) {
-          commands.push({
-            name: template.name,
-            description: template.description,
-            source: "prompt",
-            ...(template.source ? { path: template.source } : {}),
-          });
-        }
-        for (const skill of this.inner.skills) {
-          commands.push({
-            name: `skill:${skill.name}`,
-            description: skill.description,
-            source: "skill",
-            ...(skill.filePath ? { path: skill.filePath } : {}),
-          });
-        }
-        return { commands };
+        return { commands: await getAvailableSlashCommands(this.inner) };
       }
+      case "execute_slash_command": {
+        const output: string[] = [];
+        const result: AcpBuiltinSlashCommandResult = await executeAcpBuiltinSlashCommand(command.message as string, {
+          session: this.inner as never,
+          sessionManager: this.inner.sessionManager,
+          settings: this.inner.settings,
+          cwd: this.cwd,
+          output: (text) => {
+            output.push(text);
+          },
+          refreshCommands: () => {},
+          reloadPlugins: async () => {
+            await this.waitForExtensionsBound();
+            this.extensionStatuses.clear();
+            this.extensionWidgets.clear();
+            await this.inner.reload();
+            await this.inner.refreshSkills?.();
+            this.applyForcedEmptySystemPrompt();
+            invalidateModelsCache();
+          },
+        });
+        if (result === false) return { handled: false, output };
+        return {
+          handled: true,
+          output,
+          ...("prompt" in result ? { prompt: result.prompt } : {}),
+        };
+      }
+
 
       case "set_tools": {
         const toolNames = command.toolNames as string[];
