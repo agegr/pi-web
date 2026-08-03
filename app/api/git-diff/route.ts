@@ -32,6 +32,31 @@ function sumNumstat(output: string): { added: number; deleted: number } {
   return { added, deleted };
 }
 
+/** Parse `git diff --numstat` output into a path→{added,deleted} map. */
+function numstatMap(output: string): Map<string, { added: number; deleted: number }> {
+  const m = new Map<string, { added: number; deleted: number }>();
+  for (const line of output.split("\n")) {
+    if (!line.trim()) continue;
+    const parts = line.split("\t");
+    if (parts.length < 3) continue;
+    const a = parseInt(parts[0], 10);
+    const d = parseInt(parts[1], 10);
+    m.set(parts[2], {
+      added: Number.isFinite(a) ? a : 0,
+      deleted: Number.isFinite(d) ? d : 0,
+    });
+  }
+  return m;
+}
+
+interface GitFileEntry {
+  path: string;
+  status: string;
+  where: "unstaged" | "staged" | "untracked";
+  added: number;
+  deleted: number;
+}
+
 // GET /api/git-diff?cwd=... — returns line-level diff stats + branch + file counts.
 export async function GET(req: Request) {
   try {
@@ -53,6 +78,7 @@ export async function GET(req: Request) {
         modified: 0,
         staged: 0,
         untracked: 0,
+        files: [],
       });
     }
 
@@ -85,57 +111,38 @@ export async function GET(req: Request) {
     let modified = 0;
     let stagedCount = 0;
     let untracked = 0;
+    // File-level list for click-to-expand in inspector. XY = index/worktree status.
+    // ?? = untracked; R/C = rename/copy (path kept as-is, may contain " -> ").
+    const files: GitFileEntry[] = [];
     try {
-      const status = await git(cwd, ["status", "--porcelain"]);
-      for (const line of status.split("\n")) {
+      const porcelain = await git(cwd, ["status", "--porcelain"]);
+      const unstagedNS = numstatMap(await git(cwd, ["diff", "--numstat"]).catch(() => ""));
+      const stagedNS = numstatMap(
+        await git(cwd, ["diff", "--cached", "--numstat"]).catch(() => ""),
+      );
+      for (const line of porcelain.split("\n")) {
         if (line.length < 2) continue;
         const x = line[0];
         const y = line[1];
-        if (x === "?" && y === "?") untracked++;
-        else {
-          if (x !== " " && x !== "?") stagedCount++;
-          if (y !== " " && y !== "?") modified++;
+        if (x === "?" && y === "?") {
+          untracked++;
+          if (line.length >= 4) {
+            files.push({
+              path: line.slice(3),
+              status: "??",
+              where: "untracked",
+              added: 0,
+              deleted: 0,
+            });
+          }
+          continue;
         }
-      }
-
-      const files: Array<{
-        path: string;
-        status: string;
-        where: "unstaged" | "staged" | "untracked";
-        added: number;
-        deleted: number;
-      }> = [];
-      const numstatMap = (out: string) => {
-        const m = new Map<string, { added: number; deleted: number }>();
-        for (const line of out.split("\n")) {
-          if (!line.trim()) continue;
-          const parts = line.split("\t");
-          if (parts.length < 3) continue;
-          const a = parseInt(parts[0], 10);
-          const d = parseInt(parts[1], 10);
-          m.set(parts[2], {
-            added: Number.isFinite(a) ? a : 0,
-            deleted: Number.isFinite(d) ? d : 0,
-          });
-        }
-        return m;
-      };
-      // File-level list for click-to-expand in inspector. XY = index/worktree status.
-      // ?? = untracked; R/C = rename/copy (path kept as-is, may contain " -> ").
-      try {
-        const porcelain = await git(cwd, ["status", "--porcelain"]);
-        const unstagedNS = numstatMap(await git(cwd, ["diff", "--numstat"]).catch(() => ""));
-        const stagedNS = numstatMap(
-          await git(cwd, ["diff", "--cached", "--numstat"]).catch(() => ""),
-        );
-        for (const line of porcelain.split("\n")) {
-          if (line.length < 4) continue;
-          const x = line[0];
-          const y = line[1];
+        if (x !== " " && x !== "?") stagedCount++;
+        if (y !== " " && y !== "?") modified++;
+        // File-level (skip rows that are too short to contain a path)
+        if (line.length >= 4) {
           const path = line.slice(3);
-          if (x === "?" && y === "?") {
-            files.push({ path, status: "??", where: "untracked", added: 0, deleted: 0 });
-          } else if (x !== " " && x !== "?") {
+          if (x !== " " && x !== "?") {
             const n = stagedNS.get(path) ?? { added: 0, deleted: 0 };
             files.push({ path, status: x, where: "staged", ...n });
           } else if (y !== " " && y !== "?") {
@@ -144,20 +151,10 @@ export async function GET(req: Request) {
           }
           // R/C rename/copy: status="R"/"C" with path possibly containing " -> " — kept as-is above.
         }
-      } catch {
-        /* ignore file-level errors; aggregate counts still returned */
       }
     } catch {
-      /* ignore */
+      /* ignore file-level errors; aggregate counts still returned */
     }
-
-    const files: Array<{
-      path: string;
-      status: string;
-      where: "unstaged" | "staged" | "untracked";
-      added: number;
-      deleted: number;
-    }> = [];
 
     return NextResponse.json({
       isGit: true,

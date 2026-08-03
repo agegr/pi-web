@@ -38,7 +38,10 @@ export function registerBuiltinExtensions(): void {
           id: "inspector",
           title: "inspector.panel",
           order: 1200,
-          render: (ctx) => <InspectorPanel cwd={ctx.cwd ?? null} />,
+          render: (ctx) => (
+            // —— 跟随上游适配：inspector 需要 sessionId 以支持「让 agent 提交」注入 prompt。
+            <InspectorPanel cwd={ctx.cwd ?? null} sessionId={ctx.session?.id ?? null} />
+          ),
         },
         {
           id: "prompts",

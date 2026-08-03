@@ -1,10 +1,23 @@
 "use client";
 
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useAgentRuntime } from "@/lib/agent-runtime-store";
+import { usePersistentState } from "@/hooks/usePersistentState";
+import { sendAgentCommand } from "@/lib/agent-client";
+import { MiniToggle } from "@/components/ui/MiniToggle";
 
 // ---- Types ----
+
+type FileWhere = "unstaged" | "staged" | "untracked";
+
+interface GitFile {
+  path: string;
+  status: string;
+  where: FileWhere;
+  added: number;
+  deleted: number;
+}
 
 interface GitDiffData {
   isGit: boolean;
@@ -14,17 +27,18 @@ interface GitDiffData {
   modified: number;
   staged: number;
   untracked: number;
+  files: GitFile[];
 }
 
 // ---- Component ----
 
 /**
- * Inspector panel（专注 Git）— git 变更统计 + 分支。
+ * Inspector panel（专注 Git）— git 变更统计 + 文件级 diff + 分支 + 注入提交。
  *
  * 方案C（docs/TODO-INSPECTOR-CLEANUP.md）：inspector 升格为唯一 Git 面板。
  * 任务展示交 TodoPanel，git-status 扩展降级为入口（action+label）。
- * 本面板只读展示 /api/git-diff 的聚合统计（+/- 行数、modified/staged/untracked
- * 计数、分支名）。
+ * 本面板读 /api/git-diff（聚合统计 + 文件级列表），可点开分组看文件列表，
+ * 三点菜单支持「让 agent 提交」（注入 prompt，非直接 git）+ git 轮询开关。
  *
  * 已删除（方案C P0）：
  *   - 任务区（ProgressRing / InspectorTaskRow / 进度环）→ 迁 TodoPanel（P1）
@@ -32,7 +46,13 @@ interface GitDiffData {
  *   - pin / open / onToggle / 收起态 pill 残留（容器 WorkspacePanelsHost 接管显隐）
  *   - TodoTask / reloadTodos（todo 数据层交 useTodoTasks）
  */
-export const InspectorPanel = memo(function InspectorPanel({ cwd }: { cwd: string | null }) {
+export const InspectorPanel = memo(function InspectorPanel({
+  cwd,
+  sessionId,
+}: {
+  cwd: string | null;
+  sessionId: string | null;
+}) {
   const { t } = useI18n();
   const runtime = useAgentRuntime();
   const [gitData, setGitData] = useState<GitDiffData | null>(null);
@@ -44,6 +64,20 @@ export const InspectorPanel = memo(function InspectorPanel({ cwd }: { cwd: strin
   const [gitLoading, setGitLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+
+  // L2 功能开关：git 轮询（默认开）。关闭后停止定时 fetch，"Xs ago" 也不再更新；
+  // 手动 reload 与 agent 结束触发仍可工作。
+  const [gitPolling, setGitPolling] = usePersistentState<boolean>("pi-inspector-git-polling", true);
+
+  // 三段分组（unstaged/staged/untracked）展开状态。默认全部展开，便于一眼看完。
+  const [expanded, setExpanded] = useState<Record<FileWhere, boolean>>({
+    unstaged: true,
+    staged: true,
+    untracked: true,
+  });
+
+  // 「让 agent 提交」按钮反馈：注入 prompt 后短暂禁用避免重复点。
+  const [committing, setCommitting] = useState(false);
 
   // ---- Git data fetching ----
   const reloadGit = useCallback(async () => {
@@ -57,7 +91,8 @@ export const InspectorPanel = memo(function InspectorPanel({ cwd }: { cwd: strin
         setGitLoading(false);
         return;
       }
-      setGitData(await res.json());
+      const data = (await res.json()) as GitDiffData;
+      setGitData(data);
       setLastGitFetchAt(Date.now());
     } catch {
       /* best-effort */
@@ -65,20 +100,24 @@ export const InspectorPanel = memo(function InspectorPanel({ cwd }: { cwd: strin
     setGitLoading(false);
   }, [cwd]);
 
-  // Initial load + git polling (10s)
+  // Initial load + git polling (10s)，可通过 L2 开关关闭。
   useEffect(() => {
     void reloadGit();
+    if (!gitPolling) return;
     const interval = setInterval(() => void reloadGit(), 10_000);
     return () => clearInterval(interval);
-  }, [reloadGit]);
+  }, [reloadGit, gitPolling]);
 
-  // Tick every 5s so the "Xs ago" label advances visually between real git refreshes.
+  // Tick every 5s so the "Xs ago" label advances visually between real git refreshes
+  // — only when polling is on, to avoid giving a false sense of freshness.
   useEffect(() => {
+    if (!gitPolling) return;
     const id = setInterval(() => setNow(Date.now()), 5_000);
     return () => clearInterval(id);
-  }, []);
+  }, [gitPolling]);
 
-  // Re-fetch when agent finishes a run (files may have changed).
+  // Re-fetch when agent finishes a run (files may have changed). Still triggered even
+  // when polling is off so the panel doesn't go stale after each agent turn.
   useEffect(() => {
     if (!runtime.agentRunning) void reloadGit();
   }, [runtime.agentRunning, reloadGit]);
@@ -93,9 +132,45 @@ export const InspectorPanel = memo(function InspectorPanel({ cwd }: { cwd: strin
     return () => document.removeEventListener("mousedown", onDown);
   }, [menuOpen]);
 
+  // ---- Group files by where ----
+  const grouped = useMemo(() => {
+    const out: Record<FileWhere, GitFile[]> = { unstaged: [], staged: [], untracked: [] };
+    if (gitData?.isGit) {
+      for (const f of gitData.files) out[f.where].push(f);
+      // Sort each group by path for stable rendering
+      for (const k of Object.keys(out) as FileWhere[]) {
+        out[k].sort((a, b) => a.path.localeCompare(b.path));
+      }
+    }
+    return out;
+  }, [gitData]);
+
   const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
   // Type-narrowed alias: if git is non-null, gitData is a valid GitDiffData.
   const git = gitData?.isGit === true ? gitData : null;
+  const agentRunning = runtime.agentRunning;
+  const canCommit = !!sessionId && !agentRunning && !committing && !!git;
+
+  // ---- 「让 agent 提交」：注入 prompt 让 agent 自行 git add/commit ----
+  const handleCommit = useCallback(async () => {
+    if (!sessionId || committing) return;
+    setCommitting(true);
+    setMenuOpen(false);
+    try {
+      await sendAgentCommand(sessionId, {
+        type: "prompt",
+        message:
+          "请提交当前工作区的变更（git add -A 后 git commit，message 用一句话概括本次改动；如有远端配置可顺手 push，但不要 push --force）。完成后回复 summary。",
+      });
+    } catch {
+      /* swallow — agent may not be ready; user can retry */
+    } finally {
+      // Reset after a short delay so the button doesn't re-enable during prompt arrival.
+      setTimeout(() => setCommitting(false), 1500);
+    }
+  }, [sessionId, committing]);
+
+  const toggleExpanded = (k: FileWhere) => setExpanded((s) => ({ ...s, [k]: !s[k] }));
 
   return (
     <div
@@ -178,7 +253,7 @@ export const InspectorPanel = memo(function InspectorPanel({ cwd }: { cwd: strin
                   position: "absolute",
                   top: "calc(100% + 6px)",
                   right: 0,
-                  minWidth: 200,
+                  minWidth: 220,
                   padding: 4,
                   background: "color-mix(in srgb, var(--bg-panel) 96%, transparent)",
                   backdropFilter: "blur(14px) saturate(160%)",
@@ -195,7 +270,6 @@ export const InspectorPanel = memo(function InspectorPanel({ cwd }: { cwd: strin
                     void reloadGit();
                     setMenuOpen(false);
                   }}
-                  checked={false}
                   icon={
                     <svg
                       width="13"
@@ -211,6 +285,49 @@ export const InspectorPanel = memo(function InspectorPanel({ cwd }: { cwd: strin
                     </svg>
                   }
                   label={t("common.refresh")}
+                />
+                <MenuItem
+                  onClick={() => {
+                    void handleCommit();
+                  }}
+                  disabled={!canCommit}
+                  icon={
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M12 2v20M5 9l7-7 7 7" />
+                    </svg>
+                  }
+                  label={
+                    committing
+                      ? t("inspector.commitPending")
+                      : agentRunning
+                        ? t("inspector.commitBusy")
+                        : !sessionId
+                          ? t("inspector.commitNoSession")
+                          : !git
+                            ? t("inspector.commitNoGit")
+                            : t("inspector.commitAskAgent")
+                  }
+                />
+                <div
+                  style={{
+                    height: 1,
+                    margin: "4px 6px",
+                    background: "var(--border)",
+                  }}
+                />
+                <ToggleRow
+                  enabled={gitPolling}
+                  onToggle={() => setGitPolling(!gitPolling)}
+                  label={t("inspector.gitPolling")}
                 />
               </div>
             )}
@@ -316,70 +433,49 @@ export const InspectorPanel = memo(function InspectorPanel({ cwd }: { cwd: strin
               −{fmt(git.deleted)}
             </span>
           </div>
-          {/* Sub-detail: file counts (semantic colors) */}
+
+          {/* Sub-detail: file counts (semantic colors) — each is a click target for expand/collapse */}
           <div
             style={{
               display: "flex",
-              gap: 10,
-              padding: "0 14px 8px 44px",
-              fontSize: 10,
-              color: "var(--text-dim)",
+              flexDirection: "column",
+              gap: 0,
+              padding: "0 14px 6px 44px",
             }}
           >
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-              <span
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  background: git.modified > 0 ? "var(--git-modified)" : "var(--border)",
-                }}
-              />
-              <span
-                style={{
-                  color: git.modified > 0 ? "var(--git-modified)" : "var(--text-dim)",
-                  fontWeight: git.modified > 0 ? 500 : 400,
-                }}
-              >
-                {t("inspector.modified")}: {git.modified}
-              </span>
-            </span>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-              <span
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  background: git.staged > 0 ? "var(--accent)" : "var(--border)",
-                }}
-              />
-              <span
-                style={{
-                  color: git.staged > 0 ? "var(--accent)" : "var(--text-dim)",
-                  fontWeight: git.staged > 0 ? 500 : 400,
-                }}
-              >
-                {t("inspector.staged")}: {git.staged}
-              </span>
-            </span>
+            <FileCountRow
+              where="unstaged"
+              label={t("inspector.modified")}
+              count={git.modified}
+              files={grouped.unstaged}
+              expanded={expanded.unstaged}
+              onToggle={() => toggleExpanded("unstaged")}
+              accent="var(--git-modified)"
+            />
+            <FileCountRow
+              where="staged"
+              label={t("inspector.staged")}
+              count={git.staged}
+              files={grouped.staged}
+              expanded={expanded.staged}
+              onToggle={() => toggleExpanded("staged")}
+              accent="var(--accent)"
+            />
             {git.untracked > 0 && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                <span
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: "50%",
-                    background: "var(--git-untracked)",
-                  }}
-                />
-                <span style={{ color: "var(--git-untracked)", fontWeight: 500 }}>
-                  {t("inspector.untracked")}: {git.untracked}
-                </span>
-              </span>
+              <FileCountRow
+                where="untracked"
+                label={t("inspector.untracked")}
+                count={git.untracked}
+                files={grouped.untracked}
+                expanded={expanded.untracked}
+                onToggle={() => toggleExpanded("untracked")}
+                accent="var(--git-untracked)"
+              />
             )}
           </div>
-          {/* "Xs ago" indicator */}
-          {lastGitFetchAt && (
+
+          {/* "Xs ago" indicator — hidden when polling is off (avoid fake freshness) */}
+          {gitPolling && lastGitFetchAt && (
             <div
               data-now-tick={now}
               style={{
@@ -554,18 +650,181 @@ export const InspectorPanel = memo(function InspectorPanel({ cwd }: { cwd: strin
   );
 });
 
+// ---- File count row (clickable, expands to show file list) ----
+
+function FileCountRow({
+  label,
+  count,
+  files,
+  expanded,
+  onToggle,
+  accent,
+}: {
+  where: FileWhere;
+  label: string;
+  count: number;
+  files: GitFile[];
+  expanded: boolean;
+  onToggle: () => void;
+  accent: string;
+}) {
+  const [hover, setHover] = useState(false);
+  // Hide row entirely when there are no files in this bucket (e.g. 0 untracked).
+  if (count === 0 && files.length === 0) return null;
+  const hasFiles = files.length > 0;
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        aria-expanded={expanded}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 4,
+          padding: "2px 4px",
+          marginLeft: -4,
+          border: "none",
+          borderRadius: 4,
+          background: hover ? "var(--bg-hover)" : "transparent",
+          color: count > 0 ? accent : "var(--text-dim)",
+          fontSize: 10,
+          fontWeight: count > 0 ? 500 : 400,
+          cursor: hasFiles ? "pointer" : "default",
+        }}
+      >
+        <span
+          style={{
+            width: 8,
+            height: 8,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: hasFiles ? 0.7 : 0,
+            transition: "transform 0.15s",
+            transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
+          }}
+        >
+          <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M9 6l6 6-6 6"
+              stroke="currentColor"
+              strokeWidth="3"
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: count > 0 ? accent : "var(--border)",
+          }}
+        />
+        <span>
+          {label}: {count}
+        </span>
+      </button>
+      {expanded && hasFiles && (
+        <div style={{ marginTop: 2, marginBottom: 4 }}>
+          {files.map((f) => (
+            <FileRow key={`${f.where}:${f.path}`} file={f} accent={accent} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Single file row (path + +/- + status) ----
+
+function FileRow({ file, accent }: { file: GitFile; accent: string }) {
+  const [hover, setHover] = useState(false);
+  const isUntracked = file.where === "untracked";
+  const showCounts = !isUntracked && (file.added > 0 || file.deleted > 0);
+  return (
+    <div
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      title={file.path}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "2px 4px",
+        borderRadius: 4,
+        background: hover ? "var(--bg-hover)" : "transparent",
+        fontSize: 10,
+        fontFamily: "var(--font-mono)",
+        lineHeight: 1.5,
+      }}
+    >
+      <span
+        style={{
+          flexShrink: 0,
+          minWidth: 14,
+          textAlign: "center",
+          color: accent,
+          fontWeight: 600,
+        }}
+      >
+        {file.status === "??" ? "??" : file.status}
+      </span>
+      <span
+        style={{
+          flex: 1,
+          minWidth: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          color: "var(--text)",
+          direction: "rtl", // keep filename tail visible when truncating long paths
+          textAlign: "left",
+        }}
+      >
+        {file.path}
+      </span>
+      {showCounts ? (
+        <span
+          style={{
+            flexShrink: 0,
+            fontVariantNumeric: "tabular-nums",
+            fontSize: 9,
+            color: "var(--text-dim)",
+          }}
+        >
+          <span style={{ color: "var(--git-added)" }}>+{file.added}</span>
+          {file.deleted > 0 && (
+            <>
+              <span style={{ color: "var(--text-dim)", margin: "0 1px" }}>·</span>
+              <span style={{ color: "var(--git-deleted)" }}>−{file.deleted}</span>
+            </>
+          )}
+        </span>
+      ) : (
+        <span style={{ flexShrink: 0, width: 1 }} />
+      )}
+    </div>
+  );
+}
+
 // ---- Menu item helper ----
 
 function MenuItem({
   onClick,
   label,
   icon,
-  checked,
+  disabled,
 }: {
   onClick: () => void;
   label: string;
   icon: React.ReactNode;
-  checked: boolean;
+  disabled?: boolean;
 }) {
   const [hover, setHover] = useState(false);
   return (
@@ -573,6 +832,7 @@ function MenuItem({
       onClick={onClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
+      disabled={disabled}
       role="menuitem"
       style={{
         width: "100%",
@@ -582,11 +842,12 @@ function MenuItem({
         padding: "7px 10px",
         border: "none",
         borderRadius: 7,
-        background: hover ? "var(--bg-hover)" : "transparent",
-        color: "var(--text)",
-        cursor: "pointer",
+        background: hover && !disabled ? "var(--bg-hover)" : "transparent",
+        color: disabled ? "var(--text-dim)" : "var(--text)",
+        cursor: disabled ? "not-allowed" : "pointer",
         fontSize: 12,
         textAlign: "left",
+        opacity: disabled ? 0.6 : 1,
         transition: "background 0.1s",
       }}
     >
@@ -602,22 +863,35 @@ function MenuItem({
         {icon}
       </span>
       <span style={{ flex: 1 }}>{label}</span>
-      {checked && (
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          style={{ color: "var(--accent)" }}
-        >
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
-      )}
     </button>
+  );
+}
+
+// ---- Toggle row for L2 switches inside the menu ----
+
+function ToggleRow({
+  enabled,
+  onToggle,
+  label,
+}: {
+  enabled: boolean;
+  onToggle: () => void;
+  label: string;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 9,
+        padding: "6px 10px",
+        fontSize: 12,
+        color: "var(--text)",
+      }}
+    >
+      <span style={{ flex: 1 }}>{label}</span>
+      <MiniToggle enabled={enabled} onToggle={onToggle} ariaLabel={label} />
+    </div>
   );
 }
 
