@@ -8,6 +8,7 @@ import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantB
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
+import { ScrollToolbar } from "./ScrollToolbar";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { useI18n } from "@/hooks/useI18n";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
@@ -196,6 +197,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     chatInputRef?.current?.insertIfEmpty(content);
   }, [chatInputRef]);
 
+  // Follow-streaming toggle (long-press on the 'latest' scroll button).
+  const followStreamingRef = useRef<boolean>(false);
+
   const {
     loading, error, messages, entryIds, streamState,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
@@ -216,6 +220,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   } = useAgentSession({
     session, newSessionCwd, onAgentEnd: wrappedOnAgentEnd, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
+    followStreamingRef,
   });
   const sessionBusy = agentRunning || bashRunning;
 
@@ -720,13 +725,29 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             )}
 
             {agentRunning && (
-              <div style={{ height: scrollContainerRef.current ? scrollContainerRef.current.clientHeight : "80vh" }} />
+              /* Short buffer below the last message while the agent runs.
+                 Was a full viewport tall (clientHeight) — that put a whole
+                 blank screen under the message right after sending (the
+                 message is scrolled to the top). A small spacer keeps the
+                 scroll-lock intent without the white void. */
+              <div style={{ height: 96 }} />
             )}
 
             <div ref={messagesEndRef} />
             </div>
           </div>
         </div>
+        <ScrollToolbar
+          scrollContainerRef={scrollContainerRef}
+          messagesEndRef={messagesEndRef}
+          messageRefs={messageRefs}
+          visibleMessages={visibleMessages}
+          messagesLength={messages.length}
+          agentRunning={agentRunning}
+          isMobile={isMobile}
+          setVisibleCount={setVisibleCount}
+          followStreamingRef={followStreamingRef}
+        />
         {isMobile ? null : (
           <ChatMinimap
             messages={messages}
