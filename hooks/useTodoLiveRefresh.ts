@@ -6,8 +6,8 @@ import { getAgentEventBus } from "@/lib/extensions/event-bus";
 /**
  * Auto-reload todo data when the agent's `todo` tool completes in this session.
  *
- * Without this hook, todo consumers (InspectorPanel / TodoBadge / TodoPanel /
- * TodoSidebar) only re-fetch on mount and after `agentRunning` flips false —
+ * Without this hook, todo consumers (InspectorPanel / TodoBadge / TodoPanel)
+ * only re-fetch on mount and after `agentRunning` flips false —
  * which means mid-run todo updates only appear after the agent finishes. With
  * this hook, every `tool_execution_end` for the `todo` tool triggers a reload,
  * so the panel stays in sync while the agent is still working.
