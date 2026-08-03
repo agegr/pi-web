@@ -7,6 +7,27 @@ This repo publishes two artifacts for each release:
 
 Use this checklist from a clean `main` checkout.
 
+## Automated npm publishing
+
+Pushing a version tag matching `v*` starts
+`.github/workflows/publish-npm.yml`. The workflow:
+
+1. Checks that the tag version matches `package.json`.
+2. Installs dependencies with Bun and runs the production build.
+3. Publishes `omp-web` to npm with provenance.
+
+Before the first release, configure npm trusted publishing for
+`ddallabenetta/omp-web`:
+
+- workflow file: `.github/workflows/publish-npm.yml`
+- GitHub environment: `npm`
+- publisher: GitHub Actions
+
+The npm package must be configured to trust this repository and workflow, and
+the repository's `npm` environment must permit the release job to run. No npm
+token is stored in GitHub Actions.
+
+
 ## 1. Preflight
 
 ```bash
