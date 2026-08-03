@@ -368,8 +368,14 @@ export function ChatWindow({
       const tryScroll = () => {
         const el = document.querySelector<HTMLElement>(`[data-entry-id="${entryId}"]`);
         if (el || attempts-- <= 0) {
-          if (el) scrollIntoView(el);
-          else scrollTo(entryId);
+          if (el) {
+            // 非 attachRef 消息包的是 display:contents div（无布局盒，scrollIntoView 无效），
+            // 滚到其子元素（MessageView 根，有盒子）。
+            const target = (el.firstElementChild as HTMLElement | null) ?? el;
+            scrollIntoView(target);
+          } else {
+            scrollTo(entryId);
+          }
           return;
         }
         requestAnimationFrame(tryScroll);
