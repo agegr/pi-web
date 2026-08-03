@@ -1865,6 +1865,44 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   +{queueCount - 1}
                 </span>
               )}
+              {/* First message is a follow-up: expose a steer-send button right in
+                  the collapsed bar (same action as the row button), always
+                  clickable without expanding. */}
+              {!queuedMessages?.steering?.[0] && queuedMessages?.followUp?.[0] && (
+                <button
+                  aria-label="queueSteerSendFirst"
+                  title={t("chat.queueSteerSend")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onQueueSteerSend?.(queuedMessages?.followUp?.[0] ?? "");
+                    void handleRemoveQueueItem("followUp", 0);
+                  }}
+                  style={{
+                    flexShrink: 0,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 20,
+                    height: 20,
+                    padding: 0,
+                    border: "none",
+                    borderRadius: 5,
+                    background: "transparent",
+                    color: "rgba(180,130,0,1)",
+                    cursor: "pointer",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "rgba(234,179,8,0.12)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "transparent";
+                  }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 12h14" /><polyline points="12 5 19 12 12 19" />
+                  </svg>
+                </button>
+              )}
             </div>
           )}
             {!queueCollapsed && queuedMessages?.steering.map((text, i) => (
