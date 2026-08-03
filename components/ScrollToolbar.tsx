@@ -268,6 +268,12 @@ export function ScrollToolbar({
         if (!el) continue;
         const elTop = el.getBoundingClientRect().top - c.getBoundingClientRect().top + c.scrollTop;
         c.scrollTo({ top: Math.max(0, elTop - 24), behavior: "smooth" });
+        // Reveal the target message's action menu (copy/edit/new-session) —
+        // the same state a real mouse-over produces. The synthetic mouseover
+        // must bubble THROUGH the message container that owns onMouseEnter;
+        // messageRefs points at the wrapper div around the message, so target
+        // its first child (the actual message container).
+        (el.firstElementChild ?? el).dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
         return;
       }
     } else {
@@ -287,6 +293,8 @@ export function ScrollToolbar({
         if (!el) continue;
         const elTop = el.getBoundingClientRect().top - c.getBoundingClientRect().top + c.scrollTop;
         c.scrollTo({ top: Math.max(0, elTop - 24), behavior: "smooth" });
+        // Reveal the target message's action menu (see prev branch).
+        (el.firstElementChild ?? el).dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
         return;
       }
     }
