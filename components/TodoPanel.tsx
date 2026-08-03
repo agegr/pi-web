@@ -1,62 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { useTodoLiveRefresh } from "@/hooks/useTodoLiveRefresh";
-import { useAgentRuntime } from "@/lib/agent-runtime-store";
-
-interface TodoTask {
-  id: number;
-  subject: string;
-  description?: string;
-  activeForm?: string;
-  status: "pending" | "in_progress" | "completed" | "deleted";
-  blockedBy?: number[];
-  owner?: string;
-}
+import { useTodoTasks } from "@/hooks/useTodoTasks";
+import type { TodoTask } from "@/lib/todo-types";
 
 /**
  * Todo panel — reads the latest todo snapshot from the current session branch.
  *
- * Data comes from rpiv-todo's persisted tool-result details (branch replay).
- * The panel is read-only display; mutations happen through the agent conversation.
+ * 数据来源：上游插件 @juicesharp/rpiv-todo 的 tool-result details（只读展示）。
+ * mutations happen through the agent conversation. 数据获取/刷新统一走 useTodoTasks。
  */
 export function TodoPanel() {
   const { t } = useI18n();
-  const runtime = useAgentRuntime();
-  const sessionId = runtime.sessionId;
-  const [tasks, setTasks] = useState<TodoTask[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const reload = useCallback(async () => {
-    if (!sessionId) {
-      setTasks([]);
-      setLoading(false);
-      return;
-    }
-    try {
-      const res = await fetch(`/api/task-list?sessionId=${encodeURIComponent(sessionId)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = (await res.json()) as { tasks: TodoTask[] };
-      setTasks(d.tasks ?? []);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [sessionId]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-  // Live refresh — re-fetch when the agent's `todo` tool completes in this session.
-  useTodoLiveRefresh(sessionId, reload);
-  // Re-fetch when agent finishes a run (new todo tool calls may have happened).
-  useEffect(() => {
-    if (!runtime.agentRunning && sessionId) void reload();
-  }, [runtime.agentRunning, sessionId, reload]);
+  const { tasks, loading, error, reload } = useTodoTasks();
 
   if (loading)
     return (

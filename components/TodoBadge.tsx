@@ -1,53 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { useTodoLiveRefresh } from "@/hooks/useTodoLiveRefresh";
-import { useAgentRuntime } from "@/lib/agent-runtime-store";
-
-interface TodoTask {
-  id: number;
-  subject: string;
-  activeForm?: string;
-  status: "pending" | "in_progress" | "completed" | "deleted";
-}
+import { useTodoTasks } from "@/hooks/useTodoTasks";
+import type { TodoTask } from "@/lib/todo-types";
 
 /**
  * Compact always-visible todo indicator for the top bar right corner.
  *
- * Shows "☑ 2/5" (completed/total) with a progress ring. Clicking toggles
+ * Shows "☑ 2/5" (completed/total) with a progress icon. Clicking toggles
  * a dropdown listing all tasks grouped by status. Hidden when there are
  * no tasks at all.
+ *
+ * 数据获取统一走 useTodoTasks（与 TodoPanel 共享）。当前为孤儿组件（未挂载），
+ * 待 P2 接回顶栏。
  */
-export function TodoBadge({ sessionId }: { sessionId: string | null }) {
+export function TodoBadge() {
   const { t } = useI18n();
-  const runtime = useAgentRuntime();
-  const [tasks, setTasks] = useState<TodoTask[]>([]);
+  const { tasks } = useTodoTasks();
   const [open, setOpen] = useState(false);
-
-  const reload = useCallback(async () => {
-    if (!sessionId) {
-      setTasks([]);
-      return;
-    }
-    try {
-      const res = await fetch(`/api/task-list?sessionId=${encodeURIComponent(sessionId)}`);
-      if (!res.ok) return;
-      const d = (await res.json()) as { tasks: TodoTask[] };
-      setTasks(d.tasks ?? []);
-    } catch {
-      /* best-effort */
-    }
-  }, [sessionId]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-  // Live refresh — re-fetch when the agent's `todo` tool completes in this session.
-  useTodoLiveRefresh(sessionId, reload);
-  useEffect(() => {
-    if (!runtime.agentRunning && sessionId) void reload();
-  }, [runtime.agentRunning, sessionId, reload]);
 
   // Close dropdown on outside click.
   useEffect(() => {
