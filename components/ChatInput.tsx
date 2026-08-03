@@ -644,10 +644,17 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   });
   const bottomModeRef = useRef(bottomMode);
   useEffect(() => { bottomModeRef.current = bottomMode; }, [bottomMode]);
-  const cycleBottomMode = useCallback((dir: 1 | -1 = 1) => {
+  const cycleBottomMode = useCallback((dir: 1 | -1 = 1, wrap = true) => {
     const prev = bottomModeRef.current;
     const order: BottomMode[] = ["full", "queueHidden", "minimal"];
-    const next = order[(order.indexOf(prev) + dir + order.length) % order.length];
+    const idx = order.indexOf(prev);
+    // Swipe gestures must NOT wrap: swiping up from "full" (already fully
+    // expanded) must stay at "full" instead of cycling to "minimal" (which
+    // collapses the input area); same for swiping down from "minimal".
+    const nextIdx = wrap
+      ? (idx + dir + order.length) % order.length
+      : Math.min(order.length - 1, Math.max(0, idx + dir));
+    const next = order[nextIdx];
     try { window.localStorage.setItem("pi-chat-bottom-mode", next); } catch { /* ignore */ }
     if (next === "minimal") {
       setControlsMenuOpen(false);
@@ -696,7 +703,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     const dy = t.clientY - s.y;
     if (Math.abs(dy) < SWIPE_THRESHOLD) return;
     // Swipe down = collapse further (full→queueHidden→minimal), swipe up = expand back.
-    cycleBottomMode(dy > 0 ? 1 : -1);
+    // No wrapping: hitting either end keeps that state.
+    cycleBottomMode(dy > 0 ? 1 : -1, false);
   }, [isMobile, cycleBottomMode]);
   // Queue area collapse: null = auto (fold when many messages), otherwise the
   // user's explicit choice. Mobile is more aggressive to save half-screen space.
