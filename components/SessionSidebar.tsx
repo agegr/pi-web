@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, type CSSProperties, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
+import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
@@ -464,6 +465,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     initialLoadDone.current = true;
     loadSessions(isFirst);
   }, [loadSessions, refreshKey]);
+
+  // Browser storage is unavailable during server rendering. Restore the panel
+  // preference after hydration so a collapsed explorer stays collapsed on reload.
+  useEffect(() => {
+    setExplorerOpen(loadExplorerOpen());
+  }, []);
 
   // Persist unread markers so they survive a browser refresh before the user
   // has actually opened the completed session.
@@ -1558,7 +1565,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         >
           <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
             <button
-              onClick={() => setExplorerOpen((v) => !v)}
+              onClick={() => setExplorerOpen((open) => {
+                const next = !open;
+                saveExplorerOpen(next);
+                return next;
+              })}
               style={{
                 display: "flex",
                 alignItems: "center",
