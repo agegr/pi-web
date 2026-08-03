@@ -64,7 +64,7 @@ export function findEntryForTask<T extends ResolverEntry>(
     if (!msg || msg.role !== "toolResult" || msg.toolName !== "todo") continue;
     if (!isTodoDetails(msg.details)) continue;
     if (!msg.details.tasks.some((t) => t.id === taskId)) continue;
-    toolResultIdx = i; // last match wins
+    if (toolResultIdx === -1) toolResultIdx = i; // first match wins（创建时，让不同 task 跳各自创建消息）
   }
   if (toolResultIdx === -1) return null;
   // 往前找最近的 user/assistant entry 作为跳转目标——toolResult 不单独渲染

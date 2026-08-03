@@ -352,9 +352,23 @@ export function ChatWindow({
   // 经 WorkspacePanelContext.scrollToEntry 调用，实现「点击任务→跳转聊天对应消息」。
   const { register, scrollTo } = useMessageScroll();
   useEffect(() => {
-    getAgentRuntimeStore().setScrollToEntry(scrollTo);
+    // 虚拟滚动跳转：目标消息可能被裁剪（不在 visibleCount），先扩 visibleCount
+    // 加载它，rAF 后 register 已挂目标 DOM，scrollTo 才能命中。
+    const jumpTo = (entryId: string) => {
+      const idx = entryIds.indexOf(entryId);
+      if (idx < 0) {
+        scrollTo(entryId);
+        return;
+      }
+      setVisibleCount((vc) => {
+        const need = messages.length - idx + 5;
+        return need > vc ? need : vc;
+      });
+      requestAnimationFrame(() => scrollTo(entryId));
+    };
+    getAgentRuntimeStore().setScrollToEntry(jumpTo);
     return () => getAgentRuntimeStore().setScrollToEntry(null);
-  }, [scrollTo]);
+  }, [entryIds, messages.length, scrollTo]);
 
   useEffect(() => {
     if (!extensionDialog || soundedExtensionDialogIdRef.current === extensionDialog.id) return;
