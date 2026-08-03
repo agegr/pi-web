@@ -31,7 +31,8 @@ interface ModelOption {
 }
 
 interface Props {
-  onSend: (message: string, images?: AttachedImage[]) => void;
+  // 返回 false 表示当前状态未接收消息，保留草稿避免用户输入丢失。
+  onSend: (message: string, images?: AttachedImage[]) => boolean | void | Promise<boolean | void>;
   onAbort: () => void;
   onSteer?: (message: string, images?: AttachedImage[]) => void;
   onFollowUp?: (message: string, images?: AttachedImage[]) => void;
@@ -589,8 +590,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         return;
       }
     }
-    onSend(msg, attachedImages.length ? attachedImages : undefined);
-    clearInput();
+    const accepted = await onSend(msg, attachedImages.length ? attachedImages : undefined);
+    if (accepted !== false) clearInput();
   }, [value, attachedImages, isStreaming, onBuiltinCommand, onSend, clearInput, onAudioUnlock]);
 
   const slashInputEnd = Math.min(slashCursor ?? value.length, value.length);

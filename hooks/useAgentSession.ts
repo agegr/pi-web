@@ -166,6 +166,8 @@ const USER_SCROLL_INTENT_MS = 1200;
 const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
 const PROMPT_SETTLE_POLL_MS = 600;
 const PROMPT_SETTLE_MAX_MS = 20_000;
+// 父轮结束后，扩展可能异步注入一轮新的 agent run（例如后台子代理完成）。
+const EVENT_STREAM_IDLE_GRACE_MS = 30_000;
 const AGENT_STATE_RECONCILE_MS = 15_000;
 const BASH_STATE_RECONCILE_MS = 1_000;
 // AgentSession 冷启动可能包含模型、扩展和资源初始化，5 秒不足以覆盖正常启动耗时。
@@ -388,6 +390,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [messages]);
 
   const eventSourceRef = useRef<EventSource | null>(null);
+  const eventStreamGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const eventStreamGraceGenerationRef = useRef(0);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
   const agentRunningRef = useRef(false);
   const bashRunningRef = useRef(false);
@@ -805,6 +809,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [addNotice, opts.chatInputRef]);
 
+  const cancelEventStreamGrace = useCallback(() => {
+    eventStreamGraceGenerationRef.current += 1;
+    if (eventStreamGraceTimerRef.current) {
+      clearTimeout(eventStreamGraceTimerRef.current);
+      eventStreamGraceTimerRef.current = null;
+    }
+  }, []);
+
   const finishPromptWithoutStream = useCallback(async (sid: string | null = sessionIdRef.current, runId?: number) => {
     // Bail out before loadSession too: a stale finish for a previous run
     // must not overwrite the messages of the run currently streaming.
@@ -826,6 +838,31 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [closeEvents, loadSession, onAgentEnd]);
 
+  const scheduleEventStreamClose = useCallback((sid: string, runId?: number) => {
+    cancelEventStreamGrace();
+    const generation = eventStreamGraceGenerationRef.current;
+    const checkServerIdle = async () => {
+      if (generation !== eventStreamGraceGenerationRef.current || sessionIdRef.current !== sid) return;
+      try {
+        const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
+        if (!res.ok) return;
+        const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
+        const state = data.state;
+        const subagentsActive = Boolean(state?.extensionStatuses?.some((status) => status.key === "subagents"));
+        const busy = Boolean(data.running && state && (state.isStreaming || state.isPromptRunning || state.isCompacting));
+        if (busy || subagentsActive) {
+          eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), PROMPT_SETTLE_POLL_MS);
+          return;
+        }
+        await finishPromptWithoutStream(sid, runId);
+      } catch {
+        // 状态不可达时继续保留 SSE，避免后台完成消息无监听者。
+        eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), PROMPT_SETTLE_POLL_MS);
+      }
+    };
+    eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), EVENT_STREAM_IDLE_GRACE_MS);
+  }, [cancelEventStreamGrace, finishPromptWithoutStream]);
+
   const waitForPromptSettlement = useCallback(async (sid: string, runId?: number) => {
     await delay(PROMPT_SETTLE_INITIAL_DELAY_MS);
     const startedAt = Date.now();
@@ -842,7 +879,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
           const state = data.state;
           if (!data.running || !state || (!state.isStreaming && !state.isPromptRunning)) {
-            await finishPromptWithoutStream(sid, runId);
+            scheduleEventStreamClose(sid, runId);
             return;
           }
         }
@@ -851,7 +888,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       await delay(PROMPT_SETTLE_POLL_MS);
     }
-  }, [finishPromptWithoutStream]);
+  }, [scheduleEventStreamClose]);
   waitForPromptSettlementRef.current = waitForPromptSettlement;
 
   const waitForBashSettlement = useCallback(async (sid: string) => {
@@ -916,11 +953,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (state.extensionStatuses !== undefined) setExtensionStatuses(state.extensionStatuses ?? []);
         if (state.extensionWidgets !== undefined) setExtensionWidgets(state.extensionWidgets ?? []);
       }
-      await finishPromptWithoutStream(sid, runId);
+      scheduleEventStreamClose(sid, runId);
     } catch {
       // Network still down — the next poll / visibility / online tick retries.
     }
-  }, [finishPromptWithoutStream]);
+  }, [scheduleEventStreamClose]);
 
   // Recovery net for missed SSE events: while the agent is running, verify
   // against the server periodically and whenever the tab returns to the
@@ -953,6 +990,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
       case "agent_start":
+        cancelEventStreamGrace();
         agentRunningRef.current = true;
         setAgentRunning(true);
         setAgentPhase({ kind: "waiting_model" });
@@ -982,16 +1020,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             .catch(() => {});
         }
         break;
+      case "agent_settled":
       case "prompt_done":
-        if (!agentRunningRef.current) break;
-        // Extension commands can call pi.sendUserMessage(), which starts its
-        // agent run asynchronously. In that case prompt_done for the command
-        // arrives before agent_start for the injected message. Give that run
-        // time to start and settle against server state instead of ending the
-        // UI immediately and dropping its subsequent streaming events.
-        if (sessionIdRef.current) {
-          void waitForPromptSettlement(sessionIdRef.current, promptRunIdRef.current);
-        }
+        if (!agentRunningRef.current || !sessionIdRef.current) break;
+        // 父轮完成并不代表异步扩展已结束。保护窗口内维持运行态和 SSE，
+        // 等待后台子代理完成后自动注入的下一轮 agent_start。
+        scheduleEventStreamClose(sessionIdRef.current, promptRunIdRef.current);
         break;
       case "prompt_error":
         addNotice({ type: "error", message: (event.errorMessage as string | undefined) ?? "Command failed" });
@@ -1110,24 +1144,24 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, handleExtensionUiRequest, loadSession, waitForPromptSettlement, onSessionListRefresh]);
+  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, onSessionListRefresh, scheduleEventStreamClose]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
     const trimmedMessage = message.trim();
-    if (!trimmedMessage && !images?.length) return;
-    if (agentRunningRef.current || bashRunningRef.current) return;
+    if (!trimmedMessage && !images?.length) return false;
+    // UI 状态可能晚于异步扩展启动的 agent_start；此时不可吞掉用户输入。
+    if (agentRunningRef.current || bashRunningRef.current) return false;
     const isSlashCommandPrompt = !images?.length && trimmedMessage.startsWith("/");
 
     const isBashCommand = !images?.length && trimmedMessage.startsWith("!");
     if (isBashCommand) {
       const isExcluded = trimmedMessage.startsWith("!!");
       const bashCmd = (isExcluded ? trimmedMessage.slice(2) : trimmedMessage.slice(1)).trim();
-      if (!bashCmd) return;
+      if (!bashCmd) return false;
       await executeBashRef.current?.(bashCmd, isExcluded);
-      return;
+      return true;
     }
-
     const promptRunId = promptRunIdRef.current + 1;
 
     const imageBlocks = images?.map((img) => ({ type: "image" as const, source: { type: "base64" as const, media_type: img.mimeType, data: img.data } }));
@@ -1188,14 +1222,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (isSlashCommandPrompt && sentSessionId) {
         void waitForPromptSettlement(sentSessionId, promptRunId);
       }
+      return Boolean(sentSessionId);
     } catch (e) {
-      console.error("Failed to send message:", e);
       // A failed prompt POST is ambiguous: the server may have accepted it
       // before the response connection was lost. Keep SSE alive until the
       // server confirms idle so a real run cannot continue unseen.
       if (promptRequestStarted && sentSessionId) {
         void waitForPromptSettlement(sentSessionId, promptRunId);
-        return;
+        // 请求已发出但响应失败时，服务端可能已受理；保留原有的乐观提交行为。
+        return true;
       }
       agentRunningRef.current = false;
       closeEvents();
@@ -1219,6 +1254,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentRunning(false);
       setAgentPhase(null);
       dispatch({ type: "end" });
+      return false;
     }
   }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, closeEvents, opts.chatInputRef]);
 
