@@ -588,6 +588,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     const previous = previousRunningSessionIdsRef.current;
     const completedInBackground = [...previous].filter((id) => !runningSessionIds.has(id) && id !== selectedSessionId);
     const newlyRunning = [...runningSessionIds];
+    // 新增的 running 会话（会话开始运行）
+    const addedRunning = newlyRunning.filter((id) => !previous.has(id));
 
     if (completedInBackground.length > 0 || newlyRunning.length > 0) {
       setUnreadSessionIds((prev) => {
@@ -597,7 +599,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         return next;
       });
     }
-    if (completedInBackground.length > 0) {
+    // 会话开始运行（新会话文件落盘）或后台会话完成时刷新列表。
+    // 新会话作为当前选中会话会被 completedInBackground 过滤掉，若 SSE
+    // 事件丢失（断线/竞态）导致 message_end 等未触发，这里兜底刷新，
+    // 否则列表要等手动刷新或缓存过期才会出现新会话。
+    if (completedInBackground.length > 0 || addedRunning.length > 0) {
       loadSessions(false);
     }
 
