@@ -4,6 +4,11 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { getLocalePlugin, getSupportedLocales } from "@/lib/i18n/registry";
 import { translateMessage } from "@/lib/i18n/format";
 import type { Locale, LocalePlugin, TranslationParams } from "@/lib/i18n/types";
+// 必须在客户端注入我们的补充翻译键（settings/inspector/prompts/plan/engine/todo 等）。
+// 仅由 app/layout.tsx（服务端组件）引入时，注入只发生在服务端 bundle，
+// 客户端渲染的右侧栏面板会因 zh-CN 缺失这些键而回退成英文。本模块是全局
+// 客户端 Provider，在此副作用引入可保证客户端 bundle 也完成注入。
+import "@/lib/i18n/ours-messages";
 
 const LOCALE_STORAGE_KEY = "pi-locale";
 const defaultLocale: Locale = "zh-CN";
