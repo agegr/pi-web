@@ -77,6 +77,9 @@ export function ScrollToolbar({
   // Brief "auto-scroll follow on" toast after a successful long-press.
   const [followToast, setFollowToast] = useState(false);
   const followToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Per-page-session counter for the follow hints (toast + tooltip): show them
+  // the first few times, then stop — but a refresh resets the counter.
+  const followHintCountRef = useRef(0);
   const [followStreaming, setFollowStreaming] = useState(false);
   const updateFollowStreaming = useCallback((v: boolean) => {
     if (followStreamingRef) followStreamingRef.current = v;
@@ -506,16 +509,11 @@ export function ScrollToolbar({
                   const prev = document.body.style.userSelect;
                   document.body.style.userSelect = "none";
                   // The "following on" toast is only useful the first few
-                  // times; after that it's noise (it fires on every
-                  // long-press). Show it at most 3 times, tracked in
-                  // localStorage.
-                  if (nowOn) {
-                    let shown = 0;
-                    try { shown = parseInt(localStorage.getItem("pi-follow-toast-shown") ?? "0", 10) || 0; } catch { /* ignore */ }
-                    if (shown < 3) {
-                      try { localStorage.setItem("pi-follow-toast-shown", String(shown + 1)); } catch { /* ignore */ }
-                      setFollowToast(true);
-                    }
+                  // times; after that it's noise. Show it at most 3 times per
+                  // page session (a refresh resets the counter).
+                  if (nowOn && followHintCountRef.current < 3) {
+                    followHintCountRef.current += 1;
+                    setFollowToast(true);
                   }
                   if (followToastTimerRef.current) clearTimeout(followToastTimerRef.current);
                   followToastTimerRef.current = setTimeout(() => {
@@ -546,7 +544,11 @@ export function ScrollToolbar({
                 }}
                 aria-label="scrollToLatest"
                 onMouseEnter={(e) => {
-                  setScrollTooltip("latest");
+                  // The "long-press to follow" hint is only useful while the
+                  // user is learning the gesture; once follow has been
+                  // enabled a few times this session, stop showing ANY
+                  // tooltip for this button.
+                  if (followHintCountRef.current < 3) setScrollTooltip("latest");
                   e.currentTarget.style.background = followStreaming
                     ? "color-mix(in srgb, var(--accent) 26%, var(--bg-panel))"
                     : "var(--bg-hover)";
