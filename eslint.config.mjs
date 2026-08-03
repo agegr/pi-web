@@ -61,7 +61,19 @@ const eslintConfig = [
   // Ignore patterns (flat config equivalent of .eslintignore)
   {
     name: "pi-web/ignores",
-    ignores: [".next/**", "node_modules/**", "dist/**", "coverage/**", "*.min.js"],
+    ignores: [
+      ".next/**",
+      "node_modules/**",
+      "dist/**",
+      "coverage/**",
+      "*.min.js",
+      // 已弃用/非应用目录：与 .prettierignore 对齐，避免 lint 未跟踪的 vendored 代码
+      // （vendor 为第三方 SDK，.codebuddy/.atl 为内部工具，openspec/.comet 为生成态）
+      "vendor/**",
+      ".codebuddy/**",
+      ".atl/**",
+      "openspec/**/.comet",
+    ],
   },
 ];
 
