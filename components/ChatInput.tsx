@@ -740,7 +740,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     requestAnimationFrame(() => {
       if (!ta) return;
       ta.focus();
-      ta.setSelectionRange(combined.length, combined.length);
+      // Cursor lands at the END of the inserted (recalled) text, not the end
+      // of the whole combined value (which sits below the user's existing
+      // input when they already typed something).
+      ta.setSelectionRange(entry.text.length, entry.text.length);
       ta.style.height = "auto";
       ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
     });
@@ -809,7 +812,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();
-        ta.setSelectionRange(combined.length, combined.length);
+        // Cursor lands at the END of the prepended text (not the end of the
+        // whole combined value), so further typing continues the recalled
+        // message instead of jumping below the user's existing input.
+        ta.setSelectionRange(text.length, text.length);
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
