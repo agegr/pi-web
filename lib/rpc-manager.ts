@@ -338,52 +338,72 @@ export class AgentSessionWrapper {
   }
 
   /**
-   * Continue the transcript so queued messages get processed. AgentSession has
-   * no public continue(); invoke the raw agent loop like AgentSession does
-   * internally — events/persistence still flow through its subscriptions.
+   * Kick off processing of the live queue when the agent is idle.
+   *
+   * Re-queuing/import only enqueues entries into pi's steer/followUp queues
+   * (exactly like the steer/followUp commands do) — it never starts a run.
+   * When the user asks to "re-queue & continue" we need to start a run so
+   * pi's own _runAgentPrompt loop drains the queue.
+   *
+   * pi's AgentSession._runAgentPrompt runs `agent.prompt(first); while (await
+   * _handlePostAgentRun()) await agent.continue();` — and `agent.continue()`
+   * drains the followUp/steer queues. So we only need to fire ONE prompt with
+   * the first queued entry; pi then processes the rest of the queue itself
+   * via its normal continue() loop. The remaining entries stay in pi's queue
+   * and in our mirror; pi emits queue_update events as it drains them, so the
+   * frontend stays in sync automatically.
    */
   private runAgentContinue(): void {
-    // pi has no public API to resume an idle agent's queue (agent.continue()
-    // only works inside an active _runAgentPrompt loop). So bootstrap a run
-    // by prompting each queued message in series. Capture the entries BEFORE
-    // clearQueue (which fires queue_update and would empty the mirror).
     if (this.inner.isStreaming || this.inner.isBashRunning || this.promptRunning) return;
     const all = [...this.queueMirror];
     if (all.length === 0) return;
-    this.queueMirror = [];
+    const first = all[0];
+    const rest = all.slice(1);
+    // Pull the first entry out of pi's queue (it will be sent as the prompt
+    // payload) and keep the rest queued so pi's continue() loop drains them.
+    this.inner.clearQueue();
+    this.pendingQueueHints = { steer: [], followUp: [] };
+    for (const e of rest) {
+      this.hintQueueImages(e.kind, e.images);
+      // re-enqueue synchronously — these calls just push to pi's arrays
+      if (e.kind === "steer") {
+        void this.inner.steer(e.text, e.images?.length ? e.images : undefined);
+      } else {
+        void this.inner.followUp(e.text, e.images?.length ? e.images : undefined);
+      }
+    }
+    this.queueMirror = [...rest];
     this.persistQueue();
     this.promptRunning = true;
     notifyRunningChange();
-    void this.bootstrapQueuedRun(all);
+    void this.bootstrapQueuedRun(first);
   }
 
-  private async bootstrapQueuedRun(all: QueueEntry[]): Promise<void> {
-    // Sequentially prompt each queued message as its own turn. pi's followUp/
-    // steer queues are NOT drained by a prompt-bootstrapped loop (the internal
-    // agent.continue() continuation stalls), so prompting each entry in series
-    // is the robust way to run them all. AgentSession.prompt() awaits its
-    // _runAgentPrompt, so each prompt settles before the next starts.
-    this.inner.clearQueue();
-    this.pendingQueueHints = { steer: [], followUp: [] };
-    for (let i = 0; i < all.length; i++) {
-      const entry = all[i];
-      try {
-        await this.inner.prompt(
-          entry.text,
-          entry.images?.length ? { images: entry.images } : undefined,
-        );
-      } catch (error: unknown) {
-        this.promptRunning = false;
-        this.resetIdleTimer();
-        invalidateSessionListCache();
-        this.emit({
-          type: "prompt_error",
-          errorMessage: error instanceof Error ? error.message : String(error),
-        });
-        this.emit({ type: "prompt_done" });
-        notifyRunningChange();
-        return;
-      }
+  private async bootstrapQueuedRun(first: QueueEntry): Promise<void> {
+    // Send the first queued entry as a prompt. pi's _runAgentPrompt then runs
+    // `while (_handlePostAgentRun()) continue();` which drains any remaining
+    // followUp/steer entries from pi's queue automatically — same as a normal
+    // prompt that had messages queued during it. We do NOT iterate ourselves.
+    try {
+      await this.inner.prompt(
+        first.text,
+        first.images?.length ? { images: first.images } : undefined,
+      );
+    } catch (error: unknown) {
+      this.promptRunning = false;
+      this.resetIdleTimer();
+      invalidateSessionListCache();
+      // Restore the failed entry to the mirror so the user can retry instead
+      // of losing it.
+      this.queueMirror = [first, ...this.queueMirror];
+      this.persistQueue();
+      this.emit({
+        type: "prompt_error",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+      this.emit({ type: "prompt_done" });
+      notifyRunningChange();
+      return;
     }
     this.promptRunning = false;
     this.resetIdleTimer();
@@ -955,10 +975,14 @@ export class AgentSessionWrapper {
           imported += 1;
         }
         this.persistQueue();
+        // Return the mirror view (not pi's live arrays) so the frontend sees
+        // every imported entry even when the agent is mid-run and has already
+        // drained some/all of pi's followUpMessages. The mirror is kept in
+        // sync with pi via queue_update events from the agent loop.
         return {
           imported,
-          steering: [...this.inner.getSteeringMessages()],
-          followUp: [...this.inner.getFollowUpMessages()],
+          steering: this.queueMirror.filter((e) => e.kind === "steer").map((e) => e.text),
+          followUp: this.queueMirror.filter((e) => e.kind === "followUp").map((e) => e.text),
         };
       }
 

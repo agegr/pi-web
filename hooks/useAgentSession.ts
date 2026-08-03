@@ -308,6 +308,7 @@ export interface ChatInputHandle {
   insertIfEmpty: (content: string) => void;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
+  expandQueue?: () => void;
 }
 
 export interface AttachedImage {
@@ -1771,6 +1772,22 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       });
       const remaining = result?.remaining ?? [];
       setPendingRecovery(remaining);
+      // resolve just enqueued entries into pi's live queue (requeueEntry →
+      // inner.steer/followUp). The queue_update events may race with our
+      // response or be missed if the SSE stream isn't active yet, so fetch the
+      // authoritative queue state and sync the UI directly.
+      try {
+        const stateRes = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
+        if (stateRes.ok) {
+          const agentState = await stateRes.json() as { running?: boolean; state?: AgentStateResponse };
+          if (agentState.state?.queuedMessages !== undefined) {
+            setQueuedMessages(normalizeQueuedMessages(agentState.state.queuedMessages));
+          }
+        }
+      } catch { /* non-critical */ }
+      // Auto-expand the queue panel so the freshly re-queued messages are
+      // visible (it collapses automatically when there are >3 entries).
+      opts.chatInputRef?.current?.expandQueue?.();
       if (continueRun && keep.length > 0) {
         // The run was started server-side, possibly before any SSE was
         // connected (e.g. right after a restart) — pick it up so streaming,
@@ -1802,7 +1819,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       addNotice({ type: "error", message: "Failed to resolve queued message recovery" });
       return pendingRecovery;
     }
-  }, [pendingRecovery, addNotice, connectEvents, waitForPromptSettlement]);
+  }, [pendingRecovery, addNotice, connectEvents, waitForPromptSettlement, normalizeQueuedMessages, opts.chatInputRef]);
 
   /** Fetch the full live queue + recovery entries (with images) for export. */
   const exportQueueData = useCallback(async (): Promise<{ live: QueueEntry[]; recovery: QueueEntry[] } | null> => {
