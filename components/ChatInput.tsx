@@ -644,9 +644,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   });
   const bottomModeRef = useRef(bottomMode);
   useEffect(() => { bottomModeRef.current = bottomMode; }, [bottomMode]);
+  // Mirrors the live queue count for cycleBottomMode (defined before queueCount).
+  const queueCountRef = useRef(0);
   const cycleBottomMode = useCallback((dir: 1 | -1 = 1, wrap = true) => {
     const prev = bottomModeRef.current;
-    const order: BottomMode[] = ["full", "queueHidden", "minimal"];
+    // With no queued messages the "queue hidden" level is pointless, so both
+    // swipes and click-cycles skip it: full ↔ minimal directly.
+    const order: BottomMode[] = queueCountRef.current === 0
+      ? ["full", "minimal"]
+      : ["full", "queueHidden", "minimal"];
     const idx = order.indexOf(prev);
     // Swipe gestures must NOT wrap: swiping up from "full" (already fully
     // expanded) must stay at "full" instead of cycling to "minimal" (which
@@ -789,10 +795,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const fileIndexFetchingRef = useRef<string | null>(null);
   const draftKeyRef = useRef(draftKey);
   const valueRef = useRef(value);
-  const attachedImagesRef = useRef(attachedImages);
-  const pendingImageCountRef = useRef(0);
+  const attachedImagesRef = useRef(attachedImages);  const pendingImageCountRef = useRef(0);
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
+  queueCountRef.current = (queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0);
 
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
