@@ -8,6 +8,7 @@ import { ChatWindow } from "./ChatWindow";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { WorkspacePanelsHost } from "./WorkspacePanelsHost";
+import { CommandPaletteHost } from "./CommandPaletteHost";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
@@ -846,6 +847,12 @@ export function AppShell() {
 
   return (
     <>
+      <CommandPaletteHost
+        session={selectedSession ? { id: selectedSession.id, cwd: selectedSession.cwd } : null}
+        cwd={activeCwd}
+        focusPrompt={() => chatInputRef.current?.insertIfEmpty("")}
+        openFilePanel={() => setRightPanelOpen(true)}
+      />
       <style>{`
       @keyframes session-info-pop {
         0% {
