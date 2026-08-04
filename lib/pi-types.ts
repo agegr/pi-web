@@ -28,6 +28,17 @@ export interface NavigateTreeResult {
   aborted?: boolean;
 }
 
+export interface SessionTiming {
+  /** Time spent waiting for model responses (includes network RTT). */
+  modelWaitMs: number;
+  /** Time spent executing tools and bash commands. */
+  toolExecMs: number;
+  /** Active execution time, excluding gaps where the user was idle. */
+  totalActiveMs: number;
+  /** Remaining active time (e.g. compaction) not covered by the buckets above. */
+  otherMs: number;
+}
+
 export interface SessionStatsInfo {
   sessionFile?: string;
   sessionId: string;
@@ -46,6 +57,9 @@ export interface SessionStatsInfo {
   };
   cost: number;
   contextUsage?: ContextUsage;
+  /** Per-session time breakdown. Always derived from the current session's own
+   *  messages, so it stays isolated when switching sessions. */
+  timing?: SessionTiming;
 }
 
 interface PromptTemplateLike {

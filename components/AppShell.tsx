@@ -1350,6 +1350,17 @@ export function AppShell() {
                        ...(sessionStats.cost > 0 ? [[translate("session.cost"), `$${sessionStats.cost.toFixed(4)}`]] : []),
                        ...(ctx?.contextWindow ? [[translate("session.context"), `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompact(ctx.contextWindow)}`]] : []),
                     ];
+                    const formatDuration = (ms: number) => {
+                      if (ms <= 0) return "0s";
+                      const totalSec = Math.floor(ms / 1000);
+                      const h = Math.floor(totalSec / 3600);
+                      const m = Math.floor((totalSec % 3600) / 60);
+                      const s = totalSec % 60;
+                      if (h > 0) return `${h}h ${m}m`;
+                      if (m > 0) return `${m}m ${s}s`;
+                      return `${s}s`;
+                    };
+                    const timing = sessionStats.timing;
                     const section = (
                       title: string,
                       sectionRows: string[][],
@@ -1449,6 +1460,7 @@ export function AppShell() {
                     );
 
                     return (
+                      <>
                       <div style={{
                         display: "grid",
                         gridTemplateColumns: isMobile
@@ -1463,6 +1475,29 @@ export function AppShell() {
                          {section(translate("session.messages"), messageRows)}
                          {section(translate("session.tokens"), [...tokenRows, ...extraTokenRows], "right", true)}
                       </div>
+                      {timing && timing.totalActiveMs > 0 ? (
+                        <div style={{
+                          marginTop: 10, paddingTop: 8, borderTop: "1px solid var(--border)",
+                          display: "flex", alignItems: "center", flexWrap: "wrap", columnGap: 10, rowGap: 2,
+                          color: "var(--text-muted)", fontSize: 12, fontFamily: "var(--font-mono)",
+                        }}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.8 }} aria-hidden="true">
+                            <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+                          </svg>
+                          <span>{translate("session.modelWait")} <span style={{ color: "var(--text)", fontWeight: 600 }}>{formatDuration(timing.modelWaitMs)}</span></span>
+                          <span style={{ opacity: 0.4 }}>·</span>
+                          <span>{translate("session.toolExec")} <span style={{ color: "var(--text)", fontWeight: 600 }}>{formatDuration(timing.toolExecMs)}</span></span>
+                          {timing.otherMs > 1000 ? (
+                            <>
+                              <span style={{ opacity: 0.4 }}>·</span>
+                              <span>{translate("session.other")} <span style={{ color: "var(--text)", fontWeight: 600 }}>{formatDuration(timing.otherMs)}</span></span>
+                            </>
+                          ) : null}
+                          <span style={{ opacity: 0.4 }}>·</span>
+                          <span>{translate("session.totalActive")} <span style={{ color: "var(--accent)", fontWeight: 600 }}>{formatDuration(timing.totalActiveMs)}</span></span>
+                        </div>
+                      ) : null}
+                      </>
                     );
                   })() : (
                     <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
