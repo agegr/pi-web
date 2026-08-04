@@ -81,6 +81,22 @@ const IDLE_RESET_EVENT_TYPES = new Set([
   "compaction_end",
 ]);
 
+// A turn waiting on the model emits nothing at all — no chunks, no tool events.
+// The HTTP dispatcher's bodyTimeout cannot catch that: it is an idle timeout
+// between chunks, so a gateway that holds the stream open without producing
+// content never trips it and the turn hangs until someone notices. This is the
+// wall-clock backstop for exactly that state.
+const DEFAULT_MODEL_STALL_TIMEOUT_MS = 10 * 60 * 1000;
+
+function getModelStallTimeoutMs(): number {
+  const raw = process.env.PI_WEB_MODEL_STALL_TIMEOUT_MS?.trim();
+  if (!raw) return DEFAULT_MODEL_STALL_TIMEOUT_MS;
+  if (raw.toLowerCase() === "disabled") return 0;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_MODEL_STALL_TIMEOUT_MS;
+  return Math.floor(parsed);
+}
+
 export interface RpcSessionStartOptions {
   toolNames?: string[];
   initialModel?: { provider: string; modelId: string };
@@ -148,6 +164,10 @@ export class AgentSessionWrapper {
   private forceEmptySystemPrompt = false;
   private unsubscribe: (() => void) | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  private stallTimer: ReturnType<typeof setTimeout> | null = null;
+  // Tools run silently between their start and end events, so a pending tool is
+  // not a stalled model — only silence with nothing executing is.
+  private activeToolCount = 0;
   private onDestroyCallback: (() => void) | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private _alive = true;
@@ -180,6 +200,11 @@ export class AgentSessionWrapper {
         invalidateSessionListCache();
       }
       if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
+      if (event.type === "tool_execution_start") this.activeToolCount += 1;
+      else if (event.type === "tool_execution_end") this.activeToolCount = Math.max(0, this.activeToolCount - 1);
+      // Any event at all is a sign of life, so the stall clock restarts on all
+      // of them — unlike the idle clock, which only tracks completed work.
+      this.resetStallTimer();
       this.emit(event);
       if (RUNNING_STATE_EVENT_TYPES.has(event.type)) notifyRunningChange();
     });
@@ -303,6 +328,45 @@ export class AgentSessionWrapper {
     }, 10 * 60 * 1000);
   }
 
+  private resetStallTimer(): void {
+    if (this.stallTimer) {
+      clearTimeout(this.stallTimer);
+      this.stallTimer = null;
+    }
+    const timeoutMs = getModelStallTimeoutMs();
+    if (timeoutMs <= 0 || !this._alive) return;
+    if (!this.promptRunning && !this.inner.isStreaming) return;
+    this.stallTimer = setTimeout(() => this.handleModelStall(), timeoutMs);
+    this.stallTimer.unref?.();
+  }
+
+  /**
+   * Nothing has been heard from the model for the whole stall window. If work
+   * is genuinely in flight elsewhere — a shell command, a tool, a compaction —
+   * keep waiting. Otherwise the turn is wedged: abort it so the session becomes
+   * usable again, and say why instead of leaving a silent spinner.
+   */
+  private handleModelStall(): void {
+    this.stallTimer = null;
+    if (!this._alive) return;
+    if (!this.promptRunning && !this.inner.isStreaming) return;
+
+    if (this.inner.isBashRunning || this.inner.isCompacting || this.activeToolCount > 0) {
+      this.resetStallTimer();
+      return;
+    }
+
+    const minutes = Math.max(1, Math.round(getModelStallTimeoutMs() / 60_000));
+    console.warn(`[pi-web] no model activity for ${minutes}m on session ${this.sessionId} — aborting the stalled turn`);
+    this.emit({
+      type: "prompt_error",
+      errorMessage: `No response from the model for ${minutes} minutes. The turn was aborted so the session stays usable — send it again to retry.`,
+    } as AgentEvent);
+    void Promise.resolve(this.inner.abort()).catch((error) => {
+      console.error("[pi-web] failed to abort stalled turn:", error instanceof Error ? error.message : error);
+    });
+  }
+
   private persistBashOnlySession(): void {
     const manager = this.inner.sessionManager;
     const sessionFile = manager.getSessionFile();
@@ -355,6 +419,9 @@ export class AgentSessionWrapper {
         const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
         const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
         this.promptRunning = true;
+        // The first token can be minutes away on a loaded gateway and produces
+        // no events until it lands, so the stall clock has to start here.
+        this.resetStallTimer();
         notifyRunningChange();
         this.inner.prompt(command.message as string, {
           ...(promptImages?.length ? { images: promptImages } : {}),
@@ -363,11 +430,13 @@ export class AgentSessionWrapper {
         }).then(() => {
           this.promptRunning = false;
           this.resetIdleTimer();
+          this.resetStallTimer();
           if (!streamingBehavior) this.emit({ type: "prompt_done" });
           notifyRunningChange();
         }).catch((error) => {
           this.promptRunning = false;
           this.resetIdleTimer();
+          this.resetStallTimer();
           invalidateSessionListCache();
           this.emit({
             type: "prompt_error",
@@ -652,6 +721,7 @@ export class AgentSessionWrapper {
     if (!this._alive) return;
     this._alive = false;
     if (this.idleTimer) clearTimeout(this.idleTimer);
+    if (this.stallTimer) clearTimeout(this.stallTimer);
     if (this.inner.isBashRunning) this.inner.abortBash();
     this.unsubscribe?.();
     for (const pending of this.pendingUiResponses.values()) pending.cancel();
