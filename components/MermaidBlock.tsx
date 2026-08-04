@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
+import { prismTheme } from "@/lib/prism-theme";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
 import { copyText } from "@/lib/clipboard";
@@ -231,7 +230,6 @@ interface CodeBlockProps {
  * Used as the "source" view for mermaid blocks and for all non-mermaid code fences.
  */
 export function CodeBlock({ code, lang, headerAction }: CodeBlockProps) {
-  const { isDark } = useTheme();
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
 
@@ -258,7 +256,7 @@ export function CodeBlock({ code, lang, headerAction }: CodeBlockProps) {
       </div>
       <SyntaxHighlighter
         language={lang || "text"}
-        style={isDark ? vscDarkPlus : vs}
+        style={prismTheme}
         showLineNumbers
         lineNumberStyle={{ color: "var(--text-dim)", fontStyle: "normal" }}
         customStyle={{

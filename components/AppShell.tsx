@@ -36,6 +36,7 @@ import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import type { ThemeSetInfo } from "@/lib/theme";
 
 type SessionCopyField = "file" | "id";
 type AutoNameStatus =
@@ -46,12 +47,13 @@ type AutoNameStatus =
 
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
 const LANGUAGE_MENU_WIDTH = 176;
+const THEME_MENU_WIDTH = 200;
 
 export function AppShell() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [initialNavigation] = useState(() => getInitialNavigation(searchParams));
-  const { isDark, toggleTheme } = useTheme();
+  const { isDark, toggleTheme, themeName, setTheme } = useTheme();
   const { locale, setLocale, t: translate, supportedLocales } = useI18n();
   const isMobile = useIsMobile();
   useViewportHeight();
@@ -145,6 +147,24 @@ export function AppShell() {
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
   const languageBtnRef = useRef<HTMLButtonElement>(null);
+  const themeBtnRef = useRef<HTMLButtonElement>(null);
+
+  // 主题集列表（来自 ~/.pi/agent/themes/ 的 pi theme JSON，经 /api/themes 发现）
+  const [themeSets, setThemeSets] = useState<ThemeSetInfo[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/themes")
+      .then((resp) => (resp.ok ? resp.json() : null))
+      .then((data: { themeSets?: ThemeSetInfo[] } | null) => {
+        if (!cancelled && data?.themeSets) setThemeSets(data.themeSets);
+      })
+      .catch(() => {
+        // 主题列表加载失败时面板只显示默认主题，不阻塞主流程
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
   const [branchTree, setBranchTree] = useState<SessionTreeNode[]>([]);
@@ -201,10 +221,10 @@ export function AppShell() {
   }, []);
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | "language" | null>(null);
+  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | "language" | "theme" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
-  const toggleTopPanel = useCallback((panel: "branches" | "system" | "session" | "language") => {
+  const toggleTopPanel = useCallback((panel: "branches" | "system" | "session" | "language" | "theme") => {
     if (isMobile) setSidebarOpen(false);
     setActiveTopPanel((cur) => cur === panel ? null : panel);
   }, [isMobile]);
@@ -223,15 +243,22 @@ export function AppShell() {
     if (!activeTopPanel || !topBarRef.current) return;
     const update = () => {
       const topBarRect = topBarRef.current!.getBoundingClientRect();
-      if (activeTopPanel === "language" && !isMobile && languageBtnRef.current) {
-        const buttonRect = languageBtnRef.current.getBoundingClientRect();
-        const width = Math.min(LANGUAGE_MENU_WIDTH, topBarRect.width);
-        const left = Math.min(
-          buttonRect.left - 1,
-          Math.max(topBarRect.left, topBarRect.right - width),
-        );
-        setTopPanelPos({ top: topBarRect.bottom, left, width });
-        return;
+      // 语言 / 主题面板锚定在对应按钮下方，其余面板铺满顶栏宽
+      if ((activeTopPanel === "language" || activeTopPanel === "theme") && !isMobile) {
+        const anchorBtn = activeTopPanel === "language" ? languageBtnRef.current : themeBtnRef.current;
+        if (anchorBtn) {
+          const buttonRect = anchorBtn.getBoundingClientRect();
+          const width = Math.min(
+            activeTopPanel === "language" ? LANGUAGE_MENU_WIDTH : THEME_MENU_WIDTH,
+            topBarRect.width,
+          );
+          const left = Math.min(
+            buttonRect.left - 1,
+            Math.max(topBarRect.left, topBarRect.right - width),
+          );
+          setTopPanelPos({ top: topBarRect.bottom, left, width });
+          return;
+        }
       }
       setTopPanelPos({ top: topBarRect.bottom, left: topBarRect.left, width: topBarRect.width });
     };
@@ -239,6 +266,7 @@ export function AppShell() {
     const ro = new ResizeObserver(update);
     ro.observe(topBarRef.current);
     if (languageBtnRef.current) ro.observe(languageBtnRef.current);
+    if (themeBtnRef.current) ro.observe(themeBtnRef.current);
     return () => ro.disconnect();
   }, [activeTopPanel, isMobile]);
 
@@ -803,7 +831,7 @@ export function AppShell() {
         className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${sidebarResizer.isResizing ? " sidebar-resizing" : ""}`}
         style={{
           "--sidebar-width": `${sidebarResizer.width}px`,
-          background: "var(--bg-panel)",
+          background: "var(--bg-sidebar)",
           borderRight: "1px solid var(--border)",
           display: "flex",
           flexDirection: "column",
@@ -882,6 +910,32 @@ export function AppShell() {
                 <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
               </svg>
             )}
+           </button>
+           <button
+             ref={themeBtnRef}
+             type="button"
+             onClick={() => toggleTopPanel("theme")}
+             title={translate("theme.select")}
+             aria-label={translate("theme.select")}
+             aria-haspopup="menu"
+             aria-expanded={activeTopPanel === "theme"}
+             aria-pressed={activeTopPanel === "theme"}
+             style={{
+               display: "flex", alignItems: "center", justifyContent: "center",
+               width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+               background: activeTopPanel === "theme" ? "var(--bg-selected)" : "none",
+               border: "none", borderRight: "1px solid var(--border)",
+               color: activeTopPanel === "theme" ? "var(--text)" : "var(--text-muted)",
+               cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
+             }}
+             onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+             onMouseLeave={(e) => { e.currentTarget.style.color = activeTopPanel === "theme" ? "var(--text)" : "var(--text-muted)"; }}
+           >
+             {/* 调色板图标：主题集选择入口 */}
+             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+               <path d="M12 22a10 10 0 1 1 10-10c0 1.66-1.34 3-3 3h-2.5a2.5 2.5 0 0 0-1.9 4.1c.4.5.2 1.4-.6 1.9-.8.4-1.5.8-2 1Z" />
+               <circle cx="7.5" cy="11.5" r="1" fill="currentColor" /><circle cx="11" cy="7.5" r="1" fill="currentColor" /><circle cx="16" cy="9.5" r="1" fill="currentColor" />
+             </svg>
            </button>
            <button
              ref={languageBtnRef}
@@ -1286,6 +1340,80 @@ export function AppShell() {
                       <span>{plugin.label}</span>
                     </button>
                   ))}
+                </div>
+              )}
+              {activeTopPanel === "theme" && (
+                <div
+                  role="menu"
+                  aria-label={translate("theme.select")}
+                  style={{
+                    background: "var(--bg-panel)",
+                    borderLeft: "1px solid var(--border)",
+                    borderRight: "1px solid var(--border)",
+                    borderBottom: "1px solid var(--border)",
+                    overflow: "hidden",
+                    padding: 4,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTheme("");
+                      setActiveTopPanel(null);
+                    }}
+                    role="menuitemradio"
+                    aria-checked={themeName === ""}
+                    style={{
+                      display: "flex", alignItems: "center", width: "100%", height: 34, padding: "0 10px",
+                      border: "none", borderRadius: 4,
+                      background: themeName === "" ? "var(--bg-selected)" : "transparent",
+                      color: "var(--text)", cursor: "pointer", textAlign: "left", fontSize: 12,
+                      transition: "background 0.1s",
+                    }}
+                    onMouseEnter={(e) => {
+                      if (themeName !== "") e.currentTarget.style.background = "var(--bg-hover)";
+                    }}
+                    onMouseLeave={(e) => {
+                      if (themeName !== "") e.currentTarget.style.background = "transparent";
+                    }}
+                  >
+                    <span>{translate("theme.default")}</span>
+                    {themeName === "" && <span style={{ marginLeft: "auto", color: "var(--accent)" }}>✓</span>}
+                  </button>
+                  {themeSets.length === 0 ? (
+                    <div style={{ padding: "8px 10px", fontSize: 12, color: "var(--text-dim)" }}>
+                      {translate("theme.loading")}
+                    </div>
+                  ) : (
+                    themeSets.map((ts) => (
+                      <button
+                        key={ts.name}
+                        type="button"
+                        onClick={() => {
+                          setTheme(ts.name);
+                          setActiveTopPanel(null);
+                        }}
+                        role="menuitemradio"
+                        aria-checked={themeName === ts.name}
+                        style={{
+                          display: "flex", alignItems: "center", width: "100%", height: 34, padding: "0 10px",
+                          border: "none", borderRadius: 4,
+                          background: themeName === ts.name ? "var(--bg-selected)" : "transparent",
+                          color: "var(--text)", cursor: "pointer", textAlign: "left", fontSize: 12,
+                          transition: "background 0.1s",
+                        }}
+                        onMouseEnter={(e) => {
+                          if (themeName !== ts.name) e.currentTarget.style.background = "var(--bg-hover)";
+                        }}
+                        onMouseLeave={(e) => {
+                          if (themeName !== ts.name) e.currentTarget.style.background = "transparent";
+                        }}
+                      >
+                        <span>{ts.displayName}</span>
+                        {themeName === ts.name && <span style={{ marginLeft: "auto", color: "var(--accent)" }}>✓</span>}
+                      </button>
+                    ))
+                  )}
                 </div>
               )}
               {activeTopPanel === "system" && (
