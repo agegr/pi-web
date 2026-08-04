@@ -28,11 +28,12 @@
     "package.json"
   ],
   "scripts": {
-    "dev": "next dev -H 127.0.0.1 -p 30141",
-    "dev:lan": "next dev -H 0.0.0.0 -p 30141",
+    "prepare": "npm run build",
+    "dev": "next dev -H 127.0.0.1 -p 30142",
+    "dev:lan": "next dev -H 0.0.0.0 -p 30142",
     "build": "next build --webpack",
-    "start": "next start -H 127.0.0.1 -p 30141",
-    "start:lan": "next start -H 0.0.0.0 -p 30141",
+    "start": "next start -H 127.0.0.1 -p 30142",
+    "start:lan": "next start -H 0.0.0.0 -p 30142",
     "lint": "eslint .",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
   },

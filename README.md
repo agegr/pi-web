@@ -25,7 +25,7 @@ npm install -g @agegr/pi-web
 pi-web
 ```
 
-Then open [http://127.0.0.1:30141](http://127.0.0.1:30141). The CLI will try to open the browser automatically after the server is ready. Pi Web listens on `127.0.0.1` by default.
+Then open [http://127.0.0.1:30142](http://127.0.0.1:30142). The CLI will try to open the browser automatically after the server is ready. Pi Web listens on `127.0.0.1` by default.
 
 **Options:**
 
@@ -96,7 +96,7 @@ npm install
 npm run dev
 ```
 
-The local dev server runs at [http://127.0.0.1:30141](http://127.0.0.1:30141).
+The local dev server runs at [http://127.0.0.1:30142](http://127.0.0.1:30142).
 
 Common checks:
 
