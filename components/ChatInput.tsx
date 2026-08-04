@@ -525,11 +525,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, []);
 
   const clearInput = useCallback(() => {
+    valueRef.current = "";
     setValue("");
     setAtQuery(null);
     setHistoryMenuOpen(false);
     if (draftKey) clearDraft(draftKey);
     if (draftKeyRef.current && draftKeyRef.current !== draftKey) clearDraft(draftKeyRef.current);
+    attachedImagesRef.current = [];
     clearImages();
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -538,7 +540,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [clearImages, draftKey]);
 
   useEffect(() => {
-    if (!draftKey || draftKeyRef.current !== draftKey) return;
+    // 发送清空或切换草稿 key 时，跳过已排队的旧 render effect，避免旧输入回写。
+    if (!draftKey || draftKeyRef.current !== draftKey || valueRef.current !== value) return;
     setDraft(draftKey, {
       value,
       images: attachedImages.map(imageToDraftImage),

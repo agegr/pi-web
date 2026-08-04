@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createJiti } from "jiti";
@@ -170,4 +171,21 @@ test("streaming without thinkingLevel hides the badge but keeps Stop", () => {
   );
   assert.ok(!html.includes(">high</span>"), "no badge when thinkingLevel is undefined");
   assert.ok(html.includes(">Stop<"), "stop button still renders");
+});
+
+test("clearing an accepted new-session prompt cannot restore its draft", async () => {
+  const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  const clearInputSource = source.slice(
+    source.indexOf("const clearInput = useCallback"),
+    source.indexOf("useEffect(() =>", source.indexOf("const clearInput = useCallback")),
+  );
+  const persistStart = source.indexOf("// 发送清空或切换草稿 key 时");
+  const persistDraftSource = source.slice(
+    persistStart,
+    source.indexOf("useEffect(() =>", persistStart + 1),
+  );
+
+  assert.match(clearInputSource, /valueRef\.current = "";[\s\S]*?setValue\(""\)/);
+  assert.match(clearInputSource, /attachedImagesRef\.current = \[\]/);
+  assert.match(persistDraftSource, /draftKeyRef\.current !== draftKey \|\| valueRef\.current !== value/);
 });

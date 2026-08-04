@@ -35,6 +35,23 @@ test("removes only completed detached subagent ids", () => {
   assert.match(eventSource, /pendingDetachedSubagentIdsRef\.current\.delete\(agentId\)/);
 });
 
+test("marks timed-out detached subagents terminal from inspect results", () => {
+  const deriveSource = source.slice(
+    source.indexOf("function deriveDetachedSubagentStatuses"),
+    source.indexOf("export interface QueuedMessages"),
+  );
+  const eventSource = source.slice(
+    source.lastIndexOf("const handleAgentEvent = useCallback"),
+    source.indexOf("handleAgentEventRef.current = handleAgentEvent"),
+  );
+
+  assert.match(deriveSource, /message\.toolName === "subagent_inspect"/);
+  assert.match(deriveSource, /run\.state !== "completed" && run\.state !== "failed"/);
+  assert.match(deriveSource, /status\.state = run\.state/);
+  assert.match(eventSource, /completed\.toolName === "subagent_inspect"/);
+  assert.match(eventSource, /inspectedTerminalIds/);
+});
+
 test("restores unfinished detached subagents from session history", () => {
   const rebuildSource = source.slice(
     source.indexOf("function pendingDetachedSubagentIds"),

@@ -140,14 +140,27 @@ function deriveDetachedSubagentStatuses(messages: AgentMessage[]): DetachedSubag
     }
     if (message.role === "toolResult" && message.toolName === "subagent_spawn") {
       const text = contentText(message.content);
-      const agentId = text.match(/\b(sa_[0-9a-f-]+)\b/i)?.[1];
+      const detailAgent = message.details as { agent?: { id?: unknown } } | undefined;
+      const agentId = typeof detailAgent?.agent?.id === "string"
+        ? detailAgent.agent.id
+        : text.match(/\b(sa_[0-9a-f-]+)\b/i)?.[1];
       const status = statuses.get(message.toolCallId);
       if (!status) continue;
       statuses.delete(message.toolCallId);
-      if (message.isError) continue;
-      status.id = agentId ?? status.id;
+      if (message.isError || !agentId) continue;
+      status.id = agentId;
       status.mode = text.includes("auto-resume will request synthesis") ? "auto-resume" : "next-turn";
       statuses.set(status.id, status);
+    }
+    if (message.role === "toolResult" && message.toolName === "subagent_inspect") {
+      const details = message.details as { runs?: Array<{ id?: unknown; state?: unknown }> } | undefined;
+      for (const run of details?.runs ?? []) {
+        if (typeof run.id !== "string" || (run.state !== "completed" && run.state !== "failed")) continue;
+        const status = statuses.get(run.id);
+        if (!status) continue;
+        status.state = run.state;
+        completedAt.set(run.id, messageIndex);
+      }
     }
     for (const agentId of completedDetachedSubagentIds(message)) {
       const status = statuses.get(agentId);
@@ -1155,14 +1168,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
         if (completed?.role === "toolResult" && completed.toolName === "subagent_spawn" && !completed.isError) {
           const text = contentText(completed.content);
-          const agentId = text.match(/\b(sa_[0-9a-f-]+)\b/i)?.[1];
+          const detailAgent = completed.details as { agent?: { id?: unknown } } | undefined;
+          const agentId = typeof detailAgent?.agent?.id === "string"
+            ? detailAgent.agent.id
+            : text.match(/\b(sa_[0-9a-f-]+)\b/i)?.[1];
           if (agentId) pendingDetachedSubagentIdsRef.current.add(agentId);
         }
         const completedSubagentIds = completed ? completedDetachedSubagentIds(completed) : [];
-        for (const agentId of completedSubagentIds) {
-          pendingDetachedSubagentIdsRef.current.delete(agentId);
-        }
-        if (!agentRunningRef.current && completedSubagentIds.length > 0 && sessionIdRef.current) {
+        const inspectedTerminalIds = completed?.role === "toolResult" && completed.toolName === "subagent_inspect"
+          ? ((completed.details as { runs?: Array<{ id?: unknown; state?: unknown }> } | undefined)?.runs ?? [])
+              .filter((run) => typeof run.id === "string" && (run.state === "completed" || run.state === "failed"))
+              .map((run) => run.id as string)
+          : [];
+        const terminalSubagentIds = [...new Set([...completedSubagentIds, ...inspectedTerminalIds])];
+        for (const agentId of terminalSubagentIds) pendingDetachedSubagentIdsRef.current.delete(agentId);
+        if (!agentRunningRef.current && terminalSubagentIds.length > 0 && sessionIdRef.current) {
           scheduleEventStreamClose(sessionIdRef.current);
         }
         if (completed && completed.role === "user") {
