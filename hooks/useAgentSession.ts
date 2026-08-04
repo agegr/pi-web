@@ -1688,13 +1688,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     messagesEndRef.current?.scrollIntoView({ behavior });
   }, []);
 
-  const scrollUserMsgToTop = useCallback(() => {
+  // 发送消息后定位到该消息底部，让新输出从视口底部接续出现，而不是被甩到消息顶部
+  const scrollUserMsgToBottom = useCallback(() => {
     const container = scrollContainerRef.current;
     const el = lastUserMsgRef.current;
     if (!container || !el) return;
-    const elAbsTop = el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
+    const elAbsBottom = el.getBoundingClientRect().bottom - container.getBoundingClientRect().top + container.scrollTop;
     ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
-    container.scrollTo({ top: elAbsTop - 16, behavior: "smooth" });
+    container.scrollTo({ top: elAbsBottom - 16, behavior: "smooth" });
   }, []);
 
   // 位置驱动：每次滚动实时判定是否贴底，滚轮/触控/键盘滚动天然覆盖
@@ -1774,7 +1775,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (pendingScrollToUserRef.current) {
         pendingScrollToUserRef.current = false;
         initialScrollDoneRef.current = true;
-        scrollUserMsgToTop();
+        scrollUserMsgToBottom();
       } else if (!initialScrollDoneRef.current) {
         initialScrollDoneRef.current = true;
         scrollToBottom("instant");
@@ -1782,7 +1783,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         scrollToBottom(agentRunningRef.current ? "instant" : "smooth");
       }
     }
-  }, [messages.length, scrollToBottom, scrollUserMsgToTop]);
+  }, [messages.length, scrollToBottom, scrollUserMsgToBottom]);
 
   // 流式输出逐 token 更新：贴底时保持视野钉在最新内容上
   useEffect(() => {
