@@ -331,6 +331,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [modelFilter, setModelFilter] = useState("");
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
+  /** 移动端横条内：dropdown 面板用 fixed 定位（横条 overflow 会裁剪 absolute 面板） */
+  const [thinkingDropdownRect, setThinkingDropdownRect] = useState<{ top: number; left: number } | null>(null);
+  const [toolDropdownRect, setToolDropdownRect] = useState<{ top: number; left: number } | null>(null);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
@@ -357,6 +360,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     : {};
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const controlsBarRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownPanelRef = useRef<HTMLDivElement>(null);
   const toolDropdownRef = useRef<HTMLDivElement>(null);
@@ -1094,7 +1098,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (thinkingDropdownRef.current && !thinkingDropdownRef.current.contains(e.target as Node)) {
         setThinkingDropdownOpen(false);
       }
-      if (controlsMenuRef.current && !controlsMenuRef.current.contains(e.target as Node)) {
+      if (
+        !(controlsMenuRef.current?.contains(e.target as Node) ?? false) &&
+        !(controlsBarRef.current?.contains(e.target as Node) ?? false)
+      ) {
         setControlsMenuOpen(false);
       }
       if (historyMenuRef.current && !historyMenuRef.current.contains(e.target as Node) && !textareaRef.current?.contains(e.target as Node)) {
@@ -1108,6 +1115,475 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   useEffect(() => {
     if (!isMobile) setControlsMenuOpen(false);
   }, [isMobile]);
+
+  // 控件组（thinking / tools / compact / sound / model / send）：
+  // 桌面端渲染在输入框底行内，移动端渲染在输入框下方可滑动的横条中。
+  const controlsContent = (
+    <>
+      {!isStreaming && onThinkingLevelChange && (
+        <div ref={thinkingDropdownRef} style={{ position: "relative" }}>
+          <button
+            onClick={(e) => {
+              if (isStreaming) return;
+              if (isMobile) {
+                const rect = e.currentTarget.getBoundingClientRect();
+                setThinkingDropdownRect({ top: rect.top, left: rect.left });
+              }
+              setThinkingDropdownOpen((v) => !v);
+            }}
+            disabled={isStreaming}
+             title={t("chat.changeReasoning", { level: thinkingDisplayLabel })}
+             aria-label={t("chat.changeReasoningLabel")}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+              padding: isMobile ? "0 6px" : "8px 12px",
+              width: isMobile ? "auto" : undefined,
+              height: 32,
+              background: thinkingDropdownOpen ? "var(--bg-hover)" : "none",
+              border: "none",
+              borderRadius: 9,
+              color: "var(--text-muted)",
+              cursor: isStreaming ? "not-allowed" : "pointer",
+              fontSize: 12,
+              opacity: isStreaming ? 0.5 : 1,
+              transition: "background 0.12s, color 0.12s",
+            }}
+            onMouseEnter={(e) => {
+              if (isStreaming) return;
+              e.currentTarget.style.background = "var(--bg-hover)";
+              e.currentTarget.style.color = "var(--text)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = thinkingDropdownOpen ? "var(--bg-hover)" : "none";
+              e.currentTarget.style.color = "var(--text-muted)";
+            }}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--accent)", flexShrink: 0 }}>
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
+            {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{thinkingDisplayLabel}</span>}
+          </button>
+          {thinkingDropdownOpen && (() => {
+            // 移动端横条是 overflow 滚动容器，absolute 面板会被裁剪，改 fixed 定位
+            const panelStyle: React.CSSProperties = isMobile && thinkingDropdownRect
+              ? {
+                  position: "fixed",
+                  bottom: (window.visualViewport?.height ?? window.innerHeight) - thinkingDropdownRect.top + 6,
+                  left: thinkingDropdownRect.left,
+                  zIndex: 200,
+                }
+              : { position: "absolute", bottom: "calc(100% + 6px)", right: 0, zIndex: 100 };
+            return (
+            <div style={{
+              ...panelStyle,
+              background: "var(--bg)", border: "1px solid var(--border)",
+              borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
+              overflow: "hidden", minWidth: 180,
+            }}>
+              {THINKING_LEVELS.filter((lvl) => {
+                if (!availableThinkingLevels) return true;
+                if (lvl === "auto") return true;
+                return availableThinkingLevels.includes(lvl);
+              }).map((lvl) => {
+                const isActive = (thinkingLevel ?? "auto") === lvl;
+                 const desc = t(THINKING_LEVEL_DESC_KEYS[lvl]);
+                const mappedVal = (lvl !== "auto" && thinkingLevelMap) ? thinkingLevelMap[lvl] : undefined;
+                const displayLabel = (mappedVal != null && mappedVal !== lvl) ? mappedVal : lvl;
+                const showOriginal = mappedVal != null && mappedVal !== lvl;
+                return (
+                  <button
+                    key={lvl}
+                    onClick={() => { setThinkingDropdownOpen(false); if (!isActive) onThinkingLevelChange(lvl); }}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 8,
+                      width: "100%", padding: "7px 12px",
+                      background: isActive ? "var(--bg-selected)" : "none",
+                      border: "none",
+                      color: isActive ? "var(--text)" : "var(--text-muted)",
+                      cursor: "pointer", fontSize: 12, textAlign: "left",
+                      fontWeight: isActive ? 600 : 400,
+                      whiteSpace: "nowrap",
+                    }}
+                    onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
+                    onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
+                  >
+                    {isActive
+                      ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
+                      : <span style={{ width: 10, flexShrink: 0 }} />}
+                    <span style={{ flex: 1 }}>
+                      {displayLabel}
+                      {showOriginal && <span style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)", marginLeft: 5 }}>({lvl})</span>}
+                    </span>
+                    <span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: 8 }}>{desc}</span>
+                  </button>
+                );
+              })}
+            </div>
+            );
+          })()}
+        </div>
+      )}
+      {!isStreaming && onToolPresetChange && (
+        <div ref={toolDropdownRef} style={{ position: "relative" }}>
+          <button
+            onClick={(e) => {
+              if (isStreaming) return;
+              if (isMobile) {
+                const rect = e.currentTarget.getBoundingClientRect();
+                setToolDropdownRect({ top: rect.top, left: rect.left });
+              }
+              setToolDropdownOpen((v) => !v);
+            }}
+            disabled={isStreaming}
+             title={t("chat.changeToolPreset") + `: ${toolPresetLabel}`}
+             aria-label={t("chat.changeToolPreset")}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+              padding: isMobile ? "0 6px" : "8px 12px",
+              width: isMobile ? "auto" : undefined,
+              height: 32,
+              background: toolDropdownOpen ? "var(--bg-hover)" : "none",
+              border: "none",
+              borderRadius: 9,
+              color: "var(--text-muted)",
+              cursor: isStreaming ? "not-allowed" : "pointer",
+              fontSize: 12,
+              opacity: isStreaming ? 0.5 : 1,
+              transition: "background 0.12s, color 0.12s",
+            }}
+            onMouseEnter={(e) => {
+              if (isStreaming) return;
+              e.currentTarget.style.background = "var(--bg-hover)";
+              e.currentTarget.style.color = "var(--text)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = toolDropdownOpen ? "var(--bg-hover)" : "none";
+              e.currentTarget.style.color = "var(--text-muted)";
+            }}
+          >
+            {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{toolPresetLabel}</span>}
+          </button>
+          {toolDropdownOpen && (() => {
+            // 移动端横条是 overflow 滚动容器，absolute 面板会被裁剪，改 fixed 定位
+            const panelStyle: React.CSSProperties = isMobile && toolDropdownRect
+              ? {
+                  position: "fixed",
+                  bottom: (window.visualViewport?.height ?? window.innerHeight) - toolDropdownRect.top + 6,
+                  left: toolDropdownRect.left,
+                  zIndex: 200,
+                }
+              : { position: "absolute", bottom: "calc(100% + 6px)", right: 0, zIndex: 100 };
+            return (
+            <div style={{
+              ...panelStyle,
+              background: "var(--bg)", border: "1px solid var(--border)",
+              borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
+              overflow: "hidden", minWidth: 120,
+            }}>
+              {TOOL_PRESETS.map((lvl) => {
+                const preset = TOOL_PRESET_MAP[lvl];
+                const isActive = (toolPreset ?? "default") === preset;
+                 const desc = lvl === "off" ? t("chat.noTools") : lvl === "default" ? t("chat.builtInTools", { count: 4 }) : t("chat.allBuiltInTools");
+                return (
+                  <button
+                    key={lvl}
+                    onClick={() => { setToolDropdownOpen(false); if (!isActive) onToolPresetChange(preset); }}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 8,
+                      width: "100%", padding: "7px 12px",
+                      background: isActive ? "var(--bg-selected)" : "none",
+                      border: "none",
+                      color: isActive ? "var(--text)" : "var(--text-muted)",
+                      cursor: "pointer", fontSize: 12, textAlign: "left",
+                      fontWeight: isActive ? 600 : 400,
+                      whiteSpace: "nowrap",
+                    }}
+                    onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
+                    onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
+                  >
+                    {isActive
+                      ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
+                      : <span style={{ width: 10, flexShrink: 0 }} />}
+                    <span style={{ flex: 1 }}>{lvl}</span>
+                    <span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: 8 }}>{desc}</span>
+                  </button>
+                );
+              })}
+            </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {!isStreaming && onCompact && (
+        <div>
+          <button
+            onClick={isCompacting ? onAbortCompaction : onCompact}
+            disabled={isStreaming && !isCompacting}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+              padding: isMobile ? "0 6px" : "8px 12px",
+              width: isMobile ? "auto" : undefined,
+              height: 32,
+              background: isCompacting ? "rgba(239,68,68,0.08)" : "none",
+              border: "none",
+              borderRadius: 9,
+              color: isCompacting ? "#ef4444" : "var(--text-muted)",
+              cursor: (isStreaming && !isCompacting) ? "not-allowed" : "pointer",
+              fontSize: 12, opacity: (isStreaming && !isCompacting) ? 0.5 : 1,
+              transition: "background 0.12s, color 0.12s",
+            }}
+            onMouseEnter={(e) => {
+              if (isStreaming && !isCompacting) return;
+              e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.16)" : "var(--bg-hover)";
+              e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.08)" : "none";
+              e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text-muted)";
+            }}
+             title={isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
+             aria-label={isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
+          >
+            {isCompacting ? (
+              <><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" /></svg>{(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{t("chat.compacting")}</span>}</>
+            ) : (
+              <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" />
+                <line x1="10" y1="14" x2="3" y2="21" /><line x1="21" y1="3" x2="14" y2="10" />
+              </svg>{(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{t("chat.compact")}</span>}</>
+            )}
+          </button>
+        </div>
+      )}
+
+      {isStreaming && (
+        <button
+          onClick={onAbort}
+           title={t("chat.stopAgent")}
+          style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "8px 14px",
+            height: 32,
+            background: "rgba(239,68,68,0.08)",
+            border: "1px solid rgba(239,68,68,0.3)",
+            borderRadius: 9,
+            color: "#ef4444",
+            cursor: "pointer",
+            fontSize: 12, fontWeight: 600,
+            whiteSpace: "nowrap", letterSpacing: "-0.01em",
+            transition: "background 0.12s",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.16)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.08)"; }}
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <rect x="1.5" y="1.5" width="7" height="7" rx="1.5" fill="currentColor" />
+          </svg>
+           {t("chat.stop")}
+        </button>
+      )}
+
+      {onSoundToggle !== undefined && (
+        <button
+          onClick={onSoundToggle}
+           title={soundEnabled ? t("chat.disableSound") : t("chat.enableSound")}
+           aria-label={soundEnabled ? t("chat.disableSound") : t("chat.enableSound")}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+            width: 32,
+            height: 32,
+            padding: 0,
+            background: "none",
+            border: "none",
+            borderRadius: 9,
+            color: soundEnabled ? "var(--text-muted)" : "var(--text-dim)",
+            cursor: "pointer",
+            opacity: soundEnabled ? 1 : 0.55,
+            transition: "background 0.12s, color 0.12s, opacity 0.12s",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "var(--bg-hover)";
+            e.currentTarget.style.color = "var(--text)";
+            e.currentTarget.style.opacity = "1";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "none";
+            e.currentTarget.style.color = soundEnabled ? "var(--text-muted)" : "var(--text-dim)";
+            e.currentTarget.style.opacity = soundEnabled ? "1" : "0.55";
+          }}
+        >
+          {soundEnabled ? (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+              <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+              <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+            </svg>
+          ) : (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+              <line x1="23" y1="9" x2="17" y2="15" />
+              <line x1="17" y1="9" x2="23" y2="15" />
+            </svg>
+          )}
+        </button>
+      )}
+      {/* spacer: 将 model + send 推到输入框最右侧 */}
+      <div style={{ flex: 1 }} />
+      {/* Model selector — visible always, disabled during streaming */}
+      {(modelOptions.length > 0 || currentName || modelError) && onModelChange && (
+        <div ref={dropdownRef} style={{ position: "relative", minWidth: 0 }}>
+          <button
+            onClick={(e) => {
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              setModelDropdownRect({ top: rect.top, left: rect.left, width: rect.width });
+              setModelDropdownOpen((open) => {
+                if (open) setModelFilter("");
+                return !open;
+              });
+            }}
+            disabled={isStreaming}
+            style={{
+              display: "flex", alignItems: "center", gap: 5,
+              padding: "8px 12px",
+              height: 32,
+              maxWidth: 220,
+              overflow: "hidden",
+              background: modelDropdownOpen ? "var(--bg-hover)" : "none",
+              border: "none",
+              borderRadius: 9,
+              color: "var(--text-muted)",
+              cursor: isStreaming ? "not-allowed" : "pointer",
+              fontSize: 12,
+              opacity: isStreaming ? 0.5 : 1,
+              transition: "background 0.12s, color 0.12s",
+            }}
+            onMouseEnter={(e) => {
+              if (isStreaming) return;
+              e.currentTarget.style.background = "var(--bg-hover)";
+              e.currentTarget.style.color = "var(--text)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = modelDropdownOpen ? "var(--bg-hover)" : "none";
+              e.currentTarget.style.color = "var(--text-muted)";
+            }}
+            title={modelOptions.length > 0 ? "Change model" : "No available models"}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+              {currentName ?? (modelOptions.length > 0 ? "Select model" : "No models")}
+            </span>
+          </button>
+          {modelDropdownOpen && modelDropdownRect && (() => {
+            const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+            const bottom = viewportHeight - modelDropdownRect.top + 6;
+            const maxH = Math.max(120, Math.min(modelDropdownRect.top - 8, viewportHeight * 0.6));
+            // On mobile, pin to a small left margin and cap width to the
+            // viewport so long model names never push the panel off-screen.
+            const panelPos: React.CSSProperties = isMobile
+              ? { left: 8, right: 8, maxWidth: "calc(100vw - 16px)" }
+              : { left: modelDropdownRect.left, width: "max-content", minWidth: modelDropdownRect.width };
+            return (
+              <div ref={modelDropdownPanelRef} style={{
+              position: "fixed",
+              bottom,
+              ...panelPos,
+              zIndex: 500, background: "var(--bg)", border: "1px solid var(--border)",
+              borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
+              overflow: "hidden", maxHeight: maxH, display: "flex", flexDirection: "column",
+              }}>
+              {showModelFilter && (
+                <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+                  <input
+                    value={modelFilter}
+                    onChange={(e) => setModelFilter(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        setModelFilter("");
+                        setModelDropdownOpen(false);
+                      }
+                    }}
+                    placeholder={t("chat.filterModels")}
+                    aria-label={t("chat.filterModels")}
+                    autoFocus
+                    autoComplete="off"
+                    spellCheck={false}
+                    style={{
+                      width: "100%",
+                      minWidth: isMobile ? 0 : 220,
+                      fontSize: 11,
+                      fontFamily: "var(--font-mono)",
+                      padding: "5px 8px",
+                      border: "1px solid var(--border)",
+                      borderRadius: 5,
+                      outline: "none",
+                      background: "var(--bg)",
+                      color: "var(--text)",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+              )}
+              <div style={{ minHeight: 0, overflowY: "auto" }}>
+                {modelsByProvider.length === 0 ? (
+                  <div style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 12, whiteSpace: "nowrap" }}>
+                    {modelFilter.trim() ? t("chat.noMatchingModels") : "No available models"}
+                  </div>
+                ) : modelsByProvider.map((group, gi) => (
+                  <div key={group.provider}>
+                    {(modelsByProvider.length > 1) && (
+                      <div style={{
+                        padding: "6px 12px 4px",
+                        fontSize: 10, fontWeight: 600, color: "var(--text-dim)",
+                        textTransform: "uppercase", letterSpacing: "0.07em",
+                        borderTop: gi > 0 ? "1px solid var(--border)" : "none",
+                      }}>
+                        {group.provider}
+                      </div>
+                    )}
+                    {group.options.map((opt) => {
+                      const isActive = opt.modelId === model?.modelId && opt.provider === model?.provider;
+                      return (
+                        <button
+                          key={`${opt.provider}:${opt.modelId}`}
+                          onClick={() => {
+                            setModelDropdownOpen(false);
+                            setModelFilter("");
+                            if (!isActive || isAutoModelSelection) onModelChange(opt.provider, opt.modelId);
+                          }}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 8,
+                            width: "100%", padding: "7px 12px",
+                            background: isActive ? "var(--bg-selected)" : "none",
+                            border: "none",
+                            color: isActive ? "var(--text)" : "var(--text-muted)",
+                            cursor: "pointer", fontSize: 12, textAlign: "left",
+                            fontWeight: isActive ? 600 : 400,
+                            whiteSpace: "nowrap",
+                          }}
+                          onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
+                          onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
+                        >
+                          {isActive
+                            ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
+                            : <span style={{ width: 10, flexShrink: 0 }} />}
+                          {opt.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+            );
+          })()}
+        </div>
+      )}
+    </>
+  );
 
 
 
@@ -1779,498 +2255,54 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {isMobile && (
               <button
                 type="button"
-                 title={controlsMenuOpen ? undefined : t("chat.moreControls")}
+                 title={controlsMenuOpen ? t("chat.collapseControls") : t("chat.moreControls")}
                  aria-label={t("chat.moreControls")}
                 aria-expanded={controlsMenuOpen}
-                aria-hidden={controlsMenuOpen || undefined}
-                tabIndex={controlsMenuOpen ? -1 : undefined}
                 onClick={() => {
                   setModelDropdownOpen(false);
                   setModelFilter("");
-                  setControlsMenuOpen(true);
+                  setControlsMenuOpen((open) => !open);
                 }}
                 style={{
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  width: "100%",
+                  width: 32,
                   height: 32,
-                  padding: "8px 10px",
-                  background: "none",
+                  padding: 0,
                   border: "none",
                   borderRadius: 9,
                   color: "var(--text-muted)",
-                  cursor: controlsMenuOpen ? "default" : "pointer",
-                  fontSize: 12,
-                  fontWeight: 500,
-                  visibility: controlsMenuOpen ? "hidden" : "visible",
-                  pointerEvents: controlsMenuOpen ? "none" : "auto",
+                  background: controlsMenuOpen ? "var(--bg-hover)" : "none",
+                  cursor: "pointer",
                   transition: "background 0.12s, color 0.12s",
                 }}
                 onMouseEnter={(e) => {
-                  if (controlsMenuOpen) return;
                   e.currentTarget.style.background = "var(--bg-hover)";
                   e.currentTarget.style.color = "var(--text)";
                 }}
                 onMouseLeave={(e) => {
-                  if (controlsMenuOpen) return;
-                  e.currentTarget.style.background = "none";
+                  e.currentTarget.style.background = controlsMenuOpen ? "var(--bg-hover)" : "none";
                   e.currentTarget.style.color = "var(--text-muted)";
                 }}
               >
-                {t("chat.moreControls")}
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <circle cx="5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="1.4" />
+                </svg>
               </button>
             )}
+            {!isMobile && (
             <div style={{
               flex: "1 1 auto",
               minWidth: 0,
-              display: isMobile ? (controlsMenuOpen ? "flex" : "none") : "flex",
+              display: "flex",
               alignItems: "center",
-              gap: isMobile ? 1 : 2,
-              ...(isMobile ? {
-                position: "absolute",
-                right: 0,
-                bottom: 0,
-                zIndex: 60,
-                padding: 1,
-                width: "max-content",
-                maxWidth: "calc(100vw - 32px)",
-                flexWrap: "nowrap",
-                justifyContent: "flex-end",
-                border: "1px solid color-mix(in srgb, var(--border) 72%, transparent)",
-                borderRadius: 10,
-                background: "color-mix(in srgb, var(--bg-panel) 92%, var(--bg))",
-                boxShadow: "0 8px 24px rgba(0,0,0,0.14)",
-                backdropFilter: "blur(10px)",
-              } : null),
+              gap: 2,
             }}>
-            {!isStreaming && onThinkingLevelChange && (
-              <div ref={thinkingDropdownRef} style={{ position: "relative" }}>
-                <button
-                  onClick={() => !isStreaming && setThinkingDropdownOpen((v) => !v)}
-                  disabled={isStreaming}
-                   title={t("chat.changeReasoning", { level: thinkingDisplayLabel })}
-                   aria-label={t("chat.changeReasoningLabel")}
-                  style={{
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                    padding: isMobile ? "0 6px" : "8px 12px",
-                    width: isMobile ? "auto" : undefined,
-                    height: 32,
-                    background: thinkingDropdownOpen ? "var(--bg-hover)" : "none",
-                    border: "none",
-                    borderRadius: 9,
-                    color: "var(--text-muted)",
-                    cursor: isStreaming ? "not-allowed" : "pointer",
-                    fontSize: 12,
-                    opacity: isStreaming ? 0.5 : 1,
-                    transition: "background 0.12s, color 0.12s",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (isStreaming) return;
-                    e.currentTarget.style.background = "var(--bg-hover)";
-                    e.currentTarget.style.color = "var(--text)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = thinkingDropdownOpen ? "var(--bg-hover)" : "none";
-                    e.currentTarget.style.color = "var(--text-muted)";
-                  }}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--accent)", flexShrink: 0 }}>
-                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-                  </svg>
-                  {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{thinkingDisplayLabel}</span>}
-                </button>
-                {thinkingDropdownOpen && (
-                  <div style={{
-                    position: "absolute", bottom: "calc(100% + 6px)", right: 0,
-                    zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
-                    borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
-                    overflow: "hidden", minWidth: 180,
-                  }}>
-                    {THINKING_LEVELS.filter((lvl) => {
-                      if (!availableThinkingLevels) return true;
-                      if (lvl === "auto") return true;
-                      return availableThinkingLevels.includes(lvl);
-                    }).map((lvl) => {
-                      const isActive = (thinkingLevel ?? "auto") === lvl;
-                       const desc = t(THINKING_LEVEL_DESC_KEYS[lvl]);
-                      const mappedVal = (lvl !== "auto" && thinkingLevelMap) ? thinkingLevelMap[lvl] : undefined;
-                      const displayLabel = (mappedVal != null && mappedVal !== lvl) ? mappedVal : lvl;
-                      const showOriginal = mappedVal != null && mappedVal !== lvl;
-                      return (
-                        <button
-                          key={lvl}
-                          onClick={() => { setThinkingDropdownOpen(false); if (!isActive) onThinkingLevelChange(lvl); }}
-                          style={{
-                            display: "flex", alignItems: "center", gap: 8,
-                            width: "100%", padding: "7px 12px",
-                            background: isActive ? "var(--bg-selected)" : "none",
-                            border: "none",
-                            color: isActive ? "var(--text)" : "var(--text-muted)",
-                            cursor: "pointer", fontSize: 12, textAlign: "left",
-                            fontWeight: isActive ? 600 : 400,
-                            whiteSpace: "nowrap",
-                          }}
-                          onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                          onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
-                        >
-                          {isActive
-                            ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
-                            : <span style={{ width: 10, flexShrink: 0 }} />}
-                          <span style={{ flex: 1 }}>
-                            {displayLabel}
-                            {showOriginal && <span style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)", marginLeft: 5 }}>({lvl})</span>}
-                          </span>
-                          <span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: 8 }}>{desc}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+              {controlsContent}
+            </div>
             )}
-            {!isStreaming && onToolPresetChange && (
-              <div ref={toolDropdownRef} style={{ position: "relative" }}>
-                <button
-                  onClick={() => !isStreaming && setToolDropdownOpen((v) => !v)}
-                  disabled={isStreaming}
-                   title={t("chat.changeToolPreset") + `: ${toolPresetLabel}`}
-                   aria-label={t("chat.changeToolPreset")}
-                  style={{
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                    padding: isMobile ? "0 6px" : "8px 12px",
-                    width: isMobile ? "auto" : undefined,
-                    height: 32,
-                    background: toolDropdownOpen ? "var(--bg-hover)" : "none",
-                    border: "none",
-                    borderRadius: 9,
-                    color: "var(--text-muted)",
-                    cursor: isStreaming ? "not-allowed" : "pointer",
-                    fontSize: 12,
-                    opacity: isStreaming ? 0.5 : 1,
-                    transition: "background 0.12s, color 0.12s",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (isStreaming) return;
-                    e.currentTarget.style.background = "var(--bg-hover)";
-                    e.currentTarget.style.color = "var(--text)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = toolDropdownOpen ? "var(--bg-hover)" : "none";
-                    e.currentTarget.style.color = "var(--text-muted)";
-                  }}
-                >
-                  {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{toolPresetLabel}</span>}
-                </button>
-                {toolDropdownOpen && (
-                  <div style={{
-                    position: "absolute", bottom: "calc(100% + 6px)", right: 0,
-                    zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
-                    borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
-                    overflow: "hidden", minWidth: 120,
-                  }}>
-                    {TOOL_PRESETS.map((lvl) => {
-                      const preset = TOOL_PRESET_MAP[lvl];
-                      const isActive = (toolPreset ?? "default") === preset;
-                       const desc = lvl === "off" ? t("chat.noTools") : lvl === "default" ? t("chat.builtInTools", { count: 4 }) : t("chat.allBuiltInTools");
-                      return (
-                        <button
-                          key={lvl}
-                          onClick={() => { setToolDropdownOpen(false); if (!isActive) onToolPresetChange(preset); }}
-                          style={{
-                            display: "flex", alignItems: "center", gap: 8,
-                            width: "100%", padding: "7px 12px",
-                            background: isActive ? "var(--bg-selected)" : "none",
-                            border: "none",
-                            color: isActive ? "var(--text)" : "var(--text-muted)",
-                            cursor: "pointer", fontSize: 12, textAlign: "left",
-                            fontWeight: isActive ? 600 : 400,
-                            whiteSpace: "nowrap",
-                          }}
-                          onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                          onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
-                        >
-                          {isActive
-                            ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
-                            : <span style={{ width: 10, flexShrink: 0 }} />}
-                          <span style={{ flex: 1 }}>{lvl}</span>
-                          <span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: 8 }}>{desc}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Model selector 已移至输入框左侧，与发送按钮相邻 */}
-            {!isStreaming && onCompact && (
-              <div>
-                <button
-                  onClick={isCompacting ? onAbortCompaction : onCompact}
-                  disabled={isStreaming && !isCompacting}
-                  style={{
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                    padding: isMobile ? "0 6px" : "8px 12px",
-                    width: isMobile ? "auto" : undefined,
-                    height: 32,
-                    background: isCompacting ? "rgba(239,68,68,0.08)" : "none",
-                    border: "none",
-                    borderRadius: 9,
-                    color: isCompacting ? "#ef4444" : "var(--text-muted)",
-                    cursor: (isStreaming && !isCompacting) ? "not-allowed" : "pointer",
-                    fontSize: 12, opacity: (isStreaming && !isCompacting) ? 0.5 : 1,
-                    transition: "background 0.12s, color 0.12s",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (isStreaming && !isCompacting) return;
-                    e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.16)" : "var(--bg-hover)";
-                    e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.08)" : "none";
-                    e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text-muted)";
-                  }}
-                   title={isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
-                   aria-label={isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
-                >
-                  {isCompacting ? (
-                    <><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" /></svg>{(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{t("chat.compacting")}</span>}</>
-                  ) : (
-                    <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" />
-                      <line x1="10" y1="14" x2="3" y2="21" /><line x1="21" y1="3" x2="14" y2="10" />
-                    </svg>{(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{t("chat.compact")}</span>}</>
-                  )}
-                </button>
-              </div>
-            )}
-
-            {isStreaming && (
-              <button
-                onClick={onAbort}
-                 title={t("chat.stopAgent")}
-                style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  padding: "8px 14px",
-                  height: 32,
-                  background: "rgba(239,68,68,0.08)",
-                  border: "1px solid rgba(239,68,68,0.3)",
-                  borderRadius: 9,
-                  color: "#ef4444",
-                  cursor: "pointer",
-                  fontSize: 12, fontWeight: 600,
-                  whiteSpace: "nowrap", letterSpacing: "-0.01em",
-                  transition: "background 0.12s",
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.16)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.08)"; }}
-              >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <rect x="1.5" y="1.5" width="7" height="7" rx="1.5" fill="currentColor" />
-                </svg>
-                 {t("chat.stop")}
-              </button>
-            )}
-
-            {onSoundToggle !== undefined && (
-              <button
-                onClick={onSoundToggle}
-                 title={soundEnabled ? t("chat.disableSound") : t("chat.enableSound")}
-                 aria-label={soundEnabled ? t("chat.disableSound") : t("chat.enableSound")}
-                style={{
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                  width: isMobile ? 32 : 32,
-                  height: 32,
-                  padding: 0,
-                  background: "none",
-                  border: "none",
-                  borderRadius: 9,
-                  color: soundEnabled ? "var(--text-muted)" : "var(--text-dim)",
-                  cursor: "pointer",
-                  opacity: soundEnabled ? 1 : 0.55,
-                  transition: "background 0.12s, color 0.12s, opacity 0.12s",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--bg-hover)";
-                  e.currentTarget.style.color = "var(--text)";
-                  e.currentTarget.style.opacity = "1";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "none";
-                  e.currentTarget.style.color = soundEnabled ? "var(--text-muted)" : "var(--text-dim)";
-                  e.currentTarget.style.opacity = soundEnabled ? "1" : "0.55";
-                }}
-              >
-                {soundEnabled ? (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                  </svg>
-                ) : (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                    <line x1="23" y1="9" x2="17" y2="15" />
-                    <line x1="17" y1="9" x2="23" y2="15" />
-                  </svg>
-                )}
-              </button>
-            )}
-            {/* spacer: 将 model + send 推到输入框最右侧 */}
-            <div style={{ flex: 1 }} />
-            {/* Model selector — visible always, disabled during streaming */}
-            {(modelOptions.length > 0 || currentName || modelError) && onModelChange && (
-                <div ref={dropdownRef} style={{ position: "relative", minWidth: 0 }}>
-                  <button
-                    onClick={(e) => {
-                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                      setModelDropdownRect({ top: rect.top, left: rect.left, width: rect.width });
-                      setModelDropdownOpen((open) => {
-                        if (open) setModelFilter("");
-                        return !open;
-                      });
-                    }}
-                    disabled={isStreaming}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 5,
-                      padding: "8px 12px",
-                      height: 32,
-                      maxWidth: 220,
-                      overflow: "hidden",
-                      background: modelDropdownOpen ? "var(--bg-hover)" : "none",
-                      border: "none",
-                      borderRadius: 9,
-                      color: "var(--text-muted)",
-                      cursor: isStreaming ? "not-allowed" : "pointer",
-                      fontSize: 12,
-                      opacity: isStreaming ? 0.5 : 1,
-                      transition: "background 0.12s, color 0.12s",
-                    }}
-                    onMouseEnter={(e) => {
-                      if (isStreaming) return;
-                      e.currentTarget.style.background = "var(--bg-hover)";
-                      e.currentTarget.style.color = "var(--text)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = modelDropdownOpen ? "var(--bg-hover)" : "none";
-                      e.currentTarget.style.color = "var(--text-muted)";
-                    }}
-                    title={modelOptions.length > 0 ? "Change model" : "No available models"}
-                  >
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                      <circle cx="12" cy="12" r="3" />
-                      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                    </svg>
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-                      {currentName ?? (modelOptions.length > 0 ? "Select model" : "No models")}
-                    </span>
-                  </button>
-                  {modelDropdownOpen && modelDropdownRect && (() => {
-                    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-                    const bottom = viewportHeight - modelDropdownRect.top + 6;
-                    const maxH = Math.max(120, Math.min(modelDropdownRect.top - 8, viewportHeight * 0.6));
-                    // On mobile, pin to a small left margin and cap width to the
-                    // viewport so long model names never push the panel off-screen.
-                    const panelPos: React.CSSProperties = isMobile
-                      ? { left: 8, right: 8, maxWidth: "calc(100vw - 16px)" }
-                      : { left: modelDropdownRect.left, width: "max-content", minWidth: modelDropdownRect.width };
-                    return (
-                      <div ref={modelDropdownPanelRef} style={{
-                      position: "fixed",
-                      bottom,
-                      ...panelPos,
-                      zIndex: 500, background: "var(--bg)", border: "1px solid var(--border)",
-                      borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
-                      overflow: "hidden", maxHeight: maxH, display: "flex", flexDirection: "column",
-                      }}>
-                      {showModelFilter && (
-                        <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-                          <input
-                            value={modelFilter}
-                            onChange={(e) => setModelFilter(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Escape") {
-                                setModelFilter("");
-                                setModelDropdownOpen(false);
-                              }
-                            }}
-                            placeholder={t("chat.filterModels")}
-                            aria-label={t("chat.filterModels")}
-                            autoFocus
-                            autoComplete="off"
-                            spellCheck={false}
-                            style={{
-                              width: "100%",
-                              minWidth: isMobile ? 0 : 220,
-                              fontSize: 11,
-                              fontFamily: "var(--font-mono)",
-                              padding: "5px 8px",
-                              border: "1px solid var(--border)",
-                              borderRadius: 5,
-                              outline: "none",
-                              background: "var(--bg)",
-                              color: "var(--text)",
-                              boxSizing: "border-box",
-                            }}
-                          />
-                        </div>
-                      )}
-                      <div style={{ minHeight: 0, overflowY: "auto" }}>
-                        {modelsByProvider.length === 0 ? (
-                          <div style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 12, whiteSpace: "nowrap" }}>
-                            {modelFilter.trim() ? t("chat.noMatchingModels") : "No available models"}
-                          </div>
-                        ) : modelsByProvider.map((group, gi) => (
-                          <div key={group.provider}>
-                            {(modelsByProvider.length > 1) && (
-                              <div style={{
-                                padding: "6px 12px 4px",
-                                fontSize: 10, fontWeight: 600, color: "var(--text-dim)",
-                                textTransform: "uppercase", letterSpacing: "0.07em",
-                                borderTop: gi > 0 ? "1px solid var(--border)" : "none",
-                              }}>
-                                {group.provider}
-                              </div>
-                            )}
-                            {group.options.map((opt) => {
-                              const isActive = opt.modelId === model?.modelId && opt.provider === model?.provider;
-                              return (
-                                <button
-                                  key={`${opt.provider}:${opt.modelId}`}
-                                  onClick={() => {
-                                    setModelDropdownOpen(false);
-                                    setModelFilter("");
-                                    if (!isActive || isAutoModelSelection) onModelChange(opt.provider, opt.modelId);
-                                  }}
-                                  style={{
-                                    display: "flex", alignItems: "center", gap: 8,
-                                    width: "100%", padding: "7px 12px",
-                                    background: isActive ? "var(--bg-selected)" : "none",
-                                    border: "none",
-                                    color: isActive ? "var(--text)" : "var(--text-muted)",
-                                    cursor: "pointer", fontSize: 12, textAlign: "left",
-                                    fontWeight: isActive ? 600 : 400,
-                                    whiteSpace: "nowrap",
-                                  }}
-                                  onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                                  onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
-                                >
-                                  {isActive
-                                    ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
-                                    : <span style={{ width: 10, flexShrink: 0 }} />}
-                                  {opt.name}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    );
-                  })()}
-                </div>
-            )}
+            {isMobile && <div style={{ flex: 1 }} />}
             {!isStreaming && (
               <button
                 onClick={handleSend}
@@ -2303,51 +2335,62 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 </svg>
               </button>
             )}
-            {isMobile && controlsMenuOpen && (
-              <button
-                type="button"
-                 title={t("chat.collapseControls")}
-                 aria-label={t("chat.collapseControls")}
-                aria-expanded={true}
-                onClick={() => {
-                  setToolDropdownOpen(false);
-                  setThinkingDropdownOpen(false);
-                  setControlsMenuOpen(false);
-                }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: 36,
-                  height: 32,
-                  padding: 0,
-                  marginLeft: 0,
-                  background: "var(--bg-hover)",
-                  border: "none",
-                  borderLeft: "1px solid color-mix(in srgb, var(--border) 72%, transparent)",
-                  borderRadius: "0 9px 9px 0",
-                  color: "var(--text)",
-                  cursor: "pointer",
-                  transition: "background 0.12s, color 0.12s",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--bg-selected)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "var(--bg-hover)";
-                }}
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            )}
-            </div>
+          </div>
           </div>
           </div>
         </div>
-        </div>
+        {/* 移动端：展开的控件横条（输入框下方自然流，不遮挡内容，可横向滑动） */}
+        {isMobile && controlsMenuOpen && (
+          <div
+            ref={controlsBarRef}
+            style={{
+              position: "relative",
+              zIndex: 60,
+              marginTop: 8,
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              padding: 2,
+              overflowX: "auto",
+              overflowY: "hidden",
+              flexWrap: "nowrap",
+              border: "1px solid color-mix(in srgb, var(--border) 72%, transparent)",
+              borderRadius: 10,
+              background: "var(--bg-panel)",
+              WebkitOverflowScrolling: "touch",
+            }}
+          >
+            {controlsContent}
+            <button
+              type="button"
+               title={t("chat.collapseControls")}
+               aria-label={t("chat.collapseControls")}
+              onClick={() => {
+                setToolDropdownOpen(false);
+                setThinkingDropdownOpen(false);
+                setControlsMenuOpen(false);
+              }}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                flexShrink: 0,
+                width: 36, height: 32, padding: 0,
+                marginLeft: "auto",
+                background: "var(--bg-hover)",
+                border: "none",
+                borderLeft: "1px solid color-mix(in srgb, var(--border) 72%, transparent)",
+                borderRadius: "0 8px 8px 0",
+                color: "var(--text)",
+                cursor: "pointer",
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+        )}
+
         {/* Bash mode status label */}
         {bashMode && (
           <div className="text-xs px-2 py-1" style={{ color: bashExcluded ? "var(--text-muted)" : "var(--accent)", marginTop: 4, paddingLeft: 4 }}>
