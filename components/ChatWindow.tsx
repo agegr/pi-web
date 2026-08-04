@@ -542,6 +542,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               for (let i = messages.length - 1; i >= 0; i--) {
                 if (isGroupAnchor(messages[i])) { lastAnchorIdx = i; break; }
               }
+              // 仅会话正在运行时，最后一轮的思考才默认展开；历史浏览或空闲会话保持折叠
+              const liveTailActive = sessionBusy || streamState.isStreaming;
 
               const visibleRefIndexByMessage = new Map<number, number>();
               let refIdx = 0;
@@ -596,7 +598,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     showTimestamp={showTimestamp}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
-                    thinkingDefaultExpanded={options.thinkingDefaultExpanded ?? idx >= lastAnchorIdx}
+                    thinkingDefaultExpanded={options.thinkingDefaultExpanded ?? (liveTailActive && idx >= lastAnchorIdx)}
                   />
                 );
                 if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;
@@ -630,7 +632,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                   continue;
                 }
 
-                const isLiveTail = (sessionBusy || streamState.isStreaming) && endIdx === messages.length && userIdx === lastAnchorIdx;
+                const isLiveTail = liveTailActive && endIdx === messages.length && userIdx === lastAnchorIdx;
                 if (isLiveTail) {
                   for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
                     rendered.push(renderMessage(renderIdx));
@@ -666,7 +668,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                        messageCount={processCount}
                        t={t}
                       toolCallCount={countToolCalls(messages, visibleProcessIndices) + countToolCallBlocks(finalSplit.processBlocks)}
-                      defaultExpanded={userIdx >= lastAnchorIdx}
+                      defaultExpanded={liveTailActive && userIdx >= lastAnchorIdx}
                     >
                       {visibleProcessIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }))}
                       {finalProcessMessage && renderMessage(finalAssistantIdx, { attachRef: false, keyPrefix: "process-final", messageOverride: finalProcessMessage, showTimestamp: false })}
