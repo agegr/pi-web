@@ -2090,11 +2090,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             );
           })()}
           <div
+            className="chat-composer"
             style={{
               minWidth: 0,
               display: "flex",
               flexDirection: "column",
-              background: "var(--bg-panel)",
               border: `1px solid ${bashMode ? "var(--tool-bg)" : isStreaming && (onSteer || onFollowUp)
                 ? "rgba(234,179,8,0.4)"
                 : "color-mix(in srgb, var(--border) 55%, transparent)"}`,
@@ -2148,7 +2148,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               fontSize: 14,
               lineHeight: 1.6,
               fontFamily: "inherit",
-              minHeight: 67,
+              minHeight: 45,
               maxHeight: 200,
               overflow: "auto",
             }}

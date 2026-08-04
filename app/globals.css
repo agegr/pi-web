@@ -33,6 +33,8 @@
   --assistant-bg: #ffffff;
   --tool-bg: #f9fafb;
   --bg-subtle: rgba(0,0,0,0.03);
+  /* 输入框聚焦时的背景色（浅色主题：白底） */
+  --composer-focus-bg: #ffffff;
 }
 
 html.dark {
@@ -50,6 +52,16 @@ html.dark {
   --assistant-bg: #1a1a1a;
   --tool-bg: #1f2937;
   --bg-subtle: rgba(255,255,255,0.04);
+  /* 输入框聚焦时的背景色（深色主题：比面板亮一档，避免纯白刺眼） */
+  --composer-focus-bg: #2e2e2e;
+}
+
+/* 输入框容器：默认面板底色，聚焦时切换背景（textarea / 底行控件 / 面板内输入框获得焦点时触发） */
+.chat-composer {
+  background: var(--bg-panel);
+}
+.chat-composer:focus-within {
+  background: var(--composer-focus-bg);
 }
 
 /* Theme toggle: circular wipe via View Transitions API.
