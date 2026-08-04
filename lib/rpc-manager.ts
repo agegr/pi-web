@@ -12,7 +12,7 @@ import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trus
 import { persistExplicitStartupPreferences } from "./startup-preferences";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
-import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
+import type { AgentMessage, ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS } from "./custom-ui-terminal";
 
 // ============================================================================
@@ -164,6 +164,14 @@ export class AgentSessionWrapper {
 
   get cwd(): string {
     return this.inner.sessionManager.getCwd();
+  }
+
+  /**
+   * 当前流式中的部分消息（若有）。仅在消息流式期间非空（SDK 在
+   * message_end/agent_end 时清空）。SSE 重连时用它重建前端拼接基座。
+   */
+  get streamingMessage(): AgentMessage | undefined {
+    return this.inner.agent.state?.streamingMessage as AgentMessage | undefined;
   }
 
   isAlive(): boolean {

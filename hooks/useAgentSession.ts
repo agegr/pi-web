@@ -10,6 +10,7 @@ import type {
   SessionTreeNode,
 } from "@/lib/types";
 import { normalizeToolCalls } from "@/lib/normalize";
+import { applyAssistantDelta, type AssistantStreamDelta } from "@/lib/stream-delta";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -407,6 +408,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const thinkingLevelOverrideRef = useRef<Exclude<ThinkingLevelOption, "auto"> | null>(null);
   const promptRunIdRef = useRef(0);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
+  // 增量拼接中的流式消息（SDK 结构）。message_start 重置、message_delta 追加、
+  // message_update（服务端降级快照）覆盖校准、message_end 清空。
+  const streamingMessageRef = useRef<Partial<AgentMessage> | null>(null);
 
   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
 
@@ -1052,6 +1056,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // compacting, or continuing messages queued by extension handlers.
         // Keep the stream open until prompt_done/agent_settled and the idle grace.
         if (!agentRunningRef.current) break;
+        streamingMessageRef.current = null;
         setAgentPhase(null);
         setRetryInfo(null);
         dispatch({ type: "end" });
@@ -1126,8 +1131,25 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           break;
         }
         if (msg) {
+          // 完整快照（message_start 的初始消息，或服务端在 delta 缺失/未知时
+          // 降级发送的快照）：重置增量拼接基座并覆盖渲染。
+          streamingMessageRef.current = msg;
           dispatch({ type: "update", message: normalizeToolCalls(msg as AgentMessage) });
         }
+        setAgentPhase(null);
+        break;
+      }
+      case "message_delta": {
+        // 轻量增量事件（服务端剥离 partial 后转发）：追加到本地流式消息。
+        // Same late-event guard as message_start/message_update.
+        if (!agentRunningRef.current) break;
+        const delta = event.assistantMessageEvent as AssistantStreamDelta | undefined;
+        if (!delta || typeof delta.type !== "string") break;
+        const prev = streamingMessageRef.current;
+        const next = applyAssistantDelta(prev, delta);
+        if (next === prev) break; // start/done/error/未知类型：内容无变化
+        streamingMessageRef.current = next as unknown as Partial<AgentMessage>;
+        dispatch({ type: "update", message: normalizeToolCalls(next as unknown as AgentMessage) });
         setAgentPhase(null);
         break;
       }
@@ -1136,6 +1158,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // loadSession already loaded this message from the session file —
         // appending it again would duplicate it.
         if (!agentRunningRef.current) break;
+        // 消息完成：丢弃增量拼接状态（完整消息由下方 append）。
+        streamingMessageRef.current = null;
         const completed = event.message as AgentMessage | undefined;
         if (completed && completed.role === "user") {
           // Delivered steering/follow-up messages surface here as user
