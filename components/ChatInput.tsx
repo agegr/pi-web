@@ -1617,18 +1617,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             style={{
               minWidth: 0,
               display: "flex",
-              gap: 8,
-              alignItems: "center",
-              background: "var(--bg)",
+              flexDirection: "column",
+              background: "var(--bg-panel)",
               border: `1px solid ${bashMode ? "var(--tool-bg)" : isStreaming && (onSteer || onFollowUp)
                 ? "rgba(234,179,8,0.4)"
-                : "color-mix(in srgb, var(--border) 70%, transparent)"}`,
-              borderRadius: 14,
-              padding: "10px 10px 10px 14px",
+                : "color-mix(in srgb, var(--border) 55%, transparent)"}`,
+              borderRadius: 12,
+              padding: "8px 12px",
               boxShadow: "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
               transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
             } as React.CSSProperties}
           >
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           <textarea
             ref={textareaRef}
             value={value}
@@ -1672,7 +1672,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               fontSize: 14,
               lineHeight: 1.6,
               fontFamily: "inherit",
-              minHeight: 24,
+              minHeight: 67,
               maxHeight: 200,
               overflow: "auto",
             }}
@@ -1728,55 +1728,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 </button>
               )}
             </div>
-          ) : (
-            <button
-              onClick={handleSend}
-              disabled={!value.trim() && !attachedImages.length}
-              style={{
-                flexShrink: 0,
-                alignSelf: "flex-end",
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "7px 14px",
-                background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
-                border: "none",
-                borderRadius: 8,
-                color: (value.trim() || attachedImages.length) ? "#fff" : "var(--text-dim)",
-                cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
-                fontSize: 13,
-                fontWeight: 600,
-                letterSpacing: "-0.01em",
-                boxShadow: (value.trim() || attachedImages.length) ? "0 1px 3px rgba(37,99,235,0.25)" : "none",
-                transition: "background 0.15s, box-shadow 0.15s",
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="2" y1="7" x2="11" y2="7" />
-                <polyline points="7.5 3 12 7 7.5 11" />
-              </svg>
-              {t("chat.send")}
-            </button>
-          )}
+          ) : null}
           </div>
-        </div>
-
-        {/* Bash mode status label */}
-        {bashMode && (
-          <div className="text-xs px-2 py-1" style={{ color: bashExcluded ? "var(--text-muted)" : "var(--accent)", marginTop: 4 }}>
-             {t("chat.shell")} · {bashExcluded ? t("chat.outputLocal") : t("chat.outputModel")}
-          </div>
-        )}
-
-        {/* Bottom bar: left | center (context) | right */}
-        <div style={{
-          marginTop: 8,
-          display: isMobile ? "grid" : "flex",
-          gridTemplateColumns: isMobile ? "minmax(0, 1fr) auto" : undefined,
-          alignItems: "center",
-          gap: 6,
-        }}>
-
-          {/* LEFT: attach + model selector (idle) or steer/followup toggle (streaming) */}
-          <div style={{ flex: isMobile ? "1 1 auto" : "0 0 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2 }}>
+          {/* 分隔线：文本区与功能区 */}
+          <div style={{ height: 1, background: "color-mix(in srgb, var(--border) 38%, transparent)", margin: "4px 0 2px" }} />
+          {/* 功能区：属性控件与发送按钮，位于输入框容器内部 */}
+          <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 2 }}>
+          {/* LEFT: attach button */}
+          <div style={{ flex: "0 0 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2 }}>
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={isStreaming}
@@ -1801,183 +1760,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 e.currentTarget.style.color = attachedImages.length ? "var(--accent)" : "var(--text-muted)";
               }}
             >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                <circle cx="8.5" cy="8.5" r="1.5" />
-                <polyline points="21 15 16 10 5 21" />
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
             </button>
-            {/* Model selector — visible always, disabled during streaming */}
-            {(modelOptions.length > 0 || currentName || modelError) && onModelChange && (
-                <div ref={dropdownRef} style={{ position: "relative", flex: isMobile ? "1 1 auto" : undefined, minWidth: 0 }}>
-                  <button
-                    onClick={(e) => {
-                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                      setModelDropdownRect({ top: rect.top, left: rect.left, width: rect.width });
-                      setModelDropdownOpen((open) => {
-                        if (open) setModelFilter("");
-                        return !open;
-                      });
-                    }}
-                    disabled={isStreaming}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 6,
-                      justifyContent: isMobile ? "flex-start" : undefined,
-                      padding: isMobile ? "8px 10px" : "8px 12px",
-                      height: 32,
-                      width: isMobile ? "100%" : undefined,
-                      maxWidth: isMobile ? "100%" : 220,
-                      overflow: "hidden",
-                      background: modelDropdownOpen ? "var(--bg-hover)" : "none",
-                      border: "none",
-                      borderRadius: 9,
-                      color: "var(--text-muted)",
-                      cursor: isStreaming ? "not-allowed" : "pointer",
-                      fontSize: 12,
-                      opacity: isStreaming ? 0.5 : 1,
-                      transition: "background 0.12s, color 0.12s",
-                    }}
-                    onMouseEnter={(e) => {
-                      if (isStreaming) return;
-                      e.currentTarget.style.background = "var(--bg-hover)";
-                      e.currentTarget.style.color = "var(--text)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = modelDropdownOpen ? "var(--bg-hover)" : "none";
-                      e.currentTarget.style.color = "var(--text-muted)";
-                    }}
-                    title={modelOptions.length > 0 ? "Change model" : "No available models"}
-                  >
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="4" y="4" width="16" height="16" rx="2" />
-                      <rect x="9" y="9" width="6" height="6" />
-                      <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
-                      <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
-                      <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
-                      <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
-                    </svg>
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-                      {currentName ?? (modelOptions.length > 0 ? "Select model" : "No models")}
-                    </span>
-                  </button>
-                  {modelDropdownOpen && modelDropdownRect && (() => {
-                    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-                    const bottom = viewportHeight - modelDropdownRect.top + 6;
-                    const maxH = Math.max(120, Math.min(modelDropdownRect.top - 8, viewportHeight * 0.6));
-                    // On mobile, pin to a small left margin and cap width to the
-                    // viewport so long model names never push the panel off-screen.
-                    const panelPos: React.CSSProperties = isMobile
-                      ? { left: 8, right: 8, maxWidth: "calc(100vw - 16px)" }
-                      : { left: modelDropdownRect.left, width: "max-content", minWidth: modelDropdownRect.width };
-                    return (
-                      <div ref={modelDropdownPanelRef} style={{
-                      position: "fixed",
-                      bottom,
-                      ...panelPos,
-                      zIndex: 500, background: "var(--bg)", border: "1px solid var(--border)",
-                      borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
-                      overflow: "hidden", maxHeight: maxH, display: "flex", flexDirection: "column",
-                      }}>
-                      {showModelFilter && (
-                        <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-                          <input
-                            value={modelFilter}
-                            onChange={(e) => setModelFilter(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Escape") {
-                                setModelFilter("");
-                                setModelDropdownOpen(false);
-                              }
-                            }}
-                            placeholder={t("chat.filterModels")}
-                            aria-label={t("chat.filterModels")}
-                            autoFocus
-                            autoComplete="off"
-                            spellCheck={false}
-                            style={{
-                              width: "100%",
-                              minWidth: isMobile ? 0 : 220,
-                              fontSize: 11,
-                              fontFamily: "var(--font-mono)",
-                              padding: "5px 8px",
-                              border: "1px solid var(--border)",
-                              borderRadius: 5,
-                              outline: "none",
-                              background: "var(--bg)",
-                              color: "var(--text)",
-                              boxSizing: "border-box",
-                            }}
-                          />
-                        </div>
-                      )}
-                      <div style={{ minHeight: 0, overflowY: "auto" }}>
-                        {modelsByProvider.length === 0 ? (
-                          <div style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 12, whiteSpace: "nowrap" }}>
-                            {modelFilter.trim() ? t("chat.noMatchingModels") : "No available models"}
-                          </div>
-                        ) : modelsByProvider.map((group, gi) => (
-                          <div key={group.provider}>
-                            {(modelsByProvider.length > 1) && (
-                              <div style={{
-                                padding: "6px 12px 4px",
-                                fontSize: 10, fontWeight: 600, color: "var(--text-dim)",
-                                textTransform: "uppercase", letterSpacing: "0.07em",
-                                borderTop: gi > 0 ? "1px solid var(--border)" : "none",
-                              }}>
-                                {group.provider}
-                              </div>
-                            )}
-                            {group.options.map((opt) => {
-                              const isActive = opt.modelId === model?.modelId && opt.provider === model?.provider;
-                              return (
-                                <button
-                                  key={`${opt.provider}:${opt.modelId}`}
-                                  onClick={() => {
-                                    setModelDropdownOpen(false);
-                                    setModelFilter("");
-                                    if (!isActive || isAutoModelSelection) onModelChange(opt.provider, opt.modelId);
-                                  }}
-                                  style={{
-                                    display: "flex", alignItems: "center", gap: 8,
-                                    width: "100%", padding: "7px 12px",
-                                    background: isActive ? "var(--bg-selected)" : "none",
-                                    border: "none",
-                                    color: isActive ? "var(--text)" : "var(--text-muted)",
-                                    cursor: "pointer", fontSize: 12, textAlign: "left",
-                                    fontWeight: isActive ? 600 : 400,
-                                    whiteSpace: "nowrap",
-                                  }}
-                                  onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                                  onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
-                                >
-                                  {isActive
-                                    ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
-                                    : <span style={{ width: 10, flexShrink: 0 }} />}
-                                  {opt.name}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    );
-                  })()}
-                </div>
-            )}
           </div>
 
-          {/* spacer */}
-          {!isMobile && <div style={{ flex: 1 }} />}
-
-          {/* RIGHT: thinking + tools preset + compact + sound (idle) | Stop + sound (streaming) */}
+          {/* RIGHT: thinking + tools + compact + sound + model + send (idle) | Stop + sound (streaming) */}
           <div ref={controlsMenuRef} style={{
-            flex: "0 0 auto",
+            flex: "1 1 auto",
+            minWidth: 0,
             display: "flex",
             alignItems: "center",
-            justifyContent: "flex-end",
+            justifyContent: "flex-start",
             position: "relative",
-            marginLeft: isMobile ? 0 : "auto",
           }}>
             {isMobile && (
               <button
@@ -2025,6 +1822,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </button>
             )}
             <div style={{
+              flex: "1 1 auto",
+              minWidth: 0,
               display: isMobile ? (controlsMenuOpen ? "flex" : "none") : "flex",
               alignItems: "center",
               gap: isMobile ? 1 : 2,
@@ -2076,10 +1875,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     e.currentTarget.style.color = "var(--text-muted)";
                   }}
                 >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9.5 2A5.5 5.5 0 0 0 4 7.5c0 1.7.78 3.21 2 4.21V14a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1v-2.29c1.22-1 2-2.51 2-4.21A5.5 5.5 0 0 0 9.5 2z" />
-                    <line x1="7" y1="18" x2="12" y2="18" />
-                    <line x1="8" y1="21" x2="11" y2="21" />
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--accent)", flexShrink: 0 }}>
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
                   </svg>
                   {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{thinkingDisplayLabel}</span>}
                 </button>
@@ -2163,9 +1960,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     e.currentTarget.style.color = "var(--text-muted)";
                   }}
                 >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-                  </svg>
                   {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{toolPresetLabel}</span>}
                 </button>
                 {toolDropdownOpen && (
@@ -2209,6 +2003,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </div>
             )}
 
+            {/* Model selector 已移至输入框左侧，与发送按钮相邻 */}
             {!isStreaming && onCompact && (
               <div>
                 <button
@@ -2322,6 +2117,192 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 )}
               </button>
             )}
+            {/* spacer: 将 model + send 推到输入框最右侧 */}
+            <div style={{ flex: 1 }} />
+            {/* Model selector — visible always, disabled during streaming */}
+            {(modelOptions.length > 0 || currentName || modelError) && onModelChange && (
+                <div ref={dropdownRef} style={{ position: "relative", minWidth: 0 }}>
+                  <button
+                    onClick={(e) => {
+                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                      setModelDropdownRect({ top: rect.top, left: rect.left, width: rect.width });
+                      setModelDropdownOpen((open) => {
+                        if (open) setModelFilter("");
+                        return !open;
+                      });
+                    }}
+                    disabled={isStreaming}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 5,
+                      padding: "8px 12px",
+                      height: 32,
+                      maxWidth: 220,
+                      overflow: "hidden",
+                      background: modelDropdownOpen ? "var(--bg-hover)" : "none",
+                      border: "none",
+                      borderRadius: 9,
+                      color: "var(--text-muted)",
+                      cursor: isStreaming ? "not-allowed" : "pointer",
+                      fontSize: 12,
+                      opacity: isStreaming ? 0.5 : 1,
+                      transition: "background 0.12s, color 0.12s",
+                    }}
+                    onMouseEnter={(e) => {
+                      if (isStreaming) return;
+                      e.currentTarget.style.background = "var(--bg-hover)";
+                      e.currentTarget.style.color = "var(--text)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = modelDropdownOpen ? "var(--bg-hover)" : "none";
+                      e.currentTarget.style.color = "var(--text-muted)";
+                    }}
+                    title={modelOptions.length > 0 ? "Change model" : "No available models"}
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                      <circle cx="12" cy="12" r="3" />
+                      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                    </svg>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                      {currentName ?? (modelOptions.length > 0 ? "Select model" : "No models")}
+                    </span>
+                  </button>
+                  {modelDropdownOpen && modelDropdownRect && (() => {
+                    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+                    const bottom = viewportHeight - modelDropdownRect.top + 6;
+                    const maxH = Math.max(120, Math.min(modelDropdownRect.top - 8, viewportHeight * 0.6));
+                    // On mobile, pin to a small left margin and cap width to the
+                    // viewport so long model names never push the panel off-screen.
+                    const panelPos: React.CSSProperties = isMobile
+                      ? { left: 8, right: 8, maxWidth: "calc(100vw - 16px)" }
+                      : { left: modelDropdownRect.left, width: "max-content", minWidth: modelDropdownRect.width };
+                    return (
+                      <div ref={modelDropdownPanelRef} style={{
+                      position: "fixed",
+                      bottom,
+                      ...panelPos,
+                      zIndex: 500, background: "var(--bg)", border: "1px solid var(--border)",
+                      borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
+                      overflow: "hidden", maxHeight: maxH, display: "flex", flexDirection: "column",
+                      }}>
+                      {showModelFilter && (
+                        <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+                          <input
+                            value={modelFilter}
+                            onChange={(e) => setModelFilter(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Escape") {
+                                setModelFilter("");
+                                setModelDropdownOpen(false);
+                              }
+                            }}
+                            placeholder={t("chat.filterModels")}
+                            aria-label={t("chat.filterModels")}
+                            autoFocus
+                            autoComplete="off"
+                            spellCheck={false}
+                            style={{
+                              width: "100%",
+                              minWidth: isMobile ? 0 : 220,
+                              fontSize: 11,
+                              fontFamily: "var(--font-mono)",
+                              padding: "5px 8px",
+                              border: "1px solid var(--border)",
+                              borderRadius: 5,
+                              outline: "none",
+                              background: "var(--bg)",
+                              color: "var(--text)",
+                              boxSizing: "border-box",
+                            }}
+                          />
+                        </div>
+                      )}
+                      <div style={{ minHeight: 0, overflowY: "auto" }}>
+                        {modelsByProvider.length === 0 ? (
+                          <div style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 12, whiteSpace: "nowrap" }}>
+                            {modelFilter.trim() ? t("chat.noMatchingModels") : "No available models"}
+                          </div>
+                        ) : modelsByProvider.map((group, gi) => (
+                          <div key={group.provider}>
+                            {(modelsByProvider.length > 1) && (
+                              <div style={{
+                                padding: "6px 12px 4px",
+                                fontSize: 10, fontWeight: 600, color: "var(--text-dim)",
+                                textTransform: "uppercase", letterSpacing: "0.07em",
+                                borderTop: gi > 0 ? "1px solid var(--border)" : "none",
+                              }}>
+                                {group.provider}
+                              </div>
+                            )}
+                            {group.options.map((opt) => {
+                              const isActive = opt.modelId === model?.modelId && opt.provider === model?.provider;
+                              return (
+                                <button
+                                  key={`${opt.provider}:${opt.modelId}`}
+                                  onClick={() => {
+                                    setModelDropdownOpen(false);
+                                    setModelFilter("");
+                                    if (!isActive || isAutoModelSelection) onModelChange(opt.provider, opt.modelId);
+                                  }}
+                                  style={{
+                                    display: "flex", alignItems: "center", gap: 8,
+                                    width: "100%", padding: "7px 12px",
+                                    background: isActive ? "var(--bg-selected)" : "none",
+                                    border: "none",
+                                    color: isActive ? "var(--text)" : "var(--text-muted)",
+                                    cursor: "pointer", fontSize: 12, textAlign: "left",
+                                    fontWeight: isActive ? 600 : 400,
+                                    whiteSpace: "nowrap",
+                                  }}
+                                  onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
+                                  onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
+                                >
+                                  {isActive
+                                    ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
+                                    : <span style={{ width: 10, flexShrink: 0 }} />}
+                                  {opt.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    );
+                  })()}
+                </div>
+            )}
+            {!isStreaming && (
+              <button
+                onClick={handleSend}
+                disabled={!value.trim() && !attachedImages.length}
+                aria-label={t("chat.send")}
+                title={t("chat.send")}
+                style={{
+                  flexShrink: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 32, height: 32, padding: 0,
+                  background: (value.trim() || attachedImages.length) ? "var(--accent)" : "color-mix(in srgb, var(--border) 45%, transparent)",
+                  border: "none",
+                  borderRadius: "50%",
+                  color: (value.trim() || attachedImages.length) ? "#fff" : "var(--text-dim)",
+                  cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
+                  transition: "background 0.15s, color 0.15s",
+                }}
+                onMouseEnter={(e) => {
+                  if (!value.trim() && !attachedImages.length) return;
+                  e.currentTarget.style.background = "var(--accent-hover)";
+                }}
+                onMouseLeave={(e) => {
+                  if (!value.trim() && !attachedImages.length) return;
+                  e.currentTarget.style.background = "var(--accent)";
+                }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m22 2-7 20-4-9-9-4Z" />
+                  <path d="M22 2 11 13" />
+                </svg>
+              </button>
+            )}
             {isMobile && controlsMenuOpen && (
               <button
                 type="button"
@@ -2364,8 +2345,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             )}
             </div>
           </div>
-
+          </div>
         </div>
+        </div>
+        {/* Bash mode status label */}
+        {bashMode && (
+          <div className="text-xs px-2 py-1" style={{ color: bashExcluded ? "var(--text-muted)" : "var(--accent)", marginTop: 4, paddingLeft: 4 }}>
+             {t("chat.shell")} · {bashExcluded ? t("chat.outputLocal") : t("chat.outputModel")}
+          </div>
+        )}
       </div>
     </div>
   );
