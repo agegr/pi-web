@@ -1032,6 +1032,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (!autoContinueArmedRef.current) return;
     if (agentRunningRef.current || bashRunningRef.current) return;
     autoContinueArmedRef.current = false;
+    // Output after the compaction means pi carried the turn on by itself and it
+    // finished for its own reasons — nudging it again would start unasked work.
+    if (promptProducedOutputRef.current) return;
     if (autoContinueCountRef.current >= AUTO_CONTINUE_MAX_CONSECUTIVE) {
       addNoticeRef.current?.({
         type: "warning",
@@ -1388,12 +1391,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const reason = (event.reason as string | undefined) ?? "auto";
           setCompactResult(readCompactResult(event.result, reason));
           if (sessionIdRef.current) loadSession(sessionIdRef.current);
-          // Only threshold auto-compaction strands the task: a manual /compact
-          // is the user deliberately stopping, and willRetry means pi resumes
-          // the turn itself (the overflow path) — continuing there would double
-          // up.
-          if (reason !== "manual" && !event.willRetry) {
+          // Arm for every auto-compaction; only a manual /compact is the user
+          // deliberately stopping. willRetry used to be excluded because pi
+          // documents that the overflow path resumes the turn itself — but an
+          // overflow compaction was observed ending the run anyway, which is
+          // exactly the case that most needs rescuing. Double-firing is not a
+          // risk: maybeAutoContinueAfterCompaction bails while the run is still
+          // active, so a turn pi really did resume never gets a second prompt.
+          if (reason !== "manual") {
             autoContinueArmedRef.current = true;
+            // Reset the output marker so it now means "did the model produce
+            // anything AFTER this compaction". If it did, pi resumed the turn
+            // on its own and the run reached a natural end — no continuation.
+            promptProducedOutputRef.current = false;
             maybeAutoContinueAfterCompaction();
           }
         }
