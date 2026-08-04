@@ -69,6 +69,8 @@ interface LastAssistantTextResponse {
 type AgentStateResponse = {
   contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
   systemPrompt?: string;
+  /** The live in-memory model of the agent — authoritative over the session file. */
+  model?: { id: string; provider: string };
   thinkingLevel?: string;
   isStreaming?: boolean;
   isPromptRunning?: boolean;
@@ -86,6 +88,12 @@ export interface QueuedMessages {
 
 function normalizeQueuedMessages(q?: { steering?: string[]; followUp?: string[] } | null): QueuedMessages {
   return { steering: q?.steering ?? [], followUp: q?.followUp ?? [] };
+}
+
+type SelectedModelRef = { provider: string; modelId: string };
+
+function sameModel(a: SelectedModelRef | null | undefined, b: SelectedModelRef | null | undefined): boolean {
+  return !!a && !!b && a.provider === b.provider && a.modelId === b.modelId;
 }
 
 type ExtensionUiDialogRequest = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>;
@@ -305,6 +313,8 @@ export interface ChatInputHandle {
   insertIfEmpty: (content: string) => void;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
+  /** Put a submission that never reached the agent back into the composer. */
+  restoreSubmission: (text: string, images?: { data: string; mimeType: string }[]) => void;
 }
 
 export interface AttachedImage {
@@ -364,6 +374,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [forkingEntryId, setForkingEntryId] = useState<string | null>(null);
   const [currentModelOverride, setCurrentModelOverride] = useState<{ provider: string; modelId: string } | null>(null);
   const [pendingModel, setPendingModel] = useState<{ provider: string; modelId: string } | null>(null);
+  const [modelSwitching, setModelSwitching] = useState(false);
   const [isCompacting, setIsCompacting] = useState(false);
   const [compactError, setCompactError] = useState<string | null>(null);
   const [compactResult, setCompactResult] = useState<CompactResultInfo | null>(null);
@@ -407,6 +418,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const thinkingLevelOverrideRef = useRef<Exclude<ThinkingLevelOption, "auto"> | null>(null);
   const promptRunIdRef = useRef(0);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
+  // Monotonic id for model switches: a slow response from an earlier switch
+  // must never overwrite the model the user picked later.
+  const modelSwitchIdRef = useRef(0);
+  const modelSwitchInFlightRef = useRef(0);
+  // The prompt currently in flight, kept so a failed turn can hand the user's
+  // text back to the composer instead of dropping it on the floor.
+  const inFlightPromptRef = useRef<{ runId: number; message: string; images?: AttachedImage[] } | null>(null);
+  const promptProducedOutputRef = useRef(false);
+  // A prompt whose turn errored out. Whether the text is actually lost depends
+  // on whether pi persisted the user entry (it does not for a session with no
+  // assistant reply yet), so the decision is deferred to the next reload.
+  const failedPromptRef = useRef<{ message: string; images?: AttachedImage[]; key: string } | null>(null);
 
   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
 
@@ -452,6 +475,38 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } satisfies SessionStatsInfo;
   }, [messages, sessionStatsOverride, contextUsage, data?.filePath, session?.id, session?.name]);
 
+  // The wrapper's in-memory model is the only authoritative source: the
+  // session file trails behind and settings can be changed elsewhere. Every
+  // place that reads agent state feeds it back here so the picker label always
+  // matches the model that will actually answer the next prompt.
+  const applyLiveAgentModel = useCallback((state?: AgentStateResponse | null) => {
+    const live = state?.model;
+    if (!live) return;
+    if (modelSwitchInFlightRef.current !== 0) return;
+    setCurrentModelOverride((prev) => {
+      const next = { provider: live.provider, modelId: live.id };
+      return sameModel(prev, next) ? prev : next;
+    });
+  }, []);
+
+  // Hand a prompt that never made it into the conversation back to the
+  // composer. Used for synchronous send failures and, via failedPromptRef, for
+  // prompt_error — which is how a dead or misconfigured model reports itself
+  // (the POST returns 200 because pi runs the turn fire-and-forget).
+  const restorePromptToComposer = useCallback((pending: { message: string; images?: AttachedImage[] }) => {
+    const images = pending.images?.map((img) => ({ data: img.data, mimeType: img.mimeType }));
+    if (!pending.message.trim() && !images?.length) return;
+    opts.chatInputRef?.current?.restoreSubmission(pending.message, images);
+  }, [opts.chatInputRef]);
+
+  const restoreFailedPrompt = useCallback((runId?: number) => {
+    const pending = inFlightPromptRef.current;
+    if (!pending) return;
+    if (runId !== undefined && pending.runId !== runId) return;
+    inFlightPromptRef.current = null;
+    restorePromptToComposer(pending);
+  }, [restorePromptToComposer]);
+
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
     let messagesLoaded = false;
     try {
@@ -473,8 +528,29 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setData(d);
       setActiveLeafId(d.leafId);
       setMessages(d.context.messages);
+      // A failed turn is only real data loss when the reloaded session no
+      // longer contains the message — pi drops it for sessions it has not
+      // flushed yet. Give it back to the composer in that case only, so a
+      // failure that kept the message in the transcript does not duplicate it.
+      const failedPrompt = failedPromptRef.current;
+      if (failedPrompt) {
+        failedPromptRef.current = null;
+        const survived = d.context.messages.some(
+          (m) => m.role === "user" && userMessageKey(m) === failedPrompt.key,
+        );
+        if (!survived) restorePromptToComposer(failedPrompt);
+      }
       setEntryIds(d.context.entryIds ?? []);
-      setCurrentModelOverride(null);
+      // Drop the optimistic model only once the reloaded session agrees with
+      // it. The session file lags a switch (pi flushes the model_change entry
+      // asynchronously, and a destroyed-then-restarted wrapper replays an older
+      // leaf), so clearing unconditionally used to snap the picker back to the
+      // previous model — which reads as "switching did nothing".
+      setCurrentModelOverride((prev) => {
+        if (!prev) return null;
+        if (modelSwitchInFlightRef.current !== 0) return prev;
+        return sameModel(d.context.model, prev) ? null : prev;
+      });
       setError(null);
       if (d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
         setThinkingLevel(d.context.thinkingLevel as ThinkingLevelOption);
@@ -492,6 +568,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
         const liveState = agentState.state;
         if (liveState) {
+          applyLiveAgentModel(liveState);
           if (liveState.contextUsage !== undefined) setContextUsage(liveState.contextUsage ?? null);
           if (liveState.systemPrompt !== undefined) setSystemPrompt(liveState.systemPrompt ?? null);
           if (liveState.thinkingLevel !== undefined) setThinkingLevel((liveState.thinkingLevel as ThinkingLevelOption) ?? "auto");
@@ -512,7 +589,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (showLoading && !messagesLoaded) setLoading(false);
     }
-  }, []);
+  }, [applyLiveAgentModel, restorePromptToComposer]);
 
   const loadContext = useCallback(async (sid: string, leafId: string | null) => {
     try {
@@ -998,6 +1075,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         && (state.isStreaming || state.isPromptRunning || state.isCompacting);
       if (busy || !agentRunningRef.current) return;
       if (state) {
+        applyLiveAgentModel(state);
         if (state.contextUsage !== undefined) setContextUsage(state.contextUsage ?? null);
         if (state.systemPrompt !== undefined) setSystemPrompt(state.systemPrompt ?? null);
         if (state.extensionStatuses !== undefined) setExtensionStatuses(state.extensionStatuses ?? []);
@@ -1007,7 +1085,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch {
       // Network still down — the next poll / visibility / online tick retries.
     }
-  }, [finishPromptWithoutStream]);
+  }, [applyLiveAgentModel, finishPromptWithoutStream]);
 
   // Recovery net for missed SSE events: while the agent is running, verify
   // against the server periodically and whenever the tab returns to the
@@ -1060,6 +1138,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           fetch(`/api/agent/${encodeURIComponent(sessionIdRef.current)}`)
             .then((r) => r.json())
             .then((d: { state?: AgentStateResponse }) => {
+              applyLiveAgentModel(d.state);
               if (d.state?.contextUsage !== undefined) setContextUsage(d.state.contextUsage ?? null);
               if (d.state?.systemPrompt !== undefined) setSystemPrompt(d.state.systemPrompt ?? null);
               if (d.state?.extensionStatuses !== undefined) setExtensionStatuses(d.state.extensionStatuses ?? []);
@@ -1106,9 +1185,22 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           }
         }
         break;
-      case "prompt_error":
+      case "prompt_error": {
         addNotice({ type: "error", message: (event.errorMessage as string | undefined) ?? "Command failed" });
+        // The turn died before the model said anything (unavailable provider,
+        // bad key, request rejected). Stage the text for recovery: the reload
+        // that follows prompt_done decides whether it actually vanished.
+        const pending = inFlightPromptRef.current;
+        if (!promptProducedOutputRef.current && pending) {
+          inFlightPromptRef.current = null;
+          failedPromptRef.current = {
+            message: pending.message,
+            ...(pending.images?.length ? { images: pending.images } : {}),
+            key: optimisticUserMessageKeyRef.current ?? "",
+          };
+        }
         break;
+      }
       case "extension_error":
         addNotice({
           type: "error",
@@ -1126,6 +1218,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           break;
         }
         if (msg) {
+          promptProducedOutputRef.current = true;
+          inFlightPromptRef.current = null;
           dispatch({ type: "update", message: normalizeToolCalls(msg as AgentMessage) });
         }
         setAgentPhase(null);
@@ -1156,6 +1250,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             return [...prev, delivered];
           });
         } else if (completed) {
+          promptProducedOutputRef.current = true;
+          inFlightPromptRef.current = null;
           setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
         }
         dispatch({ type: "reset" });
@@ -1215,7 +1311,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, settleUiStage]);
+  }, [addNotice, applyLiveAgentModel, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -1247,6 +1343,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
     setMessages((prev) => [...prev, userMsg]);
     optimisticUserMessageKeyRef.current = userMessageKey(userMsg);
+    inFlightPromptRef.current = { runId: promptRunId, message, ...(images?.length ? { images } : {}) };
+    promptProducedOutputRef.current = false;
     promptRunIdRef.current = promptRunId;
     agentRunningRef.current = true;
     setAgentRunning(true);
@@ -1265,7 +1363,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const existingSid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
         const sid = existingSid ?? await ensureNewSession();
 
-        if (sid) {
+        if (!sid) throw new Error("Unable to create a session for this message");
+        {
           sentSessionId = sid;
           if (selectedModel) {
             setPendingModel(selectedModel);
@@ -1307,28 +1406,32 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       rpcPromptPendingRef.current = false;
       agentRunningRef.current = false;
       closeEvents();
-      if (e instanceof EventStreamConnectionError) {
-        const optimisticKey = optimisticUserMessageKeyRef.current;
-        if (optimisticKey) {
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            return last?.role === "user" && userMessageKey(last) === optimisticKey
-              ? prev.slice(0, -1)
-              : prev;
-          });
-        }
-        addNotice({ type: "error", message: e.message });
-        // The prompt never reached the agent, so restore the user's text into
-        // the input instead of losing it. Mirrors the shell-command recovery in
-        // executeBash; insertIfEmpty avoids clobbering anything typed since.
-        if (message) opts.chatInputRef?.current?.insertIfEmpty(message);
+      // Past that guard the prompt definitively never reached the agent —
+      // whatever the reason (dead event stream, unreachable model, no API key,
+      // session start failure). Drop the optimistic bubble, tell the user why,
+      // and hand the text back to the composer. Only EventStreamConnectionError
+      // used to be recovered, so every other failure silently ate what the user
+      // had just typed.
+      const optimisticKey = optimisticUserMessageKeyRef.current;
+      if (optimisticKey) {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          return last?.role === "user" && userMessageKey(last) === optimisticKey
+            ? prev.slice(0, -1)
+            : prev;
+        });
       }
+      addNotice({
+        type: "error",
+        message: e instanceof EventStreamConnectionError ? e.message : `Failed to send: ${e instanceof Error ? e.message : String(e)}`,
+      });
+      restoreFailedPrompt(promptRunId);
       optimisticUserMessageKeyRef.current = null;
       setAgentRunning(false);
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, opts.chatInputRef]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, restoreFailedPrompt]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -1418,29 +1521,56 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [loadContext]);
 
   const handleModelChange = useCallback(async (provider: string, modelId: string) => {
+    const target = { provider, modelId };
     if (isNew) {
-      const selectedModel = { provider, modelId };
-      newSessionModelOverrideRef.current = selectedModel;
-      setNewSessionModel(selectedModel);
-      setPendingModel(selectedModel);
+      newSessionModelOverrideRef.current = target;
+      setNewSessionModel(target);
+      setPendingModel(target);
       const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
       if (!sid) return;
       try {
-        await sendAgentCommand(sid, { type: "set_model", provider, modelId });
+        await sendAgentCommand(sid, { type: "set_model", ...target });
       } catch (e) {
         console.error("Failed to set model:", e);
+        addNotice({ type: "error", message: `Failed to switch model: ${e instanceof Error ? e.message : String(e)}` });
       }
       return;
     }
     const sid = sessionIdRef.current;
     if (!sid) return;
+
+    const switchId = modelSwitchIdRef.current + 1;
+    modelSwitchIdRef.current = switchId;
+    modelSwitchInFlightRef.current = switchId;
+    // Reflect the choice immediately. A cold wrapper has to be restarted from
+    // the session file before it can answer, which took long enough that the
+    // click looked like it was ignored.
+    const previous = currentModelOverride;
+    setCurrentModelOverride(target);
+    setModelSwitching(true);
     try {
-      await sendAgentCommand(sid, { type: "set_model", provider, modelId });
-      setCurrentModelOverride({ provider, modelId });
+      const applied = await sendAgentCommand<{ id?: string; provider?: string } | null>(
+        sid,
+        { type: "set_model", ...target },
+      );
+      // A newer click won while this one was in flight — its result wins.
+      if (modelSwitchIdRef.current !== switchId) return;
+      // Trust what the agent reports it switched to, not what we asked for.
+      if (applied?.id && applied.provider) {
+        setCurrentModelOverride({ provider: applied.provider, modelId: applied.id });
+      }
     } catch (e) {
       console.error("Failed to set model:", e);
+      if (modelSwitchIdRef.current !== switchId) return;
+      setCurrentModelOverride(previous);
+      addNotice({ type: "error", message: `Failed to switch model: ${e instanceof Error ? e.message : String(e)}` });
+    } finally {
+      if (modelSwitchIdRef.current === switchId) {
+        modelSwitchInFlightRef.current = 0;
+        setModelSwitching(false);
+      }
     }
-  }, [isNew, setNewSessionModel]);
+  }, [addNotice, currentModelOverride, isNew, setNewSessionModel]);
 
   const handleCompact = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -1575,55 +1705,52 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // the real user message when pi delivers it (user message_end event). An
   // optimistic chat bubble here would duplicate the queue panel and turn into
   // a ghost message if the queue is recalled.
-  const handleSteer = useCallback(async (message: string, images?: AttachedImage[]) => {
+  // Steering and follow-ups are cleared from the composer the moment they are
+  // submitted, so a rejected command has to give the text back — otherwise a
+  // backend hiccup silently swallows what the user just wrote.
+  const sendQueuedMessage = useCallback(async (
+    command: Record<string, unknown>,
+    message: string,
+    images: AttachedImage[] | undefined,
+    label: string,
+  ) => {
     const sid = sessionIdRef.current;
-    if (!sid) return;
+    const fail = (reason: string) => {
+      addNotice({ type: "error", message: `${label}: ${reason}` });
+      restorePromptToComposer({ message, ...(images?.length ? { images } : {}) });
+    };
+    if (!sid) {
+      fail("no active session");
+      return;
+    }
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
     try {
       await sendAgentCommand(sid, {
-        type: "steer",
+        ...command,
         message,
         ...(piImages?.length ? { images: piImages } : {}),
       });
     } catch (e) {
-      console.error("Failed to steer:", e);
+      console.error(`${label}:`, e);
+      fail(e instanceof Error ? e.message : String(e));
     }
-  }, []);
+  }, [addNotice, restorePromptToComposer]);
+
+  const handleSteer = useCallback(async (message: string, images?: AttachedImage[]) => {
+    await sendQueuedMessage({ type: "steer" }, message, images, "Failed to steer");
+  }, [sendQueuedMessage]);
 
   const handlePromptWithStreamingBehavior = useCallback(async (
     message: string,
     behavior: "steer" | "followUp",
     images?: AttachedImage[],
   ) => {
-    const sid = sessionIdRef.current;
-    if (!sid) return;
-    const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
-    try {
-      await sendAgentCommand(sid, {
-        type: "prompt",
-        message,
-        streamingBehavior: behavior,
-        ...(piImages?.length ? { images: piImages } : {}),
-      });
-    } catch (e) {
-      console.error("Failed to queue prompt:", e);
-    }
-  }, []);
+    await sendQueuedMessage({ type: "prompt", streamingBehavior: behavior }, message, images, "Failed to queue prompt");
+  }, [sendQueuedMessage]);
 
   const handleFollowUp = useCallback(async (message: string, images?: AttachedImage[]) => {
-    const sid = sessionIdRef.current;
-    if (!sid) return;
-    const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
-    try {
-      await sendAgentCommand(sid, {
-        type: "follow_up",
-        message,
-        ...(piImages?.length ? { images: piImages } : {}),
-      });
-    } catch (e) {
-      console.error("Failed to follow up:", e);
-    }
-  }, []);
+    await sendQueuedMessage({ type: "follow_up" }, message, images, "Failed to follow up");
+  }, [sendQueuedMessage]);
 
   const handleAbortCompaction = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -1840,10 +1967,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     data, loading, error, activeLeafId, messages, entryIds, streamState,
     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
-    isCompacting, compactError, compactResult, currentModel, displayModel, sessionStats,
+    isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
     notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
-    isAutoModelSelection: isNew && newSessionModel === null,
     agentPhase,
     isNew,
     // Refs

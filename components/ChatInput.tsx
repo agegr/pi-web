@@ -37,13 +37,14 @@ interface Props {
   onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", images?: AttachedImage[]) => void;
   isStreaming: boolean;
   model?: { provider: string; modelId: string } | null;
-  isAutoModelSelection?: boolean;
   modelNames?: Record<string, string>;
   modelList?: { id: string; name: string; provider: string }[];
   modelError?: string | null;
   /** Diagnostics from resolving `enabledModels`, e.g. a pattern that matched nothing. */
   modelScopeWarnings?: string[];
   onModelChange?: (provider: string, modelId: string) => void;
+  /** A switch is in flight — shown on the picker so the click never looks ignored. */
+  modelSwitching?: boolean;
   onCompact?: () => void;
   onAbortCompaction?: () => void;
   isCompacting?: boolean;
@@ -76,6 +77,7 @@ export interface ChatInputHandle {
   insertIfEmpty: (text: string) => void;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
+  restoreSubmission: (text: string, images?: ChatDraftImage[]) => void;
 }
 
 const TOOL_PRESETS = ["off", "default", "full"] as const;
@@ -312,7 +314,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange,
+  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
@@ -435,6 +437,32 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     },
     addImages(files: File[]) {
       processImageFiles(files);
+    },
+    // Recovery path for a message that was cleared on submit but never made it
+    // into the conversation. Never discards what the user typed since: the
+    // failed text goes in front of it, the same way queued messages are
+    // recalled.
+    restoreSubmission(text: string, images?: ChatDraftImage[]) {
+      const ta = textareaRef.current;
+      const current = ta ? ta.value : valueRef.current;
+      const combined = [text, current].filter((t) => t.trim()).join("\n\n");
+      if (combined !== current) {
+        setValue(combined);
+        setAtQuery(null);
+      }
+      if (images?.length) {
+        setAttachedImages((prev) => {
+          if (prev.length) return prev;
+          return draftImagesToAttachedImages(images);
+        });
+      }
+      requestAnimationFrame(() => {
+        if (!ta) return;
+        ta.focus();
+        ta.setSelectionRange(combined.length, combined.length);
+        ta.style.height = "auto";
+        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      });
     },
   }));
 
@@ -1856,8 +1884,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
                       <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
                     </svg>
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, opacity: modelSwitching ? 0.6 : 1 }}>
                       {currentName ?? (modelOptions.length > 0 ? "Select model" : "No models")}
+                      {modelSwitching ? " …" : ""}
                     </span>
                   </button>
                   {modelDropdownOpen && modelDropdownRect && (() => {
@@ -1932,10 +1961,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                               return (
                                 <button
                                   key={`${opt.provider}:${opt.modelId}`}
+                                  // Always re-issue the switch, even for the
+                                  // entry that looks active: set_model is
+                                  // idempotent, and skipping it made a stale
+                                  // label impossible to recover from — the user
+                                  // clicked the model they wanted and nothing
+                                  // happened.
                                   onClick={() => {
                                     setModelDropdownOpen(false);
                                     setModelFilter("");
-                                    if (!isActive || isAutoModelSelection) onModelChange(opt.provider, opt.modelId);
+                                    onModelChange(opt.provider, opt.modelId);
                                   }}
                                   style={{
                                     display: "flex", alignItems: "center", gap: 8,
