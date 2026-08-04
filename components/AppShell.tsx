@@ -1023,9 +1023,10 @@ export function AppShell() {
                  {!isMobile && <span>{translate("history.label")}</span>}
               </button>
               {(() => {
+                // 上下文压缩后当前消息可能不再包含 user 消息，需同时参考会话文件的消息总数。
                 const hasMessages = Boolean(
                   selectedSession
-                  && (sessionStats?.userMessages ?? selectedSession.messageCount) > 0,
+                  && ((sessionStats?.userMessages ?? 0) > 0 || selectedSession.messageCount > 0),
                 );
                 const disabled = !selectedSession || !hasMessages || autoNameStatus.kind === "naming";
                 const isSuccess = autoNameStatus.kind === "success";
