@@ -51,7 +51,15 @@ function streamReducer(state: StreamingState, action: StreamAction): StreamingSt
       return state;
   }
 }
-
+type DetachedSubagentMode = "auto-resume" | "next-turn";
+export interface DetachedSubagentStatus {
+  id: string;
+  agent: string;
+  task: string;
+  mode: DetachedSubagentMode;
+  state: "running" | "completed" | "failed";
+  error?: string;
+}
 interface AgentEvent {
   type: string;
   [key: string]: unknown;
@@ -100,20 +108,61 @@ function completedDetachedSubagentIds(message: AgentMessage): string[] {
     ?.map((completion) => completion.agentId)
     .filter((agentId): agentId is string => typeof agentId === "string") ?? [];
 }
-
 function pendingDetachedSubagentIds(messages: AgentMessage[]): Set<string> {
   const pending = new Set<string>();
   for (const message of messages) {
     if (message.role === "toolResult" && message.toolName === "subagent_spawn" && !message.isError) {
       const text = contentText(message.content);
       const agentId = text.match(/\b(sa_[0-9a-f-]+)\b/i)?.[1];
-      if (agentId && text.includes("auto-resume will request synthesis")) pending.add(agentId);
+      if (agentId) pending.add(agentId);
       continue;
     }
     for (const agentId of completedDetachedSubagentIds(message)) pending.delete(agentId);
   }
   return pending;
 }
+
+function deriveDetachedSubagentStatuses(messages: AgentMessage[]): DetachedSubagentStatus[] {
+  const statuses = new Map<string, DetachedSubagentStatus>();
+  const completedAt = new Map<string, number>();
+  for (const [messageIndex, message] of messages.entries()) {
+    if (message.role === "assistant") {
+      for (const [agentId, index] of completedAt) {
+        if (messageIndex > index) statuses.delete(agentId);
+      }
+      for (const block of message.content) {
+        if (block.type !== "toolCall" || block.toolName !== "subagent_spawn") continue;
+        const input = block.input as { agent?: unknown; task?: unknown } | undefined;
+        const agent = typeof input?.agent === "string" ? input.agent : "unknown";
+        const task = typeof input?.task === "string" ? input.task : "";
+        statuses.set(block.toolCallId, { id: block.toolCallId, agent, task, mode: "next-turn", state: "running" });
+      }
+    }
+    if (message.role === "toolResult" && message.toolName === "subagent_spawn") {
+      const text = contentText(message.content);
+      const agentId = text.match(/\b(sa_[0-9a-f-]+)\b/i)?.[1];
+      const status = statuses.get(message.toolCallId);
+      if (!status) continue;
+      statuses.delete(message.toolCallId);
+      if (message.isError) continue;
+      status.id = agentId ?? status.id;
+      status.mode = text.includes("auto-resume will request synthesis") ? "auto-resume" : "next-turn";
+      statuses.set(status.id, status);
+    }
+    for (const agentId of completedDetachedSubagentIds(message)) {
+      const status = statuses.get(agentId);
+      if (!status) continue;
+      const details = message.role === "custom" ? message.details as { state?: unknown; completions?: Array<{ agentId?: unknown; state?: unknown }> } | undefined : undefined;
+      const completionState = typeof details?.state === "string"
+        ? details.state
+        : details?.completions?.find((item) => item.agentId === agentId)?.state;
+      status.state = completionState === "completed" ? "completed" : "failed";
+      completedAt.set(agentId, messageIndex);
+    }
+  }
+  return [...statuses.values()];
+}
+
 
 export interface QueuedMessages {
   steering: string[];
@@ -413,6 +462,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessages>({ steering: [], followUp: [] });
+  const detachedSubagentStatuses = useMemo(() => deriveDetachedSubagentStatuses(messages), [messages]);
 
   useEffect(() => {
     const sid = sessionIdRef.current;
@@ -863,7 +913,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (runId !== undefined && promptRunIdRef.current !== runId) return;
       const wasRunning = agentRunningRef.current;
       agentRunningRef.current = false;
-      closeEvents();
+      if (pendingDetachedSubagentIdsRef.current.size === 0) closeEvents();
       optimisticUserMessageKeyRef.current = null;
       if (!wasRunning) return;
       setAgentRunning(false);
@@ -900,12 +950,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [cancelEventStreamGrace, finishPromptWithoutStream]);
 
   const settleIdleSession = useCallback((sid: string, runId?: number) => {
-    if (pendingDetachedSubagentIdsRef.current.size > 0) {
-      scheduleEventStreamClose(sid, runId);
-      return;
-    }
+    // 父轮结束只收口主代理 UI；detached 子代理由底部状态区独立展示。
     void finishPromptWithoutStream(sid, runId);
-  }, [finishPromptWithoutStream, scheduleEventStreamClose]);
+  }, [finishPromptWithoutStream]);
 
   const waitForPromptSettlement = useCallback(async (sid: string, runId?: number) => {
     await delay(PROMPT_SETTLE_INITIAL_DELAY_MS);
@@ -1095,10 +1142,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         break;
       }
       case "message_end": {
-        // Same late-event guard: after reconcile finished this run,
-        // loadSession already loaded this message from the session file —
-        // appending it again would duplicate it.
-        if (!agentRunningRef.current) break;
+        const completed = event.message as AgentMessage | undefined;
+        // detached completion 可能在父轮结束后到达，状态区仍必须消费。
+        if (!agentRunningRef.current && completed?.role !== "custom") break;
         // 消息落盘后让侧边栏刷新列表（节流 1s）。新会话的 .jsonl 在第一条
         // assistant 消息之后的 entry 才真正写入，此时刷新才能扫到它。
         if (!sessionListRefreshTimerRef.current) {
@@ -1107,16 +1153,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           }, 1000);
           onSessionListRefresh?.();
         }
-        const completed = event.message as AgentMessage | undefined;
         if (completed?.role === "toolResult" && completed.toolName === "subagent_spawn" && !completed.isError) {
           const text = contentText(completed.content);
           const agentId = text.match(/\b(sa_[0-9a-f-]+)\b/i)?.[1];
-          if (agentId && text.includes("auto-resume will request synthesis")) {
-            pendingDetachedSubagentIdsRef.current.add(agentId);
-          }
+          if (agentId) pendingDetachedSubagentIdsRef.current.add(agentId);
         }
-        for (const agentId of completed ? completedDetachedSubagentIds(completed) : []) {
+        const completedSubagentIds = completed ? completedDetachedSubagentIds(completed) : [];
+        for (const agentId of completedSubagentIds) {
           pendingDetachedSubagentIdsRef.current.delete(agentId);
+        }
+        if (!agentRunningRef.current && completedSubagentIds.length > 0 && sessionIdRef.current) {
+          scheduleEventStreamClose(sessionIdRef.current);
         }
         if (completed && completed.role === "user") {
           // Delivered steering/follow-up messages surface here as user
@@ -1196,7 +1243,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, onSessionListRefresh, settleIdleSession]);
+  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, onSessionListRefresh, scheduleEventStreamClose, settleIdleSession]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -1726,11 +1773,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (agentState.state.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(agentState.state.queuedMessages));
         }
         if (!agentRunningRef.current && pendingDetachedSubagentIdsRef.current.size > 0) {
-          agentRunningRef.current = true;
-          setAgentRunning(true);
-          dispatch({ type: "start" });
+          // 刷新后只恢复后台监听，不能把 detached 子代理显示成主代理思考。
           void connectEvents(session.id);
-          scheduleEventStreamClose(session.id);
         }
       });
     }
@@ -1834,7 +1878,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices: noticeState.visible, dismissNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+    notices: noticeState.visible, dismissNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, detachedSubagentStatuses, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,
     agentPhase,
     isNew,

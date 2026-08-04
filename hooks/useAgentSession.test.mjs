@@ -54,6 +54,10 @@ test("restores unfinished detached subagents from session history", () => {
   assert.match(loadSource, /pendingDetachedSubagentIdsRef\.current = pendingDetachedSubagentIds\(loadedMessages\)/);
   assert.match(mountSource, /pendingDetachedSubagentIdsRef\.current\.size > 0/);
   assert.match(mountSource, /connectEvents\(session\.id\)/);
+  assert.doesNotMatch(
+    mountSource.slice(mountSource.indexOf("pendingDetachedSubagentIdsRef.current.size > 0")),
+    /setAgentRunning\(true\)|dispatch\(\{ type: "start" \}\)/,
+  );
 });
 
 test("finishes ordinary prompts immediately but keeps active detached subagents running", () => {
@@ -70,10 +74,10 @@ test("finishes ordinary prompts immediately but keeps active detached subagents 
     source.indexOf("handleAgentEventRef.current = handleAgentEvent"),
   );
 
-  assert.match(settleSource, /pendingDetachedSubagentIdsRef\.current\.size > 0/);
-  assert.match(settleSource, /scheduleEventStreamClose\(sid, runId\)/);
   assert.match(settleSource, /void finishPromptWithoutStream\(sid, runId\)/);
+  assert.doesNotMatch(settleSource, /pendingDetachedSubagentIdsRef/);
   assert.match(graceSource, /pendingDetachedSubagentIdsRef\.current\.size > 0/);
+  assert.match(source, /pendingDetachedSubagentIdsRef\.current\.size === 0\) closeEvents\(\)/);
   assert.match(eventSource, /case "agent_settled":\s*case "prompt_done":[\s\S]*?settleIdleSession\(sessionIdRef\.current, promptRunIdRef\.current\)/);
 });
 

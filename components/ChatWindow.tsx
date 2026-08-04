@@ -11,6 +11,7 @@ import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { useI18n } from "@/hooks/useI18n";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
+import { DetachedSubagentStatusPanel } from "./DetachedSubagentStatusPanel";
 import { useAudio } from "@/hooks/useAudio";
 import { useCompletionNotification } from "@/hooks/useCompletionNotification";
 import notificationStyles from "./CompletionNotificationPrompt.module.css";
@@ -238,7 +239,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices, dismissNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+    notices, dismissNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, detachedSubagentStatuses, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection,
     agentPhase,
     isNew,
@@ -882,6 +883,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             <ExtensionWidgets widgets={belowEditorWidgets} />
           </div>
         </div>
+        {detachedSubagentStatuses.length > 0 && (
+          <DetachedSubagentStatusPanel statuses={detachedSubagentStatuses} t={t} />
+        )}
         {chatInputElement}
         <ExtensionStatusBar statuses={extensionStatuses} />
       </div>
@@ -890,7 +894,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     </div>
   );
 }
-
 function ExtensionWidgets({ widgets }: { widgets: Array<{ key: string; lines: string[] }> }) {
   if (widgets.length === 0) return null;
   return (
