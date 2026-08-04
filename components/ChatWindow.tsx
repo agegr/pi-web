@@ -227,6 +227,11 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   });
   const sessionBusy = agentRunning || bashRunning;
+  // 本次会话打开期间出现过实时输出，则最后一轮保持展开；重新打开历史会话时折叠
+  const tailWasActiveRef = useRef(false);
+  useEffect(() => {
+    if (sessionBusy || streamState.isStreaming) tailWasActiveRef.current = true;
+  }, [sessionBusy, streamState.isStreaming]);
 
   useEffect(() => {
     if (!extensionDialog || soundedExtensionDialogIdRef.current === extensionDialog.id) return;
@@ -542,8 +547,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               for (let i = messages.length - 1; i >= 0; i--) {
                 if (isGroupAnchor(messages[i])) { lastAnchorIdx = i; break; }
               }
-              // 仅会话正在运行时，最后一轮的思考才默认展开；历史浏览或空闲会话保持折叠
-              const liveTailActive = sessionBusy || streamState.isStreaming;
+              // 会话期间发生过实时输出，则最后一轮思考默认展开；历史浏览保持折叠
+              const liveTailActive = tailWasActiveRef.current || sessionBusy || streamState.isStreaming;
 
               const visibleRefIndexByMessage = new Map<number, number>();
               let refIdx = 0;
