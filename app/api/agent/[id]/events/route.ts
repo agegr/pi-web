@@ -1,5 +1,5 @@
 import { resolveSessionPath } from "@/lib/session-reader";
-import { getRpcSession, startRpcSession, type AgentEvent } from "@/lib/rpc-manager";
+import { getRpcSession, startRpcSession, type AgentEvent, type AgentSessionWrapper } from "@/lib/rpc-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -23,35 +23,32 @@ export async function GET(
 ) {
   const { id } = await params;
 
-  // Fast path: already-running session
-  let session = getRpcSession(id);
-  if (!session || !session.isAlive()) {
-    const filePath = await resolveSessionPath(id);
-    if (!filePath) {
-      return new Response("Session not found", { status: 404 });
-    }
-    try {
-      ({ session } = await startRpcSession(id, filePath, undefined));
-    } catch (error) {
-      return new Response(`Failed to start agent: ${error}`, { status: 500 });
-    }
+  // 404 needs a non-200 response, so resolve the file path before building
+  // the stream. An already-running session skips this.
+  const running = getRpcSession(id);
+  const filePath = running?.isAlive() ? undefined : await resolveSessionPath(id);
+  if (!filePath && !running?.isAlive()) {
+    return new Response("Session not found", { status: 404 });
   }
 
   const stream = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder();
       const encode = (data: unknown) => {
-        const text = `data: ${JSON.stringify(data)}\n\n`;
-        controller.enqueue(encoder.encode(text));
+        try {
+          const text = `data: ${JSON.stringify(data)}\n\n`;
+          controller.enqueue(encoder.encode(text));
+        } catch {
+          // stream already closed
+        }
       };
 
-      // Send initial connected event
+      // Send connected immediately so the browser-side event stream is ready;
+      // a cold start (startRpcSession) can take seconds and used to run before
+      // this event, blowing the client's connect timeout.
       encode({ type: "connected", sessionId: id });
 
-      const unsubscribe = session.onEvent((event) => {
-        const clientEvent = toClientEvent(event);
-        if (clientEvent) encode(clientEvent);
-      });
+      let unsubscribe: (() => void) | null = null;
 
       // Heartbeat every 30s to prevent server/proxy timeout (Next.js default ~120-150s)
       const heartbeat = setInterval(() => {
@@ -62,12 +59,43 @@ export async function GET(
         }
       }, 30_000);
 
-      // Cleanup when client disconnects
+      const attach = (session: AgentSessionWrapper) => {
+        unsubscribe = session.onEvent((event) => {
+          const clientEvent = toClientEvent(event);
+          if (clientEvent) encode(clientEvent);
+        });
+      };
+
+      // Cleanup when client disconnects or startup fails
       const cleanup = () => {
         clearInterval(heartbeat);
-        unsubscribe();
-        controller.close();
+        unsubscribe?.();
+        try {
+          controller.close();
+        } catch {
+          // controller already closed
+        }
       };
+
+      const ready = getRpcSession(id);
+      if (ready?.isAlive()) {
+        attach(ready);
+      } else {
+        // A prompt POST shares startRpcSession's start lock (__piStartLocks),
+        // so subscription always lands before the prompt is dispatched.
+        void startRpcSession(id, filePath!, undefined)
+          .then(({ session }) => {
+            if (req.signal?.aborted) return;
+            attach(session);
+          })
+          .catch((error) => {
+            encode({
+              type: "session_error",
+              errorMessage: error instanceof Error ? error.message : String(error),
+            });
+            cleanup();
+          });
+      }
 
       // Detect client disconnect via abort signal
       req.signal?.addEventListener("abort", cleanup);

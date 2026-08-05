@@ -165,7 +165,7 @@ const PROMPT_SETTLE_MAX_MS = 20_000;
 const EVENT_STREAM_IDLE_GRACE_MS = 30_000;
 const AGENT_STATE_RECONCILE_MS = 15_000;
 const BASH_STATE_RECONCILE_MS = 1_000;
-const EVENT_STREAM_CONNECT_TIMEOUT_MS = 5_000;
+const EVENT_STREAM_CONNECT_TIMEOUT_MS = 15_000;
 const MAX_NOTICES = 5;
 const NOTICE_VISIBLE_MS = 5000;
 const NOTICE_EXIT_ANIMATION_MS = 180;
@@ -1107,6 +1107,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             if (sid) scheduleEventStreamClose(sid);
           }
         }
+        break;
+      case "session_error":
+        addNotice({ type: "error", message: (event.errorMessage as string | undefined) ?? "Failed to start agent session" });
         break;
       case "prompt_error":
         addNotice({ type: "error", message: (event.errorMessage as string | undefined) ?? "Command failed" });
