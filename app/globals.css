@@ -29,6 +29,8 @@
   --text-dim: #9ca3af;
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
+  --file-link: #2563eb;
+  --file-link-hover: #1d4ed8;
   --user-bg: #eff6ff;
   --assistant-bg: #ffffff;
   --tool-bg: #f9fafb;
@@ -46,6 +48,8 @@ html.dark {
   --text-dim: #6b7280;
   --accent: #60a5fa;
   --accent-hover: #93c5fd;
+  --file-link: #60a5fa;
+  --file-link-hover: #93c5fd;
   --user-bg: #1e293b;
   --assistant-bg: #1a1a1a;
   --tool-bg: #1f2937;
@@ -178,6 +182,33 @@ pre, code {
   font-family: var(--font-mono);
   font-size: 0.92em;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.markdown-body .markdown-local-file-link,
+.markdown-body .markdown-local-file-button {
+  color: var(--file-link);
+  font-weight: 600;
+  text-decoration-color: color-mix(in srgb, var(--file-link) 55%, transparent);
+}
+
+.markdown-body .markdown-local-file-button {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-body .markdown-local-file-link:hover,
+.markdown-body .markdown-local-file-link:focus-visible,
+.markdown-body .markdown-local-file-button:hover,
+.markdown-body .markdown-local-file-button:focus-visible {
+  color: var(--file-link-hover);
+  text-decoration-color: currentColor;
 }
 .markdown-body .contains-task-list {
   padding-left: 0;

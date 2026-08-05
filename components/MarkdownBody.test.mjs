@@ -33,8 +33,47 @@ test("opens non-file markdown links in a safe new tab", () => {
 test("keeps local file markdown links in the app", () => {
   const html = renderMarkdown("[file](components/MarkdownBody.tsx)");
 
-  assert.match(html, /<a href="components\/MarkdownBody\.tsx">file<\/a>/);
+  assert.match(html, /<a href="components\/MarkdownBody\.tsx" class="markdown-local-file-link">file<\/a>/);
   assert.doesNotMatch(html, /target=|rel=|\snode=/);
+});
+
+test("makes inline-code file paths clickable in the app", () => {
+  const html = renderMarkdown("Open `components/MarkdownBody.tsx:42`.");
+
+  assert.match(html, /class="markdown-local-file-button"/);
+  assert.ok(html.includes('title="/home/me/project/components/MarkdownBody.tsx"'));
+  assert.doesNotMatch(html, /target="_blank"/);
+});
+
+test("makes plain local paths clickable without changing web URLs", () => {
+  const html = renderMarkdown("See components/MarkdownBody.tsx and https://example.com/docs.");
+
+  assert.ok(html.includes('<a href="components/MarkdownBody.tsx" class="markdown-local-file-link">components/MarkdownBody.tsx</a>'));
+  assert.ok(!html.includes('class="markdown-local-file-link">//example.com/docs'));
+});
+
+test("recognizes Windows paths in plain conversation text", () => {
+  const html = renderMarkdown(String.raw`Open C:\\work\\project\\src\\app.ts:12 now.`);
+
+  assert.ok(html.includes('class="markdown-local-file-link">C:\\work\\project\\src\\app.ts:12</a>'));
+});
+
+test("does not mark folders or pi slash commands as clickable files", () => {
+  const html = renderMarkdown("Use `/model`, then inspect `components/` or docs/reference.");
+
+  assert.doesNotMatch(html, /markdown-local-file-(?:button|link)/);
+  assert.match(html, /<code class="markdown-inline-code">\/model<\/code>/);
+  assert.match(html, /<code class="markdown-inline-code">components\/<\/code>/);
+});
+
+test("does not mark provider model ids as clickable files", () => {
+  const html = renderMarkdown([
+    "**openai-codex/gpt-5.6-sol**",
+    "**openai-codex/gpt-5.6-terra**",
+    "**openai-codex/gpt-5.6-luna**",
+  ].join("\\n"));
+
+  assert.doesNotMatch(html, /markdown-local-file-(?:button|link)/);
 });
 
 test("renders LaTeX parenthesis delimiters as inline math", () => {

@@ -74,6 +74,33 @@ function fileUrlToPath(href: string): string | null {
   }
 }
 
+const EXTENSIONLESS_FILE_NAMES = new Set([
+  "dockerfile",
+  "gemfile",
+  "justfile",
+  "license",
+  "makefile",
+  "procfile",
+  "rakefile",
+  "readme",
+]);
+
+export function looksLikeLocalFileReference(value: string | undefined): boolean {
+  if (!value) return false;
+
+  const withoutQuery = value.split("#", 1)[0].split("?", 1)[0].trim();
+  if (!withoutQuery || /[\\/]$/.test(withoutQuery)) return false;
+
+  const withoutLine = stripLineSuffix(safeDecode(withoutQuery));
+  const fileName = withoutLine.split(/[\\/]/).pop()?.toLowerCase() ?? "";
+  if (!fileName || fileName === "." || fileName === "..") return false;
+  if (EXTENSIONLESS_FILE_NAMES.has(fileName)) return true;
+  if (fileName.startsWith(".") && fileName.length > 1) return true;
+  const extension = fileName.match(/\.([a-z0-9][a-z0-9+_-]*)$/i)?.[1];
+  if (!extension) return false;
+  return /^[a-z]/i.test(extension) || extension === "7z";
+}
+
 export function resolveLocalFileHref(
   href: string | undefined,
   baseDir?: string,
