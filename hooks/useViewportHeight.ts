@@ -40,8 +40,10 @@ export function useViewportHeight(): void {
     if (!viewport) return;
 
     const root = document.documentElement;
+    let frameId: number | null = null;
 
     const update = () => {
+      frameId = null;
       const keyboardOpen = shouldUseVisualViewportHeight({
         hasFocusedEditable: hasFocusedEditableElement(),
         innerHeight: window.innerHeight,
@@ -50,21 +52,42 @@ export function useViewportHeight(): void {
       });
       if (keyboardOpen) {
         root.style.setProperty("--app-viewport-height", `${viewport.height}px`);
-        if (window.scrollX !== 0 || window.scrollY !== 0) {
-          window.scrollTo(0, 0);
-        }
       } else {
         root.style.removeProperty("--app-viewport-height");
       }
+
+      const pageWasShifted = window.scrollX !== 0 || window.scrollY !== 0;
+      const isUnscaled = Math.abs(viewport.scale - 1) < 0.01;
+      if (pageWasShifted && isUnscaled) {
+        window.scrollTo(0, 0);
+      }
     };
 
-    update();
-    viewport.addEventListener("resize", update);
-    viewport.addEventListener("scroll", update);
+    // WebKit can dispatch the resize event before visualViewport.height has
+    // settled, especially when an installed PWA dismisses the keyboard. Reading
+    // it on the next animation frame prevents the keyboard-height CSS value
+    // from remaining after the keyboard has closed.
+    const scheduleUpdate = () => {
+      if (frameId !== null) window.cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(update);
+    };
+
+    scheduleUpdate();
+    viewport.addEventListener("resize", scheduleUpdate);
+    viewport.addEventListener("scroll", scheduleUpdate);
+    window.addEventListener("resize", scheduleUpdate);
+    window.addEventListener("focusin", scheduleUpdate);
+    window.addEventListener("focusout", scheduleUpdate);
+    window.addEventListener("pageshow", scheduleUpdate);
 
     return () => {
-      viewport.removeEventListener("resize", update);
-      viewport.removeEventListener("scroll", update);
+      viewport.removeEventListener("resize", scheduleUpdate);
+      viewport.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
+      window.removeEventListener("focusin", scheduleUpdate);
+      window.removeEventListener("focusout", scheduleUpdate);
+      window.removeEventListener("pageshow", scheduleUpdate);
+      if (frameId !== null) window.cancelAnimationFrame(frameId);
       root.style.removeProperty("--app-viewport-height");
     };
   }, []);
