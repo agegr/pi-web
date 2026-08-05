@@ -159,6 +159,8 @@ export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" 
 
 const PROGRAMMATIC_SCROLL_IGNORE_MS = 700;
 const STICK_TO_BOTTOM_THRESHOLD_PX = 48;
+// 用户滚动输入后的判定窗口，覆盖惯性滚动；窗口外的事件视为非用户滚动
+const USER_SCROLL_WINDOW_MS = 1000;
 const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
 const PROMPT_SETTLE_POLL_MS = 600;
 const PROMPT_SETTLE_MAX_MS = 20_000;
@@ -401,6 +403,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const stickToBottomRef = useRef(true);
   const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
   const ignoreProgrammaticScrollUntilRef = useRef(0);
+  const lastUserScrollIntentRef = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const ensuringNewSessionRef = useRef<Promise<string | null> | null>(null);
@@ -1710,9 +1713,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     return distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD_PX;
   }, []);
 
-  // 位置驱动：每次滚动实时判定是否贴底，滚轮/触控/键盘滚动天然覆盖
+  // 位置驱动：仅在用户滚动输入窗口内按位置判定贴底，内容增长/程序化滚动不改变跟随状态
   const handleScrollPositionChange = useCallback(() => {
     if (Date.now() < ignoreProgrammaticScrollUntilRef.current) return;
+    if (Date.now() - lastUserScrollIntentRef.current > USER_SCROLL_WINDOW_MS) return;
     stickToBottomRef.current = isStickingToBottom();
   }, [isStickingToBottom]);
 
@@ -1778,18 +1782,28 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
   }, [messages.length, loading, handleScrollPositionChange]);
 
-  // 滚轮/触控属于主动滚动意图，取消程序化保护，让 scroll 事件位置判定即时生效
+  // 滚轮/触控/键盘滚动属于主动滚动意图：标记判定窗口并取消程序化保护
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
-    const cancelIgnore = () => {
+    const markUserScroll = () => {
+      lastUserScrollIntentRef.current = Date.now();
       ignoreProgrammaticScrollUntilRef.current = 0;
     };
-    container.addEventListener("wheel", cancelIgnore, { passive: true });
-    container.addEventListener("touchstart", cancelIgnore, { passive: true });
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaX === 0 && e.deltaY === 0) return;
+      markUserScroll();
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (["PageUp", "PageDown", "ArrowUp", "ArrowDown", "Home", "End", " "].includes(e.key)) markUserScroll();
+    };
+    container.addEventListener("wheel", onWheel, { passive: true });
+    container.addEventListener("touchmove", markUserScroll, { passive: true });
+    container.addEventListener("keydown", onKeyDown);
     return () => {
-      container.removeEventListener("wheel", cancelIgnore);
-      container.removeEventListener("touchstart", cancelIgnore);
+      container.removeEventListener("wheel", onWheel);
+      container.removeEventListener("touchmove", markUserScroll);
+      container.removeEventListener("keydown", onKeyDown);
     };
   }, []);
 
@@ -1803,23 +1817,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       } else if (!initialScrollDoneRef.current) {
         initialScrollDoneRef.current = true;
         scrollToBottom("instant");
-      } else if (isStickingToBottom()) {
+      } else if (stickToBottomRef.current) {
         scrollToBottom(agentRunningRef.current ? "instant" : "smooth");
       }
     }
-  }, [messages.length, scrollToBottom, scrollUserMsgToBottom, isStickingToBottom]);
+  }, [messages.length, scrollToBottom, scrollUserMsgToBottom]);
 
   // 流式输出逐 token 更新：贴底时保持视野钉在最新内容上
-  // scroll 事件异步派发，滚动前实时核对位置，避免用户滚动尚未派发事件时误跟随
+  // layout effect 在 paint 前同步滚动，内容增长与滚动同帧完成，避免逐行增长时的闪烁
   useIsomorphicLayoutEffect(() => {
-    if (!streamState.isStreaming) return;
-    if (!isStickingToBottom()) {
-      stickToBottomRef.current = false;
-      return;
-    }
-    stickToBottomRef.current = true;
+    if (!streamState.isStreaming || !stickToBottomRef.current) return;
     scrollToBottom("instant");
-  }, [streamState.streamingMessage, streamState.isStreaming, scrollToBottom, isStickingToBottom]);
+  }, [streamState.streamingMessage, streamState.isStreaming, scrollToBottom]);
 
   // Load model list
   useEffect(() => {
