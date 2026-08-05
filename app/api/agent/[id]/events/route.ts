@@ -1,7 +1,14 @@
 import { resolveSessionPath } from "@/lib/session-reader";
 import { getRpcSession, startRpcSession, type AgentEvent } from "@/lib/rpc-manager";
+import { createMessageUpdateCoalescer } from "@/lib/event-coalescer";
 
 export const dynamic = "force-dynamic";
+
+// Buffer window for coalescing streamed message_update events. Each update
+// carries the full accumulated message, so forwarding every one amplifies
+// transfer O(n^2) (#375). ~80ms keeps streaming visibly smooth (~12/s) while
+// collapsing bursts of updates into a single send.
+const MESSAGE_UPDATE_FLUSH_MS = 80;
 
 const OMITTED_EVENT_TYPES = new Set(["turn_start", "turn_end", "tool_execution_update"]);
 
@@ -48,9 +55,23 @@ export async function GET(
       // Send initial connected event
       encode({ type: "connected", sessionId: id });
 
+      // Coalesce streamed message_update events so remote clients don't receive
+      // the full accumulated message on every chunk (#375).
+      const coalescer = createMessageUpdateCoalescer(encode);
+      let flushTimer: ReturnType<typeof setTimeout> | null = null;
+      const scheduleFlush = () => {
+        if (flushTimer) return;
+        flushTimer = setTimeout(() => {
+          flushTimer = null;
+          coalescer.flush();
+        }, MESSAGE_UPDATE_FLUSH_MS);
+      };
+
       const unsubscribe = session.onEvent((event) => {
         const clientEvent = toClientEvent(event);
-        if (clientEvent) encode(clientEvent);
+        if (!clientEvent) return;
+        coalescer.push(clientEvent);
+        if (coalescer.hasPending()) scheduleFlush();
       });
 
       // Heartbeat every 30s to prevent server/proxy timeout (Next.js default ~120-150s)
@@ -65,6 +86,7 @@ export async function GET(
       // Cleanup when client disconnects
       const cleanup = () => {
         clearInterval(heartbeat);
+        if (flushTimer) clearTimeout(flushTimer);
         unsubscribe();
         controller.close();
       };
