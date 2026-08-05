@@ -630,7 +630,7 @@ function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCal
     const tc = block as ToolCallContent;
     const result = toolResults?.get(tc.toolCallId);
     const duration = toolCallDurations?.get(tc.toolCallId);
-    return <ToolCallBlock block={tc} result={result} duration={duration} />;
+    return <ToolCallBlock block={tc} result={result} duration={duration} defaultExpanded={isEditToolName(tc.toolName) ? thinkingDefaultExpanded : undefined} />;
   }
   return null;
 }
@@ -743,11 +743,23 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, thinki
 }
 
 
-function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number }) {
-  const [expanded, setExpanded] = useState(false);
+function ToolCallBlock({ block, result, duration, defaultExpanded = false }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; defaultExpanded?: boolean }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const userToggledRef = useRef(false);
   const inputStr = JSON.stringify(block.input, null, 2);
   const isEditTool = isEditToolName(block.toolName);
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
+
+  // 跟随默认展开状态变化，手动操作过的块保持用户的选择
+  useEffect(() => {
+    if (userToggledRef.current) return;
+    setExpanded(defaultExpanded);
+  }, [defaultExpanded]);
+
+  const toggle = () => {
+    userToggledRef.current = true;
+    setExpanded((v) => !v);
+  };
 
   // Result display
   const resultText = result
@@ -768,7 +780,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
     >
       {/* ── Tool call header ── */}
       <button
-        onClick={() => setExpanded((v) => !v)}
+        onClick={toggle}
         style={{
           display: "flex",
           alignItems: "center",
