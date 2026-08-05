@@ -1702,14 +1702,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     container.scrollTo({ top: elAbsBottom - 16, behavior: "smooth" });
   }, []);
 
+  // 当前视口是否贴底：scrollTop 同步更新，读取实时值避免与用户滚动竞争
+  const isStickingToBottom = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return true;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    return distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD_PX;
+  }, []);
+
   // 位置驱动：每次滚动实时判定是否贴底，滚轮/触控/键盘滚动天然覆盖
   const handleScrollPositionChange = useCallback(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
     if (Date.now() < ignoreProgrammaticScrollUntilRef.current) return;
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    stickToBottomRef.current = distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD_PX;
-  }, []);
+    stickToBottomRef.current = isStickingToBottom();
+  }, [isStickingToBottom]);
 
   // Load session on mount
   useEffect(() => {
@@ -1773,23 +1778,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
   }, [messages.length, loading, handleScrollPositionChange]);
 
-  // 滚轮/触控/拖动滚动条属于主动滚动，立即取消程序化保护，位置判定即时生效
+  // 滚轮/触控属于主动滚动意图，取消程序化保护，让 scroll 事件位置判定即时生效
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
     const cancelIgnore = () => {
       ignoreProgrammaticScrollUntilRef.current = 0;
-      handleScrollPositionChange();
     };
     container.addEventListener("wheel", cancelIgnore, { passive: true });
     container.addEventListener("touchstart", cancelIgnore, { passive: true });
-    container.addEventListener("pointerdown", cancelIgnore, { passive: true });
     return () => {
       container.removeEventListener("wheel", cancelIgnore);
       container.removeEventListener("touchstart", cancelIgnore);
-      container.removeEventListener("pointerdown", cancelIgnore);
     };
-  }, [handleScrollPositionChange]);
+  }, []);
 
   // 新消息/回合结束：贴底时跟随；运行中即时贴底，空闲平滑滑到底部
   useEffect(() => {
@@ -1801,18 +1803,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       } else if (!initialScrollDoneRef.current) {
         initialScrollDoneRef.current = true;
         scrollToBottom("instant");
-      } else if (stickToBottomRef.current) {
+      } else if (isStickingToBottom()) {
         scrollToBottom(agentRunningRef.current ? "instant" : "smooth");
       }
     }
-  }, [messages.length, scrollToBottom, scrollUserMsgToBottom]);
+  }, [messages.length, scrollToBottom, scrollUserMsgToBottom, isStickingToBottom]);
 
   // 流式输出逐 token 更新：贴底时保持视野钉在最新内容上
-  // layout effect 在 paint 前同步滚动，内容增长与滚动同帧完成，避免逐行增长时的闪烁
+  // scroll 事件异步派发，滚动前实时核对位置，避免用户滚动尚未派发事件时误跟随
   useIsomorphicLayoutEffect(() => {
-    if (!streamState.isStreaming || !stickToBottomRef.current) return;
+    if (!streamState.isStreaming) return;
+    if (!isStickingToBottom()) {
+      stickToBottomRef.current = false;
+      return;
+    }
+    stickToBottomRef.current = true;
     scrollToBottom("instant");
-  }, [streamState.streamingMessage, streamState.isStreaming, scrollToBottom]);
+  }, [streamState.streamingMessage, streamState.isStreaming, scrollToBottom, isStickingToBottom]);
 
   // Load model list
   useEffect(() => {
