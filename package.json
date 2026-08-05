@@ -2,13 +2,13 @@
   "name": "@agegr/pi-web",
   "version": "0.8.6",
   "description": "Web UI for the pi coding agent",
-  "homepage": "https://github.com/agegr/pi-web#readme",
+  "homepage": "https://github.com/zmhuanf/pi-web#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/agegr/pi-web.git"
+    "url": "git+https://github.com/zmhuanf/pi-web.git"
   },
   "bugs": {
-    "url": "https://github.com/agegr/pi-web/issues"
+    "url": "https://github.com/zmhuanf/pi-web/issues"
   },
   "license": "MIT",
   "engines": {
@@ -28,10 +28,10 @@
     "package.json"
   ],
   "scripts": {
-    "prepare": "npm run build",
+    "prepare": "node scripts/prepare.js",
     "dev": "next dev -H 127.0.0.1 -p 30142",
     "dev:lan": "next dev -H 0.0.0.0 -p 30142",
-    "build": "next build --webpack",
+    "build": "cross-env TURBOPACK=0 next build --webpack",
     "start": "next start -H 127.0.0.1 -p 30142",
     "start:lan": "next start -H 0.0.0.0 -p 30142",
     "lint": "eslint .",
@@ -56,6 +56,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "cross-env": "^10.1.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.12",
     "jiti": "^2.7.0",
