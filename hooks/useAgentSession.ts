@@ -1687,10 +1687,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     stickToBottomRef.current = true;
-    // smooth 动画的中间帧会短暂离开底部，忽略期间的回调避免误翻 stick
-    if (behavior === "smooth") {
-      ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
-    }
+    // 程序化滚动的 scroll 事件同样可能误翻 stick（内容大块增长时），统一屏蔽
+    ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
     messagesEndRef.current?.scrollIntoView({ behavior });
   }, []);
 
@@ -1774,6 +1772,24 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       container.removeEventListener("scroll", handleScrollPositionChange);
     };
   }, [messages.length, loading, handleScrollPositionChange]);
+
+  // 滚轮/触控/拖动滚动条属于主动滚动，立即取消程序化保护，位置判定即时生效
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const cancelIgnore = () => {
+      ignoreProgrammaticScrollUntilRef.current = 0;
+      handleScrollPositionChange();
+    };
+    container.addEventListener("wheel", cancelIgnore, { passive: true });
+    container.addEventListener("touchstart", cancelIgnore, { passive: true });
+    container.addEventListener("pointerdown", cancelIgnore, { passive: true });
+    return () => {
+      container.removeEventListener("wheel", cancelIgnore);
+      container.removeEventListener("touchstart", cancelIgnore);
+      container.removeEventListener("pointerdown", cancelIgnore);
+    };
+  }, [handleScrollPositionChange]);
 
   // 新消息/回合结束：贴底时跟随；运行中即时贴底，空闲平滑滑到底部
   useEffect(() => {
