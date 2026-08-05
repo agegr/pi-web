@@ -46,6 +46,7 @@ interface FileData {
 }
 
 type DisplayMode = "source" | "preview" | "diff";
+const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
 
 const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
   source: "Source",
@@ -86,6 +87,44 @@ interface SelectedLineRange {
   endLine: number;
 }
 
+function getTextOffset(root: HTMLElement, node: Node, offset: number): number | null {
+  if (!root.contains(node)) return null;
+  if (node === root) {
+    return Array.from(root.childNodes)
+      .slice(0, offset)
+      .reduce((length, child) => length + (child.textContent?.length ?? 0), 0);
+  }
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let length = 0;
+  for (let current = walker.nextNode(); current; current = walker.nextNode()) {
+    if (current === node) return length + Math.min(offset, current.textContent?.length ?? 0);
+    length += current.textContent?.length ?? 0;
+  }
+  return null;
+}
+
+function getSelectedPlainTextLineRange(root: HTMLElement, selection: Selection | null): SelectedLineRange | null {
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
+
+  const range = selection.getRangeAt(0);
+  const startOffset = getTextOffset(root, range.startContainer, range.startOffset);
+  const endOffset = getTextOffset(root, range.endContainer, range.endOffset);
+  if (startOffset === null || endOffset === null || startOffset >= endOffset) return null;
+
+  const text = root.textContent ?? "";
+  const lineAt = (offset: number) => {
+    let line = 1;
+    for (let index = 0; index < offset; index += 1) {
+      if (text[index] === "\n") line += 1;
+    }
+    return line;
+  };
+  const startLine = lineAt(startOffset);
+  const endLine = lineAt(endOffset) - (text[endOffset - 1] === "\n" ? 1 : 0);
+  return startLine <= endLine ? { startLine, endLine } : null;
+}
+
 function MentionIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -104,6 +143,9 @@ function closestSourceLine(node: Node): HTMLElement | null {
 
 function getSelectedSourceLineRange(root: HTMLElement, selection: Selection | null): SelectedLineRange | null {
   if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
+
+  const plainTextRoot = root.querySelector<HTMLElement>(".file-source-plain-content");
+  if (plainTextRoot) return getSelectedPlainTextLineRange(plainTextRoot, selection);
 
   const range = selection.getRangeAt(0);
   if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
@@ -1023,6 +1065,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
   const hasPreview = isHtml || isMarkdown;
   const markdownDirectory = getFileDirectory(filePath);
   const lines = content.split("\n");
+  const useLightweightSource = lines.length > SOURCE_HIGHLIGHT_MAX_LINES;
   const effectiveDisplayMode = isDeletedDiff ? "diff" : displayMode;
   const displayModes: DisplayMode[] = isDeletedDiff
     ? ["diff"]
@@ -1225,6 +1268,49 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
             >
               {markdownPreview}
             </ReactMarkdown>
+          </div>
+        ) : useLightweightSource ? (
+          <div
+            className="file-source-view is-lightweight"
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              width: wrapLines ? "100%" : "max-content",
+              minWidth: "100%",
+              minHeight: "100%",
+              background: "var(--bg)",
+              ...FILE_CODE_STYLE,
+            }}
+          >
+            {!wrapLines && (
+              <pre
+                aria-hidden="true"
+                style={{
+                  ...FILE_LINE_NUMBER_STYLE,
+                  margin: 0,
+                  minHeight: "100%",
+                  whiteSpace: "pre",
+                }}
+              >
+                {lines.map((_, index) => index + 1).join("\n")}
+              </pre>
+            )}
+            <pre
+              className="file-source-plain-content"
+              style={{
+                margin: 0,
+                padding: 0,
+                minWidth: 0,
+                minHeight: "100%",
+                color: "var(--text)",
+                font: "inherit",
+                lineHeight: "inherit",
+                whiteSpace: wrapLines ? "pre-wrap" : "pre",
+                overflowWrap: wrapLines ? "anywhere" : "normal",
+              }}
+            >
+              {content}
+            </pre>
           </div>
         ) : (
           <SyntaxHighlighter
