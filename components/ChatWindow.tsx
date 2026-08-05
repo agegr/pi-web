@@ -9,7 +9,7 @@ import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { QueueRecoveryDialog } from "./QueueRecoveryDialog";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
-import type { PendingRecoveryItem, QueueEntry } from "@/lib/queue-store";
+import type { PendingRecoveryItem } from "@/lib/queue-store";
 import { clearDraft, DRAFT_KEY_PREFIX, listDraftSlots, removeDraftSlot, type DraftSlotInfo } from "@/lib/draft-store";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { useI18n } from "@/hooks/useI18n";

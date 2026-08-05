@@ -6,7 +6,6 @@ import type { QueueEntry, QueueEntryInput } from "@/lib/queue-store";
 import { downloadQueueExport, parseQueueImport } from "@/lib/queue-export";
 import type { SkillsResponse } from "@/lib/api-types";
 import { clearDraft, flushAllDrafts, setDraft, type ChatDraft, type ChatDraftImage } from "@/lib/draft-store";
-import { apiUrl } from "@/lib/base-path";
 
 import {
   MAX_ATTACHED_IMAGE_BYTES,
@@ -388,6 +387,11 @@ function QueuedMessageRow({ kind, text, index, total, onMove, onRecall, onRemove
         color: "var(--text-muted)",
         minWidth: 0,
         touchAction: "none",
+        // Long-press must start the drag, not the browser's native text
+        // selection / iOS callout (touchAction alone does not prevent it).
+        userSelect: "none",
+        WebkitUserSelect: "none",
+        WebkitTouchCallout: "none",
         cursor: onDragStart && !isCoarsePointer ? "grab" : "default",
         ...(dragging
           ? { opacity: 0.45, background: "color-mix(in srgb, var(--accent) 8%, transparent)", borderRadius: 6 }
@@ -756,8 +760,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     // No wrapping: hitting either end keeps that state.
     cycleBottomMode(dy > 0 ? 1 : -1, false);
   }, [isMobile, cycleBottomMode]);
-  // Queue area collapse: null = auto (fold when many messages), otherwise the
-  // user's explicit choice. Mobile is more aggressive to save half-screen space.
+  // Queue area collapse: null = expanded by default; the user can collapse
+  // it manually and that choice is respected — the queue is NEVER auto-hidden
+  // (auto-hide made the panel disappear right after the user edited it).
   const [queueCollapsedUser, setQueueCollapsedUser] = useState<boolean | null>(null);
   const [queueNotice, setQueueNotice] = useState<{ text: string; ok: boolean } | null>(null);
   const queueNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -767,19 +772,17 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     queueNoticeTimerRef.current = setTimeout(() => setQueueNotice(null), 3000);
   }, []);
   const queueCount = (queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0);
-  const queueCollapsed = queueCollapsedUser ?? queueCount > (isMobile ? 1 : 3);
+  const queueCollapsed = queueCollapsedUser ?? false;
   const toggleQueueCollapsed = useCallback(() => {
-    setQueueCollapsedUser((prev) => !(prev ?? queueCount > (isMobile ? 1 : 3)));
-  }, [queueCount, isMobile]);
+    setQueueCollapsedUser((prev) => !(prev ?? false));
+  }, []);
   const handleMoveQueue = useCallback(async (kind: "steer" | "followUp", index: number, dir: -1 | 1) => {
     if (!onMoveQueue) return;
-    const ok = await onMoveQueue(kind, index, index + dir);
-    if (ok) setQueueCollapsedUser(null);
+    await onMoveQueue(kind, index, index + dir);
   }, [onMoveQueue]);
   const handleRemoveQueueItem = useCallback(async (kind: "steer" | "followUp", index: number) => {
     if (!onRemoveQueueItem) return;
-    const ok = await onRemoveQueueItem(kind, index);
-    if (ok) setQueueCollapsedUser(null);
+    await onRemoveQueueItem(kind, index);
   }, [onRemoveQueueItem]);
   // Entry pulled out for editing; sending re-inserts it at its original spot.
   const recalledRef = useRef<{ kind: "steer" | "followUp"; index: number; text: string; images?: ChatDraftImage[] } | null>(null);
@@ -831,9 +834,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     dragFromRef.current = null;
     setDragOverIndex(null);
     if (!from || from.kind !== kind || from.index === targetIndex || !onMoveQueue) return;
-    void onMoveQueue(kind, from.index, targetIndex).then((ok) => {
-      if (ok) setQueueCollapsedUser(null);
-    });
+    void onMoveQueue(kind, from.index, targetIndex);
   }, [onMoveQueue]);
   const isComposingRef = useRef(false);
   const lastCompositionEndAtRef = useRef(0);
