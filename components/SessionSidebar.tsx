@@ -76,6 +76,7 @@ function ToolbarIconButton({
 
 interface Props {
   selectedSessionId: string | null;
+  optimisticSession?: SessionInfo | null;
   onSelectSession: (session: SessionInfo, isRestore?: boolean) => void;
   onNewSession?: (sessionId: string, cwd: string) => void;
   initialSessionId?: string | null;
@@ -390,9 +391,12 @@ function PiWebTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions }: Props) {
+export function SessionSidebar({ selectedSessionId, optimisticSession, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
+  const sessionsForDisplay = optimisticSession && !allSessions.some((session) => session.id === optimisticSession.id)
+    ? [optimisticSession, ...allSessions]
+    : allSessions;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
@@ -586,9 +590,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     // Any path in the loaded worktree list belongs to that project — covers
     // worktrees without sessions, so switching to them keeps the row mounted.
     if (worktreeState?.worktrees.some((w) => w.path === cwd)) return worktreeState.projectRoot;
-    const match = allSessions.find((s) => s.cwd === cwd);
+    const match = sessionsForDisplay.find((s) => s.cwd === cwd);
     return match?.projectRoot ?? cwd;
-  }, [worktreeState, allSessions]);
+  }, [worktreeState, sessionsForDisplay]);
 
   // Notify parent only when the effective cwd actually changes (not when
   // projectRootFor identity changes due to session/worktree refreshes).
@@ -823,7 +827,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onNewSession?.(tempId, selectedCwd);
   }, [selectedCwd, onNewSession]);
 
-  const recentProjects = getRecentProjects(allSessions);
+  const recentProjects = getRecentProjects(sessionsForDisplay);
   const showProjectFilter = recentProjects.length > 8;
   const visibleProjects = projectFilter.trim()
     ? recentProjects.filter((p) => p.toLowerCase().includes(projectFilter.trim().toLowerCase()))
@@ -832,8 +836,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // Sessions of every worktree in the selected project are shown together
   const selectedProject = projectRootFor(selectedCwd);
   const filteredSessions = selectedProject
-    ? allSessions.filter((s) => (s.projectRoot ?? s.cwd) === selectedProject)
-    : allSessions;
+    ? sessionsForDisplay.filter((s) => (s.projectRoot ?? s.cwd) === selectedProject)
+    : sessionsForDisplay;
   const showWorktreeSwitcher = Boolean(
     worktreeState?.isGit
     && worktreeState.isTopLevel

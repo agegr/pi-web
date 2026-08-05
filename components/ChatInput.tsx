@@ -414,7 +414,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }));
 
   const processImageFiles = useCallback(async (files: File[]) => {
-    if (isStreaming) return;
     const remaining = Math.max(
       0,
       MAX_ATTACHED_IMAGES - attachedImagesRef.current.length - pendingImageCountRef.current,
@@ -449,7 +448,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     } finally {
       pendingImageCountRef.current -= imageFiles.length;
     }
-  }, [isStreaming]);
+  }, []);
 
   const removeImage = useCallback((index: number) => {
     setAttachedImages((prev) => {
@@ -1099,7 +1098,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         type="file"
         accept="image/*"
         multiple
-        disabled={isStreaming}
         style={{ display: "none" }}
         onChange={(e) => {
           const files = Array.from(e.target.files ?? []);
@@ -1744,7 +1742,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           <div style={{ flex: isMobile ? "1 1 auto" : "0 0 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2 }}>
             <button
               onClick={() => fileInputRef.current?.click()}
-              disabled={isStreaming}
              title={t("chat.attachImage")}
               style={{
                 flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
@@ -1752,12 +1749,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 background: "none", border: "none",
                 borderRadius: 9,
                 color: attachedImages.length ? "var(--accent)" : "var(--text-muted)",
-                cursor: isStreaming ? "not-allowed" : "pointer",
-                opacity: isStreaming ? 0.5 : 1,
+                cursor: "pointer",
+                opacity: 1,
                 transition: "background 0.12s, color 0.12s",
               }}
               onMouseEnter={(e) => {
-                if (isStreaming) return;
                 e.currentTarget.style.background = "var(--bg-hover)";
                 e.currentTarget.style.color = attachedImages.length ? "var(--accent)" : "var(--text)";
               }}
