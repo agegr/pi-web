@@ -9,6 +9,8 @@ import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { QueueRecoveryDialog } from "./QueueRecoveryDialog";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
+import type { PendingRecoveryItem, QueueEntry } from "@/lib/queue-store";
+import { clearDraft, DRAFT_KEY_PREFIX, listDraftSlots, removeDraftSlot, type DraftSlotInfo } from "@/lib/draft-store";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { useI18n } from "@/hooks/useI18n";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
@@ -222,10 +224,122 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const sessionBusy = agentRunning || bashRunning;
   const [recoveryDismissed, setRecoveryDismissed] = useState(false);
 
-  // Reset dismissal whenever the session or its pending list changes identity.
+  /** Draft storage key for the active session (matches ChatInput's draftKey). */
+  const draftKey = session?.id ?? (newSessionCwd ? `new:${newSessionCwd}` : undefined);
+
+  // Unsent input drafts (crash-loss recovery) — surfaced as items in the
+  // queue-recovery dialog. Each open tab has its own `crashrestore-…` slot, so
+  // tabs never clobber each other; `listDraftSlots()` loads them ALL for this
+  // session (closed tabs, other tabs, and this tab's own leftover).
+  // Client-side only: they live in localStorage (survive refresh + browser
+  // close); the server never sees them.
+  const [pendingDrafts, setPendingDrafts] = useState<DraftSlotInfo[]>([]);
+  useEffect(() => {
+    setPendingDrafts([]);
+    if (!draftKey) return;
+    const readDrafts = () => {
+      const slots = listDraftSlots(draftKey).filter((slot) => {
+        // Foreign / closed-tab slots are always recoverable. This tab's own
+        // slot only when the input box is empty — otherwise it IS the live
+        // input the user is typing in right now.
+        if (!slot.own) return true;
+        return !chatInputRef?.current?.hasInput?.();
+      });
+      setPendingDrafts(slots);
+    };
+    readDrafts();
+    // Another tab wrote/cleared a draft: keep this tab's dialog in sync.
+    const onStorage = (e: StorageEvent) => {
+      if (typeof e.key === "string" && e.key.startsWith(DRAFT_KEY_PREFIX)) readDrafts();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [draftKey, chatInputRef]);
+
+  // Compose the dialog list: server-side queue recovery + the client drafts.
+  const draftRecoveryItems: PendingRecoveryItem[] = pendingDrafts.map((slot) => ({
+    id: `draft:${slot.slotKey}`,
+    kind: "followUp",
+    text: slot.draft.value || "",
+    hasImages: slot.draft.images.length > 0,
+    queuedAt: 0, // drafts carry no timestamp; the dialog hides it for origin=draft
+    origin: "draft",
+  }));
+  const recoveryItems = draftRecoveryItems.length > 0
+    ? [...pendingRecovery, ...draftRecoveryItems]
+    : pendingRecovery;
+
+  // Queue-recovery resolution with draft items handled client-side (the server
+  // knows nothing about drafts): keep = restore into the input box (foreign
+  // slots are consumed; the own slot becomes the live input), discard = wipe
+  // the slot. Server-side items are passed through unchanged.
+  const handleResolveRecovery = useCallback(async (
+    keep: string[],
+    discard: string[],
+    continueRun: boolean,
+  ): Promise<PendingRecoveryItem[]> => {
+    const slotById = new Map(pendingDrafts.map((slot) => [`draft:${slot.slotKey}`, slot]));
+    const isDraftId = (id: string) => slotById.has(id);
+    const draftKept = keep.filter(isDraftId).map((id) => slotById.get(id)!);
+    const draftDiscarded = discard.filter(isDraftId).map((id) => slotById.get(id)!);
+    const serverKeep = keep.filter((id) => !isDraftId(id));
+    const serverDiscard = discard.filter((id) => !isDraftId(id));
+
+    if (draftKept.length > 0) {
+      const [first, ...rest] = draftKept;
+      // One input box holds one message: the FIRST draft is restored into the
+      // box for editing/sending; any further drafts are queued as follow-up
+      // messages (visible in the queued banner, recallable there too).
+      chatInputRef?.current?.restoreDraft(first.draft);
+      rest.forEach((slot) => {
+        const images = slot.draft.images.map((img) => ({
+          data: img.data,
+          mimeType: img.mimeType,
+          previewUrl: `data:${img.mimeType};base64,${img.data}`,
+        }));
+        void handleFollowUp(slot.draft.value, images.length > 0 ? images : undefined);
+      });
+      const consumedKeys = new Set(draftKept.map((slot) => slot.slotKey));
+      draftKept.forEach((slot) => {
+        // The own slot restored into the input stays as the live input;
+        // everything else (foreign slots, follow-up-dispatched own slot) is
+        // consumed.
+        if (slot === first && slot.own) return;
+        if (slot.own && draftKey) clearDraft(draftKey);
+        else removeDraftSlot(slot.slotKey);
+      });
+      setPendingDrafts((prev) => prev.filter((slot) => !consumedKeys.has(slot.slotKey)));
+    }
+    if (draftDiscarded.length > 0) {
+      const discardedKeys = new Set(draftDiscarded.map((slot) => slot.slotKey));
+      draftDiscarded.forEach((slot) => {
+        if (slot.own && draftKey) clearDraft(draftKey);
+        else removeDraftSlot(slot.slotKey);
+      });
+      setPendingDrafts((prev) => prev.filter((slot) => !discardedKeys.has(slot.slotKey)));
+    }
+    if (serverKeep.length === 0 && serverDiscard.length === 0) return pendingRecovery;
+    // continueRun only makes sense when actual queued messages are re-queued.
+    return resolveRecovery(serverKeep, serverDiscard, continueRun && serverKeep.length > 0);
+  }, [draftKey, pendingDrafts, pendingRecovery, resolveRecovery, chatInputRef, handleFollowUp]);
+
+  // Reset dismissal whenever the session changes identity.
   useEffect(() => {
     setRecoveryDismissed(false);
   }, [session?.id]);
+
+  // After recovery/import resolution (pendingRecovery drops to zero), expand
+  // the queue panel so the restored messages are visible immediately instead
+  // of being hidden behind the auto-collapse threshold.
+  const prevRecoveryCountRef = useRef(recoveryItems.length);
+  useEffect(() => {
+    if (recoveryItems.length === 0 && prevRecoveryCountRef.current > 0) {
+      chatInputRef?.current?.expandQueue();
+    }
+    prevRecoveryCountRef.current = recoveryItems.length;
+  }, [recoveryItems.length, chatInputRef]);
 
   useEffect(() => {
     if (!extensionDialog || soundedExtensionDialogIdRef.current === extensionDialog.id) return;
@@ -397,7 +511,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       soundEnabled={soundEnabled}
       onSoundToggle={onSoundToggle}
       onAudioUnlock={unlockAudio}
-      draftKey={session?.id ?? (newSessionCwd ? `new:${newSessionCwd}` : undefined)}
+      draftKey={draftKey}
       cwd={session?.cwd ?? newSessionCwd}
     />
   );
@@ -476,11 +590,11 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         />
       )}
 
-      {pendingRecovery.length > 0 && !recoveryDismissed && (
+      {recoveryItems.length > 0 && !recoveryDismissed && (
         <QueueRecoveryDialog
-          items={pendingRecovery}
+          items={recoveryItems}
           sessionId={session?.id ?? sessionIdRef.current ?? undefined}
-          onResolve={resolveRecovery}
+          onResolve={handleResolveRecovery}
           onExport={exportQueueData}
           onImport={importQueueData}
           onDismiss={() => setRecoveryDismissed(true)}

@@ -197,6 +197,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.queueImportDescShort": "导入的排队消息，请决定如何处理。",
     "chat.queueRecoveryKindSteer": "steer",
     "chat.queueRecoveryKindFollowUp": "follow-up",
+    "chat.queueRecoveryKindDraft": "草稿",
     "chat.queueRecoveryImages": "含图片",
     "chat.queueRecoveryNoText": "（无文本）",
     "chat.queueRecoverySelectAll": "全选",

@@ -5,7 +5,9 @@ import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, Slas
 import type { QueueEntry, QueueEntryInput } from "@/lib/queue-store";
 import { downloadQueueExport, parseQueueImport } from "@/lib/queue-export";
 import type { SkillsResponse } from "@/lib/api-types";
-import { clearDraft, getDraft, setDraft, type ChatDraftImage } from "@/lib/draft-store";
+import { clearDraft, flushAllDrafts, setDraft, type ChatDraft, type ChatDraftImage } from "@/lib/draft-store";
+import { apiUrl } from "@/lib/base-path";
+
 import {
   MAX_ATTACHED_IMAGE_BYTES,
   MAX_ATTACHED_IMAGES,
@@ -100,6 +102,11 @@ export interface ChatInputHandle {
   insertIfEmpty: (text: string) => void;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
+  /** Restore an unsent draft (crash recovery) into the input box. */
+  restoreDraft: (draft: ChatDraft) => void;
+  /** True when the input box has text or images (used to tell a live draft from a recoverable one). */
+  hasInput: () => boolean;
+  /** Force the queue panel to expand (used after recovery/import resolution). */
   expandQueue: () => void;
 }
 
@@ -627,16 +634,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 }: Props, ref) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
-  const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
+  const [value, setValue] = useState("");
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modelDropdownRect, setModelDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const [modelFilter, setModelFilter] = useState("");
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
-  const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
-    draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
-  ));
+  const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const trimmedValue = value.trimStart();
   const bashMode = attachedImages.length === 0 && trimmedValue.startsWith("!");
   const bashExcluded = bashMode && trimmedValue.startsWith("!!");
@@ -840,7 +845,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const fileIndexFetchingRef = useRef<string | null>(null);
   const draftKeyRef = useRef(draftKey);
   const valueRef = useRef(value);
-  const attachedImagesRef = useRef(attachedImages);  const pendingImageCountRef = useRef(0);
+  const attachedImagesRef = useRef(attachedImages);
+  // True once the user (or a draft restore) put content into the box — the
+  // save effect must NOT touch the stored draft while the box is merely empty
+  // on open (that draft may be awaiting recovery in the dialog).
+  const draftEditedRef = useRef(false);  const pendingImageCountRef = useRef(0);
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
   queueCountRef.current = (queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0);
@@ -904,6 +913,25 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     },
     addImages(files: File[]) {
       processImageFiles(files);
+    },
+    restoreDraft(draft: ChatDraft) {
+      setValue(draft.value);
+      setAtQuery(null);
+      setHistoryMenuOpen(false);
+      setAttachedImages((prev) => {
+        prev.forEach(revokeImagePreview);
+        return draftImagesToAttachedImages(draft.images);
+      });
+      requestAnimationFrame(() => {
+        const ta = textareaRef.current;
+        if (!ta) return;
+        ta.focus();
+        ta.style.height = "auto";
+        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      });
+    },
+    hasInput() {
+      return Boolean(value.trim()) || attachedImagesRef.current.length > 0;
     },
     expandQueue() {
       setQueueCollapsedUser(false);
@@ -978,6 +1006,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   useEffect(() => {
     if (!draftKey || draftKeyRef.current !== draftKey) return;
+    if (!value.trim() && attachedImages.length === 0) {
+      // Empty box: never wipe a stored draft on open — it may be awaiting
+      // recovery. But a deliberate clear AFTER typing this mount removes it.
+      if (draftEditedRef.current) clearDraft(draftKey);
+      return;
+    }
+    draftEditedRef.current = true;
     setDraft(draftKey, {
       value,
       images: attachedImages.map(imageToDraftImage),
@@ -987,6 +1022,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   useEffect(() => {
     const previousDraftKey = draftKeyRef.current;
     if (previousDraftKey === draftKey) return;
+    draftEditedRef.current = false;
 
     if (previousDraftKey) {
       setDraft(previousDraftKey, {
@@ -995,16 +1031,25 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       });
     }
 
-    const draft = draftKey ? getDraft(draftKey) : null;
     draftKeyRef.current = draftKey;
-    setValue(draft?.value ?? "");
+    // Drafts are never auto-restored: an unsent draft from a previous visit
+    // surfaces in the queue-recovery dialog instead, where the user decides.
+    setValue("");
     setAtQuery(null);
     setHistoryMenuOpen(false);
     setAttachedImages((prev) => {
       prev.forEach(revokeImagePreview);
-      return draftImagesToAttachedImages(draft?.images);
+      return [];
     });
   }, [draftKey]);
+
+  // SPA tab switches unmount this input; write whatever is still cached so a
+  // later refresh of that tab does not miss the last edit.
+  useEffect(() => {
+    return () => {
+      flushAllDrafts();
+    };
+  }, []);
 
   useEffect(() => {
     const ta = textareaRef.current;

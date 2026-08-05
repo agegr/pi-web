@@ -18,6 +18,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { copyText } from "@/lib/clipboard";
+import { clearAllDrafts } from "@/lib/draft-store";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import { getInitialNavigation } from "@/lib/initial-navigation";
@@ -472,6 +473,8 @@ export function AppShell() {
   }, []);
 
   const handleSessionDeleted = useCallback((sessionId: string) => {
+    // Wipe any persisted drafts (all tabs' slots) for the deleted session.
+    clearAllDrafts(sessionId);
     setRefreshKey((k) => k + 1);
     if (selectedSession?.id === sessionId) {
       const cwd = selectedSession.cwd;

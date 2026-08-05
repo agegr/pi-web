@@ -45,6 +45,8 @@ export interface PendingRecoveryItem {
   text: string;
   hasImages: boolean;
   queuedAt: number;
+  /** Client-side synthetic entry for an unsent input draft (crash recovery). */
+  origin?: "draft";
 }
 
 interface QueueFile {

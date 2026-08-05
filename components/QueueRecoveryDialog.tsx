@@ -411,24 +411,37 @@ export function QueueRecoveryDialog({
                 />
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <span
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 650,
-                        letterSpacing: "0.05em",
-                        textTransform: "uppercase",
-                        padding: "2px 8px",
-                        borderRadius: 999,
-                        border: `1px solid ${item.kind === "steer" ? "color-mix(in srgb, var(--accent) 40%, transparent)" : "var(--border)"}`,
-                        color: item.kind === "steer" ? "var(--accent)" : "var(--text-dim)",
-                        background: item.kind === "steer" ? "color-mix(in srgb, var(--accent) 8%, transparent)" : "transparent",
-                      }}
-                    >
-                      {item.kind === "steer" ? t("chat.queueRecoveryKindSteer") : t("chat.queueRecoveryKindFollowUp")}
-                    </span>
-                    <span style={{ fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>
-                      {new Date(item.queuedAt).toLocaleString()}
-                    </span>
+                    {(() => {
+                      const isDraft = item.origin === "draft";
+                      return (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 650,
+                            letterSpacing: "0.05em",
+                            textTransform: "uppercase",
+                            padding: "2px 8px",
+                            borderRadius: 999,
+                            border: isDraft
+                              ? "1px solid rgba(234,179,8,0.45)"
+                              : item.kind === "steer" ? "color-mix(in srgb, var(--accent) 40%, transparent)" : "var(--border)",
+                            color: isDraft ? "#d97706" : item.kind === "steer" ? "var(--accent)" : "var(--text-dim)",
+                            background: isDraft
+                              ? "rgba(234,179,8,0.10)"
+                              : item.kind === "steer" ? "color-mix(in srgb, var(--accent) 8%, transparent)" : "transparent",
+                          }}
+                        >
+                          {isDraft
+                            ? t("chat.queueRecoveryKindDraft")
+                            : item.kind === "steer" ? t("chat.queueRecoveryKindSteer") : t("chat.queueRecoveryKindFollowUp")}
+                        </span>
+                      );
+                    })()}
+                    {item.origin !== "draft" && (
+                      <span style={{ fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>
+                        {new Date(item.queuedAt).toLocaleString()}
+                      </span>
+                    )}
                     {item.hasImages && (
                       <span style={{ fontSize: 11, color: "var(--text-dim)", display: "inline-flex", alignItems: "center", gap: 4 }}>
                         📎 {t("chat.queueRecoveryImages")}

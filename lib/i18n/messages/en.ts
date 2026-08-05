@@ -197,6 +197,7 @@ export const enLocale: LocalePlugin = {
     "chat.queueImportDescShort": "Imported queue messages, decide what to do.",
     "chat.queueRecoveryKindSteer": "steer",
     "chat.queueRecoveryKindFollowUp": "follow-up",
+    "chat.queueRecoveryKindDraft": "draft",
     "chat.queueRecoveryImages": "contains images",
     "chat.queueRecoveryNoText": "(no text)",
     "chat.queueRecoverySelectAll": "Select all",
