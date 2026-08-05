@@ -1,7 +1,9 @@
 import type { Options as ReactMarkdownOptions } from "react-markdown";
+import { load as parseYaml } from "js-yaml";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 
@@ -160,8 +162,40 @@ function normalizeInlineLatexMath(line: string): string {
   );
 }
 
-export const markdownRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [remarkGfm, remarkMath];
-export const markdownPreviewRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [remarkGfm, remarkMath];
+// Parse YAML frontmatter into a `yaml` node before the math/GFM plugins run, so
+// the raw metadata never leaks into the rendered output (without it, the opening
+// `---` becomes an <hr> and the closing `---` turns the YAML into a setext heading).
+export const markdownRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [[remarkFrontmatter, ["yaml"]], remarkGfm, remarkMath];
+export const markdownPreviewRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [[remarkFrontmatter, ["yaml"]], remarkGfm, remarkMath];
+
+/**
+ * Leading `---`-fenced YAML block. Mirrors what `remarkFrontmatter(["yaml"])`
+ * recognizes so the metadata card and the hidden-in-body behavior stay in sync.
+ */
+const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
+
+export interface FrontmatterResult {
+  /** Parsed metadata, or null when the document has no valid frontmatter. */
+  data: Record<string, unknown> | null;
+  /** Markdown with the frontmatter block removed. */
+  rest: string;
+}
+
+export function parseFrontmatter(markdown: string): FrontmatterResult {
+  const match = markdown.match(FRONTMATTER_RE);
+  if (!match) return { data: null, rest: markdown };
+
+  try {
+    const parsed = parseYaml(match[1]);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return { data: parsed as Record<string, unknown>, rest: markdown.slice(match[0].length) };
+    }
+  } catch {
+    // Malformed YAML: leave the text untouched, the frontmatter plugin still hides it.
+  }
+
+  return { data: null, rest: markdown };
+}
 
 export const markdownRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
   rehypeRaw,
