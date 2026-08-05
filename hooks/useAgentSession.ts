@@ -147,7 +147,6 @@ export interface UseAgentSessionOptions {
 export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 const PROGRAMMATIC_SCROLL_IGNORE_MS = 700;
-const USER_SCROLL_INTENT_MS = 1200;
 const AUTO_FOLLOW_BOTTOM_THRESHOLD_PX = 72;
 const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
 const PROMPT_SETTLE_POLL_MS = 600;
@@ -393,7 +392,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const pendingScrollToUserRef = useRef(false);
   const completionScrollAllowedRef = useRef(true);
   const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
-  const userScrollIntentUntilRef = useRef(0);
   const ignoreProgrammaticScrollUntilRef = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -1508,6 +1506,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
     if (isNew) {
       const selectedModel = { provider: resolved.provider, modelId: resolved.modelId };
+      const selectedThinkingLevel = resolved.thinkingLevel === "auto"
+        ? null
+        : resolved.thinkingLevel as Exclude<ThinkingLevelOption, "auto"> | undefined;
+      // A role selector can pin a level (`provider/model:high`). Preserve that
+      // pin for deferred creation so the initial AgentSession receives it.
+      thinkingLevelOverrideRef.current = selectedThinkingLevel ?? null;
+      setThinkingLevel(selectedThinkingLevel ?? "auto");
       newSessionModelOverrideRef.current = selectedModel;
       setNewSessionModel(selectedModel);
       setPendingModel(selectedModel);
@@ -1795,7 +1800,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (!SCROLL_KEYS.has(event.key)) return;
       if (event.target instanceof Element && event.target.closest("input, textarea, [contenteditable='true']")) return;
     }
-    userScrollIntentUntilRef.current = Date.now() + USER_SCROLL_INTENT_MS;
+    // Stop following immediately on user interaction. Waiting for the subsequent
+    // scroll event loses to the next streamed render and pulls the viewport back
+    // to the bottom before the user can move away.
+    completionScrollAllowedRef.current = false;
   }, []);
 
   const handleScrollPositionChange = useCallback(() => {
@@ -1804,12 +1812,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const container = scrollContainerRef.current;
     if (!container) return;
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    if (distanceFromBottom <= AUTO_FOLLOW_BOTTOM_THRESHOLD_PX) {
-      completionScrollAllowedRef.current = true;
-      return;
-    }
-    if (Date.now() > userScrollIntentUntilRef.current) return;
-    completionScrollAllowedRef.current = false;
+    completionScrollAllowedRef.current = distanceFromBottom <= AUTO_FOLLOW_BOTTOM_THRESHOLD_PX;
   }, []);
 
   // Load session on mount
