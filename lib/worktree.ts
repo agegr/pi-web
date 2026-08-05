@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, realpathSync } from "fs";
 import { basename, dirname, join, resolve } from "path";
 import { promisify } from "util";
 import { allowFileRoot } from "./allowed-roots";
+import { samePath, toNativePath } from "./paths";
 
 const execFileAsync = promisify(execFile);
 
@@ -90,7 +91,10 @@ export async function resolveProject(cwd: string): Promise<ProjectInfo> {
       "--git-common-dir", "--git-dir", "--show-toplevel",
       "--abbrev-ref", "HEAD",
     ]);
-    const [commonDir, gitDir, toplevel, ref] = out.split("\n").map((l) => l.trim());
+    const [commonDirRaw, gitDirRaw, toplevelRaw, ref] = out.split("\n").map((l) => l.trim());
+    // Only the first three lines are paths — `ref` is a branch name and must
+    // keep its forward slashes (`feature/foo`).
+    const [commonDir, gitDir, toplevel] = [commonDirRaw, gitDirRaw, toplevelRaw].map(toNativePath);
     // git prints resolved (symlink-free) paths; normalize cwd the same way
     let realCwd = cwd;
     try { realCwd = realpathSync(cwd); } catch { /* keep as-is */ }
@@ -99,8 +103,8 @@ export async function resolveProject(cwd: string): Promise<ProjectInfo> {
     // cwd is a subdirectory of a repo keeps its own project identity —
     // grouping subdirs under the repo root would change where new sessions
     // are created for existing users.
-    const isTopLevel = toplevel === realCwd;
-    const isWorktreeTopLevel = gitDir !== commonDir && isTopLevel;
+    const isTopLevel = samePath(toplevel, realCwd);
+    const isWorktreeTopLevel = !samePath(gitDir, commonDir) && isTopLevel;
     info = {
       projectRoot: isWorktreeTopLevel ? dirname(commonDir) : cwd,
       branch: ref && ref !== "HEAD" ? ref : null,
@@ -126,7 +130,7 @@ export async function resolveProject(cwd: string): Promise<ProjectInfo> {
 /** Main repo root (parent of the shared .git dir), or throws for non-git dirs */
 async function getRepoRoot(cwd: string): Promise<string> {
   const commonDir = await git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  return dirname(commonDir);
+  return dirname(toNativePath(commonDir));
 }
 
 export async function listWorktrees(cwd: string): Promise<WorktreeInfo[]> {
@@ -153,7 +157,7 @@ export async function listWorktrees(cwd: string): Promise<WorktreeInfo[]> {
   for (const line of out.split("\n")) {
     if (line.startsWith("worktree ")) {
       flush();
-      current = { path: line.slice("worktree ".length).trim() };
+      current = { path: toNativePath(line.slice("worktree ".length).trim()) };
     } else if (line.startsWith("branch ") && current) {
       current.branch = line.slice("branch ".length).trim().replace(/^refs\/heads\//, "");
     } else if (line.startsWith("prunable") && current) {
@@ -211,7 +215,7 @@ export async function addWorktree(cwd: string, branch: string): Promise<{ path: 
 
 export async function removeWorktree(cwd: string, worktreePath: string, force = false): Promise<void> {
   const worktrees = await listWorktrees(cwd);
-  const target = worktrees.find((w) => w.path === worktreePath);
+  const target = worktrees.find((w) => samePath(w.path, worktreePath));
   if (!target) throw new Error(`Not a worktree of this repository: ${worktreePath}`);
   if (target.isMain) throw new Error("Cannot remove the main worktree");
 

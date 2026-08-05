@@ -1,12 +1,12 @@
 import { realpathSync } from "fs";
 import path from "path";
+import { isWindowsAbsolutePath } from "./paths";
 
-const WINDOWS_ABSOLUTE_RE = /^[a-zA-Z]:[\\/]/;
-
-function isWindowsAbsolutePath(filePath: string): boolean {
-  return WINDOWS_ABSOLUTE_RE.test(filePath) || filePath.startsWith("\\\\") || filePath.startsWith("//");
-}
-
+/**
+ * Lexical containment check. Accepts either canonical form on both sides: it
+ * re-resolves through path.win32/path.posix and case-folds on Windows, so
+ * separator style and drive-letter case never decide the answer.
+ */
 export function isPathWithinRoots(target: string, roots: Set<string>): boolean {
   for (const root of roots) {
     const useWindowsRules = isWindowsAbsolutePath(target) || isWindowsAbsolutePath(root);
