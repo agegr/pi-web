@@ -186,6 +186,7 @@ export const enLocale: LocalePlugin = {
     "chat.queueMoveUp": "Move up",
     "chat.queueMoveDown": "Move down",
     "chat.queueRecallOne": "Recall to input box",
+    "chat.queueSteerSend": "Send as steer (interrupt now)",
     "chat.queueImportEmpty": "No valid entries found in that file",
     "chat.queueImported": "Imported {count} message(s) to the queue",
     "chat.queueExported": "Exported {count} message(s)",

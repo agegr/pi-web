@@ -186,6 +186,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.queueMoveUp": "上移",
     "chat.queueMoveDown": "下移",
     "chat.queueRecallOne": "移回输入框编辑",
+    "chat.queueSteerSend": "立即引导发送（打断当前处理）",
     "chat.queueImportEmpty": "文件中没有有效的消息条目",
     "chat.queueImported": "已导入 {count} 条消息到队列",
     "chat.queueExported": "已导出 {count} 条消息",

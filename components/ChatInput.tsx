@@ -319,7 +319,9 @@ function QueuedMessageRow({ kind, text, index, total, onMove, onRecall, onRemove
       el.style.background = "color-mix(in srgb, var(--accent) 8%, transparent)";
       el.style.borderRadius = "6px";
     }
-    e.preventDefault();
+    // No preventDefault here: React registers touchmove as a passive listener
+    // (calling preventDefault would warn and be a no-op). Scrolling is already
+    // prevented by touch-action: none on the row.
     e.stopPropagation();
     const el = document.elementFromPoint(t.clientX, t.clientY);
     const row = el?.closest?.("[data-queue-row]");
