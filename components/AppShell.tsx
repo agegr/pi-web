@@ -1144,11 +1144,15 @@ export function AppShell() {
 
             let ctxColor = "var(--text-muted)";
             let ctxStr: string | null = null;
+            let ctxPct: number | null = null;
             if (contextUsage?.contextWindow) {
-              const pct = contextUsage.percent;
-              if (pct !== null && pct > 90) ctxColor = "#ef4444";
-              else if (pct !== null && pct > 70) ctxColor = "rgba(234,179,8,0.95)";
-              ctxStr = pct !== null ? `${pct.toFixed(0)}% / ${fmt(contextUsage.contextWindow)}` : `? / ${fmt(contextUsage.contextWindow)}`;
+              const { percent, tokens: usedTokens, contextWindow } = contextUsage;
+              ctxPct = percent ?? (usedTokens !== null ? (usedTokens / contextWindow) * 100 : null);
+              if (ctxPct !== null && ctxPct > 90) ctxColor = "#ef4444";
+              else if (ctxPct !== null && ctxPct > 70) ctxColor = "rgba(234,179,8,0.95)";
+              ctxStr = usedTokens !== null
+                ? `${fmt(usedTokens)} / ${fmt(contextWindow)}`
+                : ctxPct !== null ? `${ctxPct.toFixed(0)}% / ${fmt(contextWindow)}` : `? / ${fmt(contextWindow)}`;
             }
 
             const tooltipParts: string[] = [];
@@ -1160,8 +1164,8 @@ export function AppShell() {
               if (c > 0) tooltipParts.push(`cost: $${c.toFixed(4)}`);
             }
             if (contextUsage?.contextWindow) {
-              const pct = contextUsage.percent;
-              tooltipParts.push(`context: ${pct !== null ? pct.toFixed(1) + "%" : "unknown"} of ${contextUsage.contextWindow.toLocaleString()} tokens`);
+              const used = contextUsage.tokens;
+              tooltipParts.push(`context: ${used !== null ? used.toLocaleString(locale) : "unknown"} / ${contextUsage.contextWindow.toLocaleString()} tokens${ctxPct !== null ? ` (${ctxPct.toFixed(1)}%)` : ""}`);
             }
             const tooltip = tooltipParts.join("  |  ");
 
@@ -1345,10 +1349,9 @@ export function AppShell() {
                        [translate("session.total"), sessionStats.tokens.total.toLocaleString(locale)],
                     ];
                     const ctx = contextUsage ?? sessionStats.contextUsage;
-                    const formatCompact = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
                     const extraTokenRows = [
                        ...(sessionStats.cost > 0 ? [[translate("session.cost"), `$${sessionStats.cost.toFixed(4)}`]] : []),
-                       ...(ctx?.contextWindow ? [[translate("session.context"), `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompact(ctx.contextWindow)}`]] : []),
+                       ...(ctx?.contextWindow ? [[translate("session.context"), `${ctx.tokens !== null ? ctx.tokens.toLocaleString(locale) : "?"} / ${ctx.contextWindow.toLocaleString(locale)}`]] : []),
                     ];
                     const section = (
                       title: string,
