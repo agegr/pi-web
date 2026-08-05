@@ -3,6 +3,11 @@
  * format a quoted reply (markdown blockquote + optional pre-filled answer)
  * for insertion into the input box. The user then decides how to send it
  * (prompt / steer / followUp) — these helpers never send.
+ *
+ * Input is the RENDERED paragraph text (DOM textContent): markdown syntax has
+ * already been consumed by the renderer, so the text is used verbatim — no
+ * character stripping. Literal chars (underscores in PI_WEB_BASE_DOMAIN, `*`
+ * inside code, …) must survive quoting intact.
  */
 
 export interface QuoteOption {
@@ -10,11 +15,6 @@ export interface QuoteOption {
   label: string;
   /** Pre-filled answer line under the quote. */
   value: string;
-}
-
-/** Strip light markdown emphasis so matching works on plain text. */
-function clean(text: string): string {
-  return text.replace(/[*_`~]/g, "").trim();
 }
 
 /** Truncate to `n` chars with an ellipsis. */
@@ -37,7 +37,7 @@ function cleanOption(s: string): string {
  * whether to still offer a plain quote).
  */
 export function splitQuestions(text: string): string[] {
-  const t = clean(text);
+  const t = text.trim();
   if (!t) return [];
   // Split AFTER ？/? and on ；; — but NOT before 还是/或者, so that an
   // "A 还是 B" choice stays whole for detectOptions to match as one segment.
@@ -59,7 +59,7 @@ export function isQuestion(seg: string): boolean {
  * plain quote with an empty answer line).
  */
 export function detectOptions(seg: string): QuoteOption[] | null {
-  const t = clean(seg);
+  const t = seg.trim();
   if (!t) return null;
 
   // 1) Explicit choice: "A 还是 B" / "A 或者 B" / "A or B" (\bor\b so
@@ -110,7 +110,7 @@ export function detectOptions(seg: string): QuoteOption[] | null {
  * the quote, email-reply style.
  */
 export function formatQuote(seg: string, value?: string): string {
-  const quote = clean(seg)
+  const quote = seg
     .split("\n")
     .map((l) => `> ${l}`)
     .join("\n");
@@ -142,7 +142,7 @@ export function extractFilePaths(text: string): string[] {
 }
 
 export interface ParsedSegment {
-  /** The cleaned segment text. */
+  /** The rendered segment text (verbatim, no stripping). */
   text: string;
   /** Detected options, or null when unclear (fallback to plain quote). */
   options: QuoteOption[] | null;
