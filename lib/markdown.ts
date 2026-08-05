@@ -160,8 +160,13 @@ function normalizeInlineLatexMath(line: string): string {
   );
 }
 
-export const markdownRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [remarkGfm, remarkMath];
-export const markdownPreviewRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [remarkGfm, remarkMath];
+// singleTilde:false requires ~~double~~ tildes for strikethrough. A single `~`
+// is the standard CJK numeric-range separator (e.g. "5~7U", "100~200倍"), and
+// GFM's default single-tilde strikethrough silently mangled such ranges (#385).
+const remarkGfmOptions = { singleTilde: false } as const;
+
+export const markdownRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [[remarkGfm, remarkGfmOptions], remarkMath];
+export const markdownPreviewRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [[remarkGfm, remarkGfmOptions], remarkMath];
 
 export const markdownRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
   rehypeRaw,

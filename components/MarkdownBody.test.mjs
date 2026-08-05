@@ -37,6 +37,20 @@ test("keeps local file markdown links in the app", () => {
   assert.doesNotMatch(html, /target=|rel=|\snode=/);
 });
 
+test("keeps single-tilde CJK numeric ranges literal instead of striking them", () => {
+  const html = renderMarkdown("5~7U 保证金 × 100~200倍杠杆");
+
+  assert.doesNotMatch(html, /<del>/);
+  assert.match(html, /5~7U/);
+  assert.match(html, /100~200倍/);
+});
+
+test("still renders double-tilde strikethrough", () => {
+  const html = renderMarkdown("~~gone~~");
+
+  assert.match(html, /<del>gone<\/del>/);
+});
+
 test("renders LaTeX parenthesis delimiters as inline math", () => {
   const html = renderMarkdown(String.raw`射线为 \(r_c = K^{-1}p\)。`);
 
