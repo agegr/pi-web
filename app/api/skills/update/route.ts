@@ -1,21 +1,30 @@
 import { NextResponse } from "next/server";
-import { runNpx } from "@/lib/npx";
+import { getAgentDir } from "@oh-my-pi/pi-coding-agent";
+import { runNpx, getSafeNpxEnv, redactNpxOutput } from "@/lib/npx";
 import type { SkillInstallScope } from "@/lib/api-types";
 import { buildSkillUpdateArgs } from "@/lib/skill-updates";
 import { loadSkillsWithInstallInfo } from "@/lib/skills-service";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
-
+import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { getProjectTrustStatus } from "@/lib/project-trust";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  if (!isApiRequestAllowed(req)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+  if (!hasJsonContentType(req)) {
+    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+  }
+
   try {
     const body = await req.json() as {
       cwd?: unknown;
       package?: unknown;
       scope?: unknown;
     };
-    const cwd = typeof body.cwd === "string" ? body.cwd : "";
-    const pkg = typeof body.package === "string" ? body.package : "";
+    const cwd = typeof body.cwd === "string" ? body.cwd.trim() : "";
+    const pkg = typeof body.package === "string" ? body.package.trim() : "";
     const scope = body.scope === "global" || body.scope === "project"
       ? body.scope as SkillInstallScope
       : undefined;
@@ -25,6 +34,12 @@ export async function POST(req: Request) {
     const allowedRoots = await getAllowedFileRoots();
     if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    }
+    if (scope === "project" && !getProjectTrustStatus(cwd, getAgentDir()).trusted) {
+      return NextResponse.json(
+        { error: "Project resources must be trusted before updating project skills" },
+        { status: 403 },
+      );
     }
 
     const { skills } = await loadSkillsWithInstallInfo(cwd);
@@ -41,7 +56,7 @@ export async function POST(req: Request) {
     const { stdout, stderr } = await runNpx(buildSkillUpdateArgs(skill.install), {
       timeout: 60_000,
       cwd: scope === "project" ? cwd : undefined,
-      env: { ...process.env, FORCE_COLOR: "0" },
+      env: getSafeNpxEnv({ FORCE_COLOR: "0" }),
     });
 
     const refreshed = await loadSkillsWithInstallInfo(cwd);
@@ -51,13 +66,13 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       skill: updatedSkill,
-      output: `${stdout}${stderr}`.slice(-500),
+      output: redactNpxOutput(`${stdout}${stderr}`).slice(-1000),
     });
   } catch (error: unknown) {
     const detail = error as { stdout?: string; stderr?: string; message?: string };
-    const output = `${detail.stdout ?? ""}${detail.stderr ?? ""}`;
+    const output = redactNpxOutput(`${detail.stdout ?? ""}${detail.stderr ?? ""}`).slice(-1000);
     return NextResponse.json(
-      { error: output || detail.message || String(error) },
+      { error: output || "Skill update failed" },
       { status: 500 },
     );
   }

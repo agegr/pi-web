@@ -9,6 +9,7 @@ import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { SettingsConfig } from "./SettingsConfig";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
+import { OmpUpdateIndicator } from "./OmpUpdateIndicator";
 import { BranchNavigator } from "./BranchNavigator";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
@@ -631,6 +632,9 @@ export function AppShell() {
         onAtMention={handleAtMention}
         onAtMentions={handleAtMentions}
       />
+      <div style={{ padding: "0 8px", flexShrink: 0 }}>
+        <OmpUpdateIndicator />
+      </div>
       <div style={{ padding: "8px", flexShrink: 0 }}>
         <button
           onClick={() => setSettingsConfigOpen(true)}

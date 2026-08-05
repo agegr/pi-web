@@ -6,7 +6,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { writePrivateFileAtomicSync } from "@/lib/atomic-file";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { invalidateOmpRuntime } from "@/lib/omp-runtime";
-
+import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 export const dynamic = "force-dynamic";
 
 /**
@@ -53,20 +53,40 @@ function writeModelsConfig(data: Record<string, unknown>): void {
   writePrivateFileAtomicSync(path, stringifyYaml(data, { lineWidth: 0 }));
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  if (!isApiRequestAllowed(req)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
   return NextResponse.json(readModelsConfig());
 }
 
 export async function PUT(req: Request) {
+  if (!isApiRequestAllowed(req)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+  if (!hasJsonContentType(req)) {
+    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+  }
+
   try {
-    const body = await req.json() as Record<string, unknown>;
-    writeModelsConfig(body);
+    const body = await req.json() as unknown;
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      return NextResponse.json({ error: "models config must be an object" }, { status: 400 });
+    }
+    const config = body as Record<string, unknown>;
+    if (
+      "providers" in config
+      && (typeof config.providers !== "object" || config.providers === null || Array.isArray(config.providers))
+    ) {
+      return NextResponse.json({ error: "providers must be an object" }, { status: 400 });
+    }
+    writeModelsConfig(config);
     invalidateModelsCache();
     // The registry caches models.yml at construction; drop it so the next
     // request rebuilds against the edited providers.
     invalidateOmpRuntime();
     return NextResponse.json({ success: true });
-  } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "Unable to save models config" }, { status: 500 });
   }
 }

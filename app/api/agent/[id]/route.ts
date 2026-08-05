@@ -2,12 +2,20 @@ import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession } from "@/lib/rpc-manager";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent";
+import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!isApiRequestAllowed(req)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+  if (!hasJsonContentType(req)) {
+    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+  }
+
   const { id } = await params;
 
   try {

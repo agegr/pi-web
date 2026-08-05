@@ -3,10 +3,10 @@ import type { ThinkingLevel } from "@oh-my-pi/pi-agent-core";
 import { parseThinkingLevel as parseOmpThinkingLevel } from "@oh-my-pi/pi-coding-agent/thinking";
 import { existsSync } from "fs";
 import { randomUUID } from "crypto";
-import { allowFileRoot } from "@/lib/file-access";
+import { allowFileRoot, getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { invalidateSessionListCache } from "@/lib/session-reader";
 import { startRpcSession } from "@/lib/rpc-manager";
-
+import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 // omp owns the selector grammar (including abbreviations like "med"); reuse its
 // parser so the browser and the CLI accept exactly the same values.
 function parseThinkingLevel(value: unknown): ThinkingLevel | undefined {
@@ -20,6 +20,13 @@ function parseThinkingLevel(value: unknown): ThinkingLevel | undefined {
 // type:"ensure_session" only creates the runtime so clients can query commands.
 // Returns pi's real session id plus the model/thinking state selected at startup.
 export async function POST(req: Request) {
+  if (!isApiRequestAllowed(req)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+  if (!hasJsonContentType(req)) {
+    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+  }
+
   try {
     const body = await req.json() as { cwd?: string; [key: string]: unknown };
     const { cwd, ...command } = body;
@@ -29,6 +36,10 @@ export async function POST(req: Request) {
     }
     if (!existsSync(cwd)) {
       return NextResponse.json({ error: `Directory does not exist: ${cwd}` }, { status: 400 });
+    }
+    const allowedRoots = await getAllowedFileRoots();
+    if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
     // Use a one-time key so startRpcSession's lock doesn't conflict with real session ids

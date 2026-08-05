@@ -1,0 +1,137 @@
+name: Update omp dependency
+
+# The upstream repository cannot dispatch a workflow in this repository, so the
+# hourly check reads its latest stable release. workflow_dispatch is useful for
+# validating a release immediately after it is published.
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-omp
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Open omp dependency PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.x"
+
+      - name: Read latest upstream release
+        id: release
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { data } = await github.rest.repos.getLatestRelease({
+              owner: "can1357",
+              repo: "oh-my-pi",
+            });
+            const version = String(data.tag_name || "").replace(/^v/, "");
+            if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
+              core.setFailed(`Unexpected upstream release tag: ${data.tag_name}`);
+              return;
+            }
+            core.setOutput("version", version);
+            core.setOutput("tag", data.tag_name);
+            core.setOutput("url", data.html_url);
+
+      - name: Skip when the dependency is current
+        id: manifest
+        env:
+          OMP_VERSION: ${{ steps.release.outputs.version }}
+        shell: bash
+        run: |
+          current="$(node -p "require('./package.json').dependencies['@oh-my-pi/pi-coding-agent']" | sed -E 's/^[^0-9]*//')"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          if [[ "$current" == "$OMP_VERSION" ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "omp $OMP_VERSION is already declared in package.json"
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for the matching npm package
+        if: steps.manifest.outputs.changed == 'true'
+        env:
+          OMP_VERSION: ${{ steps.release.outputs.version }}
+        shell: bash
+        run: |
+          for attempt in {1..10}; do
+            published="$(npm view "@oh-my-pi/pi-coding-agent@${OMP_VERSION}" version --silent 2>/dev/null || true)"
+            if [[ "$published" == "$OMP_VERSION" ]]; then
+              exit 0
+            fi
+            echo "@oh-my-pi/pi-coding-agent@$OMP_VERSION is not on npm yet (attempt $attempt/10)"
+            sleep 30
+          done
+          echo "The upstream release exists but its npm package is not available yet." >&2
+          exit 1
+
+      - name: Update omp dependency ranges
+        if: steps.manifest.outputs.changed == 'true'
+        env:
+          OMP_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const names = [
+            '@oh-my-pi/pi-agent-core',
+            '@oh-my-pi/pi-ai',
+            '@oh-my-pi/pi-coding-agent',
+            '@oh-my-pi/pi-tui',
+            '@oh-my-pi/pi-utils',
+          ];
+          for (const name of names) {
+            if (!packageJson.dependencies?.[name]) throw new Error(`Missing dependency ${name}`);
+            packageJson.dependencies[name] = `~${process.env.OMP_VERSION}`;
+          }
+          fs.writeFileSync('package.json', `${JSON.stringify(packageJson, null, 2)}\n`);
+          NODE
+
+      - name: Refresh Bun lockfile
+        if: steps.manifest.outputs.changed == 'true'
+        run: bun install --lockfile-only
+
+      - name: Verify the updated dependency graph
+        if: steps.manifest.outputs.changed == 'true'
+        run: |
+          bun install --frozen-lockfile
+          bun run typecheck
+
+      - name: Open or update the dependency PR
+        if: steps.manifest.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ github.token }}
+          branch: automation/omp-${{ steps.release.outputs.version }}
+          delete-branch: true
+          commit-message: "chore: update omp to v${{ steps.release.outputs.version }}"
+          title: "chore: update omp to v${{ steps.release.outputs.version }}"
+          body: |
+            Updates all `@oh-my-pi/*` runtime packages to `~${{ steps.release.outputs.version }}`.
+
+            Upstream release: [${{ steps.release.outputs.tag }}](${{ steps.release.outputs.url }})
+
+            The workflow refreshed `bun.lock` and ran `bun run typecheck` before opening this PR.

@@ -1,6 +1,7 @@
 import { resolveSessionPath } from "@/lib/session-reader";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent";
+import { isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,10 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  if (!isApiRequestAllowed(req)) {
+    return new Response("Untrusted API request", { status: 403 });
+  }
+
 
   // Fast path: already-running session
   let session = getRpcSession(id);
@@ -21,8 +26,8 @@ export async function GET(
     const cwd = (await SessionManager.open(filePath)).getHeader()?.cwd ?? process.cwd();
     try {
       ({ session } = await startRpcSession(id, filePath, cwd));
-    } catch (error) {
-      return new Response(`Failed to start agent: ${error}`, { status: 500 });
+    } catch {
+      return new Response("Failed to start agent", { status: 500 });
     }
   }
 

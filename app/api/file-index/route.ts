@@ -10,6 +10,7 @@ import {
   isWindowsAbsolutePath,
 } from "@/lib/file-access";
 import { buildEntriesFromFiles, filterFileEntries, type FileIndexEntry } from "@/lib/file-fuzzy";
+import { isApiRequestAllowed } from "@/lib/request-security";
 
 const execFileAsync = promisify(execFile);
 
@@ -115,6 +116,9 @@ function listWithWalk(cwd: string): FileListing {
 // matching, like the TUI passing the query to fd).
 // Guarded by the same allow-list as /api/files.
 export async function GET(req: NextRequest) {
+  if (!isApiRequestAllowed(req)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
   try {
     const cwd = req.nextUrl.searchParams.get("cwd")?.trim() ?? "";
     if (!cwd || (!cwd.startsWith("/") && !isWindowsAbsolutePath(cwd))) {

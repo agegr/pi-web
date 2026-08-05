@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveModelDiscoveryAuth } from "@/lib/model-discovery-auth";
 import { buildModelsListUrl, parseDiscoveredModels } from "@/lib/model-discovery";
-
+import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 export const dynamic = "force-dynamic";
 
 const DISCOVERY_TIMEOUT_MS = 20_000;
@@ -31,6 +31,13 @@ function buildHeaders(api: string, apiKey: string | undefined, configured: Recor
 }
 
 export async function POST(req: Request) {
+  if (!isApiRequestAllowed(req)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+  if (!hasJsonContentType(req)) {
+    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+  }
+
   try {
     const body = await req.json() as { providerName?: unknown; provider?: unknown };
     const providerName = typeof body.providerName === "string" ? body.providerName.trim() : "";
@@ -81,8 +88,8 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ models, endpoint: endpoint.toString() });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = error instanceof Error ? error.message : "Model discovery failed";
     const status = error instanceof DOMException && error.name === "TimeoutError" ? 504 : 500;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ error: message.slice(-500) }, { status });
   }
 }

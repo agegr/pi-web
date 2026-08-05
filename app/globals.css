@@ -151,6 +151,20 @@ pre, code {
 }
 .markdown-body p { margin: 0 0 8px; }
 .markdown-body p:last-child { margin-bottom: 0; }
+.update-changelog .markdown-body p { margin-bottom: 6px; }
+.update-changelog .markdown-body h1,
+.update-changelog .markdown-body h2,
+.update-changelog .markdown-body h3,
+.update-changelog .markdown-body h4,
+.update-changelog .markdown-body h5,
+.update-changelog .markdown-body h6 {
+  margin: 7px 0 4px;
+}
+.update-changelog .markdown-body ul,
+.update-changelog .markdown-body ol {
+  margin: 4px 0 7px;
+}
+.update-changelog .markdown-body li { margin: 2px 0; }
 .markdown-body h1, .markdown-body h2, .markdown-body h3,
 .markdown-body h4, .markdown-body h5, .markdown-body h6 {
   font-weight: 600;

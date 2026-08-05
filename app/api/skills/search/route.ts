@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { runNpx } from "@/lib/npx";
+import { runNpx, getSafeNpxEnv, redactNpxOutput } from "@/lib/npx";
 import type { SkillSearchResult } from "@/lib/api-types";
+import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +9,7 @@ const ANSI_RE = /\x1B\[[0-9;]*m/g;
 const DEFAULT_LIMIT = 50;
 const MIN_LIMIT = 1;
 const MAX_LIMIT = 50;
+const MAX_QUERY_LENGTH = 200;
 const SEARCH_API_BASE = process.env.SKILLS_API_URL || "https://skills.sh";
 
 interface SkillsApiSkill {
@@ -89,28 +91,42 @@ function parseInstallCount(installs: string): number {
 
 // POST /api/skills/search  body: { query: string, limit?: number }
 export async function POST(req: Request) {
+  if (!isApiRequestAllowed(req)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+  if (!hasJsonContentType(req)) {
+    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+  }
+
   try {
-    const { query, limit: rawLimit } = await req.json() as { query?: string; limit?: unknown };
-    if (!query?.trim()) return NextResponse.json({ error: "query required" }, { status: 400 });
+    const { query: rawQuery, limit: rawLimit } = await req.json() as { query?: unknown; limit?: unknown };
+    const query = typeof rawQuery === "string" ? rawQuery.trim() : "";
+    if (!query) return NextResponse.json({ error: "query required" }, { status: 400 });
+    if (query.length > MAX_QUERY_LENGTH) {
+      return NextResponse.json({ error: `query must be ${MAX_QUERY_LENGTH} characters or fewer` }, { status: 400 });
+    }
     const limit = parseLimit(rawLimit);
 
     try {
-      const results = await searchSkillsApi(query.trim(), limit);
+      const results = await searchSkillsApi(query, limit);
       return NextResponse.json({ results });
     } catch {
-      const { stdout, stderr } = await runNpx(["skills", "find", query.trim()], {
+      const { stdout, stderr } = await runNpx(["skills", "find", query], {
         timeout: 20000,
-        env: { ...process.env, FORCE_COLOR: "0" },
+        env: getSafeNpxEnv({ FORCE_COLOR: "0" }),
       });
 
-      const results = parseSearchOutput(stdout + stderr).slice(0, limit);
+      const output = redactNpxOutput(stdout + stderr).replace(ANSI_RE, "");
+      const results = parseSearchOutput(output).slice(0, limit);
       return NextResponse.json({ results });
     }
   } catch (e: unknown) {
     const err = e as { stdout?: string; stderr?: string; message?: string };
-    const raw = (err.stdout ?? "") + (err.stderr ?? "");
+    const raw = redactNpxOutput((err.stdout ?? "") + (err.stderr ?? ""));
     const results = raw ? parseSearchOutput(raw) : [];
     if (results.length > 0) return NextResponse.json({ results });
-    return NextResponse.json({ error: err.message ?? String(e) }, { status: 500 });
+    return NextResponse.json({
+      error: redactNpxOutput(err.message ?? "Skill search failed").slice(-500),
+    }, { status: 500 });
   }
 }

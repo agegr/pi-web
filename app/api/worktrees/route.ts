@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { existsSync } from "fs";
 import { addWorktree, listWorktrees, removeWorktree, resolveProject } from "@/lib/worktree";
 import { allowFileRoot, getAllowedFileRoots, isExistingFilePathAllowed, isFilePathAllowed } from "@/lib/file-access";
+import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 /** Same gate as /api/files: only session cwds / project roots / explicitly
  *  allowed dirs may be inspected or mutated through this endpoint. */
@@ -15,6 +16,10 @@ async function checkCwdAllowed(cwd: string): Promise<NextResponse | null> {
 
 // GET /api/worktrees?cwd=  →  { projectRoot, isGit, isTopLevel, worktrees }
 export async function GET(req: Request) {
+  if (!isApiRequestAllowed(req)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+
   try {
     const cwd = new URL(req.url).searchParams.get("cwd");
     if (!cwd) {
@@ -50,6 +55,13 @@ export async function GET(req: Request) {
 
 // POST /api/worktrees  body: { cwd, branch }  →  { path, branch }
 export async function POST(req: Request) {
+  if (!isApiRequestAllowed(req)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+  if (!hasJsonContentType(req)) {
+    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+  }
+
   try {
     const body = await req.json() as { cwd?: string; branch?: string };
     if (!body.cwd || typeof body.cwd !== "string") {
@@ -74,6 +86,13 @@ export async function POST(req: Request) {
 
 // DELETE /api/worktrees  body: { cwd, path, force? }
 export async function DELETE(req: Request) {
+  if (!isApiRequestAllowed(req)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+  if (!hasJsonContentType(req)) {
+    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+  }
+
   try {
     const body = await req.json() as { cwd?: string; path?: string; force?: boolean };
     if (!body.cwd || typeof body.cwd !== "string") {

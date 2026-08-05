@@ -3,24 +3,32 @@ import type { SkillInstallScope } from "@/lib/api-types";
 import { checkSkillUpdates } from "@/lib/skill-updates";
 import { loadSkillsWithInstallInfo } from "@/lib/skills-service";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
+import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  if (!isApiRequestAllowed(req)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+  if (!hasJsonContentType(req)) {
+    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+  }
+
   try {
     const body = await req.json() as {
       cwd?: unknown;
       package?: unknown;
       scope?: unknown;
     };
-    const cwd = typeof body.cwd === "string" ? body.cwd : "";
+    const cwd = typeof body.cwd === "string" ? body.cwd.trim() : "";
     if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
     const allowedRoots = await getAllowedFileRoots();
     if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
-    const pkg = typeof body.package === "string" ? body.package : undefined;
+    const pkg = typeof body.package === "string" ? body.package.trim() : undefined;
     const scope = body.scope === "global" || body.scope === "project"
       ? body.scope as SkillInstallScope
       : undefined;
@@ -44,7 +52,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ updates });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : String(error) },
+      { error: error instanceof Error ? error.message.slice(-500) : "Skill update check failed" },
       { status: 500 },
     );
   }

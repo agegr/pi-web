@@ -152,3 +152,45 @@ export interface ModelRoleAssignment {
   /** Resolver complaint, e.g. a selector that matches nothing available. */
   warning?: string;
 }
+export interface OmpWebReleaseInfo {
+  version: string;
+  tagName: string;
+  name: string;
+  body: string;
+  htmlUrl: string;
+  publishedAt: string | null;
+}
+
+export interface OmpWebPackageInfo {
+  version: string;
+}
+
+export type OmpWebInstallPlanReason =
+  | "disabled"
+  | "latest-package-unavailable"
+  | "current-version-unknown";
+
+export interface OmpWebInstallPlan {
+  canInstall: boolean;
+  manager: "bun" | "npm";
+  command: string;
+  alternateCommand: string;
+  packageVersion?: string;
+  reason?: OmpWebInstallPlanReason;
+  restartRequired: boolean;
+}
+
+export type OmpWebUpdateAvailability =
+  | "up-to-date"
+  | "installable"
+  | "manual";
+
+export interface OmpWebUpdateResponse {
+  currentAppVersion: string;
+  latestRelease: OmpWebReleaseInfo;
+  latestPackage: OmpWebPackageInfo | null;
+  updateAvailable: boolean;
+  availability: OmpWebUpdateAvailability;
+  install: OmpWebInstallPlan;
+  checkedAt: string;
+}
