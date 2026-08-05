@@ -22,10 +22,18 @@ import type {
 } from "@/lib/types";
 
 const MAX_THINKING_CACHE_ENTRIES = 100;
+// 思考内容区底部比文字多留的行数（乘 lineHeight 1.6em 得实际高度）
+const THINKING_EXTRA_BOTTOM_LINES = 3;
 const thinkingContentCache = new Map<string, Promise<string>>();
+// 已加载完成的思考内容，组件重挂载后直接取用，避免重新走 loading 帧
+const thinkingContentValueCache = new Map<string, string>();
+
+function thinkingCacheKey(sessionId: string, entryId: string, blockIndex: number): string {
+  return `${sessionId}:${entryId}:${blockIndex}`;
+}
 
 function loadThinkingContent(sessionId: string, entryId: string, blockIndex: number): Promise<string> {
-  const key = `${sessionId}:${entryId}:${blockIndex}`;
+  const key = thinkingCacheKey(sessionId, entryId, blockIndex);
   const cached = thinkingContentCache.get(key);
   if (cached) {
     thinkingContentCache.delete(key);
@@ -39,6 +47,7 @@ function loadThinkingContent(sessionId: string, entryId: string, blockIndex: num
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json() as { thinking?: unknown };
     if (typeof data.thinking !== "string") throw new Error("Invalid thinking response");
+    thinkingContentValueCache.set(key, data.thinking);
     return data.thinking;
   }).catch((error) => {
     thinkingContentCache.delete(key);
@@ -48,7 +57,10 @@ function loadThinkingContent(sessionId: string, entryId: string, blockIndex: num
   thinkingContentCache.set(key, request);
   if (thinkingContentCache.size > MAX_THINKING_CACHE_ENTRIES) {
     const oldestKey = thinkingContentCache.keys().next().value;
-    if (oldestKey) thinkingContentCache.delete(oldestKey);
+    if (oldestKey) {
+      thinkingContentCache.delete(oldestKey);
+      thinkingContentValueCache.delete(oldestKey);
+    }
   }
   return request;
 }
@@ -648,6 +660,12 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, thinki
       setError(t("i18n.thinkingUnavailable"));
       return;
     }
+    // 重挂载后命中已加载缓存则直接展示，跳过 loading 帧
+    const cachedValue = thinkingContentValueCache.get(thinkingCacheKey(sessionId, entryId, blockIndex));
+    if (cachedValue !== undefined) {
+      setContent(cachedValue);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -708,7 +726,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, thinki
       {expanded && (
         <div
           style={{
-            padding: "8px 10px",
+            padding: `8px 10px calc(${THINKING_EXTRA_BOTTOM_LINES} * 1.6em)`,
             color: error ? "#f87171" : "var(--text-muted)",
             fontSize: 12,
             lineHeight: 1.6,

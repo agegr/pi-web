@@ -220,11 +220,26 @@ export function buildSessionContext(
 
   // Convert the SDK-selected context entries and their IDs together. This keeps
   // fork/navigation targets aligned while preserving pi's compaction ordering.
+  // 最后一条 assistant 消息的思考内容已在流式输出中展示过，剥离后按需加载会
+  // 造成输出完毕后的重复加载闪烁，因此保留内联；历史消息仍按需延迟加载
+  const contextEntryList = contextEntries as unknown as SessionEntry[];
+  let lastAssistantEntry: SessionEntry | undefined;
+  for (let i = contextEntryList.length - 1; i >= 0; i--) {
+    const entry = contextEntryList[i];
+    if (entry.type === "message" && entry.message.role === "assistant") {
+      lastAssistantEntry = entry;
+      break;
+    }
+  }
+
   const messages: AgentMessage[] = [];
   const entryIds: string[] = [];
   for (const entry of contextEntries) {
     const localEntry = entry as unknown as SessionEntry;
-    const m = entryToUiMessage(localEntry, options);
+    const m = entryToUiMessage(localEntry, {
+      ...options,
+      deferThinking: options.deferThinking && localEntry !== lastAssistantEntry,
+    });
     if (m) {
       messages.push(m);
       entryIds.push(localEntry.id);

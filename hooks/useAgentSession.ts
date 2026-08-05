@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useMemo, useReducer } from "react";
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer } from "react";
 import type {
   AgentMessage,
   ExtensionStatusItem,
@@ -13,6 +13,9 @@ import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+
+// useLayoutEffect 在服务端渲染时不生效，这里做同构包装避免 hydration 告警
+const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 export interface SessionData {
   sessionId: string;
@@ -1786,7 +1789,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [messages.length, scrollToBottom, scrollUserMsgToBottom]);
 
   // 流式输出逐 token 更新：贴底时保持视野钉在最新内容上
-  useEffect(() => {
+  // layout effect 在 paint 前同步滚动，内容增长与滚动同帧完成，避免逐行增长时的闪烁
+  useIsomorphicLayoutEffect(() => {
     if (!streamState.isStreaming || !stickToBottomRef.current) return;
     scrollToBottom("instant");
   }, [streamState.streamingMessage, streamState.isStreaming, scrollToBottom]);

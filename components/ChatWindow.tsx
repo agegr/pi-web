@@ -10,7 +10,7 @@ import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { useI18n } from "@/hooks/useI18n";
-import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
+import { useAgentSession, type AgentPhase, type AttachedImage, type NoticeItem } from "@/hooks/useAgentSession";
 import { useAudio } from "@/hooks/useAudio";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -229,6 +229,11 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const sessionBusy = agentRunning || bashRunning;
   // 本次会话打开期间出现过实时输出，则最后一轮保持展开；重新打开历史会话时折叠
   const tailWasActiveRef = useRef(false);
+  // 发送 prompt 时同步置位，避免输出瞬时完成时 useEffect 观察不到运行状态导致最后一轮误折叠
+  const handleSendWithTail = useCallback((message: string, images?: AttachedImage[]) => {
+    tailWasActiveRef.current = true;
+    void handleSend(message, images);
+  }, [handleSend]);
   useEffect(() => {
     if (sessionBusy || streamState.isStreaming) tailWasActiveRef.current = true;
   }, [sessionBusy, streamState.isStreaming]);
@@ -357,7 +362,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const chatInputElement = (
     <ChatInput
       ref={chatInputRef}
-      onSend={handleSend}
+      onSend={handleSendWithTail}
       onAbort={handleAbort}
       onSteer={agentRunning ? handleSteer : undefined}
       onFollowUp={agentRunning ? handleFollowUp : undefined}
