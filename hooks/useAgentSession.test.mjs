@@ -73,3 +73,30 @@ test("plays the enabled sound once for each extension dialog", () => {
   assert.match(chatWindowSource, /soundedExtensionDialogIdRef\.current = extensionDialog\.id/);
   assert.match(chatWindowSource, /playDoneSoundRef\.current\(\)/);
 });
+
+test("keeps live following cancellable when the user scrolls away from the tail", () => {
+  const streamUpdateSource = source.slice(
+    source.indexOf('case "message_start"'),
+    source.indexOf('case "message_end"'),
+  );
+  const scrollHandlerSource = source.slice(
+    source.indexOf("const handleScrollPositionChange"),
+    source.indexOf("// Load session on mount"),
+  );
+
+  assert.match(source, /const liveFollowFrameRef = useRef<number \| null>\(null\)/);
+  assert.match(streamUpdateSource, /liveFollowFrameRef\.current === null/);
+  assert.match(streamUpdateSource, /requestAnimationFrame\(\(\) => \{[\s\S]*?liveFollowFrameRef\.current = null;[\s\S]*?if \(isNearBottomRef\.current\) scrollToBottom\("auto"\)/);
+  assert.match(scrollHandlerSource, /cancelAnimationFrame\(liveFollowFrameRef\.current\)/);
+});
+
+test("sizes the message tail from the rendered bottom composer", () => {
+  assert.match(chatWindowSource, /const bottomComposerRef = useRef<HTMLDivElement \| null>\(null\)/);
+  assert.match(chatWindowSource, /useLayoutEffect\(\(\) => \{/);
+  assert.match(chatWindowSource, /new ResizeObserver\(updateBottomComposerHeight\)/);
+  assert.match(chatWindowSource, /bottomComposerScrollFrameRef = useRef<number \| null>\(null\)/);
+  assert.match(chatWindowSource, /distanceFromBottom <= Math\.abs\(nextHeight - previousHeight\) \+ 1/);
+  assert.match(chatWindowSource, /scrollToBottom\("auto"\)/);
+  assert.match(chatWindowSource, /<div ref=\{bottomComposerRef\} className="relative">/);
+  assert.match(chatWindowSource, /height: bottomComposerHeight/);
+});

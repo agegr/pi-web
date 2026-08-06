@@ -1,6 +1,6 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
@@ -212,7 +212,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands,
+    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, scrollToBottom,
   } = useAgentSession({
     session, newSessionCwd, onAgentEnd: wrappedOnAgentEnd, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
@@ -224,11 +224,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     soundedExtensionDialogIdRef.current = extensionDialog.id;
     playDoneSoundRef.current();
   }, [extensionDialog]);
-  
-  // Reserve enough bottom padding in the message list so the last message is
-  // not hidden behind the fixed ChatInput. The input area's minimum height is
-  // ~52px (textarea + padding + bottom controls), so we keep a static spacer.
-  const inputHeight = 52;
 
   // Register the abort handler for the global Esc shortcut
   useEffect(() => {
@@ -336,6 +331,56 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
+  const bottomComposerRef = useRef<HTMLDivElement | null>(null);
+  const [bottomComposerHeight, setBottomComposerHeight] = useState(0);
+  const bottomComposerHeightRef = useRef(0);
+  const bottomComposerScrollFrameRef = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    const composer = bottomComposerRef.current;
+    if (!composer) {
+      bottomComposerHeightRef.current = 0;
+      setBottomComposerHeight(0);
+      return;
+    }
+
+    const updateBottomComposerHeight = () => {
+      const nextHeight = Math.ceil(composer.getBoundingClientRect().height);
+      if (bottomComposerHeightRef.current === nextHeight) return;
+
+      const previousHeight = bottomComposerHeightRef.current;
+      bottomComposerHeightRef.current = nextHeight;
+      setBottomComposerHeight(nextHeight);
+
+      if (bottomComposerScrollFrameRef.current !== null) {
+        cancelAnimationFrame(bottomComposerScrollFrameRef.current);
+      }
+      bottomComposerScrollFrameRef.current = requestAnimationFrame(() => {
+        bottomComposerScrollFrameRef.current = null;
+        const currentContainer = scrollContainerRef.current;
+        const distanceFromBottom = currentContainer
+          ? currentContainer.scrollHeight - currentContainer.clientHeight - currentContainer.scrollTop
+          : Number.POSITIVE_INFINITY;
+        // Preserve a tail-pinned view while avoiding a jump for history readers.
+        if (distanceFromBottom <= Math.abs(nextHeight - previousHeight) + 1) {
+          scrollToBottom("auto");
+        }
+      });
+    };
+    updateBottomComposerHeight();
+
+    const observer = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(updateBottomComposerHeight);
+    observer?.observe(composer);
+    return () => {
+      observer?.disconnect();
+      if (bottomComposerScrollFrameRef.current !== null) {
+        cancelAnimationFrame(bottomComposerScrollFrameRef.current);
+        bottomComposerScrollFrameRef.current = null;
+      }
+    };
+  }, [error, isEmptyNew, loading, scrollContainerRef, scrollToBottom]);
 
   const availableThinkingLevels = displayModelValue
     ? (modelThinkingLevels[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
@@ -724,9 +769,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               />
             )}
 
-            {/* Spacer sized to the bottom input area so the last message is
-                not hidden behind ChatInput, without wasting a full viewport. */}
-            <div style={{ height: inputHeight }} />
+            {/* Match the trailing space to the live bottom composer height. */}
+            <div aria-hidden="true" style={{ height: bottomComposerHeight }} />
 
             <div ref={messagesEndRef} />
             </div>
@@ -743,7 +787,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         )}
       </div>
 
-      <div className="relative">
+      <div ref={bottomComposerRef} className="relative">
         <div
           style={{
             padding: `0 ${CHAT_COLUMN_PADDING}px`,

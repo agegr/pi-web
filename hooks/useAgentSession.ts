@@ -401,6 +401,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const pendingScrollToUserRef = useRef(false);
   const completionScrollAllowedRef = useRef(true);
   const isNearBottomRef = useRef(true);
+  const liveFollowFrameRef = useRef<number | null>(null);
   const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
   const userScrollIntentUntilRef = useRef(0);
   const ignoreProgrammaticScrollUntilRef = useRef(0);
@@ -414,6 +415,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
 
   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
+    messagesEndRef.current?.scrollIntoView({ behavior });
+  }, []);
 
   const currentModel = currentModelOverride ?? data?.context.model ?? pendingModel ?? null;
   const displayModel = isNew ? (newSessionModel ?? newSessionDefaultModel) : currentModel;
@@ -1136,10 +1142,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setAgentPhase(null);
         // Live-follow the streaming output only when the user is already near
         // the bottom of the message list. If they scrolled up, leave them there.
-        if (isNearBottomRef.current) {
+        if (isNearBottomRef.current && liveFollowFrameRef.current === null) {
           // Defer the scroll so React has time to update the DOM with the new
           // streaming content; otherwise scrollIntoView may target stale layout.
-          requestAnimationFrame(() => scrollToBottom("auto"));
+          liveFollowFrameRef.current = requestAnimationFrame(() => {
+            liveFollowFrameRef.current = null;
+            if (isNearBottomRef.current) scrollToBottom("auto");
+          });
         }
         break;
       }
@@ -1227,7 +1236,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, settleUiStage]);
+  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -1692,11 +1701,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [setToolPresetState]);
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
-    messagesEndRef.current?.scrollIntoView({ behavior });
-  }, []);
-
   const scrollUserMsgToTop = useCallback(() => {
     const container = scrollContainerRef.current;
     const el = lastUserMsgRef.current;
@@ -1719,6 +1723,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (container) {
       const { scrollTop, clientHeight, scrollHeight } = container;
       isNearBottomRef.current = scrollTop + clientHeight >= scrollHeight - SCROLL_BOTTOM_THRESHOLD;
+      if (!isNearBottomRef.current && liveFollowFrameRef.current !== null) {
+        cancelAnimationFrame(liveFollowFrameRef.current);
+        liveFollowFrameRef.current = null;
+      }
     }
     if (!agentRunningRef.current) return;
     if (Date.now() < ignoreProgrammaticScrollUntilRef.current) return;
@@ -1763,6 +1771,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       });
     }
     return () => {
+      if (liveFollowFrameRef.current !== null) {
+        cancelAnimationFrame(liveFollowFrameRef.current);
+        liveFollowFrameRef.current = null;
+      }
       bashRecoveryIdRef.current += 1;
       cancelEventStreamGrace();
       closeEvents();
@@ -1872,6 +1884,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleRecallQueue,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
+    scrollToBottom,
     dispatch, setAgentRunning, setForkingEntryId,
     bashRunning, pendingBash,
     // Subscriptions
