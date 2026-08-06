@@ -90,6 +90,28 @@ test("keeps live following cancellable when the user scrolls away from the tail"
   assert.match(scrollHandlerSource, /cancelAnimationFrame\(liveFollowFrameRef\.current\)/);
 });
 
+test("keeps a newly sent user message at the top while its response starts", () => {
+  const streamUpdateSource = source.slice(
+    source.indexOf('case "message_start"'),
+    source.indexOf('case "message_end"'),
+  );
+  const userScrollSource = source.slice(
+    source.indexOf("const scrollUserMsgToTop"),
+    source.indexOf("const markUserScrollIntent"),
+  );
+  const scrollEffectSource = source.slice(
+    source.indexOf("useLayoutEffect(() => {\n    if (messages.length > 0)"),
+    source.indexOf("// Load model list"),
+  );
+
+  assert.match(streamUpdateSource, /!pendingScrollToUserRef\.current && isNearBottomRef\.current/);
+  assert.match(userScrollSource, /const targetTop = Math\.min\(Math\.max\(0, elAbsTop - 16\), maxScrollTop\)/);
+  assert.match(userScrollSource, /cancelAnimationFrame\(liveFollowFrameRef\.current\)/);
+  assert.match(userScrollSource, /isNearBottomRef\.current = targetTop >= maxScrollTop - SCROLL_BOTTOM_THRESHOLD/);
+  assert.match(userScrollSource, /container\.scrollTo\(\{ top: targetTop, behavior: "smooth" \}\)/);
+  assert.match(scrollEffectSource, /pendingScrollToUserRef\.current = false;[\s\S]*?scrollUserMsgToTop\(\)/);
+});
+
 test("sizes the message tail from the rendered bottom composer", () => {
   assert.match(chatWindowSource, /const bottomComposerRef = useRef<HTMLDivElement \| null>\(null\)/);
   assert.match(chatWindowSource, /useLayoutEffect\(\(\) => \{/);
