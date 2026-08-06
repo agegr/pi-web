@@ -125,6 +125,28 @@ Requests to loopback addresses are never proxied, so a local provider (Ollama, L
 - **Configure less from the terminal**: manage providers, logins/API keys, model tests, plugins, and skill switches from the web UI.
 - **Use the interface in your language**: switch between the supported UI languages from the top bar.
 
+## Screenshots
+
+**Session browsing + file explorer** — projects and past sessions on the left, the project's real file tree underneath, ready to preview or attach to a message.
+
+![Sidebar with session browsing and the file explorer](./docs/screenshots/01-sidebar-and-explorer.png)
+
+**Real-time chat with model roles** — the agent's tool calls, cost, context usage, and the active model role are all visible while it works.
+
+![Chat view showing an agent run with tool calls, cost, and context usage](./docs/screenshots/02-chat-session.png)
+
+**Chat beside the project** — browse and preview a file next to the conversation without losing your place.
+
+![Chat pane next to a rendered Markdown file preview](./docs/screenshots/03-file-preview.png)
+
+**Model roles, configured once, used everywhere** — assign a model per role (`default`, `smol`, `plan`, `commit`, …); both omp-web and the omp CLI read the same `models.yml`.
+
+![Settings panel showing model role assignments](./docs/screenshots/04-settings.png)
+
+**Full omp theme support** — omp-web reads omp's own dark/light palette mappings from `~/.omp/agent/config.yml` and applies them live, so the web view matches the terminal.
+
+![Theme settings showing omp's dark and light palette mapping](./docs/screenshots/05-themes.png)
+
 ## Notes
 
 - **Data directory**: omp-web reads `~/.omp/agent/sessions` by default. Set `PI_CODING_AGENT_DIR` to point at another omp agent directory (omp kept the variable name).
