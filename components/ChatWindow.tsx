@@ -207,12 +207,12 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     agentPhase,
     isNew,
     sessionIdRef, messagesEndRef, scrollContainerRef,
-    lastUserMsgRef,
+    lastUserMsgRef, promptAnchorActive,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, scrollToBottom,
+    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, scrollToBottom, scrollUserMsgToTop,
   } = useAgentSession({
     session, newSessionCwd, onAgentEnd: wrappedOnAgentEnd, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
@@ -335,6 +335,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   const [bottomComposerHeight, setBottomComposerHeight] = useState(0);
   const bottomComposerHeightRef = useRef(0);
   const bottomComposerScrollFrameRef = useRef<number | null>(null);
+  const [promptAnchorSpacerHeight, setPromptAnchorSpacerHeight] = useState(0);
+  const promptAnchorSpacerHeightRef = useRef(0);
+  const promptAnchorScrollPendingRef = useRef(false);
 
   useLayoutEffect(() => {
     const composer = bottomComposerRef.current;
@@ -381,6 +384,70 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       }
     };
   }, [error, isEmptyNew, loading, scrollContainerRef, scrollToBottom]);
+
+  useLayoutEffect(() => {
+    if (!agentRunning || !promptAnchorActive) {
+      promptAnchorScrollPendingRef.current = false;
+      if (promptAnchorSpacerHeightRef.current !== 0) {
+        promptAnchorSpacerHeightRef.current = 0;
+        setPromptAnchorSpacerHeight(0);
+      }
+      return;
+    }
+
+    const container = scrollContainerRef.current;
+    const userMessage = lastUserMsgRef.current;
+    if (!container || !userMessage) return;
+
+    const updatePromptAnchorSpacer = () => {
+      const userMessageTop = userMessage.getBoundingClientRect().top
+        - container.getBoundingClientRect().top
+        + container.scrollTop;
+      const targetTop = Math.max(0, userMessageTop - 16);
+      // Exclude the current spacer so each measurement converges instead of
+      // alternating between adding it and removing it.
+      const maxScrollTopWithoutAnchor = Math.max(
+        0,
+        container.scrollHeight - promptAnchorSpacerHeightRef.current - container.clientHeight,
+      );
+      const nextPromptAnchorSpacerHeight = Math.max(
+        0,
+        Math.ceil(targetTop - maxScrollTopWithoutAnchor),
+      );
+
+      if (nextPromptAnchorSpacerHeight !== promptAnchorSpacerHeightRef.current) {
+        const needsInitialScroll = promptAnchorSpacerHeightRef.current === 0
+          && nextPromptAnchorSpacerHeight > 0;
+        promptAnchorSpacerHeightRef.current = nextPromptAnchorSpacerHeight;
+        promptAnchorScrollPendingRef.current ||= needsInitialScroll;
+        setPromptAnchorSpacerHeight(nextPromptAnchorSpacerHeight);
+        return;
+      }
+
+      if (promptAnchorScrollPendingRef.current) {
+        promptAnchorScrollPendingRef.current = false;
+        scrollUserMsgToTop();
+      }
+    };
+
+    updatePromptAnchorSpacer();
+    const observer = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(updatePromptAnchorSpacer);
+    observer?.observe(container);
+    observer?.observe(userMessage);
+    return () => observer?.disconnect();
+  }, [
+    agentRunning,
+    bottomComposerHeight,
+    lastUserMsgRef,
+    messages.length,
+    promptAnchorActive,
+    promptAnchorSpacerHeight,
+    scrollContainerRef,
+    scrollUserMsgToTop,
+    streamState.streamingMessage,
+  ]);
 
   const availableThinkingLevels = displayModelValue
     ? (modelThinkingLevels[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
@@ -767,6 +834,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 } as BashExecutionMessage}
                 sessionId={session?.id ?? sessionIdRef.current ?? undefined}
               />
+            )}
+
+            {promptAnchorSpacerHeight > 0 && (
+              <div aria-hidden="true" style={{ height: promptAnchorSpacerHeight }} />
             )}
 
             {/* Match the trailing space to the live bottom composer height. */}
