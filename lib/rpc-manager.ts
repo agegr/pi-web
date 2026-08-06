@@ -94,7 +94,8 @@ class PlainTextTheme extends Theme {
   constructor() {
     super(
       { thinkingXhigh: "" } as ConstructorParameters<typeof Theme>[0],
-      {} as ConstructorParameters<typeof Theme>[1],
+      // Theme derives scrollbarThumb from selectedBg; both must be defined.
+      { selectedBg: "" } as ConstructorParameters<typeof Theme>[1],
       "truecolor",
     );
   }

@@ -32,6 +32,7 @@ export async function POST(req: Request, { params }: Params) {
     }
     let keySubmitted = false;
     const credential = await apiKeyAuth.login({
+      signal: req.signal,
       notify: () => {},
       prompt: async (prompt) => {
         if (prompt.type === "select") {
