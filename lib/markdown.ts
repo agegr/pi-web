@@ -21,6 +21,7 @@ export function normalizeDisplayMath(markdown: string): string {
   let fence: { marker: string; size: number } | null = null;
   let inlineCodeMarkerSize = 0;
   let rawCodeTag: string | null = null;
+  const unmatchedDisplayMathUntil = new Map<string, number>();
 
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
@@ -96,7 +97,7 @@ export function normalizeDisplayMath(markdown: string): string {
         normalized.push(
           `${bracketDisplayStart[1]}$$`,
           ...lines.slice(index + 1, closingIndex).map((mathLine) =>
-            /^\s/.test(mathLine) ? mathLine : `${bracketDisplayStart[1]}${mathLine}`,
+            indentDisplayMathContent(mathLine, bracketDisplayStart[1]),
           ),
           `${bracketDisplayStart[1]}$$`,
         );
@@ -133,32 +134,20 @@ export function normalizeDisplayMath(markdown: string): string {
       // Only treat this as a block opener if no other `$$` is embedded mid-line
       // (e.g. `$$x$$ and text` stays untouched and is rendered as inline math).
       if (firstLine && !firstLine.includes("$$")) {
-        let closingIndex = -1;
-        let closingRest = "";
-        for (let j = index + 1; j < lines.length; j++) {
-          const candidate = lines[j];
-          if (/^ {0,3}\$\$\s*$/.test(candidate)) {
-            closingIndex = j;
-            break;
-          }
-          const endMatch = candidate.match(/^(.*)\$\$\s*$/);
-          if (endMatch) {
-            closingIndex = j;
-            closingRest = endMatch[1].trimEnd();
-            break;
-          }
-          // Do not pair delimiters across another Markdown block boundary.
-          if (/^ {0,3}(`{3,}|~{3,})/.test(candidate)) break;
-        }
-        if (closingIndex !== -1) {
+        const closing = findDisplayMathClose(
+          lines,
+          index + 1,
+          indent,
+          unmatchedDisplayMathUntil,
+        );
+        if (closing) {
           normalized.push(`${indent}$$`, `${indent}${firstLine}`);
-          for (let j = index + 1; j < closingIndex; j++) {
-            const middle = lines[j];
-            normalized.push(/^\s/.test(middle) ? middle : `${indent}${middle}`);
+          for (let j = index + 1; j < closing.index; j++) {
+            normalized.push(indentDisplayMathContent(lines[j], indent));
           }
-          if (closingRest) normalized.push(`${indent}${closingRest}`);
+          if (closing.content) normalized.push(`${indent}${closing.content}`);
           normalized.push(`${indent}$$`);
-          index = closingIndex;
+          index = closing.index;
           continue;
         }
       }
@@ -175,35 +164,20 @@ export function normalizeDisplayMath(markdown: string): string {
     const displayMathBareOpen = line.match(/^([ \t]{0,3})\$\$\s*$/);
     if (displayMathBareOpen) {
       const indent = displayMathBareOpen[1];
-      let closingIndex = -1;
-      let closingGlued = false;
-      for (let j = index + 1; j < lines.length; j++) {
-        const candidate = lines[j];
-        if (/^ {0,3}\$\$\s*$/.test(candidate)) {
-          closingIndex = j;
-          break;
-        }
-        const endMatch = candidate.match(/^(.*)\$\$\s*$/);
-        if (endMatch) {
-          closingIndex = j;
-          closingGlued = true;
-          break;
-        }
-        // Do not pair delimiters across another Markdown block boundary.
-        if (/^ {0,3}(`{3,}|~{3,})/.test(candidate)) break;
-      }
-      if (closingIndex !== -1 && (closingGlued || indent !== "")) {
+      const closing = findDisplayMathClose(
+        lines,
+        index + 1,
+        indent,
+        unmatchedDisplayMathUntil,
+      );
+      if (closing && (closing.glued || indent !== "")) {
         normalized.push(`${indent}$$`);
-        for (let j = index + 1; j < closingIndex; j++) {
-          const middle = lines[j];
-          normalized.push(/^\s/.test(middle) ? middle : `${indent}${middle}`);
+        for (let j = index + 1; j < closing.index; j++) {
+          normalized.push(indentDisplayMathContent(lines[j], indent));
         }
-        if (closingGlued) {
-          const rest = lines[closingIndex].match(/^(.*)\$\$\s*$/)?.[1]?.trimEnd();
-          if (rest) normalized.push(/^\s/.test(rest) ? rest : `${indent}${rest}`);
-        }
+        if (closing.content) normalized.push(`${indent}${closing.content}`);
         normalized.push(`${indent}$$`);
-        index = closingIndex;
+        index = closing.index;
         continue;
       }
     }
@@ -212,6 +186,79 @@ export function normalizeDisplayMath(markdown: string): string {
   }
 
   return normalized.join(lineBreak);
+}
+
+interface DisplayMathClose {
+  index: number;
+  content: string;
+  glued: boolean;
+}
+
+function findDisplayMathClose(
+  lines: string[],
+  startIndex: number,
+  indent: string,
+  unmatchedUntil: Map<string, number>,
+): DisplayMathClose | null {
+  const knownUnmatchedUntil = unmatchedUntil.get(indent);
+  if (knownUnmatchedUntil !== undefined && startIndex < knownUnmatchedUntil) return null;
+
+  for (let index = startIndex; index < lines.length; index++) {
+    const line = lines[index];
+    if (isDisplayMathFence(line, indent)) return { index, content: "", glued: false };
+
+    // A new Markdown block cannot belong to the preceding formula. In particular,
+    // do not let a later sibling list item provide a closing `$$` for this block.
+    if (isDisplayMathBlockBoundary(line) || isDisplayMathOpeningLine(line)) {
+      unmatchedUntil.set(indent, index);
+      return null;
+    }
+
+    const content = getDisplayMathGluedCloseContent(line, indent);
+    if (content !== null) return { index, content, glued: true };
+  }
+
+  // Multiple unmatched glued openers with the same indentation previously each
+  // scanned to EOF. Cache this range so the overall search remains linear.
+  unmatchedUntil.set(indent, lines.length);
+  return null;
+}
+
+function isDisplayMathFence(line: string, indent: string): boolean {
+  if (indent === "") return /^ {0,3}\$\$\s*$/.test(line);
+  return line.startsWith(indent) && /^\$\$\s*$/.test(line.slice(indent.length));
+}
+
+function getDisplayMathGluedCloseContent(line: string, indent: string): string | null {
+  if (!line.startsWith(indent)) return null;
+
+  const match = line.slice(indent.length).match(/^(.+?)\$\$\s*$/);
+  if (!match) return null;
+
+  const content = match[1].trimEnd();
+  return content && !content.includes("$$") ? content : null;
+}
+
+function isDisplayMathOpeningLine(line: string): boolean {
+  return /^ {0,3}\$\$(?:\S|[ \t]+\S)/.test(line);
+}
+
+function isDisplayMathBlockBoundary(line: string): boolean {
+  return (
+    /^ {0,3}(`{3,}|~{3,})/.test(line) ||
+    /^[ \t]*(?:[-+*]|\d{1,9}[.)])(?:[ \t]+|$)/.test(line) ||
+    /^ {0,3}#{1,6}(?:[ \t]+|$)/.test(line) ||
+    /^ {0,3}>/.test(line) ||
+    /<(code|pre|script|style)\b/i.test(line)
+  );
+}
+
+function indentDisplayMathContent(line: string, indent: string): string {
+  if (!indent || !line || line.startsWith("\t")) return line;
+
+  const leadingSpaces = line.match(/^ */)?.[0].length ?? 0;
+  if (leadingSpaces >= indent.length) return line;
+  return `${indent.slice(leadingSpaces)}${line}`;
 }
 
 function findBracketDisplayClose(lines: string[], startIndex: number): number {
