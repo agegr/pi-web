@@ -3,11 +3,18 @@
 
 const {
   getMissingBunMessage,
+  getUnsupportedBunVersionMessage,
   getUnsupportedNodeVersionMessage,
+  isBunVersionSupported,
   isNodeVersionSupported,
   resolveBunPath,
   // eslint-disable-next-line @typescript-eslint/no-require-imports
 } = require("./runtime");
+
+if (process.versions.bun && !isBunVersionSupported(process.versions.bun)) {
+  console.error(getUnsupportedBunVersionMessage(process.versions.bun));
+  process.exit(1);
+}
 
 if (!process.versions.bun && !isNodeVersionSupported(process.versions.node)) {
   console.error(getUnsupportedNodeVersionMessage(process.versions.node));

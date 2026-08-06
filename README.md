@@ -9,7 +9,7 @@ It is not a separate agent: omp-web runs omp's own SDK in-process, against the s
 
 ## Quick Start
 
-omp-web serves its API on **Bun**, because that is what the omp SDK requires (it is published as TypeScript sources and imports `bun:` builtins). Install Bun 1.2 or newer:
+omp-web serves its API on **Bun**, because that is what the omp SDK requires (it is published as TypeScript sources and imports `bun:` builtins). Install Bun 1.3.14 or newer:
 
 ```bash
 curl -fsSL https://bun.sh/install | bash        # macOS / Linux
@@ -20,6 +20,23 @@ powershell -c "irm bun.sh/install.ps1 | iex"    # Windows
 
 ```bash
 bunx omp-web@latest
+```
+
+On Windows, if `bunx` fails before startup with `EPERM: Operation not permitted (NtSetInformationFile())` while moving a package to the Bun cache, the failure is in Bun's Windows cache rename, not in omp-web. Update Bun and retry with a fresh cache:
+
+```powershell
+bun upgrade
+bun pm cache rm
+$env:BUN_INSTALL_CACHE_DIR = "$env:LOCALAPPDATA\omp-web-bun-cache"
+New-Item -ItemType Directory -Force $env:BUN_INSTALL_CACHE_DIR | Out-Null
+bunx omp-web@latest
+```
+
+If an antivirus or endpoint-security process still holds the extracted directory open, use npm for dependency installation; the `omp-web` launcher still starts the server through Bun:
+
+```powershell
+npm install -g omp-web@latest
+omp-web
 ```
 
 **Or install globally:**

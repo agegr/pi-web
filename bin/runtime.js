@@ -8,7 +8,7 @@ const { delimiter, join } = require("path");
 const { homedir } = require("os");
 
 const MIN_NODE_VERSION = "22.19.0";
-const MIN_BUN_VERSION = "1.2.0";
+const MIN_BUN_VERSION = "1.3.14";
 
 function parseVersion(version) {
   const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(version ?? ""));
@@ -37,6 +37,14 @@ function getUnsupportedNodeVersionMessage(version) {
     `omp-web requires Node.js ${MIN_NODE_VERSION} or newer.`,
     `Current Node.js version: ${version}.`,
     "Upgrade Node.js and try again: https://nodejs.org/",
+  ].join("\n");
+}
+
+function getUnsupportedBunVersionMessage(version) {
+  return [
+    `omp-web requires Bun ${MIN_BUN_VERSION} or newer.`,
+    `Current Bun version: ${version}.`,
+    "Upgrade Bun and try again: https://bun.sh/",
   ].join("\n");
 }
 
@@ -100,6 +108,7 @@ module.exports = {
   MIN_BUN_VERSION,
   MIN_NODE_VERSION,
   getMissingBunMessage,
+  getUnsupportedBunVersionMessage,
   getUnsupportedNodeVersionMessage,
   isBunVersionSupported,
   isNodeVersionSupported,
