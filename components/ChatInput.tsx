@@ -13,7 +13,8 @@ import {
   buildEntriesFromFiles, buildAtInsertText, extractAtQuery, filterFileEntries,
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
-import { droppedFilePaths, droppedFileReference } from "@/lib/dropped-files";
+import { droppedFilePaths } from "@/lib/dropped-files";
+import { uploadDroppedFiles } from "@/lib/upload-dropped-files";
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
@@ -77,7 +78,7 @@ export interface ChatInputHandle {
   insertIfEmpty: (text: string) => void;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
-  addFiles: (files: File[], dataTransfer?: DataTransfer | null) => void;
+  addFiles: (files: File[], dataTransfer?: DataTransfer | null) => void | Promise<void>;
 }
 
 const TOOL_PRESETS = ["off", "default", "full"] as const;
@@ -440,7 +441,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     addImages(files: File[]) {
       processImageFiles(files);
     },
-    addFiles(files: File[], dataTransfer?: DataTransfer | null) {
+    async addFiles(files: File[], dataTransfer?: DataTransfer | null) {
       if (isStreaming) return;
       // Resolve paths against the full file list so the index aligns with the
       // text/uri-list entries (which include image files too).
@@ -448,12 +449,34 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       const plainText = dataTransfer?.getData("text/plain") ?? "";
       const paths = droppedFilePaths(files, uriList, plainText);
       const imageFiles: File[] = [];
-      const references: string[] = [];
+      const refsByIndex = new Map<number, string>();
+      const uploadQueue: Array<{ file: File; index: number }> = [];
       files.forEach((file, index) => {
-        if (file.type.startsWith("image/")) imageFiles.push(file);
-        else references.push(droppedFileReference(file, paths[index]));
+        if (file.type.startsWith("image/")) {
+          imageFiles.push(file);
+          return;
+        }
+        const filePath = paths[index];
+        if (filePath) {
+          refsByIndex.set(index, filePath);
+        } else {
+          // No real path exposed by the browser — upload the content so the
+          // agent can still read it, falling back to the bare file name.
+          uploadQueue.push({ file, index });
+        }
       });
       if (imageFiles.length) processImageFiles(imageFiles);
+      if (uploadQueue.length) {
+        try {
+          const uploadedPaths = await uploadDroppedFiles(uploadQueue.map((q) => q.file));
+          uploadQueue.forEach((q, i) => refsByIndex.set(q.index, uploadedPaths[i] ?? q.file.name));
+        } catch {
+          uploadQueue.forEach((q) => refsByIndex.set(q.index, q.file.name));
+        }
+      }
+      const references = files
+        .map((_, index) => refsByIndex.get(index))
+        .filter((ref): ref is string => Boolean(ref));
       if (!references.length) return;
       insertTextAtCursor(references.join(" "));
     },

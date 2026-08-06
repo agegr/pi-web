@@ -305,7 +305,7 @@ export interface ChatInputHandle {
   insertIfEmpty: (content: string) => void;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
-  addFiles: (files: File[], dataTransfer?: DataTransfer | null) => void;
+  addFiles: (files: File[], dataTransfer?: DataTransfer | null) => void | Promise<void>;
 }
 
 export interface AttachedImage {
