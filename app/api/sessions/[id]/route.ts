@@ -255,7 +255,7 @@ export async function DELETE(
       }
     } catch { /* skip if dir unreadable */ }
 
-    getRpcSession(id)?.destroy();
+    await getRpcSession(id)?.shutdown();
     unlinkSync(filePath);
     invalidateSessionPathCache(id);
     invalidateSessionListCache();

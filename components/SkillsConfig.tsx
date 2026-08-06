@@ -24,6 +24,12 @@ function sourceLabel(skill: Skill): string {
   return "path";
 }
 
+function skillGroupLabel(skill: Skill): string {
+  const source = sourceLabel(skill);
+  if (source === "path") return source;
+  return skill.install?.skillsShUrl ? `${source} / skills.sh` : source;
+}
+
 function updateKey(skill: Skill): string | null {
   return skill.install
     ? `${skill.install.scope}\0${skill.install.package}`
@@ -123,47 +129,66 @@ function SkillDetail({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Path + tag + toggle */}
-      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-        <span
-          style={{
-            fontSize: 10,
-            padding: "1px 5px",
-            borderRadius: 3,
-            flexShrink: 0,
-            background:
-              label === "project"
-                ? "rgba(99,102,241,0.12)"
-                : "rgba(120,120,120,0.12)",
-            color:
-              label === "project" ? "rgba(99,102,241,0.8)" : "var(--text-dim)",
-          }}
-        >
-          {label}
-        </span>
-        <span
-          style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 11,
-            color: "var(--text-dim)",
-            flex: 1,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {displayPath(skill.filePath)}
-        </span>
-        <Toggle
-          enabled={enabled}
-          loading={toggling}
-          onToggle={() => onToggle(skill)}
-        />
-        {saveError && (
-          <span style={{ fontSize: 12, color: "#f87171", flexShrink: 0 }}>
-            {saveError}
+      {/* Path + tag + toggle, with a stable status row below. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          <span
+            style={{
+              fontSize: 10,
+              padding: "1px 5px",
+              borderRadius: 3,
+              flexShrink: 0,
+              background:
+                label === "project"
+                  ? "rgba(99,102,241,0.12)"
+                  : "rgba(120,120,120,0.12)",
+              color:
+                label === "project" ? "rgba(99,102,241,0.8)" : "var(--text-dim)",
+            }}
+          >
+            {label}
           </span>
-        )}
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              color: "var(--text-dim)",
+              flex: 1,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {displayPath(skill.filePath)}
+          </span>
+          <Toggle
+            enabled={enabled}
+            loading={toggling}
+            onToggle={() => onToggle(skill)}
+          />
+        </div>
+        <div
+          style={{
+            minHeight: 16,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 8,
+            flexWrap: "wrap",
+            textAlign: "right",
+          }}
+        >
+          {!enabled && (
+            <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+              {t("i18n.hiddenButInvocable")}
+            </span>
+          )}
+          {saveError && (
+            <span style={{ fontSize: 12, color: "#f87171", overflowWrap: "anywhere" }}>
+              {saveError}
+            </span>
+          )}
+        </div>
       </div>
 
       {skill.install?.skillsShUrl && (
@@ -705,6 +730,7 @@ export function SkillsConfig({
   const [updatingSkill, setUpdatingSkill] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [projectResourcesLoaded, setProjectResourcesLoaded] = useState(true);
+  const [dormantGroupsOpen, setDormantGroupsOpen] = useState<Record<string, boolean>>({});
 
   const loadSkills = useCallback(async () => {
     setLoading(true);
@@ -716,7 +742,16 @@ export function SkillsConfig({
       const list = d.skills ?? [];
       setSkills(list);
       setProjectResourcesLoaded(d.projectResourcesLoaded ?? true);
-      if (list.length > 0 && !selected) setSelected(list[0].filePath);
+      if (list.length > 0 && !selected) {
+        const initialSkill = list.find((skill) => !skill.disableModelInvocation) ?? list[0];
+        setSelected(initialSkill.filePath);
+        if (initialSkill.disableModelInvocation) {
+          setDormantGroupsOpen((current) => ({
+            ...current,
+            [skillGroupLabel(initialSkill)]: true,
+          }));
+        }
+      }
       return list;
     } catch (e) {
       setError(String(e));
@@ -845,6 +880,12 @@ export function SkillsConfig({
             : s,
         ),
       );
+      if (next) {
+        setDormantGroupsOpen((current) => ({
+          ...current,
+          [skillGroupLabel(skill)]: true,
+        }));
+      }
     } catch (e) {
       setSaveError(String(e));
     } finally {
@@ -1036,108 +1077,149 @@ export function SkillsConfig({
                     if (grpSkills.length > 0)
                       groups.push({ label, skills: grpSkills });
                   }
-                  return groups.map(
-                    ({ label: grpLabel, skills: grpSkills }) => (
-                      <div key={grpLabel} style={{ marginBottom: 6 }}>
-                        <div
+                  const renderSkillRow = (skill: Skill) => {
+                    const isSelected =
+                      !addMode && selected === skill.filePath;
+                    const disabled = skill.disableModelInvocation;
+                    return (
+                      <div
+                        key={skill.filePath}
+                        onClick={() => {
+                          setSelected(skill.filePath);
+                          setAddMode(false);
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 7,
+                          padding: "8px 8px",
+                          borderRadius: 5,
+                          cursor: "pointer",
+                          background: isSelected
+                            ? "var(--bg-selected)"
+                            : "none",
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isSelected)
+                            e.currentTarget.style.background =
+                              "var(--bg-hover)";
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isSelected)
+                            e.currentTarget.style.background = "none";
+                        }}
+                      >
+                        <span
                           style={{
-                            padding: "4px 8px 3px",
-                            fontSize: 10,
-                            fontWeight: 600,
-                            color: "var(--text-dim)",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.06em",
+                            flexShrink: 0,
+                            width: 7,
+                            height: 7,
+                            borderRadius: "50%",
+                            background: disabled
+                              ? "var(--border)"
+                              : "var(--accent)",
+                            boxShadow: disabled
+                              ? "none"
+                              : "0 0 4px var(--accent)",
+                            transition:
+                              "background 0.15s, box-shadow 0.15s",
+                          }}
+                        />
+                        <span
+                          style={{
+                            fontSize: 12,
+                            fontWeight: isSelected ? 600 : 400,
+                            color: disabled
+                              ? "var(--text-dim)"
+                              : "var(--text)",
+                            fontFamily: "var(--font-mono)",
+                            flex: 1,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
                           }}
                         >
-                          {grpLabel}
-                        </div>
-                        {grpSkills.map((skill) => {
-                          const isSelected =
-                            !addMode && selected === skill.filePath;
-                          const disabled = skill.disableModelInvocation;
+                          {skill.name}
+                        </span>
+                        {(() => {
+                          const key = updateKey(skill);
+                          const status = key ? updateStatuses[key] : undefined;
+                          if (status?.state !== "update-available") return null;
                           return (
-                            <div
-                              key={skill.filePath}
-                              onClick={() => {
-                                setSelected(skill.filePath);
-                                setAddMode(false);
-                              }}
+                            <span
+                               title={t("i18n.updateAvailable")}
                               style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 7,
-                                padding: "8px 8px",
-                                borderRadius: 5,
-                                cursor: "pointer",
-                                background: isSelected
-                                  ? "var(--bg-selected)"
-                                  : "none",
-                              }}
-                              onMouseEnter={(e) => {
-                                if (!isSelected)
-                                  e.currentTarget.style.background =
-                                    "var(--bg-hover)";
-                              }}
-                              onMouseLeave={(e) => {
-                                if (!isSelected)
-                                  e.currentTarget.style.background = "none";
+                                color: "#d97706",
+                                fontSize: 13,
+                                lineHeight: 1,
+                                flexShrink: 0,
                               }}
                             >
-                              <span
+                              ↑
+                            </span>
+                          );
+                        })()}
+                      </div>
+                    );
+                  };
+                  return groups.map(
+                    ({ label: grpLabel, skills: grpSkills }) => {
+                      const activeSkills = grpSkills.filter(
+                        (skill) => !skill.disableModelInvocation,
+                      );
+                      const dormantSkills = grpSkills.filter(
+                        (skill) => skill.disableModelInvocation,
+                      );
+                      const dormantOpen = dormantGroupsOpen[grpLabel] ?? false;
+                      return (
+                        <div key={grpLabel} style={{ marginBottom: 6 }}>
+                          <div
+                            style={{
+                              padding: "4px 8px 3px",
+                              fontSize: 10,
+                              fontWeight: 600,
+                              color: "var(--text-dim)",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.06em",
+                            }}
+                          >
+                            {grpLabel}
+                          </div>
+                          {activeSkills.map(renderSkillRow)}
+                          {dormantSkills.length > 0 && (
+                            <>
+                              <div
+                                onClick={() =>
+                                  setDormantGroupsOpen((current) => ({
+                                    ...current,
+                                    [grpLabel]: !dormantOpen,
+                                  }))
+                                }
                                 style={{
-                                  flexShrink: 0,
-                                  width: 7,
-                                  height: 7,
-                                  borderRadius: "50%",
-                                  background: disabled
-                                    ? "var(--border)"
-                                    : "var(--accent)",
-                                  boxShadow: disabled
-                                    ? "none"
-                                    : "0 0 4px var(--accent)",
-                                  transition:
-                                    "background 0.15s, box-shadow 0.15s",
-                                }}
-                              />
-                              <span
-                                style={{
-                                  fontSize: 12,
-                                  fontWeight: isSelected ? 600 : 400,
-                                  color: disabled
-                                    ? "var(--text-dim)"
-                                    : "var(--text)",
-                                  fontFamily: "var(--font-mono)",
-                                  flex: 1,
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 5,
+                                  padding: "4px 8px 3px",
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                  color: "var(--text-dim)",
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.06em",
+                                  cursor: "pointer",
+                                  userSelect: "none",
                                 }}
                               >
-                                {skill.name}
-                              </span>
-                              {(() => {
-                                const key = updateKey(skill);
-                                const status = key ? updateStatuses[key] : undefined;
-                                if (status?.state !== "update-available") return null;
-                                return (
-                                  <span
-                                     title={t("i18n.updateAvailable")}
-                                    style={{
-                                      color: "#d97706",
-                                      fontSize: 13,
-                                      lineHeight: 1,
-                                      flexShrink: 0,
-                                    }}
-                                  >
-                                    ↑
-                                  </span>
-                                );
-                              })()}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ),
+                                <span style={{ fontSize: 8 }}>
+                                  {dormantOpen ? "▾" : "▸"}
+                                </span>
+                                {t("i18n.dormant")} ({dormantSkills.length})
+                              </div>
+                              {dormantOpen && dormantSkills.map(renderSkillRow)}
+                            </>
+                          )}
+                        </div>
+                      );
+                    },
                   );
                 })()
               )}

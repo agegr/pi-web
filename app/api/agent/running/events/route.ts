@@ -8,9 +8,10 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const stream = new ReadableStream({
     start(controller) {
+      const encoder = new TextEncoder();
       const encode = (data: unknown) => {
         const text = `data: ${JSON.stringify(data)}\n\n`;
-        controller.enqueue(new TextEncoder().encode(text));
+        controller.enqueue(encoder.encode(text));
       };
 
       // Subscribe BEFORE taking the initial snapshot so no state change can slip
@@ -30,7 +31,7 @@ export async function GET(req: Request) {
       // Heartbeat to keep the connection alive through proxies/timeouts.
       const heartbeat = setInterval(() => {
         try {
-          controller.enqueue(new TextEncoder().encode(":\n\n"));
+          controller.enqueue(encoder.encode(":\n\n"));
         } catch {
           // controller already closed
         }

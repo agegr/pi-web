@@ -773,7 +773,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
           <iframe
             key={previewUrl}
             src={previewUrl}
-            sandbox={isPdf ? undefined : ""}
+            sandbox={isPdf ? undefined : "allow-same-origin"}
             title={t("i18n.previewFile", { file: getFileName(filePath) })}
             style={{ width: "100%", height: "100%", border: "none", background: isPdf ? "var(--bg)" : "#eef1f5" }}
           />

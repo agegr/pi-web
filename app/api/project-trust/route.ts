@@ -55,7 +55,7 @@ export async function POST(req: Request) {
 
     const status = trustProject(result.cwd, agentDir);
     invalidateModelsCache();
-    destroyRpcSessionsForCwd(result.cwd);
+    await destroyRpcSessionsForCwd(result.cwd);
     return NextResponse.json(status);
   } catch (error) {
     return NextResponse.json(

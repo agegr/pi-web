@@ -37,6 +37,10 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   // Matches --bg in app/globals.css: omp's `light` page surface and the
   // `titanium` brushed-titanium surface.
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  interactiveWidget: "resizes-content",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
     { media: "(prefers-color-scheme: dark)", color: "#151820" },
@@ -58,7 +62,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body translate="no" className="notranslate" style={{ height: "100dvh", display: "flex", flexDirection: "column" }}>
+      <body translate="no" className="notranslate">
         {children}
         <PwaRegistration />
       </body>

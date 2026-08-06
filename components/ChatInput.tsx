@@ -2,7 +2,7 @@
 
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages } from "@/hooks/useAgentSession";
-import type { ModelRoleAssignment } from "@/lib/api-types";
+import type { ModelRoleAssignment, SkillsResponse } from "@/lib/api-types";
 import type { ContextUsage, SlashCommandInfo } from "@/lib/omp-types";
 import { clearDraft, getDraft, setDraft, type ChatDraftImage } from "@/lib/draft-store";
 import {
@@ -173,6 +173,40 @@ function getSlashDescription(command: SlashCommandPaletteItem, t: (key: string) 
   return "descriptionKey" in command ? t(command.descriptionKey) : command.description ?? "";
 }
 
+// Skill slash commands are named "skill:<skillName>"; look the skill up in the
+// dormancy map fetched from /api/skills. Unknown skills are treated as active.
+function isDormantSkillCommand(command: SlashCommandPaletteItem, dormancy: Record<string, boolean>): boolean {
+  if (command.source !== "skill" || !command.name.startsWith("skill:")) return false;
+  return dormancy[command.name.slice("skill:".length)] === true;
+}
+
+export function buildSlashCommandLayout(
+  commands: SlashCommandPaletteItem[],
+  dormancy: Record<string, boolean>,
+) {
+  let index = 0;
+  const groups = SLASH_SOURCES
+    .map((source) => {
+      const sourceCommands = commands.filter((command) => command.source === source);
+      const orderedCommands = source === "skill"
+        ? [
+            ...sourceCommands.filter((command) => !isDormantSkillCommand(command, dormancy)),
+            ...sourceCommands.filter((command) => isDormantSkillCommand(command, dormancy)),
+          ]
+        : sourceCommands;
+      return {
+        source,
+        items: orderedCommands.map((command) => ({ command, index: index++ })),
+      };
+    })
+    .filter((group) => group.items.length > 0);
+
+  return {
+    commands: groups.flatMap((group) => group.items.map(({ command }) => command)),
+    groups,
+  };
+}
+
 function imageToDraftImage(image: AttachedImage): ChatDraftImage {
   return { data: image.data, mimeType: image.mimeType };
 }
@@ -330,6 +364,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [fileIndex, setFileIndex] = useState<{ cwd: string; entries: FileIndexEntry[]; truncated: boolean } | null>(null);
   const [fileIndexLoading, setFileIndexLoading] = useState(false);
   const [atServerResult, setAtServerResult] = useState<{ cwd: string; query: string; matches: FileIndexEntry[] } | null>(null);
+  const [skillDormancyState, setSkillDormancyState] = useState<{
+    cwd: string;
+    values: Record<string, boolean>;
+  } | null>(null);
+  const skillDormancy = cwd && skillDormancyState?.cwd === cwd
+    ? skillDormancyState.values
+    : {};
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -568,18 +609,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       });
   })();
 
-  const groupedSlashCommands = (() => {
-    const groups = new Map<SlashCommandSource, { source: SlashCommandSource; items: { command: SlashCommandPaletteItem; index: number }[] }>();
-    for (const source of SLASH_SOURCES) {
-      groups.set(source, { source, items: [] });
-    }
-    filteredSlashCommands.forEach((command, index) => {
-      groups.get(command.source)?.items.push({ command, index });
-    });
-    return SLASH_SOURCES
-      .map((source) => groups.get(source)!)
-      .filter((group) => group.items.length > 0);
-  })();
+  const {
+    commands: displayedSlashCommands,
+    groups: groupedSlashCommands,
+  } = buildSlashCommandLayout(filteredSlashCommands, skillDormancy);
 
   const slashCommandCountLabel = filteredSlashCommands.length === 1
     ? t(slashQuery ? "chat.match" : "chat.command")
@@ -789,7 +822,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
-    const lastIndex = filteredSlashCommands.length - 1;
+    const lastIndex = displayedSlashCommands.length - 1;
     if (lastIndex < 0) return 0;
 
     if (direction === "left") return Math.max(0, slashActiveIndex - 1);
@@ -829,7 +862,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     return direction === "down"
       ? Math.min(lastIndex, slashActiveIndex + 1)
       : Math.max(0, slashActiveIndex - 1);
-  }, [filteredSlashCommands.length, slashActiveIndex]);
+  }, [displayedSlashCommands.length, slashActiveIndex]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -894,9 +927,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           setSlashMenuOpen(false);
           return;
         }
-        if ((e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) && filteredSlashCommands[slashActiveIndex]) {
+        if ((e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) && displayedSlashCommands[slashActiveIndex]) {
           e.preventDefault();
-          applySlashCommand(filteredSlashCommands[slashActiveIndex]);
+          applySlashCommand(displayedSlashCommands[slashActiveIndex]);
           return;
         }
       }
@@ -952,7 +985,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }
       }
     },
-    [isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, filteredSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
+    [isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
   );
 
   const handleInput = useCallback(() => {
@@ -988,15 +1021,42 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
   }, [slashQuery, onLoadSlashCommands]);
 
+  // Lazy-load skill dormancy (disable-model-invocation) each time the slash
+  // palette opens, so toggles made in the skills panel are reflected on the
+  // next open. Failures degrade silently to the unannotated palette.
   useEffect(() => {
-    if (slashActiveIndex >= filteredSlashCommands.length) {
-      setSlashActiveIndex(Math.max(0, filteredSlashCommands.length - 1));
-    }
-  }, [filteredSlashCommands.length, slashActiveIndex]);
+    if (!slashMenuOpen || !cwd) return;
+    const requestCwd = cwd;
+    let cancelled = false;
+    setSkillDormancyState({ cwd: requestCwd, values: {} });
+    fetch(`/api/skills?cwd=${encodeURIComponent(requestCwd)}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`skills fetch failed: ${res.status}`);
+        return res.json() as Promise<Partial<SkillsResponse>>;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        const dormancy: Record<string, boolean> = {};
+        for (const skill of data.skills ?? []) dormancy[skill.name] = skill.disableModelInvocation;
+        setSkillDormancyState({ cwd: requestCwd, values: dormancy });
+      })
+      .catch(() => {
+        if (!cancelled) setSkillDormancyState({ cwd: requestCwd, values: {} });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [slashMenuOpen, cwd]);
 
   useEffect(() => {
-    slashItemRefs.current.length = filteredSlashCommands.length;
-  }, [filteredSlashCommands.length]);
+    if (slashActiveIndex >= displayedSlashCommands.length) {
+      setSlashActiveIndex(Math.max(0, displayedSlashCommands.length - 1));
+    }
+  }, [displayedSlashCommands.length, slashActiveIndex]);
+
+  useEffect(() => {
+    slashItemRefs.current.length = displayedSlashCommands.length;
+  }, [displayedSlashCommands.length]);
 
   useEffect(() => {
     if (!slashMenuOpen) return;
@@ -1255,7 +1315,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         )}
 
         {/* Main input */}
-        <div style={{ position: "relative" }}>
+        <div style={{ position: "relative", minWidth: 0 }}>
           {historyMenuOpen && inputHistory.length > 0 && (
             <div
               ref={historyMenuRef}
@@ -1411,6 +1471,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       >
                         {group.items.map(({ command, index }) => {
                           const active = index === slashActiveIndex;
+                          const dormant = isDormantSkillCommand(command, skillDormancy);
                           return (
                             <button
                               key={`${command.source}:${command.name}`}
@@ -1446,8 +1507,22 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                                 fontFamily: "var(--font-mono)",
                                 overflowWrap: "anywhere",
                                 wordBreak: "break-word",
+                                color: dormant ? "var(--text-dim)" : undefined,
                               }}>
                                 /{command.name}
+                                {dormant && (
+                                  <span style={{
+                                    marginLeft: 6,
+                                    padding: "0 4px",
+                                    border: "1px solid var(--border)",
+                                    borderRadius: 3,
+                                    fontSize: 9,
+                                    color: "var(--text-dim)",
+                                    whiteSpace: "nowrap",
+                                  }}>
+                                    {t("chat.dormant")}
+                                  </span>
+                                )}
                               </span>
                               {getSlashDescription(command, t) && (
                                 <span style={{
@@ -1571,6 +1646,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           })()}
           <div
             style={{
+              minWidth: 0,
               display: "flex",
               gap: 8,
               alignItems: "center",
@@ -1617,6 +1693,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             rows={1}
             style={{
               flex: 1,
+              minWidth: 0,
+              width: "100%",
               background: "none",
               border: "none",
               outline: "none",

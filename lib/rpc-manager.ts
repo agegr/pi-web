@@ -69,6 +69,23 @@ type ExtensionBindingOptions = {
   forceEmptySystemPrompt?: boolean;
 };
 
+const RUNNING_STATE_EVENT_TYPES = new Set([
+  "agent_start",
+  "agent_end",
+  "agent_settled",
+  "auto_compaction_start",
+  "auto_compaction_end",
+  "compaction_start",
+  "compaction_end",
+]);
+
+const IDLE_RESET_EVENT_TYPES = new Set([
+  "agent_end",
+  "agent_settled",
+  "auto_compaction_end",
+  "compaction_end",
+]);
+
 export interface RpcSessionStartOptions {
   toolNames?: string[];
   initialModel?: { provider: string; modelId: string };
@@ -203,6 +220,7 @@ export class AgentSessionWrapper {
   private unsubscribe: (() => void) | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private onDestroyCallback: (() => void) | null = null;
+  private shutdownPromise: Promise<void> | null = null;
   private _alive = true;
 
   constructor(public readonly inner: AgentSessionLike) {}
@@ -229,14 +247,12 @@ export class AgentSessionWrapper {
 
   start(): void {
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
-      this.resetIdleTimer();
       if (event.type === "agent_end") {
         invalidateSessionListCache();
       }
+      if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
       this.emit(event);
-      // Streaming / compaction / tool events flow through here; re-broadcast
-      // the running-status snapshot so the sidebar can update live.
-      notifyRunningChange();
+      if (RUNNING_STATE_EVENT_TYPES.has(event.type)) notifyRunningChange();
     });
     this.resetIdleTimer();
     notifyRunningChange();
@@ -325,6 +341,7 @@ export class AgentSessionWrapper {
     try {
       return await operation();
     } finally {
+      this.resetIdleTimer();
       notifyRunningChange();
     }
   }
@@ -346,7 +363,9 @@ export class AgentSessionWrapper {
         this.resetIdleTimer();
         return;
       }
-      this.destroy();
+      void this.shutdown().catch((error) => {
+        console.error("[pi-web] failed to shut down idle session:", error instanceof Error ? error.message : error);
+      });
     }, 10 * 60 * 1000);
   }
 
@@ -409,10 +428,12 @@ export class AgentSessionWrapper {
           userInitiated: true,
         }).then(() => {
           this.promptRunning = false;
+          this.resetIdleTimer();
           if (!streamingBehavior) this.emit({ type: "prompt_done" });
           notifyRunningChange();
         }).catch((error) => {
           this.promptRunning = false;
+          this.resetIdleTimer();
           invalidateSessionListCache();
           this.emit({
             type: "prompt_error",
@@ -517,7 +538,7 @@ export class AgentSessionWrapper {
         const newSessionId = (await SessionManager.open(newSessionFile, sessionDir)).getSessionId();
         cacheSessionPath(newSessionId, newSessionFile);
         invalidateSessionListCache();
-        this.destroy();
+        await this.shutdown();
         return { cancelled: false, newSessionId };
       }
 
@@ -696,6 +717,7 @@ export class AgentSessionWrapper {
           this.persistBashOnlySession();
           return result;
         } finally {
+          this.resetIdleTimer();
           invalidateSessionListCache();
           notifyRunningChange();
         }
@@ -721,8 +743,37 @@ export class AgentSessionWrapper {
     for (const id of Array.from(this.activeCustomUis.keys())) this.closeCustomUi(id, undefined);
     this.pendingUiResponses.clear();
     this.pendingUiRequests.clear();
-    this.onDestroyCallback?.();
-    notifyRunningChange();
+    try {
+      void this.inner.dispose?.();
+    } finally {
+      try {
+        this.onDestroyCallback?.();
+      } finally {
+        notifyRunningChange();
+      }
+    }
+  }
+
+  async shutdown(): Promise<void> {
+    if (this.shutdownPromise) return this.shutdownPromise;
+    if (!this._alive) return;
+
+    this.shutdownPromise = (async () => {
+      try {
+        try {
+          await this.waitForExtensionsBound();
+        } catch (error) {
+          console.error(
+            "[pi-web] extension binding failed before session shutdown:",
+            error instanceof Error ? error.message : error,
+          );
+        }
+        await this.inner.extensionRunner?.emit?.({ type: "session_shutdown", reason: "quit" });
+      } finally {
+        this.destroy();
+      }
+    })();
+    return this.shutdownPromise;
   }
 
   private resolveExtensionUiResponse(response: ExtensionUiResponse): void {
@@ -1096,12 +1147,12 @@ export function hasBusyRpcSessionForCwd(cwd: string): boolean {
   );
 }
 
-export function destroyRpcSessionsForCwd(cwd: string): number {
+export async function destroyRpcSessionsForCwd(cwd: string): Promise<number> {
   const targetCwd = normalizeRpcCwd(cwd);
   const sessions = Array.from(getRegistry().values()).filter(
     (session) => normalizeRpcCwd(session.cwd) === targetCwd,
   );
-  for (const session of sessions) session.destroy();
+  await Promise.all(sessions.map((session) => session.shutdown()));
   return sessions.length;
 }
 
@@ -1138,14 +1189,21 @@ let lastRunningSnapshot = "";
 
 /**
  * Recompute the running-session-id set and, if it changed since the last
- * notification, broadcast it to subscribers. Cheap to call often.
+ * notification, broadcast it to subscribers.
  */
 export function notifyRunningChange(): void {
+  const listeners = getRunningListeners();
+  if (listeners.size === 0) {
+    // A future subscriber receives its own initial snapshot. Clear this one so
+    // its first state transition cannot match stale state from an old listener.
+    lastRunningSnapshot = "";
+    return;
+  }
   const ids = getRunningRpcSessionIds();
   const snapshot = JSON.stringify([...ids].sort());
   if (snapshot === lastRunningSnapshot) return;
   lastRunningSnapshot = snapshot;
-  for (const listener of getRunningListeners()) {
+  for (const listener of listeners) {
     try { listener(ids); } catch { /* ignore listener errors */ }
   }
 }
@@ -1160,7 +1218,7 @@ export function notifyRunningChange(): void {
 export async function startRpcSession(
   sessionId: string,
   sessionFile: string,
-  cwd: string,
+  cwd: string | undefined,
   options: RpcSessionStartOptions = {},
 ): Promise<{ session: AgentSessionWrapper; realSessionId: string }> {
   const { toolNames, initialModel, thinkingLevel } = options;
@@ -1173,110 +1231,117 @@ export async function startRpcSession(
   const inflight = locks.get(sessionId);
   if (inflight) return inflight;
 
-  const finishStartingSession = trackStartingSession(cwd);
   const starting = (async () => {
     // Some extensions access the SDK's global theme even outside the terminal UI.
     await initTheme(false);
     const agentDir = getAgentDir();
-
-    const settings = await getSettingsForCwd(cwd);
     const sessionManager = sessionFile
-      ? await SessionManager.open(sessionFile, undefined, undefined, { initialCwd: cwd })
-      : SessionManager.create(cwd, undefined);
+      ? await SessionManager.open(sessionFile, undefined)
+      : (() => {
+        if (!cwd) throw new Error("cwd is required for a new session");
+        return SessionManager.create(cwd, undefined);
+      })();
+    const sessionCwd = sessionManager.getCwd();
+    const finishStartingSession = trackStartingSession(sessionCwd);
 
-    // Determine which tools to pass based on requested toolNames.
-    let toolsOption: string[] | undefined;
-    if (toolNames !== undefined) {
-      // toolNames === [] -> "all off" (an empty allow-list disables every tool).
-      // Otherwise DO NOT pass a builtin-only allow-list: passing CODING_TOOL_NAMES
-      // set allowedToolNames to coding builtins only, which filtered every
-      // extension/package-provided tool (e.g. subagents, web access) out of the
-      // tool registry — so they were unavailable in omp-web sessions even though the
-      // `omp` CLI keeps them. Leaving the allow-list unset lets the SDK register all
-      // tools (and activate extension tools); we narrow the ACTIVE set below.
-      toolsOption = toolNames.length === 0 ? [] : undefined;
-    }
+    try {
+      const settings = await getSettingsForCwd(sessionCwd);
 
-    // Gate untrusted project code so opening a repository in a browser tab does
-    // not run its `.omp/extensions`, `.omp/tools`, or `.mcp.json` servers (see
-    // lib/project-trust.ts). Discovery still runs — only project-local entries
-    // are dropped, so user-level extensions keep working.
-    const [extensionPaths, customToolPaths] = await Promise.all([
-      discoverSessionExtensionPaths({}, cwd, settings),
-      discoverCustomToolPaths([], cwd),
-    ]);
-    const untrusted = untrustedProjectSessionOptions(cwd, agentDir, { extensionPaths, customToolPaths });
+      // Determine which tools to pass based on requested toolNames.
+      let toolsOption: string[] | undefined;
+      if (toolNames !== undefined) {
+        // toolNames === [] -> "all off" (an empty allow-list disables every tool).
+        // Otherwise DO NOT pass a builtin-only allow-list: passing CODING_TOOL_NAMES
+        // set allowedToolNames to coding builtins only, which filtered every
+        // extension/package-provided tool (e.g. subagents, web access) out of the
+        // tool registry — so they were unavailable in omp-web sessions even though the
+        // `omp` CLI keeps them. Leaving the allow-list unset lets the SDK register all
+        // tools (and activate extension tools); we narrow the ACTIVE set below.
+        toolsOption = toolNames.length === 0 ? [] : undefined;
+      }
 
-    const { modelRegistry } = await getOmpRuntime();
-    const scope = await resolveVisibleModels(modelRegistry, settings.get("enabledModels"), settings);
-    const defaultRole = readDefaultModelRole(settings);
-    const hasExistingMessages = sessionManager.buildSessionContext().messages.length > 0;
-    const initial = hasExistingMessages
-      ? { scopedModels: [...scope.scopedModels], model: undefined, thinkingLevel: undefined }
-      : selectInitialModelScope(scope, {
-        ...(initialModel ? { requestedModel: initialModel } : {}),
-        ...(defaultRole ? { defaultModel: defaultRole } : {}),
-        ...(thinkingLevel ? { thinkingLevel } : {}),
+      // Gate untrusted project code so opening a repository in a browser tab does
+      // not run its `.omp/extensions`, `.omp/tools`, or `.mcp.json` servers (see
+      // lib/project-trust.ts). Discovery still runs — only project-local entries
+      // are dropped, so user-level extensions keep working.
+      const [extensionPaths, customToolPaths] = await Promise.all([
+        discoverSessionExtensionPaths({}, sessionCwd, settings),
+        discoverCustomToolPaths([], sessionCwd),
+      ]);
+      const untrusted = untrustedProjectSessionOptions(sessionCwd, agentDir, { extensionPaths, customToolPaths });
+
+      const { modelRegistry } = await getOmpRuntime();
+      const scope = await resolveVisibleModels(modelRegistry, settings.get("enabledModels"), settings);
+      const defaultRole = readDefaultModelRole(settings);
+      const hasExistingMessages = sessionManager.buildSessionContext().messages.length > 0;
+      const initial = hasExistingMessages
+        ? { scopedModels: [...scope.scopedModels], model: undefined, thinkingLevel: undefined }
+        : selectInitialModelScope(scope, {
+          ...(initialModel ? { requestedModel: initialModel } : {}),
+          ...(defaultRole ? { defaultModel: defaultRole } : {}),
+          ...(thinkingLevel ? { thinkingLevel } : {}),
+        });
+      const { session: inner } = await createAgentSession({
+        cwd: sessionCwd,
+        agentDir,
+        settings,
+        sessionManager,
+        modelRegistry,
+        ...(initial.model ? { model: initial.model } : {}),
+        ...(initial.thinkingLevel ? { thinkingLevel: initial.thinkingLevel } : {}),
+        ...(initial.scopedModels.length > 0 ? { scopedModels: initial.scopedModels } : {}),
+        ...(toolsOption !== undefined ? { toolNames: toolsOption, restrictToolNames: true } : {}),
+        ...(untrusted ?? {}),
       });
-    const { session: inner } = await createAgentSession({
-      cwd,
-      agentDir,
-      settings,
-      sessionManager,
-      modelRegistry,
-      ...(initial.model ? { model: initial.model } : {}),
-      ...(initial.thinkingLevel ? { thinkingLevel: initial.thinkingLevel } : {}),
-      ...(initial.scopedModels.length > 0 ? { scopedModels: initial.scopedModels } : {}),
-      ...(toolsOption !== undefined ? { toolNames: toolsOption, restrictToolNames: true } : {}),
-      ...(untrusted ?? {}),
-    });
 
-    const persistedPreferences = await persistExplicitStartupPreferences(
-      settings,
-      {
-        ...(initialModel ? { model: initialModel } : {}),
-        ...(thinkingLevel ? { thinkingLevel } : {}),
-      },
-      {
-        ...(inner.model
-          ? { model: { provider: inner.model.provider, modelId: inner.model.id } }
-          : {}),
-        thinkingLevel: inner.thinkingLevel ?? "off",
-        supportsThinking: Boolean(inner.model?.reasoning),
-      },
-    );
-    if (persistedPreferences.modelDefaultChanged) invalidateModelsCache();
+      const persistedPreferences = await persistExplicitStartupPreferences(
+        settings,
+        {
+          ...(initialModel ? { model: initialModel } : {}),
+          ...(thinkingLevel ? { thinkingLevel } : {}),
+        },
+        {
+          ...(inner.model
+            ? { model: { provider: inner.model.provider, modelId: inner.model.id } }
+            : {}),
+          thinkingLevel: inner.thinkingLevel ?? "off",
+          supportsThinking: Boolean(inner.model?.reasoning),
+        },
+      );
+      if (persistedPreferences.modelDefaultChanged) invalidateModelsCache();
 
-    const session = inner as unknown as AgentSessionLike;
+      const session = inner as unknown as AgentSessionLike;
 
-    // If specific tool names were requested (non-empty), set the active tools to the
-    // requested builtin coding tools PLUS all extension/package tools, so installed
-    // extensions stay usable in omp-web just like in the `omp` CLI.
-    if (toolNames && toolNames.length > 0) {
-      await session.setActiveToolsByName(withExtensionTools(session, toolNames));
+      // If specific tool names were requested (non-empty), set the active tools to the
+      // requested builtin coding tools PLUS all extension/package tools, so installed
+      // extensions stay usable in omp-web just like in the `omp` CLI.
+      if (toolNames && toolNames.length > 0) {
+        await session.setActiveToolsByName(withExtensionTools(session, toolNames));
+      }
+
+      const wrapper = new AgentSessionWrapper(session);
+      // When all tools are disabled, clear the system prompt entirely.
+      // omp's buildSystemPrompt always produces a non-empty prompt even with no
+      // tools; keep this forced after extension discovery and reloads as well.
+      if (toolNames?.length === 0) {
+        wrapper.setForceEmptySystemPrompt(true);
+      }
+      wrapper.start();
+
+      const realSessionId = inner.sessionId as string;
+      const realSessionFile = inner.sessionFile as string | undefined;
+      if (realSessionFile) cacheSessionPath(realSessionId, realSessionFile);
+
+      wrapper.onDestroy(() => registry.delete(realSessionId));
+      registry.set(realSessionId, wrapper);
+      wrapper.beginExtensionBinding({ forceEmptySystemPrompt: toolNames?.length === 0 });
+
+      return { session: wrapper, realSessionId };
+    } finally {
+      finishStartingSession();
     }
-
-    const wrapper = new AgentSessionWrapper(session);
-    // When all tools are disabled, clear the system prompt entirely.
-    // omp's buildSystemPrompt always produces a non-empty prompt even with no
-    // tools; keep this forced after extension discovery and reloads as well.
-    if (toolNames?.length === 0) {
-      wrapper.setForceEmptySystemPrompt(true);
-    }
-    wrapper.start();
-
-    const realSessionId = inner.sessionId as string;
-    const realSessionFile = inner.sessionFile as string | undefined;
-    if (realSessionFile) cacheSessionPath(realSessionId, realSessionFile);
-
-    wrapper.onDestroy(() => registry.delete(realSessionId));
-    registry.set(realSessionId, wrapper);
-    wrapper.beginExtensionBinding({ forceEmptySystemPrompt: toolNames?.length === 0 });
-
-    return { session: wrapper, realSessionId };
   })().finally(() => {
     locks.delete(sessionId);
-    finishStartingSession();
   });
 
   locks.set(sessionId, starting);

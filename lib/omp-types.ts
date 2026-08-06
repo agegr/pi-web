@@ -83,6 +83,8 @@ interface ExtensionRunnerLike {
     description?: string;
   }>;
   getExtensionPaths?(): string[];
+  emit?(event: { type: "session_shutdown"; reason: "quit" }): Promise<unknown>;
+  setUIContext?(uiContext?: unknown, mode?: "tui" | "rpc" | "json" | "print"): void;
 }
 
 type DialogOptionsLike = {
@@ -153,7 +155,8 @@ export interface AgentSessionLike {
   readonly promptTemplates: readonly PromptTemplateLike[];
   readonly skills: readonly SkillLike[];
 
-  reload(): Promise<void>;
+  readonly bindExtensions?: unknown;
+  reload(options?: { beforeSessionStart?: () => void | Promise<void> }): Promise<void>;
   refreshSkills?(): Promise<void>;
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;
   prompt(text: string, options?: {
