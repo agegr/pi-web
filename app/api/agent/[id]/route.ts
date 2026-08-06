@@ -10,7 +10,7 @@ export async function POST(
   const { id } = await params;
 
   try {
-    const body = await req.json() as { type: string; [key: string]: unknown };
+    const body = await req.json() as { type: string; toolNames?: string[]; [key: string]: unknown };
 
     // Fast path: already-running session
     const existing = getRpcSession(id);
@@ -24,7 +24,12 @@ export async function POST(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const { session } = await startRpcSession(id, filePath, undefined);
+    // Carry the caller's tool selection into a cold start so a re-opened
+    // session keeps the tools the UI last displayed instead of falling back
+    // to the SDK default four
+    const { session } = await startRpcSession(id, filePath, undefined, {
+      ...(Array.isArray(body.toolNames) ? { toolNames: body.toolNames as string[] } : {}),
+    });
     const result = await session.send(body);
 
     return NextResponse.json({ success: true, data: result });

@@ -157,10 +157,12 @@ export interface UseAgentSessionOptions {
 
 export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
-const PROGRAMMATIC_SCROLL_IGNORE_MS = 700;
-const STICK_TO_BOTTOM_THRESHOLD_PX = 48;
-// 用户滚动输入后的判定窗口，覆盖惯性滚动；窗口外的事件视为非用户滚动
-const USER_SCROLL_WINDOW_MS = 1000;
+// 上滚冷却期：期间禁止恢复跟随，等流式内容增长拉开距离，避免轻滚被立刻拉回
+const RESTORE_STICK_BLOCK_MS = 500;
+// 恢复跟随阈值：距底部在此范围内才算滚回最下面并重新跟随
+const STICK_TO_BOTTOM_THRESHOLD_PX = 24;
+// 停止跟随阈值：距底部超过此值视为用户主动滚离（约6行）
+const UNSTICK_THRESHOLD_PX = 96;
 const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
 const PROMPT_SETTLE_POLL_MS = 600;
 const PROMPT_SETTLE_MAX_MS = 20_000;
@@ -360,7 +362,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>({});
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
-  const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("default");
+  const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("full");
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>("auto");
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
@@ -402,8 +404,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // 用户是否贴底：贴底则新内容自动跟随，滚离则交还控制，滚回底部自动恢复
   const stickToBottomRef = useRef(true);
   const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
-  const ignoreProgrammaticScrollUntilRef = useRef(0);
-  const lastUserScrollIntentRef = useRef(0);
+  // 上滚冷却截止时间，期间位置判断不得恢复跟随
+  const restoreStickBlockedUntilRef = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const ensuringNewSessionRef = useRef<Promise<string | null> | null>(null);
@@ -539,12 +541,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const tools = await sendAgentCommand<ToolEntry[]>(sid, { type: "get_tools" });
       if (tools) {
         const { getPresetFromTools } = await import("@/lib/tool-presets");
-        setToolPresetState(getPresetFromTools(tools));
+        const actual = getPresetFromTools(tools);
+        // UI 显示什么，后端就必须是什么，冷启动回退到默认预设时强制对齐
+        if (actual !== toolPreset) {
+          await sendAgentCommand(sid, {
+            type: "set_tools",
+            toolNames: getToolNamesForPreset(toolPreset),
+          });
+        }
+        setToolPresetState(toolPreset);
       }
     } catch (e) {
       console.error("Failed to load tools:", e);
     }
-  }, [setToolPresetState]);
+  }, [setToolPresetState, toolPreset]);
 
   const promoteNewSession = useCallback((messageCount = 0, firstMessage = "(no messages)") => {
     const sid = sessionIdRef.current;
@@ -655,7 +665,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const connectEvents = useCallback((sid: string): Promise<EventStreamConnectionResult> => {
     closeEvents();
-    const es = new EventSource(`/api/agent/${encodeURIComponent(sid)}/events`);
+    const toolNames = getToolNamesForPreset(toolPreset);
+    const es = new EventSource(`/api/agent/${encodeURIComponent(sid)}/events?toolNames=${encodeURIComponent(toolNames.join(","))}`);
     eventSourceRef.current = es;
     eventSourceSessionIdRef.current = sid;
 
@@ -710,7 +721,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     });
     eventConnectionAttemptRef.current = { source: es, promise, pending: true };
     return promise;
-  }, [closeEvents]);
+  }, [closeEvents, toolPreset]);
 
   const ensureEventsConnected = useCallback(async (sid: string) => {
     const current = eventSourceRef.current;
@@ -1286,6 +1297,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           await sendAgentCommand(sid, {
             type: "prompt",
             message,
+            toolNames: getToolNamesForPreset(toolPreset),
             ...(piImages?.length ? { images: piImages } : {}),
           });
           promoteNewSession(1, message);
@@ -1297,6 +1309,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         await sendAgentCommand(session.id, {
           type: "prompt",
           message,
+          toolNames: getToolNamesForPreset(toolPreset),
           ...(piImages?.length ? { images: piImages } : {}),
         });
       }
@@ -1336,7 +1349,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, opts.chatInputRef]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, opts.chatInputRef, toolPreset]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -1350,6 +1363,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       await sendAgentCommand(sid, {
         type: "bash",
         command,
+        toolNames: getToolNamesForPreset(toolPreset),
         excludeFromContext,
       });
       await loadSession(sid);
@@ -1363,7 +1377,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setPendingBash(null);
       setBashRunning(false);
     }
-  }, [addNotice, ensureNewSession, loadSession, opts.chatInputRef, promoteNewSession, session]);
+  }, [addNotice, ensureNewSession, loadSession, opts.chatInputRef, promoteNewSession, session, toolPreset]);
   executeBashRef.current = executeBash;
 
   const handleAbort = useCallback(async () => {
@@ -1591,12 +1605,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       await sendAgentCommand(sid, {
         type: "steer",
         message,
+        toolNames: getToolNamesForPreset(toolPreset),
         ...(piImages?.length ? { images: piImages } : {}),
       });
     } catch (e) {
       console.error("Failed to steer:", e);
     }
-  }, []);
+  }, [toolPreset]);
 
   const handlePromptWithStreamingBehavior = useCallback(async (
     message: string,
@@ -1610,13 +1625,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       await sendAgentCommand(sid, {
         type: "prompt",
         message,
+        toolNames: getToolNamesForPreset(toolPreset),
         streamingBehavior: behavior,
         ...(piImages?.length ? { images: piImages } : {}),
       });
     } catch (e) {
       console.error("Failed to queue prompt:", e);
     }
-  }, []);
+  }, [toolPreset]);
 
   const handleFollowUp = useCallback(async (message: string, images?: AttachedImage[]) => {
     const sid = sessionIdRef.current;
@@ -1690,8 +1706,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     stickToBottomRef.current = true;
-    // 程序化滚动的 scroll 事件同样可能误翻 stick（内容大块增长时），统一屏蔽
-    ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
     messagesEndRef.current?.scrollIntoView({ behavior });
   }, []);
 
@@ -1701,7 +1715,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const el = lastUserMsgRef.current;
     if (!container || !el) return;
     const elAbsBottom = el.getBoundingClientRect().bottom - container.getBoundingClientRect().top + container.scrollTop;
-    ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
     container.scrollTo({ top: elAbsBottom - 16, behavior: "smooth" });
   }, []);
 
@@ -1713,20 +1726,25 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     return distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD_PX;
   }, []);
 
-  // 位置驱动：仅在用户滚动输入窗口内按位置判定贴底，内容增长/程序化滚动不改变跟随状态
+  // 位置驱动：距底超 UNSTICK 即停跟随，滚回底部附近且冷却已过才恢复；scroll 事件只在实际滚动时派发，不误伤内容增长
   const handleScrollPositionChange = useCallback(() => {
-    if (Date.now() < ignoreProgrammaticScrollUntilRef.current) return;
-    if (Date.now() - lastUserScrollIntentRef.current > USER_SCROLL_WINDOW_MS) return;
-    stickToBottomRef.current = isStickingToBottom();
-  }, [isStickingToBottom]);
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distanceFromBottom > UNSTICK_THRESHOLD_PX) stickToBottomRef.current = false;
+    else if (
+      distanceFromBottom < STICK_TO_BOTTOM_THRESHOLD_PX
+      && Date.now() >= restoreStickBlockedUntilRef.current
+    ) stickToBottomRef.current = true;
+  }, []);
 
   // Load session on mount
   useEffect(() => {
     if (session) {
       sessionIdRef.current = session.id;
       loadSession(session.id, true, true).then((agentState) => {
+        loadTools(session.id);
         if (agentState?.running) {
-          loadTools(session.id);
           if (agentState.state?.isStreaming || agentState.state?.isPromptRunning) {
             sdkAgentActiveRef.current = Boolean(agentState.state.isStreaming);
             rpcPromptPendingRef.current = Boolean(agentState.state.isPromptRunning);
@@ -1782,30 +1800,50 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
   }, [messages.length, loading, handleScrollPositionChange]);
 
-  // 滚轮/触控/键盘滚动属于主动滚动意图：标记判定窗口并取消程序化保护
+  // 用户滚动输入：向上滚同步停止跟随（抢在流式 layout effect 之前），下一帧按位置决定是否恢复
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
-    const markUserScroll = () => {
-      lastUserScrollIntentRef.current = Date.now();
-      ignoreProgrammaticScrollUntilRef.current = 0;
+    const onUserScroll = () => {
+      requestAnimationFrame(handleScrollPositionChange);
     };
     const onWheel = (e: WheelEvent) => {
       if (e.deltaX === 0 && e.deltaY === 0) return;
-      markUserScroll();
+      if (e.deltaY < 0) {
+        stickToBottomRef.current = false;
+        restoreStickBlockedUntilRef.current = Date.now() + RESTORE_STICK_BLOCK_MS;
+      }
+      onUserScroll();
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (["PageUp", "PageDown", "ArrowUp", "ArrowDown", "Home", "End", " "].includes(e.key)) markUserScroll();
+      if (["PageUp", "ArrowUp", "Home"].includes(e.key)) {
+        stickToBottomRef.current = false;
+        restoreStickBlockedUntilRef.current = Date.now() + RESTORE_STICK_BLOCK_MS;
+      }
+      if (["PageUp", "PageDown", "ArrowUp", "ArrowDown", "Home", "End", " "].includes(e.key)) onUserScroll();
+    };
+    let lastTouchY = 0;
+    const onTouchStart = (e: TouchEvent) => { lastTouchY = e.touches[0]?.clientY ?? 0; };
+    const onTouchMove = (e: TouchEvent) => {
+      const y = e.touches[0]?.clientY ?? 0;
+      if (y < lastTouchY) {
+        stickToBottomRef.current = false;
+        restoreStickBlockedUntilRef.current = Date.now() + RESTORE_STICK_BLOCK_MS;
+      }
+      lastTouchY = y;
+      onUserScroll();
     };
     container.addEventListener("wheel", onWheel, { passive: true });
-    container.addEventListener("touchmove", markUserScroll, { passive: true });
     container.addEventListener("keydown", onKeyDown);
+    container.addEventListener("touchstart", onTouchStart, { passive: true });
+    container.addEventListener("touchmove", onTouchMove, { passive: true });
     return () => {
       container.removeEventListener("wheel", onWheel);
-      container.removeEventListener("touchmove", markUserScroll);
       container.removeEventListener("keydown", onKeyDown);
+      container.removeEventListener("touchstart", onTouchStart);
+      container.removeEventListener("touchmove", onTouchMove);
     };
-  }, []);
+  }, [handleScrollPositionChange, loading]);
 
   // 新消息/回合结束：贴底时跟随；运行中即时贴底，空闲平滑滑到底部
   useEffect(() => {

@@ -23,6 +23,11 @@ export async function GET(
 ) {
   const { id } = await params;
 
+  // Cold-start tool selection carried from the client so a re-opened session
+  // keeps the tools the UI displayed instead of the SDK default four
+  const toolNamesParam = new URL(req.url).searchParams.get("toolNames");
+  const coldStartToolNames = toolNamesParam ? toolNamesParam.split(",") : undefined;
+
   // 404 needs a non-200 response, so resolve the file path before building
   // the stream. An already-running session skips this.
   const running = getRpcSession(id);
@@ -83,7 +88,9 @@ export async function GET(
       } else {
         // A prompt POST shares startRpcSession's start lock (__piStartLocks),
         // so subscription always lands before the prompt is dispatched.
-        void startRpcSession(id, filePath!, undefined)
+        void startRpcSession(id, filePath!, undefined, {
+          ...(coldStartToolNames ? { toolNames: coldStartToolNames } : {}),
+        })
           .then(({ session }) => {
             if (req.signal?.aborted) return;
             attach(session);
