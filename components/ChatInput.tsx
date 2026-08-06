@@ -213,6 +213,14 @@ function draftImagesToAttachedImages(images: ChatDraftImage[] | undefined): Atta
     .map(draftImageToAttachedImage);
 }
 
+export function canRestoreUserMessage(
+  value: string,
+  attachedImageCount: number,
+  pendingImageCount: number,
+): boolean {
+  return !value.trim() && attachedImageCount === 0 && pendingImageCount === 0;
+}
+
 export function getUserMessageText(message: UserMessage): string {
   if (typeof message.content === "string") return message.content;
   return message.content
@@ -422,7 +430,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     replaceMessage(message: UserMessage) {
       const ta = textareaRef.current;
       const current = ta ? ta.value : value;
-      if (current.trim() || attachedImagesRef.current.length > 0) return;
+      if (!canRestoreUserMessage(current, attachedImagesRef.current.length, pendingImageCountRef.current)) return;
 
       setValue(getUserMessageText(message));
       setAtQuery(null);
