@@ -17,8 +17,7 @@ export function TurnWrittenFiles({ files, onOpenFile }: {
   if (files.length === 0) return null;
 
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 6 }}>
-      <span style={{ fontSize: 11, color: "var(--text-dim)" }}>{t("chat.filesWritten")}</span>
+    <div aria-label={t("chat.filesWritten")} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 6 }}>
       {files.map(({ filePath }) => {
         const name = getFileName(filePath);
         return (
