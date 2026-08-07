@@ -203,6 +203,8 @@ export const zhCNLocale: LocalePlugin = {
     "chat.followUp": "后续消息",
     "chat.send": "发送",
     "chat.attachImage": "附加图片",
+    "chat.attachFile": "附加文件",
+    "chat.fileUploadFailed": "文件上传失败",
     "chat.filterModels": "筛选模型…",
     "chat.noMatchingModels": "没有匹配的模型",
     "chat.moreControls": "更多控件",

@@ -95,3 +95,23 @@ test("keeps attached images when restoring a compact command for editing", () =>
     image,
   ]);
 });
+
+test("renders attachment lines as file cards instead of raw paths", () => {
+  const html = renderMessage({
+    role: "user",
+    content: "see the file\n\n[附件] /home/me/.local/share/pi-web/attachments/report.pdf",
+  });
+
+  assert.match(html, /report\.pdf/);
+  assert.match(html, /\/api\/attachments\?path=/);
+  assert.doesNotMatch(html, />[^<]*\.local\/share\/pi-web/);
+});
+
+test("keeps user messages without attachments intact", () => {
+  const html = renderMessage({
+    role: "user",
+    content: "just text",
+  });
+
+  assert.match(html, /just text/);
+});

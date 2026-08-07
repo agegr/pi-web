@@ -21,6 +21,7 @@ import {
   userMessageKey,
   type PromptRecoverySnapshot,
 } from "@/lib/prompt-recovery";
+import { appendAttachmentPaths, type AttachedFile } from "@/lib/file-attachments";
 
 export interface SessionData {
   sessionId: string;
@@ -273,6 +274,7 @@ export interface ChatInputHandle {
   replaceMessage: (message: UserMessage) => void;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
+  addFiles: (files: File[], dataTransfer?: DataTransfer | null) => void | Promise<void>;
 }
 
 export interface AttachedImage {
@@ -1234,11 +1236,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
 
-  const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
+  const handleSend = useCallback(async (message: string, images?: AttachedImage[], files?: AttachedFile[]) => {
     const trimmedMessage = message.trim();
-    if (!trimmedMessage && !images?.length) return;
+    if (!trimmedMessage && !images?.length && !files?.length) return;
     if (agentRunningRef.current || bashRunningRef.current) return;
-    const isSlashCommandPrompt = !images?.length && trimmedMessage.startsWith("/");
+    const isSlashCommandPrompt = !images?.length && !files?.length && trimmedMessage.startsWith("/");
 
     const isBashCommand = !images?.length && trimmedMessage.startsWith("!");
     if (isBashCommand) {
@@ -1254,11 +1256,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     rpcPromptPendingRef.current = true;
 
     const imageBlocks = images?.map((img) => ({ type: "image" as const, source: { type: "base64" as const, media_type: img.mimeType, data: img.data } }));
+    const promptText = appendAttachmentPaths(message, files ?? []);
     const userMsg: AgentMessage = {
       role: "user",
       content: imageBlocks?.length
-        ? [...(message.trim() ? [{ type: "text" as const, text: message }] : []), ...imageBlocks]
-        : message,
+        ? [...(promptText.trim() ? [{ type: "text" as const, text: promptText }] : []), ...imageBlocks]
+        : promptText,
       timestamp: Date.now(),
     };
     promptRecoveryRef.current = {
@@ -1305,14 +1308,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           message,
           ...(piImages?.length ? { images: piImages } : {}),
         });
-        promoteNewSession(1, message);
+        promoteNewSession(1, promptText);
       } else if (session) {
         sentSessionId = session.id;
         await ensureEventsConnected(session.id);
         promptRequestStarted = true;
         await sendAgentCommand(session.id, {
           type: "prompt",
-          message,
+          message: promptText,
           ...(piImages?.length ? { images: piImages } : {}),
         });
       }
@@ -1618,14 +1621,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // the real user message when pi delivers it (user message_end event). An
   // optimistic chat bubble here would duplicate the queue panel and turn into
   // a ghost message if the queue is recalled.
-  const handleSteer = useCallback(async (message: string, images?: AttachedImage[]) => {
+  const handleSteer = useCallback(async (message: string, images?: AttachedImage[], files?: AttachedFile[]) => {
     const sid = sessionIdRef.current;
     if (!sid) return;
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
     try {
       await sendAgentCommand(sid, {
         type: "steer",
-        message,
+        message: appendAttachmentPaths(message, files ?? []),
         ...(piImages?.length ? { images: piImages } : {}),
       });
     } catch (e) {
@@ -1637,6 +1640,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     message: string,
     behavior: "steer" | "followUp",
     images?: AttachedImage[],
+    files?: AttachedFile[],
   ) => {
     const sid = sessionIdRef.current;
     if (!sid) return;
@@ -1644,7 +1648,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       await sendAgentCommand(sid, {
         type: "prompt",
-        message,
+        message: appendAttachmentPaths(message, files ?? []),
         streamingBehavior: behavior,
         ...(piImages?.length ? { images: piImages } : {}),
       });
@@ -1653,14 +1657,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, []);
 
-  const handleFollowUp = useCallback(async (message: string, images?: AttachedImage[]) => {
+  const handleFollowUp = useCallback(async (message: string, images?: AttachedImage[], files?: AttachedFile[]) => {
     const sid = sessionIdRef.current;
     if (!sid) return;
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
     try {
       await sendAgentCommand(sid, {
         type: "follow_up",
-        message,
+        message: appendAttachmentPaths(message, files ?? []),
         ...(piImages?.length ? { images: piImages } : {}),
       });
     } catch (e) {

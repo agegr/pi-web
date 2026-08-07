@@ -11,6 +11,7 @@ import { isEditToolName } from "@/lib/tool-names";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import type { WrittenFile } from "@/lib/turn-written-files";
 import { skillExpansionToCommand } from "@/lib/slash-display";
+import { splitAttachmentLinks, fileBaseName } from "@/lib/file-attachments";
 import type {
   AgentMessage,
   UserMessage,
@@ -166,6 +167,34 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.prevTimestamp === next.prevTimestamp
     && prev.sessionId === next.sessionId;
 });
+
+function AttachmentCard({ path }: { path: string }) {
+  const name = fileBaseName(path);
+  return (
+    <a
+      href={`/api/attachments?path=${encodeURIComponent(path)}`}
+      download
+      title={path}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 6,
+        padding: "4px 10px",
+        background: "var(--bg-panel)",
+        border: "1px solid var(--border)",
+        borderRadius: 6,
+        fontSize: 12,
+        color: "var(--text)",
+        textDecoration: "none",
+        maxWidth: 260,
+      }}
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: "var(--text-muted)" }}>
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+      </svg>
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{name}</span>
+    </a>
+  );
+}
 
 function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent }: {
   message: UserMessage;
@@ -327,7 +356,25 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
           ) : (
           <>
           {imageBlocksNode}
-          {content && <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{content}</MarkdownBody>}
+          {content && (
+            (() => {
+              const segments = splitAttachmentLinks(content);
+              if (!segments.some((s) => s.type === "attachment")) {
+                return <MarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{content}</MarkdownBody>;
+              }
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {segments.map((seg, i) =>
+                    seg.type === "attachment" ? (
+                      <AttachmentCard key={i} path={seg.path} />
+                    ) : seg.text ? (
+                      <MarkdownBody key={i} className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{seg.text}</MarkdownBody>
+                    ) : null,
+                  )}
+                </div>
+              );
+            })()
+          )}
           </>
           )}
         </div>
