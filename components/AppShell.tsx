@@ -22,6 +22,7 @@ import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import { showCompletionNotification } from "@/lib/browser-notifications";
 import { getInitialNavigation } from "@/lib/initial-navigation";
+import { clearLastOpen, getLastOpenSession, setLastOpenSession, workspaceKeyOf } from "@/lib/workspace-memory";
 import {
   getDefaultRightPanelWidth,
   getRightPanelMaxWidth,
@@ -272,6 +273,9 @@ export function AppShell() {
   const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !initialSessionId);
   // Suppresses sessionKey bump in handleCwdChange during the initial URL restore
   const suppressCwdBumpRef = useRef(false);
+  // Guards the async workspace restore so a slow response from an earlier
+  // switch cannot resurrect a session into a project the user already left.
+  const workspaceRestoreTokenRef = useRef(0);
 
   useEffect(() => {
     const requestedCwd = initialNavigation.requestedCwd;
@@ -307,6 +311,46 @@ export function AppShell() {
 
     return () => controller.abort();
   }, [initialNavigation]);
+
+  // Restore the workspace's last open session after switching to it. Called
+  // from handleCwdChange once the outgoing context has been reset. The session
+  // is looked up against the live list so a deleted or drifted session falls
+  // back to the default welcome page instead of erroring.
+  const restoreWorkspaceContext = useCallback((cwd: string, projectKey: string) => {
+    const token = ++workspaceRestoreTokenRef.current;
+    const lastOpenSessionId = getLastOpenSession(projectKey);
+    if (!lastOpenSessionId) return;
+    void fetch("/api/sessions")
+      .then((r) => (r.ok ? (r.json() as Promise<{ sessions: SessionInfo[] }>) : null))
+      .then((d) => {
+        if (token !== workspaceRestoreTokenRef.current) return; // stale switch
+        const s = d?.sessions.find((x) => x.id === lastOpenSessionId);
+        if (!s) {
+          // The list loaded but the remembered session is gone — forget it.
+          // When the list itself failed (d === null) keep the memory so a
+          // later switch retries the restore.
+          if (d) clearLastOpen(projectKey);
+          return;
+        }
+        if ((s.projectRoot ?? s.cwd) !== projectKey) {
+          // Defensive: the remembered session drifted out of this workspace.
+          clearLastOpen(projectKey);
+          return;
+        }
+        // Selecting the session must remount the chat with the session
+        // present: useAgentSession loads content in a mount-only effect, so
+        // the null-session welcome mount from the switch would never load
+        // the restored session's messages.
+        setSelectedSession(s);
+        setSessionKey((k) => k + 1);
+        if (new URLSearchParams(window.location.search).get("session") !== s.id) {
+          router.replace(`?session=${encodeURIComponent(s.id)}`, { scroll: false });
+        }
+      })
+      .catch(() => {
+        // Network hiccup: keep the remembered session for a later retry.
+      });
+  }, [router]);
 
   const handleCwdChange = useCallback((cwd: string | null, projectRoot?: string | null) => {
     setActiveCwd(cwd);
@@ -349,12 +393,18 @@ export function AppShell() {
     setFileTabs([]);
     setActiveFileTabId(null);
     setRightPanelOpen(false);
+    // Restore the workspace we switched to: its last open session, or keep the
+    // default welcome page when none is remembered.
+    restoreWorkspaceContext(cwd, newProject);
     router.replace("/", { scroll: false });
-  }, [router, selectedSession]);
+  }, [router, selectedSession, restoreWorkspaceContext]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
     setNewSessionCwd(null);
     setSelectedSession(session);
+    // Remember this session as the workspace's last open context so switching
+    // back to the workspace restores it.
+    setLastOpenSession(workspaceKeyOf(session), session.id);
     setSessionKey((k) => k + 1);
     setSystemPrompt(null);
     setInitialSessionRestored(true);
