@@ -20,6 +20,7 @@ import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
+import { showCompletionNotification } from "@/lib/browser-notifications";
 import { getInitialNavigation } from "@/lib/initial-navigation";
 import {
   getDefaultRightPanelWidth,
@@ -417,9 +418,19 @@ export function AppShell() {
     if (document.visibilityState === "visible") return;
     if (!("Notification" in window)) return;
 
+    const targetSession = selectedSession;
     const fire = () => {
       const title = selectedSession?.name ?? translate("i18n.sessionComplete");
-      new Notification(title, { body: translate("i18n.taskFinished") });
+      const sessionUrl = targetSession ? `/?session=${encodeURIComponent(targetSession.id)}` : "/";
+      void showCompletionNotification({
+        title,
+        body: translate("i18n.taskFinished"),
+        sessionUrl,
+        onClick: () => {
+          window.focus();
+          if (targetSession) handleSelectSession(targetSession);
+        },
+      });
     };
 
     if (Notification.permission === "granted") {
@@ -427,7 +438,7 @@ export function AppShell() {
     } else if (Notification.permission === "default") {
       void Notification.requestPermission().then((p) => { if (p === "granted") fire(); });
     }
-  }, [selectedSession, translate]);
+  }, [handleSelectSession, selectedSession, translate]);
 
   const handleAutoName = useCallback(async () => {
     const sessionId = selectedSession?.id;
