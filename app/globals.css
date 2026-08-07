@@ -70,6 +70,7 @@ html.dark .catppuccin-file-icon {
     -webkit-mask: center / contain no-repeat var(--catppuccin-icon-light);
   }
   html.dark .catppuccin-file-icon {
+    background: var(--text-dim);
     mask-image: var(--catppuccin-icon-dark);
     -webkit-mask-image: var(--catppuccin-icon-dark);
   }
