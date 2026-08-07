@@ -1,9 +1,9 @@
 "use client";
 
 import { memo, useEffect, useRef, useState, useCallback, useMemo, type RefObject } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Options as ReactMarkdownOptions } from "react-markdown";
+import rehypeKatex from "rehype-katex";
 import {
-  markdownPreviewRehypePlugins,
   markdownPreviewRemarkPlugins,
   normalizeDisplayMath,
 } from "@/lib/markdown";
@@ -125,6 +125,9 @@ const previewRemarkPlugins = [
   ...(markdownPreviewRemarkPlugins ?? []),
   remarkPreviewOutline,
 ];
+const previewRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
+  [rehypeKatex, { throwOnError: false, strict: false }],
+];
 
 function getPreviewHeadingIndex(node: unknown): number | null {
   const properties = (node as { properties?: Record<string, unknown> } | undefined)?.properties;
@@ -134,7 +137,7 @@ function getPreviewHeadingIndex(node: unknown): number | null {
   return null;
 }
 
-const AssistantOutline = memo(function AssistantOutline({
+export const AssistantOutline = memo(function AssistantOutline({
   markdown,
   onHeadingClick,
   onAnswerClick,
@@ -143,12 +146,13 @@ const AssistantOutline = memo(function AssistantOutline({
   onHeadingClick?: (headingIndex: number) => void;
   onAnswerClick?: () => void;
 }) {
+  const normalizedMarkdown = useMemo(() => normalizeDisplayMath(markdown), [markdown]);
   if (!markdown) return null;
   return (
     <div className={styles.outline}>
       <ReactMarkdown
         remarkPlugins={previewRemarkPlugins}
-        rehypePlugins={markdownPreviewRehypePlugins}
+        rehypePlugins={previewRehypePlugins}
         components={{
           h1: ({ children, node }) => <PreviewHeading level={1} headingIndex={getPreviewHeadingIndex(node)} onClick={onHeadingClick}>{children}</PreviewHeading>,
           h2: ({ children, node }) => <PreviewHeading level={2} headingIndex={getPreviewHeadingIndex(node)} onClick={onHeadingClick}>{children}</PreviewHeading>,
@@ -175,7 +179,7 @@ const AssistantOutline = memo(function AssistantOutline({
           code: ({ children }) => <>{children}</>,
         }}
       >
-        {normalizeDisplayMath(markdown)}
+        {normalizedMarkdown}
       </ReactMarkdown>
     </div>
   );
