@@ -159,6 +159,7 @@ export class AgentSessionWrapper {
   private extensionWidgets = new Map<string, ExtensionWidgetItem>();
   private activeExtensionWidgets = new Map<string, ActiveExtensionWidget>();
   private extensionWidgetGenerations = new Map<string, number>();
+  private extensionWidgetsResetting = false;
   private promptRunning = false;
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
@@ -759,6 +760,7 @@ export class AgentSessionWrapper {
     this.activeExtensionWidgets.delete(key);
     this.extensionWidgets.delete(key);
     if (active) this.disposeExtensionWidgetComponent(active.component);
+    if (this.extensionWidgetGenerations.get(key) !== generation) return generation;
     if (emitClear) this.emitExtensionWidgetClear(key);
     return generation;
   }
@@ -772,11 +774,16 @@ export class AgentSessionWrapper {
   }
 
   private resetExtensionWidgetsForReload(): void {
-    const factoryKeys = [...this.activeExtensionWidgets.keys()];
-    for (const key of factoryKeys) this.clearExtensionWidget(key);
-    // Keep the existing array-widget reload behavior: snapshots are reset and
-    // the next extension session_start repopulates them.
-    this.extensionWidgets.clear();
+    this.extensionWidgetsResetting = true;
+    try {
+      const factoryKeys = [...this.activeExtensionWidgets.keys()];
+      for (const key of factoryKeys) this.clearExtensionWidget(key);
+      // Keep the existing array-widget reload behavior: snapshots are reset and
+      // the next extension session_start repopulates them.
+      this.extensionWidgets.clear();
+    } finally {
+      this.extensionWidgetsResetting = false;
+    }
   }
 
   private emitExtensionWidgetError(key: string, error: unknown): void {
@@ -808,6 +815,10 @@ export class AgentSessionWrapper {
       this.disposeExtensionWidgetComponent(active.component);
     } else {
       this.disposeExtensionWidgetComponent(component);
+    }
+    if (this.extensionWidgetGenerations.get(key) !== generation) {
+      this.emitExtensionWidgetError(key, error);
+      return;
     }
     this.extensionWidgets.delete(key);
     if (shouldEmitClear) this.emitExtensionWidgetClear(key);
@@ -865,6 +876,7 @@ export class AgentSessionWrapper {
   ): void {
     const hadPrevious = this.extensionWidgets.has(key) || this.activeExtensionWidgets.has(key);
     const generation = this.clearExtensionWidget(key, hadPrevious);
+    if (this.extensionWidgetGenerations.get(key) !== generation) return;
     const tui = createHeadlessCustomUiTui(() => {
       const active = this.activeExtensionWidgets.get(key);
       if (active?.generation === generation) this.renderExtensionWidget(active);
@@ -1141,6 +1153,7 @@ export class AgentSessionWrapper {
       setWorkingIndicator: () => {},
       setHiddenThinkingLabel: () => {},
       setWidget: (key, content, options) => {
+        if (!this._alive || this.extensionWidgetsResetting) return;
         if (typeof content === "function") {
           this.setExtensionWidgetFactory(
             key,
@@ -1154,8 +1167,10 @@ export class AgentSessionWrapper {
           this.clearExtensionWidget(key);
           return;
         }
-        if (this.activeExtensionWidgets.has(key)) this.clearExtensionWidget(key);
-        else this.nextExtensionWidgetGeneration(key);
+        const generation = this.activeExtensionWidgets.has(key)
+          ? this.clearExtensionWidget(key)
+          : this.nextExtensionWidgetGeneration(key);
+        if (this.extensionWidgetGenerations.get(key) !== generation) return;
         this.extensionWidgets.set(key, {
           key,
           lines: content,
