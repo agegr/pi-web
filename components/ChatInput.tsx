@@ -17,6 +17,7 @@ import {
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
+import { useResizableHeight } from "@/hooks/useResizableHeight";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -105,6 +106,20 @@ export function filterModelOptions(options: ModelOption[], query: string): Model
 }
 
 const THINKING_LEVELS = ["auto", "off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+// Content-driven (auto) textarea growth ceiling.
+const AUTO_MAX_HEIGHT = 200;
+// Manual-mode floor for the fixed-height composer. Must be ≤ the composer's
+// natural auto height (single-line textarea + padding + send row ≈ 48px): if
+// the floor were larger, grabbing the handle from auto mode would instantly
+// jump the composer up to the floor on the first drag move.
+const MIN_MANUAL_HEIGHT_DESKTOP = 48;
+const MIN_MANUAL_HEIGHT_MOBILE = 48;
+// Manual-mode ceiling: an absolute cap and a viewport-relative fraction.
+const MANUAL_MAX_HEIGHT_CAP = 480;
+const MANUAL_MAX_HEIGHT_FRACTION = 0.55;
+// localStorage key for the persisted manual input height.
+const INPUT_HEIGHT_STORAGE_KEY = "pi-chat-input-height";
 const THINKING_LEVEL_DESC_KEYS: Record<typeof THINKING_LEVELS[number], string> = {
   auto: "chat.thinkingUseDefault", off: "chat.thinkingOff", minimal: "chat.thinkingMinimal", low: "chat.thinkingLow",
   medium: "chat.thinkingMedium", high: "chat.thinkingHigh", xhigh: "chat.thinkingXhigh", max: "chat.thinkingMax",
@@ -414,6 +429,55 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
 
+  // Manual input-box height: drag the top edge of the composer shell to resize
+  // it (see .chat-input-resize-handle). `manualHeight` stays null in the
+  // default content-driven mode and becomes a fixed pixel value once the user
+  // takes manual control (drag or a persisted value).
+  const inputShellRef = useRef<HTMLDivElement>(null);
+  const manualModeRef = useRef(false);
+  const minManualHeight = isMobile ? MIN_MANUAL_HEIGHT_MOBILE : MIN_MANUAL_HEIGHT_DESKTOP;
+  const getMaxManualHeight = useCallback(() => {
+    if (typeof window === "undefined") return MANUAL_MAX_HEIGHT_CAP;
+    return Math.max(
+      minManualHeight,
+      Math.min(MANUAL_MAX_HEIGHT_CAP, Math.floor(window.innerHeight * MANUAL_MAX_HEIGHT_FRACTION)),
+    );
+  }, [minManualHeight]);
+  const inputHeightResizer = useResizableHeight({
+    ariaLabel: t("layout.resizeInput"),
+    minHeight: minManualHeight,
+    getMaxHeight: getMaxManualHeight,
+    storageKey: INPUT_HEIGHT_STORAGE_KEY,
+    targetRef: inputShellRef,
+  });
+  const manualHeight = inputHeightResizer.height;
+  const manualMode = manualHeight !== null;
+  manualModeRef.current = manualMode;
+
+  // All content-driven textarea sizing funnels through this helper. In manual
+  // mode the shell has a fixed height and the textarea fills it (flex stretch
+  // + internal scroll), so auto-resizing must not fight the user's size.
+  const applyAutoHeight = useCallback(() => {
+    if (manualModeRef.current) return;
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${Math.min(ta.scrollHeight, AUTO_MAX_HEIGHT)}px`;
+  }, []);
+
+  // Entering manual mode must clear the inline height left behind by
+  // auto-grow (an explicit height beats flex stretch); leaving it must restore
+  // the content-driven size.
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    if (manualMode) {
+      ta.style.height = "auto";
+    } else {
+      applyAutoHeight();
+    }
+  }, [applyAutoHeight, manualMode]);
+
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
       const ta = textareaRef.current;
@@ -424,8 +488,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        applyAutoHeight();
       });
     },
     replaceMessage(message: UserMessage) {
@@ -443,8 +506,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        applyAutoHeight();
       });
     },
     prependText(text: string) {
@@ -460,8 +522,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         if (!ta) return;
         ta.focus();
         ta.setSelectionRange(combined.length, combined.length);
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        applyAutoHeight();
       });
     },
     insertText(text: string) {
@@ -483,8 +544,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         const pos = start + sep.length + text.length;
         ta.setSelectionRange(pos, pos);
         ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        applyAutoHeight();
       });
     },
     addImages(files: File[]) {
@@ -589,11 +649,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [draftKey]);
 
   useEffect(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    if (value) ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
-  }, [value]);
+    applyAutoHeight();
+  }, [applyAutoHeight, value]);
 
   useEffect(() => {
     return () => {
@@ -766,10 +823,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (!el) return;
       el.focus();
       el.setSelectionRange(newPos, newPos);
-      el.style.height = "auto";
-      el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+      applyAutoHeight();
     });
-  }, [atQuery, value]);
+  }, [applyAutoHeight, atQuery, value]);
 
   useEffect(() => {
     if (atActiveIndex >= atMatches.length) {
@@ -811,10 +867,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (!ta) return;
       ta.focus();
       ta.setSelectionRange(text.length, text.length);
-      ta.style.height = "auto";
-      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      applyAutoHeight();
     });
-  }, []);
+  }, [applyAutoHeight]);
 
   const applySlashCommand = useCallback((command: SlashCommandPaletteItem) => {
     const nextValue = `/${command.name} `;
@@ -826,10 +881,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (!ta) return;
       ta.focus();
       ta.setSelectionRange(nextValue.length, nextValue.length);
-      ta.style.height = "auto";
-      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      applyAutoHeight();
     });
-  }, []);
+  }, [applyAutoHeight]);
 
   const sendQueued = useCallback((mode: "steer" | "followup") => {
     const msg = value.trim();
@@ -1018,11 +1072,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   );
 
   const handleInput = useCallback(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
-  }, []);
+    applyAutoHeight();
+  }, [applyAutoHeight]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const items = Array.from(e.clipboardData?.items ?? []);
@@ -1668,11 +1719,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             );
           })()}
           <div
+            ref={inputShellRef}
+            className={`chat-input-shell${manualMode ? " is-manual-height" : ""}`}
             style={{
               minWidth: 0,
               display: "flex",
               gap: 8,
-              alignItems: "center",
+              alignItems: manualMode ? "stretch" : "center",
+              height: manualMode ? `${manualHeight}px` : undefined,
               background: "var(--bg)",
               border: `1px solid ${bashMode ? "var(--tool-bg)" : isStreaming && (onSteer || onFollowUp)
                 ? "rgba(234,179,8,0.4)"
@@ -1683,6 +1737,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
             } as React.CSSProperties}
           >
+            {/* Drag handle on the top border — resize the composer vertically */}
+            <div
+              {...inputHeightResizer.separatorProps}
+              className={`chat-input-resize-handle${inputHeightResizer.isResizing ? " is-resizing" : ""}`}
+            />
           <textarea
             ref={textareaRef}
             value={value}
@@ -1726,8 +1785,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               fontSize: 14,
               lineHeight: 1.6,
               fontFamily: "inherit",
-              minHeight: 24,
-              maxHeight: 200,
+              minHeight: manualMode ? 0 : 24,
+              maxHeight: manualMode ? "none" : 200,
               overflow: "auto",
             }}
           />
@@ -1783,8 +1842,55 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               )}
             </div>
           ) : (
-            <button
-              onClick={handleSend}
+            <>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  // Maximize to the viewport-aware ceiling, or restore to the
+                  // content-driven height. preventDefault in onMouseDown keeps
+                  // focus in the textarea so the click registers.
+                  if (manualMode) {
+                    inputHeightResizer.resetHeight();
+                  } else {
+                    inputHeightResizer.setHeight(getMaxManualHeight());
+                  }
+                }}
+                title={manualMode ? t("layout.restoreInputHeight") : t("layout.maximizeInput")}
+                aria-label={manualMode ? t("layout.restoreInputHeight") : t("layout.maximizeInput")}
+                style={{
+                  flexShrink: 0,
+                  alignSelf: "flex-end",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 34, height: 28, padding: 0,
+                  border: "none",
+                  borderRadius: 8,
+                  background: "transparent",
+                  color: manualMode ? "var(--accent)" : "var(--text-muted)",
+                  cursor: "pointer",
+                  transition: "background 0.12s, color 0.12s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--bg-hover)";
+                  e.currentTarget.style.color = manualMode ? "var(--accent)" : "var(--text)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "transparent";
+                  e.currentTarget.style.color = manualMode ? "var(--accent)" : "var(--text-muted)";
+                }}
+              >
+                {manualMode ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 14h6v6" /><path d="M20 10h-6V4" /><path d="M14 10l7-7" /><path d="M3 21l7-7" />
+                  </svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="M21 3l-7 7" /><path d="M3 21l7-7" />
+                  </svg>
+                )}
+              </button>
+              <button
+                onClick={handleSend}
               disabled={!value.trim() && !attachedImages.length}
               style={{
                 flexShrink: 0,
@@ -1809,6 +1915,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </svg>
               {t("chat.send")}
             </button>
+            </>
           )}
           </div>
         </div>

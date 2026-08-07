@@ -902,6 +902,68 @@ span.linenumber {
 .panel-resize-handle.is-resizing::after {
   background: color-mix(in srgb, var(--text-muted) 70%, var(--border));
 }
+
+/* Composer shell: anchoring context for the vertical-resize handle. */
+.chat-input-shell {
+  position: relative;
+}
+/* Drag handle straddling the composer's top border. Dragging up grows the
+   input box; double-click resets to the content-driven height. */
+.chat-input-shell > .chat-input-resize-handle {
+  position: absolute;
+  top: -4px;
+  left: 0;
+  right: 0;
+  height: 9px;
+  z-index: 30;
+  cursor: row-resize;
+  touch-action: none;
+  outline: none;
+}
+.chat-input-shell > .chat-input-resize-handle::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.12s;
+  /* fade the ends of the highlight bar */
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 18%, #000 82%, transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0%, #000 18%, #000 82%, transparent 100%);
+}
+/* A faint persistent line makes the drag affordance discoverable; it
+   brightens on hover / focus / during a drag. */
+.chat-input-shell > .chat-input-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: color-mix(in srgb, var(--border) 85%, var(--text-muted));
+  opacity: 0.55;
+  transition: opacity 0.12s;
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 18%, #000 82%, transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0%, #000 18%, #000 82%, transparent 100%);
+}
+.chat-input-shell > .chat-input-resize-handle:hover::before,
+.chat-input-shell > .chat-input-resize-handle:focus-visible::before,
+.chat-input-shell > .chat-input-resize-handle.is-resizing::before {
+  opacity: 1;
+}
+.chat-input-shell > .chat-input-resize-handle:hover::after,
+.chat-input-shell > .chat-input-resize-handle.is-resizing::after {
+  opacity: 1;
+}
+/* Fixed-height manual mode: the textarea fills the shell and scrolls inside
+   it instead of auto-growing. */
+.chat-input-shell.is-manual-height .chat-input-resize-handle {
+  z-index: 31;
+}
+
 .right-panel-overlay-backdrop {
   display: none;
 }
