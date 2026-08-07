@@ -1214,7 +1214,56 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (!isMobile) setControlsMenuOpen(false);
   }, [isMobile]);
 
-
+  // Maximize / restore the composer height. Shown next to the send button and
+  // alongside the steer/follow-up queue buttons while the agent runs.
+  const maximizeButton = (
+    <button
+      type="button"
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => {
+        // Maximize to the viewport-aware ceiling, or restore to the
+        // content-driven height. preventDefault in onMouseDown keeps focus in
+        // the textarea so the click registers.
+        if (manualMode) {
+          inputHeightResizer.resetHeight();
+        } else {
+          inputHeightResizer.setHeight(getMaxManualHeight());
+        }
+      }}
+      title={manualMode ? t("layout.restoreInputHeight") : t("layout.maximizeInput")}
+      aria-label={manualMode ? t("layout.restoreInputHeight") : t("layout.maximizeInput")}
+      style={{
+        flexShrink: 0,
+        alignSelf: "flex-end",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        width: 34, height: 28, padding: 0,
+        border: "none",
+        borderRadius: 8,
+        background: "transparent",
+        color: manualMode ? "var(--accent)" : "var(--text-muted)",
+        cursor: "pointer",
+        transition: "background 0.12s, color 0.12s",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = "var(--bg-hover)";
+        e.currentTarget.style.color = manualMode ? "var(--accent)" : "var(--text)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "transparent";
+        e.currentTarget.style.color = manualMode ? "var(--accent)" : "var(--text-muted)";
+      }}
+    >
+      {manualMode ? (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 14h6v6" /><path d="M20 10h-6V4" /><path d="M14 10l7-7" /><path d="M3 21l7-7" />
+        </svg>
+      ) : (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="M21 3l-7 7" /><path d="M3 21l7-7" />
+        </svg>
+      )}
+    </button>
+  );
 
   return (
     <div
@@ -1793,6 +1842,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
           {isStreaming ? (
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
+              {maximizeButton}
               {onSteer && (
                 <button
                   onClick={() => sendQueued("steer")}
@@ -1843,52 +1893,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             </div>
           ) : (
             <>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  // Maximize to the viewport-aware ceiling, or restore to the
-                  // content-driven height. preventDefault in onMouseDown keeps
-                  // focus in the textarea so the click registers.
-                  if (manualMode) {
-                    inputHeightResizer.resetHeight();
-                  } else {
-                    inputHeightResizer.setHeight(getMaxManualHeight());
-                  }
-                }}
-                title={manualMode ? t("layout.restoreInputHeight") : t("layout.maximizeInput")}
-                aria-label={manualMode ? t("layout.restoreInputHeight") : t("layout.maximizeInput")}
-                style={{
-                  flexShrink: 0,
-                  alignSelf: "flex-end",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  width: 34, height: 28, padding: 0,
-                  border: "none",
-                  borderRadius: 8,
-                  background: "transparent",
-                  color: manualMode ? "var(--accent)" : "var(--text-muted)",
-                  cursor: "pointer",
-                  transition: "background 0.12s, color 0.12s",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--bg-hover)";
-                  e.currentTarget.style.color = manualMode ? "var(--accent)" : "var(--text)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "transparent";
-                  e.currentTarget.style.color = manualMode ? "var(--accent)" : "var(--text-muted)";
-                }}
-              >
-                {manualMode ? (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 14h6v6" /><path d="M20 10h-6V4" /><path d="M14 10l7-7" /><path d="M3 21l7-7" />
-                  </svg>
-                ) : (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="M21 3l-7 7" /><path d="M3 21l7-7" />
-                  </svg>
-                )}
-              </button>
+              {maximizeButton}
               <button
                 onClick={handleSend}
               disabled={!value.trim() && !attachedImages.length}
