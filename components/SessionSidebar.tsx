@@ -1852,7 +1852,7 @@ function SessionItem({
     setRenaming(false);
     // No-op when unchanged: the fallback title (first message / id) isn't a
     // real stored name, so don't persist it as one.
-    if (name === (session.name ?? "") || name === title) return;
+    if (renameValue === title || name === (session.name ?? "")) return;
     try {
       await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, {
         method: "PATCH",
