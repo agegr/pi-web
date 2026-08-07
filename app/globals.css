@@ -52,6 +52,29 @@ html.dark {
   --bg-subtle: rgba(255,255,255,0.04);
 }
 
+.catppuccin-file-icon {
+  display: block;
+  flex-shrink: 0;
+  background: center / contain no-repeat var(--catppuccin-icon-light);
+}
+html.dark .catppuccin-file-icon {
+  background-image: var(--catppuccin-icon-dark);
+}
+
+/* Use the SVG alpha channel as a mask so file icons follow the app's
+   restrained text palette instead of Catppuccin's language-specific colors. */
+@supports (mask-image: url("mask.svg")) or (-webkit-mask-image: url("mask.svg")) {
+  .catppuccin-file-icon {
+    background: var(--text-dim);
+    mask: center / contain no-repeat var(--catppuccin-icon-light);
+    -webkit-mask: center / contain no-repeat var(--catppuccin-icon-light);
+  }
+  html.dark .catppuccin-file-icon {
+    mask-image: var(--catppuccin-icon-dark);
+    -webkit-mask-image: var(--catppuccin-icon-dark);
+  }
+}
+
 /* Theme toggle: circular wipe via View Transitions API.
    Disable the UA cross-fade; the actual clip-path animation is driven by
    Element.animate() in hooks/useTheme.ts after transition.ready resolves. */

@@ -24,3 +24,10 @@ test("polls running sessions only while the tab is visible", () => {
   assert.match(source, /document\.visibilityState !== "visible"/);
   assert.match(source, /document\.addEventListener\("visibilitychange", onVisibilityChange\)/);
 });
+
+test("does not persist an unchanged fallback title ending in whitespace", () => {
+  assert.match(
+    sessionItemSource,
+    /const name = renameValue\.trim\(\);[\s\S]*?if \(renameValue === title \|\| name === \(session\.name \?\? ""\)\) return;/,
+  );
+});

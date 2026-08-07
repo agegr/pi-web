@@ -3,6 +3,7 @@
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
 import type { SkillsResponse } from "@/lib/api-types";
+import type { TextContent, UserMessage } from "@/lib/types";
 import { clearDraft, getDraft, setDraft, type ChatDraftImage } from "@/lib/draft-store";
 import {
   MAX_ATTACHED_IMAGE_BYTES,
@@ -74,6 +75,7 @@ interface Props {
 export interface ChatInputHandle {
   insertText: (text: string) => void;
   insertIfEmpty: (text: string) => void;
+  replaceMessage: (message: UserMessage) => void;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
 }
@@ -209,6 +211,38 @@ function draftImagesToAttachedImages(images: ChatDraftImage[] | undefined): Atta
     .filter(isBase64ImageWithinLimits)
     .slice(0, MAX_ATTACHED_IMAGES)
     .map(draftImageToAttachedImage);
+}
+
+export function canRestoreUserMessage(
+  value: string,
+  attachedImageCount: number,
+  pendingImageCount: number,
+): boolean {
+  return !value.trim() && attachedImageCount === 0 && pendingImageCount === 0;
+}
+
+export function getUserMessageText(message: UserMessage): string {
+  if (typeof message.content === "string") return message.content;
+  return message.content
+    .filter((block): block is TextContent => block.type === "text")
+    .map((block) => block.text)
+    .join("\n");
+}
+
+export function getUserMessageDraftImages(message: UserMessage): ChatDraftImage[] {
+  if (typeof message.content === "string") return [];
+  return message.content.flatMap((block) => {
+    if (block.type !== "image") return [];
+
+    // Support both the current nested image format and older flat pi-ai entries.
+    const flat = block as unknown as { data?: unknown; mimeType?: unknown };
+    const data = block.source?.type === "base64" ? block.source.data : flat.data;
+    const mimeType = block.source?.type === "base64" ? block.source.media_type : flat.mimeType;
+    if (typeof data !== "string" || typeof mimeType !== "string") return [];
+
+    const image = { data, mimeType };
+    return isBase64ImageWithinLimits(image) ? [image] : [];
+  });
 }
 
 function revokeImagePreview(image: AttachedImage): void {
@@ -386,6 +420,25 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (current.trim()) return;
       setValue(text);
       setAtQuery(null);
+      requestAnimationFrame(() => {
+        if (!ta) return;
+        ta.focus();
+        ta.style.height = "auto";
+        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      });
+    },
+    replaceMessage(message: UserMessage) {
+      const ta = textareaRef.current;
+      const current = ta ? ta.value : value;
+      if (!canRestoreUserMessage(current, attachedImagesRef.current.length, pendingImageCountRef.current)) return;
+
+      setValue(getUserMessageText(message));
+      setAtQuery(null);
+      setHistoryMenuOpen(false);
+      setAttachedImages((prev) => {
+        prev.forEach(revokeImagePreview);
+        return draftImagesToAttachedImages(getUserMessageDraftImages(message));
+      });
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();

@@ -20,6 +20,7 @@ import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
+import { showCompletionNotification } from "@/lib/browser-notifications";
 import { getInitialNavigation } from "@/lib/initial-navigation";
 import {
   getDefaultRightPanelWidth,
@@ -250,16 +251,19 @@ export function AppShell() {
   // read tool resolves it the same way (it strips the @ prefix).
   const handleAtMention = useCallback((relativePath: string, isDir: boolean) => {
     chatInputRef.current?.insertText(buildAtMentionText(relativePath, isDir));
-  }, []);
+    if (isMobile) { setRightPanelOpen(false); setSidebarOpen(false); }
+  }, [isMobile]);
 
   const handleAtMentions = useCallback((relativePaths: string[]) => {
     const mentions = buildFileAtMentionsText(relativePaths);
     if (mentions) chatInputRef.current?.insertText(mentions);
-  }, []);
+    if (isMobile) { setRightPanelOpen(false); setSidebarOpen(false); }
+  }, [isMobile]);
 
   const handleFileLineMention = useCallback((relativePath: string, startLine: number, endLine: number) => {
     chatInputRef.current?.insertText(buildFileLineMentionText(relativePath, startLine, endLine));
-  }, []);
+    if (isMobile) { setRightPanelOpen(false); setSidebarOpen(false); }
+  }, [isMobile]);
 
   const initialSessionId = initialNavigation.sessionId;
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
@@ -413,7 +417,31 @@ export function AppShell() {
   const handleAgentEnd = useCallback(() => {
     setRefreshKey((k) => k + 1);
     setExplorerRefreshKey((k) => k + 1);
-  }, []);
+
+    if (document.visibilityState === "visible") return;
+    if (!("Notification" in window)) return;
+
+    const targetSession = selectedSession;
+    const fire = () => {
+      const title = selectedSession?.name ?? translate("i18n.sessionComplete");
+      const sessionUrl = targetSession ? `/?session=${encodeURIComponent(targetSession.id)}` : "/";
+      void showCompletionNotification({
+        title,
+        body: translate("i18n.taskFinished"),
+        sessionUrl,
+        onClick: () => {
+          window.focus();
+          if (targetSession) handleSelectSession(targetSession);
+        },
+      });
+    };
+
+    if (Notification.permission === "granted") {
+      fire();
+    } else if (Notification.permission === "default") {
+      void Notification.requestPermission().then((p) => { if (p === "granted") fire(); });
+    }
+  }, [handleSelectSession, selectedSession, translate]);
 
   const handleAutoName = useCallback(async () => {
     const sessionId = selectedSession?.id;
@@ -1598,6 +1626,7 @@ export function AppShell() {
               gitRefreshKey={explorerRefreshKey}
               initialDisplayMode={activeFileTab.initialDisplayMode}
               onMentionLines={rightPanelOpen ? handleFileLineMention : undefined}
+              onAtMention={handleAtMention}
               onOpenFile={(filePath) => handleOpenFile(
                 filePath,
                 getFileName(filePath),
