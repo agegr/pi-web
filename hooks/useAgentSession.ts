@@ -13,11 +13,11 @@ import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
-import { computeSessionTiming } from "@/lib/session-timing";
 
 export interface SessionData {
   sessionId: string;
   filePath: string;
+  totalActiveMs: number;
   tree: SessionTreeNode[];
   leafId: string | null;
   context: {
@@ -415,10 +415,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const displayModel = isNew ? (newSessionModel ?? newSessionDefaultModel) : currentModel;
 
   const sessionStats = useMemo(() => {
-    // Timing is always derived from the current session's own messages so it
-    // stays isolated per session, independent of the override fetched from pi.
-    const timing = computeSessionTiming(messages);
-    if (sessionStatsOverride) return { ...sessionStatsOverride, timing };
+    if (sessionStatsOverride) {
+      return { ...sessionStatsOverride, totalActiveMs: data?.totalActiveMs };
+    }
     const tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
     let cost = 0;
     let userMessages = 0;
@@ -452,10 +451,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       totalMessages: messages.length,
       tokens,
       cost,
-      timing,
+      totalActiveMs: data?.totalActiveMs,
       ...(contextUsage ? { contextUsage } : {}),
     } satisfies SessionStatsInfo;
-  }, [messages, sessionStatsOverride, contextUsage, data?.filePath, session?.id, session?.name]);
+  }, [messages, sessionStatsOverride, contextUsage, data?.filePath, data?.totalActiveMs, session?.id, session?.name]);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
     let messagesLoaded = false;

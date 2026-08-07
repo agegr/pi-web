@@ -1360,7 +1360,7 @@ export function AppShell() {
                       if (m > 0) return `${m}m ${s}s`;
                       return `${s}s`;
                     };
-                    const timing = sessionStats.timing;
+                    const totalActiveMs = sessionStats.totalActiveMs ?? 0;
                     const section = (
                       title: string,
                       sectionRows: string[][],
@@ -1475,7 +1475,7 @@ export function AppShell() {
                          {section(translate("session.messages"), messageRows)}
                          {section(translate("session.tokens"), [...tokenRows, ...extraTokenRows], "right", true)}
                       </div>
-                      {timing && timing.totalActiveMs > 0 ? (
+                      {totalActiveMs > 0 ? (
                         <div style={{
                           marginTop: 10, paddingTop: 8, borderTop: "1px solid var(--border)",
                           display: "flex", alignItems: "center", flexWrap: "wrap", columnGap: 10, rowGap: 2,
@@ -1484,17 +1484,7 @@ export function AppShell() {
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.8 }} aria-hidden="true">
                             <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
                           </svg>
-                          <span>{translate("session.modelWait")} <span style={{ color: "var(--text)", fontWeight: 600 }}>{formatDuration(timing.modelWaitMs)}</span></span>
-                          <span style={{ opacity: 0.4 }}>·</span>
-                          <span>{translate("session.toolExec")} <span style={{ color: "var(--text)", fontWeight: 600 }}>{formatDuration(timing.toolExecMs)}</span></span>
-                          {timing.otherMs > 1000 ? (
-                            <>
-                              <span style={{ opacity: 0.4 }}>·</span>
-                              <span>{translate("session.other")} <span style={{ color: "var(--text)", fontWeight: 600 }}>{formatDuration(timing.otherMs)}</span></span>
-                            </>
-                          ) : null}
-                          <span style={{ opacity: 0.4 }}>·</span>
-                          <span>{translate("session.totalActive")} <span style={{ color: "var(--accent)", fontWeight: 600 }}>{formatDuration(timing.totalActiveMs)}</span></span>
+                          <span>{translate("session.totalActive")} <span style={{ color: "var(--accent)", fontWeight: 600 }}>{formatDuration(totalActiveMs)}</span></span>
                         </div>
                       ) : null}
                       </>

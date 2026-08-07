@@ -1,51 +1,45 @@
-import type { AgentMessage } from "./types";
-import type { SessionTiming } from "./pi-types";
+interface TimingEntry {
+  type: string;
+  timestamp: string;
+  message?: { role?: string };
+}
 
 /**
- * Break a session's wall-clock time into active buckets, excluding gaps where
- * the user was idle (reading / thinking / typing before their next message).
+ * Estimate active wall-clock time from the append-only session log.
  *
- * Each gap between consecutive messages is attributed to the bucket of the
- * message it leads INTO: a gap ending at an assistant message is time spent
- * waiting for the model (includes network RTT); a gap ending at a tool result
- * or bash execution is tool runtime; anything else is "other" (e.g. compaction).
- * Gaps ending at a user message are the user's own idle time and are dropped.
- *
- * Gaps are only counted when both messages carry a timestamp, so the result
- * degrades gracefully while a session is mid-stream.
+ * Raw entries preserve compacted history and every executed branch exactly
+ * once. Gaps ending at user messages are treated as human idle. User-initiated
+ * bash entries are also boundaries because the log records only their finish
+ * time, so counting the incoming gap could include arbitrary human idle.
  */
-export function computeSessionTiming(messages: AgentMessage[]): SessionTiming {
-  let modelWaitMs = 0;
-  let toolExecMs = 0;
-  let otherMs = 0;
+export function computeSessionTotalActiveMs(entries: readonly TimingEntry[]): number {
+  let totalActiveMs = 0;
+  let previousTimestamp: number | undefined;
 
-  for (let i = 1; i < messages.length; i++) {
-    const prev = messages[i - 1];
-    const curr = messages[i];
-    const prevTs = prev.timestamp;
-    const currTs = curr.timestamp;
-    if (typeof prevTs !== "number" || typeof currTs !== "number") continue;
-    const gap = currTs - prevTs;
-    if (gap <= 0) continue;
-    switch (curr.role) {
-      case "user":
-        break;
-      case "assistant":
-        modelWaitMs += gap;
-        break;
-      case "toolResult":
-      case "bashExecution":
-        toolExecMs += gap;
-        break;
-      default:
-        otherMs += gap;
+  for (const entry of entries) {
+    if (!isTimingEntry(entry.type)) continue;
+
+    const timestamp = Date.parse(entry.timestamp);
+    if (!Number.isFinite(timestamp)) continue;
+
+    const role = entry.type === "message" ? entry.message?.role : undefined;
+    if (role === "user" || role === "bashExecution") {
+      previousTimestamp = timestamp;
+      continue;
     }
+
+    if (previousTimestamp !== undefined && timestamp > previousTimestamp) {
+      totalActiveMs += timestamp - previousTimestamp;
+    }
+    previousTimestamp = timestamp;
   }
 
-  return {
-    modelWaitMs,
-    toolExecMs,
-    totalActiveMs: modelWaitMs + toolExecMs + otherMs,
-    otherMs,
-  };
+  return totalActiveMs;
+}
+
+function isTimingEntry(type: string): boolean {
+  return type === "message"
+    || type === "compaction"
+    || type === "branch_summary"
+    || type === "custom_message";
 }

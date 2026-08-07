@@ -306,18 +306,15 @@ function entryToUiMessage(
       const message = options.deferToolResultImages
         ? omitToolResultBase64Images(normalizeToolCalls(entry.message))
         : normalizeToolCalls(entry.message);
-      const ts = parseEntryTimestamp(entry.timestamp);
-      const attach = (m: AgentMessage): AgentMessage =>
-        ts !== undefined ? { ...m, timestamp: ts } : m;
-      if (!options.deferThinking || message.role !== "assistant") return attach(message);
-      return attach({
+      if (!options.deferThinking || message.role !== "assistant") return message;
+      return {
         ...message,
         content: message.content.map((block) => (
           block.type === "thinking" && block.thinking.trim() !== ""
             ? { ...block, thinking: "", deferred: true }
             : block
         )),
-      });
+      };
     }
     case "compaction":
       return {
