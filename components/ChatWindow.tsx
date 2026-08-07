@@ -9,6 +9,7 @@ import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
+import { ExtensionWidgets } from "./ExtensionWidgets";
 import { useI18n } from "@/hooks/useI18n";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
 import { useAudio } from "@/hooks/useAudio";
@@ -764,32 +765,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       </div>
       </>
       )}
-    </div>
-  );
-}
-
-function ExtensionWidgets({ widgets }: { widgets: Array<{ key: string; lines: string[] }> }) {
-  if (widgets.length === 0) return null;
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
-      {widgets.map((widget) => (
-        <div
-          key={widget.key}
-          style={{
-            border: "1px solid var(--border)",
-            borderRadius: 7,
-            background: "var(--bg-panel)",
-            overflow: "hidden",
-          }}
-        >
-          <div style={{ padding: "5px 9px", borderBottom: "1px solid var(--border)", color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>
-            {widget.key}
-          </div>
-          <pre style={{ margin: 0, padding: "8px 9px", color: "var(--text-muted)", fontSize: 12, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "var(--font-mono)" }}>
-            {widget.lines.join("\n")}
-          </pre>
-        </div>
-      ))}
     </div>
   );
 }
