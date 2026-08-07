@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState, useCallback, useRef, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { useI18n } from "@/hooks/useI18n";
@@ -831,6 +831,33 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   // Sessions of every worktree in the selected project are shown together
   const selectedProject = projectRootFor(selectedCwd);
+
+  // Per-project activity counts (running / unread) for the workspace selector.
+  // Keyed the same way as getRecentProjects (projectRoot ?? cwd) so the counts
+  // line up with each dropdown item. Small data set — cheap to recompute.
+  const projectActivity = useMemo(() => {
+    const counts = new Map<string, { running: number; unread: number }>();
+    for (const s of allSessions) {
+      const key = s.projectRoot ?? s.cwd;
+      if (!key) continue;
+      let entry = counts.get(key);
+      if (!entry) { entry = { running: 0, unread: 0 }; counts.set(key, entry); }
+      if (runningSessionIds.has(s.id)) entry.running++;
+      if (unreadSessionIds.has(s.id)) entry.unread++;
+    }
+    return counts;
+  }, [allSessions, runningSessionIds, unreadSessionIds]);
+
+  // Any activity in a project other than the one currently selected — shown as
+  // a dot on the (collapsed) selector button so it is visible without opening
+  // the dropdown.
+  const hasOtherWorkspaceActivity = useMemo(
+    () => [...projectActivity.entries()].some(
+      ([key, { running, unread }]) => key !== selectedProject && (running > 0 || unread > 0),
+    ),
+    [projectActivity, selectedProject],
+  );
+
   const filteredSessions = selectedProject
     ? allSessions.filter((s) => (s.projectRoot ?? s.cwd) === selectedProject)
     : allSessions;
@@ -1015,6 +1042,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                  {initialSessionId && !restoredRef.current ? "" : t("sidebar.selectProject")}
               </span>
             )}
+            {hasOtherWorkspaceActivity && (
+              <span
+                title={t("sidebar.newActivity")}
+                aria-label={t("sidebar.newActivity")}
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  flexShrink: 0,
+                  marginLeft: 6,
+                  background: "var(--accent)",
+                }}
+              />
+            )}
           </button>
 
           <AnimatedDropdown
@@ -1099,6 +1140,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     )}
                     {project !== selectedProject && <span style={{ width: 10, flexShrink: 0 }} />}
                     <PathLabel text={displayCwd(project, homeDir)} style={{ flex: 1 }} />
+                    {showProjectActivity(projectActivity.get(project), t)}
                   </button>
                 ))}
                 {visibleProjects.length === 0 && projectFilter.trim() && (
@@ -1804,6 +1846,48 @@ function UnreadSessionIndicator() {
           <animate attributeName="opacity" values="0.32;0;0.32" dur="1.6s" repeatCount="indefinite" />
         </circle>
       </svg>
+    </span>
+  );
+}
+
+/**
+ * Compact per-project activity badges for the workspace selector dropdown items:
+ * a spinning running icon + count and an unread dot + count. Renders nothing
+ * when the project has no activity. Counts share the accent / unread colors of
+ * the per-session indicators so the two stay visually consistent.
+ */
+function showProjectActivity(
+  activity: { running: number; unread: number } | undefined,
+  t: (key: string) => string,
+): ReactNode {
+  if (!activity || (activity.running === 0 && activity.unread === 0)) return null;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0, marginLeft: 6 }}>
+      {activity.running > 0 && (
+        <span
+          title={t("sidebar.agentRunning")}
+          aria-label={t("sidebar.agentRunning")}
+          style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "var(--accent)", fontSize: 10, fontFamily: "var(--font-mono)" }}
+        >
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ display: "block" }}>
+            <g>
+              <path d="M21 12a9 9 0 1 1-3.8-7.4" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" />
+              <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.9s" repeatCount="indefinite" />
+            </g>
+          </svg>
+          {activity.running}
+        </span>
+      )}
+      {activity.unread > 0 && (
+        <span
+          title={t("sidebar.newSessionActivity")}
+          aria-label={t("sidebar.newSessionActivity")}
+          style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "#0891b2", fontSize: 10, fontFamily: "var(--font-mono)" }}
+        >
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "currentColor", display: "inline-block" }} />
+          {activity.unread}
+        </span>
+      )}
     </span>
   );
 }
