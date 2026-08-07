@@ -1,5 +1,5 @@
 import type { AssistantContentBlock, ToolResultMessage } from "./types";
-import { resolveLocalFileHref } from "./file-links";
+import { resolveLocalFilePath } from "./file-links";
 import { isEditToolName, isWriteToolName } from "./tool-names";
 
 export interface WrittenFile {
@@ -46,9 +46,9 @@ export function extractTurnWrittenFiles(
     const rawPath = readToolPath(block.input);
     if (!rawPath) continue;
 
-    // Reading the file is gated server-side by isFilePathAllowed in
-    // app/api/files/[...path]/route.ts; this only resolves the path for display.
-    const filePath = resolveLocalFileHref(rawPath, cwd);
+    // Tool arguments are filesystem paths, not hrefs: preserve characters such
+    // as #, ?, and :digits that have special meaning in links and source refs.
+    const filePath = resolveLocalFilePath(rawPath, cwd);
     if (!filePath) continue;
 
     if (seen.has(filePath)) continue;
