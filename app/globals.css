@@ -70,6 +70,7 @@ html.dark .catppuccin-file-icon {
     -webkit-mask: center / contain no-repeat var(--catppuccin-icon-light);
   }
   html.dark .catppuccin-file-icon {
+    background: var(--text-dim);
     mask-image: var(--catppuccin-icon-dark);
     -webkit-mask-image: var(--catppuccin-icon-dark);
   }
@@ -778,6 +779,64 @@ pre, code {
 .markdown-file-preview pre code {
   background: none;
   padding: 0;
+}
+
+/* YAML frontmatter metadata card (file preview) */
+.markdown-frontmatter {
+  margin-bottom: 20px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+}
+.markdown-frontmatter-title {
+  font-size: 1.3em;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+}
+.markdown-frontmatter-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.markdown-frontmatter-tag {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 10px;
+}
+.markdown-frontmatter-rows {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 5px 14px;
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.markdown-frontmatter-row {
+  display: contents;
+}
+.markdown-frontmatter-row dt {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  white-space: nowrap;
+}
+.markdown-frontmatter-row dd {
+  margin: 0;
+  color: var(--text);
+  min-width: 0;
+  word-break: break-word;
+}
+.markdown-frontmatter-row dd a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 /* syntax highlighter line numbers */

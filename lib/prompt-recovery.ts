@@ -1,4 +1,4 @@
-import type { AgentMessage, UserMessage } from "@/lib/types";
+import type { AgentMessage } from "@/lib/types";
 
 function extractMessageText(message: Partial<AgentMessage>): string {
   const content = (message as { content?: unknown }).content;
@@ -44,51 +44,4 @@ export function userMessageKey(message: Partial<AgentMessage>): string {
     text: extractMessageText(message),
     images: content.map(imageSignature).filter(Boolean),
   });
-}
-
-function matchingUserMessageCount(messages: readonly AgentMessage[], key: string): number {
-  return messages.reduce((count, message) => (
-    message.role === "user" && userMessageKey(message) === key ? count + 1 : count
-  ), 0);
-}
-
-export interface PromptRecoverySnapshot {
-  runId: number;
-  message: UserMessage;
-  messageKey: string;
-  previousMatchingMessages: number;
-}
-
-export function createPromptRecoverySnapshot(
-  runId: number,
-  message: UserMessage,
-  existingMessages: readonly AgentMessage[],
-): PromptRecoverySnapshot {
-  const messageKey = userMessageKey(message);
-  return {
-    runId,
-    message,
-    messageKey,
-    previousMatchingMessages: matchingUserMessageCount(existingMessages, messageKey),
-  };
-}
-
-/** Restore only when the failed submission did not reach the session file. */
-export function shouldRestoreFailedPrompt(
-  snapshot: PromptRecoverySnapshot,
-  persistedMessages: readonly AgentMessage[],
-): boolean {
-  return matchingUserMessageCount(persistedMessages, snapshot.messageKey)
-    <= snapshot.previousMatchingMessages;
-}
-
-export function removeOptimisticPrompt(
-  messages: readonly AgentMessage[],
-  snapshot: PromptRecoverySnapshot,
-): AgentMessage[] {
-  const last = messages[messages.length - 1];
-  if (last?.role !== "user" || userMessageKey(last) !== snapshot.messageKey) {
-    return [...messages];
-  }
-  return messages.slice(0, -1);
 }
