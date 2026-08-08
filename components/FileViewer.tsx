@@ -19,7 +19,8 @@ import {
 } from "@/lib/file-types";
 import { encodeFilePathForApi, getFileDirectory, getFileName, getRelativeFilePath } from "@/lib/file-paths";
 import { resolveLocalFileHref } from "@/lib/file-links";
-import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, normalizeDisplayMath, parseFrontmatter } from "@/lib/markdown";
+import { parseFrontmatter } from "@/lib/frontmatter";
+import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
 import { FrontmatterCard } from "./FrontmatterCard";
 import { parseUnifiedPatch } from "@/lib/patch";
@@ -32,6 +33,8 @@ interface Props {
   sourceSessionId?: string | null;
   onOpenFile?: (filePath: string) => void;
   onMentionLines?: (relativePath: string, startLine: number, endLine: number) => void;
+  /** Insert this file's relative path into the chat input (@ mention). */
+  onAtMention?: (relativePath: string, isDir: boolean) => void;
   gitRefreshKey?: number;
   initialDisplayMode?: DisplayMode;
 }
@@ -784,7 +787,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
   );
 }
 
-export function FileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionLines, gitRefreshKey, initialDisplayMode }: Props) {
+export function FileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionLines, onAtMention, gitRefreshKey, initialDisplayMode }: Props) {
   if (isImagePath(filePath)) {
     return <ImageViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} />;
   }
@@ -794,10 +797,10 @@ export function FileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMenti
   if (isDocumentPreviewPath(filePath)) {
     return <DocumentViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} />;
   }
-  return <TextFileViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} onOpenFile={onOpenFile} onMentionLines={onMentionLines} gitRefreshKey={gitRefreshKey} initialDisplayMode={initialDisplayMode} />;
+  return <TextFileViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} onOpenFile={onOpenFile} onMentionLines={onMentionLines} onAtMention={onAtMention} gitRefreshKey={gitRefreshKey} initialDisplayMode={initialDisplayMode} />;
 }
 
-function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionLines, gitRefreshKey, initialDisplayMode }: Props) {
+function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionLines, onAtMention, gitRefreshKey, initialDisplayMode }: Props) {
   const { isDark } = useTheme();
   const { t } = useI18n();
   const [data, setData] = useState<FileData | null>(null);
@@ -902,7 +905,10 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
   }, [fetchGitDiff, filePath, gitRefreshKey]);
 
   useEffect(() => {
-    if (data?.language === "markdown" && initialDisplayMode !== "diff") {
+    // HTML gets the same rendered-first treatment as markdown: a generated page
+    // is usually more useful viewed than read as source. Both have a preview
+    // mode already; the source tab stays one click away.
+    if ((data?.language === "markdown" || data?.language === "html") && initialDisplayMode !== "diff") {
       setDisplayMode("preview");
     }
   }, [data?.language, initialDisplayMode]);
@@ -970,10 +976,6 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
       lineRange.endLine,
     );
   }, [cwd, filePath, onMentionLines]);
-
-  const handleMentionSelectedLines = useCallback(() => {
-    mentionLineRange(selectedLineRange);
-  }, [mentionLineRange, selectedLineRange]);
 
   useEffect(() => {
     if (!onMentionLines || displayMode !== "source") return;
@@ -1092,19 +1094,34 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, onMentionL
           )}
 
           <div className="file-viewer-actions">
+            {(onAtMention || onMentionLines) && (
+              <button
+                type="button"
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  // Mention selected lines when a range is active (and line
+                  // mention is wired up); otherwise fall back to a whole-file
+                  // @mention. Same button, behavior follows the selection.
+                  if (selectedLineRange && onMentionLines) {
+                    mentionLineRange(selectedLineRange);
+                  } else {
+                    onAtMention?.(getRelativeFilePath(filePath, cwd), false);
+                  }
+                }}
+                title={
+                  selectedLineRange && onMentionLines
+                    ? `${t("i18n.mentionSelectedLines")} (L${selectedLineRange.startLine}${selectedLineRange.startLine !== selectedLineRange.endLine ? `-L${selectedLineRange.endLine}` : ""})`
+                    : t("files.insertPath")
+                }
+                aria-label={t("files.mention")}
+                disabled={!onAtMention && !onMentionLines}
+                className="file-viewer-icon-button"
+              >
+                <MentionIcon />
+              </button>
+            )}
             {effectiveDisplayMode === "source" && (
               <>
-                <button
-                  type="button"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={handleMentionSelectedLines}
-                  title={t("i18n.mentionSelectedLines")}
-                  aria-label={t("i18n.mentionSelectedLines")}
-                  disabled={!selectedLineRange}
-                  className="file-viewer-icon-button"
-                >
-                  <MentionIcon />
-                </button>
                 <button
                   type="button"
                   onClick={() => setWrapLines((value) => !value)}

@@ -1,14 +1,16 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
+import { ExtensionWidgets } from "./ExtensionWidgets";
 import { useI18n } from "@/hooks/useI18n";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
 import { useAudio } from "@/hooks/useAudio";
@@ -25,9 +27,11 @@ import {
 
 interface Props {
   session: SessionInfo | null;
+  sessionRunning?: boolean;
   newSessionCwd: string | null;
+  newSessionDraftKey: string | null;
   onAgentEnd?: () => void;
-  onSessionCreated?: (session: SessionInfo) => void;
+  onSessionCreated?: (session: SessionInfo, sourceDraftKey: string) => void;
   onSessionForked?: (newSessionId: string) => void;
   modelsRefreshKey?: number;
   chatInputRef?: React.RefObject<ChatInputHandle | null>;
@@ -170,7 +174,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, children, t }: { mes
   );
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile }: Props) {
+export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile }: Props) {
   const { t } = useI18n();
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
   const isMobile = useIsMobile();
@@ -192,29 +196,29 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   }, [onAgentEnd]);
 
   // 稳定化 onEditContent 引用，配合 React.memo 防止历史消息重渲染
-  const handleEditContent = useCallback((content: string) => {
-    chatInputRef?.current?.insertIfEmpty(content);
+  const handleEditContent = useCallback((message: UserMessage) => {
+    chatInputRef?.current?.replaceMessage(message);
   }, [chatInputRef]);
 
   const {
     loading, error, messages, entryIds, streamState,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
-    isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
+    isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
     notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection,
     agentPhase,
     isNew,
     sessionIdRef, messagesEndRef, scrollContainerRef,
-    lastUserMsgRef,
+    lastUserMsgRef, promptAnchorActive,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands,
+    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, scrollToBottom, scrollUserMsgToTop,
   } = useAgentSession({
-    session, newSessionCwd, onAgentEnd: wrappedOnAgentEnd, onSessionCreated, onSessionForked,
+    session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   });
   const sessionBusy = agentRunning || bashRunning;
@@ -284,6 +288,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       sessionStats.tokens.cacheWrite,
       sessionStats.tokens.total,
       sessionStats.cost ?? 0,
+      sessionStats.totalActiveMs ?? 0,
     ].join("|")
     : null;
   const sessionStatsRef = useRef(sessionStats);
@@ -330,7 +335,125 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   }, [messages.length]);
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
+  const hasStreamingContent = Boolean(streamState.streamingMessage?.content.length);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
+  const bottomComposerRef = useRef<HTMLDivElement | null>(null);
+  const [bottomComposerHeight, setBottomComposerHeight] = useState(0);
+  const bottomComposerHeightRef = useRef(0);
+  const bottomComposerScrollFrameRef = useRef<number | null>(null);
+  const [promptAnchorSpacerHeight, setPromptAnchorSpacerHeight] = useState(0);
+  const promptAnchorSpacerHeightRef = useRef(0);
+  const promptAnchorScrollPendingRef = useRef(false);
+
+  useLayoutEffect(() => {
+    const composer = bottomComposerRef.current;
+    if (!composer) {
+      bottomComposerHeightRef.current = 0;
+      setBottomComposerHeight(0);
+      return;
+    }
+
+    const updateBottomComposerHeight = () => {
+      const nextHeight = Math.ceil(composer.getBoundingClientRect().height);
+      if (bottomComposerHeightRef.current === nextHeight) return;
+
+      const previousHeight = bottomComposerHeightRef.current;
+      bottomComposerHeightRef.current = nextHeight;
+      setBottomComposerHeight(nextHeight);
+
+      if (bottomComposerScrollFrameRef.current !== null) {
+        cancelAnimationFrame(bottomComposerScrollFrameRef.current);
+      }
+      bottomComposerScrollFrameRef.current = requestAnimationFrame(() => {
+        bottomComposerScrollFrameRef.current = null;
+        const currentContainer = scrollContainerRef.current;
+        const distanceFromBottom = currentContainer
+          ? currentContainer.scrollHeight - currentContainer.clientHeight - currentContainer.scrollTop
+          : Number.POSITIVE_INFINITY;
+        // Preserve a tail-pinned view while avoiding a jump for history readers.
+        if (distanceFromBottom <= Math.abs(nextHeight - previousHeight) + 1) {
+          scrollToBottom("auto");
+        }
+      });
+    };
+    updateBottomComposerHeight();
+
+    const observer = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(updateBottomComposerHeight);
+    observer?.observe(composer);
+    return () => {
+      observer?.disconnect();
+      if (bottomComposerScrollFrameRef.current !== null) {
+        cancelAnimationFrame(bottomComposerScrollFrameRef.current);
+        bottomComposerScrollFrameRef.current = null;
+      }
+    };
+  }, [error, isEmptyNew, loading, scrollContainerRef, scrollToBottom]);
+
+  useLayoutEffect(() => {
+    if (!agentRunning || !promptAnchorActive) {
+      promptAnchorScrollPendingRef.current = false;
+      if (promptAnchorSpacerHeightRef.current !== 0) {
+        promptAnchorSpacerHeightRef.current = 0;
+        setPromptAnchorSpacerHeight(0);
+      }
+      return;
+    }
+
+    const container = scrollContainerRef.current;
+    const userMessage = lastUserMsgRef.current;
+    if (!container || !userMessage) return;
+
+    const updatePromptAnchorSpacer = () => {
+      const userMessageTop = userMessage.getBoundingClientRect().top
+        - container.getBoundingClientRect().top
+        + container.scrollTop;
+      const targetTop = Math.max(0, userMessageTop - 16);
+      // Exclude the current spacer so each measurement converges instead of
+      // alternating between adding it and removing it.
+      const maxScrollTopWithoutAnchor = Math.max(
+        0,
+        container.scrollHeight - promptAnchorSpacerHeightRef.current - container.clientHeight,
+      );
+      const nextPromptAnchorSpacerHeight = Math.max(
+        0,
+        Math.ceil(targetTop - maxScrollTopWithoutAnchor),
+      );
+
+      if (nextPromptAnchorSpacerHeight !== promptAnchorSpacerHeightRef.current) {
+        const needsInitialScroll = promptAnchorSpacerHeightRef.current === 0
+          && nextPromptAnchorSpacerHeight > 0;
+        promptAnchorSpacerHeightRef.current = nextPromptAnchorSpacerHeight;
+        promptAnchorScrollPendingRef.current ||= needsInitialScroll;
+        setPromptAnchorSpacerHeight(nextPromptAnchorSpacerHeight);
+        return;
+      }
+
+      if (promptAnchorScrollPendingRef.current) {
+        promptAnchorScrollPendingRef.current = false;
+        scrollUserMsgToTop();
+      }
+    };
+
+    updatePromptAnchorSpacer();
+    const observer = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(updatePromptAnchorSpacer);
+    observer?.observe(container);
+    observer?.observe(userMessage);
+    return () => observer?.disconnect();
+  }, [
+    agentRunning,
+    bottomComposerHeight,
+    lastUserMsgRef,
+    messages.length,
+    promptAnchorActive,
+    promptAnchorSpacerHeight,
+    scrollContainerRef,
+    scrollUserMsgToTop,
+    streamState.streamingMessage,
+  ]);
 
   const availableThinkingLevels = displayModelValue
     ? (modelThinkingLevels[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
@@ -356,6 +479,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       modelError={modelError}
       modelScopeWarnings={modelScopeWarnings}
       onModelChange={handleModelChange}
+      modelSwitching={modelSwitching}
       onCompact={session || isNew ? handleCompact : undefined}
       onAbortCompaction={handleAbortCompaction}
       isCompacting={isCompacting}
@@ -378,7 +502,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       soundEnabled={soundEnabled}
       onSoundToggle={onSoundToggle}
       onAudioUnlock={unlockAudio}
-      draftKey={session?.id ?? (newSessionCwd ? `new:${newSessionCwd}` : undefined)}
+      draftKey={session?.id ?? newSessionDraftKey ?? undefined}
       cwd={session?.cwd ?? newSessionCwd}
     />
   );
@@ -486,7 +610,9 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               </div>
             </div>
             <NoticeShelf notices={notices} align="right" />
+            <ExtensionWidgets widgets={aboveEditorWidgets} />
             {chatInputElement}
+            <ExtensionWidgets widgets={belowEditorWidgets} />
           </div>
         </div>
       ) : (
@@ -510,8 +636,6 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         <div ref={scrollContainerRef} className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-width:none]">
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
             <div style={{ width: "100%", minWidth: 0, maxWidth: 820, margin: "0 auto" }}>
-              <ExtensionWidgets widgets={aboveEditorWidgets} />
-
             {(() => {
               const toolResultsMap = new Map<string, ToolResultMessage>();
               for (const msg of messages) {
@@ -547,7 +671,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
               };
 
-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean } = {}): ReactNode => {
+              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[] } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
                 const prevAssistantEntryId =
                   msg.role === "user" && idx > 0 && messages[idx - 1].role === "assistant"
@@ -587,6 +711,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     showTimestamp={showTimestamp}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
+                    writtenFiles={options.writtenFiles}
                   />
                 );
                 if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;
@@ -672,7 +797,19 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 }
 
                 if (finalAnswerMessage) {
-                  rendered.push(renderMessage(finalAssistantIdx, { messageOverride: finalAnswerMessage }));
+                  // Each tool call is stored as its own assistant entry, so the
+                  // final answer alone carries no record of what the turn wrote.
+                  // Gather the turn's assistant blocks and derive the file list
+                  // from the write/edit calls among them.
+                  const turnContent: AssistantContentBlock[] = [];
+                  for (let i = userIdx + 1; i <= finalAssistantIdx; i++) {
+                    const m = messages[i];
+                    if (m?.role === "assistant") {
+                      for (const b of (m as AssistantMessage).content ?? []) turnContent.push(b);
+                    }
+                  }
+                  const writtenFiles = extractTurnWrittenFiles(turnContent, toolResultsMap, messageCwd);
+                  rendered.push(renderMessage(finalAssistantIdx, { messageOverride: finalAnswerMessage, writtenFiles }));
                 }
                 for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
                   rendered.push(renderMessage(renderIdx));
@@ -691,11 +828,11 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 </>
               );
             })()}
-            {streamState.isStreaming && streamState.streamingMessage && (
+            {streamState.isStreaming && hasStreamingContent && streamState.streamingMessage && (
               <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} />
             )}
 
-            {agentRunning && !streamState.streamingMessage && agentPhase && (
+            {agentRunning && !hasStreamingContent && agentPhase && (
               <div className="py-2 text-[13px] text-text-muted">
                 <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t)}</span>
               </div>
@@ -719,9 +856,12 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               />
             )}
 
-            {agentRunning && (
-              <div style={{ height: scrollContainerRef.current ? scrollContainerRef.current.clientHeight : "80vh" }} />
+            {promptAnchorSpacerHeight > 0 && (
+              <div aria-hidden="true" style={{ height: promptAnchorSpacerHeight }} />
             )}
+
+            {/* Match the trailing space to the live bottom composer height. */}
+            <div aria-hidden="true" style={{ height: bottomComposerHeight }} />
 
             <div ref={messagesEndRef} />
             </div>
@@ -738,7 +878,18 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
         )}
       </div>
 
-      <div className="relative">
+      <div ref={bottomComposerRef} className="relative">
+        <div
+          style={{
+            padding: `0 ${CHAT_COLUMN_PADDING}px`,
+            paddingRight: isMobile ? CHAT_COLUMN_PADDING : CHAT_INPUT_RIGHT_PADDING,
+          }}
+        >
+          <div style={{ maxWidth: 820, margin: "0 auto" }}>
+            <ExtensionWidgets widgets={aboveEditorWidgets} />
+          </div>
+        </div>
+        {chatInputElement}
         <div
           style={{
             padding: `0 ${CHAT_COLUMN_PADDING}px`,
@@ -749,37 +900,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             <ExtensionWidgets widgets={belowEditorWidgets} />
           </div>
         </div>
-        {chatInputElement}
         <ExtensionStatusBar statuses={extensionStatuses} />
       </div>
       </>
       )}
-    </div>
-  );
-}
-
-function ExtensionWidgets({ widgets }: { widgets: Array<{ key: string; lines: string[] }> }) {
-  if (widgets.length === 0) return null;
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
-      {widgets.map((widget) => (
-        <div
-          key={widget.key}
-          style={{
-            border: "1px solid var(--border)",
-            borderRadius: 7,
-            background: "var(--bg-panel)",
-            overflow: "hidden",
-          }}
-        >
-          <div style={{ padding: "5px 9px", borderBottom: "1px solid var(--border)", color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>
-            {widget.key}
-          </div>
-          <pre style={{ margin: 0, padding: "8px 9px", color: "var(--text-muted)", fontSize: 12, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "var(--font-mono)" }}>
-            {widget.lines.join("\n")}
-          </pre>
-        </div>
-      ))}
     </div>
   );
 }

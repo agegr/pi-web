@@ -139,6 +139,15 @@
   gap: 0;
 }
 
+.outline :global(.katex) {
+  font-size: 1em;
+}
+
+.outline :global(.katex-display) {
+  display: inline;
+  margin: 0;
+}
+
 .heading,
 .paragraph {
   display: block;

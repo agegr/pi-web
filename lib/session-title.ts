@@ -214,7 +214,9 @@ export async function generateSessionTitle(source: AgentSession): Promise<Genera
 
   const sanitizedMessages = sanitizeTitleMessages(sourceAgent.state.messages);
   const historyLength = sanitizedMessages.length;
-  if (!sanitizedMessages.some((message) => message.role === "user")) {
+  if (!sanitizedMessages.some(
+    (message) => message.role === "user" || message.role === "compactionSummary",
+  )) {
     throw new Error("The session has no user messages to name");
   }
 

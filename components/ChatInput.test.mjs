@@ -8,7 +8,8 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, filterModelOptions } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canRestoreUserMessage, filterModelOptions, getUserMessageText, getUserMessageDraftImages } = await jiti.import("./ChatInput.tsx");
+const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("../lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
 test("renders the upstream model error", () => {
@@ -60,6 +61,30 @@ test("keeps the model selector visible when a model error leaves no options", ()
   assert.match(html, /title="No available models"/);
 });
 
+test("shows and locks the optimistic model while a switch is pending", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        onModelChange() {},
+        isStreaming: false,
+        model: { provider: "deepseek", modelId: "deepseek-v4-flash" },
+        modelList: [{ provider: "deepseek", id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" }],
+        modelSwitching: true,
+      }),
+    ),
+  );
+
+  assert.match(html, /title="Switching model"/);
+  assert.match(html, /aria-busy="true"/);
+  assert.match(html, /disabled=""/);
+  assert.match(html, />DeepSeek V4 Flash</);
+  assert.match(html, /animation:spin 0\.8s linear infinite/);
+});
+
 test("filters model options by name and id", () => {
   const options = [
     { provider: "ollama", modelId: "qwen3:latest", name: "Qwen 3" },
@@ -73,6 +98,130 @@ test("filters model options by name and id", () => {
   assert.equal(filterModelOptions(options, "anthropic/claude").length, 0);
   assert.equal(filterModelOptions(options, "missing").length, 0);
   assert.equal(filterModelOptions(options, "  "), options);
+});
+
+test("restores text and base64 images when editing a user message", () => {
+  const message = {
+    role: "user",
+    content: [
+      { type: "text", text: "Review this image @src/example.ts " },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "AQID" } },
+    ],
+  };
+
+  assert.equal(getUserMessageText(message), "Review this image @src/example.ts ");
+  assert.deepEqual(getUserMessageDraftImages(message), [
+    { data: "AQID", mimeType: "image/png" },
+  ]);
+});
+
+test("restores legacy flat image entries when editing a user message", () => {
+  const message = {
+    role: "user",
+    content: [
+      { type: "image", data: "AQID", mimeType: "image/jpeg" },
+    ],
+  };
+
+  assert.deepEqual(getUserMessageDraftImages(message), [
+    { data: "AQID", mimeType: "image/jpeg" },
+  ]);
+});
+
+test("does not restore a historical message over a pending image attachment", () => {
+  assert.equal(canRestoreUserMessage("", 0, 0), true);
+  assert.equal(canRestoreUserMessage("", 1, 0), false);
+  assert.equal(canRestoreUserMessage("", 0, 1), false);
+  assert.equal(canRestoreUserMessage("draft", 0, 0), false);
+});
+
+test("restores a cleared submission using the queued React state", () => {
+  let value = "failed submission";
+  const updates = [
+    () => "",
+    (current) => mergeRestoredSubmissionText("failed submission", current),
+  ];
+
+  for (const update of updates) value = update(value);
+
+  assert.equal(value, "failed submission");
+  assert.equal(
+    mergeRestoredSubmissionText("failed submission", "new draft"),
+    "failed submission\n\nnew draft",
+  );
+  assert.equal(
+    mergeRestoredSubmissionText("failed submission", "failed submission"),
+    "failed submission\n\nfailed submission",
+  );
+});
+
+test("keeps a failed first submission recoverable across a composer remount", () => {
+  const image = { data: "AQID", mimeType: "image/png" };
+  const restored = mergeRestoredSubmissionDraft(
+    "failed submission",
+    [image],
+    "",
+    [],
+  );
+
+  assert.deepEqual(restored, {
+    value: "failed submission",
+    images: [image],
+  });
+  assert.deepEqual(
+    mergeRestoredSubmissionDraft("failed submission", [image], "new draft", []),
+    {
+      value: "failed submission\n\nnew draft",
+      images: [image],
+    },
+  );
+});
+
+test("preserves duplicate image attachments when restoring a submission", () => {
+  const image = { data: "AQID", mimeType: "image/png" };
+  const restored = mergeRestoredSubmissionDraft("", [image, image], "", [image]);
+
+  assert.deepEqual(restored.images, [image, image, image]);
+});
+
+test("moves a provisional new-session draft to the real session key", () => {
+  const provisionalKey = "new:/tmp/rekey-test";
+  const sessionKey = "session-rekey-test";
+  clearDraft(provisionalKey);
+  clearDraft(sessionKey);
+  setDraft(provisionalKey, { value: "queued while preflight ran", images: [] });
+
+  assert.deepEqual(rekeyDraft(provisionalKey, sessionKey), {
+    value: "queued while preflight ran",
+    images: [],
+  });
+  assert.equal(getDraft(provisionalKey), null);
+  assert.deepEqual(getDraft(sessionKey), {
+    value: "queued while preflight ran",
+    images: [],
+  });
+
+  clearDraft(sessionKey);
+});
+
+test("rekey keeps a synchronously restored draft when React state is still empty", () => {
+  const provisionalKey = "new:/tmp/rekey-race";
+  const sessionKey = "session-rekey-race";
+  clearDraft(provisionalKey);
+  clearDraft(sessionKey);
+  setDraft(provisionalKey, { value: "restored before state flush", images: [] });
+
+  assert.deepEqual(
+    rekeyDraft(provisionalKey, sessionKey, { value: "", images: [] }),
+    { value: "restored before state flush", images: [] },
+  );
+  assert.equal(getDraft(provisionalKey), null);
+  assert.deepEqual(getDraft(sessionKey), {
+    value: "restored before state flush",
+    images: [],
+  });
+
+  clearDraft(sessionKey);
 });
 
 test("renders compact errors above the input as a wrapping alert", () => {

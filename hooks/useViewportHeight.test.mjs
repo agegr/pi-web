@@ -14,7 +14,16 @@ test("uses the visual viewport for a focused editor when the keyboard shrinks it
   }), true);
 });
 
-test("keeps the dynamic viewport height when no editor is focused", () => {
+test("does not keep the keyboard height after the visual viewport restores", () => {
+  assert.equal(shouldUseVisualViewportHeight({
+    hasFocusedEditable: true,
+    innerHeight: 844,
+    viewportHeight: 844,
+    viewportScale: 1,
+  }), false);
+});
+
+test("restores the dynamic height as soon as the editor loses focus", () => {
   assert.equal(shouldUseVisualViewportHeight({
     hasFocusedEditable: false,
     innerHeight: 844,

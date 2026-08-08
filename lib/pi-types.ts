@@ -5,6 +5,7 @@ import type {
   SlashCommandInfo,
   Theme,
 } from "@earendil-works/pi-coding-agent";
+import type { AgentMessage as PiAgentMessage } from "@earendil-works/pi-agent-core";
 
 export interface ContextUsage {
   percent: number | null;
@@ -46,6 +47,8 @@ export interface SessionStatsInfo {
   };
   cost: number;
   contextUsage?: ContextUsage;
+  /** Estimated active time across all entries in the session file. */
+  totalActiveMs?: number;
 }
 
 interface PromptTemplateLike {
@@ -128,7 +131,13 @@ export interface AgentSessionLike {
   };
   readonly sessionManager: SessionManager;
   readonly settingsManager: SettingsManager;
-  readonly agent: { state?: { systemPrompt?: string; thinkingLevel?: string } };
+  readonly agent: {
+    state?: {
+      systemPrompt?: string;
+      thinkingLevel?: string;
+      streamingMessage?: PiAgentMessage;
+    };
+  };
   readonly extensionRunner: ExtensionRunnerLike;
   readonly promptTemplates: readonly PromptTemplateLike[];
   readonly resourceLoader: ResourceLoaderLike;
@@ -141,6 +150,7 @@ export interface AgentSessionLike {
     images?: Array<{ type: "image"; data: string; mimeType: string }>;
     streamingBehavior?: "steer" | "followUp";
     source?: "interactive" | "rpc";
+    preflightResult?: (success: boolean) => void;
   }): Promise<void>;
   abort(): Promise<void>;
   executeBash(command: string, onChunk?: (chunk: string) => void, options?: { excludeFromContext?: boolean }): Promise<{ output: string; exitCode?: number; cancelled?: boolean; truncated?: boolean; fullOutputPath?: string }>;
