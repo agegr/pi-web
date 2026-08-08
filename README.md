@@ -101,6 +101,7 @@ The local dev server runs at [http://127.0.0.1:30141](http://127.0.0.1:30141).
 Common checks:
 
 ```bash
+npm test
 node_modules/.bin/tsc --noEmit
 npm run lint
 ```

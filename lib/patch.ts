@@ -27,6 +27,12 @@ export function parseUnifiedPatch(text: string): SplitDiffFile[] | null {
   let pendingOldPath: string | undefined;
   let oldLineNo = 0;
   let newLineNo = 0;
+  // Lines still expected in the current hunk body, from the @@ header counts.
+  // While either is positive we are inside a hunk, where a line starting with
+  // "--- "/"+++ " is a removed/added content line (e.g. "-- x"/"++ x"), not a
+  // file header — checking for headers there splits one file into bogus extras.
+  let hunkOldRemaining = 0;
+  let hunkNewRemaining = 0;
   let removed: PendingChangeLine[] = [];
   let added: PendingChangeLine[] = [];
 
@@ -52,20 +58,25 @@ export function parseUnifiedPatch(text: string): SplitDiffFile[] | null {
   };
 
   for (const line of text.split(/\r?\n/)) {
-    if (line.startsWith("--- ")) {
-      flushChanges();
-      pendingOldPath = cleanPatchPath(line.slice(4));
-      continue;
+    const insideHunk = hunkOldRemaining > 0 || hunkNewRemaining > 0;
+
+    // File headers only appear between hunks, never inside a hunk body.
+    if (!insideHunk) {
+      if (line.startsWith("--- ")) {
+        flushChanges();
+        pendingOldPath = cleanPatchPath(line.slice(4));
+        continue;
+      }
+
+      if (line.startsWith("+++ ")) {
+        flushChanges();
+        current = { oldPath: pendingOldPath, newPath: cleanPatchPath(line.slice(4)), rows: [] };
+        files.push(current);
+        continue;
+      }
     }
 
-    if (line.startsWith("+++ ")) {
-      flushChanges();
-      current = { oldPath: pendingOldPath, newPath: cleanPatchPath(line.slice(4)), rows: [] };
-      files.push(current);
-      continue;
-    }
-
-    const hunk = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    const hunk = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
     if (hunk) {
       if (!current) {
         current = { rows: [] };
@@ -73,7 +84,9 @@ export function parseUnifiedPatch(text: string): SplitDiffFile[] | null {
       }
       flushChanges();
       oldLineNo = Number(hunk[1]);
-      newLineNo = Number(hunk[2]);
+      newLineNo = Number(hunk[3]);
+      hunkOldRemaining = hunk[2] === undefined ? 1 : Number(hunk[2]);
+      hunkNewRemaining = hunk[4] === undefined ? 1 : Number(hunk[4]);
       current.rows.push({ type: "hunk", text: line });
       continue;
     }
@@ -96,10 +109,14 @@ export function parseUnifiedPatch(text: string): SplitDiffFile[] | null {
         left: { lineNo: oldLineNo++, text: content, type: "context" },
         right: { lineNo: newLineNo++, text: content, type: "context" },
       });
+      if (hunkOldRemaining > 0) hunkOldRemaining--;
+      if (hunkNewRemaining > 0) hunkNewRemaining--;
     } else if (prefix === "-") {
       removed.push({ lineNo: oldLineNo++, text: content });
+      if (hunkOldRemaining > 0) hunkOldRemaining--;
     } else if (prefix === "+") {
       added.push({ lineNo: newLineNo++, text: content });
+      if (hunkNewRemaining > 0) hunkNewRemaining--;
     } else if (line !== "") {
       flushChanges();
       current.rows.push({ type: "hunk", text: line });
