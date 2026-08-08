@@ -1,4 +1,4 @@
-import { normalize } from "path";
+import { normalize, parse, sep } from "path";
 
 // ============================================================================
 // Path primitives.
@@ -44,6 +44,14 @@ export function toSlashPath(p: string): string {
   return p.replace(/\\/g, "/");
 }
 
+function normalizeForComparison(p: string): string {
+  const normalized = normalize(toNativePath(p));
+  const rootLength = parse(normalized).root.length;
+  let end = normalized.length;
+  while (end > rootLength && normalized[end - 1] === sep) end--;
+  return normalized.slice(0, end);
+}
+
 /**
  * Whether two paths denote the same location, tolerating separator style and —
  * on Windows, where the filesystem is case-insensitive — case, including the
@@ -54,6 +62,10 @@ export function toSlashPath(p: string): string {
 export function samePath(a: string, b: string): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
-  if (process.platform !== "win32") return false;
-  return toNativePath(a).toLowerCase() === toNativePath(b).toLowerCase();
+  const normalizedA = normalizeForComparison(a);
+  const normalizedB = normalizeForComparison(b);
+  if (process.platform === "win32") {
+    return normalizedA.toLowerCase() === normalizedB.toLowerCase();
+  }
+  return normalizedA === normalizedB;
 }

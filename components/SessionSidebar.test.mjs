@@ -24,3 +24,13 @@ test("polls running sessions only while the tab is visible", () => {
   assert.match(source, /document\.visibilityState !== "visible"/);
   assert.match(source, /document\.addEventListener\("visibilitychange", onVisibilityChange\)/);
 });
+
+test("uses the server-resolved current worktree identity", () => {
+  assert.match(source, /currentWorktreePath: string \| null/);
+  assert.match(
+    source,
+    /const currentWorktree =[\s\S]*?worktreeState\.currentWorktreePath[\s\S]*?worktree\.path === worktreeState\.currentWorktreePath/,
+  );
+  assert.match(source, /if \(currentWorktreePath === path\) setSelectedCwd\(worktreeState\.projectRoot\)/);
+  assert.doesNotMatch(source, /const isCurrent = wt\.path === selectedCwd/);
+});

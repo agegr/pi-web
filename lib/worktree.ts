@@ -60,6 +60,14 @@ async function git(cwd: string, args: string[]): Promise<string> {
   return stdout.trim();
 }
 
+function realPathOrSelf(filePath: string): string {
+  try {
+    return realpathSync(filePath);
+  } catch {
+    return filePath;
+  }
+}
+
 /**
  * addWorktree() places worktrees in `<repoRoot>-worktrees/<dir>`. When such a
  * directory no longer exists (worktree removed), group its sessions back
@@ -71,7 +79,7 @@ function inferRemovedWorktree(cwd: string): ProjectInfo | null {
   if (!parent.endsWith("-worktrees")) return null;
   const repoRoot = parent.slice(0, -"-worktrees".length);
   if (!repoRoot || !existsSync(join(repoRoot, ".git"))) return null;
-  return { projectRoot: repoRoot, branch: basename(cwd), isWorktree: true, isTopLevel: true };
+  return { projectRoot: realPathOrSelf(repoRoot), branch: basename(cwd), isWorktree: true, isTopLevel: true };
 }
 
 export async function resolveProject(cwd: string): Promise<ProjectInfo> {
@@ -96,8 +104,7 @@ export async function resolveProject(cwd: string): Promise<ProjectInfo> {
     // keep its forward slashes (`feature/foo`).
     const [commonDir, gitDir, toplevel] = [commonDirRaw, gitDirRaw, toplevelRaw].map(toNativePath);
     // git prints resolved (symlink-free) paths; normalize cwd the same way
-    let realCwd = cwd;
-    try { realCwd = realpathSync(cwd); } catch { /* keep as-is */ }
+    const realCwd = realPathOrSelf(cwd);
     // For a linked worktree, --git-dir differs from --git-common-dir.
     // Only collapse *worktree toplevels* into the main repo. A session whose
     // cwd is a subdirectory of a repo keeps its own project identity —
@@ -105,8 +112,9 @@ export async function resolveProject(cwd: string): Promise<ProjectInfo> {
     // are created for existing users.
     const isTopLevel = samePath(toplevel, realCwd);
     const isWorktreeTopLevel = !samePath(gitDir, commonDir) && isTopLevel;
+    const topLevelProjectRoot = isWorktreeTopLevel ? dirname(commonDir) : toplevel;
     info = {
-      projectRoot: isWorktreeTopLevel ? dirname(commonDir) : cwd,
+      projectRoot: isTopLevel ? realPathOrSelf(topLevelProjectRoot) : cwd,
       branch: ref && ref !== "HEAD" ? ref : null,
       isWorktree: isWorktreeTopLevel,
       isTopLevel,
@@ -130,7 +138,7 @@ export async function resolveProject(cwd: string): Promise<ProjectInfo> {
 /** Main repo root (parent of the shared .git dir), or throws for non-git dirs */
 async function getRepoRoot(cwd: string): Promise<string> {
   const commonDir = await git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  return dirname(toNativePath(commonDir));
+  return realPathOrSelf(dirname(toNativePath(commonDir)));
 }
 
 export async function listWorktrees(cwd: string): Promise<WorktreeInfo[]> {
@@ -168,6 +176,14 @@ export async function listWorktrees(cwd: string): Promise<WorktreeInfo[]> {
   }
   flush();
   return worktrees;
+}
+
+function findWorktreeByPath(worktrees: readonly WorktreeInfo[], candidate: string): WorktreeInfo | undefined {
+  return worktrees.find((worktree) => samePath(worktree.path, candidate));
+}
+
+export function findCurrentWorktreePath(worktrees: readonly WorktreeInfo[], cwd: string): string | null {
+  return findWorktreeByPath(worktrees, realPathOrSelf(cwd))?.path ?? null;
 }
 
 function sanitizeBranchForDir(branch: string): string {
@@ -215,12 +231,12 @@ export async function addWorktree(cwd: string, branch: string): Promise<{ path: 
 
 export async function removeWorktree(cwd: string, worktreePath: string, force = false): Promise<void> {
   const worktrees = await listWorktrees(cwd);
-  const target = worktrees.find((w) => samePath(w.path, worktreePath));
+  const target = findWorktreeByPath(worktrees, worktreePath);
   if (!target) throw new Error(`Not a worktree of this repository: ${worktreePath}`);
   if (target.isMain) throw new Error("Cannot remove the main worktree");
 
   try {
-    await git(cwd, ["worktree", "remove", ...(force ? ["--force"] : []), worktreePath]);
+    await git(cwd, ["worktree", "remove", ...(force ? ["--force"] : []), target.path]);
   } catch (error) {
     throw new Error(extractGitError(error));
   }
