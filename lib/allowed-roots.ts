@@ -1,3 +1,5 @@
+import { toSlashPath } from "./paths";
+
 // In-memory roots that should be browsable in addition to roots derived from
 // persisted sessions. Stored on globalThis so Next.js hot-reload keeps them.
 declare global {
@@ -5,8 +7,13 @@ declare global {
   var __piAdditionalAllowedRoots: Set<string> | undefined;
 }
 
+/**
+ * Allowed roots are internal bookkeeping keys that are never displayed, so they
+ * are stored slash-normalized for consistent Set membership. Correctness does
+ * not depend on it — isPathWithinRoots() re-normalizes whatever it is given.
+ */
 export function normalizeSlashes(filePath: string): string {
-  return filePath.replace(/\\/g, "/");
+  return toSlashPath(filePath);
 }
 
 export function getAdditionalAllowedRoots(): Set<string> {

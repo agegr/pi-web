@@ -3,6 +3,7 @@
 import { useI18n } from "@/hooks/useI18n";
 import { getFileName } from "@/lib/file-paths";
 import type { WrittenFile } from "@/lib/turn-written-files";
+import { getFileIcon } from "./FileIcons";
 
 /**
  * Lists the files a turn actually wrote, as buttons that open each one in the
@@ -41,20 +42,7 @@ export function TurnWrittenFiles({ files, onOpenFile }: {
               cursor: "pointer",
             }}
           >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M9 1.5H4A1.5 1.5 0 0 0 2.5 3v10A1.5 1.5 0 0 0 4 14.5h8A1.5 1.5 0 0 0 13.5 13V6z" />
-              <path d="M9 1.5V6h4.5" />
-            </svg>
+            {getFileIcon(name, 12)}
             <span>{name}</span>
           </button>
         );
