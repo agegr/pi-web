@@ -2,46 +2,130 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
-type Theme = "light" | "dark";
+export type ThemePreference = "light" | "dark" | "auto";
+export type ResolvedTheme = "light" | "dark";
+
+type ThemeState = {
+  preference: ThemePreference;
+  theme: ResolvedTheme;
+};
+
+type ToggleOrigin = { x: number; y: number };
+
+const STORAGE_KEY = "pi-theme";
+const PREFERENCE_CYCLE: ThemePreference[] = ["light", "dark", "auto"];
+const SERVER_SNAPSHOT: ThemeState = { preference: "auto", theme: "light" };
 
 const listeners = new Set<() => void>();
+let state: ThemeState | null = null;
+let systemListening = false;
+
+function emit(): void {
+  listeners.forEach((cb) => cb());
+}
+
+function getSystemTheme(): ResolvedTheme {
+  if (typeof window === "undefined") return "light";
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function readStoredPreference(): ThemePreference {
+  try {
+    const value = localStorage.getItem(STORAGE_KEY);
+    if (value === "light" || value === "dark" || value === "auto") return value;
+  } catch {
+    // ignore storage errors (private mode, quota, etc.)
+  }
+  return "auto";
+}
+
+function resolveTheme(preference: ThemePreference): ResolvedTheme {
+  return preference === "auto" ? getSystemTheme() : preference;
+}
+
+function applyDomTheme(theme: ResolvedTheme): void {
+  if (typeof document === "undefined") return;
+  document.documentElement.classList.toggle("dark", theme === "dark");
+}
+
+function ensureState(): ThemeState {
+  if (typeof window === "undefined") return SERVER_SNAPSHOT;
+  if (state) return state;
+
+  const preference = readStoredPreference();
+  const theme = resolveTheme(preference);
+  applyDomTheme(theme);
+  state = { preference, theme };
+  return state;
+}
+
+function setThemeState(preference: ThemePreference, theme: ResolvedTheme, persist: boolean): void {
+  applyDomTheme(theme);
+  if (persist) {
+    try {
+      localStorage.setItem(STORAGE_KEY, preference);
+    } catch {
+      // ignore storage errors (private mode, quota, etc.)
+    }
+  }
+  state = { preference, theme };
+  emit();
+}
+
+function syncAutoThemeFromSystem(): void {
+  const current = ensureState();
+  if (current.preference !== "auto") return;
+  const theme = getSystemTheme();
+  if (theme === current.theme) return;
+  setThemeState("auto", theme, false);
+}
+
+function ensureSystemListener(): void {
+  if (systemListening || typeof window === "undefined" || !window.matchMedia) return;
+
+  const mql = window.matchMedia("(prefers-color-scheme: dark)");
+  mql.addEventListener("change", syncAutoThemeFromSystem);
+  // Some browsers delay or miss scheme events while backgrounded.
+  window.addEventListener("focus", syncAutoThemeFromSystem);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") syncAutoThemeFromSystem();
+  });
+  systemListening = true;
+}
 
 function subscribe(cb: () => void): () => void {
   listeners.add(cb);
+  ensureState();
+  ensureSystemListener();
+  syncAutoThemeFromSystem();
   return () => {
     listeners.delete(cb);
   };
 }
 
-function getSnapshot(): Theme {
-  if (typeof document === "undefined") return "light";
-  return document.documentElement.classList.contains("dark") ? "dark" : "light";
+function getSnapshot(): ThemeState {
+  return ensureState();
 }
 
-function getServerSnapshot(): Theme {
-  return "light";
+function getServerSnapshot(): ThemeState {
+  return SERVER_SNAPSHOT;
 }
 
-type ToggleOrigin = { x: number; y: number };
+function nextPreference(preference: ThemePreference): ThemePreference {
+  const index = PREFERENCE_CYCLE.indexOf(preference);
+  return PREFERENCE_CYCLE[(index + 1) % PREFERENCE_CYCLE.length];
+}
 
 export function useTheme() {
-  const theme = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   const toggleTheme = useCallback((origin?: ToggleOrigin) => {
-    const next: Theme = getSnapshot() === "dark" ? "light" : "dark";
+    const current = ensureState();
+    const nextPref = nextPreference(current.preference);
+    const nextTheme = resolveTheme(nextPref);
 
     const apply = () => {
-      if (next === "dark") {
-        document.documentElement.classList.add("dark");
-      } else {
-        document.documentElement.classList.remove("dark");
-      }
-      try {
-        localStorage.setItem("pi-theme", next);
-      } catch {
-        // ignore storage errors (private mode, quota, etc.)
-      }
-      listeners.forEach((cb) => cb());
+      setThemeState(nextPref, nextTheme, true);
     };
 
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -81,5 +165,10 @@ export function useTheme() {
       });
   }, []);
 
-  return { theme, toggleTheme, isDark: theme === "dark" };
+  return {
+    theme: snapshot.theme,
+    preference: snapshot.preference,
+    toggleTheme,
+    isDark: snapshot.theme === "dark",
+  };
 }

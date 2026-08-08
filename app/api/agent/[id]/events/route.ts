@@ -1,20 +1,11 @@
+import {
+  isEventIncludedInSnapshot,
+  toClientAgentEvent,
+} from "@/lib/agent-event-wire";
 import { resolveSessionPath } from "@/lib/session-reader";
-import { getRpcSession, startRpcSession, type AgentEvent } from "@/lib/rpc-manager";
+import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
 
 export const dynamic = "force-dynamic";
-
-const OMITTED_EVENT_TYPES = new Set(["turn_start", "turn_end", "tool_execution_update"]);
-
-function toClientEvent(event: AgentEvent): AgentEvent | null {
-  if (OMITTED_EVENT_TYPES.has(event.type)) return null;
-  if (event.type === "message_update") {
-    const clientEvent = { ...event };
-    delete clientEvent.assistantMessageEvent;
-    return clientEvent;
-  }
-  if (event.type === "agent_end") return { type: "agent_end" };
-  return event;
-}
 
 // GET /api/agent/[id]/events - SSE stream of agent events
 export async function GET(
@@ -45,11 +36,19 @@ export async function GET(
         controller.enqueue(encoder.encode(text));
       };
 
-      // Send initial connected event
-      encode({ type: "connected", sessionId: id });
+      const streamingMessage = session.streamingMessage;
+      encode({
+        type: "connected",
+        sessionId: id,
+        isStreaming: session.isStreaming,
+      });
+      if (streamingMessage) {
+        encode({ type: "message_start", message: streamingMessage });
+      }
 
       const unsubscribe = session.onEvent((event) => {
-        const clientEvent = toClientEvent(event);
+        if (isEventIncludedInSnapshot(event, streamingMessage)) return;
+        const clientEvent = toClientAgentEvent(event);
         if (clientEvent) encode(clientEvent);
       });
 
