@@ -8,7 +8,7 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { MermaidBlock } = await jiti.import("./MermaidBlock.tsx");
+const { MermaidBlock, CodeBlock } = await jiti.import("./MermaidBlock.tsx");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
 // Simple sequenceDiagram for testing
@@ -56,6 +56,30 @@ test("MermaidBlock renders empty graph without error", () => {
 
   assert.doesNotMatch(html, /mermaid-block-error/);
   assert.match(html, /mermaid-block-loading/);
+});
+
+function renderCode(props) {
+  return renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(CodeBlock, props),
+    ),
+  );
+}
+
+test("CodeBlock highlights code when not streaming", () => {
+  const html = renderCode({ code: "const x = 1;", lang: "javascript" });
+
+  assert.match(html, /class="token/);
+  assert.match(html, /const/);
+});
+
+test("CodeBlock renders plain text without tokenization while streaming", () => {
+  const html = renderCode({ code: "const x = 1;", lang: "javascript", isStreaming: true });
+
+  assert.doesNotMatch(html, /class="token/);
+  assert.match(html, /const x = 1;/);
 });
 
 test("MermaidBlock handles Chinese characters in diagram", () => {

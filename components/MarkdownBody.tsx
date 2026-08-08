@@ -27,7 +27,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
         if (lang === "mermaid") {
           return <MermaidBlock code={raw.replace(/\n$/, "")} isStreaming={isStreaming} />;
         }
-        return <CodeBlock code={raw.replace(/\n$/, "")} lang={lang} />;
+        return <CodeBlock code={raw.replace(/\n$/, "")} lang={lang} isStreaming={isStreaming} />;
       }
       return (
         <code
