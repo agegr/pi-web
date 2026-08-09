@@ -119,8 +119,13 @@ function parseVersionOutput(method, stdout) {
     }
     return "";
   }
+  // yarn and bun print the bare version; scan for the first semver-looking
+  // line because yarn appends "Done in ..." noise after the value.
   const lines = stdout.split("\n").map((line) => line.trim()).filter(Boolean);
-  return lines.length > 0 ? lines[lines.length - 1] : "";
+  for (const line of lines) {
+    if (STABLE_VERSION_PATTERN.test(line)) return line;
+  }
+  return "";
 }
 
 function getLatestVersion(method) {

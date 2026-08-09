@@ -86,6 +86,7 @@ test("parses version output from each package manager", () => {
   assert.equal(parseVersionOutput("npm", '["0.8.8"]'), "0.8.8");
   assert.equal(parseVersionOutput("pnpm", '"0.8.8"'), "0.8.8");
   assert.equal(parseVersionOutput("yarn", "0.8.8\n"), "0.8.8");
+  assert.equal(parseVersionOutput("yarn", "0.8.8\nDone in 0.11s.\n"), "0.8.8");
   assert.equal(parseVersionOutput("bun", "0.8.8\n"), "0.8.8");
   assert.equal(parseVersionOutput("npm", "not json"), "");
   assert.equal(parseVersionOutput("bun", ""), "");
