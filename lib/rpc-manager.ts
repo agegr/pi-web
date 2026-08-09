@@ -13,6 +13,13 @@ import { persistExplicitStartupPreferences } from "./startup-preferences";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
 import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
+import {
+  formatRunningToolDetail,
+  getUserMessageText,
+  resolveRunningStatus,
+  type RunningSessionRuntimeSnapshot,
+  type RunningToolActivity,
+} from "./running-sessions";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
 
 // ============================================================================
@@ -168,6 +175,9 @@ export class AgentSessionWrapper {
   private forceEmptySystemPrompt = false;
   private unsubscribe: (() => void) | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  private activeTools = new Map<string, RunningToolActivity>();
+  private bashCommand: string | null = null;
+  private compactionActive = false;
   private onDestroyCallback: (() => void) | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private _alive = true;
@@ -199,11 +209,61 @@ export class AgentSessionWrapper {
   }
 
   isRunning(): boolean {
-    return this._alive && (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning);
+    return this._alive && (
+      this.pendingPromptCount > 0
+      || this.inner.isStreaming
+      || this.isCompactionActive()
+      || this.inner.isBashRunning
+    );
+  }
+
+  private isCompactionActive(): boolean {
+    return this.inner.isCompacting || this.compactionActive;
+  }
+
+  getRunningSnapshot(): RunningSessionRuntimeSnapshot {
+    let name: string | undefined;
+    let firstMessage: string | undefined;
+    let messageCount = 0;
+    try {
+      name = this.inner.sessionManager.getSessionName();
+      const branch = this.inner.sessionManager.getBranch();
+      for (const entry of branch) {
+        if (entry.type !== "message") continue;
+        messageCount += 1;
+        if (firstMessage) continue;
+        const message = (entry as { message?: unknown }).message;
+        const text = getUserMessageText(message);
+        if (text) firstMessage = text;
+      }
+    } catch {
+      // A session can be queried while it is being initialized. The live state
+      // remains useful even when its metadata is not available yet.
+    }
+
+    return {
+      id: this.sessionId,
+      path: this.sessionFile,
+      cwd: this.cwd,
+      ...(name ? { name } : {}),
+      ...(firstMessage ? { firstMessage } : {}),
+      messageCount,
+      status: resolveRunningStatus({
+        isCompacting: this.isCompactionActive(),
+        isBashRunning: this.inner.isBashRunning,
+        isStreaming: this.inner.isStreaming,
+        isPromptRunning: this.pendingPromptCount > 0,
+        activeTools: [...this.activeTools.values()],
+        bashCommand: this.bashCommand,
+      }),
+      queued: this.inner.pendingMessageCount,
+    };
+  }
   }
 
   start(): void {
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
+      this.updateRunningActivity(event);
       if (event.type === "agent_end") {
         invalidateSessionListCache();
       }
@@ -213,6 +273,30 @@ export class AgentSessionWrapper {
     });
     this.resetIdleTimer();
     notifyRunningChange();
+  }
+
+  private updateRunningActivity(event: AgentEvent): void {
+    switch (event.type) {
+      case "tool_execution_start": {
+        const name = typeof event.toolName === "string" ? event.toolName : "tool";
+        this.activeTools.set(String(event.toolCallId ?? name), {
+          name,
+          detail: formatRunningToolDetail(name, event.args),
+        });
+        break;
+      }
+      case "tool_execution_end":
+        if (event.toolCallId !== undefined) this.activeTools.delete(String(event.toolCallId));
+        break;
+      case "compaction_start":
+      case "auto_compaction_start":
+        this.compactionActive = true;
+        break;
+      case "compaction_end":
+      case "auto_compaction_end":
+        this.compactionActive = false;
+        break;
+    }
   }
 
   setForceEmptySystemPrompt(force: boolean): void {
@@ -496,7 +580,7 @@ export class AgentSessionWrapper {
           isStreaming: this.inner.isStreaming,
           isPromptRunning: this.pendingPromptCount > 0,
           isBashRunning: this.inner.isBashRunning,
-          isCompacting: this.inner.isCompacting,
+          isCompacting: this.isCompactionActive(),
           autoCompactionEnabled: this.inner.autoCompactionEnabled,
           autoRetryEnabled: this.inner.autoRetryEnabled,
           model: model ? { id: model.id, provider: model.provider } : undefined,
@@ -722,20 +806,22 @@ export class AgentSessionWrapper {
       }
 
       case "bash": {
-        if (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning) {
+        if (this.pendingPromptCount > 0 || this.inner.isStreaming || this.isCompactionActive() || this.inner.isBashRunning) {
           throw new Error("Cannot run a shell command while the session is busy");
         }
-        const execution = this.inner.executeBash(
-          command.command as string,
-          undefined,
-          { excludeFromContext: command.excludeFromContext as boolean | undefined },
-        );
-        notifyRunningChange();
+        this.bashCommand = command.command as string;
         try {
+          const execution = this.inner.executeBash(
+            this.bashCommand,
+            undefined,
+            { excludeFromContext: command.excludeFromContext as boolean | undefined },
+          );
+          notifyRunningChange();
           const result = await execution;
           this.persistBashOnlySession();
           return result;
         } finally {
+          this.bashCommand = null;
           this.resetIdleTimer();
           invalidateSessionListCache();
           notifyRunningChange();
@@ -757,6 +843,9 @@ export class AgentSessionWrapper {
     this._alive = false;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this.inner.isBashRunning) this.inner.abortBash();
+    this.activeTools.clear();
+    this.bashCommand = null;
+    this.compactionActive = false;
     this.unsubscribe?.();
     for (const pending of this.pendingUiResponses.values()) pending.cancel();
     for (const id of Array.from(this.activeCustomUis.keys())) this.closeCustomUi(id, undefined);
@@ -1414,6 +1503,15 @@ export async function destroyRpcSessionsForCwd(cwd: string): Promise<number> {
   );
   await Promise.all(sessions.map((session) => session.shutdown()));
   return sessions.length;
+}
+
+export function getRunningRpcSessionSnapshots(): RunningSessionRuntimeSnapshot[] {
+  const snapshots: RunningSessionRuntimeSnapshot[] = [];
+  for (const session of getRegistry().values()) {
+    if (!session.isRunning()) continue;
+    snapshots.push(session.getRunningSnapshot());
+  }
+  return snapshots;
 }
 
 export function getRunningRpcSessionIds(): string[] {

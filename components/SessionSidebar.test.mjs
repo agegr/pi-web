@@ -54,6 +54,22 @@ test("defaults to workspace and exposes a non-URL scope tablist", () => {
   assert.match(source, /globalPlaceholder/);
 });
 
+test("global scope renders an independently scrollable running section", () => {
+  assert.match(source, /function GlobalRunningSessions\(/);
+  assert.match(source, /data-global-running-section="true"/);
+  assert.match(source, /data-global-running-list="true"/);
+  assert.match(source, /maxHeight: "min\(38vh, 360px\)"/);
+  assert.match(source, /sessions=\{runningSessions\}/);
+  assert.match(source, /onSelect=\{handleSelectRunningSession\}/);
+});
+
+test("running snapshots retain the last known rows when polling fails", () => {
+  assert.match(source, /setRunningSessions\(snapshot\)/);
+  assert.match(source, /Keep the last known snapshot/);
+  assert.match(source, /setRunningError\(/);
+  assert.match(source, /runningRetryKey/);
+});
+
 test("keeps new-session creation lazy and scoped to workspace", async () => {
   assert.doesNotMatch(source, /crypto\.randomUUID\(\)/);
   const workspaceSource = source.slice(

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
-import type { SessionInfo } from "@/lib/types";
+import type { GlobalSessionSnapshot, RunningSessionSnapshot, RunningSessionStatusKind, SessionInfo } from "@/lib/types";
+import { getFileName } from "@/lib/file-paths";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
@@ -423,6 +424,179 @@ function GlobalNavigationPlaceholder() {
   );
 }
 
+function runningStatusLabel(kind: RunningSessionStatusKind, t: ReturnType<typeof useI18n>["t"]): string {
+  switch (kind) {
+    case "compacting": return t("sidebar.runningStatusCompacting");
+    case "executing": return t("sidebar.runningStatusExecuting");
+    case "generating": return t("sidebar.runningStatusGenerating");
+    case "processing": return t("sidebar.runningStatusProcessing");
+  }
+}
+
+function GlobalRunningSessions({
+  sessions,
+  homeDir,
+  selectedSessionId,
+  loading,
+  error,
+  onRetry,
+  onSelect,
+}: {
+  sessions: RunningSessionSnapshot[];
+  homeDir: string;
+  selectedSessionId: string | null;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  onSelect: (session: RunningSessionSnapshot) => void;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(true);
+
+  return (
+    <section
+      data-global-running-section="true"
+      aria-label={t("sidebar.running")}
+      style={{
+        display: "flex",
+        flex: "0 1 min(38vh, 360px)",
+        flexDirection: "column",
+        minHeight: 82,
+        maxHeight: "min(38vh, 360px)",
+        borderBottom: "1px solid var(--border)",
+        overflow: "hidden",
+      }}
+    >
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 7,
+          width: "100%",
+          minHeight: 34,
+          padding: "7px 10px",
+          border: "none",
+          background: "none",
+          color: "var(--text-muted)",
+          cursor: "pointer",
+          fontSize: 11,
+          fontWeight: 600,
+          textAlign: "left",
+        }}
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M3 12h4l2-7 4 14 2-7h6" />
+        </svg>
+        <span style={{ flex: 1 }}>{t("sidebar.running")}</span>
+        <span style={{ color: sessions.length > 0 ? "var(--accent)" : "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+          {sessions.length}
+        </span>
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+          style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }}
+        >
+          <polyline points="2 3.5 5 6.5 8 3.5" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          data-global-running-list="true"
+          style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", overflowX: "hidden" }}
+        >
+          {loading && sessions.length === 0 && (
+            <div style={{ padding: "12px 14px", color: "var(--text-muted)", fontSize: 11 }}>
+              {t("sidebar.runningLoading")}
+            </div>
+          )}
+          {error && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", color: "#f87171", fontSize: 11 }}>
+              <span style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>{t("sidebar.runningLoadError")}</span>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRetry();
+                }}
+                style={{ flexShrink: 0, padding: "3px 7px", border: "1px solid rgba(248,113,113,0.4)", borderRadius: 5, background: "none", color: "#f87171", cursor: "pointer", fontSize: 11 }}
+              >
+                {t("sidebar.retry")}
+              </button>
+            </div>
+          )}
+          {!loading && !error && sessions.length === 0 && (
+            <div data-global-running-empty="true" style={{ padding: "12px 14px", color: "var(--text-muted)", fontSize: 11 }}>
+              {t("sidebar.noRunning")}
+            </div>
+          )}
+          {sessions.map((session) => {
+            const projectName = getFileName(session.projectRoot) || session.projectRoot;
+            const active = session.id === selectedSessionId;
+            const status = runningStatusLabel(session.status.kind, t);
+            return (
+              <button
+                key={session.id}
+                type="button"
+                data-running-session-id={session.id}
+                aria-current={active ? "true" : undefined}
+                title={`${session.title}\n${session.cwd}`}
+                onClick={() => onSelect(session)}
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 8,
+                  width: "100%",
+                  minHeight: 68,
+                  padding: "9px 10px",
+                  border: "none",
+                  borderLeft: active ? "2px solid var(--accent)" : "2px solid transparent",
+                  background: active ? "var(--bg-selected)" : "transparent",
+                  color: "var(--text)",
+                  cursor: "pointer",
+                  textAlign: "left",
+                  transition: "background 0.1s",
+                }}
+              >
+                <span aria-hidden="true" style={{ width: 8, height: 8, marginTop: 4, borderRadius: "50%", flexShrink: 0, background: "var(--accent)", boxShadow: "0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent)" }} />
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0, fontSize: 12, lineHeight: 1.35, fontWeight: active ? 550 : 450 }}>
+                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.title}</span>
+                  </span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0, marginTop: 3, color: "var(--text-dim)", fontSize: 10, lineHeight: 1.3 }}>
+                    <span title={session.projectRoot} style={{ flexShrink: 0, maxWidth: "42%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-muted)" }}>{projectName}</span>
+                    <span aria-hidden="true">·</span>
+                    <PathLabel text={displayCwd(session.cwd, homeDir)} style={{ flex: 1 }} />
+                  </span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0, marginTop: 3, color: "var(--text-dim)", fontSize: 10, lineHeight: 1.3 }}>
+                    <span style={{ flexShrink: 0, color: "var(--accent)" }}>{status}</span>
+                    {session.status.detail && <><span aria-hidden="true">·</span><span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.status.detail}</span></>}
+                  </span>
+                </span>
+                {session.queued > 0 && (
+                  <span title={t("sidebar.queuedMessages", { count: session.queued })} aria-label={t("sidebar.queuedMessages", { count: session.queued })} style={{ flexShrink: 0, marginTop: 2, padding: "2px 5px", borderRadius: 5, background: "var(--bg-hover)", color: "var(--accent)", fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 600 }}>
+                    +{session.queued}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
@@ -458,6 +632,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [changesCollapsed, setChangesCollapsed] = useState(true);
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
+  const [runningSessions, setRunningSessions] = useState<RunningSessionSnapshot[]>([]);
+  const [runningLoading, setRunningLoading] = useState(true);
+  const [runningError, setRunningError] = useState<string | null>(null);
+  const [runningRetryKey, setRunningRetryKey] = useState(0);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
@@ -545,13 +723,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           cache: "no-store",
           signal: current.signal,
         });
-        if (!res.ok) return;
-        const data = await res.json() as { runningSessionIds?: string[] };
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json() as Partial<GlobalSessionSnapshot>;
         if (stopped || controller !== current) return;
+        const snapshot = Array.isArray(data.runningSessions) ? data.runningSessions : [];
         runningPollAuthoritativeRef.current = true;
-        setRunningSessionIds(new Set(data.runningSessionIds ?? []));
-      } catch {
-        // Keep the last known state; the next visible-tab poll retries.
+        setRunningSessions(snapshot);
+        setRunningSessionIds(new Set(data.runningSessionIds ?? snapshot.map((session) => session.id)));
+        setRunningError(null);
+        setRunningLoading(false);
+      } catch (error) {
+        if (current.signal.aborted || stopped || controller !== current) return;
+        // Keep the last known snapshot so a transient API failure does not
+        // remove rows or move the user's scroll position.
+        setRunningError(error instanceof Error ? error.message : String(error));
+        setRunningLoading(false);
       } finally {
         if (controller === current) controller = null;
         schedule();
@@ -576,7 +762,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       controller?.abort();
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, []);
+  }, [runningRetryKey]);
 
   useEffect(() => {
     onRunningSessionIdsChange?.(runningSessionIds);
@@ -633,8 +819,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     // worktrees without sessions, so switching to them keeps the row mounted.
     if (worktreeState?.worktrees.some((w) => w.path === cwd)) return worktreeState.projectRoot;
     const match = allSessions.find((s) => s.cwd === cwd);
-    return match?.projectRoot ?? cwd;
-  }, [worktreeState, allSessions]);
+    const runningMatch = runningSessions.find((s) => s.cwd === cwd);
+    return match?.projectRoot ?? runningMatch?.projectRoot ?? cwd;
+  }, [worktreeState, allSessions, runningSessions]);
 
   // Notify parent only when the effective cwd actually changes (not when
   // projectRootFor identity changes due to session/worktree refreshes).
@@ -872,6 +1059,24 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     if (s.cwd) setSelectedCwd(s.cwd);
     onSelectSession(s);
   }, [onSelectSession]);
+
+  const handleSelectRunningSession = useCallback((running: RunningSessionSnapshot) => {
+    const existing = allSessions.find((session) => session.id === running.id);
+    const now = new Date().toISOString();
+    const session = existing ?? {
+      path: running.path,
+      id: running.id,
+      cwd: running.cwd,
+      name: running.title,
+      created: now,
+      modified: now,
+      messageCount: running.messageCount,
+      firstMessage: running.title,
+      projectRoot: running.projectRoot,
+      ...(running.worktreeBranch ? { worktreeBranch: running.worktreeBranch } : {}),
+    };
+    handleSelectSessionFromList(session);
+  }, [allSessions, handleSelectSessionFromList]);
 
   const handleNewSession = useCallback(() => {
     if (!selectedCwd) return;
@@ -1770,7 +1975,24 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           />
         ))}
       </div>
-      {navigationScope === "global" && <GlobalNavigationPlaceholder />}
+      {navigationScope === "global" && (
+        <>
+          <GlobalRunningSessions
+            sessions={runningSessions}
+            homeDir={homeDir}
+            selectedSessionId={selectedSessionId}
+            loading={runningLoading}
+            error={runningError}
+            onRetry={() => {
+              setRunningError(null);
+              setRunningLoading(true);
+              setRunningRetryKey((key) => key + 1);
+            }}
+            onSelect={handleSelectRunningSession}
+          />
+          <GlobalNavigationPlaceholder />
+        </>
+      )}
 
       {/* File Explorer section */}
       {(selectedCwdProp || selectedCwd) && (

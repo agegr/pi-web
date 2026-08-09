@@ -300,6 +300,34 @@ export interface SessionInfo {
   worktreeBranch?: string;
 }
 
+export type RunningSessionStatusKind = "compacting" | "executing" | "generating" | "processing";
+
+export interface RunningSessionStatus {
+  kind: RunningSessionStatusKind;
+  detail?: string;
+}
+
+/** Navigation and live-state data for one currently running RPC session. */
+export interface RunningSessionSnapshot {
+  id: string;
+  /** Session file path when available, including an unflushed live session path. */
+  path: string;
+  title: string;
+  cwd: string;
+  projectRoot: string;
+  worktreeBranch?: string;
+  messageCount: number;
+  status: RunningSessionStatus;
+  queued: number;
+}
+
+/** Current cross-project navigation snapshot. History can be added here without
+ * creating a second identity or selection model for global navigation. */
+export interface GlobalSessionSnapshot {
+  runningSessions: RunningSessionSnapshot[];
+  runningSessionIds: string[];
+}
+
 export interface SessionContext {
   messages: AgentMessage[];
   entryIds: string[]; // parallel to messages — the session entry id for each message

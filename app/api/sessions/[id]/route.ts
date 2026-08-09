@@ -11,6 +11,7 @@ import {
   readSessionHeader,
 } from "@/lib/session-reader";
 import { sessionPathKey } from "@/lib/session-path";
+import { getUserMessageText } from "@/lib/running-sessions";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
 
@@ -114,60 +115,70 @@ function projectTreeForResponse<T extends { entry: { id: string }; children: T[]
   return projectedRoots;
 }
 
+async function buildSessionResponse(
+  req: Request,
+  id: string,
+  filePath: string,
+  sm: SessionManager,
+) {
+  const entries = sm.getEntries() as never;
+  const leafId = sm.getLeafId();
+  const tree = projectTreeForResponse(sm.getTree());
+  const searchParams = new URL(req.url).searchParams;
+  const deferThinking = searchParams.has("deferThinking");
+  const deferToolResultImages = searchParams.has("deferMedia");
+  const context = buildSessionContext(entries, leafId, { deferThinking, deferToolResultImages });
+  const totalActiveMs = computeSessionTotalActiveMs(entries);
+
+  const header = sm.getHeader();
+  let modified = header?.timestamp ?? new Date().toISOString();
+  try { modified = statSync(filePath).mtime.toISOString(); } catch { /* use header timestamp */ }
+  const parentSessionId = header?.parentSession
+    ? await resolveSessionIdByPath(header.parentSession)
+    : undefined;
+  const info = header ? {
+    path: filePath,
+    id: header.id,
+    cwd: header.cwd ?? "",
+    name: sm.getSessionName(),
+    created: header.timestamp,
+    modified,
+    messageCount: context.messages.length,
+    firstMessage: getUserMessageText(context.messages.find((message) => message.role === "user")) ?? "(no messages)",
+    parentSessionId,
+  } : null;
+
+  return NextResponse.json({
+    sessionId: id,
+    filePath,
+    info,
+    leafId,
+    tree,
+    context,
+    totalActiveMs,
+  });
+}
+
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
   try {
+    // Read the live manager first. A new session deliberately does not flush a
+    // file until an assistant message exists, but it is still navigable while
+    // its first prompt is running.
+    const runningSession = getRpcSession(id);
+    if (runningSession?.isAlive()) {
+      return buildSessionResponse(req, id, runningSession.sessionFile, runningSession.inner.sessionManager);
+    }
+
     const filePath = await resolveSessionPath(id);
     if (!filePath) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const sm = SessionManager.open(filePath);
-    const entries = sm.getEntries();
-    const leafId = sm.getLeafId();
-    const tree = projectTreeForResponse(sm.getTree());
-    const searchParams = new URL(req.url).searchParams;
-    const deferThinking = searchParams.has("deferThinking");
-    const deferToolResultImages = searchParams.has("deferMedia");
-    const context = buildSessionContext(entries as never, leafId, { deferThinking, deferToolResultImages });
-    const totalActiveMs = computeSessionTotalActiveMs(entries);
-
-    const header = sm.getHeader();
-    let modified = header?.timestamp ?? new Date().toISOString();
-    try { modified = statSync(filePath).mtime.toISOString(); } catch { /* use header timestamp */ }
-    const parentSessionId = header?.parentSession
-      ? await resolveSessionIdByPath(header.parentSession)
-      : undefined;
-    const info = header ? {
-      path: filePath,
-      id: header.id,
-      cwd: header.cwd ?? "",
-      name: sm.getSessionName(),
-      created: header.timestamp,
-      modified,
-      messageCount: context.messages.length,
-      firstMessage: context.messages.find((m) => m.role === "user")
-        ? (() => {
-            const msg = context.messages.find((m) => m.role === "user")!;
-            const c = (msg as { content: unknown }).content;
-            return typeof c === "string" ? c : (Array.isArray(c) ? (c.find((b: { type: string }) => b.type === "text") as { text: string } | undefined)?.text ?? "" : "") || "(no messages)";
-          })()
-        : "(no messages)",
-      parentSessionId,
-    } : null;
-
-    return NextResponse.json({
-      sessionId: id,
-      filePath,
-      info,
-      leafId,
-      tree,
-      context,
-      totalActiveMs,
-    });
+    return buildSessionResponse(req, id, filePath, SessionManager.open(filePath));
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
