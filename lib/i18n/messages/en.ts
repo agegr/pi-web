@@ -125,7 +125,7 @@ export const enLocale: LocalePlugin = {
     "sidebar.deleteWithShiftClick": "Delete (Shift+click to delete without confirmation)",
     "sidebar.expandForks": "Expand forks",
     "sidebar.collapseForks": "Collapse forks",
-    "sidebar.folders.new": "New folder",
+    "sidebar.folders.new": "New category",
     "sidebar.folders.newSubfolder": "New subfolder",
     "sidebar.folders.namePlaceholder": "Folder name",
     "sidebar.folders.unfiled": "Unfiled",

@@ -125,7 +125,7 @@ export const zhCNLocale: LocalePlugin = {
     "sidebar.deleteWithShiftClick": "删除（按住 Shift 点击可跳过确认）",
     "sidebar.expandForks": "展开分叉",
     "sidebar.collapseForks": "折叠分叉",
-    "sidebar.folders.new": "新建文件夹",
+    "sidebar.folders.new": "新建分类",
     "sidebar.folders.newSubfolder": "新建子文件夹",
     "sidebar.folders.namePlaceholder": "文件夹名称",
     "sidebar.folders.unfiled": "未分类",
