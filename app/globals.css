@@ -937,6 +937,8 @@ span.linenumber {
 /* Session navigation rows keep their actions in the tab order while hiding the
    visual noise until the row is hovered or focused. */
 .session-item {
+  position: relative;
+  width: 100%;
   outline: none;
 }
 .session-item:focus-visible {
@@ -951,6 +953,23 @@ span.linenumber {
 .session-item:focus-within .session-item-actions {
   opacity: 1;
 }
+
+/* Keep row controls overlaid so the session content can use the full width. */
+.session-item-controls {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transform: translateY(-50%);
+}
+.session-item-controls .session-item-actions > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 #session-sidebar button:focus-visible,
 #session-sidebar [role="button"]:focus-visible,
 #session-sidebar input:focus-visible {
@@ -1169,5 +1188,10 @@ span.linenumber {
   input,
   select {
     font-size: 16px !important;
+  }
+
+  /* Keep the compact sidebar search aligned with its surrounding labels. */
+  #session-sidebar .global-session-search-input {
+    font-size: 11px !important;
   }
 }

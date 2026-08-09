@@ -642,7 +642,8 @@ function GlobalHistoryItem({
               <span>{t("sidebar.messagesCount", { count: session.messageCount })}</span>
             </div>
           </div>
-          <div className="session-item-actions" style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+          <div className="session-item-controls">
+            <div className="session-item-actions" style={{ display: "flex", gap: 4, flexShrink: 0 }}>
               <button
                 type="button"
                 onClick={startRename}
@@ -668,6 +669,7 @@ function GlobalHistoryItem({
                   <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
                 </svg>
               </button>
+            </div>
           </div>
         </>
       )}
@@ -718,9 +720,9 @@ function GlobalHistorySessions({
       aria-label={t("sidebar.history")}
       style={{
         display: "flex",
-        flex: "1 1 0",
+        flex: open ? "1 1 0" : "0 0 auto",
         flexDirection: "column",
-        minHeight: 80,
+        minHeight: open ? 80 : 0,
         overflow: "hidden",
       }}
     >
@@ -864,10 +866,10 @@ function GlobalRunningSessions({
       aria-label={t("sidebar.running")}
       style={{
         display: "flex",
-        flex: "0 1 min(38vh, 360px)",
+        flex: open ? "1 1 0" : "0 0 auto",
         flexDirection: "column",
-        minHeight: 82,
-        maxHeight: "min(38vh, 360px)",
+        minHeight: open ? 82 : 0,
+        maxHeight: open ? "none" : "min(38vh, 360px)",
         borderBottom: "1px solid var(--border)",
         overflow: "hidden",
       }}
@@ -1026,9 +1028,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onCloseSide
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [navigationScope, setNavigationScope] = useState<"workspace" | "global">("workspace");
   const [globalSearch, setGlobalSearch] = useState("");
-  const [globalRunningOpen, setGlobalRunningOpen] = useState(true);
+  const [globalRunningOpen, setGlobalRunningOpen] = useState(false);
   const [globalHistoryOpen, setGlobalHistoryOpen] = useState(true);
   const [globalHistoryVisibleCount, setGlobalHistoryVisibleCount] = useState(GLOBAL_HISTORY_LIMIT);
+  const handleGlobalRunningOpenChange = useCallback((open: boolean) => {
+    setGlobalRunningOpen(open);
+    if (open) setGlobalHistoryOpen(false);
+  }, []);
+  const handleGlobalHistoryOpenChange = useCallback((open: boolean) => {
+    setGlobalHistoryOpen(open);
+    if (open) setGlobalRunningOpen(false);
+  }, []);
   const navigationScopeButtonsRef = useRef<Record<"workspace" | "global", HTMLButtonElement | null>>({ workspace: null, global: null });
   const [homeDir, setHomeDir] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -1686,6 +1696,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onCloseSide
     workspace: t("sidebar.workspace"),
     global: t("sidebar.global"),
   };
+  const globalSectionsOpen = globalRunningOpen || globalHistoryOpen;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -2544,8 +2555,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onCloseSide
           style={{
             display: "flex",
             flexDirection: "column",
-            flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto",
-            minHeight: 80,
+            flex: globalSectionsOpen
+              ? explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto"
+              : "0 0 auto",
+            minHeight: globalSectionsOpen ? 80 : 0,
             overflow: "hidden",
           }}
         >
@@ -2564,6 +2577,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onCloseSide
                 onKeyDown={(event) => {
                   if (event.key === "Escape") setGlobalSearch("");
                 }}
+                className="global-session-search-input"
                 placeholder={t("sidebar.searchGlobalSessions")}
                 aria-label={t("sidebar.searchGlobalSessions")}
                 style={{ flex: 1, minWidth: 0, height: "100%", padding: 0, border: "none", outline: "none", background: "transparent", color: "var(--text)", fontSize: 11 }}
@@ -2589,7 +2603,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onCloseSide
             error={runningError}
             searchQuery={globalSearchQuery}
             open={globalRunningOpen}
-            onOpenChange={setGlobalRunningOpen}
+            onOpenChange={handleGlobalRunningOpenChange}
             onRetry={() => {
               setRunningError(null);
               setRunningLoading(true);
@@ -2607,7 +2621,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onCloseSide
             searchQuery={globalSearchQuery}
             totalCount={globalHistoryMatches.length}
             open={globalHistoryOpen}
-            onOpenChange={setGlobalHistoryOpen}
+            onOpenChange={handleGlobalHistoryOpenChange}
             hasMore={globalHistoryHasMore}
             onRetry={() => {
               setError(null);
@@ -3162,8 +3176,9 @@ function SessionItem({
             </div>
           </div>
 
-          {/* Collapse toggle — always visible when has children */}
-          {hasChildren && (
+          <div className="session-item-controls">
+            {/* Collapse toggle — always visible when has children */}
+            {hasChildren && (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onToggleCollapse?.(); }}
@@ -3184,10 +3199,10 @@ function SessionItem({
                 <polyline points="2 3.5 5 6.5 8 3.5" />
               </svg>
             </button>
-          )}
+            )}
 
-          {/* Keep management actions in the tab order; CSS reveals them on hover or focus. */}
-          <div className="session-item-actions" style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+            {/* Keep management actions in the tab order; CSS reveals them on hover or focus. */}
+            <div className="session-item-actions" style={{ display: "flex", gap: 4, flexShrink: 0 }}>
               <button
                 type="button"
                 onClick={startRename}
@@ -3247,6 +3262,7 @@ function SessionItem({
                   <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
                 </svg>
               </button>
+            </div>
           </div>
         </>
       )}

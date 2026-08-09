@@ -86,10 +86,20 @@ test("global scope renders an independently scrollable running section", () => {
   assert.match(source, /function GlobalRunningSessions\(/);
   assert.match(source, /data-global-running-section="true"/);
   assert.match(source, /data-global-running-list="true"/);
-  assert.match(source, /maxHeight: "min\(38vh, 360px\)"/);
+  assert.match(source, /flex: open \? "1 1 0" : "0 0 auto"/);
+  assert.match(source, /maxHeight: open \? "none" : "min\(38vh, 360px\)"/);
   assert.match(source, /sessions=\{globalRunningSessions\}/);
   assert.match(source, /searchQuery=\{globalSearchQuery\}/);
   assert.match(source, /onSelect=\{handleSelectRunningSession\}/);
+  assert.match(source, /onOpenChange=\{handleGlobalRunningOpenChange\}/);
+});
+
+test("global running and history sections behave as an accordion", () => {
+  assert.match(source, /const \[globalRunningOpen, setGlobalRunningOpen\] = useState\(false\)/);
+  assert.match(source, /const \[globalHistoryOpen, setGlobalHistoryOpen\] = useState\(true\)/);
+  assert.match(source, /setGlobalHistoryOpen\(false\)/);
+  assert.match(source, /setGlobalRunningOpen\(false\)/);
+  assert.match(source, /onOpenChange=\{handleGlobalHistoryOpenChange\}/);
 });
 
 test("global history is a separate recent, scrollable section", () => {
