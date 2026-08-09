@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { SessionInfo } from "@/lib/types";
 import type { SessionFolder } from "@/lib/session-folders";
 import { useI18n } from "@/hooks/useI18n";
@@ -118,21 +119,51 @@ function MoveToFolderMenu({
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const rows = flattenFoldersForMenu(folders);
+
+  // The row this button lives in clips overflow for text ellipsis, and the
+  // session list itself scrolls — an absolutely positioned dropdown nested
+  // inside either would get clipped or hidden. Render it in a portal instead,
+  // positioned from the button's live viewport coordinates so it always
+  // floats above everything regardless of ancestor overflow/scroll clipping.
+  useLayoutEffect(() => {
+    if (!open || !buttonRef.current) return;
+    const updatePosition = () => {
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    };
+    updatePosition();
+    // Close on scroll/resize instead of tracking every scroll container's
+    // position — simplest way to never show a stale-positioned menu.
+    const close = () => setOpen(false);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (buttonRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
   return (
-    <div ref={containerRef} style={{ position: "relative" }}>
+    <>
       <button
+        ref={buttonRef}
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
         title={t("sidebar.folders.moveTo")}
         style={{
@@ -156,14 +187,15 @@ function MoveToFolderMenu({
       >
         <FolderIcon size={14} />
       </button>
-      {open && (
+      {open && menuPos && typeof document !== "undefined" && createPortal(
         <div
+          ref={menuRef}
           onClick={(e) => e.stopPropagation()}
           style={{
-            position: "absolute",
-            top: "calc(100% + 4px)",
-            right: 0,
-            zIndex: 50,
+            position: "fixed",
+            top: menuPos.top,
+            right: menuPos.right,
+            zIndex: 1000,
             minWidth: 160,
             maxHeight: 240,
             overflowY: "auto",
@@ -202,9 +234,10 @@ function MoveToFolderMenu({
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.name}</span>
             </button>
           ))}
-        </div>
+        </div>,
+        document.body,
       )}
-    </div>
+    </>
   );
 }
 
