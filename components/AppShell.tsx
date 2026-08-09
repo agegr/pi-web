@@ -757,7 +757,6 @@ export function AppShell() {
     }
   }, [projectTrustBusy, projectTrustCwd]);
 
-  const activeFileTab = fileTabs.find((t) => t.id === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
   const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
 
@@ -1771,27 +1770,39 @@ export function AppShell() {
 
         </div>
 
-        {/* File content */}
+        {/* File content — all open tabs stay mounted (keep-alive); inactive ones are only hidden with
+            display:none. Switching tabs no longer unmounts, so scroll position/zoom/viewer state are
+            preserved; closing a tab (removing it from fileTabs) still unmounts and frees it. */}
         <div style={{ flex: 1, overflow: "hidden", paddingBottom: "env(safe-area-inset-bottom)" }}>
-          {activeFileTab?.filePath ? (
-            <FileViewer
-              filePath={activeFileTab.filePath}
-              cwd={activeCwd ?? undefined}
-              sourceSessionId={activeFileTab.sourceSessionId}
-              gitRefreshKey={explorerRefreshKey}
-              initialDisplayMode={activeFileTab.initialDisplayMode}
-              onMentionLines={rightPanelOpen ? handleFileLineMention : undefined}
-              onAtMention={handleAtMention}
-              onOpenFile={(filePath) => handleOpenFile(
-                filePath,
-                getFileName(filePath),
-                { sourceSessionId: activeFileTab.sourceSessionId },
-              )}
-            />
-          ) : (
+          {fileTabs.length === 0 ? (
             <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
                {translate("files.noneOpen")}
             </div>
+          ) : (
+            fileTabs.map((tab) => (
+              <div
+                key={tab.id}
+                style={{
+                  display: tab.id === activeFileTabId ? "block" : "none",
+                  height: "100%",
+                }}
+              >
+                <FileViewer
+                  filePath={tab.filePath}
+                  cwd={activeCwd ?? undefined}
+                  sourceSessionId={tab.sourceSessionId}
+                  gitRefreshKey={explorerRefreshKey}
+                  initialDisplayMode={tab.initialDisplayMode}
+                  onMentionLines={rightPanelOpen ? handleFileLineMention : undefined}
+                  onAtMention={handleAtMention}
+                  onOpenFile={(filePath) => handleOpenFile(
+                    filePath,
+                    getFileName(filePath),
+                    { sourceSessionId: tab.sourceSessionId },
+                  )}
+                />
+              </div>
+            ))
           )}
         </div>
       </div>
