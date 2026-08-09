@@ -46,4 +46,21 @@ test("does not persist an unchanged fallback title ending in whitespace", () => 
     sessionItemSource,
     /const name = renameValue\.trim\(\);[\s\S]*?if \(renameValue === title \|\| name === \(session\.name \?\? ""\)\) return;/,
   );
+test("defaults to workspace and exposes a non-URL scope tablist", () => {
+  assert.match(source, /useState<"workspace" \\| "global">\("workspace"\)/);
+  assert.match(source, /role="tablist"/);
+  assert.match(source, /role="tab"/);
+  assert.match(source, /data-navigation-scope="global"/);
+  assert.match(source, /globalPlaceholder/);
+});
+
+test("keeps new-session creation lazy and scoped to workspace", async () => {
+  assert.doesNotMatch(source, /crypto\.randomUUID\(\)/);
+  const workspaceSource = source.slice(
+    source.indexOf('{navigationScope === "workspace" ?'),
+    source.indexOf('{navigationScope === "global" &&'),
+  );
+  assert.match(workspaceSource, /onClick=\{handleNewSession\}/);
+  const chatWindowSource = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
+  assert.match(chatWindowSource, /draftKey=\{session\?\.id \?\? \(newSessionCwd \? `new:\$\{newSessionCwd\}` : undefined\)\}/);
 });

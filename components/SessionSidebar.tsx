@@ -77,7 +77,7 @@ function ToolbarIconButton({
 interface Props {
   selectedSessionId: string | null;
   onSelectSession: (session: SessionInfo, isRestore?: boolean) => void;
-  onNewSession?: (sessionId: string, cwd: string) => void;
+  onNewSession?: (cwd: string) => void;
   initialSessionId?: string | null;
   skipInitialProjectSelection?: boolean;
   onInitialRestoreDone?: () => void;
@@ -390,12 +390,47 @@ function PiWebTitle() {
   );
 }
 
+function GlobalNavigationPlaceholder() {
+  const { t } = useI18n();
+  return (
+    <div
+      data-navigation-scope="global"
+      data-navigation-placeholder="globalPlaceholder"
+      id="global-navigation-panel"
+      role="tabpanel"
+      aria-labelledby="navigation-scope-global"
+      tabIndex={0}
+      style={{
+        display: "flex",
+        flex: "1 1 0",
+        minHeight: 80,
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+        color: "var(--text-muted)",
+        textAlign: "center",
+      }}
+    >
+      <div style={{ display: "flex", maxWidth: 220, flexDirection: "column", alignItems: "center", gap: 8 }}>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="8" />
+          <path d="M4 12h16M12 4c2.1 2.2 3.2 4.9 3.2 8s-1.1 5.8-3.2 8c-2.1-2.2-3.2-4.9-3.2-8S9.9 6.2 12 4Z" />
+        </svg>
+        <strong style={{ color: "var(--text)", fontSize: 13 }}>{t("sidebar.global")}</strong>
+        <span style={{ fontSize: 11, lineHeight: 1.5 }}>{t("sidebar.globalPlaceholder")}</span>
+      </div>
+    </div>
+  );
+}
+
 export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
+  const [navigationScope, setNavigationScope] = useState<"workspace" | "global">("workspace");
+  const navigationScopeButtonsRef = useRef<Record<"workspace" | "global", HTMLButtonElement | null>>({ workspace: null, global: null });
   const [homeDir, setHomeDir] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [projectFilter, setProjectFilter] = useState("");
@@ -840,13 +875,30 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   const handleNewSession = useCallback(() => {
     if (!selectedCwd) return;
-    // Generate a temporary UUID client-side — no backend call needed.
-    // Pi will be spawned lazily when the user sends the first message.
-    const tempId = typeof crypto.randomUUID === "function"
-      ? crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
-    onNewSession?.(tempId, selectedCwd);
+    // The backend session is created lazily when the first message is sent.
+    onNewSession?.(selectedCwd);
   }, [selectedCwd, onNewSession]);
+
+  const handleNavigationScopeKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>, scope: "workspace" | "global") => {
+    let nextScope: "workspace" | "global" | null = null;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      nextScope = scope === "workspace" ? "global" : "workspace";
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      nextScope = scope === "global" ? "workspace" : "global";
+    } else if (event.key === "Home") {
+      nextScope = "workspace";
+    } else if (event.key === "End") {
+      nextScope = "global";
+    }
+    if (!nextScope) return;
+    event.preventDefault();
+    setNavigationScope(nextScope);
+    setDropdownOpen(false);
+    setProjectFilter("");
+    setWtDropdownOpen(false);
+    setWtFilter("");
+    navigationScopeButtonsRef.current[nextScope]?.focus();
+  }, []);
 
   const recentProjects = getRecentProjects(allSessions);
   const showProjectFilter = recentProjects.length > 8;
@@ -917,6 +969,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   // Build parent-child tree within the filtered set
   const sessionTree = buildSessionTree(filteredSessions);
+  const navigationScopeLabels = {
+    workspace: t("sidebar.workspace"),
+    global: t("sidebar.global"),
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -942,44 +998,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <PiWebTitle />
           <div style={{ display: "flex", gap: 6 }}>
-            <button
-              onClick={handleNewSession}
-              disabled={!selectedCwd}
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                background: "var(--bg-hover)",
-                border: "1px solid var(--border)",
-                color: selectedCwd ? "var(--text-muted)" : "var(--text-dim)",
-                cursor: selectedCwd ? "pointer" : "not-allowed",
-                height: 32,
-                paddingLeft: 10,
-                paddingRight: 12,
-                borderRadius: 7,
-                fontSize: 12,
-                fontWeight: 500,
-                letterSpacing: "-0.01em",
-                flexShrink: 0,
-                transition: "background 0.12s, color 0.12s, border-color 0.12s",
-              }}
-             title={selectedCwd ? t("sidebar.newSessionTitle", { path: selectedCwd }) : t("sidebar.selectProject")}
-              onMouseEnter={(e) => {
-                if (!selectedCwd) return;
-                e.currentTarget.style.background = "var(--bg-selected)";
-                e.currentTarget.style.color = "var(--accent)";
-                e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "var(--bg-hover)";
-                e.currentTarget.style.color = selectedCwd ? "var(--text-muted)" : "var(--text-dim)";
-                e.currentTarget.style.borderColor = "var(--border)";
-              }}
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-                <line x1="6" y1="1" x2="6" y2="11" />
-                <line x1="1" y1="6" x2="11" y2="6" />
-              </svg>
-              {t("sidebar.new")}
-            </button>
             <button
               onClick={() => loadSessions(false)}
               style={{
@@ -1022,8 +1040,85 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           </div>
         </div>
 
-        {/* CWD picker */}
-        <div ref={dropdownRef} style={{ position: "relative" }}>
+        {/* Scope navigation stays local to the sidebar; changing it never changes the URL. */}
+        <div
+          role="tablist"
+          aria-label={t("sidebar.navigationScope")}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 4,
+            padding: 3,
+            marginBottom: 8,
+            border: "1px solid var(--border)",
+            borderRadius: 7,
+            background: "var(--bg)",
+          }}
+        >
+          {(["workspace", "global"] as const).map((scope) => {
+            const active = navigationScope === scope;
+            return (
+              <button
+                key={scope}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                aria-controls={scope === "workspace" ? "workspace-navigation-panel" : "global-navigation-panel"}
+                tabIndex={active ? 0 : -1}
+                id={`navigation-scope-${scope}`}
+                data-navigation-scope={scope}
+                ref={(element) => {
+                  navigationScopeButtonsRef.current[scope] = element;
+                }}
+                onKeyDown={(event) => handleNavigationScopeKeyDown(event, scope)}
+                onClick={() => {
+                  setNavigationScope(scope);
+                  setDropdownOpen(false);
+                  setProjectFilter("");
+                  setWtDropdownOpen(false);
+                  setWtFilter("");
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 5,
+                  height: 28,
+                  padding: "0 6px",
+                  border: "none",
+                  borderRadius: 5,
+                  background: active ? "var(--bg-selected)" : "transparent",
+                  color: active ? "var(--text)" : "var(--text-muted)",
+                  cursor: "pointer",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10,
+                  fontWeight: active ? 600 : 500,
+                  transition: "background 0.12s, color 0.12s",
+                }}
+              >
+                {scope === "workspace" ? (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M3.5 7.5h6l1.7 2h9.3v8.8a1.7 1.7 0 0 1-1.7 1.7H5.2a1.7 1.7 0 0 1-1.7-1.7Z" />
+                    <path d="M3.5 7.5V5.7A1.7 1.7 0 0 1 5.2 4h4l1.7 2h3" />
+                  </svg>
+                ) : (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="8.5" />
+                    <path d="M3.5 12h17M12 3.5c2.2 2.3 3.3 5.1 3.3 8.5s-1.1 6.2-3.3 8.5c-2.2-2.3-3.3-5.1-3.3-8.5s1.1-6.2 3.3-8.5Z" />
+                  </svg>
+                )}
+                {navigationScopeLabels[scope]}
+              </button>
+            );
+          })}
+        </div>
+
+        {navigationScope === "workspace" ? (
+          <>
+            {/* Project header: cwd picker and lazy new-session action stay together in workspace. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {/* CWD picker */}
+            <div ref={dropdownRef} style={{ position: "relative", flex: 1, minWidth: 0 }}>
           <button
             onClick={() => setDropdownOpen((v) => !v)}
             title={selectedProject ?? selectedCwd ?? ""}
@@ -1227,6 +1322,50 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               </button>
           </AnimatedDropdown>
         </div>
+
+        {/* New sessions are a workspace/project action and remain lazy until the first message. */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", flexShrink: 0 }}>
+          <button
+            type="button"
+            onClick={handleNewSession}
+            disabled={!selectedCwd}
+            title={selectedCwd ? t("sidebar.newSessionTitle", { path: selectedCwd }) : t("sidebar.selectProject")}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+              background: "var(--bg-hover)",
+              border: "1px solid var(--border)",
+              color: selectedCwd ? "var(--text-muted)" : "var(--text-dim)",
+              cursor: selectedCwd ? "pointer" : "not-allowed",
+              height: 30,
+              padding: "0 10px",
+              borderRadius: 7,
+              fontSize: 11,
+              fontWeight: 550,
+              letterSpacing: "-0.01em",
+              flexShrink: 0,
+              transition: "background 0.12s, color 0.12s, border-color 0.12s",
+            }}
+            onMouseEnter={(e) => {
+              if (!selectedCwd) return;
+              e.currentTarget.style.background = "var(--bg-selected)";
+              e.currentTarget.style.color = "var(--accent)";
+              e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "var(--bg-hover)";
+              e.currentTarget.style.color = selectedCwd ? "var(--text-muted)" : "var(--text-dim)";
+              e.currentTarget.style.borderColor = "var(--border)";
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+              <line x1="6" y1="1" x2="6" y2="11" />
+              <line x1="1" y1="6" x2="11" y2="6" />
+            </svg>
+            {t("sidebar.new")}
+          </button>
+        </div>
+
+            </div>
 
         {/* Worktree switcher — shown only for git projects at a checkout top
             level (repo subdirs keep their own project identity, so switching
@@ -1579,10 +1718,26 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{inactiveWorktreeSelector.label}</span>
           </button>
         )}
+          </>
+        ) : null}
       </div>
 
       {/* Session list */}
-      <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}>
+      <div
+        id="workspace-navigation-panel"
+        role="tabpanel"
+        aria-labelledby="navigation-scope-workspace"
+        tabIndex={navigationScope === "workspace" ? 0 : -1}
+        hidden={navigationScope !== "workspace"}
+        style={{
+          display: navigationScope === "workspace" ? "flex" : "none",
+          flexDirection: "column",
+          flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto",
+          overflowY: "auto",
+          padding: 0,
+          minHeight: 80,
+        }}
+      >
         {loading && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
             {t("sidebar.loading")}
@@ -1615,6 +1770,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           />
         ))}
       </div>
+      {navigationScope === "global" && <GlobalNavigationPlaceholder />}
 
       {/* File Explorer section */}
       {(selectedCwdProp || selectedCwd) && (
