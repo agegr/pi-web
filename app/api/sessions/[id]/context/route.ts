@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { resolveSessionPath, buildSessionContext } from "@/lib/session-reader";
+import { loadModelsWithCache } from "@/lib/models-cache";
+import { loadModels } from "@/lib/models-loader";
+import { computeSessionContextUsage } from "@/lib/context-usage";
 
 export async function GET(
   req: Request,
@@ -24,7 +27,14 @@ export async function GET(
       deferToolResultImages,
     });
 
-    return NextResponse.json({ context });
+    let contextUsage = null;
+    try {
+      const cwd = sm.getCwd();
+      const modelsData = await loadModelsWithCache(cwd, () => loadModels(cwd));
+      contextUsage = computeSessionContextUsage(sm as never, leafId, modelsData);
+    } catch { /* usage is best-effort; never fail the context response */ }
+
+    return NextResponse.json({ context, contextUsage });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

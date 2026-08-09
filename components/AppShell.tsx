@@ -18,6 +18,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useAudio } from "@/hooks/useAudio";
+import { sendAgentCommand } from "@/lib/agent-client";
 import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
@@ -183,6 +184,7 @@ export function AppShell() {
   }, []);
 
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
+  const [systemPromptLoading, setSystemPromptLoading] = useState(false);
   const systemBtnRef = useRef<HTMLButtonElement>(null);
 
   const handleSystemPromptChange = useCallback((prompt: string | null) => {
@@ -229,6 +231,23 @@ export function AppShell() {
     if (isMobile) setSidebarOpen(false);
     setActiveTopPanel((cur) => cur === panel ? null : panel);
   }, [isMobile]);
+
+  // System panel: lazily start the RPC session to fetch the real system prompt
+  const handleSystemToggle = useCallback(() => {
+    const opening = activeTopPanel !== "system";
+    toggleTopPanel("system");
+    const sid = selectedSession?.id;
+    if (!opening || systemPrompt !== null || systemPromptLoading || !sid) return;
+    setSystemPromptLoading(true);
+    sendAgentCommand<{ systemPrompt?: string; contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null }>(sid, { type: "get_state" })
+      .then((state) => {
+        if (activeSessionIdRef.current !== sid) return;
+        if (state?.systemPrompt !== undefined) setSystemPrompt(state.systemPrompt ?? null);
+        if (state?.contextUsage !== undefined) setContextUsage(state.contextUsage ?? null);
+      })
+      .catch(() => {})
+      .finally(() => setSystemPromptLoading(false));
+  }, [activeTopPanel, systemPrompt, systemPromptLoading, selectedSession?.id, toggleTopPanel]);
 
   const openSessionStatsPanel = useCallback(() => {
     if (isMobile) setSidebarOpen(false);
@@ -1272,7 +1291,7 @@ export function AppShell() {
               />
               <button
                 ref={systemBtnRef}
-                onClick={() => toggleTopPanel("system")}
+                onClick={handleSystemToggle}
                  title={translate("system.prompt")}
                  aria-label={translate("system.prompt")}
                 aria-pressed={activeTopPanel === "system"}
@@ -1474,6 +1493,10 @@ export function AppShell() {
                   ) : systemPrompt === "" ? (
                     <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
                        {translate("system.empty")}
+                    </div>
+                  ) : systemPromptLoading ? (
+                    <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
+                      {translate("system.loading")}
                     </div>
                   ) : (
                     <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>

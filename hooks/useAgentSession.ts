@@ -35,6 +35,7 @@ export interface SessionData {
     thinkingLevel: string;
     model: { provider: string; modelId: string } | null;
   };
+  contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
 }
 
 interface AgentEvent {
@@ -477,6 +478,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setActiveLeafId(d.leafId);
       setMessages(persistedMessages);
       setEntryIds(d.context.entryIds ?? []);
+      if (d.contextUsage !== undefined) setContextUsage(d.contextUsage);
       setCurrentModelOverride((current) => modelSwitchPendingRef.current ? current : null);
       setError(null);
       if (d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
@@ -524,9 +526,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const url = `/api/sessions/${encodeURIComponent(sid)}/context?${params}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[] } };
+      const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[] }; contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null };
       setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
+      if (d.contextUsage !== undefined) setContextUsage(d.contextUsage ?? null);
     } catch (e) {
       console.error("Failed to load context:", e);
     }

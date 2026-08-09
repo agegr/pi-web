@@ -317,3 +317,13 @@ test("sizes the message tail from the rendered bottom composer", () => {
   assert.match(chatWindowSource, /<div ref=\{bottomComposerRef\} className="relative">/);
   assert.match(chatWindowSource, /height: bottomComposerHeight/);
 });
+
+test("loadSession and loadContext consume file-derived contextUsage", () => {
+  const loadSessionSource = source.slice(source.indexOf("const loadSession"), source.indexOf("const loadTools"));
+  const loadContextSource = source.slice(source.indexOf("const loadContext"), source.indexOf("const loadTools"));
+
+  assert.match(loadSessionSource, /d\.contextUsage !== undefined/);
+  assert.match(loadSessionSource, /setContextUsage\(d\.contextUsage\)/);
+  assert.match(loadContextSource, /d\.contextUsage !== undefined/);
+  assert.match(loadContextSource, /setContextUsage\(d\.contextUsage/);
+});

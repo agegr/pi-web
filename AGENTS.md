@@ -70,10 +70,12 @@ app/api/
 
 lib/
   agent-client.ts      typed fetch helper for /api/agent commands
+  context-usage.ts     offline context-usage estimation from session files
   draft-store.ts       local draft persistence helpers
   file-access.ts       allowed file roots for /api/files and worktrees
   file-paths.ts        client/server path encoding helpers
   markdown.ts          shared markdown helpers
+  models-loader.ts     loadModels() — models registry loader shared by /api/models and session routes
   npx.ts               npx runner used by skill install
   pi-types.ts          local structural types for pi SDK objects
   rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession

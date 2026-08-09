@@ -12,6 +12,9 @@ import {
 } from "@/lib/session-reader";
 import { sessionPathKey } from "@/lib/session-path";
 import { getRpcSession } from "@/lib/rpc-manager";
+import { loadModelsWithCache } from "@/lib/models-cache";
+import { loadModels } from "@/lib/models-loader";
+import { computeSessionContextUsage } from "@/lib/context-usage";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
 
 // BranchNavigator still traverses recursively, so keep the response tree shallow.
@@ -135,6 +138,13 @@ export async function GET(
     const context = buildSessionContext(entries as never, leafId, { deferThinking, deferToolResultImages });
     const totalActiveMs = computeSessionTotalActiveMs(entries);
 
+    let contextUsage = null;
+    try {
+      const cwd = sm.getCwd();
+      const modelsData = await loadModelsWithCache(cwd, () => loadModels(cwd));
+      contextUsage = computeSessionContextUsage(sm as never, leafId ?? undefined, modelsData);
+    } catch { /* usage is best-effort; never fail the detail response */ }
+
     const header = sm.getHeader();
     let modified = header?.timestamp ?? new Date().toISOString();
     try { modified = statSync(filePath).mtime.toISOString(); } catch { /* use header timestamp */ }
@@ -166,6 +176,7 @@ export async function GET(
       leafId,
       tree,
       context,
+      contextUsage,
       totalActiveMs,
     });
   } catch (error) {

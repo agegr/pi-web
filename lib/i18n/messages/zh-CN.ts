@@ -29,6 +29,7 @@ export const zhCNLocale: LocalePlugin = {
     "system.prompt": "系统提示词",
     "system.empty": "系统提示词为空（工具已禁用）",
     "system.load": "发送消息以加载系统提示词",
+    "system.loading": "正在加载系统提示词…",
     "system.label": "系统",
     "session.info": "会话信息",
     "session.name": "名称",

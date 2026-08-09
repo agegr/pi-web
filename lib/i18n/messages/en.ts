@@ -29,6 +29,7 @@ export const enLocale: LocalePlugin = {
     "system.prompt": "System prompt",
     "system.empty": "System prompt is empty (tools are disabled)",
     "system.load": "Send a message to load the system prompt",
+    "system.loading": "Loading system prompt…",
     "system.label": "System",
     "session.info": "Session info",
     "session.name": "Name",
