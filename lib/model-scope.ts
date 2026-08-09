@@ -40,6 +40,21 @@ export interface InitialModelScopeResult {
   scopedModels: ScopedModel[];
 }
 
+/** Remove providers disabled in the Models panel while preserving scope order. */
+export function filterModelScopeByDisabledProviders(
+  scope: ModelScopeResult,
+  disabledProviders: ReadonlySet<string>,
+): ModelScopeResult {
+  if (disabledProviders.size === 0) return scope;
+  const visible = scope.visible.filter((model) => !disabledProviders.has(model.provider));
+  const scopedModels = scope.scopedModels.filter((scoped) => !disabledProviders.has(scoped.model.provider));
+  const scopedKeys = new Set(scopedModels.map((scoped) => `${scoped.model.provider}/${scoped.model.id}`));
+  const thinkingLevelPins = Object.fromEntries(
+    Object.entries(scope.thinkingLevelPins).filter(([key]) => scopedKeys.has(key)),
+  );
+  return { ...scope, visible, scopedModels, thinkingLevelPins };
+}
+
 function matchesModel(
   model: { provider: string; id: string },
   ref: { provider: string; modelId: string },

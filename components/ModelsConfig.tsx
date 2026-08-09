@@ -142,6 +142,7 @@ interface ProviderEntry {
 
 interface ModelsJson {
   providers?: Record<string, ProviderEntry>;
+  disabledProviders?: string[];
 }
 
 type ModelTestState =
@@ -301,6 +302,48 @@ function Check({ label, checked, onChange }: { label: string; checked: boolean; 
   );
 }
 
+function Toggle({ enabled, label, onToggle }: { enabled: boolean; label: string; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle();
+      }}
+      title={label}
+      aria-label={label}
+      aria-pressed={enabled}
+      style={{
+        flexShrink: 0,
+        width: 40,
+        height: 22,
+        borderRadius: 11,
+        border: "none",
+        padding: 0,
+        cursor: "pointer",
+        background: enabled ? "var(--accent)" : "var(--border)",
+        position: "relative",
+        transition: "background 0.18s",
+        outline: "none",
+      }}
+    >
+      <span
+        style={{
+          position: "absolute",
+          top: 3,
+          left: enabled ? 21 : 3,
+          width: 16,
+          height: 16,
+          borderRadius: "50%",
+          background: "var(--bg)",
+          boxShadow: "0 1px 4px rgba(0,0,0,0.22)",
+          transition: "left 0.18s cubic-bezier(.4,0,.2,1)",
+        }}
+      />
+    </button>
+  );
+}
+
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>{children}</div>;
 }
@@ -309,7 +352,8 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddModels }: {
   name: string; provider: ProviderEntry;
-  onChange: (p: ProviderEntry) => void; onRename: (n: string) => void; onDelete: () => void;
+  onChange: (p: ProviderEntry) => void;
+  onRename: (n: string) => void; onDelete: () => void;
   onAddModels: (models: DiscoveredModel[]) => void;
 }) {
   const { t } = useI18n();
@@ -409,6 +453,8 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
            {t("i18n.delete")}
         </button>
       </div>
+
+
 
        <Field label={t("i18n.providerName")}>
         <TextInput value={editingName} onChange={setEditingName} placeholder="provider-name" mono />
@@ -1709,13 +1755,24 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     setConfig((prev) => ({ ...prev, providers: { ...(prev.providers ?? {}), [name]: p } }));
   }, []);
 
+  const setProviderEnabled = useCallback((name: string, enabled: boolean) => {
+    setConfig((prev) => {
+      const disabledProviders = new Set(prev.disabledProviders ?? []);
+      if (enabled) disabledProviders.delete(name);
+      else disabledProviders.add(name);
+      return { ...prev, disabledProviders: [...disabledProviders] };
+    });
+  }, []);
+
   const renameProvider = useCallback((oldName: string, newName: string) => {
     setConfig((prev) => {
       const entries = Object.entries(prev.providers ?? {});
       const idx = entries.findIndex(([k]) => k === oldName);
       if (idx === -1) return prev;
       entries[idx] = [newName, entries[idx][1]];
-      return { ...prev, providers: Object.fromEntries(entries) };
+      const disabledProviders = new Set(prev.disabledProviders ?? []);
+      if (disabledProviders.delete(oldName)) disabledProviders.add(newName);
+      return { ...prev, providers: Object.fromEntries(entries), disabledProviders: [...disabledProviders] };
     });
     setSelection((prev) => {
       if (!prev) return prev;
@@ -1729,7 +1786,9 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     setConfig((prev) => {
       const providers = { ...(prev.providers ?? {}) };
       delete providers[name];
-      return { ...prev, providers };
+      const disabledProviders = new Set(prev.disabledProviders ?? []);
+      disabledProviders.delete(name);
+      return { ...prev, providers, disabledProviders: [...disabledProviders] };
     });
     setConfig((prev) => {
       const remaining = Object.keys(prev.providers ?? {});
@@ -1805,6 +1864,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
   }, [config]);
 
   const providers = Object.entries(config.providers ?? {});
+  const disabledProviders = new Set(config.disabledProviders ?? []);
   const activeOAuth = oauthProviders.filter((p) => p.loggedIn);
   const activeApiKey = apiKeyProviders.filter((p) => p.configured);
 
@@ -1922,26 +1982,25 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                  <div style={{ padding: "10px 8px", fontSize: 12, color: "var(--text-muted)" }}>{t("i18n.loading")}</div>
               ) : providers.map(([pName, pData]) => {
                 const isProviderSelected = selection?.type === "provider" && selection.name === pName;
+                const enabled = !disabledProviders.has(pName);
                 const models = pData.models ?? [];
                 return (
                   <div key={pName} style={{ marginBottom: 2 }}>
                     {/* Provider row */}
                     <div
                       onClick={() => setSelection({ type: "provider", name: pName })}
-                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 8px", borderRadius: 5, cursor: "pointer", background: isProviderSelected ? "var(--bg-selected)" : "none" }}
+                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 8px", borderRadius: 5, cursor: "pointer", background: isProviderSelected ? "var(--bg-selected)" : "none", opacity: enabled ? 1 : 0.55 }}
                       onMouseEnter={(e) => { if (!isProviderSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
                       onMouseLeave={(e) => { if (!isProviderSelected) e.currentTarget.style.background = "none"; }}
                     >
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-dim)", flexShrink: 0 }}>
-                        <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" />
-                        <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
-                        <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
-                        <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
-                        <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
-                      </svg>
-                      <span style={{ fontSize: 12, fontWeight: isProviderSelected ? 600 : 400, color: "var(--text)", fontFamily: "var(--font-mono)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <span style={{ fontSize: 12, fontWeight: isProviderSelected ? 600 : 400, color: enabled ? "var(--text)" : "var(--text-dim)", fontFamily: "var(--font-mono)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {pName}
                       </span>
+                      <Toggle
+                        enabled={enabled}
+                        label={enabled ? t("i18n.disableProvider") : t("i18n.enableProvider")}
+                        onToggle={() => setProviderEnabled(pName, !enabled)}
+                      />
                     </div>
 
                     {/* Model rows */}

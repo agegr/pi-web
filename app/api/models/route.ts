@@ -3,7 +3,8 @@ import { resolve } from "path";
 import { createAgentSessionServices, getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { loadModelsWithCache, withModelRuntimeError, type ModelsData } from "@/lib/models-cache";
-import { resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope";
+import { resolveVisibleModels, filterModelScopeByDisabledProviders, selectInitialModelScope } from "@/lib/model-scope";
+import { getDisabledProviders } from "@/lib/provider-availability";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { projectTrustReloadOptions } from "@/lib/project-trust";
 
@@ -41,9 +42,12 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   const settings: SettingsManager = services.settingsManager;
   // `enabledModels` supports globs and fuzzy patterns, so resolve it the same
   // way the CLI does instead of comparing pattern strings literally (#307).
-  const scope = await resolveVisibleModels(
-    services.modelRuntime,
-    settings.getEnabledModels(),
+  const scope = filterModelScopeByDisabledProviders(
+    await resolveVisibleModels(
+      services.modelRuntime,
+      settings.getEnabledModels(),
+    ),
+    getDisabledProviders(),
   );
   const { visible, thinkingLevelPins, warnings } = scope;
   modelList = visible.map((m) => ({

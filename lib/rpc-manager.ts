@@ -6,7 +6,8 @@ import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
 import { invalidateModelsCache } from "./models-cache";
-import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
+import { resolveVisibleModels, filterModelScopeByDisabledProviders, selectInitialModelScope } from "./model-scope";
+import { getDisabledProviders } from "./provider-availability";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
@@ -1216,9 +1217,12 @@ export async function startRpcSession(
       agentDir,
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
-    const scope = await resolveVisibleModels(
-      services.modelRuntime,
-      services.settingsManager.getEnabledModels(),
+    const scope = filterModelScopeByDisabledProviders(
+      await resolveVisibleModels(
+        services.modelRuntime,
+        services.settingsManager.getEnabledModels(),
+      ),
+      getDisabledProviders(agentDir),
     );
     const defaultProvider = services.settingsManager.getDefaultProvider();
     const defaultModelId = services.settingsManager.getDefaultModel();

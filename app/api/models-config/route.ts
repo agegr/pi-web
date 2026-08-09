@@ -4,6 +4,7 @@ import { dirname, join } from "path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "@/lib/atomic-file";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { getModelsUiPath, normalizeDisabledProviders, readModelsUiState } from "@/lib/provider-availability";
 
 export const dynamic = "force-dynamic";
 
@@ -28,14 +29,28 @@ function writeModelsJson(data: Record<string, unknown>): void {
   writePrivateFileAtomicSync(path, JSON.stringify(data, null, 2));
 }
 
+function writeModelsUiState(disabledProviders: string[]): void {
+  const path = getModelsUiPath();
+  const dir = dirname(path);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writePrivateFileAtomicSync(path, JSON.stringify({ disabledProviders }, null, 2));
+}
+
 export async function GET() {
-  return NextResponse.json(readModelsJson());
+  return NextResponse.json({
+    ...readModelsJson(),
+    disabledProviders: readModelsUiState().disabledProviders,
+  });
 }
 
 export async function PUT(req: Request) {
   try {
     const body = await req.json() as Record<string, unknown>;
-    writeModelsJson(body);
+    const disabledProviders = normalizeDisabledProviders(body.disabledProviders);
+    const modelsConfig = { ...body };
+    delete modelsConfig.disabledProviders;
+    writeModelsJson(modelsConfig);
+    writeModelsUiState(disabledProviders);
     invalidateModelsCache();
     return NextResponse.json({ success: true });
   } catch (error) {
