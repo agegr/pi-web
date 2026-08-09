@@ -448,6 +448,11 @@ export function AppShell() {
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
     invalidateWorkspaceRestore();
     activeNewSessionDraftKeyRef.current = null;
+    // Selection and cwd updates are batched, but the sidebar's cwd effect runs
+    // after this callback. Record the target project first so that selecting a
+    // global history row across projects is treated as one transaction rather
+    // than as an unrelated manual project switch.
+    activeProjectRootRef.current = session.projectRoot ?? session.cwd;
     // Re-clicking the already-open session must not remount the chat and
     // re-run the full load/positioning cycle. Only skip when the effective
     // cwd context already matches — otherwise a pending cwd move still needs

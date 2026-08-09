@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import type { GlobalSessionSnapshot, RunningSessionSnapshot, RunningSessionStatusKind, SessionInfo } from "@/lib/types";
+import { buildGlobalHistorySessions, GLOBAL_HISTORY_LIMIT } from "@/lib/global-history";
 import { getFileName } from "@/lib/file-paths";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { useI18n } from "@/hooks/useI18n";
@@ -395,12 +396,9 @@ function GlobalNavigationPlaceholder() {
   const { t } = useI18n();
   return (
     <div
-      data-navigation-scope="global"
+      data-global-history-empty="true"
       data-navigation-placeholder="globalPlaceholder"
-      id="global-navigation-panel"
-      role="tabpanel"
-      aria-labelledby="navigation-scope-global"
-      tabIndex={0}
+      id="global-history-empty"
       style={{
         display: "flex",
         flex: "1 1 0",
@@ -417,10 +415,361 @@ function GlobalNavigationPlaceholder() {
           <circle cx="12" cy="12" r="8" />
           <path d="M4 12h16M12 4c2.1 2.2 3.2 4.9 3.2 8s-1.1 5.8-3.2 8c-2.1-2.2-3.2-4.9-3.2-8S9.9 6.2 12 4Z" />
         </svg>
-        <strong style={{ color: "var(--text)", fontSize: 13 }}>{t("sidebar.global")}</strong>
-        <span style={{ fontSize: 11, lineHeight: 1.5 }}>{t("sidebar.globalPlaceholder")}</span>
+        <strong style={{ color: "var(--text)", fontSize: 13 }}>{t("sidebar.noHistory")}</strong>
+        <span style={{ fontSize: 11, lineHeight: 1.5 }}>{t("sidebar.historyEmptyHint")}</span>
       </div>
     </div>
+  );
+}
+
+function useSessionActions(
+  session: SessionInfo,
+  onRenamed?: () => void,
+  onDeleted?: (id: string) => void,
+) {
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const startRename = useCallback((event: React.MouseEvent) => {
+    event.stopPropagation();
+    setRenameValue(session.name ?? "");
+    setRenaming(true);
+    setTimeout(() => inputRef.current?.select(), 0);
+  }, [session.name]);
+
+  const commitRename = useCallback(async () => {
+    const name = renameValue.trim();
+    setRenaming(false);
+    if (name === (session.name ?? "")) return;
+    try {
+      await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      onRenamed?.();
+    } catch {
+      // ignore
+    }
+  }, [renameValue, session.id, session.name, onRenamed]);
+
+  const performDelete = useCallback(async () => {
+    setConfirmDelete(false);
+    setDeleting(true);
+    try {
+      await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+      onDeleted?.(session.id);
+    } catch {
+      setDeleting(false);
+    }
+  }, [session.id, onDeleted]);
+
+  const handleDeleteClick = useCallback((event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (event.shiftKey) void performDelete();
+    else setConfirmDelete(true);
+  }, [performDelete]);
+
+  const handleDeleteConfirm = useCallback((event: React.MouseEvent) => {
+    event.stopPropagation();
+    void performDelete();
+  }, [performDelete]);
+
+  const handleDeleteCancel = useCallback((event: React.MouseEvent) => {
+    event.stopPropagation();
+    setConfirmDelete(false);
+  }, []);
+
+  return {
+    renaming,
+    renameValue,
+    setRenameValue,
+    setRenaming,
+    confirmDelete,
+    deleting,
+    inputRef,
+    startRename,
+    commitRename,
+    handleDeleteClick,
+    handleDeleteConfirm,
+    handleDeleteCancel,
+  };
+}
+
+function GlobalHistoryItem({
+  session,
+  homeDir,
+  isSelected,
+  isUnread,
+  onSelect,
+  onRenamed,
+  onDeleted,
+}: {
+  session: SessionInfo;
+  homeDir: string;
+  isSelected: boolean;
+  isUnread: boolean;
+  onSelect: () => void;
+  onRenamed?: () => void;
+  onDeleted?: (id: string) => void;
+}) {
+  const { t } = useI18n();
+  const [hovered, setHovered] = useState(false);
+  const {
+    renaming,
+    renameValue,
+    setRenameValue,
+    setRenaming,
+    confirmDelete,
+    deleting,
+    inputRef,
+    startRename,
+    commitRename,
+    handleDeleteClick,
+    handleDeleteConfirm,
+    handleDeleteCancel,
+  } = useSessionActions(session, onRenamed, onDeleted);
+
+  const title = session.name || session.firstMessage.slice(0, 50) || session.id.slice(0, 12);
+  const projectRoot = session.projectRoot ?? session.cwd;
+  const projectName = getFileName(projectRoot) || projectRoot;
+
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget || confirmDelete || renaming) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onSelect();
+    }
+  }, [confirmDelete, onSelect, renaming]);
+
+  return (
+    <div
+      role="button"
+      tabIndex={confirmDelete || renaming ? -1 : 0}
+      aria-current={isSelected ? "true" : undefined}
+      data-history-session-id={session.id}
+      onClick={confirmDelete || renaming ? undefined : onSelect}
+      onKeyDown={handleKeyDown}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      title={`${title}\n${projectRoot}\n${session.cwd}`}
+      style={{
+        minHeight: 76,
+        display: "flex",
+        alignItems: "center",
+        padding: "9px 8px 9px 10px",
+        cursor: confirmDelete || renaming ? "default" : "pointer",
+        background: confirmDelete
+          ? "rgba(239,68,68,0.06)"
+          : isSelected ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "transparent",
+        borderLeft: confirmDelete
+          ? "2px solid #ef4444"
+          : isSelected ? "2px solid var(--accent)" : "2px solid transparent",
+        transition: "background 0.1s",
+        opacity: deleting ? 0.5 : 1,
+        gap: 7,
+        overflow: "hidden",
+      }}
+    >
+      {confirmDelete ? (
+        <>
+          <div style={{ flex: 1, minWidth: 0, fontSize: 11, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {t("sidebar.deleteSession", { title: title.slice(0, 22) + (title.length > 22 ? "…" : "") })}
+          </div>
+          <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={handleDeleteConfirm}
+              style={{ height: 28, padding: "0 9px", background: "#ef4444", border: "none", borderRadius: 6, color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}
+            >
+              {t("sidebar.delete")}
+            </button>
+            <button
+              type="button"
+              onClick={handleDeleteCancel}
+              style={{ height: 28, padding: "0 9px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer", fontSize: 11, whiteSpace: "nowrap" }}
+            >
+              {t("sidebar.cancel")}
+            </button>
+          </div>
+        </>
+      ) : renaming ? (
+        <input
+          ref={inputRef}
+          value={renameValue}
+          onChange={(event) => setRenameValue(event.target.value)}
+          onBlur={() => void commitRename()}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") void commitRename();
+            if (event.key === "Escape") setRenaming(false);
+          }}
+          autoFocus
+          style={{ flex: 1, minWidth: 0, fontSize: 11, padding: "5px 8px", border: "1px solid var(--accent)", borderRadius: 5, outline: "none", background: "var(--bg)", color: "var(--text)", height: 28 }}
+        />
+      ) : (
+        <>
+          <span aria-hidden="true" style={{ width: 7, height: 7, marginTop: 2, borderRadius: "50%", flexShrink: 0, background: isUnread ? "#0891b2" : "var(--text-dim)" }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0, fontSize: 12, fontWeight: isSelected ? 550 : 450, lineHeight: 1.35 }}>
+              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
+              {isUnread && <UnreadSessionIndicator />}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0, marginTop: 3, color: "var(--text-muted)", fontSize: 10, lineHeight: 1.3 }}>
+              <span title={projectRoot} style={{ flexShrink: 0, maxWidth: "34%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{projectName}</span>
+              <span aria-hidden="true">·</span>
+              <PathLabel text={displayCwd(session.cwd, homeDir)} style={{ flex: 1 }} />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0, marginTop: 3, color: "var(--text-dim)", fontSize: 10, lineHeight: 1.3 }}>
+              {isUnread && <span style={{ flexShrink: 0, color: "#0891b2" }}>{t("sidebar.completed")}</span>}
+              <span title={session.modified}>{formatRelativeTime(session.modified)}</span>
+              <span aria-hidden="true">·</span>
+              <span>{t("sidebar.messagesCount", { count: session.messageCount })}</span>
+            </div>
+          </div>
+          {hovered && (
+            <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={startRename}
+                title={t("sidebar.rename")}
+                aria-label={t("sidebar.rename")}
+                style={{ width: 28, height: 28, padding: 0, background: "var(--bg-hover)", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer" }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteClick}
+                title={t("sidebar.deleteWithShiftClick")}
+                aria-label={t("sidebar.delete")}
+                style={{ width: 28, height: 28, padding: 0, background: "var(--bg-hover)", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer" }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                  <path d="M10 11v6M14 11v6" />
+                  <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                </svg>
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function GlobalHistorySessions({
+  sessions,
+  homeDir,
+  selectedSessionId,
+  unreadSessionIds,
+  loading,
+  error,
+  onRetry,
+  onSelect,
+  onRenamed,
+  onDeleted,
+}: {
+  sessions: SessionInfo[];
+  homeDir: string;
+  selectedSessionId: string | null;
+  unreadSessionIds: Set<string>;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  onSelect: (session: SessionInfo) => void;
+  onRenamed: () => void;
+  onDeleted: (sessionId: string) => void;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(true);
+
+  return (
+    <section
+      data-global-history-section="true"
+      aria-label={t("sidebar.history")}
+      style={{
+        display: "flex",
+        flex: "1 1 0",
+        flexDirection: "column",
+        minHeight: 80,
+        overflow: "hidden",
+      }}
+    >
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 7,
+          width: "100%",
+          minHeight: 34,
+          padding: "7px 10px",
+          border: "none",
+          background: "none",
+          color: "var(--text-muted)",
+          cursor: "pointer",
+          fontSize: 11,
+          fontWeight: 600,
+          textAlign: "left",
+        }}
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M6 4v16M6 4h12M6 12h8M6 20h12" />
+        </svg>
+        <span style={{ flex: 1 }}>{t("sidebar.history")}</span>
+        <span data-global-history-count="true" style={{ color: sessions.length > 0 ? "var(--text-muted)" : "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+          {sessions.length}/{GLOBAL_HISTORY_LIMIT}
+        </span>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }}>
+          <polyline points="2 3.5 5 6.5 8 3.5" />
+        </svg>
+      </button>
+
+      {open && (
+        <div data-global-history-list="true" style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", overflowX: "hidden" }}>
+          {loading && sessions.length === 0 && (
+            <div style={{ padding: "12px 14px", color: "var(--text-muted)", fontSize: 11 }}>{t("sidebar.loading")}</div>
+          )}
+          {error && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", color: "#f87171", fontSize: 11 }}>
+              <span style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>{t("sidebar.historyLoadError")}</span>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRetry();
+                }}
+                style={{ flexShrink: 0, padding: "3px 7px", border: "1px solid rgba(248,113,113,0.4)", borderRadius: 5, background: "none", color: "#f87171", cursor: "pointer", fontSize: 11 }}
+              >
+                {t("sidebar.retry")}
+              </button>
+            </div>
+          )}
+          {!loading && !error && sessions.length === 0 && <GlobalNavigationPlaceholder />}
+          {sessions.map((session) => (
+            <GlobalHistoryItem
+              key={session.id}
+              session={session}
+              homeDir={homeDir}
+              isSelected={session.id === selectedSessionId}
+              isUnread={unreadSessionIds.has(session.id)}
+              onSelect={() => onSelect(session)}
+              onRenamed={onRenamed}
+              onDeleted={onDeleted}
+            />
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1174,6 +1523,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   // Build parent-child tree within the filtered set
   const sessionTree = buildSessionTree(filteredSessions);
+  const globalHistorySessions = buildGlobalHistorySessions(allSessions, runningSessionIds);
   const navigationScopeLabels = {
     workspace: t("sidebar.workspace"),
     global: t("sidebar.global"),
@@ -1976,7 +2326,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         ))}
       </div>
       {navigationScope === "global" && (
-        <>
+        <div
+          id="global-navigation-panel"
+          role="tabpanel"
+          aria-labelledby="navigation-scope-global"
+          tabIndex={0}
+          data-navigation-scope="global"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto",
+            minHeight: 80,
+            overflow: "hidden",
+          }}
+        >
           <GlobalRunningSessions
             sessions={runningSessions}
             homeDir={homeDir}
@@ -1990,8 +2353,25 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             }}
             onSelect={handleSelectRunningSession}
           />
-          <GlobalNavigationPlaceholder />
-        </>
+          <GlobalHistorySessions
+            sessions={globalHistorySessions}
+            homeDir={homeDir}
+            selectedSessionId={selectedSessionId}
+            unreadSessionIds={unreadSessionIds}
+            loading={loading}
+            error={error}
+            onRetry={() => {
+              setError(null);
+              void loadSessions(true);
+            }}
+            onSelect={handleSelectSessionFromList}
+            onRenamed={() => void loadSessions(false)}
+            onDeleted={(id) => {
+              onSessionDeleted?.(id);
+              void loadSessions(false);
+            }}
+          />
+        </div>
       )}
 
       {/* File Explorer section */}
@@ -2320,11 +2700,20 @@ function SessionItem({
 }) {
   const { t } = useI18n();
   const [hovered, setHovered] = useState(false);
-  const [renaming, setRenaming] = useState(false);
-  const [renameValue, setRenameValue] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const {
+    renaming,
+    renameValue,
+    setRenameValue,
+    setRenaming,
+    confirmDelete,
+    deleting,
+    inputRef,
+    startRename,
+    commitRename,
+    handleDeleteClick,
+    handleDeleteConfirm,
+    handleDeleteCancel,
+  } = useSessionActions(session, onRenamed, onDeleted);
 
   // Select the whole name once the rename input is mounted (startRename's
   // immediate setTimeout can fire before the input exists).
@@ -2337,59 +2726,6 @@ function SessionItem({
 
   const title = session.name || session.firstMessage.slice(0, 50) || session.id.slice(0, 12);
 
-  const startRename = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    setRenameValue(session.name || session.firstMessage.slice(0, 50) || session.id.slice(0, 12));
-    setRenaming(true);
-  }, [session.name, session.firstMessage, session.id]);
-
-  const commitRename = useCallback(async () => {
-    const name = renameValue.trim();
-    setRenaming(false);
-    // No-op when unchanged: the fallback title (first message / id) isn't a
-    // real stored name, so don't persist it as one.
-    if (renameValue === title || name === (session.name ?? "")) return;
-    try {
-      await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
-      onRenamed?.();
-    } catch {
-      // ignore
-    }
-  }, [renameValue, session.id, session.name, onRenamed, title]);
-
-  const performDelete = useCallback(async () => {
-    setConfirmDelete(false);
-    setDeleting(true);
-    try {
-      await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
-      onDeleted?.(session.id);
-    } catch {
-      setDeleting(false);
-    }
-  }, [session.id, onDeleted]);
-
-  const handleDeleteClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (e.shiftKey) {
-      void performDelete();
-    } else {
-      setConfirmDelete(true);
-    }
-  }, [performDelete]);
-
-  const handleDeleteConfirm = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    void performDelete();
-  }, [performDelete]);
-
-  const handleDeleteCancel = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    setConfirmDelete(false);
-  }, []);
 
   // Fixed-height outer wrapper — content swaps in place so the list never reflows
   const ITEM_HEIGHT = 54;

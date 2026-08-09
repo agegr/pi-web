@@ -3,12 +3,13 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
+const sessionActionsSource = source.slice(source.indexOf("function useSessionActions"), source.indexOf("function GlobalHistoryItem"));
 const sessionItemSource = source.slice(source.indexOf("function SessionItem("));
 
 test("only Shift+click bypasses session deletion confirmation", () => {
   assert.match(
-    sessionItemSource,
-    /const handleDeleteClick[\s\S]*?if \(e\.shiftKey\) \{\s*void performDelete\(\);\s*\} else \{\s*setConfirmDelete\(true\);/,
+    sessionActionsSource,
+    /const handleDeleteClick[\s\S]*?if \(event\.shiftKey\) void performDelete\(\);\s*else setConfirmDelete\(true\);/,
   );
 });
 
@@ -61,6 +62,19 @@ test("global scope renders an independently scrollable running section", () => {
   assert.match(source, /maxHeight: "min\(38vh, 360px\)"/);
   assert.match(source, /sessions=\{runningSessions\}/);
   assert.match(source, /onSelect=\{handleSelectRunningSession\}/);
+});
+
+test("global history is a separate recent, scrollable section", () => {
+  assert.match(source, /function GlobalHistorySessions\(/);
+  assert.match(source, /buildGlobalHistorySessions\(allSessions, runningSessionIds\)/);
+  assert.match(source, /data-global-history-section="true"/);
+  assert.match(source, /data-global-history-list="true"/);
+  assert.match(source, /data-history-session-id=\{session\.id\}/);
+  assert.match(source, /session\.projectRoot/);
+  assert.match(source, /session\.modified/);
+  assert.match(source, /sidebar\.messagesCount/);
+  assert.match(source, /onRenamed=\{\(\) => void loadSessions\(false\)\}/);
+  assert.match(source, /onDeleted=\{\(id\) =>/);
 });
 
 test("running snapshots retain the last known rows when polling fails", () => {
