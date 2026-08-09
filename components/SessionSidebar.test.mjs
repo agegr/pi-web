@@ -60,13 +60,14 @@ test("global scope renders an independently scrollable running section", () => {
   assert.match(source, /data-global-running-section="true"/);
   assert.match(source, /data-global-running-list="true"/);
   assert.match(source, /maxHeight: "min\(38vh, 360px\)"/);
-  assert.match(source, /sessions=\{runningSessions\}/);
+  assert.match(source, /sessions=\{globalRunningSessions\}/);
+  assert.match(source, /searchQuery=\{globalSearchQuery\}/);
   assert.match(source, /onSelect=\{handleSelectRunningSession\}/);
 });
 
 test("global history is a separate recent, scrollable section", () => {
   assert.match(source, /function GlobalHistorySessions\(/);
-  assert.match(source, /buildGlobalHistorySessions\(allSessions, runningSessionIds\)/);
+  assert.match(source, /buildGlobalHistoryCandidates\(allSessions, runningSessionIds\)/);
   assert.match(source, /data-global-history-section="true"/);
   assert.match(source, /data-global-history-list="true"/);
   assert.match(source, /data-history-session-id=\{session\.id\}/);
@@ -75,6 +76,18 @@ test("global history is a separate recent, scrollable section", () => {
   assert.match(source, /sidebar\.messagesCount/);
   assert.match(source, /onRenamed=\{\(\) => void loadSessions\(false\)\}/);
   assert.match(source, /onDeleted=\{\(id\) =>/);
+});
+
+test("global search covers full history and supports incremental earlier loading", () => {
+  assert.match(source, /data-global-search="true"/);
+  assert.match(source, /matchesGlobalSessionQuery\(session, globalSearchQuery\)/);
+  assert.match(source, /globalSearchQuery\s*\?\s*globalHistoryMatches/);
+  assert.match(source, /data-global-history-load-more="true"/);
+  assert.match(source, /setGlobalHistoryVisibleCount\(\(count\) => count \+ GLOBAL_HISTORY_LIMIT\)/);
+  assert.match(source, /data-global-running-no-match="true"/);
+  assert.match(source, /data-global-history-no-match="true"/);
+  assert.match(source, /sidebar\.noRunning/);
+  assert.match(source, /sidebar\.noHistory/);
 });
 
 test("running snapshots retain the last known rows when polling fails", () => {

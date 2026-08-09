@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import type { GlobalSessionSnapshot, RunningSessionSnapshot, RunningSessionStatusKind, SessionInfo } from "@/lib/types";
-import { buildGlobalHistorySessions, GLOBAL_HISTORY_LIMIT } from "@/lib/global-history";
+import { buildGlobalHistoryCandidates, matchesGlobalSessionQuery, GLOBAL_HISTORY_LIMIT } from "@/lib/global-history";
 import { getFileName } from "@/lib/file-paths";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { useI18n } from "@/hooks/useI18n";
@@ -671,7 +671,11 @@ function GlobalHistorySessions({
   unreadSessionIds,
   loading,
   error,
+  searchQuery,
+  totalCount,
+  hasMore,
   onRetry,
+  onLoadMore,
   onSelect,
   onRenamed,
   onDeleted,
@@ -682,7 +686,11 @@ function GlobalHistorySessions({
   unreadSessionIds: Set<string>;
   loading: boolean;
   error: string | null;
+  searchQuery: string;
+  totalCount: number;
+  hasMore: boolean;
   onRetry: () => void;
+  onLoadMore: () => void;
   onSelect: (session: SessionInfo) => void;
   onRenamed: () => void;
   onDeleted: (sessionId: string) => void;
@@ -727,7 +735,7 @@ function GlobalHistorySessions({
         </svg>
         <span style={{ flex: 1 }}>{t("sidebar.history")}</span>
         <span data-global-history-count="true" style={{ color: sessions.length > 0 ? "var(--text-muted)" : "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-          {sessions.length}/{GLOBAL_HISTORY_LIMIT}
+          {searchQuery ? sessions.length : `${sessions.length}/${totalCount}`}
         </span>
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }}>
           <polyline points="2 3.5 5 6.5 8 3.5" />
@@ -754,7 +762,12 @@ function GlobalHistorySessions({
               </button>
             </div>
           )}
-          {!loading && !error && sessions.length === 0 && <GlobalNavigationPlaceholder />}
+          {!loading && !error && sessions.length === 0 && (searchQuery ? (
+            <div data-global-history-no-match="true" style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 11, lineHeight: 1.5 }}>
+              <strong style={{ display: "block", color: "var(--text)", fontSize: 12 }}>{t("sidebar.noMatchingHistory")}</strong>
+              <span>{t("sidebar.noMatchingHistoryHint")}</span>
+            </div>
+          ) : <GlobalNavigationPlaceholder />)}
           {sessions.map((session) => (
             <GlobalHistoryItem
               key={session.id}
@@ -767,6 +780,27 @@ function GlobalHistorySessions({
               onDeleted={onDeleted}
             />
           ))}
+          {!searchQuery && hasMore && (
+            <button
+              type="button"
+              data-global-history-load-more="true"
+              onClick={onLoadMore}
+              style={{
+                display: "block",
+                width: "calc(100% - 20px)",
+                margin: "8px 10px 12px",
+                padding: "7px 8px",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                background: "var(--bg-hover)",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                fontSize: 11,
+              }}
+            >
+              {t("sidebar.loadEarlierSessions", { count: totalCount - sessions.length })}
+            </button>
+          )}
         </div>
       )}
     </section>
@@ -788,6 +822,7 @@ function GlobalRunningSessions({
   selectedSessionId,
   loading,
   error,
+  searchQuery,
   onRetry,
   onSelect,
 }: {
@@ -796,6 +831,7 @@ function GlobalRunningSessions({
   selectedSessionId: string | null;
   loading: boolean;
   error: string | null;
+  searchQuery: string;
   onRetry: () => void;
   onSelect: (session: RunningSessionSnapshot) => void;
 }) {
@@ -884,11 +920,16 @@ function GlobalRunningSessions({
               </button>
             </div>
           )}
-          {!loading && !error && sessions.length === 0 && (
+          {!loading && !error && sessions.length === 0 && (searchQuery ? (
+            <div data-global-running-no-match="true" style={{ padding: "12px 14px", color: "var(--text-muted)", fontSize: 11, lineHeight: 1.5 }}>
+              <strong style={{ display: "block", color: "var(--text)", fontSize: 12 }}>{t("sidebar.noMatchingRunning")}</strong>
+              <span>{t("sidebar.noMatchingHistoryHint")}</span>
+            </div>
+          ) : (
             <div data-global-running-empty="true" style={{ padding: "12px 14px", color: "var(--text-muted)", fontSize: 11 }}>
               {t("sidebar.noRunning")}
             </div>
-          )}
+          ))}
           {sessions.map((session) => {
             const projectName = getFileName(session.projectRoot) || session.projectRoot;
             const active = session.id === selectedSessionId;
@@ -953,6 +994,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [error, setError] = useState<string | null>(null);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [navigationScope, setNavigationScope] = useState<"workspace" | "global">("workspace");
+  const [globalSearch, setGlobalSearch] = useState("");
+  const [globalHistoryVisibleCount, setGlobalHistoryVisibleCount] = useState(GLOBAL_HISTORY_LIMIT);
   const navigationScopeButtonsRef = useRef<Record<"workspace" | "global", HTMLButtonElement | null>>({ workspace: null, global: null });
   const [homeDir, setHomeDir] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -1523,7 +1566,25 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   // Build parent-child tree within the filtered set
   const sessionTree = buildSessionTree(filteredSessions);
-  const globalHistorySessions = buildGlobalHistorySessions(allSessions, runningSessionIds);
+  const globalSearchQuery = globalSearch.trim();
+  const globalRunningSessions = useMemo(
+    () => runningSessions.filter((session) => matchesGlobalSessionQuery(session, globalSearchQuery)),
+    [globalSearchQuery, runningSessions],
+  );
+  const globalHistoryCandidates = useMemo(
+    () => buildGlobalHistoryCandidates(allSessions, runningSessionIds),
+    [allSessions, runningSessionIds],
+  );
+  const globalHistoryMatches = useMemo(
+    () => globalSearchQuery
+      ? globalHistoryCandidates.filter((session) => matchesGlobalSessionQuery(session, globalSearchQuery))
+      : globalHistoryCandidates,
+    [globalHistoryCandidates, globalSearchQuery],
+  );
+  const globalHistorySessions = globalSearchQuery
+    ? globalHistoryMatches
+    : globalHistoryMatches.slice(0, globalHistoryVisibleCount);
+  const globalHistoryHasMore = !globalSearchQuery && globalHistoryVisibleCount < globalHistoryMatches.length;
   const navigationScopeLabels = {
     workspace: t("sidebar.workspace"),
     global: t("sidebar.global"),
@@ -2340,12 +2401,45 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             overflow: "hidden",
           }}
         >
+          <div
+            data-global-search="true"
+            style={{ padding: "8px 10px", borderBottom: "1px solid var(--border)" }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 6, height: 30, padding: "0 7px", border: "1px solid var(--border)", borderRadius: 7, background: "var(--bg)" }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="10.5" cy="10.5" r="6" />
+                <path d="m15 15 5 5" />
+              </svg>
+              <input
+                value={globalSearch}
+                onChange={(event) => setGlobalSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") setGlobalSearch("");
+                }}
+                placeholder={t("sidebar.searchGlobalSessions")}
+                aria-label={t("sidebar.searchGlobalSessions")}
+                style={{ flex: 1, minWidth: 0, height: "100%", padding: 0, border: "none", outline: "none", background: "transparent", color: "var(--text)", fontSize: 11 }}
+              />
+              {globalSearch && (
+                <button
+                  type="button"
+                  onClick={() => setGlobalSearch("")}
+                  title={t("sidebar.clearGlobalSearch")}
+                  aria-label={t("sidebar.clearGlobalSearch")}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 20, height: 20, padding: 0, border: "none", borderRadius: 4, background: "none", color: "var(--text-dim)", cursor: "pointer", fontSize: 15, lineHeight: 1 }}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          </div>
           <GlobalRunningSessions
-            sessions={runningSessions}
+            sessions={globalRunningSessions}
             homeDir={homeDir}
             selectedSessionId={selectedSessionId}
             loading={runningLoading}
             error={runningError}
+            searchQuery={globalSearchQuery}
             onRetry={() => {
               setRunningError(null);
               setRunningLoading(true);
@@ -2360,10 +2454,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             unreadSessionIds={unreadSessionIds}
             loading={loading}
             error={error}
+            searchQuery={globalSearchQuery}
+            totalCount={globalHistoryMatches.length}
+            hasMore={globalHistoryHasMore}
             onRetry={() => {
               setError(null);
               void loadSessions(true);
             }}
+            onLoadMore={() => setGlobalHistoryVisibleCount((count) => count + GLOBAL_HISTORY_LIMIT)}
             onSelect={handleSelectSessionFromList}
             onRenamed={() => void loadSessions(false)}
             onDeleted={(id) => {
