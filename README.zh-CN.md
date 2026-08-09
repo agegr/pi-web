@@ -23,6 +23,14 @@ npm install -g @agegr/pi-web
 pi-web
 ```
 
+**更新到最新版本：**
+
+```bash
+pi-web update
+```
+
+`pi-web update` 会检查 npm registry 中是否有新版本，并使用安装 pi-web 时所用的包管理器（npm、pnpm、yarn 或 bun）重新全局安装。如果通过 `npx` 运行 pi-web，该命令会将最新版本全局安装到本机。更新完成后请重启 pi-web。
+
 启动后打开 [http://127.0.0.1:30141](http://127.0.0.1:30141)。命令行版本会在服务就绪后尝试自动打开浏览器。Pi Web 默认仅监听 `127.0.0.1`。
 
 **可选参数：**
