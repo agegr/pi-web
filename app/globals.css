@@ -945,6 +945,13 @@ span.linenumber {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
+/* Session details span the available row width; management controls float above
+   them instead of reserving a second flex column. */
+.session-item-content {
+  flex: 1 1 0%;
+  width: 100%;
+  min-width: 0;
+}
 .session-item-actions {
   opacity: 0;
   transition: opacity 0.12s ease;

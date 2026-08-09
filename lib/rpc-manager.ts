@@ -259,7 +259,6 @@ export class AgentSessionWrapper {
       queued: this.inner.pendingMessageCount,
     };
   }
-  }
 
   start(): void {
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {

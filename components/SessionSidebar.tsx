@@ -447,10 +447,12 @@ function useSessionActions(
     setTimeout(() => inputRef.current?.select(), 0);
   }, [session.name]);
 
+  const title = session.name || session.firstMessage.slice(0, 50) || session.id.slice(0, 12);
+
   const commitRename = useCallback(async () => {
     const name = renameValue.trim();
     setRenaming(false);
-    if (name === (session.name ?? "")) return;
+    if (renameValue === title || name === (session.name ?? "")) return;
     try {
       await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, {
         method: "PATCH",
@@ -461,7 +463,7 @@ function useSessionActions(
     } catch {
       // ignore
     }
-  }, [renameValue, session.id, session.name, onRenamed]);
+  }, [renameValue, session.id, session.name, onRenamed, title]);
 
   const performDelete = useCallback(async () => {
     setConfirmDelete(false);
@@ -622,7 +624,7 @@ function GlobalHistoryItem({
       ) : (
         <>
           <span aria-hidden="true" style={{ width: 7, height: 7, marginTop: 2, borderRadius: "50%", flexShrink: 0, background: isUnread ? "#0891b2" : "var(--text-dim)" }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="session-item-content">
             <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0, fontSize: 12, fontWeight: isSelected ? 550 : 450, lineHeight: 1.35 }}>
               <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
               {isUnread && <UnreadSessionIndicator />}
@@ -649,9 +651,26 @@ function GlobalHistoryItem({
                 onClick={startRename}
                 title={t("sidebar.rename")}
                 aria-label={t("sidebar.rename")}
-                style={{ width: 28, height: 28, padding: 0, background: "var(--bg-hover)", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer" }}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 32, height: 32, padding: 0,
+                  background: "var(--bg-hover)", border: "1px solid var(--border)",
+                  borderRadius: 7, color: "var(--text-muted)",
+                  cursor: "pointer", flexShrink: 0,
+                  transition: "background 0.12s, color 0.12s, border-color 0.12s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--bg-selected)";
+                  e.currentTarget.style.color = "var(--accent)";
+                  e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "var(--bg-hover)";
+                  e.currentTarget.style.color = "var(--text-muted)";
+                  e.currentTarget.style.borderColor = "var(--border)";
+                }}
               >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
                 </svg>
               </button>
@@ -660,9 +679,26 @@ function GlobalHistoryItem({
                 onClick={handleDeleteClick}
                 title={t("sidebar.deleteWithShiftClick")}
                 aria-label={t("sidebar.delete")}
-                style={{ width: 28, height: 28, padding: 0, background: "var(--bg-hover)", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer" }}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 32, height: 32, padding: 0,
+                  background: "var(--bg-hover)", border: "1px solid var(--border)",
+                  borderRadius: 7, color: "var(--text-muted)",
+                  cursor: "pointer", flexShrink: 0,
+                  transition: "background 0.12s, color 0.12s, border-color 0.12s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "rgba(239,68,68,0.08)";
+                  e.currentTarget.style.color = "#ef4444";
+                  e.currentTarget.style.borderColor = "rgba(239,68,68,0.35)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "var(--bg-hover)";
+                  e.currentTarget.style.color = "var(--text-muted)";
+                  e.currentTarget.style.borderColor = "var(--border)";
+                }}
               >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <polyline points="3 6 5 6 21 6" />
                   <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
                   <path d="M10 11v6M14 11v6" />
@@ -1278,7 +1314,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onCloseSide
       }
       void loadSessions(false);
       if (completedInBackground.length > 0) onBackgroundTaskDone?.();
-    }
     }
 
     previousRunningSessionIdsRef.current = runningSessionIds;
@@ -3005,7 +3040,7 @@ function SessionItem({
       const id = requestAnimationFrame(() => inputRef.current?.select());
       return () => cancelAnimationFrame(id);
     }
-  }, [renaming]);
+  }, [inputRef, renaming]);
 
   const title = session.name || session.firstMessage.slice(0, 50) || session.id.slice(0, 12);
   const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -3132,7 +3167,7 @@ function SessionItem({
               <path d="M18 9a9 9 0 0 1-9 9" />
             </svg>
           )}
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="session-item-content">
             <div
               style={{
                 display: "flex",

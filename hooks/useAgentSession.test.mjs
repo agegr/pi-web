@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const source = await readFile(new URL("./useAgentSession.ts", import.meta.url), "utf8");
-const chatWindowSource = await readFile(new URL("../components/ChatWindow.tsx", import.meta.url), "utf8");
-const chatInputSource = await readFile(new URL("../components/ChatInput.tsx", import.meta.url), "utf8");
-const appShellSource = await readFile(new URL("../components/AppShell.tsx", import.meta.url), "utf8");
+const source = (await readFile(new URL("./useAgentSession.ts", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
+const chatWindowSource = (await readFile(new URL("../components/ChatWindow.tsx", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
+const chatInputSource = (await readFile(new URL("../components/ChatInput.tsx", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
+const appShellSource = (await readFile(new URL("../components/AppShell.tsx", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
 
 test("keeps the session event stream open through the idle grace window", () => {
   const finishSource = source.slice(
@@ -316,6 +316,8 @@ test("sizes the message tail from the rendered bottom composer", () => {
   assert.match(chatWindowSource, /scrollToBottom\("auto"\)/);
   assert.match(chatWindowSource, /<div ref=\{bottomComposerRef\} className="relative">/);
   assert.match(chatWindowSource, /height: bottomComposerHeight/);
+});
+
 test("session navigation only closes the observer and does not abort the background RPC", () => {
   const lifecycleSource = source.slice(
     source.indexOf("// Load session on mount"),

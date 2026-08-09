@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const source = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
+const source = (await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
 const sessionActionsSource = source.slice(source.indexOf("function useSessionActions"), source.indexOf("function GlobalHistoryItem"));
 const sessionItemSource = source.slice(source.indexOf("function SessionItem("));
 
@@ -71,9 +71,11 @@ test("includes project activity counts in accessible labels", () => {
 
 test("does not persist an unchanged fallback title ending in whitespace", () => {
   assert.match(
-    sessionItemSource,
+    sessionActionsSource,
     /const name = renameValue\.trim\(\);[\s\S]*?if \(renameValue === title \|\| name === \(session\.name \?\? ""\)\) return;/,
   );
+});
+
 test("defaults to workspace and exposes a non-URL scope tablist", () => {
   assert.match(source, /useState<"workspace" \\| "global">\("workspace"\)/);
   assert.match(source, /role="tablist"/);
@@ -166,6 +168,21 @@ test("keeps new-session creation lazy and scoped to workspace", async () => {
     source.indexOf('{navigationScope === "global" &&'),
   );
   assert.match(workspaceSource, /onClick=\{handleNewSession\}/);
-  const chatWindowSource = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
-  assert.match(chatWindowSource, /draftKey=\{session\?\.id \?\? \(newSessionCwd \? `new:\$\{newSessionCwd\}` : undefined\)\}/);
+  const chatWindowSource = (await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
+  assert.match(chatWindowSource, /draftKey=\{session\?\.id \?\? newSessionDraftKey \?\? undefined\}/);
+});
+
+test("session details use the full row width independently of floating controls", async () => {
+  assert.equal((source.match(/className="session-item-content"/g) ?? []).length, 2);
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /\.session-item-content\s*\{[\s\S]*?width: 100%;[\s\S]*?min-width: 0;/);
+  assert.match(css, /\.session-item-controls\s*\{[\s\S]*?position: absolute;/);
+});
+
+test("global history floating actions match workspace controls", () => {
+  const globalHistorySource = source.slice(source.indexOf("function GlobalHistoryItem"), source.indexOf("function GlobalHistorySessions"));
+  assert.match(globalHistorySource, /display: "flex", alignItems: "center", justifyContent: "center",[\s\S]*?width: 32, height: 32/);
+  assert.match(globalHistorySource, /borderRadius: 7/);
+  assert.match(globalHistorySource, /onMouseEnter=\{\(e\) => \{[\s\S]*?e\.currentTarget\.style\.color = "var\(--accent\)"/);
+  assert.match(globalHistorySource, /e\.currentTarget\.style\.color = "#ef4444"/);
 });
