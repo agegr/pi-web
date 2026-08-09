@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
@@ -69,7 +69,7 @@ export function MermaidBlock({ code, isStreaming, defaultPreview = false }: Merm
     };
   }, [code, currentKey, isDark, previewVisible]);
 
-  const previewButton = (
+  const previewButton = useMemo(() => (
     <button
       type="button"
       onClick={() => setShowPreview((v) => !v)}
@@ -79,7 +79,7 @@ export function MermaidBlock({ code, isStreaming, defaultPreview = false }: Merm
     >
       {previewVisible ? t("i18n.source") : t("i18n.preview")}
     </button>
-  );
+  ), [isStreaming, previewVisible, t]);
 
   if (!previewVisible) {
     return <CodeBlock code={code} lang="mermaid" headerAction={previewButton} isStreaming={isStreaming} />;
