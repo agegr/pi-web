@@ -127,6 +127,7 @@ interface ModelEntry {
   contextWindow?: number;
   maxTokens?: number;
   cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+  headers?: Record<string, string>;
   compat?: Record<string, unknown>;
 }
 
@@ -437,6 +438,16 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
         <Select value={provider.api ?? "openai-completions"} onChange={(v) => set("api", v)} options={API_OPTIONS} required />
       </Field>
 
+      <Field label="Headers">
+        <HeaderListEditor
+          headers={provider.headers}
+          onChange={(headers) => set("headers", headers)}
+        />
+        <span style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
+          Added to every request from this provider (e.g. User-Agent). Useful for gateways with bot detection.
+        </span>
+      </Field>
+
       <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
         {discoveryState.phase !== "success" && (
           <button
@@ -702,6 +713,70 @@ function setDeepseekCompat(model: ModelEntry, enabled: boolean): ModelEntry {
   delete rest.thinkingFormat;
   delete rest.requiresReasoningContentOnAssistantMessages;
   return { ...model, compat: Object.keys(rest).length ? rest : undefined };
+}
+
+// Generic helper for boolean compat flags. An empty compat map is collapsed to
+// `undefined` so the saved models.json stays free of `{}` noise.
+function setCompatBool(model: ModelEntry, key: string, value: boolean): ModelEntry {
+  const next = { ...(model.compat ?? {}) };
+  if (value) next[key] = true;
+  else delete next[key];
+  return { ...model, compat: Object.keys(next).length ? next : undefined };
+}
+
+// Compat can be configured at the provider or model level; provider-composer
+// merges them (model wins) at runtime. The UI reads the effective value so
+// hand-edited models.json settings are reflected correctly, while toggles
+// write to the model entry so a per-model override is explicit.
+function effectiveCompat(provider: ProviderEntry, model: ModelEntry): Record<string, unknown> {
+  return { ...(provider.compat ?? {}), ...(model.compat ?? {}) };
+}
+
+// Editable key/value request-header list for a provider or model. Rebuilds a
+// fresh object on each edit so empty keys/values are dropped instead of being
+// persisted as noise in models.json.
+function HeaderListEditor({ headers, onChange }: {
+  headers: Record<string, string> | undefined;
+  onChange: (h: Record<string, string> | undefined) => void;
+}) {
+  const entries = Object.entries(headers ?? {});
+  const setEntry = (row: number, k: string, v: string): void => {
+    const next: Record<string, string> = {};
+    entries.forEach(([ok, ov], j) => { if (j !== row) next[ok] = ov; });
+    if (k.trim()) next[k.trim()] = v;
+    onChange(Object.keys(next).length ? next : undefined);
+  };
+  const removeEntry = (row: number): void => {
+    const next = entries.filter((_, j) => j !== row);
+    onChange(Object.keys(next).length ? Object.fromEntries(next) : undefined);
+  };
+  const rowBtnStyle = {
+    padding: "6px 9px",
+    background: "none",
+    border: "1px solid rgba(239,68,68,0.3)",
+    borderRadius: 4,
+    color: "#ef4444",
+    cursor: "pointer",
+    fontSize: 11,
+    lineHeight: 1,
+  } satisfies React.CSSProperties;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {entries.map(([k, v], i) => (
+        <div key={i} style={{ display: "flex", gap: 6 }}>
+          <input value={k} onChange={(e) => setEntry(i, e.target.value, v)}
+            placeholder="Header-Name" style={{ ...inputStyle, fontFamily: "var(--font-mono)", flex: 1 }} />
+          <input value={v} onChange={(e) => setEntry(i, k, e.target.value)}
+            placeholder="value" style={{ ...inputStyle, fontFamily: "var(--font-mono)", flex: 1 }} />
+          <button onClick={() => removeEntry(i)} style={rowBtnStyle}>✕</button>
+        </div>
+      ))}
+      <button onClick={() => onChange({ ...(headers ?? {}), "": "" })}
+        style={{ padding: "5px 9px", background: "none", border: "1px solid var(--border)", borderRadius: 4, color: "var(--text-muted)", cursor: "pointer", fontSize: 11, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, alignSelf: "flex-start" }}>
+        + Add header
+      </button>
+    </div>
+  );
 }
 
 function fillEmptyModelFields(
@@ -1019,6 +1094,16 @@ function ModelDetail({
         <Select value={model.api ?? ""} onChange={(v) => set("api", v || undefined)} options={API_OPTIONS} />
       </Field>
 
+      <Field label="Headers">
+        <HeaderListEditor
+          headers={model.headers}
+          onChange={(headers) => set("headers", headers)}
+        />
+        <span style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
+          Added to this model&apos;s requests; overrides the provider headers for this model.
+        </span>
+      </Field>
+
       <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
         <Check label="Reasoning / thinking" checked={model.reasoning ?? false} onChange={(v) => set("reasoning", v || undefined)} />
         <Check label="Image input" checked={model.input?.includes("image") ?? false}
@@ -1031,6 +1116,11 @@ function ModelDetail({
             label="DeepSeek thinking compat"
             checked={hasDeepseekCompat(model)}
             onChange={(v) => onChange(setDeepseekCompat(model, v))}
+          />
+          <Check
+            label="Use 'developer' role for the system prompt (disable if server rejects it)"
+            checked={effectiveCompat(provider, model)["supportsDeveloperRole"] !== false}
+            onChange={(v) => onChange(setCompatBool(model, "supportsDeveloperRole", v))}
           />
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
