@@ -97,6 +97,31 @@ test("running snapshots retain the last known rows when polling fails", () => {
   assert.match(source, /runningRetryKey/);
 });
 
+test("completed running sessions are promoted into history immediately", () => {
+  assert.match(source, /runningSnapshotToSessionInfo\(/);
+  assert.match(source, /completedSessionFallbacksRef/);
+  assert.match(source, /lastKnownRunningSessionsRef/);
+  assert.match(source, /completedInBackground/);
+  assert.match(source, /setAllSessions\(/);
+});
+
+test("partial running snapshots preserve status and render an unknown fallback", () => {
+  assert.match(source, /mergeRunningSessionSnapshots\(/);
+  assert.match(source, /runningStatusUnknown/);
+  assert.match(source, /historyError/);
+});
+
+test("unavailable historical cwds keep the session and mark the explorer unavailable", () => {
+  assert.match(source, /cwdAvailable/);
+  assert.match(source, /files\.unavailable/);
+  assert.match(source, /selectedCwdAvailable/);
+});
+
+test("switching sessions does not abort the previous background run", () => {
+  const cleanup = source.slice(source.indexOf("const handleSelectSessionFromList"), source.indexOf("const handleNewSession"));
+  assert.doesNotMatch(cleanup, /abort/);
+});
+
 test("keeps new-session creation lazy and scoped to workspace", async () => {
   assert.doesNotMatch(source, /crypto\.randomUUID\(\)/);
   const workspaceSource = source.slice(

@@ -790,6 +790,7 @@ export function AppShell() {
         refreshKey={refreshKey}
         onSessionDeleted={handleSessionDeleted}
         selectedCwd={selectedSession?.cwd ?? newSessionCwd ?? null}
+        selectedCwdAvailable={selectedSession ? selectedSession.cwdAvailable : newSessionCwd ? true : null}
         onCwdChange={handleCwdChange}
         onOpenFile={handleOpenFile}
         explorerRefreshKey={explorerRefreshKey}

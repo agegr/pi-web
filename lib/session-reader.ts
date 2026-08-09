@@ -5,6 +5,7 @@ import {
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import { closeSync, openSync, readSync } from "fs";
+import { access } from "fs/promises";
 import { normalize as normalizePath } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
 import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } from "@earendil-works/pi-coding-agent";
@@ -13,6 +14,15 @@ import { sessionPathKey } from "./session-path";
 import { resolveProject, type ProjectInfo } from "./worktree";
 
 export { getAgentDir };
+
+export async function isPathAvailable(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function loadAllSessions(): Promise<SessionInfo[]> {
   const piSessions: PiSessionInfo[] = await SessionManager.listAll();
@@ -23,8 +33,14 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
   // worktrees). resolveProject caches per-cwd, so this is cheap after warmup.
   const uniqueCwds = [...new Set(piSessions.map((s) => s.cwd).filter(Boolean))];
   const projectByCwd = new Map<string, ProjectInfo>();
+  const cwdAvailability = new Map<string, boolean>();
   await Promise.all(uniqueCwds.map(async (cwd) => {
-    projectByCwd.set(cwd, await resolveProject(cwd));
+    const [project, available] = await Promise.all([
+      resolveProject(cwd),
+      isPathAvailable(cwd),
+    ]);
+    projectByCwd.set(cwd, project);
+    cwdAvailability.set(cwd, available);
   }));
 
   return piSessions.map((s) => {
@@ -42,6 +58,7 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
       parentSessionId: s.parentSessionPath ? pathToId.get(sessionPathKey(s.parentSessionPath)) : undefined,
       projectRoot: project?.projectRoot ?? s.cwd,
       ...(project?.isWorktree && project.branch ? { worktreeBranch: project.branch } : {}),
+      ...(s.cwd ? { cwdAvailable: cwdAvailability.get(s.cwd) ?? false } : {}),
     };
   });
 }

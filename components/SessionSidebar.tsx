@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import type { GlobalSessionSnapshot, RunningSessionSnapshot, RunningSessionStatusKind, SessionInfo } from "@/lib/types";
 import { buildGlobalHistoryCandidates, matchesGlobalSessionQuery, GLOBAL_HISTORY_LIMIT } from "@/lib/global-history";
+import { mergeRunningSessionSnapshots, runningSnapshotToSessionInfo } from "@/lib/running-sessions";
 import { getFileName } from "@/lib/file-paths";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { useI18n } from "@/hooks/useI18n";
@@ -86,6 +87,7 @@ interface Props {
   refreshKey?: number;
   onSessionDeleted?: (sessionId: string) => void;
   selectedCwd?: string | null;
+  selectedCwdAvailable?: boolean | null;
   onCwdChange?: (cwd: string | null, projectRoot?: string | null) => void;
   onOpenFile?: (filePath: string, fileName: string, options?: { sourceSessionId?: string | null; modeHint?: "diff" }) => void;
   explorerRefreshKey?: number;
@@ -119,6 +121,7 @@ interface WorktreeState {
 
 const UNREAD_SESSIONS_STORAGE_KEY = "pi-web:unread-session-ids";
 const RUNNING_SESSIONS_POLL_MS = 2500;
+const MAX_COMPLETED_SESSION_FALLBACKS = 100;
 
 function loadUnreadSessionIds(): Set<string> {
   if (typeof window === "undefined") return new Set();
@@ -621,6 +624,9 @@ function GlobalHistoryItem({
               <span title={projectRoot} style={{ flexShrink: 0, maxWidth: "34%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{projectName}</span>
               <span aria-hidden="true">·</span>
               <PathLabel text={displayCwd(session.cwd, homeDir)} style={{ flex: 1 }} />
+              {session.cwdAvailable === false && (
+                <span style={{ flexShrink: 0, color: "#d97706" }}>{t("sidebar.cwdUnavailable")}</span>
+              )}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0, marginTop: 3, color: "var(--text-dim)", fontSize: 10, lineHeight: 1.3 }}>
               {isUnread && <span style={{ flexShrink: 0, color: "#0891b2" }}>{t("sidebar.completed")}</span>}
@@ -674,6 +680,8 @@ function GlobalHistorySessions({
   searchQuery,
   totalCount,
   hasMore,
+  open,
+  onOpenChange,
   onRetry,
   onLoadMore,
   onSelect,
@@ -689,6 +697,8 @@ function GlobalHistorySessions({
   searchQuery: string;
   totalCount: number;
   hasMore: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onRetry: () => void;
   onLoadMore: () => void;
   onSelect: (session: SessionInfo) => void;
@@ -696,7 +706,6 @@ function GlobalHistorySessions({
   onDeleted: (sessionId: string) => void;
 }) {
   const { t } = useI18n();
-  const [open, setOpen] = useState(true);
 
   return (
     <section
@@ -713,7 +722,7 @@ function GlobalHistorySessions({
       <button
         type="button"
         aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => onOpenChange(!open)}
         style={{
           display: "flex",
           alignItems: "center",
@@ -808,12 +817,14 @@ function GlobalHistorySessions({
 }
 
 function runningStatusLabel(kind: RunningSessionStatusKind, t: ReturnType<typeof useI18n>["t"]): string {
-  switch (kind) {
-    case "compacting": return t("sidebar.runningStatusCompacting");
-    case "executing": return t("sidebar.runningStatusExecuting");
-    case "generating": return t("sidebar.runningStatusGenerating");
-    case "processing": return t("sidebar.runningStatusProcessing");
-  }
+  const labels: Record<RunningSessionStatusKind, string> = {
+    compacting: t("sidebar.runningStatusCompacting"),
+    executing: t("sidebar.runningStatusExecuting"),
+    generating: t("sidebar.runningStatusGenerating"),
+    processing: t("sidebar.runningStatusProcessing"),
+    unknown: t("sidebar.runningStatusUnknown"),
+  };
+  return labels[kind];
 }
 
 function GlobalRunningSessions({
@@ -823,6 +834,8 @@ function GlobalRunningSessions({
   loading,
   error,
   searchQuery,
+  open,
+  onOpenChange,
   onRetry,
   onSelect,
 }: {
@@ -832,11 +845,12 @@ function GlobalRunningSessions({
   loading: boolean;
   error: string | null;
   searchQuery: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onRetry: () => void;
   onSelect: (session: RunningSessionSnapshot) => void;
 }) {
   const { t } = useI18n();
-  const [open, setOpen] = useState(true);
 
   return (
     <section
@@ -855,7 +869,7 @@ function GlobalRunningSessions({
       <button
         type="button"
         aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => onOpenChange(!open)}
         style={{
           display: "flex",
           alignItems: "center",
@@ -967,9 +981,12 @@ function GlobalRunningSessions({
                     <span title={session.projectRoot} style={{ flexShrink: 0, maxWidth: "42%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-muted)" }}>{projectName}</span>
                     <span aria-hidden="true">·</span>
                     <PathLabel text={displayCwd(session.cwd, homeDir)} style={{ flex: 1 }} />
+                    {session.cwdAvailable === false && (
+                      <span style={{ flexShrink: 0, color: "#d97706" }}>{t("sidebar.cwdUnavailable")}</span>
+                    )}
                   </span>
                   <span style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0, marginTop: 3, color: "var(--text-dim)", fontSize: 10, lineHeight: 1.3 }}>
-                    <span style={{ flexShrink: 0, color: "var(--accent)" }}>{status}</span>
+                    <span style={{ flexShrink: 0, color: session.status.kind === "unknown" ? "var(--text-dim)" : "var(--accent)" }}>{status}</span>
                     {session.status.detail && <><span aria-hidden="true">·</span><span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.status.detail}</span></>}
                   </span>
                 </span>
@@ -987,14 +1004,21 @@ function GlobalRunningSessions({
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, selectedCwdAvailable: selectedCwdAvailableProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
+  const allSessionsByIdRef = useRef<ReadonlyMap<string, SessionInfo>>(new Map());
+  allSessionsByIdRef.current = useMemo(
+    () => new Map(allSessions.map((session) => [session.id, session])),
+    [allSessions],
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [navigationScope, setNavigationScope] = useState<"workspace" | "global">("workspace");
   const [globalSearch, setGlobalSearch] = useState("");
+  const [globalRunningOpen, setGlobalRunningOpen] = useState(true);
+  const [globalHistoryOpen, setGlobalHistoryOpen] = useState(true);
   const [globalHistoryVisibleCount, setGlobalHistoryVisibleCount] = useState(GLOBAL_HISTORY_LIMIT);
   const navigationScopeButtonsRef = useRef<Record<"workspace" | "global", HTMLButtonElement | null>>({ workspace: null, global: null });
   const [homeDir, setHomeDir] = useState<string>("");
@@ -1027,10 +1051,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [runningSessions, setRunningSessions] = useState<RunningSessionSnapshot[]>([]);
   const [runningLoading, setRunningLoading] = useState(true);
   const [runningError, setRunningError] = useState<string | null>(null);
+  const [historyMetadataError, setHistoryMetadataError] = useState<string | null>(null);
   const [runningRetryKey, setRunningRetryKey] = useState(0);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
+  const runningSessionsRef = useRef<RunningSessionSnapshot[]>([]);
+  const lastKnownRunningSessionsRef = useRef(new Map<string, RunningSessionSnapshot>());
+  const completedSessionFallbacksRef = useRef(new Map<string, SessionInfo>());
   // Once polling has delivered a snapshot it is the source of truth for
   // running state; late /api/sessions responses must not overwrite it.
   const runningPollAuthoritativeRef = useRef(false);
@@ -1044,20 +1072,42 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       const res = await fetch("/api/sessions");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[] };
-      setAllSessions(data.sessions);
+      // A completion can win the race with the session-list scan (especially
+      // for a newly-created session). Keep that optimistic row until an
+      // authoritative scan includes it, so it enters history immediately.
+      for (const session of data.sessions) completedSessionFallbacksRef.current.delete(session.id);
+      const mergedSessions = [...data.sessions];
+      for (const [id, fallback] of completedSessionFallbacksRef.current) {
+        if (!mergedSessions.some((session) => session.id === id)) mergedSessions.push(fallback);
+      }
+      setAllSessions(mergedSessions);
       // Treat the fetched running set as an initial fallback only. Once the
       // lightweight poll is live, a slow session-list fetch cannot overwrite it.
       if (!runningPollAuthoritativeRef.current) {
-        setRunningSessionIds(new Set(data.runningSessionIds ?? []));
+        const fallbackIds = data.runningSessionIds ?? [];
+        const fallbackSnapshot = mergeRunningSessionSnapshots(
+          runningSessionsRef.current,
+          [],
+          fallbackIds,
+          new Map(mergedSessions.map((session) => [session.id, session])),
+        );
+        runningSessionsRef.current = fallbackSnapshot;
+        for (const session of fallbackSnapshot) lastKnownRunningSessionsRef.current.set(session.id, session);
+        setRunningSessions(fallbackSnapshot);
+        setRunningSessionIds(new Set(fallbackIds));
+        if (previousRunningSessionIdsRef.current.size === 0) {
+          previousRunningSessionIdsRef.current = new Set(fallbackIds);
+        }
       }
       // Drop unread markers for sessions that no longer exist (e.g. deleted).
-      const existingIds = new Set(data.sessions.map((s) => s.id));
+      const existingIds = new Set(mergedSessions.map((s) => s.id));
       setUnreadSessionIds((prev) => {
         if (prev.size === 0) return prev;
         const next = new Set([...prev].filter((id) => existingIds.has(id)));
         return next.size === prev.size ? prev : next;
       });
       setError(null);
+      setHistoryMetadataError(null);
       if (!showLoading) {
         setSessionRefreshDone(true);
         if (sessionRefreshTimerRef.current) clearTimeout(sessionRefreshTimerRef.current);
@@ -1118,11 +1168,23 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json() as Partial<GlobalSessionSnapshot>;
         if (stopped || controller !== current) return;
-        const snapshot = Array.isArray(data.runningSessions) ? data.runningSessions : [];
+        const rawSnapshot = Array.isArray(data.runningSessions) ? data.runningSessions : [];
+        const runningIds = Array.isArray(data.runningSessionIds)
+          ? data.runningSessionIds
+          : rawSnapshot.map((session) => session.id);
+        const snapshot = mergeRunningSessionSnapshots(
+          runningSessionsRef.current,
+          rawSnapshot,
+          runningIds,
+          allSessionsByIdRef.current,
+        );
+        for (const session of snapshot) lastKnownRunningSessionsRef.current.set(session.id, session);
+        runningSessionsRef.current = snapshot;
         runningPollAuthoritativeRef.current = true;
         setRunningSessions(snapshot);
-        setRunningSessionIds(new Set(data.runningSessionIds ?? snapshot.map((session) => session.id)));
+        setRunningSessionIds(new Set(runningIds));
         setRunningError(null);
+        setHistoryMetadataError(typeof data.historyError === "string" ? data.historyError : null);
         setRunningLoading(false);
       } catch (error) {
         if (current.signal.aborted || stopped || controller !== current) return;
@@ -1162,7 +1224,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   useEffect(() => {
     const previous = previousRunningSessionIdsRef.current;
-    const completedInBackground = [...previous].filter((id) => !runningSessionIds.has(id) && id !== selectedSessionId);
+    const completedSessionIds = [...previous].filter((id) => !runningSessionIds.has(id));
+    const completedInBackground = completedSessionIds.filter((id) => id !== selectedSessionId);
     const newlyRunning = [...runningSessionIds];
 
     if (completedInBackground.length > 0 || newlyRunning.length > 0) {
@@ -1173,9 +1236,30 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         return next;
       });
     }
-    if (completedInBackground.length > 0) {
-      loadSessions(false);
-      onBackgroundTaskDone?.();
+    if (completedSessionIds.length > 0) {
+      const completedAt = new Date().toISOString();
+      const completedRows = completedSessionIds
+        .map((id) => lastKnownRunningSessionsRef.current.get(id))
+        .filter((session): session is RunningSessionSnapshot => Boolean(session))
+        .map((session) => runningSnapshotToSessionInfo(session, completedAt));
+      for (const row of completedRows) completedSessionFallbacksRef.current.set(row.id, row);
+      while (completedSessionFallbacksRef.current.size > MAX_COMPLETED_SESSION_FALLBACKS) {
+        const oldest = completedSessionFallbacksRef.current.keys().next().value as string | undefined;
+        if (!oldest) break;
+        completedSessionFallbacksRef.current.delete(oldest);
+      }
+      if (completedRows.length > 0) {
+        setAllSessions((previousSessions) => {
+          const next = [...previousSessions];
+          for (const row of completedRows) {
+            if (!next.some((session) => session.id === row.id)) next.push(row);
+          }
+          return next;
+        });
+      }
+      void loadSessions(false);
+      if (completedInBackground.length > 0) onBackgroundTaskDone?.();
+    }
     }
 
     previousRunningSessionIdsRef.current = runningSessionIds;
@@ -1466,6 +1550,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       firstMessage: running.title,
       projectRoot: running.projectRoot,
       ...(running.worktreeBranch ? { worktreeBranch: running.worktreeBranch } : {}),
+      ...(running.cwdAvailable !== undefined ? { cwdAvailable: running.cwdAvailable } : {}),
     };
     handleSelectSessionFromList(session);
   }, [allSessions, handleSelectSessionFromList]);
@@ -1563,6 +1648,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
            title: t("sidebar.checkingWorktrees"),
         }
       : null);
+  const explorerCwdAvailable = selectedCwdProp && (selectedCwd === null || selectedCwd === selectedCwdProp)
+    ? selectedCwdAvailableProp
+    : undefined;
 
   // Build parent-child tree within the filtered set
   const sessionTree = buildSessionTree(filteredSessions);
@@ -2379,8 +2467,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             onSelectSession={handleSelectSessionFromList}
             onRenamed={loadSessions}
             onSessionDeleted={(id) => {
+              completedSessionFallbacksRef.current.delete(id);
               onSessionDeleted?.(id);
-              loadSessions();
+              void loadSessions();
             }}
             depth={0}
           />
@@ -2440,6 +2529,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             loading={runningLoading}
             error={runningError}
             searchQuery={globalSearchQuery}
+            open={globalRunningOpen}
+            onOpenChange={setGlobalRunningOpen}
             onRetry={() => {
               setRunningError(null);
               setRunningLoading(true);
@@ -2453,18 +2544,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             selectedSessionId={selectedSessionId}
             unreadSessionIds={unreadSessionIds}
             loading={loading}
-            error={error}
+            error={error ?? historyMetadataError}
             searchQuery={globalSearchQuery}
             totalCount={globalHistoryMatches.length}
+            open={globalHistoryOpen}
+            onOpenChange={setGlobalHistoryOpen}
             hasMore={globalHistoryHasMore}
             onRetry={() => {
               setError(null);
+              setHistoryMetadataError(null);
               void loadSessions(true);
             }}
             onLoadMore={() => setGlobalHistoryVisibleCount((count) => count + GLOBAL_HISTORY_LIMIT)}
             onSelect={handleSelectSessionFromList}
             onRenamed={() => void loadSessions(false)}
             onDeleted={(id) => {
+              completedSessionFallbacksRef.current.delete(id);
               onSessionDeleted?.(id);
               void loadSessions(false);
             }}
@@ -2516,8 +2611,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 <polyline points="3 2 7 5 3 8" />
               </svg>
               {t("files.explorer")}
+              {explorerCwdAvailable === false && (
+                <span
+                  data-file-explorer-unavailable="true"
+                  title={t("files.unavailable")}
+                  style={{ marginLeft: "auto", color: "#d97706", fontSize: 10, fontWeight: 500, letterSpacing: 0, textTransform: "none" }}
+                >
+                  {t("files.unavailable")}
+                </span>
+              )}
             </button>
-            {explorerOpen && changesCount > 0 && (
+            {explorerOpen && explorerCwdAvailable !== false && changesCount > 0 && (
               <ToolbarIconButton
                 onClick={() => setChangesCollapsed((v) => !v)}
                 title={t("sidebar.changedFiles", { count: changesCount })}
@@ -2535,8 +2639,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {explorerOpen && (
               <ToolbarIconButton
                 onClick={() => fileExplorerRef.current?.openUploadPicker()}
-                disabled={explorerUploadBusy}
-                title={t("sidebar.uploadFilesTitle")}
+                disabled={explorerCwdAvailable === false || explorerUploadBusy}
+                title={explorerCwdAvailable === false ? t("files.unavailable") : t("sidebar.uploadFilesTitle")}
                 color="var(--text-dim)"
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -2577,6 +2681,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               <FileExplorer
                 ref={fileExplorerRef}
                 cwd={selectedCwd ?? selectedCwdProp!}
+                cwdAvailable={explorerCwdAvailable ?? undefined}
                 onOpenFile={onOpenFile ?? (() => {})}
                 refreshKey={explorerKey}
                 onAtMention={onAtMention}

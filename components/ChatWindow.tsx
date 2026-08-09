@@ -302,6 +302,11 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   // Register the abort handler for the global Esc shortcut
   useEffect(() => {
     registerAbortHandler(sessionBusy ? handleAbort : null);
+    return () => {
+      // Clearing the UI shortcut must not send an abort to the session. The
+      // RPC wrapper remains alive when this view is replaced by navigation.
+      registerAbortHandler(null);
+    };
   }, [sessionBusy, handleAbort]);
 
   // --- Lazy-load historical messages ---

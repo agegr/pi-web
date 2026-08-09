@@ -316,4 +316,17 @@ test("sizes the message tail from the rendered bottom composer", () => {
   assert.match(chatWindowSource, /scrollToBottom\("auto"\)/);
   assert.match(chatWindowSource, /<div ref=\{bottomComposerRef\} className="relative">/);
   assert.match(chatWindowSource, /height: bottomComposerHeight/);
+test("session navigation only closes the observer and does not abort the background RPC", () => {
+  const lifecycleSource = source.slice(
+    source.indexOf("// Load session on mount"),
+    source.indexOf("  useEffect(() => {\n    onSystemPromptChange"),
+  );
+  assert.match(lifecycleSource, /mountedRef\.current = false/);
+  assert.match(lifecycleSource, /closeEvents\(\)/);
+  assert.match(lifecycleSource, /RPC wrapper stays[\s\S]*registered/);
+  assert.doesNotMatch(lifecycleSource, /sendAgentCommand\([^\n]*\{ type: "abort"/);
+  assert.match(source, /if \(!mountedRef\.current\) return;/);
+  assert.match(source, /mountedRef\.current\)/);
+  assert.match(chatWindowSource, /registerAbortHandler\(null\)/);
+  assert.match(chatWindowSource, /RPC wrapper remains alive/);
 });

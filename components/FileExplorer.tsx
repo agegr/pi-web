@@ -32,6 +32,8 @@ interface FileNode {
 
 interface Props {
   cwd: string;
+  /** False when the session's historical cwd no longer exists or is inaccessible. */
+  cwdAvailable?: boolean;
   onOpenFile: (filePath: string, fileName: string, options?: OpenFileOptions) => void;
   refreshKey?: number;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
@@ -103,6 +105,11 @@ async function fetchGitStatus(cwd: string): Promise<GitStatusResponse> {
   const res = await fetch(`/api/git/status?${params.toString()}`);
   if (!res.ok) throw new Error(`Failed to load Git status (HTTP ${res.status})`);
   return res.json() as Promise<GitStatusResponse>;
+}
+
+function isCwdUnavailableError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /HTTP (403|404)|ENOENT|not found|does not exist|access denied|permission denied/i.test(message);
 }
 
 const GIT_STATUS_KEYS: Record<GitFileStatusKind, string> = {
@@ -516,6 +523,7 @@ function ChangeRow({
 
 export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileExplorer({
   cwd,
+  cwdAvailable,
   onOpenFile,
   refreshKey,
   onAtMention,
@@ -538,10 +546,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSummary, setUploadSummary] = useState<UploadSummary | null>(null);
   const [pendingConflict, setPendingConflict] = useState<PendingConflict | null>(null);
+  const [accessUnavailable, setAccessUnavailable] = useState(false);
   const prevCwdRef = useRef<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const refreshToken = `${refreshKey ?? 0}:${treeRefreshKey}`;
   const uploadBusy = uploadPhase !== "idle";
+  const unavailable = cwdAvailable === false || accessUnavailable;
 
   const gitStatusByPath = useMemo(() => new Map(
     gitFiles.map((status) => [normalizeFilePathSlashes(status.filePath), status]),
@@ -615,7 +625,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   }, [applyUploadResult, cwd]);
 
   const prepareUpload = useCallback(async (files: File[]) => {
-    if (files.length === 0 || uploadBusy) return;
+    if (files.length === 0 || uploadBusy || unavailable) return;
     setUploadSummary(null);
     setHighlightedPaths(new Set());
     setPendingConflict(null);
@@ -650,7 +660,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     } finally {
       setUploadPhase("idle");
     }
-  }, [cwd, performUpload, uploadBusy]);
+  }, [cwd, performUpload, unavailable, uploadBusy]);
 
   const handleUploadInput = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
@@ -660,9 +670,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
 
   useImperativeHandle(ref, () => ({
     openUploadPicker() {
-      if (!uploadBusy) uploadInputRef.current?.click();
+      if (!uploadBusy && !unavailable) uploadInputRef.current?.click();
     },
-  }), [uploadBusy]);
+  }), [unavailable, uploadBusy]);
 
   useEffect(() => {
     onUploadBusyChange?.(uploadBusy);
@@ -683,17 +693,35 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       setUploadError(null);
     }
 
+    if (cwdAvailable === false) {
+      setAccessUnavailable(true);
+      setRoots([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    setAccessUnavailable(false);
     setLoading(cwdChanged);
     setError(null);
     let cancelled = false;
     fetchEntries(cwd)
       .then((entries) => { if (!cancelled) setRoots(entries); })
-      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
+      .catch((e) => {
+        if (cancelled) return;
+        if (isCwdUnavailableError(e)) setAccessUnavailable(true);
+        else setError(e instanceof Error ? e.message : String(e));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [cwd, refreshKey, treeRefreshKey]);
+  }, [cwd, cwdAvailable, refreshKey, treeRefreshKey]);
 
   useEffect(() => {
+    if (cwdAvailable === false || accessUnavailable) {
+      setGitFiles([]);
+      setGitLineStats({ additions: 0, deletions: 0 });
+      return;
+    }
     let cancelled = false;
     fetchGitStatus(cwd)
       .then((status) => {
@@ -711,13 +739,13 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         }
       });
     return () => { cancelled = true; };
-  }, [cwd, refreshKey, treeRefreshKey]);
+  }, [accessUnavailable, cwd, cwdAvailable, refreshKey, treeRefreshKey]);
 
   useEffect(() => {
-    onChangesCountChange?.(gitFiles.length);
-  }, [gitFiles, onChangesCountChange]);
+    onChangesCountChange?.(unavailable ? 0 : gitFiles.length);
+  }, [gitFiles, onChangesCountChange, unavailable]);
 
-  const showUploadFeedback = uploadBusy || pendingConflict !== null || uploadError !== null || uploadSummary !== null;
+  const showUploadFeedback = !unavailable && (uploadBusy || pendingConflict !== null || uploadError !== null || uploadSummary !== null);
 
   const addUploadedFilesToChat = useCallback(() => {
     if (!uploadSummary || uploadSummary.uploaded.length === 0) return;
@@ -871,7 +899,16 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
 
       {(changesCollapsed || gitFiles.length === 0) && (
         <div style={{ padding: "2px 4px" }}>
-          {loading ? (
+          {unavailable ? (
+            <div
+              role="status"
+              data-file-explorer-unavailable="true"
+              style={{ padding: "12px", color: "#d97706", fontSize: 11, lineHeight: 1.45, overflowWrap: "anywhere" }}
+            >
+              <strong style={{ display: "block", color: "var(--text)", fontSize: 12 }}>{t("files.unavailable")}</strong>
+              <span>{cwd}</span>
+            </div>
+          ) : loading ? (
             <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>Loading files...</div>
           ) : error ? (
             <div style={{ padding: "8px 12px", fontSize: 11, color: "#f87171" }}>{error}</div>
@@ -894,7 +931,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
               />
             ))
           )}
-          {!loading && !error && roots.length === 0 && (
+          {!unavailable && !loading && !error && roots.length === 0 && (
             <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>
               {t("files.noFiles")}
             </div>

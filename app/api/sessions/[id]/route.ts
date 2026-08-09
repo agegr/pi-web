@@ -9,6 +9,7 @@ import {
   invalidateSessionListCache,
   buildSessionContext,
   readSessionHeader,
+  isPathAvailable,
 } from "@/lib/session-reader";
 import { sessionPathKey } from "@/lib/session-path";
 import { getUserMessageText } from "@/lib/running-sessions";
@@ -146,6 +147,7 @@ async function buildSessionResponse(
     messageCount: context.messages.length,
     firstMessage: getUserMessageText(context.messages.find((message) => message.role === "user")) ?? "(no messages)",
     parentSessionId,
+    cwdAvailable: await isPathAvailable(header.cwd),
   } : null;
 
   return NextResponse.json({

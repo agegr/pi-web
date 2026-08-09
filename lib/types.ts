@@ -298,9 +298,11 @@ export interface SessionInfo {
   projectRoot?: string;
   /** Branch name when cwd is a linked git worktree (not the main checkout) */
   worktreeBranch?: string;
+  /** False when the historical cwd was deleted or is no longer accessible. */
+  cwdAvailable?: boolean;
 }
 
-export type RunningSessionStatusKind = "compacting" | "executing" | "generating" | "processing";
+export type RunningSessionStatusKind = "compacting" | "executing" | "generating" | "processing" | "unknown";
 
 export interface RunningSessionStatus {
   kind: RunningSessionStatusKind;
@@ -319,6 +321,8 @@ export interface RunningSessionSnapshot {
   messageCount: number;
   status: RunningSessionStatus;
   queued: number;
+  /** False when the running session's cwd disappeared while it was active. */
+  cwdAvailable?: boolean;
 }
 
 /** Current cross-project navigation snapshot. History can be added here without
@@ -326,6 +330,8 @@ export interface RunningSessionSnapshot {
 export interface GlobalSessionSnapshot {
   runningSessions: RunningSessionSnapshot[];
   runningSessionIds: string[];
+  /** Non-fatal history lookup failure; live rows remain usable. */
+  historyError?: string;
 }
 
 export interface SessionContext {

@@ -362,6 +362,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const modelSwitchPendingRef = useRef(false);
   const draftKeyAliasesRef = useRef(new Map<string, string>());
   const sessionHookMountedRef = useRef(true);
+  // Switching sessions unmounts this hook, but must not abort the server-side
+  // AgentSession. Use this only to suppress stale UI callbacks that could
+  // otherwise re-select an old new session after the user navigates away.
+  const mountedRef = useRef(false);
 
   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
 
@@ -556,6 +560,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (input) input.rekeyDraft(provisionalDraftKey, sid);
       else rekeyDraft(provisionalDraftKey, sid);
     }
+    if (!mountedRef.current) return;
     onSessionCreated?.({
       id: sid,
       path: "",
@@ -1389,6 +1394,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       agentRunningRef.current = false;
       closeEvents();
+
       setAgentRunning(false);
       setAgentPhase(null);
       dispatch({ type: "end" });
@@ -1413,8 +1419,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       promoteNewSession(1, inputText);
     } catch (e) {
       console.error("Failed to execute shell command:", e);
-      addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
-      restoreSubmission(inputText, undefined, composerDraftKey);
+      if (mountedRef.current) {
+        addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+        restoreSubmission(inputText, undefined, composerDraftKey);
+      }
     } finally {
       bashRunningRef.current = false;
       setPendingBash(null);
@@ -1452,7 +1460,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         entryId,
       });
       const { cancelled, newSessionId } = result ?? {};
-      if (!cancelled && newSessionId) {
+      if (!cancelled && newSessionId && mountedRef.current) {
         onSessionForked?.(newSessionId);
       }
     } catch (e) {
@@ -1810,6 +1818,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // Load session on mount
   useEffect(() => {
     sessionHookMountedRef.current = true;
+    mountedRef.current = true;
     if (session) {
       sessionIdRef.current = session.id;
       loadSession(session.id, true, true).then((agentState) => {
@@ -1848,6 +1857,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
     return () => {
       sessionHookMountedRef.current = false;
+      mountedRef.current = false;
       const abandonedDraftKey = isNew ? newSessionDraftKey : null;
       if (abandonedDraftKey) {
         queueMicrotask(() => {
@@ -1862,6 +1872,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       bashRecoveryIdRef.current += 1;
       cancelEventStreamGrace();
+      // Closing the observer is local UI cleanup only. The RPC wrapper stays
+      // registered and continues running in the background.
       closeEvents();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
