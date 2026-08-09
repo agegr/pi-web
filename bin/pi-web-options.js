@@ -10,7 +10,7 @@ function isEnabled(value) {
 }
 
 function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
-  const { values: cliArgs } = parseArgs({
+  const { values: cliArgs, positionals } = parseArgs({
     args,
     options: {
       port:      { type: "string", short: "p" },
@@ -24,6 +24,7 @@ function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
     port: cliArgs.port ?? env.PORT ?? "30141",
     hostname: cliArgs.hostname ?? env.PI_WEB_HOSTNAME ?? "127.0.0.1",
     openBrowser: !cliArgs["no-open"] && !isEnabled(env.PI_WEB_NO_OPEN),
+    positionals,
   };
 }
 

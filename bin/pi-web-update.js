@@ -6,6 +6,8 @@
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { spawnSync } = require("child_process");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const path = require("path");
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { name: PACKAGE_NAME, version: CURRENT_VERSION } = require("../package.json");
@@ -51,13 +53,39 @@ function getUpdateCommand(method, version) {
   const spec = `${PACKAGE_NAME}@${version}`;
   switch (method) {
     case "pnpm":
-      return { command: "pnpm", args: ["install", "-g", spec] };
+      return { command: "pnpm", args: ["add", "-g", spec] };
     case "yarn":
       return { command: "yarn", args: ["global", "add", spec] };
     case "bun":
       return { command: "bun", args: ["add", "-g", spec] };
     default:
       return { command: "npm", args: ["install", "-g", spec] };
+  }
+}
+
+// Each package manager has its own registry-aware way to print the latest
+// version of a package. Using the detected package manager (instead of always
+// calling npm) keeps the check consistent with the registry, proxy, and
+// timeout configuration the update itself will use.
+function getVersionCheckCommand(method) {
+  switch (method) {
+    case "pnpm":
+      return { command: "pnpm", args: ["view", PACKAGE_NAME, "version", "--json"] };
+    case "yarn":
+      return { command: "yarn", args: ["info", PACKAGE_NAME, "version"] };
+    case "bun":
+      // `bun pm view` resolves the workspace from the current directory, so
+      // run it from the package directory, which always ships a package.json.
+      return {
+        command: "bun",
+        args: ["pm", "view", PACKAGE_NAME, "version"],
+        cwd: path.join(__dirname, ".."),
+      };
+    default:
+      return {
+        command: "npm",
+        args: ["view", PACKAGE_NAME, "version", "--json", `--fetch-timeout=${VERSION_CHECK_TIMEOUT_MS}`],
+      };
   }
 }
 
@@ -74,31 +102,41 @@ function runCommand(command, args) {
   }
 }
 
-// Query the registry through npm so the check and the install use the same
-// registry, proxy, and timeout configuration as the package manager itself.
-function getLatestVersion() {
-  const result = spawnSync(
-    "npm",
-    ["view", PACKAGE_NAME, "version", "--json", `--fetch-timeout=${VERSION_CHECK_TIMEOUT_MS}`],
-    { encoding: "utf8", shell: process.platform === "win32" },
-  );
+// npm and pnpm print JSON (a quoted string, or an array on newer npm); yarn
+// and bun print the bare version on the last line.
+function parseVersionOutput(method, stdout) {
+  if (method === "npm" || method === "pnpm") {
+    let parsed;
+    try {
+      parsed = JSON.parse(stdout);
+    } catch {
+      return "";
+    }
+    if (typeof parsed === "string") return parsed;
+    if (Array.isArray(parsed)) {
+      const versions = parsed.filter((value) => typeof value === "string");
+      if (versions.length > 0) return versions[versions.length - 1];
+    }
+    return "";
+  }
+  const lines = stdout.split("\n").map((line) => line.trim()).filter(Boolean);
+  return lines.length > 0 ? lines[lines.length - 1] : "";
+}
+
+function getLatestVersion(method) {
+  const check = getVersionCheckCommand(method);
+  const result = spawnSync(check.command, check.args, {
+    encoding: "utf8",
+    shell: process.platform === "win32",
+    timeout: VERSION_CHECK_TIMEOUT_MS,
+    cwd: check.cwd,
+  });
   if (result.error) throw result.error;
   if (result.status !== 0) {
-    const detail = (result.stderr || "").trim() || `npm view exited with code ${result.status}`;
+    const detail = (result.stderr || "").trim() || `${check.command} exited with code ${result.status}`;
     throw new Error(detail);
   }
-  let parsed;
-  try {
-    parsed = JSON.parse(result.stdout);
-  } catch {
-    throw new Error("npm view returned unexpected output");
-  }
-  if (typeof parsed === "string") return parsed;
-  if (Array.isArray(parsed)) {
-    const versions = parsed.filter((value) => typeof value === "string");
-    if (versions.length > 0) return versions[versions.length - 1];
-  }
-  return "";
+  return parseVersionOutput(method, result.stdout);
 }
 
 function getManualInstallHint(version = "latest") {
@@ -116,7 +154,7 @@ function runUpdateInternal() {
   console.log(`Checking for updates to ${PACKAGE_NAME}...`);
   let latestVersion;
   try {
-    latestVersion = getLatestVersion();
+    latestVersion = getLatestVersion(method);
   } catch (error) {
     console.error(`error: could not check for updates: ${error.message}`);
     console.error(`Update it manually with: ${getManualInstallHint()}`);
@@ -154,6 +192,8 @@ function runUpdate() {
 module.exports = {
   detectInstallMethod,
   getUpdateCommand,
+  getVersionCheckCommand,
   isNewerVersion,
+  parseVersionOutput,
   runUpdate,
 };

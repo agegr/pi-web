@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const require = createRequire(import.meta.url);
-const { detectInstallMethod, getUpdateCommand, isNewerVersion } = require("./pi-web-update.js");
+const { detectInstallMethod, getUpdateCommand, getVersionCheckCommand, isNewerVersion, parseVersionOutput } = require("./pi-web-update.js");
+
+// mirrors path.join(__dirname, "..") inside the module
+const PACKAGE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 test("detects newer stable versions", () => {
   assert.equal(isNewerVersion("0.8.8", "0.8.7"), true);
@@ -43,7 +48,7 @@ test("builds the update command for each package manager", () => {
   });
   assert.deepEqual(getUpdateCommand("pnpm", "0.8.8"), {
     command: "pnpm",
-    args: ["install", "-g", "@agegr/pi-web@0.8.8"],
+    args: ["add", "-g", "@agegr/pi-web@0.8.8"],
   });
   assert.deepEqual(getUpdateCommand("yarn", "0.8.8"), {
     command: "yarn",
@@ -53,4 +58,35 @@ test("builds the update command for each package manager", () => {
     command: "bun",
     args: ["add", "-g", "@agegr/pi-web@0.8.8"],
   });
+});
+
+test("builds the version check command for each package manager", () => {
+  assert.deepEqual(getVersionCheckCommand("npm"), {
+    command: "npm",
+    args: ["view", "@agegr/pi-web", "version", "--json", "--fetch-timeout=15000"],
+  });
+  assert.deepEqual(getVersionCheckCommand("pnpm"), {
+    command: "pnpm",
+    args: ["view", "@agegr/pi-web", "version", "--json"],
+  });
+  assert.deepEqual(getVersionCheckCommand("yarn"), {
+    command: "yarn",
+    args: ["info", "@agegr/pi-web", "version"],
+  });
+  const bun = getVersionCheckCommand("bun");
+  assert.deepEqual(bun, {
+    command: "bun",
+    args: ["pm", "view", "@agegr/pi-web", "version"],
+    cwd: PACKAGE_DIR,
+  });
+});
+
+test("parses version output from each package manager", () => {
+  assert.equal(parseVersionOutput("npm", '"0.8.8"'), "0.8.8");
+  assert.equal(parseVersionOutput("npm", '["0.8.8"]'), "0.8.8");
+  assert.equal(parseVersionOutput("pnpm", '"0.8.8"'), "0.8.8");
+  assert.equal(parseVersionOutput("yarn", "0.8.8\n"), "0.8.8");
+  assert.equal(parseVersionOutput("bun", "0.8.8\n"), "0.8.8");
+  assert.equal(parseVersionOutput("npm", "not json"), "");
+  assert.equal(parseVersionOutput("bun", ""), "");
 });

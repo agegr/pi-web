@@ -9,13 +9,6 @@ if (!isNodeVersionSupported(process.versions.node)) {
   process.exit(1);
 }
 
-const args = process.argv.slice(2);
-if (args.includes("update")) {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { runUpdate } = require("./pi-web-update");
-  process.exit(runUpdate());
-}
-
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { spawn } = require("child_process");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -43,7 +36,12 @@ try {
   }
 }
 
-const { port, hostname, openBrowser } = parseLaunchOptions();
+const { port, hostname, openBrowser, positionals } = parseLaunchOptions();
+if (positionals[0] === "update") {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { runUpdate } = require("./pi-web-update");
+  process.exit(runUpdate());
+}
 const loopbackHostnames = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 const passwordEnabled = Boolean(process.env.PI_WEB_PASSWORD);
 
