@@ -25,6 +25,14 @@ npm install -g @agegr/pi-web
 pi-web
 ```
 
+**Update to the latest version:**
+
+```bash
+pi-web update
+```
+
+`pi-web update` checks the npm registry for a newer release and reinstalls pi-web globally with the package manager that was used to install it (npm, pnpm, yarn, or bun). If pi-web was run through `npx`, the update installs the latest version globally. Restart pi-web after updating.
+
 Then open [http://127.0.0.1:30141](http://127.0.0.1:30141). The CLI will try to open the browser automatically after the server is ready. Pi Web listens on `127.0.0.1` by default.
 
 **Options:**

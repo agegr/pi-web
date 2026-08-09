@@ -9,6 +9,13 @@ if (!isNodeVersionSupported(process.versions.node)) {
   process.exit(1);
 }
 
+const args = process.argv.slice(2);
+if (args.includes("update")) {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { runUpdate } = require("./pi-web-update");
+  process.exit(runUpdate());
+}
+
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { spawn } = require("child_process");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
