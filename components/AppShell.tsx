@@ -97,6 +97,9 @@ export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
+  const sidebarToggleRef = useRef<HTMLButtonElement>(null);
+  const sidebarWasOpenRef = useRef(sidebarOpen);
+  const restoreSidebarFocusRef = useRef(true);
   const sidebarWidthRef = useRef(SIDEBAR_DEFAULT_WIDTH);
   const rightPanelWidthRef = useRef(RIGHT_PANEL_FALLBACK_WIDTH);
   const getResponsiveRightPanelWidth = useCallback(
@@ -225,20 +228,70 @@ export function AppShell() {
   const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | "language" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
+  const closeMobileSidebar = useCallback((restoreFocus = true) => {
+    restoreSidebarFocusRef.current = restoreFocus;
+    setSidebarOpen(false);
+  }, []);
+
   const toggleTopPanel = useCallback((panel: "branches" | "system" | "session" | "language") => {
-    if (isMobile) setSidebarOpen(false);
+    if (isMobile) closeMobileSidebar(false);
     setActiveTopPanel((cur) => cur === panel ? null : panel);
-  }, [isMobile]);
+  }, [closeMobileSidebar, isMobile]);
 
   const openSessionStatsPanel = useCallback(() => {
-    if (isMobile) setSidebarOpen(false);
+    if (isMobile) closeMobileSidebar(false);
     setActiveTopPanel("session");
-  }, [isMobile]);
+  }, [closeMobileSidebar, isMobile]);
 
   const handleSidebarToggle = useCallback(() => {
     if (isMobile) setActiveTopPanel(null);
+    restoreSidebarFocusRef.current = true;
     setSidebarOpen((open) => !open);
   }, [isMobile]);
+
+  const handleSidebarKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!isMobile || !sidebarOpen) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeMobileSidebar(true);
+      return;
+    }
+    if (event.key !== "Tab") return;
+
+    const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [role="button"]:not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])',
+    )).filter((element) => element.getClientRects().length > 0);
+    if (focusable.length === 0) return;
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && event.target === first) {
+      event.preventDefault();
+      last.focus({ preventScroll: true });
+    } else if (!event.shiftKey && event.target === last) {
+      event.preventDefault();
+      first.focus({ preventScroll: true });
+    }
+  }, [closeMobileSidebar, isMobile, sidebarOpen]);
+
+  useEffect(() => {
+    const wasOpen = sidebarWasOpenRef.current;
+    sidebarWasOpenRef.current = sidebarOpen;
+    if (!mobileSidebarReady || !isMobile) return;
+
+    if (sidebarOpen && !wasOpen) {
+      const frame = window.requestAnimationFrame(() => {
+        const target = document.querySelector<HTMLElement>("#session-sidebar [data-sidebar-focus-target]");
+        target?.focus({ preventScroll: true });
+      });
+      return () => window.cancelAnimationFrame(frame);
+    }
+
+    if (!sidebarOpen && wasOpen && restoreSidebarFocusRef.current) {
+      sidebarToggleRef.current?.focus({ preventScroll: true });
+    }
+  }, [isMobile, mobileSidebarReady, sidebarOpen]);
 
   useEffect(() => {
     if (!activeTopPanel || !topBarRef.current) return;
@@ -472,7 +525,7 @@ export function AppShell() {
     setSystemPrompt(null);
     setInitialSessionRestored(true);
     // On mobile, collapse the overlay drawer so the chat is revealed after pick.
-    if (isMobile && !isRestore) setSidebarOpen(false);
+    if (isMobile && !isRestore) closeMobileSidebar(true);
     if (isRestore) {
       // Suppress the redundant sessionKey bump that would come from the
       // onCwdChange effect firing after setSelectedCwd in the sidebar
@@ -483,7 +536,7 @@ export function AppShell() {
     if (!isRestore) {
       router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
     }
-  }, [invalidateWorkspaceRestore, router, isMobile, selectedSession]);
+  }, [closeMobileSidebar, invalidateWorkspaceRestore, router, isMobile, selectedSession]);
 
   const handleNewSession = useCallback((cwd: string) => {
     invalidateWorkspaceRestore();
@@ -498,9 +551,9 @@ export function AppShell() {
     setBranchActiveLeafId(null);
     setSystemPrompt(null);
     setActiveTopPanel(null);
-    if (isMobile) setSidebarOpen(false);
+    if (isMobile) closeMobileSidebar(true);
     router.replace("/", { scroll: false });
-  }, [invalidateWorkspaceRestore, router, isMobile]);
+  }, [closeMobileSidebar, invalidateWorkspaceRestore, router, isMobile]);
 
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
   useGlobalKeyboardShortcuts({
@@ -676,8 +729,8 @@ export function AppShell() {
     setActiveFileTabId(tabId);
     setRightPanelOpen(true);
     // On mobile the file panel is full-screen; close the drawer so it shows.
-    if (isMobile) setSidebarOpen(false);
-  }, [isMobile]);
+    if (isMobile) closeMobileSidebar(true);
+  }, [closeMobileSidebar, isMobile]);
 
   const handleOpenLinkedFile = useCallback((filePath: string) => {
     handleOpenFile(filePath, getFileName(filePath), { sourceSessionId: selectedSession?.id ?? null });
@@ -783,6 +836,7 @@ export function AppShell() {
       <SessionSidebar
         selectedSessionId={selectedSession?.id ?? null}
         onSelectSession={handleSelectSession}
+        onCloseSidebar={() => closeMobileSidebar(true)}
         onNewSession={handleNewSession}
         initialSessionId={initialSessionId}
         skipInitialProjectSelection={initialNavigation.requestedCwd !== null}
@@ -950,7 +1004,8 @@ export function AppShell() {
       {/* Mobile overlay backdrop */}
       <div
         className={`sidebar-overlay-backdrop${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
-        onClick={() => setSidebarOpen(false)}
+        aria-hidden="true"
+        onClick={() => closeMobileSidebar(true)}
         style={{
           position: "fixed",
           inset: 0,
@@ -966,6 +1021,11 @@ export function AppShell() {
       <div
         ref={sidebarResizer.panelRef}
         id="session-sidebar"
+        role={isMobile && sidebarOpen ? "dialog" : undefined}
+        aria-modal={isMobile && sidebarOpen ? "true" : undefined}
+        aria-hidden={isMobile && !sidebarOpen ? "true" : undefined}
+        aria-label={isMobile ? translate("sidebar.navigationScope") : undefined}
+        onKeyDown={handleSidebarKeyDown}
         className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${sidebarResizer.isResizing ? " sidebar-resizing" : ""}`}
         style={{
           "--sidebar-width": `${sidebarResizer.width}px`,
@@ -996,9 +1056,11 @@ export function AppShell() {
         {/* Top bar with sidebar toggle */}
         <div ref={topBarRef} style={{ display: "flex", alignItems: "center", flexShrink: 0, borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)", background: "var(--bg-panel)" }}>
           <button
+            ref={sidebarToggleRef}
             onClick={handleSidebarToggle}
              title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
              aria-label={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
+             aria-expanded={sidebarOpen}
             style={{
               display: "flex", alignItems: "center", justifyContent: "center",
               width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,

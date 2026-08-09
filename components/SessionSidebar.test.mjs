@@ -13,10 +13,37 @@ test("only Shift+click bypasses session deletion confirmation", () => {
   );
 });
 
-test("does not register row-level session deletion shortcuts", () => {
-  assert.doesNotMatch(sessionItemSource, /const handleKeyDown/);
-  assert.doesNotMatch(sessionItemSource, /onKeyDown=\{handleKeyDown\}/);
-  assert.doesNotMatch(sessionItemSource, /tabIndex=\{0\}/);
+test("session rows are keyboard navigable without stealing action shortcuts", () => {
+  assert.match(sessionItemSource, /role="button"/);
+  assert.match(sessionItemSource, /tabIndex=\{confirmDelete \|\| renaming \? -1 : 0\}/);
+  assert.match(sessionItemSource, /onKeyDown=\{handleKeyDown\}/);
+  assert.match(sessionItemSource, /aria-current=\{isSelected \? "true" : undefined\}/);
+  assert.match(sessionItemSource, /event\.target !== event\.currentTarget/);
+});
+
+test("fork controls expose expanded state and management actions stay keyboard reachable", () => {
+  assert.match(sessionItemSource, /aria-expanded=\{!collapsed\}/);
+  assert.match(sessionItemSource, /aria-label=\{collapsed \? t\("sidebar\.expandForks"\) : t\("sidebar\.collapseForks"\)\}/);
+  assert.match(sessionItemSource, /className="session-item-actions"/);
+  assert.match(sessionItemSource, /aria-label=\{t\("sidebar\.rename"\)\}/);
+  assert.match(sessionItemSource, /aria-label=\{t\("sidebar\.delete"\)\}/);
+});
+
+test("mobile drawer has modal semantics and restores keyboard focus", async () => {
+  const appShellSource = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
+  assert.match(appShellSource, /aria-expanded=\{sidebarOpen\}/);
+  assert.match(appShellSource, /role=\{isMobile && sidebarOpen \? "dialog" : undefined\}/);
+  assert.match(appShellSource, /aria-modal=\{isMobile && sidebarOpen \? "true" : undefined\}/);
+  assert.match(appShellSource, /aria-hidden=\{isMobile && !sidebarOpen \? "true" : undefined\}/);
+  assert.match(appShellSource, /focus\(\{ preventScroll: true \}\)/);
+  assert.match(appShellSource, /\[role="button"\]:not\(\[tabindex="-1"\]\)/);
+  assert.match(appShellSource, /onCloseSidebar=\{\(\) => closeMobileSidebar\(true\)\}/);
+  assert.match(source, /className="mobile-sidebar-close"/);
+});
+
+test("file explorer collapse is announced to assistive technology", () => {
+  assert.match(source, /aria-expanded=\{explorerOpen\}/);
+  assert.match(source, /aria-controls="file-explorer-content"/);
 });
 
 test("polls running sessions only while the tab is visible", () => {

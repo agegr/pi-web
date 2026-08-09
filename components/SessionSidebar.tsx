@@ -51,6 +51,7 @@ function ToolbarIconButton({
   };
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
       title={title}
@@ -80,6 +81,7 @@ function ToolbarIconButton({
 interface Props {
   selectedSessionId: string | null;
   onSelectSession: (session: SessionInfo, isRestore?: boolean) => void;
+  onCloseSidebar?: () => void;
   onNewSession?: (cwd: string) => void;
   initialSessionId?: string | null;
   skipInitialProjectSelection?: boolean;
@@ -213,7 +215,7 @@ function PathLabel({ text, style }: { text: string; style?: CSSProperties }) {
 
 const DROPDOWN_ANIMATION_MS = 140;
 
-function AnimatedDropdown({ open, children, style }: { open: boolean; children: ReactNode; style: CSSProperties }) {
+function AnimatedDropdown({ open, children, style, id }: { open: boolean; children: ReactNode; style: CSSProperties; id?: string }) {
   const [mounted, setMounted] = useState(open);
   const [visible, setVisible] = useState(open);
 
@@ -242,6 +244,7 @@ function AnimatedDropdown({ open, children, style }: { open: boolean; children: 
 
   return (
     <div
+      id={id}
       style={{
         ...style,
         opacity: visible ? 1 : 0,
@@ -381,6 +384,7 @@ function PiWebTitle() {
 
   return (
     <button
+      type="button"
       onClick={handleClick}
       style={{
         background: "none", border: "none", padding: 0, cursor: "default",
@@ -550,9 +554,11 @@ function GlobalHistoryItem({
 
   return (
     <div
+      className="session-item"
       role="button"
       tabIndex={confirmDelete || renaming ? -1 : 0}
       aria-current={isSelected ? "true" : undefined}
+      aria-label={`${title} · ${projectRoot} · ${session.cwd}`}
       data-history-session-id={session.id}
       onClick={confirmDelete || renaming ? undefined : onSelect}
       onKeyDown={handleKeyDown}
@@ -585,6 +591,7 @@ function GlobalHistoryItem({
           <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
             <button
               type="button"
+              autoFocus
               onClick={handleDeleteConfirm}
               style={{ height: 28, padding: "0 9px", background: "#ef4444", border: "none", borderRadius: 6, color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}
             >
@@ -635,8 +642,7 @@ function GlobalHistoryItem({
               <span>{t("sidebar.messagesCount", { count: session.messageCount })}</span>
             </div>
           </div>
-          {hovered && (
-            <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+          <div className="session-item-actions" style={{ display: "flex", gap: 4, flexShrink: 0 }}>
               <button
                 type="button"
                 onClick={startRename}
@@ -662,8 +668,7 @@ function GlobalHistoryItem({
                   <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
                 </svg>
               </button>
-            </div>
-          )}
+          </div>
         </>
       )}
     </div>
@@ -722,6 +727,7 @@ function GlobalHistorySessions({
       <button
         type="button"
         aria-expanded={open}
+        aria-controls="global-history-list"
         onClick={() => onOpenChange(!open)}
         style={{
           display: "flex",
@@ -752,7 +758,7 @@ function GlobalHistorySessions({
       </button>
 
       {open && (
-        <div data-global-history-list="true" style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", overflowX: "hidden" }}>
+        <div id="global-history-list" data-global-history-list="true" style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", overflowX: "hidden" }}>
           {loading && sessions.length === 0 && (
             <div style={{ padding: "12px 14px", color: "var(--text-muted)", fontSize: 11 }}>{t("sidebar.loading")}</div>
           )}
@@ -869,6 +875,7 @@ function GlobalRunningSessions({
       <button
         type="button"
         aria-expanded={open}
+        aria-controls="global-running-list"
         onClick={() => onOpenChange(!open)}
         style={{
           display: "flex",
@@ -911,6 +918,7 @@ function GlobalRunningSessions({
 
       {open && (
         <div
+          id="global-running-list"
           data-global-running-list="true"
           style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", overflowX: "hidden" }}
         >
@@ -954,6 +962,7 @@ function GlobalRunningSessions({
                 type="button"
                 data-running-session-id={session.id}
                 aria-current={active ? "true" : undefined}
+                aria-label={`${session.title} · ${session.projectRoot} · ${session.cwd} · ${status}`}
                 title={`${session.title}\n${session.cwd}`}
                 onClick={() => onSelect(session)}
                 style={{
@@ -1004,7 +1013,7 @@ function GlobalRunningSessions({
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, selectedCwdAvailable: selectedCwdAvailableProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onCloseSidebar, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, selectedCwdAvailable: selectedCwdAvailableProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const allSessionsByIdRef = useRef<ReadonlyMap<string, SessionInfo>>(new Map());
@@ -1702,8 +1711,35 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <PiWebTitle />
           <div style={{ display: "flex", gap: 6 }}>
+            {onCloseSidebar && (
+              <button
+                type="button"
+                className="mobile-sidebar-close"
+                onClick={onCloseSidebar}
+                title={t("sidebar.hide")}
+                aria-label={t("sidebar.hide")}
+                style={{
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 32,
+                  height: 32,
+                  padding: 0,
+                  border: "1px solid var(--border)",
+                  borderRadius: 7,
+                  background: "var(--bg-hover)",
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                  <path d="m6 6 12 12M18 6 6 18" />
+                </svg>
+              </button>
+            )}
             <button
+              type="button"
               onClick={() => loadSessions(false)}
+              aria-label={t("sidebar.refresh")}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: sessionRefreshDone ? "rgba(74,222,128,0.18)" : "var(--bg-hover)",
@@ -1771,6 +1807,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 tabIndex={active ? 0 : -1}
                 id={`navigation-scope-${scope}`}
                 data-navigation-scope={scope}
+                data-sidebar-focus-target={active ? "true" : undefined}
                 ref={(element) => {
                   navigationScopeButtonsRef.current[scope] = element;
                 }}
@@ -1824,8 +1861,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {/* CWD picker */}
             <div ref={dropdownRef} style={{ position: "relative", flex: 1, minWidth: 0 }}>
           <button
+            type="button"
             onClick={() => setDropdownOpen((v) => !v)}
             title={selectedProject ?? selectedCwd ?? ""}
+            aria-haspopup="true"
+            aria-expanded={dropdownOpen}
+            aria-controls="project-picker-menu"
             style={{
               width: "100%",
               display: "flex",
@@ -1883,6 +1924,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           </button>
 
           <AnimatedDropdown
+            id="project-picker-menu"
             open={dropdownOpen}
             style={{
               position: "absolute",
@@ -1928,7 +1970,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               <div style={{ maxHeight: "min(50vh, 380px)", overflowY: "auto" }}>
                 {visibleProjects.map((project) => (
                   <button
+                    type="button"
                     key={project}
+                    aria-pressed={project === selectedProject}
                     onClick={() => {
                       setSelectedCwd(project);
                       setProjectFilter("");
@@ -1975,6 +2019,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               {/* Default cwd shortcut */}
               {!customPathOpen && (
                 <button
+                  type="button"
                   onClick={(e) => { e.stopPropagation(); handleDefaultCwd(); }}
                   style={{
                     display: "flex",
@@ -2000,6 +2045,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
               {/* Custom path directory picker */}
               <button
+                type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleCustomPathClick();
@@ -2088,8 +2134,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           return (
             <div ref={wtDropdownRef} style={{ position: "relative", marginTop: 6 }}>
               <button
+                type="button"
                 onClick={() => setWtDropdownOpen((v) => !v)}
-                 title={currentWorktree ? t("sidebar.switchWorktreeTitle", { path: currentWorktree.path }) : t("sidebar.switchWorktree")}
+                title={currentWorktree ? t("sidebar.switchWorktreeTitle", { path: currentWorktree.path }) : t("sidebar.switchWorktree")}
+                aria-haspopup="true"
+                aria-expanded={wtDropdownOpen}
+                aria-controls="worktree-picker-menu"
                 style={{
                   width: "100%",
                   height: 29,
@@ -2132,6 +2182,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               </button>
 
               <AnimatedDropdown
+                id="worktree-picker-menu"
                 open={wtDropdownOpen}
                 style={{
                   position: "absolute",
@@ -2184,6 +2235,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                               {t("sidebar.forceRemoveCheckout")}
                             </span>
                             <button
+                              type="button"
                               onClick={() => void handleRemoveWorktree(wt.path, true)}
                               disabled={wtBusy}
                               style={{ padding: "3px 9px", background: "#ef4444", border: "none", borderRadius: 5, color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
@@ -2191,6 +2243,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                               {t("sidebar.force")}
                             </button>
                             <button
+                              type="button"
                               onClick={() => setWtConfirmRemove(null)}
                               style={{ padding: "3px 9px", background: "var(--bg-hover)", border: "1px solid var(--border)", borderRadius: 5, color: "var(--text-muted)", fontSize: 11, cursor: "pointer", flexShrink: 0 }}
                             >
@@ -2206,6 +2259,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                           style={{ display: "flex", alignItems: "center", borderBottom: "1px solid var(--border)" }}
                         >
                           <button
+                            type="button"
                             onClick={() => {
                               setSelectedCwd(wt.path);
                               setWtDropdownOpen(false);
@@ -2241,9 +2295,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                           </button>
                           {!wt.isMain && (
                             <button
+                              type="button"
                               onClick={() => void handleRemoveWorktree(wt.path, false)}
                               disabled={wtBusy}
-                               title={t("sidebar.removeWorktreeTitle", { path: wt.path })}
+                              title={t("sidebar.removeWorktreeTitle", { path: wt.path })}
+                              aria-label={t("sidebar.removeWorktreeTitle", { path: wt.path })}
                               style={{
                                 display: "flex", alignItems: "center", justifyContent: "center",
                                 width: 34, height: 28, padding: 0, marginRight: 4,
@@ -2273,6 +2329,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
                   {!wtNewOpen ? (
                     <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         setWtNewOpen(true);
@@ -2336,6 +2393,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       />
                       <div style={{ display: "flex", gap: 5, marginTop: 5 }}>
                         <button
+                          type="button"
                           onClick={() => void handleCreateWorktree()}
                           disabled={wtBusy || !wtNewBranch.trim()}
                           style={{
@@ -2354,6 +2412,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                            {wtBusy ? t("sidebar.creating") : t("sidebar.create")}
                         </button>
                         <button
+                          type="button"
                           onClick={() => { setWtNewOpen(false); setWtNewBranch(""); setWtError(null); }}
                           style={{
                             flex: 1,
@@ -2581,11 +2640,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         >
           <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
             <button
+              type="button"
               onClick={() => setExplorerOpen((open) => {
                 const next = !open;
                 saveExplorerOpen(next);
                 return next;
               })}
+              aria-expanded={explorerOpen}
+              aria-controls="file-explorer-content"
+              aria-label={t("files.explorer")}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -2677,7 +2740,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             </ToolbarIconButton>
           </div>
           {explorerOpen && (
-            <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+            <div id="file-explorer-content" style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
               <FileExplorer
                 ref={fileExplorerRef}
                 cwd={selectedCwd ?? selectedCwdProp!}
@@ -2745,11 +2808,12 @@ function SessionTreeItem({
           depth={depth}
           hasChildren={hasChildren}
           collapsed={collapsed}
+          childrenId={hasChildren ? `session-forks-${encodeURIComponent(node.session.id)}` : undefined}
           onToggleCollapse={() => setCollapsed((v) => !v)}
         />
       </div>
       {hasChildren && !collapsed && (
-        <div>
+        <div id={`session-forks-${encodeURIComponent(node.session.id)}`}>
           {node.children.map((child) => (
             <SessionTreeItem
               key={child.session.id}
@@ -2887,6 +2951,7 @@ function SessionItem({
   depth = 0,
   hasChildren = false,
   collapsed = false,
+  childrenId,
   onToggleCollapse,
 }: {
   session: SessionInfo;
@@ -2899,6 +2964,7 @@ function SessionItem({
   depth?: number;
   hasChildren?: boolean;
   collapsed?: boolean;
+  childrenId?: string;
   onToggleCollapse?: () => void;
 }) {
   const { t } = useI18n();
@@ -2928,6 +2994,13 @@ function SessionItem({
   }, [renaming]);
 
   const title = session.name || session.firstMessage.slice(0, 50) || session.id.slice(0, 12);
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget || confirmDelete || renaming) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onClick();
+    }
+  }, [confirmDelete, onClick, renaming]);
 
 
   // Fixed-height outer wrapper — content swaps in place so the list never reflows
@@ -2935,7 +3008,13 @@ function SessionItem({
 
   return (
     <div
+      className="session-item"
+      role="button"
+      tabIndex={confirmDelete || renaming ? -1 : 0}
+      aria-current={isSelected ? "true" : undefined}
+      aria-label={`${title} · ${session.cwd}`}
       onClick={confirmDelete || renaming ? undefined : onClick}
+      onKeyDown={handleKeyDown}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); }}
       style={{
@@ -2965,7 +3044,10 @@ function SessionItem({
           </div>
           <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
             <button
+              type="button"
+              autoFocus
               onClick={handleDeleteConfirm}
+              aria-label={t("sidebar.delete")}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
                 height: 30, padding: "0 11px",
@@ -2984,7 +3066,9 @@ function SessionItem({
               {t("sidebar.delete")}
             </button>
             <button
+              type="button"
               onClick={handleDeleteCancel}
+              aria-label={t("sidebar.cancel")}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center",
                 height: 30, padding: "0 11px",
@@ -3081,8 +3165,12 @@ function SessionItem({
           {/* Collapse toggle — always visible when has children */}
           {hasChildren && (
             <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); onToggleCollapse?.(); }}
-              title={collapsed ? "Expand forks" : "Collapse forks"}
+              title={collapsed ? t("sidebar.expandForks") : t("sidebar.collapseForks")}
+              aria-label={collapsed ? t("sidebar.expandForks") : t("sidebar.collapseForks")}
+              aria-expanded={!collapsed}
+              aria-controls={childrenId}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center",
                 width: 20, height: 20, padding: 0, flexShrink: 0,
@@ -3098,12 +3186,13 @@ function SessionItem({
             </button>
           )}
 
-          {/* Action buttons — shown on hover */}
-          {hovered && (
-            <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+          {/* Keep management actions in the tab order; CSS reveals them on hover or focus. */}
+          <div className="session-item-actions" style={{ display: "flex", gap: 4, flexShrink: 0 }}>
               <button
+                type="button"
                 onClick={startRename}
                 title={t("sidebar.rename")}
+                aria-label={t("sidebar.rename")}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center",
                   width: 32, height: 32, padding: 0,
@@ -3128,8 +3217,10 @@ function SessionItem({
                 </svg>
               </button>
               <button
+                type="button"
                 onClick={handleDeleteClick}
                 title={t("sidebar.deleteWithShiftClick")}
+                aria-label={t("sidebar.delete")}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center",
                   width: 32, height: 32, padding: 0,
@@ -3156,8 +3247,7 @@ function SessionItem({
                   <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
                 </svg>
               </button>
-            </div>
-          )}
+          </div>
         </>
       )}
     </div>

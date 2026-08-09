@@ -934,6 +934,39 @@ span.linenumber {
   to   { stroke-dashoffset: 0;  opacity: 1; }
 }
 
+/* Session navigation rows keep their actions in the tab order while hiding the
+   visual noise until the row is hovered or focused. */
+.session-item {
+  outline: none;
+}
+.session-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.session-item-actions {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.session-item:hover .session-item-actions,
+.session-item:focus-within .session-item-actions {
+  opacity: 1;
+}
+#session-sidebar button:focus-visible,
+#session-sidebar [role="button"]:focus-visible,
+#session-sidebar input:focus-visible {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: 2px;
+}
+@media (hover: none) {
+  .session-item-actions {
+    opacity: 1;
+  }
+}
+
+.mobile-sidebar-close {
+  display: none !important;
+}
+
 /* Keep the panel border as the idle separator; this element only expands the hit target. */
 .panel-resize-handle {
   position: relative;
@@ -1068,6 +1101,10 @@ span.linenumber {
 
 /* Mobile sidebar: slide in/out as overlay */
 @media (max-width: 640px) {
+  .mobile-sidebar-close {
+    display: inline-flex !important;
+  }
+
   .chat-stats-center {
     display: none !important;
   }
