@@ -36,8 +36,8 @@ try {
   }
 }
 
-const { port, hostname, openBrowser, positionals } = parseLaunchOptions();
-if (positionals[0] === "update") {
+const { port, hostname, openBrowser } = parseLaunchOptions();
+if (getCommandPositionals(process.argv.slice(2))[0] === "update") {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { runUpdate } = require("./pi-web-update");
   process.exit(runUpdate());

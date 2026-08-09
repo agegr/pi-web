@@ -9,14 +9,16 @@ function isEnabled(value) {
   return typeof value === "string" && TRUE_VALUES.has(value.trim().toLowerCase());
 }
 
+const LAUNCH_OPTIONS = {
+  port:      { type: "string", short: "p" },
+  hostname:  { type: "string", short: "H" },
+  "no-open": { type: "boolean" },
+};
+
 function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
-  const { values: cliArgs, positionals } = parseArgs({
+  const { values: cliArgs } = parseArgs({
     args,
-    options: {
-      port:      { type: "string", short: "p" },
-      hostname:  { type: "string", short: "H" },
-      "no-open": { type: "boolean" },
-    },
+    options: LAUNCH_OPTIONS,
     strict: false,
   });
 
@@ -24,8 +26,13 @@ function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
     port: cliArgs.port ?? env.PORT ?? "30141",
     hostname: cliArgs.hostname ?? env.PI_WEB_HOSTNAME ?? "127.0.0.1",
     openBrowser: !cliArgs["no-open"] && !isEnabled(env.PI_WEB_NO_OPEN),
-    positionals,
   };
 }
 
-module.exports = { parseLaunchOptions };
+// Only used to detect the `update` subcommand. Kept separate from
+// parseLaunchOptions so the launch options object stays stable.
+function getCommandPositionals(args = process.argv.slice(2)) {
+  return parseArgs({ args, options: LAUNCH_OPTIONS, strict: false }).positionals;
+}
+
+module.exports = { getCommandPositionals, parseLaunchOptions };

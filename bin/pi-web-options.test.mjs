@@ -3,19 +3,19 @@ import { createRequire } from "node:module";
 import test from "node:test";
 
 const require = createRequire(import.meta.url);
-const { parseLaunchOptions } = require("./pi-web-options.js");
+const { getCommandPositionals, parseLaunchOptions } = require("./pi-web-options.js");
 
 test("reports the first positional argument", () => {
-  assert.deepEqual(parseLaunchOptions(["update"]).positionals, ["update"]);
-  assert.deepEqual(parseLaunchOptions(["update", "--port", "8080"]).positionals, ["update"]);
-  assert.deepEqual(parseLaunchOptions(["--port", "8080", "update"]).positionals, ["update"]);
-  assert.deepEqual(parseLaunchOptions(["--port", "8080"]).positionals, []);
-  assert.deepEqual(parseLaunchOptions([]).positionals, []);
+  assert.deepEqual(getCommandPositionals(["update"]), ["update"]);
+  assert.deepEqual(getCommandPositionals(["update", "--port", "8080"]), ["update"]);
+  assert.deepEqual(getCommandPositionals(["--port", "8080", "update"]), ["update"]);
+  assert.deepEqual(getCommandPositionals(["--port", "8080"]), []);
+  assert.deepEqual(getCommandPositionals([]), []);
 });
 
 test("does not mistake option values for positional arguments", () => {
-  assert.deepEqual(parseLaunchOptions(["--hostname", "update"]).positionals, []);
-  assert.deepEqual(parseLaunchOptions(["--port", "update"]).positionals, []);
+  assert.deepEqual(getCommandPositionals(["--hostname", "update"]), []);
+  assert.deepEqual(getCommandPositionals(["--port", "update"]), []);
 });
 
 test("keeps launch options stable", () => {
