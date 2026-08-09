@@ -1,8 +1,8 @@
 "use strict";
 
-// Implements `pi-web update`: check the npm registry for a newer release of
-// @agegr/pi-web, then reinstall the package globally with the same package
-// manager that was used to install it (npm, pnpm, yarn, or bun).
+// Implements `pi-web update`: check for a newer release of @agegr/pi-web,
+// then reinstall the package globally with the same package manager that
+// installed it (npm, pnpm, yarn, or bun).
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { spawnSync } = require("child_process");
@@ -103,7 +103,7 @@ function runCommand(command, args) {
 }
 
 // npm and pnpm print JSON (a quoted string, or an array on newer npm); yarn
-// and bun print the bare version on the last line.
+// and bun print the bare version.
 function parseVersionOutput(method, stdout) {
   if (method === "npm" || method === "pnpm") {
     let parsed;
