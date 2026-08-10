@@ -25,6 +25,18 @@ import type {
   ThinkingContent,
 } from "@/lib/types";
 
+// CJK chars ~1 token each (GLM/DeepSeek/GPT-o200k); other chars ~4 chars/token.
+const CJK_PATTERN = /[\u3000-\u30ff\u3400-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}\uac00-\ud7af]/u;
+function estimateTokens(text: string): number {
+  let cjk = 0;
+  let rest = 0;
+  for (const ch of text) {
+    if (CJK_PATTERN.test(ch)) cjk++;
+    else rest++;
+  }
+  return cjk + rest / 4;
+}
+
 const MAX_THINKING_CACHE_ENTRIES = 100;
 const thinkingContentCache = new Map<string, Promise<string>>();
 
@@ -633,16 +645,16 @@ function AssistantMessageView({
         return changed ? next : prev;
       });
 
-      let chars = 0;
+      let tokens = 0;
       for (const b of bs) {
-        if (b.type === "text") chars += (b as TextContent).text?.length ?? 0;
-        else if (b.type === "thinking") chars += (b as ThinkingContent).thinking?.length ?? 0;
-        else if (b.type === "toolCall") chars += JSON.stringify((b as ToolCallContent).input ?? {}).length;
+        if (b.type === "text") tokens += estimateTokens((b as TextContent).text ?? "");
+        else if (b.type === "thinking") tokens += estimateTokens((b as ThinkingContent).thinking ?? "");
+        else if (b.type === "toolCall") tokens += estimateTokens(JSON.stringify((b as ToolCallContent).input ?? {}));
       }
-      if (chars === 0) return;
+      if (tokens === 0) return;
       if (streamStartRef.current === null) streamStartRef.current = now;
       const elapsed = (now - streamStartRef.current) / 1000;
-      if (elapsed > 0.5) setTps(chars / 4 / elapsed);
+      if (elapsed > 0.5) setTps(tokens / elapsed);
     };
     const id = setInterval(tick, 300);
     return () => clearInterval(id);
@@ -671,13 +683,13 @@ function AssistantMessageView({
           <span>{modelNames?.[`${message.provider}:${message.model}`] ?? modelNames?.[message.model] ?? message.model}</span>
         )}
         {isStreaming && (() => {
-          let chars = 0;
+          let tokens = 0;
           for (const b of blocks) {
-            if (b.type === "text") chars += (b as TextContent).text?.length ?? 0;
-            else if (b.type === "thinking") chars += (b as ThinkingContent).thinking?.length ?? 0;
-            else if (b.type === "toolCall") chars += JSON.stringify((b as ToolCallContent).input ?? {}).length;
+            if (b.type === "text") tokens += estimateTokens((b as TextContent).text ?? "");
+            else if (b.type === "thinking") tokens += estimateTokens((b as ThinkingContent).thinking ?? "");
+            else if (b.type === "toolCall") tokens += estimateTokens(JSON.stringify((b as ToolCallContent).input ?? {}));
           }
-          const est = Math.round(chars / 4);
+          const est = Math.round(tokens);
           return (
             <>
 
