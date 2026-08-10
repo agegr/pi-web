@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "@/hooks/useI18n";
+import { deriveDirectoryFilter, filterDirectoryEntries } from "@/lib/directory-picker-filter";
 
 interface DirectoryEntry {
   name: string;
@@ -97,6 +98,9 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
   const canSelect = Boolean(currentPath) && !hasUncommittedPath && !busy;
   const canNavigateUp = Boolean(parentDirectory) || isWindowsDriveRoot(currentPath);
 
+  const directoryFilter = deriveDirectoryFilter(currentPath, pathInput);
+  const filteredDirectories = filterDirectoryEntries(directories, directoryFilter);
+
   if (!portalTarget) return null;
 
   return createPortal(
@@ -188,8 +192,8 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
                 <div style={{ padding: 8, color: "var(--text-dim)", fontSize: 11 }}>{t("directoryPicker.noDrives")}</div>
               )}
             </>
-          ) : directories.length > 0 ? (
-            directories.map((entry) => (
+          ) : filteredDirectories.length > 0 ? (
+            filteredDirectories.map((entry) => (
               <button
                 key={entry.path}
                 className="directory-picker-entry"
@@ -203,7 +207,7 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
               </button>
             ))
           ) : (
-            <div style={{ padding: 8, color: "var(--text-dim)", fontSize: 11 }}>{t("directoryPicker.noSubdirectories")}</div>
+            <div style={{ padding: 8, color: "var(--text-dim)", fontSize: 11 }}>{directoryFilter ? t("directoryPicker.noMatchingDirectories") : t("directoryPicker.noSubdirectories")}</div>
           )}
           {(loadError || error) && <div style={{ padding: "8px", color: "#dc2626", fontSize: 11 }}>{loadError ?? error}</div>}
         </div>
