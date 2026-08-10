@@ -1,4 +1,4 @@
-import { readdir, realpath, stat } from "fs/promises";
+import { realpath, stat } from "fs/promises";
 import { homedir } from "os";
 import path from "path";
 
@@ -58,7 +58,18 @@ export async function resolveDirectory(directory: string): Promise<string> {
 }
 
 export async function listDirectories(directory: string): Promise<BrowsableDirectory[]> {
-  const entries = await readdir(directory, { withFileTypes: true });
+  const fs = process.getBuiltinModule("node:fs/promises") as typeof import("node:fs/promises");
+  // Resolve this call at runtime so Next's output tracer does not treat a
+  // user-selected directory (including the home directory) as a build input.
+  const openDirectory = Object.getOwnPropertyDescriptor(fs, "opendir")?.value as
+    | typeof fs.opendir
+    | undefined;
+  if (!openDirectory) throw new Error("Directory enumeration is unavailable");
+  const directoryHandle = await openDirectory(directory);
+  const entries = [];
+  for await (const entry of directoryHandle) {
+    entries.push(entry);
+  }
   // 忽略损坏、不可访问或不指向目录的符号链接。
   const candidates = await Promise.all(entries.map(async (entry) => {
     if (entry.isDirectory()) {
