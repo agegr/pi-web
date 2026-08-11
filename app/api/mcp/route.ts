@@ -92,7 +92,7 @@ async function readMcp(cwd: string): Promise<McpResponse> {
     sourceOf.set(name, projectFile);
   }
   if (!existsSync(globalFile) && Object.keys(project.mcpServers ?? {}).length === 0) {
-    diagnostics.push("未找到 MCP 配置文件（全局 ~/.pi/agent/mcp.json 或项目 .pi/mcp.json）。可点击\"添加MCP\"新建。");
+    diagnostics.push('No MCP config file found (global ~/.pi/agent/mcp.json or project .pi/mcp.json). Click "Add MCP" to create one.');
   }
 
   const servers = Object.entries(merged).map(([name, def]) =>
@@ -137,7 +137,7 @@ function testMcpServer(def: Record<string, unknown>): Promise<{ ok: boolean; det
         });
         const text = await res.text();
         return res.ok && text
-          ? { ok: true, detail: `连通 (HTTP ${res.status})` }
+          ? { ok: true, detail: `Connected (HTTP ${res.status})` }
           : { ok: false, detail: `HTTP ${res.status}` };
       } catch (error) {
         return { ok: false, detail: error instanceof Error ? error.message : String(error) };
@@ -154,7 +154,7 @@ function testMcpServer(def: Record<string, unknown>): Promise<{ ok: boolean; det
         if (settled) return;
         settled = true;
         try { child?.kill(); } catch { /* */ }
-        resolve({ ok: false, detail: "连接超时(20s)" });
+        resolve({ ok: false, detail: "Connection timed out (20s)" });
       }, 20000);
       try {
         child = spawn([command, ...args].join(" "), [], {
@@ -189,7 +189,7 @@ function testMcpServer(def: Record<string, unknown>): Promise<{ ok: boolean; det
               clearTimeout(timer);
               try { child?.kill(); } catch { /* */ }
               const tools = Array.isArray(m.result?.tools) ? m.result.tools : [];
-              resolve({ ok: true, detail: `连通 · ${info?.name ?? "server"} ${info?.version ?? ""} · ${tools.length} 个工具` });
+              resolve({ ok: true, detail: `Connected · ${info?.name ?? "server"} ${info?.version ?? ""} · ${tools.length} tools` });
             }
           } catch { /* ignore non-JSON lines */ }
         }
@@ -216,16 +216,16 @@ function testMcpServer(def: Record<string, unknown>): Promise<{ ok: boolean; det
         if (!settled) {
           settled = true;
           clearTimeout(timer);
-          resolve({ ok: false, detail: `进程退出 code=${code}` });
+          resolve({ ok: false, detail: `Process exited with code ${code}` });
         }
       });
     });
   }
 
   if (typeof def.socket === "string") {
-    return Promise.resolve({ ok: false, detail: "socket 类型暂不支持自动测试" });
+    return Promise.resolve({ ok: false, detail: "Socket type does not support automatic testing yet" });
   }
-  return Promise.resolve({ ok: false, detail: "缺少 command 或 url" });
+  return Promise.resolve({ ok: false, detail: "Missing command or url" });
 }
 
 function readScope(scope: unknown): McpScope {
@@ -308,7 +308,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "name and def required" }, { status: 400 });
       }
       if (!def.command && !def.url && !def.socket) {
-        return NextResponse.json({ error: "需要 command、url 或 socket 之一" }, { status: 400 });
+        return NextResponse.json({ error: "Requires one of command, url or socket" }, { status: 400 });
       }
       const file = mcpFilePath(cwd, scope);
       const data = readMcpFile(file);
