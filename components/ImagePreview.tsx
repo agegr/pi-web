@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 
 interface ImagePreviewProps {
@@ -15,27 +14,39 @@ interface ImagePreviewProps {
 export function ImagePreview({ src, alt = "", children, className, style }: ImagePreviewProps) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
-
-  useEffect(() => {
-    setPortalTarget(document.body);
-  }, []);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      setOpen(false);
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const trigger = triggerRef.current;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    dialog.showModal();
+    closeButtonRef.current?.focus({ preventScroll: true });
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      if (dialog.open) dialog.close();
+      if (trigger?.isConnected) {
+        trigger.focus({ preventScroll: true });
+      }
     };
-    document.addEventListener("keydown", onKeyDown, true);
-    return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [open]);
+
+  const closePreview = () => {
+    if (dialogRef.current?.open) dialogRef.current.close();
+    setOpen(false);
+  };
 
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
         className={className}
         style={{
@@ -49,66 +60,47 @@ export function ImagePreview({ src, alt = "", children, className, style }: Imag
         }}
         onClick={() => setOpen(true)}
         aria-label={t("chat.previewImage")}
+        aria-haspopup="dialog"
+        aria-expanded={open}
         title={t("chat.previewImage")}
       >
         {children}
       </button>
-      {open && portalTarget && createPortal(
-        <div
-          role="dialog"
-          aria-modal="true"
+      {open && (
+        <dialog
+          ref={dialogRef}
+          className="image-preview-dialog"
           aria-label={t("chat.previewImage")}
-          onClick={(event) => {
-            if (event.target === event.currentTarget) setOpen(false);
+          onCancel={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            closePreview();
           }}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 1100,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 16,
-            background: "rgba(0, 0, 0, 0.72)",
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            event.stopPropagation();
+            closePreview();
+          }}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) closePreview();
           }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={src}
-            alt={alt}
-            style={{
-              display: "block",
-              maxWidth: "100%",
-              maxHeight: "100%",
-              objectFit: "contain",
-              borderRadius: 8,
-              boxShadow: "0 20px 60px rgba(0, 0, 0, 0.4)",
-            }}
-          />
+          <img className="image-preview-image" src={src} alt={alt} />
           <button
+            ref={closeButtonRef}
             type="button"
-            onClick={() => setOpen(false)}
+            className="image-preview-close"
+            onClick={closePreview}
             aria-label={t("chat.close")}
             title={t("chat.close")}
-            style={{
-              position: "absolute",
-              top: 16,
-              right: 16,
-              width: 34,
-              height: 34,
-              border: "1px solid rgba(255, 255, 255, 0.5)",
-              borderRadius: "50%",
-              background: "rgba(0, 0, 0, 0.45)",
-              color: "#fff",
-              cursor: "pointer",
-              fontSize: 24,
-              lineHeight: 1,
-            }}
           >
-            ×
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
           </button>
-        </div>,
-        portalTarget,
+        </dialog>
       )}
     </>
   );
