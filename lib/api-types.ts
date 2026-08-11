@@ -110,3 +110,30 @@ export interface PluginsResponse {
   diagnostics: PluginDiagnostic[];
   projectResourcesLoaded: boolean;
 }
+
+export type McpScope = "global" | "project";
+
+export interface McpServerInfo {
+  name: string;
+  scope: McpScope;
+  disabled: boolean;
+  kind: "command" | "url" | "socket";
+  command?: string;
+  args: string[];
+  url?: string;
+  socket?: string;
+  /** 环境变量名列表（不含值，避免泄露） */
+  envKeys: string[];
+  /** Remaining server options (lifecycle / directTools / timeout, etc.) */
+  options: Record<string, unknown>;
+  /** Path of the config file that defines this server */
+  source: string;
+}
+
+export interface McpResponse {
+  servers: McpServerInfo[];
+  /** Settings merged from global + project */
+  settings: Record<string, unknown>;
+  diagnostics: string[];
+  projectResourcesLoaded: boolean;
+}
