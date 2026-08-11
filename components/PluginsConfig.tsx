@@ -635,6 +635,7 @@ function McpServerDetail({
   onTest: () => void;
   onEdit: () => void;
 }) {
+  const { t } = useI18n();
   const enabled = !server.disabled;
   const otherScope = server.scope === "project" ? "global" : "project";
   const target =
@@ -662,7 +663,7 @@ function McpServerDetail({
             enabled={enabled}
             loading={busy}
             onToggle={onToggle}
-            label={enabled ? "禁用" : "启用"}
+            label={enabled ? t("mcp.disable") : t("mcp.enable")}
           />
           <ScopeTag scope={server.scope} />
           {server.disabled && (
@@ -675,7 +676,7 @@ function McpServerDetail({
                 color: "var(--text-dim)",
               }}
             >
-              已禁用
+              {t("mcp.disabledBadge")}
             </span>
           )}
           <span
@@ -694,16 +695,16 @@ function McpServerDetail({
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button onClick={onTest} disabled={busy} style={buttonStyle(busy)}>
-            {busy ? "测试中..." : "测试连接"}
+            {busy ? t("mcp.testing") : t("mcp.test")}
           </button>
           <button onClick={onEdit} disabled={busy} style={buttonStyle(busy)}>
-            编辑
+            {t("mcp.edit")}
           </button>
           <button onClick={onMove} disabled={busy} style={buttonStyle(busy)}>
-            移动至{otherScope}
+            {otherScope === "project" ? t("mcp.moveToProject") : t("mcp.moveToGlobal")}
           </button>
           <button onClick={onRemove} disabled={busy} style={buttonStyle(busy, true)}>
-            删除
+            {t("mcp.delete")}
           </button>
         </div>
       </div>
@@ -717,27 +718,27 @@ function McpServerDetail({
           lineHeight: 1.45,
         }}
       >
-        <div style={row}>类型</div>
+        <div style={row}>{t("mcp.fieldType")}</div>
         <div style={val}>{server.kind}</div>
-        <div style={row}>{server.kind === "url" ? "URL" : server.kind === "socket" ? "Socket" : "命令"}</div>
+        <div style={row}>{server.kind === "url" ? t("mcp.kindUrl") : server.kind === "socket" ? t("mcp.kindSocket") : t("mcp.kindCommand")}</div>
         <div style={val}>{target ?? "—"}</div>
         {server.kind === "command" && (
           <>
-            <div style={row}>参数</div>
+            <div style={row}>{t("mcp.fieldArgs")}</div>
             <div style={val}>{server.args.length ? server.args.join(" ") : "—"}</div>
           </>
         )}
-        <div style={row}>环境变量</div>
+        <div style={row}>{t("mcp.fieldEnv")}</div>
         <div style={val}>{server.envKeys.length ? server.envKeys.join(", ") : "—"}</div>
-        <div style={row}>选项</div>
+        <div style={row}>{t("mcp.fieldOptions")}</div>
         <div style={val}>
           {Object.keys(server.options).length ? JSON.stringify(server.options) : "—"}
         </div>
-        <div style={row}>来源</div>
+        <div style={row}>{t("mcp.fieldSource")}</div>
         <div style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
           {shortenPath(server.source)}
         </div>
-        <div style={row}>CWD</div>
+        <div style={row}>{t("mcp.fieldCwd")}</div>
         <div style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
           {shortenPath(cwd)}
         </div>
@@ -776,6 +777,7 @@ function AddMcpServer({
   onFetchDef: (name: string, serverScope: McpScope) => Promise<Record<string, unknown> | null>;
   onCancel: () => void;
 }) {
+  const { t } = useI18n();
   const isEdit = !!initial;
   const [name, setName] = useState(isEdit && initial ? initial.name : "");
   const [spec, setSpec] = useState(() => {
@@ -839,23 +841,23 @@ function AddMcpServer({
     if (mode === "json") {
       const text = jsonText ?? "";
       if (!text.trim()) {
-        setJsonError("JSON 不能为空");
+        setJsonError(t("mcp.jsonEmpty"));
         return;
       }
       let parsed: unknown;
       try {
         parsed = JSON.parse(text);
       } catch (error) {
-        setJsonError(`JSON 解析失败：${error instanceof Error ? error.message : String(error)}`);
+        setJsonError(t("mcp.jsonParseError", { message: error instanceof Error ? error.message : String(error) }));
         return;
       }
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        setJsonError('JSON 必须是对象，如 {"command":"npx","args":["-y","..."]}');
+        setJsonError(t("mcp.jsonNotObject"));
         return;
       }
       const def = parsed as Record<string, unknown>;
       if (!def.command && !def.url && !def.socket) {
-        setJsonError("JSON 需要包含 command、url 或 socket 之一");
+        setJsonError(t("mcp.jsonNeedsEntry"));
         return;
       }
       onSave(name, def);
@@ -889,7 +891,7 @@ function AddMcpServer({
     <div style={{ display: "flex", flexDirection: "column", gap: 18, maxWidth: 660, minHeight: "100%" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>
-          {isEdit ? `编辑 MCP：${initial?.name ?? ""}` : "添加 MCP 服务器"}
+          {isEdit ? t("mcp.editTitle", { name: initial?.name ?? "" }) : t("mcp.addTitle")}
         </div>
         <div style={{ fontSize: 12, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
           {scope === "project" ? `${shortenPath(cwd)}/.pi/mcp.json` : "~/.pi/agent/mcp.json"}
@@ -912,28 +914,26 @@ function AddMcpServer({
               color: mode === m ? "white" : "var(--text-muted)",
             }}
           >
-            {m === "basic" ? "基础配置" : "JSON 高级"}
+            {m === "basic" ? t("mcp.modeBasic") : t("mcp.modeJson")}
           </button>
         ))}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-        <label style={labelStyle}>名称</label>
+        <label style={labelStyle}>{t("mcp.nameLabel")}</label>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="如 github"
+          placeholder={t("mcp.namePlaceholder")}
           style={inputStyle}
         />
       </div>
 
       {mode === "json" ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-          <label style={labelStyle}>
-            服务器定义（JSON）—— 支持 command/url/socket、args、env、lifecycle、directTools、timeout 等全部字段
-          </label>
+          <label style={labelStyle}>{t("mcp.jsonLabel")}</label>
           {loadingJson ? (
-            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>加载配置中...</div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("mcp.loadingDef")}</div>
           ) : (
             <textarea
               value={jsonText ?? ""}
@@ -949,18 +949,18 @@ function AddMcpServer({
       ) : (
         <>
           <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-            <label style={labelStyle}>命令 或 URL（http/https 开头识别为 URL）</label>
+            <label style={labelStyle}>{t("mcp.specLabel")}</label>
             <input
               value={spec}
               onChange={(e) => setSpec(e.target.value)}
-              placeholder="npx -y @modelcontextprotocol/server-github  或  https://example.com/mcp"
+              placeholder={t("mcp.specPlaceholder")}
               style={inputStyle}
             />
           </div>
 
           {!isUrl && (
             <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-              <label style={labelStyle}>附加参数（可选，空格分隔）</label>
+              <label style={labelStyle}>{t("mcp.argsLabel")}</label>
               <input value={argsText} onChange={(e) => setArgsText(e.target.value)} style={inputStyle} />
             </div>
           )}
@@ -988,10 +988,10 @@ function AddMcpServer({
             borderColor: "var(--accent)",
           }}
         >
-          {busy ? "保存中..." : isEdit ? "保存修改" : "保存"}
+          {busy ? t("mcp.saving") : isEdit ? t("mcp.saveEdit") : t("mcp.save")}
         </button>
         <button type="button" onClick={onCancel} style={buttonStyle(false)}>
-          取消
+          {t("mcp.cancel")}
         </button>
       </div>
 
@@ -1138,8 +1138,8 @@ export function PluginsConfig({
       if (next) {
         setMcpActionMessage(
           server.disabled
-            ? `已启用 ${server.name}（执行 /reload 生效）`
-            : `已禁用 ${server.name}（执行 /reload 生效）`,
+            ? t("mcp.msgEnabled", { name: server.name })
+            : t("mcp.msgDisabled", { name: server.name }),
         );
       }
     },
@@ -1151,7 +1151,7 @@ export function PluginsConfig({
       const next = await runMcpAction("remove", { name: server.name, scope: server.scope });
       if (next) {
         setMcpSelected(next.servers[0]?.name ?? null);
-        setMcpActionMessage(`已删除 ${server.name}`);
+        setMcpActionMessage(t("mcp.msgDeleted", { name: server.name }));
         if (next.servers.length === 0) setMcpAddMode(true);
       }
     },
@@ -1166,7 +1166,7 @@ export function PluginsConfig({
         fromScope: server.scope,
         toScope: to,
       });
-      if (next) setMcpActionMessage(`已移动 ${server.name} → ${to}（执行 /reload 生效）`);
+      if (next) setMcpActionMessage(t("mcp.msgMoved", { name: server.name, scope: to }));
     },
     [runMcpAction],
   );
@@ -1182,7 +1182,9 @@ export function PluginsConfig({
         setMcpAddMode(false);
         setMcpEditTarget(null);
         setMcpActionMessage(
-          isEdit ? `已更新 ${nameFinal}（执行 /reload 生效）` : `已添加 ${nameFinal}（执行 /reload 生效）`,
+          isEdit
+            ? t("mcp.msgUpdated", { name: nameFinal })
+            : t("mcp.msgAdded", { name: nameFinal }),
         );
       }
     },
@@ -1220,9 +1222,14 @@ export function PluginsConfig({
         });
         const json = (await res.json()) as { ok?: boolean; message?: string; error?: string };
         if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
-        setMcpActionMessage(`测试 ${server.name}：${json.message}`);
+        setMcpActionMessage(t("mcp.msgTestResult", { name: server.name, result: json.message ?? "" }));
       } catch (err) {
-        setMcpActionError(`测试 ${server.name}：${err instanceof Error ? err.message : String(err)}`);
+        setMcpActionError(
+          t("mcp.msgTestError", {
+            name: server.name,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
       } finally {
         setMcpTesting(null);
       }
@@ -1542,7 +1549,7 @@ export function PluginsConfig({
                     textTransform: "uppercase",
                   }}
                 >
-                  MCP 服务器
+                  {t("mcp.sectionTitle")}
                 </div>
                 {mcpLoading ? (
                   <div style={{ padding: "10px 8px", fontSize: 12, color: "var(--text-muted)" }}>
@@ -1554,7 +1561,7 @@ export function PluginsConfig({
                   </div>
                 ) : (mcpData?.servers.length ?? 0) === 0 ? (
                   <div style={{ padding: "10px 8px", fontSize: 11, color: "var(--text-dim)" }}>
-                    暂无 MCP 服务器，点击下方"添加MCP"创建
+                  {t("mcp.emptyList")}
                   </div>
                 ) : (
                   groupedMcp.map((group) => (
@@ -1633,7 +1640,7 @@ export function PluginsConfig({
                                   marginTop: 2,
                                 }}
                               >
-                                {server.kind} · {server.disabled ? "已禁用" : "已启用"}
+                                {server.kind} · {server.disabled ? t("mcp.itemDisabled") : t("mcp.itemEnabled")}
                               </div>
                             </div>
                           </div>
@@ -1740,7 +1747,7 @@ export function PluginsConfig({
                   <circle cx="12" cy="12" r="3" />
                   <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1" />
                 </svg>
-                添加MCP
+                {t("mcp.addButton")}
               </button>
             </div>
           </div>
@@ -1793,7 +1800,7 @@ export function PluginsConfig({
                     fontSize: 13,
                   }}
                 >
-                  选择左侧一个 MCP 服务器，或点击"添加MCP"
+                  {t("mcp.emptyDetail")}
                 </div>
               )
             ) : addMode ? (
