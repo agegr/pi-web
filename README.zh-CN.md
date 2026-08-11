@@ -19,7 +19,8 @@ npx @agegr/pi-web@latest
 **或全局安装后使用：**
 
 ```bash
-npm install -g @agegr/pi-web
+# 首次安装或升级
+npm install -g @agegr/pi-web@latest
 pi-web
 ```
 
@@ -30,6 +31,12 @@ pi-web update
 ```
 
 更新完成后请重启 pi-web。
+
+**卸载全局安装：**
+
+```bash
+npm uninstall -g @agegr/pi-web
+```
 
 启动后打开 [http://127.0.0.1:30141](http://127.0.0.1:30141)。命令行版本会在服务就绪后尝试自动打开浏览器。Pi Web 默认仅监听 `127.0.0.1`。
 

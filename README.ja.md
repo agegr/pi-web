@@ -21,8 +21,23 @@ npx @agegr/pi-web@latest
 **またはグローバルにインストール：**
 
 ```bash
-npm install -g @agegr/pi-web
+# 初回インストールまたはアップグレード
+npm install -g @agegr/pi-web@latest
 pi-web
+```
+
+**最新バージョンに更新：**
+
+```bash
+pi-web update
+```
+
+更新後に pi-web を再起動してください。
+
+**グローバルインストールをアンインストール：**
+
+```bash
+npm uninstall -g @agegr/pi-web
 ```
 
 続いて [http://127.0.0.1:30141](http://127.0.0.1:30141) を開きます。サーバーの準備が整うと、CLI はブラウザを自動的に開こうとします。Pi Web はデフォルトで `127.0.0.1` のみをリッスンします。

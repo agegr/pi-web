@@ -1,7 +1,4 @@
-import {
-  isEventIncludedInSnapshot,
-  toClientAgentEvent,
-} from "@/lib/agent-event-wire";
+import { createAgentEventStream } from "@/lib/agent-event-stream";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
 
@@ -13,71 +10,30 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  if (req.signal.aborted) return new Response(null, { status: 204 });
 
   // Fast path: already-running session
-  let session = getRpcSession(id);
-  if (!session || !session.isAlive()) {
+  const session = getRpcSession(id);
+  let sessionPromise;
+  if (session?.isAlive()) {
+    sessionPromise = Promise.resolve(session);
+  } else {
     const filePath = await resolveSessionPath(id);
     if (!filePath) {
       return new Response("Session not found", { status: 404 });
     }
-    try {
-      ({ session } = await startRpcSession(id, filePath, undefined));
-    } catch (error) {
-      return new Response(`Failed to start agent: ${error}`, { status: 500 });
-    }
+    if (req.signal.aborted) return new Response(null, { status: 204 });
+    sessionPromise = startRpcSession(id, filePath, undefined).then((result) => result.session);
   }
 
-  const stream = new ReadableStream({
-    start(controller) {
-      const encoder = new TextEncoder();
-      const encode = (data: unknown) => {
-        const text = `data: ${JSON.stringify(data)}\n\n`;
-        controller.enqueue(encoder.encode(text));
-      };
-
-      const streamingMessage = session.streamingMessage;
-      encode({
-        type: "connected",
-        sessionId: id,
-        isStreaming: session.isStreaming,
-      });
-      if (streamingMessage) {
-        encode({ type: "message_start", message: streamingMessage });
-      }
-
-      const unsubscribe = session.onEvent((event) => {
-        if (isEventIncludedInSnapshot(event, streamingMessage)) return;
-        const clientEvent = toClientAgentEvent(event);
-        if (clientEvent) encode(clientEvent);
-      });
-
-      // Heartbeat every 30s to prevent server/proxy timeout (Next.js default ~120-150s)
-      const heartbeat = setInterval(() => {
-        try {
-          controller.enqueue(encoder.encode(":\n\n"));
-        } catch {
-          // controller already closed
-        }
-      }, 30_000);
-
-      // Cleanup when client disconnects
-      const cleanup = () => {
-        clearInterval(heartbeat);
-        unsubscribe();
-        controller.close();
-      };
-
-      // Detect client disconnect via abort signal
-      req.signal?.addEventListener("abort", cleanup);
-    },
-  });
+  const stream = createAgentEventStream(req, id, sessionPromise);
 
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     },
   });
 }
