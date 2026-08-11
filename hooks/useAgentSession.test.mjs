@@ -70,6 +70,27 @@ test("a rejected submission preserves a different run reported by the server", (
   assert.match(reconcileSource, /if \(!agentRunningRef\.current\) return;[\s\S]*?finishPromptWithoutStream/);
 });
 
+test("opening System lazily starts a dormant session without sending a prompt", () => {
+  const loadSystemPromptSource = source.slice(
+    source.indexOf("  const loadSystemPrompt = useCallback"),
+    source.indexOf("  const loadSlashCommands = useCallback"),
+  );
+  const loaderEffectSource = source.slice(
+    source.indexOf("  useEffect(() => {\n    onSystemPromptLoaderChange"),
+    source.indexOf("  useEffect(() => {\n    if (!onBranchDataChange) return;"),
+  );
+
+  assert.match(loadSystemPromptSource, /sessionIdRef\.current \?\? await ensureNewSession\(\)/);
+  assert.match(loadSystemPromptSource, /promoteNewSession\(\)/);
+  assert.match(loadSystemPromptSource, /sendAgentCommand<AgentStateResponse>\(sid, \{ type: "get_state" \}\)/);
+  assert.doesNotMatch(loadSystemPromptSource, /type: "prompt"/);
+  assert.match(loadSystemPromptSource, /setSystemPrompt\(state\.systemPrompt \?\? ""\)/);
+  assert.match(loaderEffectSource, /onSystemPromptLoaderChange\?\.\(loadSystemPrompt\)/);
+  assert.match(loaderEffectSource, /onSystemPromptLoaderChange\?\.\(null\)/);
+  assert.match(appShellSource, /onClick=\{handleSystemPromptToggle\}/);
+  assert.match(appShellSource, /systemPromptLoaderRef\.current/);
+});
+
 test("new-session promotion rekeys drafts before publishing the real session", () => {
   const promoteSource = source.slice(
     source.indexOf("  const promoteNewSession = useCallback"),

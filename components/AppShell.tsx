@@ -185,10 +185,17 @@ export function AppShell() {
   }, []);
 
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
+  const [systemPromptLoading, setSystemPromptLoading] = useState(false);
+  const systemPromptLoaderRef = useRef<(() => Promise<void>) | null>(null);
   const systemBtnRef = useRef<HTMLButtonElement>(null);
 
   const handleSystemPromptChange = useCallback((prompt: string | null) => {
     setSystemPrompt(prompt);
+    setSystemPromptLoading(false);
+  }, []);
+
+  const handleSystemPromptLoaderChange = useCallback((loader: (() => Promise<void>) | null) => {
+    systemPromptLoaderRef.current = loader;
   }, []);
 
   // Session stats (tokens + cost) — populated by ChatWindow, displayed in top bar
@@ -231,6 +238,21 @@ export function AppShell() {
     if (isMobile) setSidebarOpen(false);
     setActiveTopPanel((cur) => cur === panel ? null : panel);
   }, [isMobile]);
+
+  const handleSystemPromptToggle = useCallback(() => {
+    const opening = activeTopPanel !== "system";
+    toggleTopPanel("system");
+    if (!opening || systemPrompt !== null || systemPromptLoading) return;
+
+    const load = systemPromptLoaderRef.current;
+    if (!load) return;
+    setSystemPromptLoading(true);
+    void load().catch((error) => {
+      console.error("Failed to load system prompt:", error);
+    }).finally(() => {
+      setSystemPromptLoading(false);
+    });
+  }, [activeTopPanel, systemPrompt, systemPromptLoading, toggleTopPanel]);
 
   const openSessionStatsPanel = useCallback(() => {
     if (isMobile) setSidebarOpen(false);
@@ -441,6 +463,7 @@ export function AppShell() {
     setBranchTree([]);
     setBranchActiveLeafId(null);
     setSystemPrompt(null);
+    setSystemPromptLoading(false);
     setActiveTopPanel(null);
     if (currentProject !== newProject) {
       // File tabs are keyed by absolute path, so tabs opened in the previous
@@ -475,6 +498,7 @@ export function AppShell() {
     setSelectedSession(session);
     setSessionKey((k) => k + 1);
     setSystemPrompt(null);
+    setSystemPromptLoading(false);
     setInitialSessionRestored(true);
     // On mobile, collapse the overlay drawer so the chat is revealed after pick.
     if (isMobile && !isRestore) setSidebarOpen(false);
@@ -501,6 +525,7 @@ export function AppShell() {
     setBranchTree([]);
     setBranchActiveLeafId(null);
     setSystemPrompt(null);
+    setSystemPromptLoading(false);
     setActiveTopPanel(null);
     if (isMobile) setSidebarOpen(false);
     router.replace("/", { scroll: false });
@@ -642,6 +667,7 @@ export function AppShell() {
       setBranchTree([]);
       setBranchActiveLeafId(null);
       setSystemPrompt(null);
+      setSystemPromptLoading(false);
       setActiveTopPanel(null);
       router.replace("/", { scroll: false });
     }
@@ -1267,7 +1293,7 @@ export function AppShell() {
               />
               <button
                 ref={systemBtnRef}
-                onClick={() => toggleTopPanel("system")}
+                onClick={handleSystemPromptToggle}
                  title={translate("system.prompt")}
                  aria-label={translate("system.prompt")}
                 aria-pressed={activeTopPanel === "system"}
@@ -1472,7 +1498,7 @@ export function AppShell() {
                     </div>
                   ) : (
                     <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-                       {translate("system.load")}
+                       {systemPromptLoading ? translate("system.loading") : translate("system.load")}
                     </div>
                   )}
                 </div>
@@ -1664,6 +1690,7 @@ export function AppShell() {
               chatInputRef={chatInputRef}
               onBranchDataChange={handleBranchDataChange}
               onSystemPromptChange={handleSystemPromptChange}
+              onSystemPromptLoaderChange={handleSystemPromptLoaderChange}
               onSessionStatsChange={handleSessionStatsChange}
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onContextUsageChange={handleContextUsageChange}
