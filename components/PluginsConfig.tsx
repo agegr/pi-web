@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import type { PluginPackageInfo, PluginsResponse } from "@/lib/api-types";
+import type { McpResponse, McpScope, McpServerInfo, PluginPackageInfo, PluginsResponse } from "@/lib/api-types";
 import { useI18n } from "@/hooks/useI18n";
 
 type PluginScope = PluginPackageInfo["scope"];
@@ -612,6 +612,396 @@ function PackageDetail({
   );
 }
 
+function McpServerDetail({
+  server,
+  cwd,
+  busy,
+  actionError,
+  actionMessage,
+  onToggle,
+  onRemove,
+  onMove,
+  onTest,
+  onEdit,
+}: {
+  server: McpServerInfo;
+  cwd: string;
+  busy: boolean;
+  actionError: string | null;
+  actionMessage: string | null;
+  onToggle: () => void;
+  onRemove: () => void;
+  onMove: () => void;
+  onTest: () => void;
+  onEdit: () => void;
+}) {
+  const enabled = !server.disabled;
+  const otherScope = server.scope === "project" ? "global" : "project";
+  const target =
+    server.kind === "url" ? server.url : server.kind === "socket" ? server.socket : server.command;
+  const row: React.CSSProperties = { color: "var(--text-dim)" };
+  const val: React.CSSProperties = {
+    color: "var(--text-muted)",
+    fontFamily: "var(--font-mono)",
+    overflowWrap: "anywhere",
+  };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: 680 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+          minWidth: 0,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 180, flex: 1 }}>
+          <Toggle
+            enabled={enabled}
+            loading={busy}
+            onToggle={onToggle}
+            label={enabled ? "禁用" : "启用"}
+          />
+          <ScopeTag scope={server.scope} />
+          {server.disabled && (
+            <span
+              style={{
+                fontSize: 10,
+                padding: "1px 5px",
+                borderRadius: 3,
+                background: "rgba(120,120,120,0.12)",
+                color: "var(--text-dim)",
+              }}
+            >
+              已禁用
+            </span>
+          )}
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 12,
+              color: "var(--text)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {server.name}
+          </span>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={onTest} disabled={busy} style={buttonStyle(busy)}>
+            {busy ? "测试中..." : "测试连接"}
+          </button>
+          <button onClick={onEdit} disabled={busy} style={buttonStyle(busy)}>
+            编辑
+          </button>
+          <button onClick={onMove} disabled={busy} style={buttonStyle(busy)}>
+            移动至{otherScope}
+          </button>
+          <button onClick={onRemove} disabled={busy} style={buttonStyle(busy, true)}>
+            删除
+          </button>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(96px, 130px) minmax(0, 1fr)",
+          gap: "9px 14px",
+          fontSize: 12,
+          lineHeight: 1.45,
+        }}
+      >
+        <div style={row}>类型</div>
+        <div style={val}>{server.kind}</div>
+        <div style={row}>{server.kind === "url" ? "URL" : server.kind === "socket" ? "Socket" : "命令"}</div>
+        <div style={val}>{target ?? "—"}</div>
+        {server.kind === "command" && (
+          <>
+            <div style={row}>参数</div>
+            <div style={val}>{server.args.length ? server.args.join(" ") : "—"}</div>
+          </>
+        )}
+        <div style={row}>环境变量</div>
+        <div style={val}>{server.envKeys.length ? server.envKeys.join(", ") : "—"}</div>
+        <div style={row}>选项</div>
+        <div style={val}>
+          {Object.keys(server.options).length ? JSON.stringify(server.options) : "—"}
+        </div>
+        <div style={row}>来源</div>
+        <div style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
+          {shortenPath(server.source)}
+        </div>
+        <div style={row}>CWD</div>
+        <div style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
+          {shortenPath(cwd)}
+        </div>
+      </div>
+
+      {actionMessage && (
+        <div style={{ fontSize: 12, color: "#16a34a", whiteSpace: "pre-wrap" }}>{actionMessage}</div>
+      )}
+      {actionError && (
+        <div style={{ fontSize: 12, color: "#ef4444", whiteSpace: "pre-wrap" }}>{actionError}</div>
+      )}
+    </div>
+  );
+}
+
+function AddMcpServer({
+  cwd,
+  scope,
+  projectResourcesLoaded,
+  busy,
+  actionError,
+  initial,
+  onScopeChange,
+  onSave,
+  onFetchDef,
+  onCancel,
+}: {
+  cwd: string;
+  scope: McpScope;
+  projectResourcesLoaded: boolean;
+  busy: boolean;
+  actionError: string | null;
+  initial?: McpServerInfo | null;
+  onScopeChange: (scope: McpScope) => void;
+  onSave: (name: string, def: Record<string, unknown>) => void;
+  onFetchDef: (name: string, serverScope: McpScope) => Promise<Record<string, unknown> | null>;
+  onCancel: () => void;
+}) {
+  const isEdit = !!initial;
+  const [name, setName] = useState(isEdit && initial ? initial.name : "");
+  const [spec, setSpec] = useState(() => {
+    if (!initial) return "";
+    if (initial.kind === "command") return [initial.command, ...initial.args].join(" ");
+    return initial.url ?? initial.socket ?? "";
+  });
+  const [argsText, setArgsText] = useState("");
+  const [mode, setMode] = useState<"basic" | "json">("basic");
+  const [jsonText, setJsonText] = useState<string | null>(null);
+  const [jsonError, setJsonError] = useState<string | null>(null);
+  const [loadingJson, setLoadingJson] = useState(false);
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%",
+    height: 36,
+    padding: "0 11px",
+    border: "1px solid var(--border)",
+    borderRadius: 6,
+    background: "var(--bg-panel)",
+    color: "var(--text)",
+    fontFamily: "var(--font-mono)",
+    fontSize: 13,
+    outline: "none",
+  };
+  const labelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: "var(--text-muted)" };
+  const isUrl = /^https?:\/\//.test(spec.trim());
+
+  const buildBasicDef = (): Record<string, unknown> => {
+    const specTrim = spec.trim();
+    if (/^https?:\/\//.test(specTrim)) return { url: specTrim };
+    const tokens = specTrim.split(/\s+/);
+    const command = tokens[0] ?? "";
+    const extra = argsText.trim() ? argsText.trim().split(/\s+/) : [];
+    return { command, args: [...tokens.slice(1), ...extra] };
+  };
+
+  const switchToJson = async (): Promise<void> => {
+    setJsonError(null);
+    if (jsonText !== null) {
+      setMode("json");
+      return;
+    }
+    if (isEdit && initial) {
+      setMode("json");
+      setLoadingJson(true);
+      try {
+        const def = await onFetchDef(initial.name, initial.scope);
+        setJsonText(JSON.stringify(def ?? buildBasicDef(), null, 2));
+      } finally {
+        setLoadingJson(false);
+      }
+    } else {
+      setJsonText(JSON.stringify(buildBasicDef(), null, 2));
+      setMode("json");
+    }
+  };
+
+  const handleSave = (): void => {
+    setJsonError(null);
+    if (mode === "json") {
+      const text = jsonText ?? "";
+      if (!text.trim()) {
+        setJsonError("JSON 不能为空");
+        return;
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch (error) {
+        setJsonError(`JSON 解析失败：${error instanceof Error ? error.message : String(error)}`);
+        return;
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        setJsonError('JSON 必须是对象，如 {"command":"npx","args":["-y","..."]}');
+        return;
+      }
+      const def = parsed as Record<string, unknown>;
+      if (!def.command && !def.url && !def.socket) {
+        setJsonError("JSON 需要包含 command、url 或 socket 之一");
+        return;
+      }
+      onSave(name, def);
+      return;
+    }
+    onSave(name, buildBasicDef());
+  };
+
+  const canSave =
+    name.trim() &&
+    (mode === "json" ? (jsonText ?? "").trim().length > 0 : spec.trim().length > 0);
+
+  const jsonEditorStyle: React.CSSProperties = {
+    width: "100%",
+    minHeight: 200,
+    padding: "9px 11px",
+    border: "1px solid var(--border)",
+    borderRadius: 6,
+    background: "var(--bg-panel)",
+    color: "var(--text)",
+    fontFamily: "var(--font-mono)",
+    fontSize: 12,
+    lineHeight: 1.5,
+    outline: "none",
+    resize: "vertical",
+    whiteSpace: "pre",
+    overflow: "auto",
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18, maxWidth: 660, minHeight: "100%" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>
+          {isEdit ? `编辑 MCP：${initial?.name ?? ""}` : "添加 MCP 服务器"}
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+          {scope === "project" ? `${shortenPath(cwd)}/.pi/mcp.json` : "~/.pi/agent/mcp.json"}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 8 }}>
+        {(["basic", "json"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => (m === "json" ? void switchToJson() : setMode("basic"))}
+            style={{
+              padding: "6px 14px",
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              cursor: "pointer",
+              fontSize: 12,
+              background: mode === m ? "var(--accent)" : "none",
+              color: mode === m ? "white" : "var(--text-muted)",
+            }}
+          >
+            {m === "basic" ? "基础配置" : "JSON 高级"}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+        <label style={labelStyle}>名称</label>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="如 github"
+          style={inputStyle}
+        />
+      </div>
+
+      {mode === "json" ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+          <label style={labelStyle}>
+            服务器定义（JSON）—— 支持 command/url/socket、args、env、lifecycle、directTools、timeout 等全部字段
+          </label>
+          {loadingJson ? (
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>加载配置中...</div>
+          ) : (
+            <textarea
+              value={jsonText ?? ""}
+              onChange={(e) => setJsonText(e.target.value)}
+              spellCheck={false}
+              placeholder={
+                '{\n  "command": "npx",\n  "args": ["-y", "@modelcontextprotocol/server-github"],\n  "env": {}\n}'
+              }
+              style={jsonEditorStyle}
+            />
+          )}
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            <label style={labelStyle}>命令 或 URL（http/https 开头识别为 URL）</label>
+            <input
+              value={spec}
+              onChange={(e) => setSpec(e.target.value)}
+              placeholder="npx -y @modelcontextprotocol/server-github  或  https://example.com/mcp"
+              style={inputStyle}
+            />
+          </div>
+
+          {!isUrl && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              <label style={labelStyle}>附加参数（可选，空格分隔）</label>
+              <input value={argsText} onChange={(e) => setArgsText(e.target.value)} style={inputStyle} />
+            </div>
+          )}
+        </>
+      )}
+
+      {jsonError && (
+        <div style={{ fontSize: 12, color: "#ef4444", whiteSpace: "pre-wrap" }}>{jsonError}</div>
+      )}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <SegmentedScope
+          value={scope}
+          projectResourcesLoaded={projectResourcesLoaded}
+          onChange={onScopeChange}
+        />
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={busy || !canSave}
+          style={{
+            ...buttonStyle(busy || !canSave),
+            background: "var(--accent)",
+            color: "white",
+            borderColor: "var(--accent)",
+          }}
+        >
+          {busy ? "保存中..." : isEdit ? "保存修改" : "保存"}
+        </button>
+        <button type="button" onClick={onCancel} style={buttonStyle(false)}>
+          取消
+        </button>
+      </div>
+
+      {actionError && (
+        <div style={{ fontSize: 12, color: "#ef4444", whiteSpace: "pre-wrap" }}>{actionError}</div>
+      )}
+    </div>
+  );
+}
+
 export function PluginsConfig({
   cwd,
   sessionId,
@@ -635,10 +1025,30 @@ export function PluginsConfig({
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  // MCP-related state
+  const [view, setView] = useState<"plugins" | "mcp">("plugins");
+  const [mcpData, setMcpData] = useState<McpResponse | null>(null);
+  const [mcpLoading, setMcpLoading] = useState(true);
+  const [mcpSelected, setMcpSelected] = useState<string | null>(null);
+  const [mcpAddMode, setMcpAddMode] = useState(false);
+  const [mcpScope, setMcpScope] = useState<McpScope>("global");
+  const [mcpEditTarget, setMcpEditTarget] = useState<McpServerInfo | null>(null);
+  const [mcpActionError, setMcpActionError] = useState<string | null>(null);
+  const [mcpActionMessage, setMcpActionMessage] = useState<string | null>(null);
+  const [mcpTesting, setMcpTesting] = useState<string | null>(null);
 
   const packages = useMemo(() => data?.packages ?? [], [data?.packages]);
   const selectedPackage = packages.find((pkg) => packageKey(pkg) === selected) ?? null;
   const projectResourcesLoaded = data?.projectResourcesLoaded ?? true;
+  const selectedMcp = useMemo(
+    () => mcpData?.servers.find((s) => s.name === mcpSelected) ?? null,
+    [mcpData, mcpSelected],
+  );
+  const groupedMcp = useMemo(() => {
+    return (["project", "global"] as McpScope[])
+      .map((scope) => ({ scope, servers: (mcpData?.servers ?? []).filter((s) => s.scope === scope) }))
+      .filter((group) => group.servers.length > 0);
+  }, [mcpData]);
 
   const groupedPackages = useMemo(() => {
     return (["project", "global"] as PluginScope[])
@@ -669,6 +1079,156 @@ export function PluginsConfig({
   useEffect(() => {
     void loadPlugins();
   }, [loadPlugins]);
+
+  const loadMcp = useCallback(async () => {
+    setMcpLoading(true);
+    setMcpActionError(null);
+    try {
+      const res = await fetch(`/api/mcp?cwd=${encodeURIComponent(cwd)}`);
+      const next = (await res.json()) as McpResponse & { error?: string };
+      if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
+      setMcpData(next);
+      setMcpSelected((current) =>
+        current && next.servers.some((s) => s.name === current)
+          ? current
+          : next.servers[0]?.name ?? null,
+      );
+    } catch (err) {
+      setMcpActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setMcpLoading(false);
+    }
+  }, [cwd]);
+
+  useEffect(() => {
+    void loadMcp();
+  }, [loadMcp]);
+
+  const runMcpAction = useCallback(
+    async (action: string, payload: Record<string, unknown>): Promise<McpResponse | null> => {
+      setBusyKey(`mcp:${action}`);
+      setMcpActionError(null);
+      setMcpActionMessage(null);
+      try {
+        const res = await fetch("/api/mcp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cwd, action, ...payload }),
+        });
+        const next = (await res.json()) as McpResponse & { error?: string };
+        if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
+        setMcpData(next);
+        return next;
+      } catch (err) {
+        setMcpActionError(err instanceof Error ? err.message : String(err));
+        return null;
+      } finally {
+        setBusyKey(null);
+      }
+    },
+    [cwd],
+  );
+
+  const toggleMcp = useCallback(
+    async (server: McpServerInfo) => {
+      const next = await runMcpAction(server.disabled ? "enable" : "disable", {
+        name: server.name,
+        scope: server.scope,
+      });
+      if (next) {
+        setMcpActionMessage(
+          server.disabled
+            ? `已启用 ${server.name}（执行 /reload 生效）`
+            : `已禁用 ${server.name}（执行 /reload 生效）`,
+        );
+      }
+    },
+    [runMcpAction],
+  );
+
+  const removeMcp = useCallback(
+    async (server: McpServerInfo) => {
+      const next = await runMcpAction("remove", { name: server.name, scope: server.scope });
+      if (next) {
+        setMcpSelected(next.servers[0]?.name ?? null);
+        setMcpActionMessage(`已删除 ${server.name}`);
+        if (next.servers.length === 0) setMcpAddMode(true);
+      }
+    },
+    [runMcpAction],
+  );
+
+  const moveMcp = useCallback(
+    async (server: McpServerInfo) => {
+      const to = server.scope === "project" ? "global" : "project";
+      const next = await runMcpAction("move", {
+        name: server.name,
+        fromScope: server.scope,
+        toScope: to,
+      });
+      if (next) setMcpActionMessage(`已移动 ${server.name} → ${to}（执行 /reload 生效）`);
+    },
+    [runMcpAction],
+  );
+
+  const saveMcp = useCallback(
+    async (name: string, def: Record<string, unknown>) => {
+      const isEdit = !!mcpEditTarget;
+      const action = isEdit ? "update" : "add";
+      const nameFinal = isEdit && mcpEditTarget ? mcpEditTarget.name : name.trim();
+      const next = await runMcpAction(action, { name: nameFinal, scope: mcpScope, def });
+      if (next) {
+        setMcpSelected(nameFinal);
+        setMcpAddMode(false);
+        setMcpEditTarget(null);
+        setMcpActionMessage(
+          isEdit ? `已更新 ${nameFinal}（执行 /reload 生效）` : `已添加 ${nameFinal}（执行 /reload 生效）`,
+        );
+      }
+    },
+    [mcpScope, mcpEditTarget, runMcpAction],
+  );
+
+  const fetchMcpDef = useCallback(
+    async (name: string, serverScope: McpScope): Promise<Record<string, unknown> | null> => {
+      try {
+        const res = await fetch("/api/mcp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cwd, action: "get", name, scope: serverScope }),
+        });
+        const json = (await res.json()) as { def?: Record<string, unknown>; error?: string };
+        if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
+        return json.def ?? null;
+      } catch {
+        return null;
+      }
+    },
+    [cwd],
+  );
+
+  const testMcp = useCallback(
+    async (server: McpServerInfo) => {
+      setMcpTesting(server.name);
+      setMcpActionError(null);
+      setMcpActionMessage(null);
+      try {
+        const res = await fetch("/api/mcp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cwd, action: "test", name: server.name, scope: server.scope }),
+        });
+        const json = (await res.json()) as { ok?: boolean; message?: string; error?: string };
+        if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
+        setMcpActionMessage(`测试 ${server.name}：${json.message}`);
+      } catch (err) {
+        setMcpActionError(`测试 ${server.name}：${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        setMcpTesting(null);
+      }
+    },
+    [cwd],
+  );
 
   const runAction = useCallback(async (action: PluginAction, pkg: PluginPackageInfo) => {
     const key = packageKey(pkg);
@@ -751,6 +1311,7 @@ export function PluginsConfig({
   }, [loadPlugins, onReloaded, sessionId]);
 
   const addBusy = busyKey?.startsWith("install:") ?? false;
+  const mcpBusy = busyKey?.startsWith("mcp:") ?? false;
 
   return (
     <div
@@ -887,6 +1448,7 @@ export function PluginsConfig({
                         <div
                           key={key}
                           onClick={() => {
+                            setView("plugins");
                             setSelected(key);
                             setAddMode(false);
                             setActionError(null);
@@ -964,11 +1526,138 @@ export function PluginsConfig({
                   </div>
                 ))
               )}
+              <div
+                style={{
+                  marginTop: 10,
+                  borderTop: "1px solid var(--border)",
+                  paddingTop: 8,
+                }}
+              >
+                <div
+                  style={{
+                    padding: "4px 8px 3px",
+                    fontSize: 10,
+                    fontWeight: 600,
+                    color: "var(--text-dim)",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  MCP 服务器
+                </div>
+                {mcpLoading ? (
+                  <div style={{ padding: "10px 8px", fontSize: 12, color: "var(--text-muted)" }}>
+                    Loading...
+                  </div>
+                ) : !mcpData && mcpActionError ? (
+                  <div style={{ padding: "10px 8px", fontSize: 11, color: "#ef4444" }}>
+                    {mcpActionError}
+                  </div>
+                ) : (mcpData?.servers.length ?? 0) === 0 ? (
+                  <div style={{ padding: "10px 8px", fontSize: 11, color: "var(--text-dim)" }}>
+                    暂无 MCP 服务器，点击下方"添加MCP"创建
+                  </div>
+                ) : (
+                  groupedMcp.map((group) => (
+                    <div key={group.scope} style={{ marginBottom: 6 }}>
+                      <div
+                        style={{
+                          padding: "4px 8px 3px",
+                          fontSize: 10,
+                          fontWeight: 600,
+                          color: "var(--text-dim)",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {group.scope}
+                      </div>
+                      {group.servers.map((server) => {
+                        const isMcpSelected =
+                          view === "mcp" && !mcpAddMode && mcpSelected === server.name;
+                        return (
+                          <div
+                            key={server.name}
+                            onClick={() => {
+                              setView("mcp");
+                              setMcpSelected(server.name);
+                              setMcpAddMode(false);
+                              setMcpEditTarget(null);
+                              setMcpActionError(null);
+                              setMcpActionMessage(null);
+                            }}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 7,
+                              padding: "8px 8px",
+                              borderRadius: 5,
+                              cursor: "pointer",
+                              background: isMcpSelected ? "var(--bg-selected)" : "none",
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isMcpSelected) e.currentTarget.style.background = "var(--bg-hover)";
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isMcpSelected) e.currentTarget.style.background = "none";
+                            }}
+                          >
+                            <span
+                              style={{
+                                flexShrink: 0,
+                                width: 7,
+                                height: 7,
+                                borderRadius: "50%",
+                                background: server.disabled ? "var(--text-dim)" : "var(--accent)",
+                              }}
+                            />
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div
+                                style={{
+                                  fontSize: 12,
+                                  fontWeight: isMcpSelected ? 600 : 400,
+                                  color: "var(--text)",
+                                  fontFamily: "var(--font-mono)",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {server.name}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 10,
+                                  color: "var(--text-dim)",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                  marginTop: 2,
+                                }}
+                              >
+                                {server.kind} · {server.disabled ? "已禁用" : "已启用"}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
-            <div style={{ padding: "8px 6px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 4,
+                padding: "8px 6px",
+                borderTop: "1px solid var(--border)",
+                flexShrink: 0,
+              }}
+            >
               <button
                 type="button"
                 onClick={() => {
+                  setView("plugins");
                   setAddMode(true);
                   setActionError(null);
                   setActionMessage(null);
@@ -1008,11 +1697,106 @@ export function PluginsConfig({
                 </svg>
                  {t("i18n.addPlugin")}
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setView("mcp");
+                  setMcpAddMode(true);
+                  setMcpEditTarget(null);
+                  setMcpActionError(null);
+                  setMcpActionMessage(null);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "7px 8px",
+                  borderRadius: 5,
+                  border: "none",
+                  width: "100%",
+                  cursor: "pointer",
+                  background: mcpAddMode && view === "mcp" ? "var(--bg-selected)" : "none",
+                  color: mcpAddMode && view === "mcp" ? "var(--accent)" : "var(--text-dim)",
+                  fontSize: 12,
+                }}
+                onMouseEnter={(e) => {
+                  if (!(mcpAddMode && view === "mcp"))
+                    e.currentTarget.style.background = "var(--bg-hover)";
+                }}
+                onMouseLeave={(e) => {
+                  if (!(mcpAddMode && view === "mcp")) e.currentTarget.style.background = "none";
+                }}
+              >
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1" />
+                </svg>
+                添加MCP
+              </button>
             </div>
           </div>
 
           <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
-            {addMode ? (
+            {view === "mcp" ? (
+              mcpAddMode ? (
+                <AddMcpServer
+                  cwd={cwd}
+                  scope={mcpScope}
+                  projectResourcesLoaded={projectResourcesLoaded}
+                  busy={mcpBusy}
+                  actionError={mcpActionError}
+                  initial={mcpEditTarget}
+                  onScopeChange={setMcpScope}
+                  onSave={(name, def) => void saveMcp(name, def)}
+                  onFetchDef={fetchMcpDef}
+                  onCancel={() => {
+                    setMcpAddMode(false);
+                    setMcpEditTarget(null);
+                  }}
+                />
+              ) : selectedMcp ? (
+                <McpServerDetail
+                  key={selectedMcp.name}
+                  server={selectedMcp}
+                  cwd={cwd}
+                  busy={mcpBusy || mcpTesting === selectedMcp.name}
+                  actionError={mcpActionError}
+                  actionMessage={mcpActionMessage}
+                  onToggle={() => void toggleMcp(selectedMcp)}
+                  onRemove={() => void removeMcp(selectedMcp)}
+                  onMove={() => void moveMcp(selectedMcp)}
+                  onTest={() => void testMcp(selectedMcp)}
+                  onEdit={() => {
+                    setMcpEditTarget(selectedMcp);
+                    setMcpAddMode(true);
+                    setMcpActionError(null);
+                    setMcpActionMessage(null);
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    height: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "var(--text-dim)",
+                    fontSize: 13,
+                  }}
+                >
+                  选择左侧一个 MCP 服务器，或点击"添加MCP"
+                </div>
+              )
+            ) : addMode ? (
               <AddPluginPanel
                 cwd={cwd}
                 source={installSource}
