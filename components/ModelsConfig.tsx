@@ -5,6 +5,12 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
 import type { DiscoveredModel } from "@/lib/model-discovery";
+import {
+  serializeHeaderRows,
+  setCompatBool,
+  updateHeaderRow,
+  type HeaderRow,
+} from "./models-config-helpers";
 // Color icons (have their own fill colors — no background needed)
 import AnthropicIcon from "@lobehub/icons/es/Anthropic/components/Mono";
 import OpenAIIcon from "@lobehub/icons/es/OpenAI/components/Mono";
@@ -715,15 +721,6 @@ function setDeepseekCompat(model: ModelEntry, enabled: boolean): ModelEntry {
   return { ...model, compat: Object.keys(rest).length ? rest : undefined };
 }
 
-// Generic helper for boolean compat flags. An empty compat map is collapsed to
-// `undefined` so the saved models.json stays free of `{}` noise.
-function setCompatBool(model: ModelEntry, key: string, value: boolean): ModelEntry {
-  const next = { ...(model.compat ?? {}) };
-  if (value) next[key] = true;
-  else delete next[key];
-  return { ...model, compat: Object.keys(next).length ? next : undefined };
-}
-
 // Compat can be configured at the provider or model level; provider-composer
 // merges them (model wins) at runtime. The UI reads the effective value so
 // hand-edited models.json settings are reflected correctly, while toggles
@@ -732,23 +729,26 @@ function effectiveCompat(provider: ProviderEntry, model: ModelEntry): Record<str
   return { ...(provider.compat ?? {}), ...(model.compat ?? {}) };
 }
 
-// Editable key/value request-header list for a provider or model. Rebuilds a
-// fresh object on each edit so empty keys/values are dropped instead of being
-// persisted as noise in models.json.
+// Editable key/value request-header list for a provider or model. Rows stay
+// local so a blank draft is never persisted as an invalid HTTP header name.
 function HeaderListEditor({ headers, onChange }: {
   headers: Record<string, string> | undefined;
   onChange: (h: Record<string, string> | undefined) => void;
 }) {
-  const entries = Object.entries(headers ?? {});
-  const setEntry = (row: number, k: string, v: string): void => {
-    const next: Record<string, string> = {};
-    entries.forEach(([ok, ov], j) => { if (j !== row) next[ok] = ov; });
-    if (k.trim()) next[k.trim()] = v;
-    onChange(Object.keys(next).length ? next : undefined);
+  const [rows, setRows] = useState<HeaderRow[]>(() => Object.entries(headers ?? {}).map(
+    ([name, value], id) => ({ id, name, value }),
+  ));
+  const nextRowIdRef = useRef(rows.length);
+
+  const applyRows = (next: HeaderRow[]): void => {
+    setRows(next);
+    onChange(serializeHeaderRows(next));
   };
-  const removeEntry = (row: number): void => {
-    const next = entries.filter((_, j) => j !== row);
-    onChange(Object.keys(next).length ? Object.fromEntries(next) : undefined);
+  const setEntry = (id: number, changes: Partial<Pick<HeaderRow, "name" | "value">>): void => {
+    applyRows(updateHeaderRow(rows, id, changes));
+  };
+  const removeEntry = (id: number): void => {
+    applyRows(rows.filter((row) => row.id !== id));
   };
   const rowBtnStyle = {
     padding: "6px 9px",
@@ -762,16 +762,19 @@ function HeaderListEditor({ headers, onChange }: {
   } satisfies React.CSSProperties;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      {entries.map(([k, v], i) => (
-        <div key={i} style={{ display: "flex", gap: 6 }}>
-          <input value={k} onChange={(e) => setEntry(i, e.target.value, v)}
+      {rows.map((row) => (
+        <div key={row.id} style={{ display: "flex", gap: 6 }}>
+          <input value={row.name} onChange={(e) => setEntry(row.id, { name: e.target.value })}
             placeholder="Header-Name" style={{ ...inputStyle, fontFamily: "var(--font-mono)", flex: 1 }} />
-          <input value={v} onChange={(e) => setEntry(i, k, e.target.value)}
+          <input value={row.value} onChange={(e) => setEntry(row.id, { value: e.target.value })}
             placeholder="value" style={{ ...inputStyle, fontFamily: "var(--font-mono)", flex: 1 }} />
-          <button onClick={() => removeEntry(i)} style={rowBtnStyle}>✕</button>
+          <button onClick={() => removeEntry(row.id)} style={rowBtnStyle}>✕</button>
         </div>
       ))}
-      <button onClick={() => onChange({ ...(headers ?? {}), "": "" })}
+      <button onClick={() => setRows((current) => [
+        ...current,
+        { id: nextRowIdRef.current++, name: "", value: "" },
+      ])}
         style={{ padding: "5px 9px", background: "none", border: "1px solid var(--border)", borderRadius: 4, color: "var(--text-muted)", cursor: "pointer", fontSize: 11, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, alignSelf: "flex-start" }}>
         + Add header
       </button>
