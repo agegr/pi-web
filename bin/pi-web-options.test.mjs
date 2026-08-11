@@ -3,7 +3,11 @@ import { createRequire } from "node:module";
 import test from "node:test";
 
 const require = createRequire(import.meta.url);
-const { getCommandPositionals, parseLaunchOptions } = require("./pi-web-options.js");
+const {
+  getCommandPositionals,
+  parseLaunchOptions,
+  shouldRunUpdate,
+} = require("./pi-web-options.js");
 
 test("reports the first positional argument", () => {
   assert.deepEqual(getCommandPositionals(["update"]), ["update"]);
@@ -16,6 +20,24 @@ test("reports the first positional argument", () => {
 test("does not mistake option values for positional arguments", () => {
   assert.deepEqual(getCommandPositionals(["--hostname", "update"]), []);
   assert.deepEqual(getCommandPositionals(["--port", "update"]), []);
+});
+
+test("dispatches only when the first positional is update", () => {
+  assert.equal(shouldRunUpdate(["update"]), true);
+  assert.equal(shouldRunUpdate(["--port", "8080", "update"]), true);
+  assert.equal(shouldRunUpdate(["serve", "update"]), false);
+  assert.equal(shouldRunUpdate([]), false);
+});
+
+test("does not dispatch update when argument parsing fails", () => {
+  assert.equal(shouldRunUpdate(["--host", "update"]), false);
+  assert.equal(shouldRunUpdate(["--unknown", "value", "update"]), false);
+  assert.equal(shouldRunUpdate(["--hostname"]), false);
+});
+
+test("does not dispatch update when it is a known option value", () => {
+  assert.equal(shouldRunUpdate(["--hostname", "update"]), false);
+  assert.equal(shouldRunUpdate(["--port", "update"]), false);
 });
 
 test("keeps launch options stable", () => {

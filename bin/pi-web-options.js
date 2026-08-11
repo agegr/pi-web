@@ -32,7 +32,20 @@ function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
 // Only used to detect the `update` subcommand. Kept separate from
 // parseLaunchOptions so the launch options object stays stable.
 function getCommandPositionals(args = process.argv.slice(2)) {
-  return parseArgs({ args, options: LAUNCH_OPTIONS, strict: false }).positionals;
+  try {
+    return parseArgs({
+      args,
+      options: LAUNCH_OPTIONS,
+      strict: true,
+      allowPositionals: true,
+    }).positionals;
+  } catch {
+    return [];
+  }
 }
 
-module.exports = { getCommandPositionals, parseLaunchOptions };
+function shouldRunUpdate(args = process.argv.slice(2)) {
+  return getCommandPositionals(args)[0] === "update";
+}
+
+module.exports = { getCommandPositionals, parseLaunchOptions, shouldRunUpdate };

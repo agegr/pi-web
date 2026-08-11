@@ -16,7 +16,7 @@ const path = require("path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fs = require("fs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { getCommandPositionals, parseLaunchOptions } = require("./pi-web-options");
+const { parseLaunchOptions, shouldRunUpdate } = require("./pi-web-options");
 
 const pkgDir = path.join(__dirname, "..");
 const nextDir = path.join(pkgDir, ".next");
@@ -37,7 +37,7 @@ try {
 }
 
 const { port, hostname, openBrowser } = parseLaunchOptions();
-if (getCommandPositionals(process.argv.slice(2))[0] === "update") {
+if (shouldRunUpdate(process.argv.slice(2))) {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { runUpdate } = require("./pi-web-update");
   process.exit(runUpdate());
