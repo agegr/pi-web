@@ -7,13 +7,17 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { spawnSync } = require("child_process");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
+const fs = require("fs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require("path");
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { name: PACKAGE_NAME, version: CURRENT_VERSION } = require("../package.json");
 const VERSION_CHECK_TIMEOUT_MS = 15_000;
+const PACKAGE_ROOT = path.join(__dirname, "..");
 
 const STABLE_VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)$/;
+const CURRENT_VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 function parseStableVersion(version) {
   const match = STABLE_VERSION_PATTERN.exec(String(version).trim());
@@ -23,17 +27,25 @@ function parseStableVersion(version) {
   return parts;
 }
 
+function parseCurrentVersion(version) {
+  const match = CURRENT_VERSION_PATTERN.exec(String(version).trim());
+  if (!match) return null;
+  const parts = match.slice(1, 4).map(Number);
+  if (parts.some((part) => !Number.isSafeInteger(part))) return null;
+  return { parts, isPrerelease: match[4] !== undefined };
+}
+
 function isNewerVersion(candidate, current) {
   const candidateParts = parseStableVersion(candidate);
-  const currentParts = parseStableVersion(current);
-  if (!candidateParts || !currentParts) return false;
+  const parsedCurrent = parseCurrentVersion(current);
+  if (!candidateParts || !parsedCurrent) return false;
 
   for (let index = 0; index < candidateParts.length; index += 1) {
-    if (candidateParts[index] !== currentParts[index]) {
-      return candidateParts[index] > currentParts[index];
+    if (candidateParts[index] !== parsedCurrent.parts[index]) {
+      return candidateParts[index] > parsedCurrent.parts[index];
     }
   }
-  return false;
+  return parsedCurrent.isPrerelease;
 }
 
 // Detect the package manager that installed this copy of pi-web from the
@@ -63,38 +75,48 @@ function getUpdateCommand(method, version) {
   }
 }
 
+function getGlobalRootCommand(method) {
+  switch (method) {
+    case "npm":
+    case "pnpm":
+      return { command: method, args: ["root", "-g"] };
+    case "yarn":
+      return { command: "yarn", args: ["global", "dir", "--silent"] };
+    case "bun":
+      return { command: "bun", args: ["pm", "ls", "-g"] };
+    default:
+      throw new Error(`unsupported package manager: ${method}`);
+  }
+}
+
 // Each package manager has its own registry-aware way to print the latest
 // version of a package. Using the detected package manager (instead of always
 // calling npm) keeps the check consistent with the registry, proxy, and
 // timeout configuration the update itself will use.
-function getVersionCheckCommand(method) {
+function getVersionCheckCommand(method, cwd = PACKAGE_ROOT) {
   switch (method) {
     case "pnpm":
-      return { command: "pnpm", args: ["view", PACKAGE_NAME, "version", "--json"] };
+      return { command: "pnpm", args: ["view", "-g", PACKAGE_NAME, "version", "--json"], cwd };
     case "yarn":
-      return { command: "yarn", args: ["info", PACKAGE_NAME, "version"] };
+      return { command: "yarn", args: ["info", PACKAGE_NAME, "version"], cwd };
     case "bun":
-      // `bun pm view` resolves the workspace from the current directory, so
-      // run it from the package directory, which always ships a package.json.
-      return {
-        command: "bun",
-        args: ["pm", "view", PACKAGE_NAME, "version"],
-        cwd: path.join(__dirname, ".."),
-      };
+      return { command: "bun", args: ["pm", "view", PACKAGE_NAME, "version"], cwd };
     default:
       return {
         command: "npm",
-        args: ["view", PACKAGE_NAME, "version", "--json", `--fetch-timeout=${VERSION_CHECK_TIMEOUT_MS}`],
+        args: ["view", "-g", PACKAGE_NAME, "version", "--json", `--fetch-timeout=${VERSION_CHECK_TIMEOUT_MS}`],
+        cwd,
       };
   }
 }
 
-function runCommand(command, args) {
+function runCommand(command, args, cwd, spawn = spawnSync) {
   // npm/pnpm/yarn ship as .cmd shims on Windows and cannot be spawned
   // directly, so resolve them through the shell there.
-  const result = spawnSync(command, args, {
+  const result = spawn(command, args, {
     stdio: "inherit",
     shell: process.platform === "win32",
+    cwd,
   });
   if (result.error) throw result.error;
   if (result.status !== 0) {
@@ -112,9 +134,15 @@ function parseVersionOutput(method, stdout) {
     } catch {
       return "";
     }
-    if (typeof parsed === "string") return parsed;
+    if (typeof parsed === "string") {
+      const version = parsed.trim();
+      return parseStableVersion(version) ? version : "";
+    }
     if (Array.isArray(parsed)) {
-      const versions = parsed.filter((value) => typeof value === "string");
+      const versions = parsed
+        .filter((value) => typeof value === "string")
+        .map((value) => value.trim())
+        .filter((value) => parseStableVersion(value));
       if (versions.length > 0) return versions[versions.length - 1];
     }
     return "";
@@ -128,59 +156,148 @@ function parseVersionOutput(method, stdout) {
   return "";
 }
 
-function getLatestVersion(method) {
-  const check = getVersionCheckCommand(method);
-  const result = spawnSync(check.command, check.args, {
+function runForOutput(spec, spawn = spawnSync) {
+  const result = spawn(spec.command, spec.args, {
     encoding: "utf8",
     shell: process.platform === "win32",
     timeout: VERSION_CHECK_TIMEOUT_MS,
-    cwd: check.cwd,
+    cwd: spec.cwd,
   });
   if (result.error) throw result.error;
   if (result.status !== 0) {
-    const detail = (result.stderr || "").trim() || `${check.command} exited with code ${result.status}`;
+    const detail = (result.stderr || "").trim() || `${spec.command} exited with code ${result.status ?? "unknown"}`;
     throw new Error(detail);
   }
-  return parseVersionOutput(method, result.stdout);
+  return String(result.stdout || "");
 }
 
-function getManualInstallHint(version = "latest") {
-  return `npm install -g ${PACKAGE_NAME}@${version}`;
+function getGlobalInstallRoot(method, cwd = PACKAGE_ROOT, spawn = spawnSync) {
+  const output = runForOutput({ ...getGlobalRootCommand(method), cwd }, spawn);
+  const lines = output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (method === "bun") {
+    const headerMatch = /^(.+) node_modules \(\d+\)$/.exec(lines[0] || "");
+    const globalProjectPath = headerMatch?.[1];
+    if (!globalProjectPath || !path.isAbsolute(globalProjectPath)) {
+      throw new Error("bun did not return an absolute global project path");
+    }
+    return path.resolve(globalProjectPath, "node_modules");
+  }
+
+  const reportedPath = lines.find((line) => path.isAbsolute(line));
+  if (!reportedPath) throw new Error(`${method} did not return an absolute global install path`);
+
+  if (method === "yarn") return path.resolve(reportedPath, "node_modules");
+  return path.resolve(reportedPath);
 }
 
-function runUpdateInternal() {
-  const method = detectInstallMethod();
+function comparableRealPath(filePath, realpath = fs.realpathSync.native) {
+  const normalized = path.normalize(realpath(path.resolve(filePath)));
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+
+function validateGlobalInstall(method, packageRoot = PACKAGE_ROOT, options = {}) {
+  const normalizedPackageRoot = packageRoot.replace(/\\/g, "/").toLowerCase();
+  if (normalizedPackageRoot.includes("/_npx/")) {
+    throw new Error("the running copy is an npx temporary install");
+  }
+
+  const spawn = options.spawnSync || spawnSync;
+  const realpath = options.realpathSync || fs.realpathSync.native;
+  const globalRoot = getGlobalInstallRoot(method, packageRoot, spawn);
+  const globalPackageRoot = path.join(globalRoot, PACKAGE_NAME);
+
+  let runningPath;
+  let globalPath;
+  try {
+    runningPath = comparableRealPath(packageRoot, realpath);
+    globalPath = comparableRealPath(globalPackageRoot, realpath);
+  } catch (error) {
+    throw new Error(`could not resolve the active global install: ${error.message}`);
+  }
+  if (runningPath !== globalPath) {
+    throw new Error(`the running copy is not ${method}'s active global install`);
+  }
+
+  return {
+    globalRoot,
+    packageRoot: globalPackageRoot,
+    packageJsonPath: path.join(globalPackageRoot, "package.json"),
+  };
+}
+
+function getLatestVersion(method, cwd = PACKAGE_ROOT, spawn = spawnSync) {
+  const check = getVersionCheckCommand(method, cwd);
+  const latestVersion = parseVersionOutput(method, runForOutput(check, spawn));
+  if (!latestVersion) {
+    throw new Error(`${method} returned an empty or invalid stable version`);
+  }
+  return latestVersion;
+}
+
+function getManualInstallHint(method = "npm", version = "latest") {
+  const update = getUpdateCommand(method, version);
+  return [update.command, ...update.args].join(" ");
+}
+
+function readInstalledVersion(packageJsonPath, readFile = fs.readFileSync) {
+  const manifest = JSON.parse(readFile(packageJsonPath, "utf8"));
+  return typeof manifest.version === "string" ? manifest.version : "";
+}
+
+function runUpdateInternal(options = {}) {
+  const packageRoot = options.packageRoot || PACKAGE_ROOT;
+  const currentVersion = options.currentVersion || CURRENT_VERSION;
+  const method = options.method || detectInstallMethod(path.join(packageRoot, "bin"));
+  const spawn = options.spawnSync || spawnSync;
+  const readFile = options.readFileSync || fs.readFileSync;
+  const logger = options.console || console;
   if (method === "unknown") {
-    console.error("error: could not determine how pi-web was installed.");
-    console.error(`Update it manually with: ${getManualInstallHint()}`);
+    logger.error("error: could not determine how pi-web was installed.");
+    logger.error(`Update it manually with: ${getManualInstallHint()}`);
     return 1;
   }
 
-  console.log(`Checking for updates to ${PACKAGE_NAME}...`);
+  let install;
+  try {
+    install = validateGlobalInstall(method, packageRoot, {
+      spawnSync: spawn,
+      realpathSync: options.realpathSync,
+    });
+  } catch (error) {
+    logger.error(`error: cannot update this installation safely: ${error.message}`);
+    logger.error(`Update it manually with: ${getManualInstallHint(method)}`);
+    return 1;
+  }
+
+  logger.log(`Checking for updates to ${PACKAGE_NAME}...`);
   let latestVersion;
   try {
-    latestVersion = getLatestVersion(method);
+    latestVersion = getLatestVersion(method, install.globalRoot, spawn);
   } catch (error) {
-    console.error(`error: could not check for updates: ${error.message}`);
-    console.error(`Update it manually with: ${getManualInstallHint()}`);
+    logger.error(`error: could not check for updates: ${error.message}`);
+    logger.error(`Update it manually with: ${getManualInstallHint(method)}`);
     return 1;
   }
-  if (!latestVersion || !isNewerVersion(latestVersion, CURRENT_VERSION)) {
-    console.log(`${PACKAGE_NAME} is already up to date (v${CURRENT_VERSION})`);
+  if (!isNewerVersion(latestVersion, currentVersion)) {
+    logger.log(`${PACKAGE_NAME} is already up to date (v${currentVersion})`);
     return 0;
   }
 
   const updateCommand = getUpdateCommand(method, latestVersion);
   const commandDisplay = [updateCommand.command, ...updateCommand.args].join(" ");
-  console.log(`Updating ${PACKAGE_NAME} from v${CURRENT_VERSION} to v${latestVersion} with ${commandDisplay}...`);
+  logger.log(`Updating ${PACKAGE_NAME} from v${currentVersion} to v${latestVersion} with ${commandDisplay}...`);
   try {
-    runCommand(updateCommand.command, updateCommand.args);
+    runCommand(updateCommand.command, updateCommand.args, install.globalRoot, spawn);
+    const installedVersion = readInstalledVersion(install.packageJsonPath, readFile);
+    if (installedVersion !== latestVersion) {
+      throw new Error(`installed version is v${installedVersion || "unknown"}, expected v${latestVersion}`);
+    }
   } catch (error) {
-    console.error(`error: update failed: ${error.message}`);
-    console.error(`If this keeps failing, run the command yourself: ${getManualInstallHint(latestVersion)}`);
+    logger.error(`error: update failed: ${error.message}`);
+    logger.error(`If this keeps failing, run the command yourself: ${getManualInstallHint(method, latestVersion)}`);
     return 1;
   }
-  console.log(`${PACKAGE_NAME} updated to v${latestVersion}. Restart pi-web to use the new version.`);
+  logger.log(`${PACKAGE_NAME} updated to v${latestVersion}. Restart pi-web to use the new version.`);
   return 0;
 }
 
@@ -196,9 +313,14 @@ function runUpdate() {
 
 module.exports = {
   detectInstallMethod,
+  getGlobalInstallRoot,
+  getGlobalRootCommand,
+  getManualInstallHint,
   getUpdateCommand,
   getVersionCheckCommand,
   isNewerVersion,
   parseVersionOutput,
+  runUpdateInternal,
   runUpdate,
+  validateGlobalInstall,
 };
