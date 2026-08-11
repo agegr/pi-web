@@ -87,8 +87,9 @@ child.stdout.on("data", (chunk) => {
     if (isWindows) {
       // `start` is a cmd.exe built-in, so invoke cmd directly. The empty
       // title argument is required by `start` before the target URL.
-      opener = spawn("cmd", ["/c", "start", "", url], {
+      opener = spawn(process.env.ComSpec || "cmd.exe", ["/c", "start", "", url], {
         stdio: "ignore",
+        detached: true,
       });
     } else if (isMac) {
       opener = spawn("open", [url], {
