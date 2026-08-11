@@ -16,6 +16,7 @@ const {
   getVersionCheckCommand,
   isNewerVersion,
   parseVersionOutput,
+  resolveGlobalInstall,
   runUpdateInternal,
   validateGlobalInstall,
 } = require("./pi-web-update.js");
@@ -41,7 +42,6 @@ test("does not report equal, older, or unsupported versions as updates", () => {
 
 test("detects the package manager from the installation path", () => {
   assert.equal(detectInstallMethod("C:/Users/x/AppData/Roaming/npm/node_modules/@agegr/pi-web/bin"), "npm");
-  assert.equal(detectInstallMethod("/usr/local/lib/node_modules/@agegr/pi-web/bin"), "npm");
   assert.equal(detectInstallMethod("C:/Users/x/AppData/Local/npm-cache/_npx/abc123/node_modules/@agegr/pi-web/bin"), "npm");
   assert.equal(detectInstallMethod("/home/x/.npm/_npx/abc123/node_modules/@agegr/pi-web/bin"), "npm");
   assert.equal(detectInstallMethod("C:/Users/x/AppData/Local/pnpm/global/5/node_modules/.pnpm/@agegr+pi-web@0.8.7/node_modules/@agegr/pi-web/bin"), "pnpm");
@@ -53,6 +53,8 @@ test("detects the package manager from the installation path", () => {
 });
 
 test("does not guess a package manager for non-global checkouts", () => {
+  assert.equal(detectInstallMethod("/usr/local/lib/node_modules/@agegr/pi-web/bin"), "unknown");
+  assert.equal(detectInstallMethod("/opt/tools/node_modules/@agegr/pi-web/bin"), "unknown");
   assert.equal(detectInstallMethod("C:/Users/x/projects/pi-web/bin"), "unknown");
   assert.equal(detectInstallMethod("/home/x/pi-web/bin"), "unknown");
 });
@@ -162,9 +164,9 @@ function writeManifest(packageRoot, version) {
   }));
 }
 
-function makeGlobalInstall(t, version = "0.8.7") {
+function makeGlobalInstall(t, version = "0.8.7", globalDirName = "global") {
   const tempDir = makeTempDir(t);
-  const globalRoot = path.join(tempDir, "global", "node_modules");
+  const globalRoot = path.join(tempDir, globalDirName, "node_modules");
   const packageRoot = path.join(globalRoot, "@agegr", "pi-web");
   writeManifest(packageRoot, version);
   return { globalRoot, packageRoot, packageJsonPath: path.join(packageRoot, "package.json"), tempDir };
@@ -199,6 +201,37 @@ function makeNpmSpawn({ globalRoot, latestOutput = '"0.8.8"', onInstall }) {
   return { calls, spawn };
 }
 
+function makeCustomManagerSpawn({ method, globalRoot, onInstall }) {
+  const calls = [];
+  const spawn = (command, args, options) => {
+    calls.push({ command, args, options });
+    const isRootQuery = (
+      ((command === "npm" || command === "pnpm") && args[0] === "root")
+      || (command === "yarn" && args[0] === "global" && args[1] === "dir")
+      || (command === "bun" && args[0] === "pm" && args[1] === "ls")
+    );
+    if (isRootQuery) {
+      if (command !== method) return { status: 1, stdout: "", stderr: `${command} unavailable` };
+      if (method === "yarn") {
+        return { status: 0, stdout: `${path.dirname(globalRoot)}\n`, stderr: "" };
+      }
+      if (method === "bun") {
+        return { status: 0, stdout: `${path.dirname(globalRoot)} node_modules (1)\n`, stderr: "" };
+      }
+    }
+    if (command !== method) throw new Error(`unexpected command: ${command}`);
+    if ((method === "yarn" && args[0] === "info") || (method === "bun" && args[1] === "view")) {
+      return { status: 0, stdout: "0.8.8\n", stderr: "" };
+    }
+    if ((method === "yarn" && args[1] === "add") || (method === "bun" && args[0] === "add")) {
+      onInstall?.();
+      return { status: 0 };
+    }
+    throw new Error(`unexpected ${method} arguments: ${args.join(" ")}`);
+  };
+  return { calls, spawn };
+}
+
 test("accepts a global package symlink when its real path matches the running copy", (t) => {
   const tempDir = makeTempDir(t);
   const globalRoot = path.join(tempDir, "global", "node_modules");
@@ -212,6 +245,69 @@ test("accepts a global package symlink when its real path matches the running co
   const install = validateGlobalInstall("npm", storePackageRoot, { spawnSync: spawn });
   assert.equal(install.packageRoot, globalPackageRoot);
   assert.equal(install.packageJsonPath, path.join(globalPackageRoot, "package.json"));
+});
+
+test("resolves custom Yarn and Bun global folders despite missing or misleading path hints", (t) => {
+  const cases = [
+    { method: "yarn", globalDirName: "global", expectedHint: "unknown" },
+    { method: "bun", globalDirName: "global", expectedHint: "unknown" },
+    { method: "yarn", globalDirName: "npm", expectedHint: "npm" },
+    { method: "bun", globalDirName: "yarn", expectedHint: "yarn" },
+  ];
+  for (const { method, globalDirName, expectedHint } of cases) {
+    const { globalRoot, packageRoot } = makeGlobalInstall(t, "0.8.7", globalDirName);
+    const logger = makeLogger();
+    const { calls, spawn } = makeCustomManagerSpawn({
+      method,
+      globalRoot,
+      onInstall: () => writeManifest(packageRoot, "0.8.8"),
+    });
+
+    const status = runUpdateInternal({
+      console: logger.console,
+      currentVersion: "0.8.7",
+      packageRoot,
+      spawnSync: spawn,
+    });
+
+    assert.equal(status, 0);
+    assert.equal(detectInstallMethod(path.join(packageRoot, "bin")), expectedHint);
+    assert.equal(calls.some((call) => call.command === method && call.args.includes("add")), true);
+    assert.match(logger.logs.at(-1), /updated to v0\.8\.8/);
+  }
+});
+
+test("rejects ambiguous package manager global roots", (t) => {
+  const { globalRoot, packageRoot } = makeGlobalInstall(t);
+  const spawn = (command, args) => {
+    if (command === "npm" && args[0] === "root") {
+      return { status: 0, stdout: `${globalRoot}\n`, stderr: "" };
+    }
+    if (command === "yarn" && args[0] === "global" && args[1] === "dir") {
+      return { status: 0, stdout: `${path.dirname(globalRoot)}\n`, stderr: "" };
+    }
+    return { status: 1, stdout: "", stderr: `${command} unavailable` };
+  };
+
+  assert.throws(
+    () => resolveGlobalInstall(packageRoot, { spawnSync: spawn }),
+    /multiple package managers point to the running copy: npm, yarn/,
+  );
+});
+
+test("rejects installs that do not match any package manager global root", (t) => {
+  const { packageRoot } = makeGlobalInstall(t);
+  const calls = [];
+  const spawn = (command, args) => {
+    calls.push({ command, args });
+    return { status: 1, stdout: "", stderr: `${command} unavailable` };
+  };
+
+  assert.throws(
+    () => resolveGlobalInstall(packageRoot, { spawnSync: spawn }),
+    /no supported package manager points to the running copy/,
+  );
+  assert.deepEqual(calls.map(({ command }) => command), ["npm", "pnpm", "yarn", "bun"]);
 });
 
 test("rejects npx and a package under a different global prefix", (t) => {

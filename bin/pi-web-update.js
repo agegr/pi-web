@@ -15,6 +15,7 @@ const path = require("path");
 const { name: PACKAGE_NAME, version: CURRENT_VERSION } = require("../package.json");
 const VERSION_CHECK_TIMEOUT_MS = 15_000;
 const PACKAGE_ROOT = path.join(__dirname, "..");
+const INSTALL_METHODS = ["npm", "pnpm", "yarn", "bun"];
 
 const STABLE_VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)$/;
 const CURRENT_VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
@@ -48,16 +49,15 @@ function isNewerVersion(candidate, current) {
   return parsedCurrent.isPrerelease;
 }
 
-// Detect the package manager that installed this copy of pi-web from the
-// installation path. Global installs always live under
-// `<something>/node_modules/@agegr/pi-web/bin`, and each package manager uses
-// a recognizable directory layout above that.
+// Return a preferred package manager when the installation path contains a
+// manager-specific hint. Custom roots can imitate these layouts, so callers
+// must still verify candidates against the managers' active global roots.
 function detectInstallMethod(dir = __dirname) {
   const normalized = dir.toLowerCase().replace(/\\/g, "/");
   if (normalized.includes("/pnpm/") || normalized.includes("/.pnpm/")) return "pnpm";
   if (normalized.includes("/yarn/") || normalized.includes("/.yarn/")) return "yarn";
   if (normalized.includes("/install/global/node_modules/")) return "bun";
-  if (normalized.includes("/npm/") || normalized.includes("/node_modules/")) return "npm";
+  if (normalized.includes("/_npx/") || normalized.includes("/npm/")) return "npm";
   return "unknown";
 }
 
@@ -195,11 +195,15 @@ function comparableRealPath(filePath, realpath = fs.realpathSync.native) {
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
-function validateGlobalInstall(method, packageRoot = PACKAGE_ROOT, options = {}) {
+function assertNotNpxInstall(packageRoot) {
   const normalizedPackageRoot = packageRoot.replace(/\\/g, "/").toLowerCase();
   if (normalizedPackageRoot.includes("/_npx/")) {
     throw new Error("the running copy is an npx temporary install");
   }
+}
+
+function validateGlobalInstall(method, packageRoot = PACKAGE_ROOT, options = {}) {
+  assertNotNpxInstall(packageRoot);
 
   const spawn = options.spawnSync || spawnSync;
   const realpath = options.realpathSync || fs.realpathSync.native;
@@ -225,6 +229,45 @@ function validateGlobalInstall(method, packageRoot = PACKAGE_ROOT, options = {})
   };
 }
 
+function resolveGlobalInstall(packageRoot = PACKAGE_ROOT, options = {}) {
+  const validationOptions = {
+    spawnSync: options.spawnSync,
+    realpathSync: options.realpathSync,
+  };
+
+  if (options.method && options.method !== "unknown") {
+    return {
+      method: options.method,
+      install: validateGlobalInstall(options.method, packageRoot, validationOptions),
+    };
+  }
+
+  assertNotNpxInstall(packageRoot);
+  const detectedMethod = detectInstallMethod(path.join(packageRoot, "bin"));
+  const methods = detectedMethod === "unknown"
+    ? INSTALL_METHODS
+    : [detectedMethod, ...INSTALL_METHODS.filter((method) => method !== detectedMethod)];
+  const matches = [];
+  for (const method of methods) {
+    try {
+      matches.push({
+        method,
+        install: validateGlobalInstall(method, packageRoot, validationOptions),
+      });
+    } catch {
+      // Missing managers and non-matching global roots are expected while probing.
+    }
+  }
+
+  if (matches.length === 0) {
+    throw new Error("no supported package manager points to the running copy");
+  }
+  if (matches.length > 1) {
+    throw new Error(`multiple package managers point to the running copy: ${matches.map(({ method }) => method).join(", ")}`);
+  }
+  return matches[0];
+}
+
 function getLatestVersion(method, cwd = PACKAGE_ROOT, spawn = spawnSync) {
   const check = getVersionCheckCommand(method, cwd);
   const latestVersion = parseVersionOutput(method, runForOutput(check, spawn));
@@ -247,25 +290,22 @@ function readInstalledVersion(packageJsonPath, readFile = fs.readFileSync) {
 function runUpdateInternal(options = {}) {
   const packageRoot = options.packageRoot || PACKAGE_ROOT;
   const currentVersion = options.currentVersion || CURRENT_VERSION;
-  const method = options.method || detectInstallMethod(path.join(packageRoot, "bin"));
+  const detectedMethod = options.method || detectInstallMethod(path.join(packageRoot, "bin"));
   const spawn = options.spawnSync || spawnSync;
   const readFile = options.readFileSync || fs.readFileSync;
   const logger = options.console || console;
-  if (method === "unknown") {
-    logger.error("error: could not determine how pi-web was installed.");
-    logger.error(`Update it manually with: ${getManualInstallHint()}`);
-    return 1;
-  }
 
+  let method;
   let install;
   try {
-    install = validateGlobalInstall(method, packageRoot, {
+    ({ method, install } = resolveGlobalInstall(packageRoot, {
+      method: options.method,
       spawnSync: spawn,
       realpathSync: options.realpathSync,
-    });
+    }));
   } catch (error) {
     logger.error(`error: cannot update this installation safely: ${error.message}`);
-    logger.error(`Update it manually with: ${getManualInstallHint(method)}`);
+    logger.error(`Update it manually with: ${getManualInstallHint(detectedMethod === "unknown" ? "npm" : detectedMethod)}`);
     return 1;
   }
 
@@ -320,6 +360,7 @@ module.exports = {
   getVersionCheckCommand,
   isNewerVersion,
   parseVersionOutput,
+  resolveGlobalInstall,
   runUpdateInternal,
   runUpdate,
   validateGlobalInstall,
