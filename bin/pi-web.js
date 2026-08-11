@@ -78,12 +78,30 @@ child.stdout.on("data", (chunk) => {
     browserOpened = true;
     const isWindows = process.platform === "win32";
     const isMac = process.platform === "darwin";
-    const openCmd = isWindows ? "start" : isMac ? "open" : "xdg-open";
-    const opener = spawn(openCmd, [url], {
-      shell: isWindows,
-      stdio: "ignore",
-      detached: true,
-    });
+    // Avoid `shell: true` to suppress Node.js DEP0190 deprecation
+    // ("Passing args to a child process with shell option true can lead to
+    // security vulnerabilities, as the arguments are not escaped").
+    // Pass a structured argv so Node.js handles escaping instead of
+    // concatenating the args into a shell command string.
+    let opener;
+    if (isWindows) {
+      // `start` is a cmd.exe built-in, so invoke cmd directly. The empty
+      // title argument is required by `start` before the target URL.
+      opener = spawn(process.env.ComSpec || "cmd.exe", ["/c", "start", "", url], {
+        stdio: "ignore",
+        detached: true,
+      });
+    } else if (isMac) {
+      opener = spawn("open", [url], {
+        stdio: "ignore",
+        detached: true,
+      });
+    } else {
+      opener = spawn("xdg-open", [url], {
+        stdio: "ignore",
+        detached: true,
+      });
+    }
 
     opener.on("error", (error) => {
       console.warn(`Could not open browser automatically: ${error.message}`);

@@ -47,3 +47,11 @@ test("does not persist an unchanged fallback title ending in whitespace", () => 
     /const name = renameValue\.trim\(\);[\s\S]*?if \(renameValue === title \|\| name === \(session\.name \?\? ""\)\) return;/,
   );
 });
+
+test("offers the downstream context-menu hook only on a normal session row", () => {
+  assert.match(sessionItemSource, /const handleContextMenu[\s\S]*?dispatchSessionRowContextMenu\(\{/);
+  assert.match(
+    sessionItemSource,
+    /onContextMenu=\{confirmDelete \|\| renaming \? undefined : handleContextMenu\}/,
+  );
+});
