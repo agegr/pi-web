@@ -10,6 +10,7 @@ const { compressChain, selectTopLevelBranches } = await jiti.import("./BranchNav
 
 const msg = (id, role, text) => ({ type: "message", id, parentId: null, timestamp: "t", message: { role, content: text } });
 const info = (id) => ({ type: "session_info", id, parentId: null, timestamp: "t", name: "x" });
+const model = (id) => ({ type: "model_change", id, parentId: null, timestamp: "t", provider: "test", modelId: "test" });
 const node = (entry, children = []) => ({ entry, children });
 
 test("compressChain labels a chain by its first message entry", () => {
@@ -23,6 +24,20 @@ test("compressChain skips non-message entries such as session_info", () => {
   const chain = node(info("s1"), [node(msg("u1", "user", "原始问题"), [node(msg("a1", "assistant", "答"))])]);
   const { labelEntry, node: rep, skipped } = compressChain(chain);
   assert.equal(labelEntry.id, "u1");
+  assert.equal(rep.entry.id, "a1");
+  assert.equal(skipped, 2);
+});
+
+test("compressChain labels a projected chain by its preview but selects its representative", () => {
+  const representative = {
+    entry: msg("a1", "assistant", "回答"),
+    children: [],
+    compressedEntryIds: ["u1"],
+    branchPreview: { role: "user", text: "原始问题" },
+  };
+  const chain = node(info("s1"), [representative]);
+  const { branchPreview, node: rep, skipped } = compressChain(chain);
+  assert.deepEqual(branchPreview, { role: "user", text: "原始问题" });
   assert.equal(rep.entry.id, "a1");
   assert.equal(skipped, 2);
 });
@@ -51,12 +66,41 @@ test("selectTopLevelBranches returns empty for a linear session", () => {
   assert.deepEqual(selectTopLevelBranches([root]), []);
 });
 
-test("selectTopLevelBranches works on server-projected tree shapes", () => {
-  const arm1 = { entry: msg("u2", "user", "分支一"), children: [{ entry: msg("a2", "assistant", "答一"), children: [], compressedEntryIds: ["s1"] }] };
-  const arm2 = { entry: msg("u2b", "user", "分支二"), children: [{ entry: msg("a2b", "assistant", "答二"), children: [] }] };
+test("selectTopLevelBranches works on preview-only server projections", () => {
+  const arm1 = {
+    entry: msg("a2", "assistant", "答一"),
+    children: [],
+    compressedEntryIds: ["s1", "u2"],
+    branchPreview: { role: "user", text: "分支一" },
+  };
+  const arm2 = {
+    entry: msg("a2b", "assistant", "答二"),
+    children: [],
+    compressedEntryIds: ["u2b"],
+    branchPreview: { role: "user", text: "分支二" },
+  };
   const branchPoint = { entry: msg("a1", "assistant", "答"), children: [arm1, arm2] };
   const root = { entry: msg("u1", "user", "第一问"), children: [branchPoint] };
   const topLevel = selectTopLevelBranches([root]);
-  assert.deepEqual(topLevel.map((n) => n.entry.id), ["u2", "u2b"]);
-  assert.equal(compressChain(topLevel[0]).labelEntry.id, "u2");
+  assert.deepEqual(topLevel.map((n) => n.entry.id), ["a2", "a2b"]);
+  assert.deepEqual(compressChain(topLevel[0]).branchPreview, { role: "user", text: "分支一" });
+  assert.equal(compressChain(topLevel[0]).node.entry.id, "a2");
+});
+
+test("multi-root metadata chains use their user previews and assistant representatives", () => {
+  const r1 = node(model("m1"), [{
+    entry: msg("a1", "assistant", "回答一"),
+    children: [],
+    compressedEntryIds: ["u1"],
+    branchPreview: { role: "user", text: "第一问" },
+  }]);
+  const r2 = node(info("s2"), [{
+    entry: msg("a2", "assistant", "回答二"),
+    children: [],
+    compressedEntryIds: ["u2"],
+    branchPreview: { role: "user", text: "第二问" },
+  }]);
+  const topLevel = selectTopLevelBranches([r1, r2]);
+  assert.deepEqual(topLevel.map((n) => compressChain(n).branchPreview.text), ["第一问", "第二问"]);
+  assert.deepEqual(topLevel.map((n) => compressChain(n).node.entry.id), ["a1", "a2"]);
 });

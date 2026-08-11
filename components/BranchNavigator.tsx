@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import type { SessionEntry, SessionTreeNode } from "@/lib/types";
+import type { BranchPreview, SessionEntry, SessionTreeNode } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
 
 interface Props {
@@ -46,19 +46,25 @@ function isMessageEntry(entry: SessionEntry): boolean {
 
 // Compress a visible linear chain into the first branching/leaf node.
 // Server-side compressed IDs also count as skipped nodes.
-// labelEntry is the first message entry on the chain — the message the branch
-// diverged with — so labels read as the question, not the tail of the chain.
-// Falls back to the chain end when the chain has no message entry at all.
-export function compressChain(node: SessionTreeNode): { node: SessionTreeNode; skipped: number; labelEntry: SessionEntry } {
+// branchPreview is the bounded preview of the first message on the source
+// chain. labelEntry keeps unprojected/test shapes working as a fallback.
+export function compressChain(node: SessionTreeNode): {
+  node: SessionTreeNode;
+  skipped: number;
+  branchPreview?: BranchPreview;
+  labelEntry: SessionEntry;
+} {
   let current = node;
+  let branchPreview = current.branchPreview;
   let labelEntry: SessionEntry | null = isMessageEntry(current.entry) ? current.entry : null;
   let skipped = current.compressedEntryIds?.length ?? 0;
   while (current.children.length === 1) {
     current = current.children[0];
+    branchPreview ??= current.branchPreview;
     if (!labelEntry && isMessageEntry(current.entry)) labelEntry = current.entry;
     skipped += 1 + (current.compressedEntryIds?.length ?? 0);
   }
-  return { node: current, skipped, labelEntry: labelEntry ?? current.entry };
+  return { node: current, skipped, branchPreview, labelEntry: labelEntry ?? current.entry };
 }
 
 // Top-level rows of the panel: with multiple roots (a branch was started from
@@ -111,13 +117,15 @@ interface TreeNodeProps {
 }
 
 function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelect }: TreeNodeProps) {
-  const { node: rep, skipped, labelEntry } = compressChain(node);
+  const { node: rep, skipped, branchPreview, labelEntry } = compressChain(node);
   const isActive = activePathIds.has(rep.entry.id);
   const isOnPath = activePathIds.has(node.entry.id) || activePathIds.has(rep.entry.id);
-  const label = getLabel(labelEntry);
-  const role = isMessageEntry(labelEntry)
-    ? (labelEntry as { message: { role: string } }).message.role
-    : null;
+  const label = branchPreview?.text ?? getLabel(labelEntry);
+  const role = branchPreview
+    ? branchPreview.role ?? null
+    : isMessageEntry(labelEntry)
+      ? (labelEntry as { message: { role: string } }).message.role
+      : null;
 
   return (
     <div>
