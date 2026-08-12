@@ -22,7 +22,11 @@ import { useAudio } from "@/hooks/useAudio";
 import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
-import { showCompletionNotification } from "@/lib/browser-notifications";
+import {
+  claimExtensionAttentionNotification,
+  shouldShowBrowserNotification,
+  showBrowserNotification,
+} from "@/lib/browser-notifications";
 import { getInitialNavigation } from "@/lib/initial-navigation";
 import { clearLastOpen, getLastOpenSession, setLastOpenSession } from "@/lib/workspace-memory";
 import {
@@ -36,7 +40,7 @@ import {
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
 } from "@/lib/panel-layout";
-import type { SessionInfo, SessionTreeNode } from "@/lib/types";
+import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -66,6 +70,7 @@ export function AppShell() {
   // also fire for tasks finishing in a non-active workspace whose ChatWindow
   // is not mounted. ChatWindow receives the audio callbacks as props.
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio, soundEnabledRef } = useAudio();
+  const notifiedAttentionRequestIdsRef = useRef(new Set<string>());
   const handleBackgroundTaskDone = useCallback(() => {
     if (soundEnabledRef.current) playDoneSound();
   }, [playDoneSound, soundEnabledRef]);
@@ -542,12 +547,16 @@ export function AppShell() {
   // handleCwdChange relies on. Hydrate it from the session list so switching
   // worktrees right after creating a session doesn't close the chat.
   const hydrateSelectedSession = useCallback((sessionId: string) => {
-    void fetch("/api/sessions")
+    void fetch("/api/sessions", { cache: "no-store" })
       .then((r) => (r.ok ? (r.json() as Promise<{ sessions: SessionInfo[] }>) : null))
       .then((d) => {
         const full = d?.sessions.find((s) => s.id === sessionId);
         if (!full) return;
-        setSelectedSession((prev) => (prev && prev.id === sessionId && !prev.projectRoot ? full : prev));
+        setSelectedSession((prev) => (
+          prev?.id === sessionId
+            ? { ...prev, ...full, transient: full.transient ?? false }
+            : prev
+        ));
       })
       .catch(() => {});
   }, []);
@@ -564,21 +573,26 @@ export function AppShell() {
     router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
   }, [invalidateWorkspaceRestore, router, hydrateSelectedSession]);
 
-  const handleAgentEnd = useCallback(() => {
-    setRefreshKey((k) => k + 1);
-    setExplorerRefreshKey((k) => k + 1);
-
-    if (document.visibilityState === "visible") return;
+  const deliverSessionNotification = useCallback(({
+    targetSession,
+    title,
+    body,
+    tag,
+  }: {
+    targetSession: SessionInfo | null;
+    title: string;
+    body: string;
+    tag?: string;
+  }) => {
     if (!("Notification" in window)) return;
 
-    const targetSession = selectedSession;
     const fire = () => {
-      const title = selectedSession?.name ?? translate("i18n.sessionComplete");
       const sessionUrl = targetSession ? `/?session=${encodeURIComponent(targetSession.id)}` : "/";
-      void showCompletionNotification({
+      void showBrowserNotification({
         title,
-        body: translate("i18n.taskFinished"),
+        body,
         sessionUrl,
+        tag,
         onClick: () => {
           window.focus();
           if (targetSession) handleSelectSession(targetSession);
@@ -591,7 +605,35 @@ export function AppShell() {
     } else if (Notification.permission === "default") {
       void Notification.requestPermission().then((p) => { if (p === "granted") fire(); });
     }
-  }, [handleSelectSession, selectedSession, translate]);
+  }, [handleSelectSession]);
+
+  const handleAgentEnd = useCallback(() => {
+    setRefreshKey((k) => k + 1);
+    setExplorerRefreshKey((k) => k + 1);
+    if (selectedSession) hydrateSelectedSession(selectedSession.id);
+
+    if (!shouldShowBrowserNotification()) return;
+    const targetSession = selectedSession;
+    deliverSessionNotification({
+      targetSession,
+      title: targetSession?.name ?? translate("i18n.sessionComplete"),
+      body: translate("i18n.taskFinished"),
+    });
+  }, [deliverSessionNotification, hydrateSelectedSession, selectedSession, translate]);
+
+  const handleAttentionNeeded = useCallback((request: BlockingExtensionUiRequest) => {
+    if (!shouldShowBrowserNotification()) return;
+    if (!claimExtensionAttentionNotification(request, notifiedAttentionRequestIdsRef.current)) return;
+
+    deliverSessionNotification({
+      targetSession: selectedSession,
+      title: translate("i18n.attentionNeeded"),
+      body: request.method === "custom"
+        ? translate("i18n.extensionInputNeeded")
+        : request.title,
+      tag: `pi-extension-ui:${request.id}`,
+    });
+  }, [deliverSessionNotification, selectedSession, translate]);
 
   const handleAutoName = useCallback(async () => {
     const sessionId = selectedSession?.id;
@@ -642,6 +684,7 @@ export function AppShell() {
     setSelectedSession((prev) => ({
       ...(prev ?? { path: "", cwd: "", created: "", modified: "", messageCount: 0, firstMessage: "" }),
       id: newSessionId,
+      transient: false,
     }));
     hydrateSelectedSession(newSessionId);
     router.replace(`?session=${encodeURIComponent(newSessionId)}`, { scroll: false });
@@ -1213,7 +1256,7 @@ export function AppShell() {
                   selectedSession
                   && ((sessionStats?.userMessages ?? 0) > 0 || selectedSession.messageCount > 0),
                 );
-                const disabled = !selectedSession || !hasMessages || autoNameStatus.kind === "naming";
+                const disabled = !selectedSession || selectedSession.transient || !hasMessages || autoNameStatus.kind === "naming";
                 const isSuccess = autoNameStatus.kind === "success";
                 const isError = autoNameStatus.kind === "error";
                 const label = autoNameStatus.kind === "naming"
@@ -1223,7 +1266,7 @@ export function AppShell() {
                     : isError
                       ? translate("title.failed")
                       : translate("title.generate");
-                const title = !selectedSession
+                const title = !selectedSession || selectedSession.transient
                    ? translate("title.unsaved")
                    : !hasMessages
                      ? translate("title.noMessages")
@@ -1684,6 +1727,7 @@ export function AppShell() {
               newSessionCwd={effectiveNewSessionCwd}
               newSessionDraftKey={newSessionDraftKey}
               onAgentEnd={handleAgentEnd}
+              onAttentionNeeded={handleAttentionNeeded}
               onSessionCreated={handleSessionCreated}
               onSessionForked={handleSessionForked}
               modelsRefreshKey={modelsRefreshKey}

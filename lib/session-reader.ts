@@ -14,22 +14,41 @@ import { resolveProject, type ProjectInfo } from "./worktree";
 
 export { getAgentDir };
 
-async function loadAllSessions(): Promise<SessionInfo[]> {
-  const piSessions: PiSessionInfo[] = await SessionManager.listAll();
-  const pathToId = new Map<string, string>();
-  for (const s of piSessions) pathToId.set(sessionPathKey(s.path), s.id);
-
-  // Resolve each unique cwd to its project root (main repo shared by all
-  // worktrees). resolveProject caches per-cwd, so this is cheap after warmup.
-  const uniqueCwds = [...new Set(piSessions.map((s) => s.cwd).filter(Boolean))];
+export async function attachSessionProjectInfo(sessions: SessionInfo[]): Promise<SessionInfo[]> {
+  const uniqueCwds = [...new Set(sessions.map((s) => s.cwd).filter(Boolean))];
   const projectByCwd = new Map<string, ProjectInfo>();
   await Promise.all(uniqueCwds.map(async (cwd) => {
     projectByCwd.set(cwd, await resolveProject(cwd));
   }));
 
-  return piSessions.map((s) => {
+  return sessions.map((session) => {
+    const project = session.cwd ? projectByCwd.get(session.cwd) : undefined;
+    return {
+      ...session,
+      projectRoot: project?.projectRoot ?? session.cwd,
+      ...(project?.isWorktree && project.branch ? { worktreeBranch: project.branch } : {}),
+    };
+  });
+}
+
+export function mergeSessionLists(
+  persistedSessions: SessionInfo[],
+  supplementalSessions: SessionInfo[],
+): SessionInfo[] {
+  const byId = new Map(supplementalSessions.map((session) => [session.id, session]));
+  // A disk scan is authoritative once the JSONL exists. In particular, this
+  // replaces a transient registry snapshot without briefly rendering two rows.
+  for (const session of persistedSessions) byId.set(session.id, session);
+  return [...byId.values()].sort((a, b) => b.modified.localeCompare(a.modified));
+}
+
+async function loadAllSessions(): Promise<SessionInfo[]> {
+  const piSessions: PiSessionInfo[] = await SessionManager.listAll();
+  const pathToId = new Map<string, string>();
+  for (const s of piSessions) pathToId.set(sessionPathKey(s.path), s.id);
+
+  const sessions = piSessions.map((s) => {
     cacheSessionPath(s.id, s.path);
-    const project = s.cwd ? projectByCwd.get(s.cwd) : undefined;
     return {
       path: s.path,
       id: s.id,
@@ -40,13 +59,14 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
       messageCount: s.messageCount,
       firstMessage: s.firstMessage || "(no messages)",
       parentSessionId: s.parentSessionPath ? pathToId.get(sessionPathKey(s.parentSessionPath)) : undefined,
-      projectRoot: project?.projectRoot ?? s.cwd,
-      ...(project?.isWorktree && project.branch ? { worktreeBranch: project.branch } : {}),
+      transient: false,
     };
   });
+  return attachSessionProjectInfo(sessions);
 }
 
-export async function listAllSessions(): Promise<SessionInfo[]> {
+export async function listAllSessions(options: { force?: boolean } = {}): Promise<SessionInfo[]> {
+  if (options.force) invalidateSessionListCache();
   const generation = globalThis.__piSessionListGeneration ?? 0;
 
   // Return cached result if still fresh (avoids re-scanning session files
@@ -62,11 +82,13 @@ export async function listAllSessions(): Promise<SessionInfo[]> {
   }
 
   const loadPromise = loadAllSessions().then((data) => {
-    // An invalidation may happen while the scan is in flight. Do not let that
-    // older result repopulate the cache after a session mutation.
-    if ((globalThis.__piSessionListGeneration ?? 0) === generation) {
-      globalThis.__piSessionListCache = { data, ts: Date.now() };
+    // If a mutation invalidated this scan, make this caller join (or start) a
+    // scan for the current generation. Returning the stale result here made a
+    // refresh race indistinguishable from a successful refresh.
+    if ((globalThis.__piSessionListGeneration ?? 0) !== generation) {
+      return listAllSessions();
     }
+    globalThis.__piSessionListCache = { data, ts: Date.now() };
     return data;
   });
   const trackedPromise = loadPromise.finally(() => {

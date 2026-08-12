@@ -94,6 +94,30 @@ npx @agegr/pi-web@latest
 - **File access boundary**: the file browser is limited to working directories selected in Pi Web and project or session roots it already knows about; it is not a general filesystem browser.
 - **Git worktrees**: see [Worktrees in Pi Web](./docs/worktrees.md) for switcher visibility, worktree creation, and removal behavior.
 
+### Downstream Session Context Menu
+
+Electron wrappers and other downstream integrations can provide a session-row
+context menu without patching `SessionSidebar`. Listen for the cancelable
+`pi-web:session-row-contextmenu` browser event and call `preventDefault()`
+synchronously when the integration will handle it:
+
+```js
+window.addEventListener("pi-web:session-row-contextmenu", (event) => {
+  event.preventDefault();
+  const { id, path, cwd, name, clientX, clientY, refresh } = event.detail;
+
+  void openSessionMenu({ id, path, cwd, name, clientX, clientY }).then((changed) => {
+    if (changed) refresh();
+  });
+});
+```
+
+The detail object contains `id`, `path`, `cwd`, optional `name`, pointer
+coordinates, and a `refresh()` callback for actions that change the session
+list. If no listener cancels the extension event, Pi Web preserves the
+browser's native context menu. This hook is browser-side and independent of
+Pi agent extensions.
+
 ## Development
 
 ```bash
