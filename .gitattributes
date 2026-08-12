@@ -1,0 +1,15 @@
+# Source and test files must stay LF even on Windows checkouts: tests locate
+# code blocks with LF-only strings, and the TanStack/Vite toolchain expects LF.
+* text=lf eol=lf
+
+# Binary assets must never be normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
