@@ -68,9 +68,11 @@ export function ExtensionWidgets({ widgets, onRunCommand }: {
                 </button>
               )}
             </div>
-            <pre style={{ margin: 0, padding: "8px 9px", color: "var(--text-muted)", fontSize: 12, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "var(--font-mono)" }}>
-              {getDisplayLines(widget.lines).join("\n")}
-            </pre>
+            {widget.lines.length > 0 && (
+              <pre style={{ margin: 0, padding: "8px 9px", color: "var(--text-muted)", fontSize: 12, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "var(--font-mono)" }}>
+                {getDisplayLines(widget.lines).join("\n")}
+              </pre>
+            )}
           </div>
         );
       })}
