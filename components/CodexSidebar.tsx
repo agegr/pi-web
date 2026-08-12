@@ -575,7 +575,7 @@ export function CodexSidebar({
                   )}
                   {runningCount > 0 && (
                     <span className="codex-project-running" title={t("sidebar.agentRunning")} aria-label={t("sidebar.agentRunning")} role="status">
-                      <LoaderCircle size={12} strokeWidth={1.8} aria-hidden="true" />
+                      <LoaderCircle size={12} strokeWidth={1.8} style={{ animation: "spin 0.8s linear infinite" }} aria-hidden="true" />
                     </span>
                   )}
                   {unreadCount > 0 && <span className="codex-project-unread" title={t("sidebar.newActivity")}>{unreadCount}</span>}
@@ -771,6 +771,7 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
             className="codex-session-running"
             size={11}
             strokeWidth={1.8}
+            style={{ animation: "spin 0.8s linear infinite", flexShrink: 0 }}
             aria-label={t("sidebar.agentRunning")}
             role="status"
           />
@@ -789,7 +790,7 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
         ) : <span className="codex-session-title">{title}</span>}
         {runningSubagentCount > 0 && (
           <span className="codex-session-subagents" title={t("sidebar.runningSubagents", { count: runningSubagentCount })}>
-            <LoaderCircle size={11} strokeWidth={1.8} aria-hidden="true" />
+            <LoaderCircle size={11} strokeWidth={1.8} style={{ animation: "spin 0.8s linear infinite" }} aria-hidden="true" />
             <span>{runningSubagentCount}</span>
           </span>
         )}

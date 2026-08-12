@@ -484,7 +484,7 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
   .codex-sidebar-chevron { transition: none; }
   .codex-project-running > svg,
   .codex-session-subagents > svg,
-  .codex-session-running { animation: none; }
+  .codex-session-running { animation: none !important; }
 }
 
 /* react-markdown output styles */

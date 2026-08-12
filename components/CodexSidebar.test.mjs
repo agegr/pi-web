@@ -34,6 +34,7 @@ test("running projects expose a Codex-style activity spinner", () => {
   assert.match(sidebar, /className="codex-project-running"/);
   assert.match(sidebar, /<LoaderCircle size=\{12\}/);
   assert.match(sidebar, /className="codex-session-running"/);
+  assert.match(sidebar, /style=\{\{ animation: "spin 0\.8s linear infinite"/);
   assert.match(sidebar, /role="status"/);
 });
 
