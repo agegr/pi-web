@@ -75,9 +75,9 @@ Date: 2026-08-12 · Branch: `migration/tanstack-start` · Node: v22.22.1 · npm:
 
 ### Output modes
 
-- `vite.tanstack.config.ts` accepts `PI_WEB_TANSTACK_OUTPUT_MODE` (`standalone` default | `publication`); `traceDeps` and `copyExternalPackages` run only in standalone mode; `exportConditions` and route rules are shared.
+- `vite.tanstack.config.ts` accepts `PI_WEB_TANSTACK_OUTPUT_MODE` (`standalone` default | `publication`); both modes externalize the five process-sensitive packages (`traceDeps: EXTERNAL_PACKAGES` + `copyExternalPackages`) so the generated server loads them from node_modules with complete runtime resources. The publication stage drops the trace copy from the tarball and `dependencies` declares the packages, so npm install provides them with their resources.
 - Standalone build: 23,707 files / 166 MB; all five process-sensitive packages resolve from `<output>/server/node_modules` with versions identical to the repo install.
-- Publication build: 347 files / 37 MB; runtime import edges for all five packages exist in generated server code while `server/node_modules/@earendil-works` and `server/node_modules/undici` are absent (no duplication).
+- Publication build: server code carries external import edges for all five packages; the stage excludes `server/node_modules` (no duplication in the tarball).
 
 ### CLI
 
@@ -86,9 +86,44 @@ Date: 2026-08-12 · Branch: `migration/tanstack-start` · Node: v22.22.1 · npm:
 
 ### Staged package proof
 
-- `scripts/stage-tanstack-package.mjs` copies publication output to `<stage>/.output` plus bin/docs/license, writes a staged manifest with `files: ["bin", ".output", "README*.md", "LICENSE", "package.json"]` and no scripts/devDependencies, and refuses relative/in-repository/populated stages.
+- `scripts/stage-tanstack-package.mjs` copies publication output to `<stage>/.output` plus bin/docs/license, removes the traced `server/node_modules` copy (npm install provides declared dependencies), writes a staged manifest with `files: ["bin", ".output", "README*.md", "LICENSE", "package.json"]` and no scripts/devDependencies, and refuses relative/in-repository/populated stages.
 - `scripts/pack-tanstack.mjs` builds publication mode into fresh external dirs, verifies, stages, packs with `npm pack --json`, runs the installed-package smoke, and prints tarball path/size/integrity.
-- Tarball: `agegr-pi-web-0.8.8-beta.1.tgz`, 356 files, 8,532,922 bytes compressed, 37 MB unpacked; no `.next`, no maps, no duplicated Pi/undici trees, no source/tests.
-- Fresh install: `npm init -y` + `npm install --ignore-scripts <exact tarball>` in a temporary project; real `node_modules/.bin/pi-web` launched with `--no-open -H 127.0.0.1 -p 30147`; root (real AppShell marker), `/api/sessions` (no-store, arrays), manifest, service worker, untrusted root text 403, untrusted API JSON 403 all pass.
+- Tarball: `agegr-pi-web-0.8.8-beta.1.tgz`, 5,001,829 bytes compressed; no `.next`, no maps, no duplicated Pi/undici trees, no source/tests.
+- Fresh install: `npm init -y` + `npm install --ignore-scripts <exact tarball>` in a temporary project; real `node_modules/.bin/pi-web` launched with `--no-open -H 127.0.0.1 -p 30147`; root (real AppShell marker), `/api/sessions` (no-store, arrays), manifest, service worker, untrusted root text 403, untrusted API JSON 403 all pass. The installed package carries no `.output/server/node_modules` copy and `@earendil-works/*` resolves from installed dependencies.
 - Runtime versions from the installed package: undici 8.9.0, @earendil-works/pi-coding-agent 0.84.1, pi-agent-core 0.84.1, pi-ai 0.84.1, pi-tui 0.84.1, lucide-react 0.562.0 (production dependency, resolves after install).
-- Confirmed `.output/server/node_modules` did not duplicate Pi packages and no repository `.output` was created.
+- Confirmed no repository `.output` was created.
+
+## Phase 4 — Functional Regression (Tasks 18–19)
+
+Date: 2026-08-12 · Branch: `migration/tanstack-start`
+
+### Task 18: 41-route safe smoke + method guard
+
+- `src/api-methods.ts` restores the legacy 405 contract (TanStack renders the page shell for unmatched methods): `GET /api/default-cwd` → 405 `Allow: POST`, `POST /api/sessions` → 405 `Allow: GET`; `lib/tanstack-route-inventory.test.mjs` locks the table to the 41-adapter inventory.
+- `scripts/tanstack-route-smoke.mjs` is the shared safe probe matrix (59 probes covering all 41 adapter URLs, no destructive writes); `PUT /api/models-config` is deliberately never performed (write with no validation — covered by unit tests only) and catalog 502 is recorded as an environment skip.
+- Standalone, installed-package, and password-enabled smoke all pass with 59 route probes / 0 failures.
+- `scripts/smoke-installed-package.mjs` spawns the server in its own process group and destroys pipes so the CLI's grandchild server cannot orphan and hang the script; SIGKILL fallback targets the group.
+
+### Task 19: Functional matrix (isolated installed tarball, port 30148, `PI_CODING_AGENT_DIR` isolated)
+
+| Group | Result | Notes |
+|---|---|---|
+| Session create (`ensure_session`) | PASS | 200, real session id, model/thinking state returned |
+| Agent state / SSE connect | PASS | `GET /api/agent/{id}` 200; events SSE 200 with `connected` frame; running/events SSE 200 |
+| Prompt streaming | NOT VERIFIED | isolated env has no API key; real credentials never copied. `agent/new` with prompt reports the documented missing-key error, proving startup path |
+| Bash-output | PASS | 400 documented (session not running) |
+| Session delete | PASS with note | deleting a non-persisted session returns 500 (ENOENT) — same handler as before, no migration regression; persisted-session delete covered by 404/405 matrix |
+| cwd browse/mkdir | PASS | list 200, mkdir 201, child browse 200 |
+| Upload / conflict | PASS | multipart 200 `uploaded`, conflict 409, exact-byte read MATCH |
+| Git status/diff | PASS | 200 on temporary git fixture |
+| Project trust | PASS | GET round-trip 200 |
+| Worktree create/list/remove | PASS | create 200, listed, removed via realpath-normalized path |
+| Auth providers / API key | PASS | providers 39 listed, no raw key material in any response |
+| API-key store/remove | NOT VERIFIED | no test credential authorized; skipped with reason |
+| Models/config/plugins/skills/app-update | PASS | reads 200 with documented shapes; catalog 502 env skip; invalid payloads 400 |
+| Security matrix | PASS | trusted/untrusted/401+headers/403 matrix identical to former `proxy.ts` contract (smoke) |
+| Desktop 1280×800 | PASS | real AppShell: sidebar, project search, archived tab, settings, onboarding copy; no console errors |
+| Mobile 390×844 | PASS | hamburger + overflow menu, responsive onboarding |
+| `?cwd=` | PASS | loads and renders the selected project |
+| PWA assets / versions | PASS | manifest/sw/offline/icons 200; client bundle carries 0.8.8-beta.1; app-update shape documented |
+
