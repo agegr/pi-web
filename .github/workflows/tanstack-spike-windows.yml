@@ -1,0 +1,43 @@
+name: TanStack Start Windows gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - migration/tanstack-start
+
+jobs:
+  windows-migration-gate:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: npm
+      - run: npm ci
+      - name: Build standalone output outside the checkout
+        shell: pwsh
+        run: |
+          $env:PI_WEB_TANSTACK_OUTPUT_DIR = Join-Path $env:RUNNER_TEMP "pi-web-tanstack-output"
+          $env:PI_WEB_TANSTACK_OUTPUT_MODE = "standalone"
+          npm run build:tanstack
+          node scripts/verify-tanstack-output.mjs --mode standalone $env:PI_WEB_TANSTACK_OUTPUT_DIR
+      - name: Start and probe generated server
+        shell: pwsh
+        run: |
+          $env:PI_WEB_TANSTACK_OUTPUT_DIR = Join-Path $env:RUNNER_TEMP "pi-web-tanstack-output"
+          $env:PI_WEB_TANSTACK_SMOKE_PORT = "30147"
+          node scripts/smoke-tanstack-output.mjs $env:PI_WEB_TANSTACK_OUTPUT_DIR
+      - name: Run quality gates
+        shell: pwsh
+        run: |
+          npm test
+          npm run lint
+          node_modules\.bin\tsc --noEmit
+      - name: Pack, install, and smoke-installed-package the publication tarball
+        shell: pwsh
+        run: |
+          $env:PI_WEB_TANSTACK_SMOKE_PORT = "30147"
+          npm run pack:tanstack

@@ -133,14 +133,25 @@ node_modules/.bin/tsc --noEmit
 npm run lint
 ```
 
-Do not run `next build` or `npm run build` during normal development. It writes to `.next/` and can interfere with the development server; leave builds for release work.
+Do not run `npm run build` or `npm run pack:tanstack` during normal development. The TanStack/Nitro production build writes to an external directory (set via `PI_WEB_TANSTACK_OUTPUT_DIR`, never inside the repository) and can interfere with the dev server; leave builds for release work. The repository never contains `.output`.
+
+Release packaging is verified with:
+
+```bash
+npm run pack:tanstack
+```
+
+which builds, stages, packs, installs, and smokes a temporary tarball; publishing is a separate explicit `npm publish` step after reviewing the exact emitted tarball.
 
 Contributor guides: [Internationalization](./docs/i18n.md) and [Release process](./docs/release.md).
 
 ## Repository Layout
 
 ```text
-app/             Next.js UI and API routes
+app/api/         Framework-neutral API handlers (standard Web APIs)
+src/routes/      TanStack Start routes; src/routes/api/* are thin adapters to app/api handlers
+src/start.ts     Global request security and CSRF middleware registration
+src/server.ts    Server entry; dispatcher configuration before request handling
 components/      React UI components
 hooks/           Client state and interaction hooks
 lib/             Session, agent, model, file, Git, and security logic

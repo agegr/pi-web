@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
 import { resolveSessionPath } from "@/lib/session-reader";
 
@@ -11,12 +10,12 @@ export async function GET(
     const rpc = getRpcSession(id);
     if (rpc?.isAlive()) {
       const state = await rpc.send({ type: "get_state" });
-      return NextResponse.json({ running: true, state });
+      return Response.json({ running: true, state });
     }
 
     const filePath = await resolveSessionPath(id);
     if (!filePath) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+      return Response.json({ error: "Session not found" }, { status: 404 });
     }
 
     // Sessions are spawned lazily on first prompt; opening a session must
@@ -25,8 +24,8 @@ export async function GET(
     // is sent.
     const { session } = await startRpcSession(id, filePath, undefined);
     const state = await session.send({ type: "get_state" });
-    return NextResponse.json({ running: true, state });
+    return Response.json({ running: true, state });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return Response.json({ error: String(error) }, { status: 500 });
   }
 }

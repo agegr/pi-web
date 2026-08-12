@@ -87,7 +87,6 @@ export function ImagePreview({ src, alt = "", children, className, style }: Imag
             if (event.target === event.currentTarget) closePreview();
           }}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img className="image-preview-image" src={src} alt={alt} />
           <button
             ref={closeButtonRef}

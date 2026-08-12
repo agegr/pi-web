@@ -25,20 +25,24 @@ Expected:
 
 ## 2. Publish to npm
 
+The release flow is now two explicit steps. First build and verify the exact tarball:
+
 ```bash
-npm run release
+npm run pack:tanstack
 ```
 
-The release script runs:
+This runs the full pipeline: publication build into a fresh external `PI_WEB_TANSTACK_OUTPUT_DIR`, runtime-package verification, staging outside the repository, `npm pack --json`, fresh install of the exact tarball, and installed-package smoke (root, sessions, manifest, service worker, security, 41-route matrix). Review the printed tarball path, size, and integrity hash.
+
+Then publish the reviewed artifact only:
 
 ```bash
-npm version patch --no-git-tag-version && npm run build && npm publish --access public
+npm publish ./<path-to-exact-tarball>.tgz --access public
 ```
 
 Notes:
 
-- This bumps `package.json` and `package-lock.json`.
-- It intentionally runs a production build. Do not run `next build` during normal development; release work is the exception.
+- The TanStack/Nitro build output is always external (never `.output` in the repository); it intentionally runs a production build — do not run `npm run build` or `npm run pack:tanstack` during normal development; release work is the exception.
+- Bump the version first: `npm version patch --no-git-tag-version`.
 - If `npm view @agegr/pi-web version` briefly shows the previous version, check the exact version instead:
 
 ```bash

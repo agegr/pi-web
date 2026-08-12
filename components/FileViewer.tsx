@@ -556,7 +556,6 @@ function ImageViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
         {error ? (
           <div style={{ color: "#f87171", fontSize: 13 }}>{error}</div>
         ) : (
-          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={src}
             alt={filePath}
@@ -1480,7 +1479,6 @@ function TextFileViewer({
                     ? getFileApiUrl(imagePath, "read", sourceSessionId)
                     : src;
                   // Dynamic local paths are served directly by the file API.
-                  // eslint-disable-next-line @next/next/no-img-element
                   return <img src={imageSrc} alt={alt ?? ""} loading="lazy" {...props} />;
                 },
               }}

@@ -8,14 +8,14 @@ npm run dev   # port 30141
 
 Typecheck: `node_modules/.bin/tsc --noEmit`  
 Lint: `npm run lint`  
-**Never run `next build` during dev** — pollutes `.next/` and breaks `npm run dev`.
+**Never run `npm run build` or `npm run pack:tanstack` during dev** — the TanStack/Nitro production build writes to an external `PI_WEB_TANSTACK_OUTPUT_DIR` and can interfere with `npm run dev`. The repository never contains `.output`.
 
 ---
 
 ## Architecture
 
 ```
-Browser                Next.js Server              AgentSession (in-process)
+Browser                TanStack Start / Nitro Server     AgentSession (in-process)
   │                        │                               │
   ├─ GET /api/sessions ────▶ reads ~/.pi/agent/sessions/   │
   ├─ GET /api/sessions/[id] reads .jsonl file directly     │
@@ -115,7 +115,7 @@ hooks/
 
 ### AgentSession lifecycle (`lib/rpc-manager.ts`)
 - One `AgentSessionWrapper` per session id, keyed in `globalThis.__piSessions`
-- `globalThis` survives Next.js hot-reload; plain module-level Map does not
+- `globalThis` survives Vite/TanStack hot reload; plain module-level Map does not
 - Idle timeout: 10 minutes. Concurrent `startRpcSession()` calls share a single start Promise (`globalThis.__piStartLocks`)
 
 ### Fork must destroy the wrapper immediately

@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import {
   attachSessionProjectInfo,
   listAllSessions,
@@ -17,12 +16,12 @@ export async function GET(req: Request) {
       attachSessionProjectInfo(getRpcSessionInfos()),
     ]);
     const sessions = attachSessionRelations(mergeSessionLists(persistedSessions, runtimeSessions));
-    return NextResponse.json(
+    return Response.json(
       { sessions, runningSessionIds: getRunningRpcSessionIds() },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
-    return NextResponse.json(
+    return Response.json(
       { error: String(error) },
       { status: 500, headers: { "Cache-Control": "no-store" } },
     );

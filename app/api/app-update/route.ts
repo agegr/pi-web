@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import type { AppUpdateResponse } from "@/lib/api-types";
 import { getPiWebReleaseUrl, isNewerStableVersion } from "@/lib/app-update";
 
@@ -67,9 +66,9 @@ async function loadUpdateStatus(): Promise<AppUpdateResponse> {
 
 export async function GET() {
   try {
-    return NextResponse.json(await loadUpdateStatus());
+    return Response.json(await loadUpdateStatus());
   } catch (error) {
-    return NextResponse.json(
+    return Response.json(
       { error: error instanceof Error ? error.message : String(error) },
       { status: 502 },
     );

@@ -1,4 +1,3 @@
-import { NextResponse, type NextRequest } from "next/server";
 import {
   isApiRequestAllowed,
   isApiRequestHostAllowed,
@@ -8,18 +7,20 @@ import {
   isWebPasswordEnabled,
 } from "@/lib/web-auth";
 
-export function proxy(request: NextRequest) {
-  const isApiRequest = request.nextUrl.pathname === "/api"
-    || request.nextUrl.pathname.startsWith("/api/");
+export function getRequestSecurityRejection(request: Request): Response | undefined {
+  const pathname = new URL(request.url).pathname;
+  if (pathname !== "/" && pathname !== "/api" && !pathname.startsWith("/api/")) {
+    return undefined;
+  }
+  const isApiRequest = pathname === "/api" || pathname.startsWith("/api/");
   const isTrustedRequest = isApiRequest
     ? isApiRequestAllowed(request)
     : isApiRequestHostAllowed(request);
 
   if (!isTrustedRequest) {
-    if (!isApiRequest) {
-      return new NextResponse("Untrusted request", { status: 403 });
-    }
-    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+    return isApiRequest
+      ? Response.json({ error: "Untrusted API request" }, { status: 403 })
+      : new Response("Untrusted request", { status: 403 });
   }
 
   const password = process.env.PI_WEB_PASSWORD;
@@ -27,7 +28,7 @@ export function proxy(request: NextRequest) {
     isWebPasswordEnabled(password)
     && !isValidBasicAuthorization(request.headers.get("authorization"), password)
   ) {
-    return new NextResponse("Authentication required", {
+    return new Response("Authentication required", {
       status: 401,
       headers: {
         "Cache-Control": "no-store",
@@ -36,7 +37,5 @@ export function proxy(request: NextRequest) {
     });
   }
 
-  return NextResponse.next();
+  return undefined;
 }
-
-export const config = { matcher: ["/", "/api/:path*"] };

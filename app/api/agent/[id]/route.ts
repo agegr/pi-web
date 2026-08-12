@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession } from "@/lib/rpc-manager";
 
@@ -20,12 +19,12 @@ export async function POST(
     if (existing?.isAlive()) {
       const result = await existing.send(body);
       promptAccepted = body.type === "prompt";
-      return NextResponse.json({ success: true, data: result });
+      return Response.json({ success: true, data: result });
     }
 
     const filePath = await resolveSessionPath(id);
     if (!filePath) {
-      return NextResponse.json({
+      return Response.json({
         error: "Session not found",
         ...(body.type === "prompt"
           ? { code: "prompt_rejected", accepted: false }
@@ -37,9 +36,9 @@ export async function POST(
     const result = await session.send(body);
     promptAccepted = body.type === "prompt";
 
-    return NextResponse.json({ success: true, data: result });
+    return Response.json({ success: true, data: result });
   } catch (error) {
-    return NextResponse.json({
+    return Response.json({
       error: error instanceof Error ? error.message : String(error),
       ...(commandType === "prompt" && !promptAccepted
         ? { code: "prompt_rejected", accepted: false }
@@ -58,12 +57,12 @@ export async function GET(
   try {
     const session = getRpcSession(id);
     if (!session || !session.isAlive()) {
-      return NextResponse.json({ running: false });
+      return Response.json({ running: false });
     }
 
     const state = await session.send({ type: "get_state" });
-    return NextResponse.json({ running: true, state });
+    return Response.json({ running: true, state });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return Response.json({ error: String(error) }, { status: 500 });
   }
 }

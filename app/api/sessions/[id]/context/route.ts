@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { resolveSessionPath, buildSessionContext } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-manager";
@@ -18,7 +17,7 @@ export async function GET(
     const liveRpc = rpc?.isAlive() ? rpc : undefined;
     const filePath = liveRpc ? null : await resolveSessionPath(id);
     if (!liveRpc && !filePath) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+      return Response.json({ error: "Session not found" }, { status: 404 });
     }
 
     const sm = liveRpc?.inner.sessionManager ?? SessionManager.open(filePath!);
@@ -27,8 +26,8 @@ export async function GET(
       deferToolResultImages,
     });
 
-    return NextResponse.json({ context });
+    return Response.json({ context });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return Response.json({ error: String(error) }, { status: 500 });
   }
 }

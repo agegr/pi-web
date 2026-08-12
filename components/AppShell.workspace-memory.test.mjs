@@ -44,7 +44,7 @@ test("workspace restoration remains inside the cross-project branch", () => {
 test("selecting a session suppresses the sidebar cwd reset before navigating", () => {
   const body = callbackBody("handleSelectSession", "handleNewSession");
   const suppress = body.indexOf("if (session.cwd !== activeCwd) suppressCwdBumpRef.current = true;");
-  const navigate = body.indexOf("router.replace(`?session=${encodeURIComponent(session.id)}`");
+  const navigate = body.indexOf("search: { session: session.id, cwd: undefined }");
 
   assert.notEqual(suppress, -1);
   assert.notEqual(navigate, -1);
