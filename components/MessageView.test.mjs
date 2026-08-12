@@ -11,12 +11,12 @@ const jiti = createJiti(import.meta.url, {
 const { MessageView, formatToolInput, replaceUserMessageText } = await jiti.import("./MessageView.tsx");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
-function renderMessage(message) {
+function renderMessage(message, props = {}) {
   return renderToStaticMarkup(
     React.createElement(
       I18nProvider,
       null,
-      React.createElement(MessageView, { message }),
+      React.createElement(MessageView, { message, ...props }),
     ),
   );
 }
@@ -84,8 +84,8 @@ test("renders thinking content through the shared Markdown renderer", async () =
   assert.doesNotMatch(source, /whiteSpace: "pre-wrap",\s*background: "var\(--bg-panel\)"/);
 });
 
-test("shows thinking markdown and readable tool inputs by default", () => {
-  const html = renderMessage({
+function assistantWithThinkingAndTool() {
+  return {
     role: "assistant",
     provider: "openai",
     model: "gpt-test",
@@ -99,7 +99,19 @@ test("shows thinking markdown and readable tool inputs by default", () => {
       },
     ],
     stopReason: "toolUse",
-  });
+  };
+}
+
+test("collapses historical thinking and tool inputs by default", () => {
+  const html = renderMessage(assistantWithThinkingAndTool());
+
+  assert.doesNotMatch(html, /<h2>Plan<\/h2>/);
+  assert.doesNotMatch(html, /<li>inspect<\/li>/);
+  assert.doesNotMatch(html, /command: printf/);
+});
+
+test("expands thinking and tool inputs for a live message", () => {
+  const html = renderMessage(assistantWithThinkingAndTool(), { defaultDetailsExpanded: true });
 
   assert.match(html, /<h2>Plan<\/h2>/);
   assert.match(html, /<li>inspect<\/li>/);
