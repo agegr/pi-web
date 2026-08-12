@@ -110,7 +110,7 @@ Date: 2026-08-12 · Branch: `migration/tanstack-start`
 |---|---|---|
 | Session create (`ensure_session`) | PASS | 200, real session id, model/thinking state returned |
 | Agent state / SSE connect | PASS | `GET /api/agent/{id}` 200; events SSE 200 with `connected` frame; running/events SSE 200 |
-| Prompt streaming | NOT VERIFIED | isolated env has no API key; real credentials never copied. `agent/new` with prompt reports the documented missing-key error, proving startup path |
+| Prompt streaming | PASS | real prompt completed through SSE in an isolated credential environment; no credential, session id, or response content retained |
 | Bash-output | PASS | 400 documented (session not running) |
 | Session delete | PASS with note | deleting a non-persisted session returns 500 (ENOENT) — same handler as before, no migration regression; persisted-session delete covered by 404/405 matrix |
 | cwd browse/mkdir | PASS | list 200, mkdir 201, child browse 200 |
@@ -119,7 +119,7 @@ Date: 2026-08-12 · Branch: `migration/tanstack-start`
 | Project trust | PASS | GET round-trip 200 |
 | Worktree create/list/remove | PASS | create 200, listed, removed via realpath-normalized path |
 | Auth providers / API key | PASS | providers 39 listed, no raw key material in any response |
-| API-key store/remove | NOT VERIFIED | no test credential authorized; skipped with reason |
+| API-key store/remove | PASS | store/remove lifecycle completed with isolated credentials; no key material retained |
 | Models/config/plugins/skills/app-update | PASS | reads 200 with documented shapes; catalog 502 env skip; invalid payloads 400 |
 | Security matrix | PASS | trusted/untrusted/401+headers/403 matrix identical to former `proxy.ts` contract (smoke) |
 | Desktop 1280×800 | PASS | real AppShell: sidebar, project search, archived tab, settings, onboarding copy; no console errors |
@@ -151,7 +151,7 @@ Date: 2026-08-12 · Branch: `migration/tanstack-start` · Integrated base: `main
 - Fresh `pack:tanstack` on `f55acfe`: exit 0; publication build, external staging, tarball install, and installed CLI smoke all pass.
 - Installed smoke: root/sessions/manifest/service worker/security pass; 59 route probes / 0 failures. `PUT /api/models-config` remains intentionally skipped because it writes configuration; `/api/models-config/catalog` remains an environment skip because upstream returned 502.
 - Tarball: `agegr-pi-web-0.8.8-beta.1.tgz`, 5,003,752 bytes, sha512 `889e65ccceacd7ef472628d90c06ae38d8268564093769c7c00c56bcbb5cd705cccd67c50c4af9f71beb1dba9be2977ddfd7dad9de704023f354fa9951a6238a`.
-- Browser click-through was not repeated because no browser automation dependency was available in the integration workspace. Theme/language/settings clicks and real-key prompt/API-key operations remain explicit manual release checks.
+- Release-readiness verification completed theme/language/settings browser interactions, API-key store/remove, and a real prompt SSE flow in an isolated credential environment; no credential, session id, response content, or sensitive temporary path was retained.
 - No repository `.output`, npm publish, tag, GitHub Release, real-key copy, or primary checkout mutation occurred.
 
 ### Local main follow-up integration
@@ -169,3 +169,15 @@ Date: 2026-08-12 · Branch: `migration/tanstack-start` · Integrated base: `main
 - On the exact candidate after a clean `npm ci`: 594/594 tests passed; lint reported 0 errors / 9 warnings; `tsc --noEmit` and `git diff --check` passed; no repository `.output` existed.
 - `origin/main` and `origin/migration/tanstack-start` were advanced by ordinary non-force pushes to the same verified lineage and checked with `git ls-remote`.
 - npm was not published; no tag or GitHub Release was created. The migration worktree remains available for audit.
+
+## Release-readiness security update
+
+Date: 2026-08-12 · Branch: `migration/tanstack-start`
+
+- After integration, Vite was upgraded from `8.0.14` to `8.2.1` and Mermaid from `11.14.0` to `11.16.1` as release-readiness security updates; `npm audit` reports 0 vulnerabilities.
+- The stale pre-migration `bun.lock` was removed: it still declared Next.js, undici `8.5.0`, and the old dependency graph, while the repository, CI, README, and release pipeline exclusively use npm. `package-lock.json` is now the single authoritative lockfile.
+- The first full suite after the dependency update passed 593/594 tests, with only the stale exact-Vite-version expectation failing. After synchronizing that assertion and passing its focused test, the established final count is 594/594.
+- Browser theme/language/settings interactions, API-key store/remove, and real prompt SSE completion passed in an isolated credential environment. The models-config catalog remains an upstream 502 skip, and deleting a non-persisted session still returns 500.
+- Vite `8.2.1` development SSR initially returned HTTP 200 with React's client-render fallback because `@lobehub/icons` publishes extensionless internal ESM imports that Node 22 cannot resolve when externalized. Adding only that package to `ssr.noExternal` restored real SSR: the root HTML contains 12 `codex-sidebar` markers and no fallback/module-resolution error; a focused config contract locks the fix.
+- Final `pack:tanstack`: exit 0; external output 23,724 files / 167,251,646 bytes; tarball 5,194,550 bytes, sha512 `5470eb094e1cdd6dc376868a47d5dc913a01a1e1708a845455ffac3efc8c7f965607bc0c31fbe2fe72718ae8c84c41d60ba8929366fbae743d1175f1ce173088`.
+- Fresh installed-package smoke passed root, sessions, PWA assets, security, dependency versions, and 60 route probes with 0 failures. The models-config catalog remained an upstream 502 skip.

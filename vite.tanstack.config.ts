@@ -72,7 +72,7 @@ export default defineConfig(({ command }) => {
       "process.env.NEXT_PUBLIC_APP_VERSION": JSON.stringify(appPackageVersion),
       "process.env.NEXT_PUBLIC_PI_VERSION": JSON.stringify(piPackageVersion),
     },
-    ssr: { external: EXTERNAL_PACKAGES },
+    ssr: { external: EXTERNAL_PACKAGES, noExternal: ["@lobehub/icons"] },
     plugins: [
       tanstackStart({ srcDirectory: "src" }),
       nitro({

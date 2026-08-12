@@ -76,7 +76,7 @@
     "jiti": "^2.7.0",
     "katex": "^0.16.47",
     "mammoth": "^1.12.0",
-    "mermaid": "^11.14.0",
+    "mermaid": "^11.16.1",
     "nitro": "3.0.260311-beta",
     "postcss": "^8",
     "react-markdown": "^10.1.0",
@@ -89,6 +89,6 @@
     "tailwindcss": "^4.2.2",
     "typescript": "^5",
     "typescript-eslint": "8.57.1",
-    "vite": "8.0.14"
+    "vite": "8.2.1"
   }
 }

@@ -26,7 +26,7 @@
 | 代码候选提交数 | 47(0f6a152..e8d5473,含 main 合并提交) |
 | 变更量 | 141 文件,+10088 / −9827 行 |
 | 工作树 | 干净,无 `.output`,无未跟踪敏感文件 |
-| 工具链 | Node 22.22.1 · npm 10.9.4 · TanStack Start 1.168.42 · Vite 8.0.14 · Nitro 3.0.260311-beta · Next 16.2.12(已退役) |
+| 工具链 | Node 22.22.1 · npm 10.9.4 · TanStack Start 1.168.42 · Vite 8.2.1 · Mermaid 11.16.1 · Nitro 3.0.260311-beta · Next 16.2.12(已退役) |
 
 ## 3. 架构变化
 
@@ -78,6 +78,7 @@ next build + .next 发布             vite/nitro 外部输出 + npm tarball(依�
 |---|---|
 | `npm ci`(干净) | exit 0 |
 | 测试 | **594/594**,0 fail |
+| `npm audit` | 0 vulnerabilities |
 | lint | 0 errors / 9 warnings(基线 11,未增加) |
 | tsc | clean |
 | standalone 构建 | 23,707 文件 / 166.4 MB,5 包版本与仓库一致 |
@@ -101,14 +102,13 @@ next build + .next 发布             vite/nitro 外部输出 + npm tarball(依�
 8. **环境陷阱**:shell 全局 `NODE_ENV=production`(npm install 跳过 devDeps)、`PI_WEB_PASSWORD`(干扰测试/服务器继承)——跑测试/起服务必须 `env -u NODE_ENV -u PI_WEB_PASSWORD`
 9. **端口 30142** 是用户运行中的 pi-web 实例,勿动;本地 smoke 用 30147
 
-## 7. 遗留事项(NOT VERIFIED / 风险)
+## 7. 遗留事项/风险
+
+发布前隔离凭据验证已完成浏览器主题、语言与设置交互、API key store/remove,以及真实 prompt SSE 完成链路;未保留凭据、会话标识、响应消息内容或敏感临时路径。
 
 | 项 | 原因 | 建议 |
 |---|---|---|
-| prompt 流式消息完成事件 | 隔离环境无 API key,真实凭据不复制 | 发布前在真实环境手工验证一次发消息 |
-| API-key store/remove | 无测试凭据 | 同上,手工验证 |
 | models-config catalog | 上游 502(联网) | 正常网络下验证 |
-| 浏览器交互细节(主题/语言/设置面板点击) | 本轮无可用浏览器自动化依赖;已安装包 HTTP/UI 入口冒烟通过,未逐项点击 | 发布前手工过一遍 UI |
 | **`~/.pi/agent/models.json` 曾被探测误写** | `PUT /api/models-config` 无校验,已从 `models.json.bak-20260808-133923` 恢复 | **确认 Models 面板配置完整;建议后续给该端点加输入校验** |
 | 未持久化 session 的 DELETE 返回 500 | handler 既有行为(ENOENT),非迁移回归 | 可后续优化 |
 | tarball 5MB 但安装后依赖 ~100MB+ | publication 语义:依赖由 npm 管理 | 符合预期,发布时注意 npm 安装时间 |
@@ -133,7 +133,7 @@ npm publish ./<tarball>.tgz --access public
 
 ## 9. 建议的下一步
 
-1. 发布前完成 §7 的手工验证项(发消息、UI 点击、catalog)
+1. 发布前复查 §7 的 models-config catalog 上游可用性
 2. 后续加固:`PUT /api/models-config` 输入校验(本次事故暴露)
 3. 长期:删除仓库中残留的 Next 相关文件引用(测试断言类,已无害)
 4. Windows CI 工作流(`tanstack-spike-windows.yml`)建议后续更名为 `migration-gate` 并保留
@@ -152,6 +152,15 @@ npm publish ./<tarball>.tgz --access public
 - 最新 tarball 5,006,455 字节,sha512 `43cbbf28…d839e04`;未发布 npm。
 - 在仓库外临时 detached worktree 从 `main@79ee6ac` 执行 `git merge --ff-only migration/tanstack-start`,结果为纯快进;干净 `npm ci` 后再次通过 594/594、lint、tsc 和 diff 检查。
 - `origin/main` 与 `origin/migration/tanstack-start` 已通过普通非强制 push 快进到同一条已验证提交线;远端 SHA 已用 `git ls-remote` 复核。迁移 worktree 保留供后续审计。
+
+## 12. 发布就绪安全更新
+
+- 主线整合后为发布就绪性升级 Vite `8.0.14` → `8.2.1`、Mermaid `11.14.0` → `11.16.1`;`npm audit` 报告 0 vulnerabilities。
+- 删除迁移前已失同步的 `bun.lock`:它仍声明 Next.js、undici `8.5.0` 和旧前端依赖,且仓库、CI、README 与发布链均只使用 npm;`package-lock.json` 现在是唯一权威锁文件。
+- 升级后全套测试最初为 593/594,唯一失败是仍断言旧 Vite 版本的配置测试;同步期望值并通过聚焦验证后,最终计数为 594/594。
+- 浏览器主题、语言与设置交互、API key store/remove 和真实 prompt SSE 已在隔离凭据环境验证;models-config catalog 仍为上游 502,未持久化 session 的 DELETE 仍返回 500。
+- Vite `8.2.1` 开发 SSR 复测发现 `@lobehub/icons` 的无扩展名 ESM 内部导入导致客户端渲染回退;将该包设为 `ssr.noExternal` 后,根页面返回 12 个 `codex-sidebar` SSR 标记且不含回退/缺模块文本,配置测试锁定该修复。
+- 最终 `pack:tanstack` exit 0:外部输出 23,724 文件/167,251,646 字节;tarball 5,194,550 字节,sha512 `5470eb09…ce173088`;全新安装后 root/sessions/PWA/安全通过,60 路由探针 0 失败,catalog 仍因上游 502 跳过。
 
 ## 10. 关键文件索引
 
