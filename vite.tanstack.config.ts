@@ -1,8 +1,8 @@
 import { isAbsolute, join, relative, sep, resolve } from "node:path";
-import { existsSync } from "node:fs";
-import { cpSync } from "node:fs";
+import { cpSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import tailwindcss from "@tailwindcss/vite";
 import viteReact from "@vitejs/plugin-react";
 import { nitro } from "nitro/vite";
 import { defineConfig, type Plugin } from "vite";
@@ -39,6 +39,13 @@ function copyExternalPackages(outputDir: string): Plugin {
   };
 }
 
+function readJsonVersion(relativePath: string): string {
+  return JSON.parse(readFileSync(resolve(process.cwd(), relativePath), "utf8")).version;
+}
+
+const appPackageVersion = readJsonVersion("package.json");
+const piPackageVersion = readJsonVersion("node_modules/@earendil-works/pi-coding-agent/package.json");
+
 export default defineConfig(({ command }) => {
   const configuredOutputDir = process.env.PI_WEB_TANSTACK_OUTPUT_DIR?.trim();
   const relativeOutputDir = configuredOutputDir
@@ -56,6 +63,10 @@ export default defineConfig(({ command }) => {
 
   return {
     resolve: { tsconfigPaths: true },
+    define: {
+      "process.env.NEXT_PUBLIC_APP_VERSION": JSON.stringify(appPackageVersion),
+      "process.env.NEXT_PUBLIC_PI_VERSION": JSON.stringify(piPackageVersion),
+    },
     ssr: { external: EXTERNAL_PACKAGES },
     plugins: [
       tanstackStart({ srcDirectory: "src" }),
@@ -66,6 +77,7 @@ export default defineConfig(({ command }) => {
         exportConditions: ["node", "import", "production", "default"],
       }),
       viteReact(),
+      tailwindcss(),
       copyExternalPackages(outputDir),
     ],
   };

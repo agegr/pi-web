@@ -45,6 +45,7 @@
     "@earendil-works/pi-ai": "0.84.1",
     "@earendil-works/pi-coding-agent": "0.84.1",
     "@earendil-works/pi-tui": "0.84.1",
+    "@fontsource-variable/noto-sans-mono": "5.3.0",
     "@tanstack/react-router": "1.170.25",
     "@tanstack/react-start": "1.168.42",
     "js-yaml": "^5.2.3",
@@ -59,6 +60,7 @@
   "devDependencies": {
     "@lobehub/icons": "^5.6.0",
     "@tailwindcss/postcss": "^4.2.2",
+    "@tailwindcss/vite": "4.2.2",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25",
     "@types/proper-lockfile": "4.1.4",

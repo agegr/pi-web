@@ -131,6 +131,7 @@ body {
 }
 
 :root {
+  --font-noto-mono: "Noto Sans Mono Variable";
   --font-mono: var(--font-noto-mono), 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, 'PingFang SC', 'Microsoft YaHei', monospace;
 }
 
