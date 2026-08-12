@@ -1,5 +1,4 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { NextResponse } from "next/server";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { removeStoredCredentialIfType, storeProviderCredential } from "@/lib/provider-credential-store";
 
@@ -14,7 +13,7 @@ export async function GET(_req: Request, { params }: Params) {
   const status = modelRuntime.getProviderAuthStatus(provider);
   const displayName = modelRuntime.getProvider(provider)?.name ?? provider;
   const models = modelRuntime.getModels(provider).length;
-  return NextResponse.json({ provider, displayName, configured: status.configured, source: status.source, models });
+  return Response.json({ provider, displayName, configured: status.configured, source: status.source, models });
 }
 
 // POST /api/auth/api-key/[provider]  body: { apiKey: string }
@@ -23,7 +22,7 @@ export async function POST(req: Request, { params }: Params) {
   try {
     const { apiKey } = await req.json() as { apiKey?: string };
     if (!apiKey || typeof apiKey !== "string" || !apiKey.trim()) {
-      return NextResponse.json({ error: "apiKey is required" }, { status: 400 });
+      return Response.json({ error: "apiKey is required" }, { status: 400 });
     }
     const modelRuntime = await ModelRuntime.create();
     const apiKeyAuth = modelRuntime.getProvider(provider)?.auth.apiKey;
@@ -52,9 +51,9 @@ export async function POST(req: Request, { params }: Params) {
     // directly so a slow catalog cannot leave the save request hanging.
     await storeProviderCredential(provider, credential);
     invalidateModelsCache();
-    return NextResponse.json({ success: true });
+    return Response.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return Response.json({ error: String(error) }, { status: 500 });
   }
 }
 
@@ -64,14 +63,14 @@ export async function DELETE(_req: Request, { params }: Params) {
   try {
     const removal = await removeStoredCredentialIfType(provider, "api_key");
     if (removal.status === "type_mismatch") {
-      return NextResponse.json(
+      return Response.json(
         { error: `${provider} is authenticated with OAuth, not an API key` },
         { status: 409 },
       );
     }
     invalidateModelsCache();
-    return NextResponse.json({ success: true });
+    return Response.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return Response.json({ error: String(error) }, { status: 500 });
   }
 }

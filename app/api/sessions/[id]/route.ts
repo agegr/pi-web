@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { existsSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -25,7 +24,7 @@ export async function GET(
     const liveRpc = rpc?.isAlive() ? rpc : undefined;
     const resolvedPath = liveRpc ? null : await resolveSessionPath(id);
     if (!liveRpc && !resolvedPath) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+      return Response.json({ error: "Session not found" }, { status: 404 });
     }
 
     const sm = liveRpc?.inner.sessionManager ?? SessionManager.open(resolvedPath!);
@@ -64,7 +63,7 @@ export async function GET(
       transient: !filePath || !existsSync(filePath),
     } : null;
 
-    return NextResponse.json({
+    return Response.json({
       sessionId: id,
       filePath,
       info,
@@ -74,7 +73,7 @@ export async function GET(
       totalActiveMs,
     });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return Response.json({ error: String(error) }, { status: 500 });
   }
 }
 
@@ -87,18 +86,18 @@ export async function PATCH(
   try {
     const { name } = await req.json() as { name?: string };
     if (typeof name !== "string") {
-      return NextResponse.json({ error: "name is required" }, { status: 400 });
+      return Response.json({ error: "name is required" }, { status: 400 });
     }
     const filePath = await resolveSessionPath(id);
     if (!filePath) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+      return Response.json({ error: "Session not found" }, { status: 404 });
     }
     const sm = SessionManager.open(filePath);
     sm.appendSessionInfo(name.trim());
     invalidateSessionListCache();
-    return NextResponse.json({ ok: true });
+    return Response.json({ ok: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return Response.json({ error: String(error) }, { status: 500 });
   }
 }
 
@@ -111,7 +110,7 @@ export async function DELETE(
   try {
     const filePath = await resolveSessionPath(id);
     if (!filePath) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+      return Response.json({ error: "Session not found" }, { status: 404 });
     }
 
     // Read only the bounded header before deleting.
@@ -149,8 +148,8 @@ export async function DELETE(
     unlinkSync(filePath);
     invalidateSessionPathCache(id);
     invalidateSessionListCache();
-    return NextResponse.json({ ok: true });
+    return Response.json({ ok: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return Response.json({ error: String(error) }, { status: 500 });
   }
 }

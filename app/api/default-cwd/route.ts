@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { mkdirSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
@@ -12,8 +11,8 @@ export async function POST() {
     const dir = join(homedir(), `pi-cwd-${date}`);
     mkdirSync(dir, { recursive: true });
     allowFileRoot(dir);
-    return NextResponse.json({ cwd: dir });
+    return Response.json({ cwd: dir });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return Response.json({ error: String(error) }, { status: 500 });
   }
 }

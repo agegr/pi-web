@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import {
   flattenModelsDevCatalog,
   recommendModelCatalogPreset,
@@ -71,8 +70,8 @@ export async function GET(req: Request) {
     const entries = await loadCatalog();
     const models = searchModelCatalog(entries, query, provider, limit);
     const recommendation = recommendModelCatalogPreset(entries, query, provider, baseUrl);
-    return NextResponse.json({ models, recommendation, source: MODELS_DEV_URL });
+    return Response.json({ models, recommendation, source: MODELS_DEV_URL });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 502 });
+    return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 502 });
   }
 }
