@@ -34,10 +34,37 @@ Date: 2026-08-12 · Branch: `migration/tanstack-start` · Node: v22.22.1 · npm:
 - Response headers verified: `content-type: text/event-stream`, `cache-control: no-cache, no-transform`, `connection: keep-alive`, `x-accel-buffering: no`.
 - No sensitive content recorded.
 
-### Phase 1 quality gate
+## Phase 2 — AppShell, Root Layout, Metadata, Font, And PWA
 
-- `env -u NODE_ENV -u PI_WEB_PASSWORD npm test`: 558/558 pass.
+Date: 2026-08-12 · Branch: `migration/tanstack-start` · Node: v22.22.1 · npm: 10.9.4
+
+### AppShell navigation
+
+- `src/routes/index.tsx` validates optional `session` and `cwd` search strings and mounts `<I18nProvider><AppShell/>`; `src/routes/__root.tsx` carries the document shell.
+- `components/AppShell.tsx` replaced `next/navigation` (`useRouter`/`useSearchParams`) with TanStack `useNavigate({ from: "/" })` and `useSearch({ from: "/" })`; the seven navigation call sites are now three root clears and four session replacements, all `replace: true, resetScroll: false`.
+- `lib/tanstack-app-shell.test.mjs` locks the source contracts; `lib/initial-navigation.test.mjs` still passes (cwd wins over session).
+
+### Root document, metadata, font, versions
+
+- `src/routes/__root.tsx` now emits title/description/application-name, manifest link, icons, Apple PWA tags, viewport with `viewport-fit=cover` + `interactive-widget=resizes-content`, two media-scoped theme colors, `format-detection`, `google`/`notranslate`, and the pre-hydration `pi-theme` script (moved into TanStack head `scripts`), renders `<PwaRegistration/>`, imports `katex.min.css` and `app/globals.css`.
+- `@fontsource-variable/noto-sans-mono@5.3.0` added as an exact production dependency; `app/globals.css` defines `--font-noto-mono: "Noto Sans Mono Variable"` and keeps `--font-mono` derived from it.
+- `vite.tanstack.config.ts` defines `process.env.NEXT_PUBLIC_APP_VERSION` (0.8.8-beta.1) and `process.env.NEXT_PUBLIC_PI_VERSION` (0.84.1) at build time; generated client/server assets contain both values.
+- Tailwind v4 wired through the official `@tailwindcss/vite@4.2.2` dev plugin so `@import "tailwindcss"` resolves in the Vite pipeline.
+
+### PWA assets and cache headers
+
+- `public/manifest.webmanifest` contains the exact former Next manifest JSON (deep-equal locked in `lib/tanstack-root.test.mjs`).
+- `public/sw.js` static-asset matcher now accepts `/_build/` and rejects the obsolete `/_next/static/` marker (locked in `public/sw.test.mjs`); precache, API bypass, notification, offline fallback, and cache versioning unchanged.
+- Nitro `routeRules`: `/` → `Cache-Control: private, no-cache, max-age=0, must-revalidate`; `/sw.js` → `public, max-age=0, must-revalidate` + `Service-Worker-Allowed: /`; `/manifest.webmanifest` → `public, max-age=0, must-revalidate`.
+- Runtime smoke verifies root/`sw.js`/manifest cache headers, manifest `name: Pi Web`, `/offline.html` containing `Pi Web`, and `/icons/icon-192.png` as `image/png`.
+
+### Phase 2 quality gate
+
+- Focused source-contract tests: 18/18 (AppShell, root, initial-navigation, service worker).
+- `env -u NODE_ENV -u PI_WEB_PASSWORD npm test`: 578/578 pass.
 - `npm run lint`: 0 errors, 11 warnings (unchanged from baseline).
 - `node_modules/.bin/tsc --noEmit`: exit 0.
-- Protected files (`lib/rpc-manager.ts`, `lib/agent-event-stream.ts`, `lib/request-security.ts`, `lib/web-auth.ts`) unchanged from `0f6a152`.
-- No `.output` in the worktree.
+- Clean external standalone build + verifier + smoke (port 30147): all exit 0; rendered root HTML contains the real AppShell markers (`codex-sidebar`) and the theme bootstrap script; no `.output` in the worktree.
+- No `next/(navigation|font|server)` imports remain in `app/api`, `components`, or `src` runtime sources (old `app/layout.tsx` retained until Phase 3 retirement).
+- Protected files unchanged from `0f6a152`.
+- Manual browser inspection of desktop/mobile widths is deferred to the Phase 4 functional regression matrix (Task 19).
