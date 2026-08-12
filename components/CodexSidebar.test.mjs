@@ -26,6 +26,16 @@ test("project sorting supports drag and keyboard-accessible menu actions", () =>
   assert.match(sidebar, /event\.key !== "Enter" && event\.key !== " "/);
 });
 
+test("running projects expose a Codex-style activity spinner", () => {
+  assert.match(sidebar, /new EventSource\("\/api\/agent\/running\/events"\)/);
+  assert.match(sidebar, /const completed = \[\.\.\.previous\]\.filter\(\(id\) => !runningIds\.has\(id\)\)/);
+  assert.match(sidebar, /const completedInBackground = completed\.filter\(\(id\) => id !== selectedSessionId\)/);
+  assert.match(sidebar, /runningCount > 0/);
+  assert.match(sidebar, /className="codex-project-running"/);
+  assert.match(sidebar, /<LoaderCircle size=\{12\}/);
+  assert.match(sidebar, /role="status"/);
+});
+
 test("preserves desktop session context menus and dirty-worktree force confirmation", () => {
   assert.match(sidebar, /dispatchSessionRowContextMenu\(\{/);
   assert.match(sidebar, /window\.confirm\(t\("sidebar\.forceRemoveCheckout"\)\)/);

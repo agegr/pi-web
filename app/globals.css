@@ -310,7 +310,13 @@ html.dark .codex-sidebar-error { color: #f87171; }
   font-size: 10px;
   text-align: center;
 }
-.codex-project-running { color: var(--accent); }
+.codex-project-running {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  animation: spin .8s linear infinite;
+}
 .codex-project-unread { color: #087d96; }
 html.dark .codex-project-unread { color: #67e8f9; }
 .codex-project-menu-wrap,
@@ -463,6 +469,7 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
 @keyframes codex-sidebar-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) {
   .codex-sidebar-chevron { transition: none; }
+  .codex-project-running,
   .codex-session-state[data-running="true"] { animation: none; }
 }
 

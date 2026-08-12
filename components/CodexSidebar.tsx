@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, Ellipsis, Folder, FolderPlus, Pin, Plus, RefreshCw, Search, X } from "lucide-react";
+import { ChevronRight, Ellipsis, Folder, FolderPlus, LoaderCircle, Pin, Plus, RefreshCw, Search, X } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import type { ProjectPreference } from "@/lib/project-registry";
@@ -51,7 +51,6 @@ interface WorktreeEntry {
   isMain: boolean;
 }
 
-const RUNNING_POLL_MS = 2500;
 const COLLAPSED_STORAGE_KEY = "pi-web:collapsed-projects";
 const UNREAD_STORAGE_KEY = "pi-web:unread-session-ids";
 
@@ -318,31 +317,22 @@ export function CodexSidebar({
   }, [initialSessionId, loading, onInitialRestoreDone, onSelectSession, projects, selectedCwd, sessions, skipInitialProjectSelection]);
 
   useEffect(() => {
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const poll = async () => {
-      if (stopped || document.visibilityState !== "visible") return;
-      try {
-        const response = await fetch("/api/agent/running", { cache: "no-store" });
-        const data = await response.json() as { runningSessionIds?: string[] };
-        if (!stopped && response.ok) setRunningIds(new Set(data.runningSessionIds ?? []));
-      } catch { /* Retry on the next interval. */ }
-      if (!stopped) timer = setTimeout(() => void poll(), RUNNING_POLL_MS);
+    const events = new EventSource("/api/agent/running/events");
+    events.onmessage = (event) => {
+      const data = JSON.parse(event.data) as { runningSessionIds?: string[] };
+      setRunningIds(new Set(data.runningSessionIds ?? []));
     };
-    const visibility = () => {
-      if (timer) clearTimeout(timer);
-      if (document.visibilityState === "visible") void poll();
-    };
-    void poll();
-    document.addEventListener("visibilitychange", visibility);
-    return () => { stopped = true; if (timer) clearTimeout(timer); document.removeEventListener("visibilitychange", visibility); };
+    return () => events.close();
   }, []);
 
   useEffect(() => {
     const previous = previousRunningRef.current;
-    const completed = [...previous].filter((id) => !runningIds.has(id) && id !== selectedSessionId);
+    const completed = [...previous].filter((id) => !runningIds.has(id));
+    const completedInBackground = completed.filter((id) => id !== selectedSessionId);
+    if (completedInBackground.length) {
+      setUnreadIds((current) => new Set([...current, ...completedInBackground]));
+    }
     if (completed.length) {
-      setUnreadIds((current) => new Set([...current, ...completed]));
       onBackgroundTaskDone?.();
       void loadData(true);
     }
@@ -548,7 +538,11 @@ export function CodexSidebar({
                       <Pin size={12} aria-hidden="true" />
                     </span>
                   )}
-                  {runningCount > 0 && <span className="codex-project-running" title={t("sidebar.agentRunning")}>{runningCount}</span>}
+                  {runningCount > 0 && (
+                    <span className="codex-project-running" title={t("sidebar.agentRunning")} aria-label={t("sidebar.agentRunning")} role="status">
+                      <LoaderCircle size={12} strokeWidth={1.8} aria-hidden="true" />
+                    </span>
+                  )}
                   {unreadCount > 0 && <span className="codex-project-unread" title={t("sidebar.newActivity")}>{unreadCount}</span>}
                 </div>
                 {!showArchived && (
