@@ -127,3 +127,16 @@ Date: 2026-08-12 · Branch: `migration/tanstack-start`
 | `?cwd=` | PASS | loads and renders the selected project |
 | PWA assets / versions | PASS | manifest/sw/offline/icons 200; client bundle carries 0.8.8-beta.1; app-update shape documented |
 
+
+## Task 21 — Final Verification
+
+- Final commit candidate: `d90e891` (docs), Windows-gate commit `276243e` (`.gitattributes` LF enforcement)
+- Node v22.22.1 / npm 10.9.4; clean `npm ci` exit 0
+- Tests: 587/587 pass, 0 fail; lint 0 errors / 9 warnings; `tsc --noEmit` clean; `git diff --check` clean
+- Final standalone output `/tmp/pi-web-tanstack-final-standalone.IHuuUN`: verifier ok (23,707 files / 166.4 MB, all five package versions identical), smoke 59 route probes / 0 failures (31 sessions)
+- Final tarball: `agegr-pi-web-0.8.8-beta.1.tgz`, 5,002,281 bytes, sha512 `b4f73095…c63119cf8`; installed-package smoke passes; no `.output` in repository
+- Final 310-second SSE gate: 330,011 ms elapsed, 12 heartbeats (≥10), connected frame seen, exit 0
+- Windows CI: run [31593861847](https://github.com/icekale/pi-web/actions/runs/31593861847) on `276243e` — success (quality gates, Windows build, pack/install/smoke). Earlier `d90e891` run failed on CRLF-checked-out sources (`end of file content block not found`); fixed by `.gitattributes` (`* text=lf eol=lf`), root cause reproduced locally (CRLF source → 3 fixture-locating tests fail, LF → pass)
+- Protected files (`lib/rpc-manager.ts`, `lib/agent-event-stream.ts`, `lib/request-security.ts`, `lib/web-auth.ts`) unchanged vs `0f6a152`: diff exit 0
+- No Next.js imports/refs (remaining `.next` matches are ignore-directory names, JS iterators, and anti-Next test assertions); no repository `.output`; no secret-bearing files tracked
+- No merge, tag, npm publish, GitHub Release, or worktree deletion occurred
