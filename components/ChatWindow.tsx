@@ -705,7 +705,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
               };
 
-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[] } = {}): ReactNode => {
+              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; defaultDetailsExpanded?: boolean; writtenFiles?: WrittenFile[] } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
                 const prevAssistantEntryId =
                   msg.role === "user" && idx > 0 && messages[idx - 1].role === "assistant"
@@ -745,6 +745,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                     showTimestamp={showTimestamp}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
+                    defaultDetailsExpanded={options.defaultDetailsExpanded}
                     writtenFiles={options.writtenFiles}
                   />
                 );
@@ -782,7 +783,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 const isLiveTail = (sessionBusy || streamState.isStreaming) && endIdx === messages.length && userIdx === lastAnchorIdx;
                 if (isLiveTail) {
                   for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
-                    rendered.push(renderMessage(renderIdx));
+                    rendered.push(renderMessage(renderIdx, { defaultDetailsExpanded: true }));
                   }
                   idx = endIdx;
                   continue;
@@ -813,7 +814,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                   const processGroup = (
                     <ProcessDetailsGroup
                       messageCount={processCount}
-                      defaultExpanded
                       t={t}
                       toolCallCount={countToolCalls(messages, visibleProcessIndices) + countToolCallBlocks(finalSplit.processBlocks)}
                     >
@@ -864,7 +864,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               );
             })()}
             {streamState.isStreaming && hasStreamingContent && streamState.streamingMessage && (
-              <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} />
+              <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} defaultDetailsExpanded />
             )}
 
             {agentRunning && !hasStreamingContent && agentPhase && (

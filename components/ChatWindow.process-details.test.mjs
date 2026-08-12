@@ -4,8 +4,9 @@ import test from "node:test";
 
 const source = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 
-test("expands process details by default", () => {
+test("collapses completed process details and expands only live details", () => {
   assert.match(source, /const \[expanded, setExpanded\] = useState\(defaultExpanded\)/);
-  assert.match(source, /^\s+defaultExpanded\s*$/m);
-  assert.doesNotMatch(source, /defaultExpanded=\{!finalAnswerMessage\}/);
+  assert.doesNotMatch(source, /<ProcessDetailsGroup[\s\S]*?\n\s+defaultExpanded(?:=|\s*\n)/);
+  assert.match(source, /renderMessage\(renderIdx, \{ defaultDetailsExpanded: true \}\)/);
+  assert.match(source, /<MessageView message=\{streamState\.streamingMessage as AgentMessage\} isStreaming[^>]*defaultDetailsExpanded/);
 });
