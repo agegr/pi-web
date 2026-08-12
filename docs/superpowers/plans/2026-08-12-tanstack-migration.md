@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace Next.js with TanStack Start while preserving all 40 API contracts, security, AppShell/PWA behavior, CLI behavior, and installable npm-package operation on macOS and Windows.
+**Goal:** Replace Next.js with TanStack Start while preserving all 41 API contracts, the Codex-style project workspace UI through `main@97ca430`, security, AppShell/PWA behavior, CLI behavior, and installable npm-package operation on macOS and Windows.
 
 **Architecture:** Keep `app/api/**/route.ts` as internal standard Web `Request -> Response` handlers and expose them through thin file-route adapters in `src/routes/api/**`. Configure global request security in `src/start.ts`, keep dispatcher initialization at module evaluation in `src/server.ts`, move the single-page shell into the TanStack root/index routes, and build Nitro into external directories in separate standalone and publication modes. Publication is proven from a staged npm tarball installed into a fresh temporary project before Next artifacts are retired.
 
@@ -25,7 +25,7 @@ When any hard-gate command fails, stop immediately. Do not weaken a test, skip a
 
 Never modify the main worktree at `/Users/kale/pi-web`. Never run `next build`. Never create `.output` in this worktree. Never stop the user process on port `30142`. Never log credentials, API keys, prompt text, or session file contents.
 
-Protected files must remain byte-for-byte unchanged from the migration-plan baseline:
+Protected files must remain byte-for-byte unchanged from the post-main-integration baseline `0f6a152`:
 
 ```text
 lib/rpc-manager.ts
@@ -37,7 +37,7 @@ lib/web-auth.ts
 Use this check at every phase gate:
 
 ```bash
-git diff --exit-code 58fb9c1 -- \
+git diff --exit-code 0f6a152 -- \
   lib/rpc-manager.ts \
   lib/agent-event-stream.ts \
   lib/request-security.ts \
@@ -58,6 +58,8 @@ Expected: exit 0 and no output.
 | `src/routes/__root.tsx` | HTML document, metadata, global CSS, theme bootstrap, PWA registration |
 | `src/routes/index.tsx` | `/` route, search validation, AppShell mount |
 | `components/AppShell.tsx` | application orchestration and TanStack navigation/search usage |
+| `components/CodexSidebar.tsx` | project registry actions, running-session SSE, unread state, and Codex-style project activity |
+| `components/SettingsPage.tsx` | consolidated general/project/model/skill/plugin settings experience |
 | `app/globals.css` | existing design plus local font variable |
 | `components/PwaRegistration.tsx` | production service-worker registration and versioned script URL |
 | `public/sw.js` | offline/navigation behavior and Vite asset caching |
@@ -72,11 +74,11 @@ Expected: exit 0 and no output.
 
 | File or group | Responsibility |
 | --- | --- |
-| `src/routes/api/**` | 40 thin method/parameter adapters |
+| `src/routes/api/**` | 41 thin method/parameter adapters |
 | `src/request-security.ts` | testable framework bridge that returns rejection responses or `undefined` |
 | `src/start.ts` | global Start request middleware and explicit server-function CSRF middleware |
 | `public/manifest.webmanifest` | static PWA manifest copied from the former Next manifest |
-| `lib/tanstack-route-inventory.test.mjs` | guards 40 handler files, 40 adapters, methods, and no Next API use |
+| `lib/tanstack-route-inventory.test.mjs` | guards 41 handler files, 41 adapters, methods, and no Next API use |
 | `lib/tanstack-request-security.test.mjs` | locks security response behavior before middleware integration |
 | `lib/tanstack-app-shell.test.mjs` | locks route search and replacement-navigation behavior |
 | `lib/tanstack-root.test.mjs` | locks metadata, font, theme bootstrap, PWA, and cache rules |
@@ -105,7 +107,7 @@ lib/next-config-esm.test.mjs
 
 ## Complete API Route Inventory
 
-This table accounts for all 40 existing `app/api/**/route.ts` files. The adapter route string passed to `createFileRoute()` is the URL column. Each adapter imports the listed handler and uses the invocation exactly as shown.
+This table accounts for all 41 existing `app/api/**/route.ts` files at integration baseline `0f6a152`. The adapter route string passed to `createFileRoute()` is the URL column. Each adapter imports the listed handler and uses the invocation exactly as shown.
 
 | # | Internal handler | TanStack adapter | URL | Methods and invocation |
 | ---: | --- | --- | --- | --- |
@@ -121,7 +123,7 @@ This table accounts for all 40 existing `app/api/**/route.ts` files. The adapter
 | 10 | `app/api/auth/login/[provider]/route.ts` | `src/routes/api/auth/login/$provider.ts` | `/api/auth/login/$provider` | `GET(request, providerParams)`, `POST(request, providerParams)` |
 | 11 | `app/api/auth/logout/[provider]/route.ts` | `src/routes/api/auth/logout/$provider.ts` | `/api/auth/logout/$provider` | `POST(request, providerParams)` |
 | 12 | `app/api/auth/providers/route.ts` | `src/routes/api/auth/providers.ts` | `/api/auth/providers` | `GET()` |
-| 13 | `app/api/cwd/browse/route.ts` | `src/routes/api/cwd/browse.ts` | `/api/cwd/browse` | `GET(request)` |
+| 13 | `app/api/cwd/browse/route.ts` | `src/routes/api/cwd/browse.ts` | `/api/cwd/browse` | `GET(request)`, `POST(request)` |
 | 14 | `app/api/cwd/validate/route.ts` | `src/routes/api/cwd/validate.ts` | `/api/cwd/validate` | `POST(request)` |
 | 15 | `app/api/default-cwd/route.ts` | `src/routes/api/default-cwd.ts` | `/api/default-cwd` | `POST()` |
 | 16 | `app/api/file-index/route.ts` | `src/routes/api/file-index.ts` | `/api/file-index` | `GET(request)` |
@@ -136,19 +138,20 @@ This table accounts for all 40 existing `app/api/**/route.ts` files. The adapter
 | 25 | `app/api/models/route.ts` | `src/routes/api/models.ts` | `/api/models` | `GET(request)` |
 | 26 | `app/api/plugins/route.ts` | `src/routes/api/plugins.ts` | `/api/plugins` | `GET(request)`, `POST(request)` |
 | 27 | `app/api/project-trust/route.ts` | `src/routes/api/project-trust.ts` | `/api/project-trust` | `GET(request)`, `POST(request)` |
-| 28 | `app/api/sessions/[id]/auto-name/route.ts` | `src/routes/api/sessions/$id/auto-name.ts` | `/api/sessions/$id/auto-name` | `POST(request, idParams)` |
-| 29 | `app/api/sessions/[id]/context/route.ts` | `src/routes/api/sessions/$id/context.ts` | `/api/sessions/$id/context` | `GET(request, idParams)` |
-| 30 | `app/api/sessions/[id]/entries/[entryId]/thinking/route.ts` | `src/routes/api/sessions/$id/entries/$entryId/thinking.ts` | `/api/sessions/$id/entries/$entryId/thinking` | `GET(request, idEntryParams)` |
-| 31 | `app/api/sessions/[id]/export/route.ts` | `src/routes/api/sessions/$id/export.ts` | `/api/sessions/$id/export` | `GET(request, idParams)` |
-| 32 | `app/api/sessions/[id]/route.ts` | `src/routes/api/sessions/$id.ts` | `/api/sessions/$id` | `GET(request, idParams)`, `PATCH(request, idParams)`, `DELETE(request, idParams)` |
-| 33 | `app/api/sessions/[id]/state/route.ts` | `src/routes/api/sessions/$id/state.ts` | `/api/sessions/$id/state` | `GET(request, idParams)` |
-| 34 | `app/api/sessions/route.ts` | `src/routes/api/sessions.ts` | `/api/sessions` | `GET(request)` |
-| 35 | `app/api/skills/check/route.ts` | `src/routes/api/skills/check.ts` | `/api/skills/check` | `POST(request)` |
-| 36 | `app/api/skills/install/route.ts` | `src/routes/api/skills/install.ts` | `/api/skills/install` | `POST(request)` |
-| 37 | `app/api/skills/route.ts` | `src/routes/api/skills.ts` | `/api/skills` | `GET(request)`, `PATCH(request)` |
-| 38 | `app/api/skills/search/route.ts` | `src/routes/api/skills/search.ts` | `/api/skills/search` | `POST(request)` |
-| 39 | `app/api/skills/update/route.ts` | `src/routes/api/skills/update.ts` | `/api/skills/update` | `POST(request)` |
-| 40 | `app/api/worktrees/route.ts` | `src/routes/api/worktrees.ts` | `/api/worktrees` | `GET(request)`, `POST(request)`, `DELETE(request)` |
+| 28 | `app/api/projects/route.ts` | `src/routes/api/projects.ts` | `/api/projects` | `GET()`, `PUT(request)` |
+| 29 | `app/api/sessions/[id]/auto-name/route.ts` | `src/routes/api/sessions/$id/auto-name.ts` | `/api/sessions/$id/auto-name` | `POST(request, idParams)` |
+| 30 | `app/api/sessions/[id]/context/route.ts` | `src/routes/api/sessions/$id/context.ts` | `/api/sessions/$id/context` | `GET(request, idParams)` |
+| 31 | `app/api/sessions/[id]/entries/[entryId]/thinking/route.ts` | `src/routes/api/sessions/$id/entries/$entryId/thinking.ts` | `/api/sessions/$id/entries/$entryId/thinking` | `GET(request, idEntryParams)` |
+| 32 | `app/api/sessions/[id]/export/route.ts` | `src/routes/api/sessions/$id/export.ts` | `/api/sessions/$id/export` | `GET(request, idParams)` |
+| 33 | `app/api/sessions/[id]/route.ts` | `src/routes/api/sessions/$id.ts` | `/api/sessions/$id` | `GET(request, idParams)`, `PATCH(request, idParams)`, `DELETE(request, idParams)` |
+| 34 | `app/api/sessions/[id]/state/route.ts` | `src/routes/api/sessions/$id/state.ts` | `/api/sessions/$id/state` | `GET(request, idParams)` |
+| 35 | `app/api/sessions/route.ts` | `src/routes/api/sessions.ts` | `/api/sessions` | `GET(request)` |
+| 36 | `app/api/skills/check/route.ts` | `src/routes/api/skills/check.ts` | `/api/skills/check` | `POST(request)` |
+| 37 | `app/api/skills/install/route.ts` | `src/routes/api/skills/install.ts` | `/api/skills/install` | `POST(request)` |
+| 38 | `app/api/skills/route.ts` | `src/routes/api/skills.ts` | `/api/skills` | `GET(request)`, `PATCH(request)` |
+| 39 | `app/api/skills/search/route.ts` | `src/routes/api/skills/search.ts` | `/api/skills/search` | `POST(request)` |
+| 40 | `app/api/skills/update/route.ts` | `src/routes/api/skills/update.ts` | `/api/skills/update` | `POST(request)` |
+| 41 | `app/api/worktrees/route.ts` | `src/routes/api/worktrees.ts` | `/api/worktrees` | `GET(request)`, `POST(request)`, `DELETE(request)` |
 
 Parameter bridges used in the table:
 
@@ -180,11 +183,11 @@ Run:
 cd /Users/kale/pi-web-worktrees/migration-tanstack-start
 git status --short --branch
 git rev-parse HEAD
-git merge-base --is-ancestor 58fb9c1 HEAD
+git merge-base --is-ancestor 0f6a152 HEAD
 test ! -e .output
 ```
 
-Expected: branch is `migration/tanstack-start`, status contains no changed files, the ancestor check exits 0, and `.output` is absent.
+Expected: branch is `migration/tanstack-start`, status contains no changed files, `0f6a152` is an ancestor, and `.output` is absent. Do not merge or rebase a newer `main`; the plan is scoped through `main@97ca430`.
 
 - [ ] **Step 2: Install the locked dependencies without ambient production mode**
 
@@ -201,19 +204,23 @@ Expected: exit 0 and the exact `package-lock.json` dependency graph is installed
 Run:
 
 ```bash
+set +e
 env -u NODE_ENV -u PI_WEB_PASSWORD npm test
+PI_WEB_BASELINE_TEST_STATUS=$?
+set -e
+test "$PI_WEB_BASELINE_TEST_STATUS" -eq 1
 npm run lint
 node_modules/.bin/tsc --noEmit
 ```
 
-Expected: 554 tests pass with 0 failures; lint exits 0 with only the already-recorded `src/routes/__root.tsx` warning; type checking exits 0.
+Expected at the start of execution: `npm test` exits 1 with 556 of 558 tests passing. The only failures must be the two `components/ExtensionWidgets.test.mjs` cases reporting `useI18n must be used inside I18nProvider`; no other test may fail. The explicit status assertion and type checking exit 0. Lint exits 0 with exactly 11 existing warnings: one `ChatInput.tsx` image-alt warning, nine `CodexSidebar.tsx` warnings, and one `src/routes/__root.tsx` Next-rule `<head>` warning. Do not use this expected-failure wrapper after Task 1A, and do not allow the warning count to increase.
 
 - [ ] **Step 4: Verify the protected-file baseline**
 
 Run:
 
 ```bash
-git diff --exit-code 58fb9c1 -- \
+git diff --exit-code 0f6a152 -- \
   lib/rpc-manager.ts \
   lib/agent-event-stream.ts \
   lib/request-security.ts \
@@ -222,16 +229,73 @@ git diff --exit-code 58fb9c1 -- \
 
 Expected: exit 0 and no output. Do not create a commit for this task.
 
+### Task 1A: Repair The Existing ExtensionWidgets Test Fixture
+
+**Files:**
+- Modify: `components/ExtensionWidgets.test.mjs`
+- Preserve: `components/ExtensionWidgets.tsx`
+
+- [ ] **Step 1: Confirm the two baseline failures**
+
+Run:
+
+```bash
+node --experimental-strip-types --test components/ExtensionWidgets.test.mjs
+```
+
+Expected: exactly two failures, both `useI18n must be used inside I18nProvider`.
+
+- [ ] **Step 2: Wrap the component in the real provider**
+
+Import the existing provider next to `ExtensionWidgets`:
+
+```js
+const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
+
+function renderWidgets(props) {
+  return renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ExtensionWidgets, props),
+    ),
+  );
+}
+```
+
+Replace both direct `renderToStaticMarkup(React.createElement(ExtensionWidgets, ...))` expressions with `renderWidgets({ widgets: [...] })`. Do not change production code or expected strings.
+
+- [ ] **Step 3: Verify the fixture and full baseline**
+
+Run:
+
+```bash
+node --experimental-strip-types --test components/ExtensionWidgets.test.mjs
+env -u NODE_ENV -u PI_WEB_PASSWORD npm test
+```
+
+Expected: the focused file passes 2 of 2 and the full suite passes 558 of 558 with zero failures.
+
+- [ ] **Step 4: Commit the baseline repair**
+
+```bash
+git add components/ExtensionWidgets.test.mjs
+git diff --cached --check
+git commit -m "test: provide i18n context to extension widgets"
+```
+
+Expected: a test-only commit. All subsequent phase gates require zero test failures.
+
 ### Task 2: Convert All Internal API Handlers To Standard Web APIs
 
 **Files:**
 - Create: `lib/tanstack-route-inventory.test.mjs`
-- Modify: the 31 `app/api/**/route.ts` files still reported by the failure command below
+- Modify: the 32 `app/api/**/route.ts` files still reported by the failure command below
 - Preserve: the 9 handlers already using standard Web APIs
 
 - [ ] **Step 1: Write the failing handler inventory test**
 
-Create `lib/tanstack-route-inventory.test.mjs` with an explicit `EXPECTED_ROUTES` object containing the 40 internal-handler paths and method arrays from the route table above. The test must include these assertions:
+Create `lib/tanstack-route-inventory.test.mjs` with an explicit `EXPECTED_ROUTES` object containing the 41 internal-handler paths and method arrays from the route table above. The test must include these assertions:
 
 ```js
 import assert from "node:assert/strict";
@@ -251,9 +315,9 @@ async function filesNamedRoute(directory) {
   return nested.flat().sort();
 }
 
-test("the internal API inventory contains exactly the expected 40 routes", async () => {
+test("the internal API inventory contains exactly the expected 41 routes", async () => {
   const actual = await filesNamedRoute(join(ROOT, "app", "api"));
-  assert.equal(actual.length, 40);
+  assert.equal(actual.length, 41);
   assert.deepEqual(actual, Object.keys(EXPECTED_ROUTES).sort());
 });
 
@@ -285,7 +349,7 @@ const EXPECTED_ROUTES = {
   "app/api/auth/login/[provider]/route.ts": ["GET", "POST"],
   "app/api/auth/logout/[provider]/route.ts": ["POST"],
   "app/api/auth/providers/route.ts": ["GET"],
-  "app/api/cwd/browse/route.ts": ["GET"],
+  "app/api/cwd/browse/route.ts": ["GET", "POST"],
   "app/api/cwd/validate/route.ts": ["POST"],
   "app/api/default-cwd/route.ts": ["POST"],
   "app/api/file-index/route.ts": ["GET"],
@@ -300,6 +364,7 @@ const EXPECTED_ROUTES = {
   "app/api/models/route.ts": ["GET"],
   "app/api/plugins/route.ts": ["GET", "POST"],
   "app/api/project-trust/route.ts": ["GET", "POST"],
+  "app/api/projects/route.ts": ["GET", "PUT"],
   "app/api/sessions/[id]/auto-name/route.ts": ["POST"],
   "app/api/sessions/[id]/context/route.ts": ["GET"],
   "app/api/sessions/[id]/entries/[entryId]/thinking/route.ts": ["GET"],
@@ -316,7 +381,7 @@ const EXPECTED_ROUTES = {
 };
 ```
 
-The final file must contain all 40 literal entries; do not derive expected values from the files being tested.
+The final file must contain all 41 literal entries; do not derive expected values from the files being tested.
 
 - [ ] **Step 2: Run the focused test and confirm the expected failure**
 
@@ -328,7 +393,7 @@ env -u PI_WEB_PASSWORD node --experimental-strip-types --test lib/tanstack-route
 
 Expected: the count/method inventory passes and the Web API test fails on the first remaining `next/server`, `NextRequest`, `NextResponse`, or `.nextUrl` occurrence.
 
-- [ ] **Step 3: Mechanically convert the 31 reported handlers**
+- [ ] **Step 3: Mechanically convert the 32 reported handlers**
 
 Apply only these replacements, preserving all business logic and response initialization:
 
@@ -353,7 +418,7 @@ Use the source scan as the exact work list:
 rg -l 'next/server|NextRequest|NextResponse|\.nextUrl' app/api --glob 'route.ts' | sort
 ```
 
-Expected before editing: 31 files. Expected after editing: no output and exit 1 from `rg` because no matches remain.
+Expected before editing at `0f6a152`: 32 files. Expected after editing: no output and exit 1 from `rg` because no matches remain.
 
 Do not change exported method names, parameter object shapes, response payloads, status codes, headers, cache directives, stream bodies, filesystem operations, or Pi session behavior. Remove only imports made unused by these conversions.
 
@@ -384,23 +449,23 @@ git diff --cached --check
 git commit -m "refactor: make API handlers framework neutral"
 ```
 
-Expected: one commit containing only the 31 mechanical handler conversions and the inventory test.
+Expected: one commit containing only the 32 mechanical handler conversions and the inventory test.
 
-### Task 3: Add All 40 TanStack API Adapters
+### Task 3: Add All 41 TanStack API Adapters
 
 **Files:**
 - Modify: `lib/tanstack-route-inventory.test.mjs`
-- Create: the 37 missing adapter files listed in the complete route inventory
+- Create: the 38 missing adapter files listed in the complete route inventory
 - Modify (generated): `src/routeTree.gen.ts`
 - Preserve: the 3 spike adapters already present
 
 - [ ] **Step 1: Extend the inventory test to require every adapter and method**
 
-Add an explicit `EXPECTED_ADAPTERS` object with all 40 adapter paths, route IDs, and methods from the table. Add this test:
+Add an explicit `EXPECTED_ADAPTERS` object with all 41 adapter paths, route IDs, and methods from the table. Add this test:
 
 ```js
 test("every API handler has a thin TanStack adapter with the expected route and methods", async () => {
-  assert.equal(Object.keys(EXPECTED_ADAPTERS).length, 40);
+  assert.equal(Object.keys(EXPECTED_ADAPTERS).length, 41);
   for (const [file, expected] of Object.entries(EXPECTED_ADAPTERS)) {
     const source = await readFile(join(ROOT, file), "utf8");
     assert.ok(source.includes(`createFileRoute(${JSON.stringify(expected.route)})`), file);
@@ -427,7 +492,7 @@ const EXPECTED_ADAPTERS = {
   "src/routes/api/auth/login/$provider.ts": { route: "/api/auth/login/$provider", methods: ["GET", "POST"] },
   "src/routes/api/auth/logout/$provider.ts": { route: "/api/auth/logout/$provider", methods: ["POST"] },
   "src/routes/api/auth/providers.ts": { route: "/api/auth/providers", methods: ["GET"] },
-  "src/routes/api/cwd/browse.ts": { route: "/api/cwd/browse", methods: ["GET"] },
+  "src/routes/api/cwd/browse.ts": { route: "/api/cwd/browse", methods: ["GET", "POST"] },
   "src/routes/api/cwd/validate.ts": { route: "/api/cwd/validate", methods: ["POST"] },
   "src/routes/api/default-cwd.ts": { route: "/api/default-cwd", methods: ["POST"] },
   "src/routes/api/file-index.ts": { route: "/api/file-index", methods: ["GET"] },
@@ -442,6 +507,7 @@ const EXPECTED_ADAPTERS = {
   "src/routes/api/models.ts": { route: "/api/models", methods: ["GET"] },
   "src/routes/api/plugins.ts": { route: "/api/plugins", methods: ["GET", "POST"] },
   "src/routes/api/project-trust.ts": { route: "/api/project-trust", methods: ["GET", "POST"] },
+  "src/routes/api/projects.ts": { route: "/api/projects", methods: ["GET", "PUT"] },
   "src/routes/api/sessions/$id/auto-name.ts": { route: "/api/sessions/$id/auto-name", methods: ["POST"] },
   "src/routes/api/sessions/$id/context.ts": { route: "/api/sessions/$id/context", methods: ["GET"] },
   "src/routes/api/sessions/$id/entries/$entryId/thinking.ts": { route: "/api/sessions/$id/entries/$entryId/thinking", methods: ["GET"] },
@@ -458,7 +524,7 @@ const EXPECTED_ADAPTERS = {
 };
 ```
 
-The final object must remain at exactly 40 entries.
+The final object must remain at exactly 41 entries.
 
 - [ ] **Step 2: Run the focused test and confirm adapters are missing**
 
@@ -494,7 +560,7 @@ For methods whose table invocation is `METHOD()`, omit the request argument:
 GET: () => getHandler(),
 ```
 
-Create every static adapter from rows 4-8, 12-16, 18-27, and 34-40 that does not already exist. Include every method shown in the table; multi-method files must delegate each method to the same internal module.
+Create every static adapter from rows 4-8, 12-16, 18-28, and 35-41 that does not already exist. Include every method shown in the table; multi-method files must delegate each method to the same internal module. In particular, `/api/cwd/browse` delegates both `GET` and `POST`, while `/api/projects` delegates `GET()` and `PUT(request)`.
 
 - [ ] **Step 4: Add dynamic and catch-all adapters**
 
@@ -522,7 +588,7 @@ GET: ({ request, params }) => getHandler(request, {
 }),
 ```
 
-Create rows 1-3, 9-11, and 28-33, and add the missing `GET` method to the existing `src/routes/api/files/$.ts` adapter. Preserve the already-passing sessions and per-session events adapters.
+Create rows 1-3, 9-11, and 29-34, and add the missing `GET` method to the existing `src/routes/api/files/$.ts` adapter. Preserve the already-passing sessions and per-session events adapters.
 
 - [ ] **Step 5: Generate the route tree in an external build**
 
@@ -533,7 +599,7 @@ export PI_WEB_TANSTACK_OUTPUT_DIR="$(mktemp -d /tmp/pi-web-tanstack-routes.XXXXX
 npm run build:tanstack
 ```
 
-Expected: build exits 0; `src/routeTree.gen.ts` is regenerated with `/`, all 40 API routes, and no duplicate/conflicting route errors; no `.output` exists in the worktree.
+Expected: build exits 0; `src/routeTree.gen.ts` is regenerated with `/`, all 41 API routes, and no duplicate/conflicting route errors; no `.output` exists in the worktree.
 
 - [ ] **Step 6: Verify inventory and type safety**
 
@@ -545,11 +611,11 @@ env -u PI_WEB_PASSWORD node --experimental-strip-types --test \
   lib/tanstack-agent-events-route.test.mjs \
   lib/tanstack-sessions-route.test.mjs
 node_modules/.bin/tsc --noEmit
-test "$(find src/routes/api -name '*.ts' -print | wc -l | tr -d ' ')" = "40"
+test "$(find src/routes/api -name '*.ts' -print | wc -l | tr -d ' ')" = "41"
 test ! -e .output
 ```
 
-Expected: all tests and type checking pass; the adapter count is exactly 40; `.output` is absent.
+Expected: all tests and type checking pass; the adapter count is exactly 41; `.output` is absent.
 
 - [ ] **Step 7: Commit the full adapter layer**
 
@@ -561,7 +627,7 @@ git diff --cached --check
 git commit -m "feat: expose all API routes through TanStack Start"
 ```
 
-Expected: one commit containing the 37 new adapters, the completed existing files, generated route tree, and adapter inventory assertions.
+Expected: one commit containing the 38 new adapters, the completed existing files, generated route tree, and adapter inventory assertions.
 
 ### Task 4: Install Global Security Middleware
 
@@ -827,15 +893,15 @@ Expected: one commit with the reusable gate and sanitized evidence.
 Run:
 
 ```bash
-test "$(find app/api -name route.ts -print | wc -l | tr -d ' ')" = "40"
-test "$(find src/routes/api -name '*.ts' -print | wc -l | tr -d ' ')" = "40"
+test "$(find app/api -name route.ts -print | wc -l | tr -d ' ')" = "41"
+test "$(find src/routes/api -name '*.ts' -print | wc -l | tr -d ' ')" = "41"
 ! rg -n 'next/server|NextRequest|NextResponse|\.nextUrl' app/api --glob 'route.ts'
 env -u PI_WEB_PASSWORD node --experimental-strip-types --test \
   lib/tanstack-route-inventory.test.mjs \
   lib/tanstack-request-security.test.mjs
 ```
 
-Expected: both counts are exactly 40, `rg` finds nothing, and all focused tests pass.
+Expected: both counts are exactly 41, `rg` finds nothing, and all focused tests pass.
 
 - [ ] **Step 2: Run the full local quality gate**
 
@@ -873,7 +939,7 @@ Run:
 env -u PI_WEB_PASSWORD node --experimental-strip-types --test \
   lib/tanstack-server-startup.test.mjs \
   lib/http-dispatcher.test.mjs
-git diff --exit-code 58fb9c1 -- \
+git diff --exit-code 0f6a152 -- \
   lib/rpc-manager.ts \
   lib/agent-event-stream.ts \
   lib/request-security.ts \
@@ -888,7 +954,7 @@ Run:
 
 ```bash
 git status --short --branch
-git log --oneline 58fb9c1..HEAD
+git log --oneline 0f6a152..HEAD
 ```
 
 Expected: only an intentional evidence update may be uncommitted; commit it with `docs: record TanStack Phase 1 gate` before proceeding. Review all Phase 1 commits. Do not begin Phase 2 unless every preceding gate passed.
@@ -920,6 +986,13 @@ test("AppShell uses TanStack navigation instead of next/navigation", () => {
   assert.match(appShell, /useNavigate/);
   assert.match(appShell, /replace:\s*true/);
   assert.match(appShell, /resetScroll:\s*false/);
+});
+
+test("the migrated shell preserves the integrated project workspace", () => {
+  assert.match(appShell, /import \{ CodexSidebar \} from "\.\/CodexSidebar"/);
+  assert.match(appShell, /import \{ SettingsPage \} from "\.\/SettingsPage"/);
+  assert.match(appShell, /<CodexSidebar/);
+  assert.match(appShell, /<SettingsPage/);
 });
 
 test("the index route validates optional session and cwd search strings", () => {
@@ -1031,7 +1104,10 @@ node --experimental-strip-types --test \
   components/AppShell.auto-name.test.mjs \
   components/AppShell.file-viewer-state.test.mjs \
   components/AppShell.mobile-toolbar.test.mjs \
-  components/AppShell.workspace-memory.test.mjs
+  components/AppShell.workspace-memory.test.mjs \
+  components/CodexSidebar.test.mjs \
+  components/SettingsPage.test.mjs \
+  lib/project-registry.test.mjs
 node_modules/.bin/tsc --noEmit
 ```
 
@@ -1191,7 +1267,9 @@ Run:
 node --experimental-strip-types --test \
   lib/tanstack-root.test.mjs \
   components/MobilePwaLayout.test.mjs \
-  components/SessionSidebar.test.mjs \
+  components/CodexSidebar.test.mjs \
+  components/SettingsPage.test.mjs \
+  lib/project-registry.test.mjs \
   components/ChatWindow.process-details.test.mjs
 node_modules/.bin/tsc --noEmit
 export PI_WEB_TANSTACK_OUTPUT_DIR="$(mktemp -d /tmp/pi-web-tanstack-root.XXXXXX)"
@@ -1428,6 +1506,10 @@ Theme is applied before paint without a light/dark flash.
 No hydration error appears in the console.
 Manifest and service worker register in a production build.
 Desktop and narrow mobile layouts remain usable without overlap.
+CodexSidebar lists projects and persists pin, order, rename, archive, restore, and remove actions.
+The consolidated SettingsPage opens and retains General, Project, Models, Skills, and Plugins sections.
+Creating a folder through DirectoryPicker uses POST /api/cwd/browse and navigates into the new folder.
+A running background session shows the project-row spinner through /api/agent/running/events; completion removes it and produces an unread marker only for a background session.
 ```
 
 Use a local non-sensitive test session/path. Do not put its identifier or contents in the evidence document.
@@ -1437,13 +1519,13 @@ Use a local non-sensitive test session/path. Do not put its identifier or conten
 Run:
 
 ```bash
-git diff --exit-code 58fb9c1 -- \
+git diff --exit-code 0f6a152 -- \
   lib/rpc-manager.ts \
   lib/agent-event-stream.ts \
   lib/request-security.ts \
   lib/web-auth.ts
 git status --short --branch
-git log --oneline 58fb9c1..HEAD
+git log --oneline 0f6a152..HEAD
 ```
 
 Expected: protected files unchanged and worktree clean after committing any evidence update as `docs: record TanStack Phase 2 gate`. Do not begin Phase 3 unless every Phase 2 item passed.
@@ -1478,6 +1560,8 @@ the generated server has runtime import edges for all five packages;
 <output>/server/node_modules/@earendil-works does not exist;
 <output>/server/node_modules/undici does not exist;
 ```
+
+Keep the five server-sensitive packages unchanged in the externalization/copy set. Separately require `lucide-react` to remain a production dependency and resolve after staging/installing the publication package. It is a client-source dependency used by CodexSidebar, SettingsPage, and the activity spinner; do not add it to `ssr.external`, `traceDeps`, or `copyExternalPackages` unless a generated server runtime import proves that necessary.
 
 In publication mode, do not attempt to import the server until the output is staged with installed dependencies; the installed-package smoke performs that proof.
 
@@ -1802,6 +1886,7 @@ sets --no-open -H 127.0.0.1 -p from PI_WEB_TANSTACK_SMOKE_PORT or 30147;
 waits for HTTP readiness rather than trusting log text alone;
 probes root, sessions, manifest, service worker, and security rejection;
 checks runtime resolution of all five sensitive dependencies from the installed package;
+checks `lucide-react` is listed under staged production dependencies and resolves from the installed package;
 terminates the CLI in finally and propagates failures.
 ```
 
@@ -1838,7 +1923,10 @@ undici
 @earendil-works/pi-agent-core
 @earendil-works/pi-ai
 @earendil-works/pi-tui
+lucide-react
 ```
+
+The first five versions prove the existing server-sensitive externalization contract. `lucide-react` is the separate production-manifest/installability check; it need not appear as a server runtime import after Vite bundles client code.
 
 Print only temporary directory, versions, endpoint statuses, and pass/fail.
 
@@ -1880,7 +1968,7 @@ compressed and unpacked sizes;
 file count;
 fresh install success;
 CLI startup/status results;
-five resolved dependency versions;
+five server-sensitive dependency versions plus the separately resolved `lucide-react` version;
 confirmation that .output/server/node_modules did not duplicate Pi packages;
 confirmation that no repository .output was created.
 ```
@@ -2146,7 +2234,7 @@ npm ls next eslint-config-next --depth=0 >/tmp/pi-web-next-ls.txt 2>&1; test "$?
 ! rg -n 'from ["'"']next/|next (dev|build|start)|next/dist|\.next' \
   app components hooks lib src bin scripts package.json tsconfig.json eslint.config.mjs \
   --glob '!docs/**' --glob '!*.test.mjs'
-git diff --exit-code 58fb9c1 -- \
+git diff --exit-code 0f6a152 -- \
   lib/rpc-manager.ts \
   lib/agent-event-stream.ts \
   lib/request-security.ts \
@@ -2169,7 +2257,7 @@ Expected: the exact Phase 3 commit has a successful Windows run and the worktree
 
 # Phase 4: Functional And Cross-Platform Regression
 
-### Task 18: Expand Runtime Smoke Across All 40 Routes Without Destructive Side Effects
+### Task 18: Expand Runtime Smoke Across All 41 Routes Without Destructive Side Effects
 
 **Files:**
 - Modify: `scripts/smoke-tanstack-output.mjs`
@@ -2185,12 +2273,12 @@ The safe probe matrix must at least cover:
 ```text
 sessions/list and an existing session read/state/context/export;
 agent/running and both SSE endpoint headers with immediate abort;
-home, cwd browse with home, cwd validate invalid input, default-cwd method rejection only;
+home, cwd browse with home, cwd browse POST invalid body, cwd validate invalid input, default-cwd method rejection only;
 file-index validation and files read for a bounded fixture;
 git status/diff against a temporary git fixture;
 auth provider listing and API-key status without returning secrets;
 models and models-config reads/catalog; invalid discover/test payloads;
-plugins read; project-trust read with a temporary path;
+plugins read; project-trust read with a temporary path; projects GET and invalid PUT without modifying the real registry;
 skills read/search/check invalid input; worktrees read on a temporary git fixture;
 app-update response shape.
 ```
@@ -2201,11 +2289,11 @@ Create all fixtures under a new temporary directory, authorize them through exis
 
 Add a `probe(method, path, expectedStatuses, init)` helper that records only method/path/status. For dynamic session endpoints, obtain an existing id from `/api/sessions` but redact it from output; if no session exists, mark only those read probes as environment-skipped and keep the separate real SSE gate required. For all other paths, require one of the explicit expected statuses.
 
-Require that the probe specification accounts for exactly all 40 adapter URLs from the inventory test. It may combine methods for a URL but cannot omit a route.
+Require that the probe specification accounts for exactly all 41 adapter URLs from the inventory test. It may combine methods for a URL but cannot omit a route. Include safe invalid-body probes for `PUT /api/projects` and `POST /api/cwd/browse`; do not overwrite the user's project registry or create a folder outside a temporary fixture.
 
 - [ ] **Step 3: Reuse the same safe probe module for installed-package smoke**
 
-Create `scripts/tanstack-route-smoke.mjs` as the shared route-matrix module so standalone and installed-package smoke use the identical 40-route specification. It must accept an origin and fixture context and must not own process startup. Keep this as the sole new abstraction and do not move unrelated smoke logic.
+Create `scripts/tanstack-route-smoke.mjs` as the shared route-matrix module so standalone and installed-package smoke use the identical 41-route specification. It must accept an origin and fixture context and must not own process startup. Keep this as the sole new abstraction and do not move unrelated smoke logic.
 
 - [ ] **Step 4: Run the expanded smoke against both artifact forms**
 
@@ -2219,7 +2307,7 @@ env -u PI_WEB_PASSWORD PI_WEB_TANSTACK_SMOKE_PORT=30147 \
 PI_WEB_TANSTACK_SMOKE_PORT=30147 npm run pack:tanstack
 ```
 
-Expected: both standalone and freshly installed publication package account for all 40 routes; no destructive mutation is performed.
+Expected: both standalone and freshly installed publication package account for all 41 routes; no destructive mutation is performed.
 
 - [ ] **Step 5: Commit expanded route smoke**
 
@@ -2240,11 +2328,19 @@ If the shared module was unnecessary, omit its path from `git add`. Expected: on
 - Modify: `docs/spikes/2026-08-12-tanstack-migration-results.md`
 - Verify: installed publication package in a temporary project
 
-- [ ] **Step 1: Start the exact installed tarball with an isolated browser profile**
+- [ ] **Step 1: Start the exact installed tarball with isolated Pi and browser state**
 
-Run `npm run pack:tanstack`, retain its emitted fresh-install directory, and start that installed `pi-web` on `127.0.0.1:30147` with `--no-open`. Use a temporary, non-sensitive git repository and Pi test session for mutation workflows. Do not use the worktree containing the migration as a file-delete/worktree-delete target.
+Run `npm run pack:tanstack`, retain its emitted fresh-install directory, and create isolated state:
 
-Expected: installed CLI reports ready and root loads the real AppShell.
+```bash
+export PI_WEB_REGRESSION_ROOT="$(mktemp -d /tmp/pi-web-regression.XXXXXX)"
+export PI_CODING_AGENT_DIR="$PI_WEB_REGRESSION_ROOT/agent"
+mkdir -p "$PI_CODING_AGENT_DIR"
+```
+
+Start that installed `pi-web` on `127.0.0.1:30147` with `--no-open` in the same environment so the child inherits `PI_CODING_AGENT_DIR`. Use a temporary browser profile rooted under `$PI_WEB_REGRESSION_ROOT/browser` and a temporary non-sensitive git repository under `$PI_WEB_REGRESSION_ROOT/project` for mutation workflows. Do not use the migration worktree or the user's normal agent directory as a file-delete, registry-write, trust-write, model-write, skill-write, or worktree-delete target. Remove only `$PI_WEB_REGRESSION_ROOT` in `finally` after confirming the variable is non-empty and begins with `/tmp/pi-web-regression.`.
+
+Expected: installed CLI reports ready, root loads the real AppShell, and all registry/config writes resolve beneath `$PI_CODING_AGENT_DIR`.
 
 - [ ] **Step 2: Verify session and agent workflows**
 
@@ -2259,6 +2355,7 @@ New temporary session starts in the chosen cwd.
 Sending a harmless prompt returns streamed events and a completed response.
 Per-session SSE reconnects after page refresh during/after a run.
 Running-session SSE updates the sidebar state.
+The project row shows a spinner while any contained session is running, clears it on completion, and marks only completed background sessions unread.
 Bash-output endpoint returns its documented state for the test session.
 ```
 
@@ -2270,6 +2367,7 @@ Using only temporary fixtures:
 
 ```text
 Browse and validate cwd; default cwd response is valid.
+Create a child folder through the directory picker inside the temporary fixture and enter it.
 File tree/index loads.
 Text file preview/download returns exact bytes.
 Multipart upload succeeds; conflict=error and size limits behave as tested.
@@ -2278,6 +2376,7 @@ Git status and diff reflect a known temporary edit.
 Project trust GET/POST round-trip works in the fixture.
 Create/list/remove a clean temporary worktree.
 Dirty worktree removal returns 409 until explicitly forced in the test fixture.
+Project registry GET/PUT round-trips pin, order, rename, archive, restore, and remove under `$PI_CODING_AGENT_DIR`; the user's normal registry is never read or written.
 ```
 
 - [ ] **Step 4: Verify auth, model, plugin, skill, and update workflows**
@@ -2321,7 +2420,8 @@ In desktop and narrow mobile viewports:
 /?session=<existing> restores the session.
 /?cwd=<encoded-path> starts in that cwd and wins over session when both exist.
 Back/forward history is not polluted by session replacements.
-Theme, locale, model/skill/plugin dialogs, file tabs, and mobile toolbar work.
+The consolidated settings page exposes General, Project, Models, Skills, and Plugins; theme, locale, sound, project trust, model, skill, and plugin controls work.
+CodexSidebar project actions, drag/keyboard ordering, archived-project view, and running-project activity remain usable at desktop and narrow mobile widths.
 Version display shows current web and Pi versions.
 Manifest is installable and icons load.
 Service worker registers from /sw.js with scope /.
@@ -2479,7 +2579,7 @@ Expected: worktree was clean before push and the workflow for the exact pushed H
 Run:
 
 ```bash
-git diff --exit-code 58fb9c1 -- \
+git diff --exit-code 0f6a152 -- \
   lib/rpc-manager.ts \
   lib/agent-event-stream.ts \
   lib/request-security.ts \
@@ -2543,8 +2643,8 @@ Run:
 
 ```bash
 git rev-parse HEAD
-git log --oneline 58fb9c1..HEAD
-git diff --stat 58fb9c1..HEAD
+git log --oneline 0f6a152..HEAD
+git diff --stat 0f6a152..HEAD
 git status --short --branch
 ```
 
@@ -2571,21 +2671,23 @@ Do not merge into `main`, rebase onto new unreviewed work, create a PR unless th
 
 ## Final Acceptance Checklist
 
-- [ ] All 40 internal handlers use standard Web APIs and all 40 TanStack adapters exist.
+- [ ] All 41 internal handlers use standard Web APIs and all 41 TanStack adapters exist.
 - [ ] API paths, methods, bodies, status codes, headers, SSE, upload, and download behavior are unchanged.
 - [ ] Global request security covers root SSR and every server route with the exact legacy response matrix.
 - [ ] Explicit CSRF protection remains for possible server functions.
 - [ ] Dispatcher initialization runs before the first request.
 - [ ] Per-session SSE survives at least 310 seconds through middleware with at least 10 heartbeats.
 - [ ] AppShell, `?session=`, `?cwd=`, replacement navigation, and responsive behavior pass.
+- [ ] CodexSidebar project persistence, consolidated SettingsPage, folder creation, cache-hit statistics, extension-widget title/actions, and live project activity are preserved.
 - [ ] Metadata, theme bootstrap, local Noto Sans Mono, versions, manifest, service worker, cache headers, and offline page pass.
 - [ ] Standalone external output resolves complete Pi packages on macOS and Windows.
+- [ ] `lucide-react` remains a production dependency and resolves in the freshly installed publication package.
 - [ ] Publication output avoids duplicated Pi package trees.
 - [ ] The exact staged tarball installs fresh and its real `pi-web` executable passes smoke.
 - [ ] CLI defaults/options, network warnings, browser readiness, signals, and exit codes are preserved.
 - [ ] Next dependencies, configs, scripts, imports, and artifacts are absent only after installed-tarball proof.
 - [ ] Full tests, lint, typecheck, build verifier, route smoke, installed-package smoke, and Windows CI pass.
-- [ ] Protected core files are unchanged from `58fb9c1`.
+- [ ] Protected core files are unchanged from `0f6a152`, preserving the integrated extension-command/widget-title behavior.
 - [ ] No `.output`, credentials, unrelated edits, or sensitive evidence is present in the repository.
 - [ ] Documentation reflects verified TanStack development and packaging commands.
 - [ ] No automatic merge, tag, npm publish, GitHub Release, or worktree deletion occurred.
