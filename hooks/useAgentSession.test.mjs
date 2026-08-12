@@ -271,6 +271,33 @@ test("plays the enabled sound once for each extension dialog", () => {
   assert.match(chatWindowSource, /playDoneSoundRef\.current\(\)/);
 });
 
+test("routes blocking extension requests through deduplicated browser attention notifications", () => {
+  const completionSource = appShellSource.slice(
+    appShellSource.indexOf("  const handleAgentEnd = useCallback"),
+    appShellSource.indexOf("  const handleAttentionNeeded = useCallback"),
+  );
+  const extensionRequestSource = source.slice(
+    source.indexOf("  const handleExtensionUiRequest = useCallback"),
+    source.indexOf("  const settleUiStage = useCallback"),
+  );
+  const attentionSource = appShellSource.slice(
+    appShellSource.indexOf("  const handleAttentionNeeded = useCallback"),
+    appShellSource.indexOf("  const handleAutoName = useCallback"),
+  );
+
+  assert.match(
+    extensionRequestSource,
+    /isBlockingExtensionUiRequest\(request\)[\s\S]*?onAttentionNeeded\?\.\(request\)/,
+  );
+  assert.match(chatWindowSource, /onAttentionNeeded, onSessionCreated/);
+  assert.match(completionSource, /if \(!shouldShowBrowserNotification\(\)\) return/);
+  assert.doesNotMatch(completionSource, /document\.visibilityState === "visible"/);
+  assert.match(attentionSource, /shouldShowBrowserNotification\(\)/);
+  assert.match(attentionSource, /claimExtensionAttentionNotification\(request, notifiedAttentionRequestIdsRef\.current\)/);
+  assert.match(attentionSource, /tag: `pi-extension-ui:\$\{request\.id\}`/);
+  assert.match(appShellSource, /onAttentionNeeded=\{handleAttentionNeeded\}/);
+});
+
 test("keeps live following cancellable when the user scrolls away from the tail", () => {
   const streamUpdateSource = source.slice(
     source.indexOf('case "message_start"'),

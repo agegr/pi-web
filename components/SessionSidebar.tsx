@@ -3,6 +3,8 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
+import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
+import { skillExpansionToCommand } from "@/lib/slash-display";
 import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
@@ -433,10 +435,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
 
-  const loadSessions = useCallback(async (showLoading = false) => {
+  const loadSessions = useCallback(async (showLoading = false, force = false) => {
     try {
       if (showLoading) setLoading(true);
-      const res = await fetch("/api/sessions");
+      const res = await fetch(force ? "/api/sessions?force=1" : "/api/sessions", {
+        cache: "no-store",
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[] };
       setAllSessions(data.sessions);
@@ -469,7 +473,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   useEffect(() => {
     const isFirst = !initialLoadDone.current;
     initialLoadDone.current = true;
-    loadSessions(isFirst);
+    loadSessions(isFirst, !isFirst);
   }, [loadSessions, refreshKey]);
 
   // Browser storage is unavailable during server rendering. Restore the panel
@@ -550,23 +554,28 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   useEffect(() => {
     const previous = previousRunningSessionIdsRef.current;
     const completedInBackground = [...previous].filter((id) => !runningSessionIds.has(id) && id !== selectedSessionId);
-    const newlyRunning = [...runningSessionIds];
+    const newlyRunning = [...runningSessionIds].filter((id) => !previous.has(id));
 
     if (completedInBackground.length > 0 || newlyRunning.length > 0) {
       setUnreadSessionIds((prev) => {
         const next = new Set(prev);
-        newlyRunning.forEach((id) => next.delete(id));
+        runningSessionIds.forEach((id) => next.delete(id));
         completedInBackground.forEach((id) => next.add(id));
         return next;
       });
     }
+    const hasUnlistedRunningSession = newlyRunning.some(
+      (id) => !allSessions.some((session) => session.id === id),
+    );
+    if (completedInBackground.length > 0 || hasUnlistedRunningSession) {
+      loadSessions(false, true);
+    }
     if (completedInBackground.length > 0) {
-      loadSessions(false);
       onBackgroundTaskDone?.();
     }
 
     previousRunningSessionIdsRef.current = runningSessionIds;
-  }, [runningSessionIds, selectedSessionId, loadSessions, onBackgroundTaskDone]);
+  }, [runningSessionIds, selectedSessionId, allSessions, loadSessions, onBackgroundTaskDone]);
 
   useEffect(() => {
     if (!selectedSessionId) return;
@@ -981,7 +990,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               {t("sidebar.new")}
             </button>
             <button
-              onClick={() => loadSessions(false)}
+              onClick={() => loadSessions(false, true)}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: sessionRefreshDone ? "rgba(74,222,128,0.18)" : "var(--bg-hover)",
@@ -1957,19 +1966,26 @@ function SessionItem({
     }
   }, [renaming]);
 
-  const title = session.name || session.firstMessage.slice(0, 50) || session.id.slice(0, 12);
+  // A stored first message may be an SDK-expanded <skill> block; collapse it
+  // back to the compact /skill:name args command the user typed before using
+  // it as the auto-name fallback, mirroring MessageView's rendering.
+  const displayFirstMessage = skillExpansionToCommand(session.firstMessage) ?? session.firstMessage;
+  const title = session.name || displayFirstMessage.slice(0, 50) || session.id.slice(0, 12);
 
   const startRename = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    setRenameValue(session.name || session.firstMessage.slice(0, 50) || session.id.slice(0, 12));
+    if (session.transient) return;
+    setRenameValue(session.name || displayFirstMessage.slice(0, 50) || session.id.slice(0, 12));
     setRenaming(true);
-  }, [session.name, session.firstMessage, session.id]);
+  }, [session.name, session.transient, displayFirstMessage, session.id]);
 
   const commitRename = useCallback(async () => {
     const name = renameValue.trim();
     setRenaming(false);
     // No-op when unchanged: the fallback title (first message / id) isn't a
-    // real stored name, so don't persist it as one.
+    // real stored name, so don't persist it as one. (The rename input seeds
+    // from the same collapsed displayFirstMessage, so an untouched rename of
+    // a skill-invoked session stays a no-op instead of persisting raw XML.)
     if (renameValue === title || name === (session.name ?? "")) return;
     try {
       await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, {
@@ -1984,6 +2000,7 @@ function SessionItem({
   }, [renameValue, session.id, session.name, onRenamed, title]);
 
   const performDelete = useCallback(async () => {
+    if (session.transient) return;
     setConfirmDelete(false);
     setDeleting(true);
     try {
@@ -1992,7 +2009,7 @@ function SessionItem({
     } catch {
       setDeleting(false);
     }
-  }, [session.id, onDeleted]);
+  }, [session.id, session.transient, onDeleted]);
 
   const handleDeleteClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -2013,12 +2030,28 @@ function SessionItem({
     setConfirmDelete(false);
   }, []);
 
+  const handleContextMenu = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const handled = dispatchSessionRowContextMenu({
+      id: session.id,
+      path: session.path,
+      cwd: session.cwd,
+      name: session.name,
+      clientX: e.clientX,
+      clientY: e.clientY,
+      refresh: () => { onRenamed?.(); },
+    });
+    if (!handled) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, [onRenamed, session.cwd, session.id, session.name, session.path]);
+
   // Fixed-height outer wrapper — content swaps in place so the list never reflows
   const ITEM_HEIGHT = 54;
 
   return (
     <div
       onClick={confirmDelete || renaming ? undefined : onClick}
+      onContextMenu={confirmDelete || renaming ? undefined : handleContextMenu}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); }}
       style={{
@@ -2182,7 +2215,7 @@ function SessionItem({
           )}
 
           {/* Action buttons — shown on hover */}
-          {hovered && (
+          {hovered && !session.transient && (
             <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
               <button
                 onClick={startRename}
