@@ -17,7 +17,7 @@ function run(command, args, options = {}) {
   const executable = command === "npm" ? npmExecutable : command;
   const result = spawnSync(executable, args, {
     stdio: options.stdio ?? "inherit",
-    shell: false,
+    shell: options.shell ?? (command === "npm" && process.platform === "win32"),
     ...options,
   });
   if (result.error) {
@@ -55,7 +55,7 @@ try {
   const packResult = spawnSync(npmExecutable, ["pack", "--json"], {
     cwd: stageDir,
     encoding: "utf8",
-    shell: false,
+    shell: process.platform === "win32",
   });
   if (packResult.error || packResult.status !== 0) {
     console.error(packResult.stderr || packResult.stdout);

@@ -24,7 +24,7 @@ function run(command, args, options = {}) {
     const child = spawn(command, args, {
       cwd: projectDir,
       stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
-      shell: false,
+      shell: options.shell ?? (command === npmExecutable && process.platform === "win32"),
       ...options,
     });
     let stdout = "";
