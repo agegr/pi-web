@@ -20,6 +20,8 @@ interface Props {
   hasSession?: boolean;
   /** When inline, render icon-only (no text label) to save horizontal space */
   compact?: boolean;
+  /** Keep the inline dropdown mounted while another control supplies its trigger */
+  hideInlineButton?: boolean;
 }
 
 // Find the visible entry IDs on the path from root to activeLeafId.
@@ -245,7 +247,7 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
   );
 }
 
-export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, containerRef, open: openProp, onToggle, hasSession, compact }: Props) {
+export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, containerRef, open: openProp, onToggle, hasSession, compact, hideInlineButton }: Props) {
   const { t } = useI18n();
   const [openInternal, setOpenInternal] = useState(false);
   const open = openProp !== undefined ? openProp : openInternal;
@@ -307,7 +309,7 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
           ref={btnRef}
           onClick={() => onToggle ? onToggle() : setOpenInternal((v) => !v)}
           style={{
-            display: "flex",
+            display: hideInlineButton ? "none" : "flex",
             alignItems: "center",
             gap: 6,
             height: "100%",

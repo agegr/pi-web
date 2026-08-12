@@ -635,13 +635,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current ?? await ensureNewSession();
     if (!sid) return;
 
-    // A fresh session is persisted by the SDK as soon as it is created. Publish
-    // it to the shell now so the visible session and its runtime cannot diverge.
-    promoteNewSession();
     const state = await sendAgentCommand<AgentStateResponse>(sid, { type: "get_state" });
     if (!sessionHookMountedRef.current || sessionIdRef.current !== sid) return;
     setSystemPrompt(state.systemPrompt ?? "");
-  }, [ensureNewSession, promoteNewSession]);
+  }, [ensureNewSession]);
 
   const loadSlashCommands = useCallback(async () => {
     const sid = sessionIdRef.current ?? await ensureNewSession();

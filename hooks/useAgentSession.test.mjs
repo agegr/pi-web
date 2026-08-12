@@ -81,14 +81,21 @@ test("opening System lazily starts a dormant session without sending a prompt", 
   );
 
   assert.match(loadSystemPromptSource, /sessionIdRef\.current \?\? await ensureNewSession\(\)/);
-  assert.match(loadSystemPromptSource, /promoteNewSession\(\)/);
+  assert.doesNotMatch(loadSystemPromptSource, /promoteNewSession\(\)/);
   assert.match(loadSystemPromptSource, /sendAgentCommand<AgentStateResponse>\(sid, \{ type: "get_state" \}\)/);
   assert.doesNotMatch(loadSystemPromptSource, /type: "prompt"/);
   assert.match(loadSystemPromptSource, /setSystemPrompt\(state\.systemPrompt \?\? ""\)/);
   assert.match(loaderEffectSource, /onSystemPromptLoaderChange\?\.\(loadSystemPrompt\)/);
   assert.match(loaderEffectSource, /onSystemPromptLoaderChange\?\.\(null\)/);
-  assert.match(appShellSource, /onClick=\{handleSystemPromptToggle\}/);
+  assert.match(appShellSource, /onClick=\{\(\) => handleSystemPromptToggle\(mobile\)\}/);
   assert.match(appShellSource, /systemPromptLoaderRef\.current/);
+  assert.doesNotMatch(appShellSource, /systemPrompt !== null \|\| systemPromptLoading/);
+  assert.match(appShellSource, /const loadId = \+\+systemPromptLoadIdRef\.current/);
+  assert.match(appShellSource, /systemPromptLoadIdRef\.current === loadId/);
+  assert.match(
+    appShellSource,
+    /handleSystemPromptLoaderChange[\s\S]*?systemPromptLoadIdRef\.current \+= 1;[\s\S]*?setSystemPromptLoading\(false\)/,
+  );
 });
 
 test("new-session promotion rekeys drafts before publishing the real session", () => {

@@ -2343,7 +2343,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 </button>
                 {thinkingDropdownOpen && (
                   <div style={{
-                    position: "absolute", bottom: "calc(100% + 6px)", right: 0,
+                    position: "absolute", bottom: "calc(100% + 6px)",
+                    ...(isMobile ? { left: 0 } : { right: 0 }),
                     zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
                     borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
                     overflow: "hidden", minWidth: 180,

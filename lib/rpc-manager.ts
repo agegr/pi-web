@@ -302,7 +302,11 @@ export class AgentSessionWrapper {
   }
 
   private shouldWaitForExtensions(type: string): boolean {
-    return type === "prompt" || type === "steer" || type === "follow_up" || type === "get_commands";
+    return type === "prompt"
+      || type === "steer"
+      || type === "follow_up"
+      || type === "get_commands"
+      || type === "get_state";
   }
 
   private async withFinalRunningNotification<T>(operation: () => Promise<T>): Promise<T> {
