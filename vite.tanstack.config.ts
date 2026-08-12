@@ -56,6 +56,7 @@ export default defineConfig(({ command }) => {
     ? relative(process.cwd(), configuredOutputDir)
     : "";
   const outputIsOutsideRepository = relativeOutputDir === ".."
+    || isAbsolute(relativeOutputDir)
     || relativeOutputDir.startsWith(`..${sep}`);
   if (
     command === "build"
