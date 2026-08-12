@@ -153,3 +153,12 @@ Date: 2026-08-12 · Branch: `migration/tanstack-start` · Integrated base: `main
 - Tarball: `agegr-pi-web-0.8.8-beta.1.tgz`, 5,003,752 bytes, sha512 `889e65ccceacd7ef472628d90c06ae38d8268564093769c7c00c56bcbb5cd705cccd67c50c4af9f71beb1dba9be2977ddfd7dad9de704023f354fa9951a6238a`.
 - Browser click-through was not repeated because no browser automation dependency was available in the integration workspace. Theme/language/settings clicks and real-key prompt/API-key operations remain explicit manual release checks.
 - No repository `.output`, npm publish, tag, GitHub Release, real-key copy, or primary checkout mutation occurred.
+
+### Local main follow-up integration
+
+- A final read-only ref check found local `main@79ee6ac` four commits ahead of `origin/main@e4ea976`: archived-project settings, reduced-motion activity, and serialized project-registry updates. Directly advancing the migration candidate would have omitted those committed changes.
+- Merge commit `e8d5473 merge: integrate latest local main updates` includes all four commits. The sole content conflict was `app/api/projects/route.ts`; it preserves the new locked partial-update behavior while using framework-neutral `Response`.
+- The new `PATCH /api/projects` method is wired through the TanStack adapter and 405 guard, locked by the 41-route inventory, and covered by a non-mutating invalid-payload smoke probe. Focused integration tests passed 18/18.
+- Fresh full suite on `e8d5473`: 594/594 pass, 0 fail; lint 0 errors / 9 warnings; `tsc --noEmit` and `git diff --check` clean.
+- Fresh `pack:tanstack`: exit 0; installed smoke root/sessions/manifest/service worker/security pass; 60 route probes / 0 failures.
+- Latest tarball: `agegr-pi-web-0.8.8-beta.1.tgz`, 5,006,455 bytes, sha512 `43cbbf28bec928acf560c61b675ca30c391c047b2110ec3095e4c8738fdf681a419bea7f7c9775266d3944b48c2f221292aa2329cf682b1671826ddd4d839e04`.
