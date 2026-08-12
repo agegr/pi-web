@@ -6,7 +6,7 @@ export function attachSessionRelations(sessions: SessionInfo[]): SessionInfo[] {
   const byId = new Map(sessions.map((session) => [session.id, session]));
 
   return sessions.map((session) => {
-    const match = session.parentSessionId && session.name?.match(SUBAGENT_SESSION_NAME);
+    const match = session.name?.match(SUBAGENT_SESSION_NAME);
     if (!match) return { ...session, sessionRole: session.parentSessionId ? "fork" : "primary" };
 
     let rootSessionId = session.parentSessionId;
@@ -20,14 +20,10 @@ export function attachSessionRelations(sessions: SessionInfo[]): SessionInfo[] {
       rootSessionId = parent.parentSessionId;
     }
 
-    if (!rootSessionId || !byId.has(rootSessionId)) {
-      return { ...session, sessionRole: "fork" };
-    }
-
     return {
       ...session,
       sessionRole: "subagent",
-      rootSessionId,
+      ...(rootSessionId && byId.has(rootSessionId) ? { rootSessionId } : {}),
       subagentAgent: match[1],
       subagentRunId: match[2],
       ...(match[3] ? { subagentIndex: Number(match[3]) } : {}),
