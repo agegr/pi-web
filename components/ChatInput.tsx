@@ -25,6 +25,8 @@ import {
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
+import { useDictation } from "@/hooks/useDictation";
+import type { DictationProvider } from "@/lib/dictation";
 import type { ToolPreset } from "@/lib/tool-presets";
 
 export interface AttachedImage {
@@ -77,6 +79,8 @@ interface Props {
   soundEnabled?: boolean;
   onSoundToggle?: () => void;
   onAudioUnlock?: () => void;
+  /** Optional speech-to-text provider; Web Speech API is used by default. */
+  dictationProvider?: DictationProvider;
   draftKey?: string;
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
@@ -388,7 +392,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
-  soundEnabled, onSoundToggle, onAudioUnlock,
+  soundEnabled, onSoundToggle, onAudioUnlock, dictationProvider,
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
@@ -450,6 +454,33 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const pendingImageCountRef = useRef(0);
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
+
+  const insertComposerText = useCallback((text: string) => {
+    const normalizedText = text.trim();
+    if (!normalizedText) return;
+    const ta = textareaRef.current;
+    const current = ta ? ta.value : valueRef.current;
+    const start = ta?.selectionStart ?? current.length;
+    const end = ta?.selectionEnd ?? current.length;
+    const before = current.slice(0, start);
+    const after = current.slice(end);
+    const separator = before.length > 0 && !/\s$/.test(before) ? " " : "";
+    const nextValue = before + separator + normalizedText + after;
+    valueRef.current = nextValue;
+    setValue(nextValue);
+    setAtQuery(null);
+    requestAnimationFrame(() => {
+      const element = textareaRef.current;
+      if (!element) return;
+      const nextPosition = start + separator.length + normalizedText.length;
+      element.setSelectionRange(nextPosition, nextPosition);
+      element.focus();
+      element.style.height = "auto";
+      element.style.height = `${Math.min(element.scrollHeight, 200)}px`;
+    });
+  }, []);
+
+  const dictation = useDictation(dictationProvider, insertComposerText);
 
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
@@ -604,28 +635,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       });
     },
     insertText(text: string) {
-      const ta = textareaRef.current;
-      if (!ta) {
-        setValue((v) => v + (v ? " " : "") + text);
-        return;
-      }
-      const start = ta.selectionStart ?? ta.value.length;
-      const end = ta.selectionEnd ?? ta.value.length;
-      const before = ta.value.slice(0, start);
-      const after = ta.value.slice(end);
-      const sep = before.length > 0 && !before.endsWith(" ") ? " " : "";
-      const newVal = before + sep + text + after;
-      valueRef.current = newVal;
-      setValue(newVal);
-      setAtQuery(null);
-      requestAnimationFrame(() => {
-        if (!ta) return;
-        const pos = start + sep.length + text.length;
-        ta.setSelectionRange(pos, pos);
-        ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
-      });
+      insertComposerText(text);
     },
     addImages(files: File[]) {
       processImageFiles(files);
@@ -1982,6 +1992,31 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               )}
             </div>
           ) : (
+            <>
+            {dictation.supported && (
+              <button
+                type="button"
+                onClick={dictation.isListening ? dictation.stop : dictation.start}
+                aria-label={dictation.isListening ? t("chat.stopDictation") : t("chat.startDictation")}
+                aria-pressed={dictation.isListening}
+                title={dictation.isListening ? t("chat.stopDictation") : t("chat.startDictation")}
+                style={{
+                  flexShrink: 0,
+                  alignSelf: "flex-end",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 32, height: 32, padding: 0,
+                  background: dictation.isListening ? "rgba(239,68,68,0.10)" : "var(--bg-panel)",
+                  border: `1px solid ${dictation.isListening ? "rgba(239,68,68,0.35)" : "var(--border)"}`,
+                  borderRadius: 8,
+                  color: dictation.isListening ? "#ef4444" : "var(--text-muted)",
+                  cursor: "pointer",
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  {dictation.isListening ? <><rect x="6" y="6" width="12" height="12" rx="2" /></> : <><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="22" /><line x1="8" y1="22" x2="16" y2="22" /></>}
+                </svg>
+              </button>
+            )}
             <button
               onClick={handleSend}
               disabled={!value.trim() && !attachedImages.length}
@@ -2008,9 +2043,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </svg>
               {t("chat.send")}
             </button>
+            </>
           )}
           </div>
         </div>
+
+        {dictation.isListening && (
+          <div role="status" style={{ marginTop: 4, color: "var(--accent)", fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {t("chat.listening")}{dictation.interimText ? ` ${dictation.interimText}` : ""}
+          </div>
+        )}
+        {dictation.error && (
+          <div role="alert" style={{ marginTop: 4, color: "#ef4444", fontSize: 11 }}>
+            {t(`chat.dictationError.${dictation.error}`)}
+          </div>
+        )}
 
         {/* Bash mode status label */}
         {bashMode && (
