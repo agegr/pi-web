@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const listeners = new Map();
@@ -83,4 +84,10 @@ test("notification click opens a window and rejects cross-origin targets", async
   await event.pending;
 
   assert.deepEqual(opened, ["https://pi.test/"]);
+});
+
+test("service worker treats TanStack /_build assets as static and drops Next markers", async () => {
+  const swSource = await readFile(new URL("./sw.js", import.meta.url), "utf8");
+  assert.match(swSource, /startsWith\("\/_build\/"\)/);
+  assert.doesNotMatch(swSource, /_next\/static/);
 });

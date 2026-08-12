@@ -75,6 +75,24 @@ export default defineConfig(({ command }) => {
         output: { dir: outputDir },
         traceDeps: EXTERNAL_PACKAGES,
         exportConditions: ["node", "import", "production", "default"],
+        routeRules: {
+          "/": {
+            headers: {
+              "Cache-Control": "private, no-cache, max-age=0, must-revalidate",
+            },
+          },
+          "/sw.js": {
+            headers: {
+              "Cache-Control": "public, max-age=0, must-revalidate",
+              "Service-Worker-Allowed": "/",
+            },
+          },
+          "/manifest.webmanifest": {
+            headers: {
+              "Cache-Control": "public, max-age=0, must-revalidate",
+            },
+          },
+        },
       }),
       viteReact(),
       tailwindcss(),

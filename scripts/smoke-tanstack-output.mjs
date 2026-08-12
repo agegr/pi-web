@@ -88,6 +88,30 @@ try {
     assert.equal(await unauthenticated.text(), "Authentication required");
   }
 
+  // Static PWA surface and cache headers.
+  const rootHeaders = await fetch(`${origin}/`, password ? { headers: authHeaders } : {});
+  assert.equal(rootHeaders.headers.get("cache-control"), "private, no-cache, max-age=0, must-revalidate");
+
+  const sw = await fetch(`${origin}/sw.js`);
+  assert.equal(sw.status, 200);
+  assert.match(sw.headers.get("content-type") ?? "", /javascript/);
+  assert.equal(sw.headers.get("cache-control"), "public, max-age=0, must-revalidate");
+  assert.equal(sw.headers.get("service-worker-allowed"), "/");
+
+  const manifestResponse = await fetch(`${origin}/manifest.webmanifest`);
+  assert.equal(manifestResponse.status, 200);
+  assert.equal(manifestResponse.headers.get("cache-control"), "public, max-age=0, must-revalidate");
+  const manifestBody = await manifestResponse.json();
+  assert.equal(manifestBody.name, "Pi Web");
+
+  const offline = await fetch(`${origin}/offline.html`);
+  assert.equal(offline.status, 200);
+  assert.match(await offline.text(), /Pi Web/);
+
+  const icon = await fetch(`${origin}/icons/icon-192.png`);
+  assert.equal(icon.status, 200);
+  assert.match(icon.headers.get("content-type") ?? "", /image\/png/);
+
   console.log(JSON.stringify({ origin, sessions: body.sessions.length, password: Boolean(password) }));
 } finally {
   child.kill();
