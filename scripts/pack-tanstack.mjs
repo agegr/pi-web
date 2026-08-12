@@ -30,10 +30,16 @@ function run(command, args, options = {}) {
 const outputDir = mkdtempSync(join(tmpdir(), "pi-web-tanstack-pack-output-"));
 const stageDir = mkdtempSync(join(tmpdir(), "pi-web-tanstack-pack-stage-"));
 
+function buildEnv() {
+  const env = { ...process.env };
+  delete env.NODE_ENV;
+  return env;
+}
+
 try {
   run("npm", ["run", "build:tanstack"], {
     env: {
-      ...process.env,
+      ...buildEnv(),
       PI_WEB_TANSTACK_OUTPUT_DIR: outputDir,
       PI_WEB_TANSTACK_OUTPUT_MODE: "publication",
     },

@@ -68,3 +68,27 @@ Date: 2026-08-12 · Branch: `migration/tanstack-start` · Node: v22.22.1 · npm:
 - No `next/(navigation|font|server)` imports remain in `app/api`, `components`, or `src` runtime sources (old `app/layout.tsx` retained until Phase 3 retirement).
 - Protected files unchanged from `0f6a152`.
 - Manual browser inspection of desktop/mobile widths is deferred to the Phase 4 functional regression matrix (Task 19).
+
+## Phase 3 — Nitro Publication, CLI, And npm Package
+
+Date: 2026-08-12 · Branch: `migration/tanstack-start` · Node: v22.22.1 · npm: 10.9.4
+
+### Output modes
+
+- `vite.tanstack.config.ts` accepts `PI_WEB_TANSTACK_OUTPUT_MODE` (`standalone` default | `publication`); `traceDeps` and `copyExternalPackages` run only in standalone mode; `exportConditions` and route rules are shared.
+- Standalone build: 23,707 files / 166 MB; all five process-sensitive packages resolve from `<output>/server/node_modules` with versions identical to the repo install.
+- Publication build: 347 files / 37 MB; runtime import edges for all five packages exist in generated server code while `server/node_modules/@earendil-works` and `server/node_modules/undici` are absent (no duplication).
+
+### CLI
+
+- `bin/pi-web.js` resolves `.output/server/index.mjs`, spawns Node with an argument array and `shell: false`, maps `NITRO_HOST`/`NITRO_PORT`/`PI_WEB_HOSTNAME`, keeps the two network warnings and platform browser openers, and matches Nitro's `Listening on|Server listening` readiness line.
+- `lib/tanstack-cli.test.mjs` fake-entry test: `-H 0.0.0.0 -p 30222` maps all three env vars, the Basic Auth over HTTP warning appears on stderr, and `FAKE_EXIT_CODE=7` propagates exit 7.
+
+### Staged package proof
+
+- `scripts/stage-tanstack-package.mjs` copies publication output to `<stage>/.output` plus bin/docs/license, writes a staged manifest with `files: ["bin", ".output", "README*.md", "LICENSE", "package.json"]` and no scripts/devDependencies, and refuses relative/in-repository/populated stages.
+- `scripts/pack-tanstack.mjs` builds publication mode into fresh external dirs, verifies, stages, packs with `npm pack --json`, runs the installed-package smoke, and prints tarball path/size/integrity.
+- Tarball: `agegr-pi-web-0.8.8-beta.1.tgz`, 356 files, 8,532,922 bytes compressed, 37 MB unpacked; no `.next`, no maps, no duplicated Pi/undici trees, no source/tests.
+- Fresh install: `npm init -y` + `npm install --ignore-scripts <exact tarball>` in a temporary project; real `node_modules/.bin/pi-web` launched with `--no-open -H 127.0.0.1 -p 30147`; root (real AppShell marker), `/api/sessions` (no-store, arrays), manifest, service worker, untrusted root text 403, untrusted API JSON 403 all pass.
+- Runtime versions from the installed package: undici 8.9.0, @earendil-works/pi-coding-agent 0.84.1, pi-agent-core 0.84.1, pi-ai 0.84.1, pi-tui 0.84.1, lucide-react 0.562.0 (production dependency, resolves after install).
+- Confirmed `.output/server/node_modules` did not duplicate Pi packages and no repository `.output` was created.
