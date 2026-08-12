@@ -36,13 +36,21 @@ function run(command, args, options = {}) {
   });
 }
 
-const npmInstall = await run("npm", ["init", "-y"], { stdio: "inherit" });
+const npmExecutable = process.platform === "win32" ? "npm.cmd" : "npm";
+
+const npmInstall = await run(npmExecutable, ["init", "-y"], { stdio: "inherit" });
 assert.equal(npmInstall.code, 0, "npm init failed");
-const install = await run("npm", ["install", "--ignore-scripts", tarballPath], { stdio: "inherit" });
+const install = await run(npmExecutable, ["install", "--ignore-scripts", tarballPath], { stdio: "inherit" });
 assert.equal(install.code, 0, `npm install failed: ${install.stderr}`);
 assert.ok(existsSync(installedBin), `installed bin missing: ${installedBin}`);
 
-const server = spawn(process.execPath, [installedBin, "--no-open", "-H", "127.0.0.1", "-p", String(port)], {
+const serverCommand = process.platform === "win32"
+  ? (process.env.ComSpec || "cmd.exe")
+  : process.execPath;
+const serverArgs = process.platform === "win32"
+  ? ["/c", installedBin, "--no-open", "-H", "127.0.0.1", "-p", String(port)]
+  : [installedBin, "--no-open", "-H", "127.0.0.1", "-p", String(port)];
+const server = spawn(serverCommand, serverArgs, {
   cwd: projectDir,
   stdio: ["ignore", "pipe", "pipe"],
   shell: false,

@@ -11,8 +11,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 
+const npmExecutable = process.platform === "win32" ? "npm.cmd" : "npm";
+
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
+  const executable = command === "npm" ? npmExecutable : command;
+  const result = spawnSync(executable, args, {
     stdio: options.stdio ?? "inherit",
     shell: false,
     ...options,
@@ -49,7 +52,7 @@ try {
 
   run(process.execPath, ["scripts/stage-tanstack-package.mjs", outputDir, stageDir]);
 
-  const packResult = spawnSync("npm", ["pack", "--json"], {
+  const packResult = spawnSync(npmExecutable, ["pack", "--json"], {
     cwd: stageDir,
     encoding: "utf8",
     shell: false,
