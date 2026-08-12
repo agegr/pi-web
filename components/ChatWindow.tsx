@@ -278,7 +278,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, runExtensionCommand,
     isAutoModelSelection,
     agentPhase,
     isNew,
@@ -676,9 +676,9 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               </div>
             </div>
             <NoticeShelf notices={notices} align="right" />
-            <ExtensionWidgets widgets={aboveEditorWidgets} />
+            <ExtensionWidgets widgets={aboveEditorWidgets} onRunCommand={runExtensionCommand} />
             {chatInputElement}
-            <ExtensionWidgets widgets={belowEditorWidgets} />
+            <ExtensionWidgets widgets={belowEditorWidgets} onRunCommand={runExtensionCommand} />
           </div>
         </div>
       ) : (
@@ -941,7 +941,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
           }}
         >
           <div style={{ maxWidth: 820, margin: "0 auto" }}>
-            <ExtensionWidgets widgets={aboveEditorWidgets} />
+            <ExtensionWidgets widgets={aboveEditorWidgets} onRunCommand={runExtensionCommand} />
           </div>
         </div>
         {chatInputElement}
@@ -952,7 +952,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
           }}
         >
           <div style={{ maxWidth: 820, margin: "0 auto" }}>
-            <ExtensionWidgets widgets={belowEditorWidgets} />
+            <ExtensionWidgets widgets={belowEditorWidgets} onRunCommand={runExtensionCommand} />
           </div>
         </div>
         <ExtensionStatusBar statuses={extensionStatuses} />

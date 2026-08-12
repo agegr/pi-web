@@ -693,6 +693,21 @@ export class AgentSessionWrapper {
         return null;
       }
 
+      // Run an extension-registered slash command handler directly (no prompt
+      // round-trip, no model). Used by widget buttons: e.g. rpiv-todo's
+      // /todos-toggle, which Pi Web cannot trigger via keyboard shortcuts.
+      case "run_command": {
+        const name = command.name as string;
+        const args = (command.args as string | undefined) ?? "";
+        const runner = this.inner.extensionRunner;
+        const registered = runner.getCommand?.(name);
+        if (!registered) {
+          throw new Error(`Unknown extension command: /${name}`);
+        }
+        await registered.handler(args, runner.createCommandContext?.() ?? {});
+        return null;
+      }
+
       case "reload": {
         await this.waitForExtensionsBound();
         this.extensionStatuses.clear();
