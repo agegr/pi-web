@@ -40,3 +40,13 @@ test("workspace restoration remains inside the cross-project branch", () => {
     /if \(currentProject !== newProject\) \{[\s\S]*?restoreWorkspaceContext\(newProject\);[\s\S]*?\}/,
   );
 });
+
+test("selecting a session suppresses the sidebar cwd reset before navigating", () => {
+  const body = callbackBody("handleSelectSession", "handleNewSession");
+  const suppress = body.indexOf("if (session.cwd !== activeCwd) suppressCwdBumpRef.current = true;");
+  const navigate = body.indexOf("router.replace(`?session=${encodeURIComponent(session.id)}`");
+
+  assert.notEqual(suppress, -1);
+  assert.notEqual(navigate, -1);
+  assert.ok(suppress < navigate);
+});
