@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { isAbsolute, join } from "node:path";
 import { spawn } from "node:child_process";
+import { smokeAllRoutes } from "./tanstack-route-smoke.mjs";
 
 const outputDir = (process.argv[2] || process.env.PI_WEB_TANSTACK_OUTPUT_DIR || "").trim();
 assert.ok(outputDir && isAbsolute(outputDir), "PI_WEB_TANSTACK_OUTPUT_DIR must be an absolute path");
@@ -112,7 +113,18 @@ try {
   assert.equal(icon.status, 200);
   assert.match(icon.headers.get("content-type") ?? "", /image\/png/);
 
-  console.log(JSON.stringify({ origin, sessions: body.sessions.length, password: Boolean(password) }));
+  // All 41 API routes with safe probes (see tanstack-route-smoke.mjs).
+  const routeSmoke = await smokeAllRoutes({ origin, authHeaders });
+  assert.ok(routeSmoke.results.length >= 41, "fewer than 41 route probes ran");
+
+  console.log(JSON.stringify({
+    origin,
+    sessions: body.sessions.length,
+    password: Boolean(password),
+    routeProbes: routeSmoke.results.length,
+    routeFailures: routeSmoke.results.filter((entry) => !entry.ok).length,
+    skipped: routeSmoke.skipped,
+  }));
 } finally {
   child.kill();
   await Promise.race([

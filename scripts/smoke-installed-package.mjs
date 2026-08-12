@@ -6,6 +6,7 @@ import { request as httpRequest } from "node:http";
 import { dirname, isAbsolute, join, parse } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { smokeAllRoutes } from "./tanstack-route-smoke.mjs";
 
 const tarballPath = process.argv[2] || "";
 assert.ok(tarballPath && isAbsolute(tarballPath), "tarball path must be absolute");
@@ -54,6 +55,10 @@ const server = spawn(serverCommand, serverArgs, {
   cwd: projectDir,
   stdio: ["ignore", "pipe", "pipe"],
   shell: false,
+  // Own process group so the CLI's own server child (spawned by pi-web.js)
+  // dies with the wrapper instead of becoming an orphan that keeps the
+  // smoke pipes open and prevents this script from exiting.
+  detached: process.platform !== "win32",
   env: {
     ...process.env,
     PI_WEB_HOSTNAME: "127.0.0.1",
@@ -175,6 +180,10 @@ try {
   assert.equal(untrustedApi.status, 403);
   assert.deepEqual(JSON.parse(untrustedApi.body), { error: "Untrusted API request" });
 
+  // All 41 API routes with the identical safe probe matrix as standalone smoke.
+  const routeSmoke = await smokeAllRoutes({ origin, authHeaders: {} });
+  assert.ok(routeSmoke.results.length >= 41, "fewer than 41 route probes ran");
+
   console.log(JSON.stringify({
     projectDir,
     versions,
@@ -183,12 +192,27 @@ try {
     manifest: manifest.status,
     sw: sw.status,
     security: "pass",
+    routeProbes: routeSmoke.results.length,
+    routeFailures: routeSmoke.results.filter((entry) => !entry.ok).length,
+    skipped: routeSmoke.skipped,
   }));
 } finally {
+  if (process.platform !== "win32" && server.pid) {
+    try { process.kill(-server.pid, "SIGTERM"); } catch { /* group already gone */ }
+  }
   server.kill();
+  // Close the pipe read ends so an orphaned grandchild holding the write ends
+  // cannot keep this process's event loop alive.
+  server.stdout?.destroy();
+  server.stderr?.destroy();
   await Promise.race([
     new Promise((resolve) => server.once("exit", resolve)),
     new Promise((resolve) => setTimeout(resolve, 5_000)),
   ]);
-  if (server.exitCode === null) server.kill("SIGKILL");
+  if (server.exitCode === null) {
+    if (process.platform !== "win32" && server.pid) {
+      try { process.kill(-server.pid, "SIGKILL"); } catch { /* group already gone */ }
+    }
+    server.kill("SIGKILL");
+  }
 }
