@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {

@@ -344,7 +344,6 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
             : "";
         return (
           <ImagePreview key={i} src={src}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={src}
               alt=""
@@ -1420,7 +1419,6 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
                   if (!src) return null;
                   return (
                     <ImagePreview key={i} src={src}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={src}
                         alt=""

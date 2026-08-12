@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const layoutSource = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
+const layoutSource = await readFile(new URL("../src/routes/__root.tsx", import.meta.url), "utf8");
 const cssSource = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 const appShellSource = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
 const chatWindowSource = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
@@ -10,9 +10,10 @@ const chatInputSource = await readFile(new URL("./ChatInput.tsx", import.meta.ur
 const viewportHookSource = await readFile(new URL("../hooks/useViewportHeight.ts", import.meta.url), "utf8");
 
 test("configures iOS standalone mode to use the full screen", () => {
-  assert.match(layoutSource, /statusBarStyle: "black-translucent"/);
-  assert.match(layoutSource, /viewportFit: "cover"/);
-  assert.match(layoutSource, /interactiveWidget: "resizes-content"/);
+  assert.match(layoutSource, /apple-mobile-web-app-status-bar-style/);
+  assert.match(layoutSource, /black-translucent/);
+  assert.match(layoutSource, /viewport-fit=cover/);
+  assert.match(layoutSource, /interactive-widget=resizes-content/);
 });
 
 test("tracks the visual viewport while the software keyboard is open", () => {

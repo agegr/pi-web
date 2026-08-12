@@ -76,7 +76,6 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
         ? `/api/files/${encodeFilePathForApi(filePath)}?type=read`
         : src;
       // Dynamic local paths are served directly by the file API.
-      // eslint-disable-next-line @next/next/no-img-element
       return <img src={imageSrc} alt={alt ?? ""} loading="lazy" {...props} />;
     },
     table({ children }) {
