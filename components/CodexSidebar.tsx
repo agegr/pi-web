@@ -15,6 +15,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import type { ProjectPreference } from "@/lib/project-registry";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
+import { activeSessionRoots } from "@/lib/session-relations";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import type { SessionInfo } from "@/lib/types";
 import { DirectoryPicker } from "./DirectoryPicker";
@@ -164,6 +165,7 @@ export function CodexSidebar({
   const [worktreeError, setWorktreeError] = useState<string | null>(null);
   const [newBranch, setNewBranch] = useState("");
   const previousRunningRef = useRef<Set<string>>(new Set());
+  const previousRawRunningRef = useRef<Set<string>>(new Set());
   const restoredRef = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -193,16 +195,42 @@ export function CodexSidebar({
   useEffect(() => { writeStringSet(COLLAPSED_STORAGE_KEY, collapsed); }, [collapsed]);
   useEffect(() => { writeStringSet(UNREAD_STORAGE_KEY, unreadIds); }, [unreadIds]);
 
+  const subagentsByRoot = useMemo(() => {
+    const grouped = new Map<string, SessionInfo[]>();
+    for (const session of sessions) {
+      if (session.sessionRole !== "subagent" || !session.rootSessionId) continue;
+      const group = grouped.get(session.rootSessionId) ?? [];
+      group.push(session);
+      grouped.set(session.rootSessionId, group);
+    }
+    return grouped;
+  }, [sessions]);
+
+  const visibleSessions = useMemo(() => sessions
+    .filter((session) => session.sessionRole !== "subagent")
+    .map((session) => {
+      const latestSubagent = subagentsByRoot.get(session.id)
+        ?.reduce((latest, child) => child.modified > latest ? child.modified : latest, session.modified);
+      return latestSubagent && latestSubagent !== session.modified
+        ? { ...session, modified: latestSubagent }
+        : session;
+    }), [sessions, subagentsByRoot]);
+
+  const { roots: activeRootIds, unresolved: hasUnresolvedRunningIds } = useMemo(
+    () => activeSessionRoots(sessions, runningIds, previousRunningRef.current),
+    [runningIds, sessions],
+  );
+
   const discovered = useMemo(() => {
     const byPath = new Map<string, SessionInfo[]>();
-    for (const session of sessions) {
+    for (const session of visibleSessions) {
       const path = session.projectRoot ?? session.cwd;
       const group = byPath.get(path) ?? [];
       group.push(session);
       byPath.set(path, group);
     }
     return byPath;
-  }, [sessions]);
+  }, [visibleSessions]);
 
   const projects = useMemo<ProjectView[]>(() => {
     const saved = new Map(preferences.map((project) => [project.path, project]));
@@ -327,7 +355,7 @@ export function CodexSidebar({
 
   useEffect(() => {
     const previous = previousRunningRef.current;
-    const completed = [...previous].filter((id) => !runningIds.has(id));
+    const completed = [...previous].filter((id) => !activeRootIds.has(id));
     const completedInBackground = completed.filter((id) => id !== selectedSessionId);
     if (completedInBackground.length) {
       setUnreadIds((current) => new Set([...current, ...completedInBackground]));
@@ -336,9 +364,16 @@ export function CodexSidebar({
       onBackgroundTaskDone?.();
       void loadData(true);
     }
-    previousRunningRef.current = runningIds;
-    onRunningSessionIdsChange?.(runningIds);
-  }, [loadData, onBackgroundTaskDone, onRunningSessionIdsChange, runningIds, selectedSessionId]);
+    previousRunningRef.current = activeRootIds;
+    onRunningSessionIdsChange?.(activeRootIds);
+  }, [activeRootIds, loadData, onBackgroundTaskDone, onRunningSessionIdsChange, runningIds, selectedSessionId]);
+
+  useEffect(() => {
+    const previous = previousRawRunningRef.current;
+    const newlyRunning = [...runningIds].some((id) => !previous.has(id));
+    if (hasUnresolvedRunningIds && newlyRunning) void loadData(true);
+    previousRawRunningRef.current = runningIds;
+  }, [hasUnresolvedRunningIds, loadData, runningIds]);
 
   useEffect(() => {
     if (!selectedSessionId) return;
@@ -482,7 +517,7 @@ export function CodexSidebar({
         {visibleProjects.map((project) => {
           const open = !collapsed.has(project.path);
           const selected = selectedProject?.path === project.path;
-          const runningCount = project.sessions.filter((session) => runningIds.has(session.id)).length;
+          const runningCount = project.sessions.filter((session) => activeRootIds.has(session.id)).length;
           const unreadCount = project.sessions.filter((session) => unreadIds.has(session.id)).length;
           return (
             <div
@@ -540,7 +575,7 @@ export function CodexSidebar({
                   )}
                   {runningCount > 0 && (
                     <span className="codex-project-running" title={t("sidebar.agentRunning")} aria-label={t("sidebar.agentRunning")} role="status">
-                      <LoaderCircle size={12} strokeWidth={1.8} aria-hidden="true" />
+                      <LoaderCircle size={12} strokeWidth={1.8} style={{ animation: "spin 0.8s linear infinite" }} aria-hidden="true" />
                     </span>
                   )}
                   {unreadCount > 0 && <span className="codex-project-unread" title={t("sidebar.newActivity")}>{unreadCount}</span>}
@@ -575,7 +610,8 @@ export function CodexSidebar({
                       key={session.id}
                       session={session}
                       selected={session.id === selectedSessionId}
-                      running={runningIds.has(session.id)}
+                      running={activeRootIds.has(session.id)}
+                      runningSubagentCount={(subagentsByRoot.get(session.id) ?? []).filter((child) => runningIds.has(child.id)).length}
                       unread={unreadIds.has(session.id)}
                       onSelect={() => selectSession(session)}
                       onChanged={() => void loadData(true)}
@@ -666,10 +702,11 @@ export function CodexSidebar({
   );
 }
 
-function SessionRow({ session, selected, running, unread, onSelect, onChanged, onDeleted }: {
+function SessionRow({ session, selected, running, runningSubagentCount, unread, onSelect, onChanged, onDeleted }: {
   session: SessionInfo;
   selected: boolean;
   running: boolean;
+  runningSubagentCount: number;
   unread: boolean;
   onSelect: () => void;
   onChanged: () => void;
@@ -729,7 +766,18 @@ function SessionRow({ session, selected, running, unread, onSelect, onChanged, o
         tabIndex={0}
         title={title}
       >
-        <span className="codex-session-state" data-running={running} data-unread={unread} />
+        {running ? (
+          <LoaderCircle
+            className="codex-session-running"
+            size={11}
+            strokeWidth={1.8}
+            style={{ animation: "spin 0.8s linear infinite", flexShrink: 0 }}
+            aria-label={t("sidebar.agentRunning")}
+            role="status"
+          />
+        ) : (
+          <span className="codex-session-state" data-unread={unread} />
+        )}
         {renaming ? (
           <input
             value={value}
@@ -739,7 +787,13 @@ function SessionRow({ session, selected, running, unread, onSelect, onChanged, o
             onBlur={() => void commitRename()}
             onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setRenaming(false); }}
           />
-        ) : <span>{title}</span>}
+        ) : <span className="codex-session-title">{title}</span>}
+        {runningSubagentCount > 0 && (
+          <span className="codex-session-subagents" title={t("sidebar.runningSubagents", { count: runningSubagentCount })}>
+            <LoaderCircle size={11} strokeWidth={1.8} style={{ animation: "spin 0.8s linear infinite" }} aria-hidden="true" />
+            <span>{runningSubagentCount}</span>
+          </span>
+        )}
       </div>
       {!session.transient && (
         <div className="codex-session-menu-wrap">

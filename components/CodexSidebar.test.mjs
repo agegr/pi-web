@@ -28,11 +28,13 @@ test("project sorting supports drag and keyboard-accessible menu actions", () =>
 
 test("running projects expose a Codex-style activity spinner", () => {
   assert.match(sidebar, /new EventSource\("\/api\/agent\/running\/events"\)/);
-  assert.match(sidebar, /const completed = \[\.\.\.previous\]\.filter\(\(id\) => !runningIds\.has\(id\)\)/);
+  assert.match(sidebar, /const completed = \[\.\.\.previous\]\.filter\(\(id\) => !activeRootIds\.has\(id\)\)/);
   assert.match(sidebar, /const completedInBackground = completed\.filter\(\(id\) => id !== selectedSessionId\)/);
   assert.match(sidebar, /runningCount > 0/);
   assert.match(sidebar, /className="codex-project-running"/);
   assert.match(sidebar, /<LoaderCircle size=\{12\}/);
+  assert.match(sidebar, /className="codex-session-running"/);
+  assert.match(sidebar, /style=\{\{ animation: "spin 0\.8s linear infinite"/);
   assert.match(sidebar, /role="status"/);
 });
 

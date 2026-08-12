@@ -543,6 +543,9 @@ export function AppShell() {
         return;
       }
     }
+    // The sidebar synchronizes its cwd after selecting a session. That cwd
+    // change belongs to this selection and must not reset the chat to home.
+    if (session.cwd !== activeCwd) suppressCwdBumpRef.current = true;
     setNewSessionCwd(null);
     setSelectedSession(session);
     setSessionKey((k) => k + 1);
@@ -565,7 +568,7 @@ export function AppShell() {
         resetScroll: false,
       });
     }
-  }, [invalidateWorkspaceRestore, navigate, isMobile, selectedSession]);
+  }, [activeCwd, invalidateWorkspaceRestore, navigate, isMobile, selectedSession]);
 
   const handleNewSession = useCallback((sessionId: string, cwd: string) => {
     invalidateWorkspaceRestore();
