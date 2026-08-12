@@ -162,3 +162,10 @@ Date: 2026-08-12 · Branch: `migration/tanstack-start` · Integrated base: `main
 - Fresh full suite on `e8d5473`: 594/594 pass, 0 fail; lint 0 errors / 9 warnings; `tsc --noEmit` and `git diff --check` clean.
 - Fresh `pack:tanstack`: exit 0; installed smoke root/sessions/manifest/service worker/security pass; 60 route probes / 0 failures.
 - Latest tarball: `agegr-pi-web-0.8.8-beta.1.tgz`, 5,006,455 bytes, sha512 `43cbbf28bec928acf560c61b675ca30c391c047b2110ec3095e4c8738fdf681a419bea7f7c9775266d3944b48c2f221292aa2329cf682b1671826ddd4d839e04`.
+
+### Main integration closeout
+
+- A repository-external detached worktree fast-forwarded cleanly from `main@79ee6ac` to the migration candidate with `git merge --ff-only`.
+- On the exact candidate after a clean `npm ci`: 594/594 tests passed; lint reported 0 errors / 9 warnings; `tsc --noEmit` and `git diff --check` passed; no repository `.output` existed.
+- `origin/main` and `origin/migration/tanstack-start` were advanced by ordinary non-force pushes to the same verified lineage and checked with `git ls-remote`.
+- npm was not published; no tag or GitHub Release was created. The migration worktree remains available for audit.

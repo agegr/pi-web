@@ -2,7 +2,7 @@
 
 > 交接人:pi 执行会话 · 日期:2026-08-12
 > 分支:`migration/tanstack-start` · 代码整合候选:`e8d5473`
-> 状态:**全部 Phase 完成,已整合本地 main@79ee6ac 并通过本地门禁,待推送 main;未发布 npm**
+> 状态:**全部 Phase 完成,已整合并推送 main;未发布 npm**
 
 ---
 
@@ -23,7 +23,7 @@
 |---|---|
 | 分支 | `migration/tanstack-start`(worktree `/Users/kale/pi-web-worktrees/migration-tanstack-start`) |
 | 代码整合候选 | `e8d5473`(包含本地 main 最新 4 个提交与 TanStack PATCH 适配) |
-| 提交数 | 47(0f6a152..HEAD,含 main 合并提交) |
+| 代码候选提交数 | 47(0f6a152..e8d5473,含 main 合并提交) |
 | 变更量 | 141 文件,+10088 / −9827 行 |
 | 工作树 | 干净,无 `.output`,无未跟踪敏感文件 |
 | 工具链 | Node 22.22.1 · npm 10.9.4 · TanStack Start 1.168.42 · Vite 8.0.14 · Nitro 3.0.260311-beta · Next 16.2.12(已退役) |
@@ -133,11 +133,10 @@ npm publish ./<tarball>.tgz --access public
 
 ## 9. 建议的下一步
 
-1. 将已验证整合候选快进到 `main` 并推送;保留迁移 worktree 供复核
-2. 发布前完成 §7 的手工验证项(发消息、UI 点击、catalog)
-3. 后续加固:`PUT /api/models-config` 输入校验(本次事故暴露)
-4. 长期:删除仓库中残留的 Next 相关文件引用(测试断言类,已无害)
-5. Windows CI 工作流(`tanstack-spike-windows.yml`)建议后续更名为 `migration-gate` 并保留
+1. 发布前完成 §7 的手工验证项(发消息、UI 点击、catalog)
+2. 后续加固:`PUT /api/models-config` 输入校验(本次事故暴露)
+3. 长期:删除仓库中残留的 Next 相关文件引用(测试断言类,已无害)
+4. Windows CI 工作流(`tanstack-spike-windows.yml`)建议后续更名为 `migration-gate` 并保留
 
 ## 11. 最新 main 整合记录
 
@@ -151,6 +150,8 @@ npm publish ./<tarball>.tgz --access public
 - `/api/projects` 新增 `PATCH` 后,同步更新了框架中立 handler、TanStack adapter、405 方法表、inventory 契约与安全冒烟;保留项目注册表锁和局部更新语义。
 - `e8d5473` 新鲜验证:测试 594/594;lint 0 errors / 9 warnings;`tsc --noEmit`、`git diff --check` clean;安装包 60 路由探针 0 失败。
 - 最新 tarball 5,006,455 字节,sha512 `43cbbf28…d839e04`;未发布 npm。
+- 在仓库外临时 detached worktree 从 `main@79ee6ac` 执行 `git merge --ff-only migration/tanstack-start`,结果为纯快进;干净 `npm ci` 后再次通过 594/594、lint、tsc 和 diff 检查。
+- `origin/main` 与 `origin/migration/tanstack-start` 已通过普通非强制 push 快进到同一条已验证提交线;远端 SHA 已用 `git ls-remote` 复核。迁移 worktree 保留供后续审计。
 
 ## 10. 关键文件索引
 
