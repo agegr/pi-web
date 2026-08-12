@@ -36,6 +36,16 @@ Date: 2026-08-12 · Branch: `migration/tanstack-start` · Repository: `/Users/ka
 - Smoke: server listened on `http://127.0.0.1:30142/`; root and `/api/sessions` probes returned 200 (`sessions: 0` — runner has no local Pi sessions, expected)
 - Note: checkout/setup-node actions emit a Node 20 deprecation warning only
 
+## Final Regression (Task 10)
+
+- Protected files (`lib/rpc-manager.ts`, `lib/agent-event-stream.ts`, `lib/request-security.ts`, `lib/web-auth.ts`, `bin/pi-web.js`) unchanged vs `6a76151`: `git diff --exit-code` clean
+- `npm test`: 554 pass / 0 fail (including all spike contract tests)
+- `npm run lint`: exit 0 (1 pre-existing warning: `@next/next/no-head-element` on `src/routes/__root.tsx`)
+- `tsc --noEmit`: exit 0
+- Final clean build `/tmp/pi-web-tanstack-final.ea1cku`: exit 0; verifier versions identical for all five packages; smoke root + sessions 200 (20 sessions); no `.output` in worktree
+- `npm pack --dry-run`: `files` still declares `.next` and not `.output` (82 files / 66 KB in a clean worktree; external Nitro output is 23,268 files / 205 MB — input for Phase 3 package planning)
+- Note: undici upgraded 8.5.0 → 8.9.0 (Task 7) to align with pi-coding-agent's nested undici and satisfy the runtime-version gate; its ProxyAgent no longer CONNECT-tunnels `http://` targets (absolute-form since undici 8.7), so `lib/http-dispatcher.test.mjs` assertions were updated to the new wire behavior — proxy routing, CONNECT for https, and NO_PROXY bypass semantics are all still verified
+
 ## Conclusion
 
 PASS - authorize separate Phase 1 design
