@@ -16,7 +16,18 @@ test("settings embeds the existing model, skill, and plugin modules", () => {
   assert.match(settings, /<ModelsConfig embedded/);
   assert.match(settings, /<SkillsConfig embedded/);
   assert.match(settings, /<PluginsConfig\s+embedded/);
-  assert.match(settings, /type SettingsSection = "general" \| "project" \| "models" \| "skills" \| "plugins"/);
+  assert.match(settings, /type SettingsSection = "general" \| "project" \| "archived" \| "models" \| "skills" \| "plugins"/);
+});
+
+test("settings lists archived projects and restores them through the project registry", () => {
+  assert.match(settings, /fetch\("\/api\/projects", \{ cache: "no-store" \}\)/);
+  assert.match(settings, /project\.archived && !project\.removed/);
+  assert.match(settings, /method: "PATCH"/);
+  assert.match(settings, /JSON\.stringify\(\{ path, update: \{ archived: false \} \}\)/);
+  assert.match(settings, /disabled=\{restoringProjects\.has\(project\.path\)\}/);
+  assert.match(settings, /loadProjects\(false\)/);
+  assert.match(settings, /<ArchiveRestore size=\{14\}/);
+  assert.match(settings, /onProjectsChanged\(\)/);
 });
 
 test("settings owns general preferences and project trust", () => {
