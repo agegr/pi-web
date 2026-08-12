@@ -167,6 +167,7 @@ export type ExtensionUiRequest =
       widgetKey: string;
       widgetLines?: string[];
       widgetPlacement?: "aboveEditor" | "belowEditor";
+      widgetTitle?: string;
     }
   | {
       type: "extension_ui_request";
@@ -207,6 +208,8 @@ export interface ExtensionWidgetItem {
   key: string;
   lines: string[];
   placement: "aboveEditor" | "belowEditor";
+  /** Optional title shown in the widget's title bar instead of the key. */
+  title?: string;
 }
 
 export interface SessionMessageEntry extends SessionEntryBase {

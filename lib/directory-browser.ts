@@ -1,4 +1,4 @@
-import { readdir, realpath, stat } from "fs/promises";
+import { mkdir, readdir, realpath, stat } from "fs/promises";
 import { homedir } from "os";
 import path from "path";
 
@@ -55,6 +55,33 @@ export function getParentDirectory(directory: string): string | null {
 
 export async function resolveDirectory(directory: string): Promise<string> {
   return realpath(normalizeDirectory(directory));
+}
+
+export function validateDirectoryName(name: string): string {
+  const normalized = name.trim();
+  if (!normalized || normalized === "." || normalized === "..") {
+    throw new TypeError("Folder name is required");
+  }
+  if (/[\\/\0-\x1f<>:"|?*]/.test(normalized)) {
+    throw new TypeError("Folder name contains unsupported characters");
+  }
+  if (/[. ]$/.test(normalized)) {
+    throw new TypeError("Folder name cannot end with a dot or space");
+  }
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(normalized)) {
+    throw new TypeError("Folder name is reserved by the operating system");
+  }
+  return normalized;
+}
+
+export async function createChildDirectory(parent: string, name: string): Promise<string> {
+  const resolvedParent = await resolveDirectory(parent);
+  const parentStat = await stat(resolvedParent);
+  if (!parentStat.isDirectory()) throw new TypeError("Parent path is not a directory");
+
+  const target = path.join(resolvedParent, validateDirectoryName(name));
+  await mkdir(target, { recursive: false });
+  return realpath(target);
 }
 
 export async function listDirectories(directory: string): Promise<BrowsableDirectory[]> {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { X } from "lucide-react";
 import { getFileIcon } from "./FileIcons";
 import { useI18n } from "@/hooks/useI18n";
 import type { FileViewerDisplayMode, FileViewerState } from "@/lib/file-viewer-state";
@@ -105,10 +106,7 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
                title={t("i18n.close")}
                aria-label={`${t("i18n.close")} ${tab.label}`}
             >
-              <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-                <line x1="2" y1="2" x2="8" y2="8" />
-                <line x1="8" y1="2" x2="2" y2="8" />
-              </svg>
+              <X size={11} strokeWidth={1.8} aria-hidden="true" />
             </button>
           </div>
         );

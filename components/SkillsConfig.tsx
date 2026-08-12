@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { Plus } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import type {
@@ -709,9 +710,11 @@ function AddSkillPanel({
 export function SkillsConfig({
   cwd,
   onClose,
+  embedded = false,
 }: {
   cwd: string;
   onClose: () => void;
+  embedded?: boolean;
 }) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
@@ -899,7 +902,12 @@ export function SkillsConfig({
 
   return (
     <div
-      style={{
+      style={embedded ? {
+        width: "100%",
+        height: "100%",
+        minHeight: 0,
+        display: "flex",
+      } : {
         position: "fixed",
         inset: 0,
         zIndex: 1000,
@@ -909,11 +917,19 @@ export function SkillsConfig({
         justifyContent: "center",
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (!embedded && e.target === e.currentTarget) onClose();
       }}
     >
       <div
-        style={{
+        style={embedded ? {
+          width: "100%",
+          height: "100%",
+          minHeight: 0,
+          background: "var(--bg)",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        } : {
           width: isMobile ? "calc(100vw - 16px)" : 860,
           maxWidth: "calc(100vw - 16px)",
           height: isMobile ? "calc(100dvh - 16px)" : "78vh",
@@ -928,7 +944,7 @@ export function SkillsConfig({
         }}
       >
         {/* Header */}
-        <div
+        {!embedded && <div
           style={{
             display: "flex",
             alignItems: "center",
@@ -972,7 +988,7 @@ export function SkillsConfig({
           >
             ×
           </button>
-        </div>
+        </div>}
 
         {!projectResourcesLoaded && (
           <div
@@ -1249,19 +1265,7 @@ export function SkillsConfig({
                   if (!addMode) e.currentTarget.style.background = "none";
                 }}
               >
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
+                <Plus size={13} strokeWidth={2} aria-hidden="true" />
                  {t("i18n.addSkill")}
               </div>
             </div>
@@ -1379,7 +1383,7 @@ export function SkillsConfig({
               </span>
             )}
           </div>
-          <button
+          {!embedded && <button
             onClick={onClose}
             style={{
               padding: "6px 14px",
@@ -1392,7 +1396,7 @@ export function SkillsConfig({
             }}
           >
              {t("i18n.close")}
-          </button>
+          </button>}
         </div>
       </div>
     </div>

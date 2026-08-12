@@ -719,6 +719,25 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, []);
 
+  // Run an extension slash command handler (e.g. /todos-toggle) without a model
+  // round-trip. Used by widget action buttons; safe no-op when no session.
+  // Widget state lives server-side and the SSE stream is only connected while
+  // a prompt is running, so pull the fresh widget state back explicitly after
+  // the command runs — otherwise the panel would not update until the next turn.
+  const runExtensionCommand = useCallback(async (name: string, args?: string) => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    try {
+      await sendAgentCommand(sid, { type: "run_command", name, ...(args !== undefined ? { args } : {}) });
+      const state = await sendAgentCommand<AgentStateResponse>(sid, { type: "get_state" });
+      if (sessionIdRef.current === sid && state?.extensionWidgets !== undefined) {
+        setExtensionWidgets(state.extensionWidgets ?? []);
+      }
+    } catch (e) {
+      console.error(`Failed to run extension command /${name}:`, e);
+    }
+  }, []);
+
   const addNotice = useCallback((notice: { id?: string; message: string; type?: NoticeType }) => {
     const message = notice.message.trim();
     if (!message) return;
@@ -766,6 +785,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
                 key: request.widgetKey,
                 lines: request.widgetLines,
                 placement: request.widgetPlacement ?? "aboveEditor",
+                ...(request.widgetTitle !== undefined ? { title: request.widgetTitle } : {}),
               }]
             : rest;
         });
@@ -1887,7 +1907,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+    notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, runExtensionCommand,
     isAutoModelSelection: isNew && newSessionModel === null,
     agentPhase,
     isNew,

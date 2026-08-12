@@ -2,15 +2,34 @@
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowUp,
+  Check,
+  Copy,
+  Ellipsis,
+  FileText,
+  Gauge,
+  GitBranch,
+  History,
+  LoaderCircle,
+  Menu,
+  PanelLeft,
+  PanelRight,
+  RefreshCw,
+  Settings,
+  ShieldAlert,
+  WandSparkles,
+  X,
+} from "lucide-react";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
-import { SessionSidebar } from "./SessionSidebar";
+import { CodexSidebar } from "./CodexSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState } from "./file-tab-state";
-import { ModelsConfig } from "./ModelsConfig";
-import { SkillsConfig } from "./SkillsConfig";
-import { PluginsConfig } from "./PluginsConfig";
+import { SettingsPage } from "./SettingsPage";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { BranchNavigator } from "./BranchNavigator";
 import { useTheme } from "@/hooks/useTheme";
@@ -54,15 +73,11 @@ type AutoNameStatus =
   | { kind: "error"; message: string };
 
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
-const LANGUAGE_MENU_WIDTH = 176;
-
 export function AppShell() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [initialNavigation] = useState(() => getInitialNavigation(searchParams));
-  const { preference, toggleTheme } = useTheme();
-  const themeLabelKey =
-    preference === "light" ? "theme.light" : preference === "dark" ? "theme.dark" : "theme.auto";
+  const { preference, setPreference: setThemePreference } = useTheme();
   const { locale, setLocale, t: translate, supportedLocales } = useI18n();
   const isMobile = useIsMobile();
   useViewportHeight();
@@ -93,10 +108,8 @@ export function AppShell() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [sessionKey, setSessionKey] = useState(0);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
-  const [modelsConfigOpen, setModelsConfigOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
-  const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
-  const [pluginsConfigOpen, setPluginsConfigOpen] = useState(false);
   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
   const [projectTrustBusy, setProjectTrustBusy] = useState(false);
@@ -174,7 +187,6 @@ export function AppShell() {
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
   const mobileToolbarRef = useRef<HTMLDivElement>(null);
-  const languageBtnRef = useRef<HTMLButtonElement>(null);
 
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
   const [branchTree, setBranchTree] = useState<SessionTreeNode[]>([]);
@@ -231,11 +243,11 @@ export function AppShell() {
   }, []);
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | "language" | null>(null);
+  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   const toggleTopPanel = useCallback((
-    panel: "branches" | "system" | "session" | "language",
+    panel: "branches" | "system" | "session",
     keepMobileToolbarOpen = false,
   ) => {
     if (isMobile) setSidebarOpen(false);
@@ -303,22 +315,11 @@ export function AppShell() {
     if (!activeTopPanel || !topBarRef.current) return;
     const update = () => {
       const topBarRect = topBarRef.current!.getBoundingClientRect();
-      if (activeTopPanel === "language" && !isMobile && languageBtnRef.current) {
-        const buttonRect = languageBtnRef.current.getBoundingClientRect();
-        const width = Math.min(LANGUAGE_MENU_WIDTH, topBarRect.width);
-        const left = Math.min(
-          buttonRect.left - 1,
-          Math.max(topBarRect.left, topBarRect.right - width),
-        );
-        setTopPanelPos({ top: topBarRect.bottom, left, width });
-        return;
-      }
       setTopPanelPos({ top: topBarRect.bottom, left: topBarRect.left, width: topBarRect.width });
     };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(topBarRef.current);
-    if (languageBtnRef.current) ro.observe(languageBtnRef.current);
     return () => ro.disconnect();
   }, [activeTopPanel, isMobile]);
 
@@ -864,7 +865,7 @@ export function AppShell() {
 
   const sidebarContent = (
     <>
-      <SessionSidebar
+      <CodexSidebar
         selectedSessionId={selectedSession?.id ?? null}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
@@ -883,156 +884,13 @@ export function AppShell() {
         onBackgroundTaskDone={handleBackgroundTaskDone}
         onRunningSessionIdsChange={handleRunningSessionIdsChange}
       />
-      <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
-        {([
-          {
-             label: translate("common.models"),
-            onClick: () => setModelsConfigOpen(true),
-            disabled: false,
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" />
-                <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
-                <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
-                <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
-                <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
-              </svg>
-            ),
-          },
-          {
-             label: translate("common.skills"),
-            onClick: () => setSkillsConfigOpen(true),
-            disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                <path d="M2 17l10 5 10-5" />
-                <path d="M2 12l10 5 10-5" />
-              </svg>
-            ),
-          },
-          {
-             label: translate("common.plugins"),
-            onClick: () => setPluginsConfigOpen(true),
-            disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 7V2" />
-                <path d="M15 7V2" />
-                <path d="M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0Z" />
-                <path d="M12 19v3" />
-              </svg>
-            ),
-          },
-        ] as { label: string; onClick: () => void; disabled: boolean; icon: React.ReactNode }[]).map(({ label, onClick, disabled, icon }) => (
-          <button
-            key={label}
-            onClick={onClick}
-            disabled={disabled}
-            title={label}
-            style={{
-              flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-              height: 32, padding: 0, background: "none", border: "none",
-              borderRadius: 9, color: "var(--text-muted)", cursor: disabled ? "default" : "pointer",
-              fontSize: 12, opacity: disabled ? 0.35 : 1,
-              transition: "background 0.12s, color 0.12s",
-            }}
-            onMouseEnter={(e) => { if (!disabled) { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text)"; } }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "var(--text-muted)"; }}
-          >
-            {icon}
-            {label}
-          </button>
-        ))}
+      <div className="codex-sidebar-footer">
+        <button className="codex-sidebar-footer-item" onClick={() => setSettingsOpen(true)} title={translate("common.settings")}>
+          <Settings size={14} aria-hidden="true" />
+          <span>{translate("common.settings")}</span>
+        </button>
       </div>
     </>
-  );
-
-  const renderThemeButton = (mobile: boolean) => (
-    <button
-      type="button"
-      onClick={(event) => {
-        const rect = event.currentTarget.getBoundingClientRect();
-        toggleTheme({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-        if (mobile) setMobileToolbarMoreOpen(true);
-      }}
-      title={translate(themeLabelKey)}
-      aria-label={translate(themeLabelKey)}
-      style={{
-        display: "flex", alignItems: "center", justifyContent: "center",
-        width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-        background: "none", border: "none", borderRight: "1px solid var(--border)",
-        color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
-      }}
-      onMouseEnter={(event) => { event.currentTarget.style.color = "var(--text)"; }}
-      onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text-muted)"; }}
-      data-mobile-toolbar-action={mobile ? "theme" : undefined}
-    >
-      {preference === "light" ? (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="5" />
-          <line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
-          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-          <line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" />
-          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-        </svg>
-      ) : preference === "dark" ? (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-        </svg>
-      ) : (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <rect x="2" y="3" width="20" height="14" rx="2" />
-          <line x1="8" y1="21" x2="16" y2="21" />
-          <line x1="12" y1="17" x2="12" y2="21" />
-        </svg>
-      )}
-    </button>
-  );
-
-  const renderLanguageButton = (mobile: boolean) => (
-    <button
-      ref={languageBtnRef}
-      type="button"
-      onClick={() => toggleTopPanel("language", mobile)}
-      title={translate("common.language")}
-      aria-label={translate("common.language")}
-      aria-haspopup="menu"
-      aria-expanded={activeTopPanel === "language"}
-      aria-pressed={activeTopPanel === "language"}
-      style={{
-        display: "flex", alignItems: "center", justifyContent: "center",
-        width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-        background: activeTopPanel === "language" ? "var(--bg-selected)" : "none",
-        border: "none", borderRight: "1px solid var(--border)",
-        color: activeTopPanel === "language" ? "var(--text)" : "var(--text-muted)",
-        cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
-      }}
-      onMouseEnter={(event) => { event.currentTarget.style.color = "var(--text)"; }}
-      onMouseLeave={(event) => {
-        event.currentTarget.style.color = activeTopPanel === "language" ? "var(--text)" : "var(--text-muted)";
-      }}
-      data-mobile-toolbar-action={mobile ? "language" : undefined}
-    >
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <path d="m5 8 6 6" />
-        <path d="m4 14 6-6 2-3" />
-        <path d="M2 5h12" />
-        <path d="M7 2h1" />
-        <path d="m22 22-5-10-5 10" />
-        <path d="M14 18h6" />
-      </svg>
-    </button>
   );
 
   const renderProjectTrustWarning = (mobileBanner: boolean) => {
@@ -1068,22 +926,7 @@ export function AppShell() {
         }}
         data-mobile-trust-banner={mobileBanner ? "true" : undefined}
       >
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-          style={{ flexShrink: 0 }}
-        >
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
-          <path d="M12 8v4" />
-          <path d="M12 16h.01" />
-        </svg>
+        <ShieldAlert size={13} strokeWidth={2} aria-hidden="true" style={{ flexShrink: 0 }} />
         <span>{translate("trust.resourcesNotLoaded")}</span>
       </button>
     );
@@ -1133,25 +976,7 @@ export function AppShell() {
           }}
           data-mobile-toolbar-action={mobile ? "history" : undefined}
         >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{
-              color: selectedSession ? "var(--text-muted)" : "var(--text-dim)",
-              flexShrink: 0,
-            }}
-            aria-hidden="true"
-          >
-            <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-            <path d="M3 3v5h5" />
-            <path d="M12 7v5l3 2" />
-          </svg>
+          <History size={12} strokeWidth={2} style={{ color: selectedSession ? "var(--text-muted)" : "var(--text-dim)", flexShrink: 0 }} aria-hidden="true" />
           {!mobile && <span>{translate("history.label")}</span>}
         </button>
         {(() => {
@@ -1213,20 +1038,11 @@ export function AppShell() {
               data-mobile-toolbar-action={mobile ? "name" : undefined}
             >
               {autoNameStatus.kind === "naming" ? (
-                <svg className="animate-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
-                  <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
+                <LoaderCircle className="animate-spin" size={13} strokeWidth={2} aria-hidden="true" />
               ) : isSuccess ? (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
+                <Check size={13} strokeWidth={2} aria-hidden="true" />
               ) : (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="m15 4 5 5L7 22l-5-5Z" />
-                  <path d="m14 5 5 5" />
-                  <path d="M6 4V2M5 3H3M19 19v3M17.5 20.5h3" />
-                </svg>
+                <WandSparkles size={13} strokeWidth={2} aria-hidden="true" />
               )}
               {!mobile && <span>{label}</span>}
             </button>
@@ -1251,12 +1067,7 @@ export function AppShell() {
             }}
             data-mobile-toolbar-action="branches"
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: branchTree.length > 0 ? "var(--accent)" : "var(--text-dim)" }} aria-hidden="true">
-              <line x1="6" y1="3" x2="6" y2="15" />
-              <circle cx="18" cy="6" r="3" />
-              <circle cx="6" cy="18" r="3" />
-              <path d="M18 9a9 9 0 0 1-9 9" />
-            </svg>
+            <GitBranch size={12} strokeWidth={2} style={{ color: branchTree.length > 0 ? "var(--accent)" : "var(--text-dim)" }} aria-hidden="true" />
           </button>
         ) : (
           <BranchNavigator
@@ -1300,16 +1111,9 @@ export function AppShell() {
           }}
           data-mobile-toolbar-action={mobile ? "system" : undefined}
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: systemPrompt ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }} aria-hidden="true">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-            <line x1="8" y1="13" x2="16" y2="13" />
-            <line x1="8" y1="17" x2="13" y2="17" />
-          </svg>
+          <FileText size={12} strokeWidth={2} style={{ color: systemPrompt ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }} aria-hidden="true" />
           {!mobile && <span>{translate("system.label")}</span>}
         </button>
-        {mobile && renderThemeButton(true)}
-        {mobile && renderLanguageButton(true)}
       </div>
     );
   };
@@ -1402,17 +1206,13 @@ export function AppShell() {
           <>
             {tokens && tokens.input > 0 && (
               <span className="mobile-session-stat-io" style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <line x1="5" y1="8.5" x2="5" y2="1.5" /><polyline points="2 4 5 1.5 8 4" />
-                </svg>
+                <ArrowUp size={10} strokeWidth={1.8} aria-hidden="true" />
                 {formatCompact(tokens.input)}
               </span>
             )}
             {tokens && tokens.output > 0 && (
               <span className="mobile-session-stat-io" style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
-                </svg>
+                <ArrowDown size={10} strokeWidth={1.8} aria-hidden="true" />
                 {formatCompact(tokens.output)}
               </span>
             )}
@@ -1436,25 +1236,19 @@ export function AppShell() {
           <>
             {tokens && tokens.input > 0 && (
               <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <line x1="5" y1="8.5" x2="5" y2="1.5" /><polyline points="2 4 5 1.5 8 4" />
-                </svg>
+                <ArrowUp size={12} strokeWidth={1.8} aria-hidden="true" />
                 {formatCompact(tokens.input)}
               </span>
             )}
             {tokens && tokens.output > 0 && (
               <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
-                </svg>
+                <ArrowDown size={12} strokeWidth={1.8} aria-hidden="true" />
                 {formatCompact(tokens.output)}
               </span>
             )}
             {tokens && tokens.cacheRead > 0 && (
               <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M8.5 5a3.5 3.5 0 1 1-1-2.45" /><polyline points="6.5 1.5 8.5 2.5 7.5 4.5" />
-                </svg>
+                <RefreshCw size={12} strokeWidth={1.8} aria-hidden="true" />
                 {formatCompact(tokens.cacheRead)}
               </span>
             )}
@@ -1465,9 +1259,7 @@ export function AppShell() {
             )}
             {desktopContextText && (
               <span style={{ display: "flex", alignItems: "center", gap: 4, color: contextColor }}>
-                <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M1 9 L1 5 Q1 1 5 1 Q9 1 9 5 L9 9" /><line x1="1" y1="9" x2="9" y2="9" />
-                </svg>
+                <Gauge size={12} strokeWidth={1.8} aria-hidden="true" />
                 {desktopContextText}
               </span>
             )}
@@ -1505,9 +1297,7 @@ export function AppShell() {
         onMouseEnter={(event) => { if (!covered) event.currentTarget.style.color = "var(--text)"; }}
         onMouseLeave={(event) => { event.currentTarget.style.color = rightPanelOpen ? "var(--text)" : "var(--text-muted)"; }}
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
-        </svg>
+        <PanelRight size={16} strokeWidth={2} aria-hidden="true" />
       </button>
     );
   };
@@ -1670,13 +1460,9 @@ export function AppShell() {
             onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
           >
             {sidebarOpen ? (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="9" y1="3" x2="9" y2="21" />
-              </svg>
+              <PanelLeft size={16} strokeWidth={2} aria-hidden="true" />
             ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
-              </svg>
+              <Menu size={18} strokeWidth={2} aria-hidden="true" />
             )}
           </button>
           {isMobile && (
@@ -1712,13 +1498,9 @@ export function AppShell() {
                 }}
               >
                 {mobileToolbarMoreOpen ? (
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                    <line x1="5" y1="5" x2="19" y2="19" /><line x1="19" y1="5" x2="5" y2="19" />
-                  </svg>
+                  <X size={15} strokeWidth={2} aria-hidden="true" />
                 ) : (
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                    <circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" />
-                  </svg>
+                  <Ellipsis size={17} strokeWidth={2} aria-hidden="true" />
                 )}
               </button>
               {renderSessionStatsButton(true)}
@@ -1750,8 +1532,6 @@ export function AppShell() {
           )}
           {!isMobile && (
             <>
-              {renderThemeButton(false)}
-              {renderLanguageButton(false)}
               {renderProjectTrustWarning(false)}
               {renderChatToolbarActions(false)}
               {renderSessionStatsButton(false)}
@@ -1783,49 +1563,6 @@ export function AppShell() {
               overflowY: "auto",
               zIndex: 500,
             }}>
-              {activeTopPanel === "language" && (
-                <div
-                  role="menu"
-                  aria-label={translate("common.language")}
-                  style={{
-                    background: "var(--bg-panel)",
-                    borderLeft: "1px solid var(--border)",
-                    borderRight: "1px solid var(--border)",
-                    borderBottom: "1px solid var(--border)",
-                    overflow: "hidden",
-                    padding: 4,
-                  }}
-                >
-                  {supportedLocales.map((plugin) => (
-                    <button
-                      key={plugin.id}
-                      type="button"
-                      onClick={() => {
-                        setLocale(plugin.id as typeof locale);
-                        setActiveTopPanel(null);
-                      }}
-                      role="menuitemradio"
-                      aria-checked={locale === plugin.id}
-                      style={{
-                        display: "flex", alignItems: "center",
-                        width: "100%", height: 34, padding: "0 10px",
-                        border: "none", borderRadius: 4,
-                        background: locale === plugin.id ? "var(--bg-selected)" : "transparent",
-                        color: "var(--text)", cursor: "pointer", textAlign: "left", fontSize: 12,
-                        transition: "background 0.1s",
-                      }}
-                      onMouseEnter={(e) => {
-                        if (locale !== plugin.id) e.currentTarget.style.background = "var(--bg-hover)";
-                      }}
-                      onMouseLeave={(e) => {
-                        if (locale !== plugin.id) e.currentTarget.style.background = "transparent";
-                      }}
-                    >
-                      <span>{plugin.label}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
               {activeTopPanel === "system" && (
                 <div style={{
                   background: "var(--bg-panel)",
@@ -1896,9 +1633,13 @@ export function AppShell() {
                     ];
                     const ctx = contextUsage ?? sessionStats.contextUsage;
                     const formatCompact = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
+                    const cacheHitDenominator = sessionStats.tokens.input + sessionStats.tokens.cacheWrite + sessionStats.tokens.cacheRead;
                     const extraTokenRows = [
                        ...(sessionStats.cost > 0 ? [[translate("session.cost"), `$${sessionStats.cost.toFixed(4)}`]] : []),
                        ...(ctx?.contextWindow ? [[translate("session.context"), `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompact(ctx.contextWindow)}`]] : []),
+                       ...(sessionStats.tokens.cacheRead + sessionStats.tokens.cacheWrite > 0 && cacheHitDenominator > 0
+                         ? [[translate("session.cacheHitRate"), `${(sessionStats.tokens.cacheRead / cacheHitDenominator * 100).toFixed(1)}%`]]
+                         : []),
                     ];
                     const section = (
                       title: string,
@@ -1965,14 +1706,9 @@ export function AppShell() {
                           }}
                         >
                           {copied ? (
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <polyline points="20 6 9 17 4 12" />
-                            </svg>
+                            <Check size={12} strokeWidth={2} aria-hidden="true" />
                           ) : (
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                            </svg>
+                            <Copy size={12} strokeWidth={2} aria-hidden="true" />
                           )}
                         </button>
                       );
@@ -2050,7 +1786,6 @@ export function AppShell() {
               onContextUsageChange={handleContextUsageChange}
               onOpenFile={handleOpenLinkedFile}
               soundEnabled={soundEnabled}
-              onSoundToggle={onSoundToggle}
               playDoneSound={playDoneSound}
               unlockAudio={unlockAudio}
             />
@@ -2082,9 +1817,7 @@ export function AppShell() {
               </div>
             ) : (
               <div style={{ position: "absolute", top: 12, left: 12, display: "flex", alignItems: "flex-start", gap: 8, userSelect: "none", pointerEvents: "none" }}>
-                <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7, flexShrink: 0 }}>
-                  <line x1="20" y1="12" x2="4" y2="12" /><polyline points="10 6 4 12 10 18" />
-                </svg>
+                <ArrowLeft size={44} strokeWidth={1.5} aria-hidden="true" style={{ color: "var(--accent)", opacity: 0.7, flexShrink: 0 }} />
                 <div>
                    <div style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>{translate("workspace.getStarted")}</div>
                   <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.8 }}>
@@ -2160,9 +1893,7 @@ export function AppShell() {
             onMouseEnter={(event) => { event.currentTarget.style.color = "var(--accent)"; }}
             onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text)"; }}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
-            </svg>
+            <PanelRight size={16} strokeWidth={2} aria-hidden="true" />
           </button>
         </div>
 
@@ -2199,7 +1930,29 @@ export function AppShell() {
         </div>
       </div>
     </div>
-    {modelsConfigOpen && <ModelsConfig onClose={() => { setModelsConfigOpen(false); setModelsRefreshKey((k) => k + 1); }} />}
+    {settingsOpen && (
+      <SettingsPage
+        cwd={projectTrustCwd}
+        sessionId={selectedSession?.id ?? null}
+        themePreference={preference}
+        onThemeChange={setThemePreference}
+        locale={locale}
+        supportedLocales={supportedLocales}
+        onLocaleChange={setLocale}
+        soundEnabled={soundEnabled}
+        onSoundToggle={onSoundToggle}
+        projectTrust={projectTrust}
+        projectTrustBusy={projectTrustBusy}
+        projectTrustError={projectTrustError}
+        onTrustProject={() => {
+          setProjectTrustError(null);
+          setProjectTrustDialogOpen(true);
+        }}
+        onClose={() => setSettingsOpen(false)}
+        onModelsChanged={() => setModelsRefreshKey((key) => key + 1)}
+        onSessionReloaded={() => setSessionKey((key) => key + 1)}
+      />
+    )}
     {projectTrustDialogOpen && projectTrustCwd && (
       <ProjectTrustDialog
         cwd={projectTrustCwd}
@@ -2209,17 +1962,6 @@ export function AppShell() {
           if (!projectTrustBusy) setProjectTrustDialogOpen(false);
         }}
         onConfirm={() => void handleTrustProject()}
-      />
-    )}
-    {skillsConfigOpen && projectTrustCwd && (
-      <SkillsConfig cwd={projectTrustCwd} onClose={() => setSkillsConfigOpen(false)} />
-    )}
-    {pluginsConfigOpen && projectTrustCwd && (
-      <PluginsConfig
-        cwd={projectTrustCwd}
-        sessionId={selectedSession?.id ?? null}
-        onClose={() => setPluginsConfigOpen(false)}
-        onReloaded={() => setSessionKey((k) => k + 1)}
       />
     )}
     </>

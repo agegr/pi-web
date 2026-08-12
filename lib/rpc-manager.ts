@@ -55,6 +55,7 @@ type ActiveExtensionWidget = {
   key: string;
   component: ExtensionWidgetComponent;
   placement: "aboveEditor" | "belowEditor";
+  title?: string;
   generation: number;
   clearEmitted: boolean;
   rendered: boolean;
@@ -693,6 +694,21 @@ export class AgentSessionWrapper {
         return null;
       }
 
+      // Run an extension-registered slash command handler directly (no prompt
+      // round-trip, no model). Used by widget buttons: e.g. rpiv-todo's
+      // /todos-toggle, which Pi Web cannot trigger via keyboard shortcuts.
+      case "run_command": {
+        const name = command.name as string;
+        const args = (command.args as string | undefined) ?? "";
+        const runner = this.inner.extensionRunner;
+        const registered = runner.getCommand?.(name);
+        if (!registered) {
+          throw new Error(`Unknown extension command: /${name}`);
+        }
+        await registered.handler(args, runner.createCommandContext?.() ?? {});
+        return null;
+      }
+
       case "reload": {
         await this.waitForExtensionsBound();
         this.extensionStatuses.clear();
@@ -948,6 +964,7 @@ export class AgentSessionWrapper {
       key: active.key,
       lines: widgetLines,
       placement: active.placement,
+      ...(active.title !== undefined ? { title: active.title } : {}),
     });
     active.rendered = true;
     this.emit({
@@ -957,13 +974,14 @@ export class AgentSessionWrapper {
       widgetKey: active.key,
       widgetLines,
       widgetPlacement: active.placement,
+      ...(active.title !== undefined ? { widgetTitle: active.title } : {}),
     } as ExtensionUiRequest as AgentEvent);
   }
 
   private setExtensionWidgetFactory(
     key: string,
     factory: ExtensionWidgetFactory,
-    options?: { placement?: "aboveEditor" | "belowEditor" },
+    options?: { placement?: "aboveEditor" | "belowEditor"; title?: string },
   ): void {
     const hadPrevious = this.extensionWidgets.has(key) || this.activeExtensionWidgets.has(key);
     const generation = this.clearExtensionWidget(key, hadPrevious);
@@ -1003,6 +1021,7 @@ export class AgentSessionWrapper {
       key,
       component: component as ExtensionWidgetComponent,
       placement: options?.placement ?? "aboveEditor",
+      ...(options?.title !== undefined ? { title: options.title } : {}),
       generation,
       clearEmitted: hadPrevious,
       rendered: false,
@@ -1266,6 +1285,7 @@ export class AgentSessionWrapper {
           key,
           lines: content,
           placement: options?.placement ?? "aboveEditor",
+          ...(options?.title !== undefined ? { title: options.title } : {}),
         });
         this.emit({
           type: "extension_ui_request",
@@ -1274,6 +1294,7 @@ export class AgentSessionWrapper {
           widgetKey: key,
           widgetLines: content,
           widgetPlacement: options?.placement,
+          ...(options?.title !== undefined ? { widgetTitle: options.title } : {}),
         } as ExtensionUiRequest as AgentEvent);
       },
       setFooter: () => {},

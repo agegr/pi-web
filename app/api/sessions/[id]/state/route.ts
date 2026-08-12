@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getRpcSession } from "@/lib/rpc-manager";
+import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
 import { resolveSessionPath } from "@/lib/session-reader";
 
 export async function GET(
@@ -14,10 +14,18 @@ export async function GET(
       return NextResponse.json({ running: true, state });
     }
 
-    if (!await resolveSessionPath(id)) {
+    const filePath = await resolveSessionPath(id);
+    if (!filePath) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
-    return NextResponse.json({ running: false });
+
+    // Sessions are spawned lazily on first prompt; opening a session must
+    // bring its runtime up too, otherwise extension widgets/status rendered
+    // from get_state (e.g. rpiv-todo's panel) never appear until a message
+    // is sent.
+    const { session } = await startRpcSession(id, filePath, undefined);
+    const state = await session.send({ type: "get_state" });
+    return NextResponse.json({ running: true, state });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

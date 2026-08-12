@@ -12,6 +12,7 @@ try {
 } catch { /* package not found, use default */ }
 
 const nextConfig: NextConfig = {
+  devIndicators: false,
   outputFileTracingRoot: configDir,
   serverExternalPackages: [
     "undici",

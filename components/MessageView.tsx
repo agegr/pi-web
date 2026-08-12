@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useState, useRef, useEffect, useMemo } from "react";
+import { ArrowDown, Check, ChevronDown, Copy, CornerDownRight, GitBranch } from "lucide-react";
 import { MarkdownBody } from "./MarkdownBody";
 import { ImagePreview } from "./ImagePreview";
 import { copyText } from "@/lib/clipboard";
@@ -412,20 +413,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {commandName}
                   </span>
-                  <svg
-                    width="11"
-                    height="11"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    style={{ flexShrink: 0, opacity: 0.75, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}
-                    aria-hidden="true"
-                  >
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
+                  <ChevronDown size={11} strokeWidth={2} aria-hidden="true" style={{ flexShrink: 0, opacity: 0.75, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
                 </button>
                 {commandArgs && (
                   <span style={{
@@ -485,14 +473,9 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
               onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-dim)"; }}
             >
               {copied ? (
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
+                <Check size={11} strokeWidth={1.8} aria-hidden="true" />
               ) : (
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                </svg>
+                <Copy size={11} strokeWidth={1.8} aria-hidden="true" />
               )}
                {copied ? t("i18n.copied") : t("i18n.copy")}
             </button>
@@ -522,10 +505,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
                   onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; }}
                 >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="15 10 20 15 15 20" />
-                    <path d="M4 4v7a4 4 0 0 0 4 4h12" />
-                  </svg>
+                  <CornerDownRight size={11} strokeWidth={1.8} aria-hidden="true" />
                    {t("i18n.editFromHere")}
                 </button>
               )}
@@ -548,12 +528,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
                   onMouseEnter={(e) => { if (!forking) e.currentTarget.style.color = "var(--accent)"; }}
                   onMouseLeave={(e) => { if (!forking) e.currentTarget.style.color = "var(--text-dim)"; }}
                 >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="6" y1="3" x2="6" y2="15" />
-                    <circle cx="18" cy="6" r="3" />
-                    <circle cx="6" cy="18" r="3" />
-                    <path d="M18 9a9 9 0 0 1-9 9" />
-                  </svg>
+                  <GitBranch size={11} strokeWidth={1.8} aria-hidden="true" />
                    {forking ? t("i18n.creating") : t("i18n.newSession")}
                 </button>
               )}
@@ -745,9 +720,7 @@ function AssistantMessageView({
               {est > 0 && (
                 <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text)" }} title={t("i18n.estimatedTokens")}>
                   <span style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 11, fontWeight: 400 }}>
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
-                    </svg>
+                    <ArrowDown size={10} strokeWidth={1.8} aria-hidden="true" />
                     {est}
                   </span>
                   {tps !== null && (() => {
@@ -825,14 +798,9 @@ function AssistantMessageView({
             onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-dim)"; }}
           >
             {copied ? (
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
+              <Check size={11} strokeWidth={1.8} aria-hidden="true" />
             ) : (
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-              </svg>
+              <Copy size={11} strokeWidth={1.8} aria-hidden="true" />
             )}
              {copied ? t("i18n.copied") : t("i18n.copy")}
           </button>
@@ -998,9 +966,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
         {duration !== undefined && (
           <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
         )}
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
-          <polyline points="2 3.5 5 6.5 8 3.5" />
-        </svg>
+        <ChevronDown size={10} strokeWidth={1.6} aria-hidden="true" style={{ color: "var(--text-dim)", flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
       </button>
 
       {/* ── Expanded: input args ── */}

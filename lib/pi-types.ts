@@ -73,6 +73,11 @@ interface ExtensionRunnerLike {
     description?: string;
     sourceInfo: SlashCommandInfo["sourceInfo"];
   }>;
+  getCommand?(name: string): {
+    invocationName?: string;
+    handler(args: string, ctx: unknown): Promise<void>;
+  } | undefined;
+  createCommandContext?(): unknown;
   emit?(event: { type: "session_shutdown"; reason: "quit" }): Promise<unknown>;
   setUIContext?(uiContext?: unknown, mode?: "tui" | "rpc" | "json" | "print"): void;
 }
@@ -84,6 +89,8 @@ type DialogOptionsLike = {
 
 type WidgetOptionsLike = {
   placement?: "aboveEditor" | "belowEditor";
+  /** Optional title shown in the widget's title bar instead of the key. */
+  title?: string;
 };
 
 export interface ExtensionUiContextLike {
