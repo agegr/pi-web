@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -66,6 +67,14 @@ const stagedPackage = {
 
 mkdirSync(stageResolved, { recursive: true });
 cpSync(outputArg, join(stageResolved, ".output"), { recursive: true });
+// The trace copy of externalized packages must not ship in the tarball:
+// `dependencies` declares them, so npm install provides complete packages
+// (with runtime resources) in the consuming project. Leaving them here would
+// both duplicate the tree and serve resource-less bundles.
+rmSync(join(stageResolved, ".output", "server", "node_modules"), {
+  recursive: true,
+  force: true,
+});
 for (const name of INCLUDED_FILES) {
   const source = join(repoResolved, name);
   if (!existsSync(source)) {

@@ -45,6 +45,20 @@ const install = await run(npmExecutable, ["install", "--ignore-scripts", tarball
 assert.equal(install.code, 0, `npm install failed: ${install.stderr}`);
 assert.ok(existsSync(installedBin), `installed bin missing: ${installedBin}`);
 
+// The publication tarball must not carry the traced dependency copy; the
+// installed package resolves @earendil-works/* from the project's own
+// node_modules (declared dependencies), which include runtime resources.
+assert.ok(
+  !existsSync(join(projectDir, "node_modules", "@agegr", "pi-web", ".output", "server", "node_modules")),
+  "tarball must not ship the traced server/node_modules copy",
+);
+for (const name of ["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"]) {
+  assert.ok(
+    existsSync(join(projectDir, "node_modules", ...name.split("/"))),
+    `${name} must resolve from installed dependencies`,
+  );
+}
+
 const serverCommand = process.platform === "win32"
   ? (process.env.ComSpec || "cmd.exe")
   : process.execPath;

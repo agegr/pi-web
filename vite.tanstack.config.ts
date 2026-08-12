@@ -78,7 +78,7 @@ export default defineConfig(({ command }) => {
       nitro({
         preset: "node-server",
         output: { dir: outputDir },
-        traceDeps: outputMode === "standalone" ? EXTERNAL_PACKAGES : [],
+        traceDeps: EXTERNAL_PACKAGES,
         exportConditions: ["node", "import", "production", "default"],
         routeRules: {
           "/": {
@@ -101,7 +101,7 @@ export default defineConfig(({ command }) => {
       }),
       viteReact(),
       tailwindcss(),
-      outputMode === "standalone" ? copyExternalPackages(outputDir) : undefined,
+      copyExternalPackages(outputDir),
     ].filter(Boolean),
   };
 });

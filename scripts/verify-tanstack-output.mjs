@@ -55,21 +55,14 @@ for (const name of packages) {
   versions[name] = tracedPackage.version;
 }
 
-if (mode === "standalone") {
-  for (const name of packages) {
-    assert.ok(
-      existsSync(join(outputDir, "server", "node_modules", name)),
-      `${name} must be copied into server/node_modules in standalone mode`,
-    );
-  }
-} else {
+// Both output modes externalize and copy the five process-sensitive packages
+// into server/node_modules so the generated server loads them with their full
+// runtime resources. The publication stage excludes that copy from the tarball
+// (npm install provides the packages), which smoke-installed-package.mjs verifies.
+for (const name of packages) {
   assert.ok(
-    !existsSync(join(outputDir, "server", "node_modules", "@earendil-works")),
-    "publication mode must not duplicate @earendil-works packages",
-  );
-  assert.ok(
-    !existsSync(join(outputDir, "server", "node_modules", "undici")),
-    "publication mode must not duplicate undici",
+    existsSync(join(outputDir, "server", "node_modules", name)),
+    `${name} must be copied into server/node_modules (${mode} mode)`,
   );
 }
 
