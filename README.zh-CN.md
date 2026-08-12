@@ -111,14 +111,25 @@ node_modules/.bin/tsc --noEmit
 npm run lint
 ```
 
-日常开发时不要运行 `next build` 或 `npm run build`。它们会写入 `.next/`，可能干扰开发服务器；仅在发布流程中执行构建。
+日常开发时不要运行 `npm run build` 或 `npm run pack:tanstack`。TanStack/Nitro 生产构建会写入仓库外的绝对目录（通过 `PI_WEB_TANSTACK_OUTPUT_DIR` 指定，绝不写入仓库内），可能干扰开发服务器；仅在发布流程中执行构建。仓库内永远不会出现 `.output`。
+
+发布打包验证：
+
+```bash
+npm run pack:tanstack
+```
+
+它会构建、暂存、打包、安装并冒烟测试一个临时 tarball；发布是在审阅确切的 tarball 之后单独显式执行 `npm publish`。
 
 贡献者文档：[国际化](./docs/i18n.md)和[发布流程](./docs/release.md)。
 
 ## 仓库结构
 
 ```text
-app/             Next.js 界面和 API 路由
+app/api/         框架中立的 API 处理器（标准 Web API）
+src/routes/      TanStack Start 路由；src/routes/api/* 是 app/api 处理器的薄适配器
+src/start.ts     全局请求安全与 CSRF 中间件注册
+src/server.ts    服务器入口；请求处理前完成 dispatcher 配置
 components/      React 界面组件
 hooks/           客户端状态和交互 hooks
 lib/             会话、智能体、模型、文件、Git 和安全逻辑
