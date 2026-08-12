@@ -3,7 +3,20 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, parse } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const outputDir = (process.argv[2] || process.env.PI_WEB_TANSTACK_OUTPUT_DIR || "").trim();
+let mode = process.env.PI_WEB_TANSTACK_OUTPUT_MODE || "standalone";
+const modeIndex = process.argv.indexOf("--mode");
+if (modeIndex !== -1 && process.argv[modeIndex + 1]) {
+  mode = process.argv[modeIndex + 1];
+}
+const modeEquals = process.argv.find((argument) => argument.startsWith("--mode="));
+if (modeEquals) {
+  mode = modeEquals.slice("--mode=".length);
+}
+assert.ok(mode === "standalone" || mode === "publication", "mode must be standalone or publication");
+
+const outputArg = [...process.argv.slice(2)].reverse()
+  .find((argument) => !argument.startsWith("--mode")) || "";
+const outputDir = (outputArg || process.env.PI_WEB_TANSTACK_OUTPUT_DIR || "").trim();
 assert.ok(outputDir && isAbsolute(outputDir), "PI_WEB_TANSTACK_OUTPUT_DIR must be an absolute path");
 assert.ok(existsSync(join(outputDir, "server", "index.mjs")), "server/index.mjs is missing");
 assert.ok(existsSync(join(outputDir, "nitro.json")), "nitro.json is missing");
@@ -40,6 +53,24 @@ for (const name of packages) {
   const tracedPackage = packageJsonFor(tracedResolve, name);
   assert.equal(tracedPackage.version, rootPackage.version, `${name} runtime version differs from the repository install`);
   versions[name] = tracedPackage.version;
+}
+
+if (mode === "standalone") {
+  for (const name of packages) {
+    assert.ok(
+      existsSync(join(outputDir, "server", "node_modules", name)),
+      `${name} must be copied into server/node_modules in standalone mode`,
+    );
+  }
+} else {
+  assert.ok(
+    !existsSync(join(outputDir, "server", "node_modules", "@earendil-works")),
+    "publication mode must not duplicate @earendil-works packages",
+  );
+  assert.ok(
+    !existsSync(join(outputDir, "server", "node_modules", "undici")),
+    "publication mode must not duplicate undici",
+  );
 }
 
 function sizeOf(directory) {

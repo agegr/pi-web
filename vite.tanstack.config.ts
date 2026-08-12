@@ -47,6 +47,10 @@ const appPackageVersion = readJsonVersion("package.json");
 const piPackageVersion = readJsonVersion("node_modules/@earendil-works/pi-coding-agent/package.json");
 
 export default defineConfig(({ command }) => {
+  const outputMode = process.env.PI_WEB_TANSTACK_OUTPUT_MODE?.trim() || "standalone";
+  if (outputMode !== "standalone" && outputMode !== "publication") {
+    throw new Error("PI_WEB_TANSTACK_OUTPUT_MODE must be standalone or publication");
+  }
   const configuredOutputDir = process.env.PI_WEB_TANSTACK_OUTPUT_DIR?.trim();
   const relativeOutputDir = configuredOutputDir
     ? relative(process.cwd(), configuredOutputDir)
@@ -73,7 +77,7 @@ export default defineConfig(({ command }) => {
       nitro({
         preset: "node-server",
         output: { dir: outputDir },
-        traceDeps: EXTERNAL_PACKAGES,
+        traceDeps: outputMode === "standalone" ? EXTERNAL_PACKAGES : [],
         exportConditions: ["node", "import", "production", "default"],
         routeRules: {
           "/": {
@@ -96,7 +100,7 @@ export default defineConfig(({ command }) => {
       }),
       viteReact(),
       tailwindcss(),
-      copyExternalPackages(outputDir),
-    ],
+      outputMode === "standalone" ? copyExternalPackages(outputDir) : undefined,
+    ].filter(Boolean),
   };
 });
