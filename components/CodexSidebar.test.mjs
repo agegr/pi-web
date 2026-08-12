@@ -28,7 +28,7 @@ test("project sorting supports drag and keyboard-accessible menu actions", () =>
 
 test("running projects expose a Codex-style activity spinner", () => {
   assert.match(sidebar, /new EventSource\("\/api\/agent\/running\/events"\)/);
-  assert.match(sidebar, /const completed = \[\.\.\.previous\]\.filter\(\(id\) => !runningIds\.has\(id\)\)/);
+  assert.match(sidebar, /const completed = \[\.\.\.previous\]\.filter\(\(id\) => !activeRootIds\.has\(id\)\)/);
   assert.match(sidebar, /const completedInBackground = completed\.filter\(\(id\) => id !== selectedSessionId\)/);
   assert.match(sidebar, /runningCount > 0/);
   assert.match(sidebar, /className="codex-project-running"/);

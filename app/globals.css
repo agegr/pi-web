@@ -376,12 +376,22 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
   gap: 7px;
   font-size: 12px;
 }
-.codex-session-main > span:last-child {
+.codex-session-title {
   min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.codex-session-subagents {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.codex-session-subagents > svg { animation: spin .8s linear infinite; }
 .codex-session-state {
   width: 5px;
   height: 5px;
@@ -470,6 +480,7 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
 @media (prefers-reduced-motion: reduce) {
   .codex-sidebar-chevron { transition: none; }
   .codex-project-running,
+  .codex-session-subagents > svg,
   .codex-session-state[data-running="true"] { animation: none; }
 }
 
