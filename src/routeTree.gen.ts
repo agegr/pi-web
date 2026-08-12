@@ -10,13 +10,96 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiAppUpdateRouteImport } from './routes/api/app-update'
+import { Route as ApiDefaultCwdRouteImport } from './routes/api/default-cwd'
+import { Route as ApiFileIndexRouteImport } from './routes/api/file-index'
+import { Route as ApiHomeRouteImport } from './routes/api/home'
+import { Route as ApiModelsRouteImport } from './routes/api/models'
+import { Route as ApiModelsConfigRouteImport } from './routes/api/models-config'
+import { Route as ApiPluginsRouteImport } from './routes/api/plugins'
+import { Route as ApiProjectTrustRouteImport } from './routes/api/project-trust'
+import { Route as ApiProjectsRouteImport } from './routes/api/projects'
 import { Route as ApiSessionsRouteImport } from './routes/api/sessions'
+import { Route as ApiSkillsRouteImport } from './routes/api/skills'
+import { Route as ApiWorktreesRouteImport } from './routes/api/worktrees'
+import { Route as ApiAgentIdRouteImport } from './routes/api/agent/$id'
+import { Route as ApiAgentNewRouteImport } from './routes/api/agent/new'
+import { Route as ApiAgentRunningRouteImport } from './routes/api/agent/running'
+import { Route as ApiAuthAllProvidersRouteImport } from './routes/api/auth/all-providers'
+import { Route as ApiAuthProvidersRouteImport } from './routes/api/auth/providers'
+import { Route as ApiCwdBrowseRouteImport } from './routes/api/cwd/browse'
+import { Route as ApiCwdValidateRouteImport } from './routes/api/cwd/validate'
 import { Route as ApiFilesSplatRouteImport } from './routes/api/files/$'
+import { Route as ApiGitDiffRouteImport } from './routes/api/git/diff'
+import { Route as ApiGitStatusRouteImport } from './routes/api/git/status'
+import { Route as ApiModelsConfigCatalogRouteImport } from './routes/api/models-config/catalog'
+import { Route as ApiModelsConfigDiscoverRouteImport } from './routes/api/models-config/discover'
+import { Route as ApiModelsConfigTestRouteImport } from './routes/api/models-config/test'
+import { Route as ApiSessionsIdRouteImport } from './routes/api/sessions/$id'
+import { Route as ApiSkillsCheckRouteImport } from './routes/api/skills/check'
+import { Route as ApiSkillsInstallRouteImport } from './routes/api/skills/install'
+import { Route as ApiSkillsSearchRouteImport } from './routes/api/skills/search'
+import { Route as ApiSkillsUpdateRouteImport } from './routes/api/skills/update'
+import { Route as ApiAgentIdBashOutputRouteImport } from './routes/api/agent/$id/bash-output'
 import { Route as ApiAgentIdEventsRouteImport } from './routes/api/agent/$id/events'
+import { Route as ApiAgentRunningEventsRouteImport } from './routes/api/agent/running/events'
+import { Route as ApiAuthApiKeyProviderRouteImport } from './routes/api/auth/api-key/$provider'
+import { Route as ApiAuthLoginProviderRouteImport } from './routes/api/auth/login/$provider'
+import { Route as ApiAuthLogoutProviderRouteImport } from './routes/api/auth/logout/$provider'
+import { Route as ApiSessionsIdAutoNameRouteImport } from './routes/api/sessions/$id/auto-name'
+import { Route as ApiSessionsIdContextRouteImport } from './routes/api/sessions/$id/context'
+import { Route as ApiSessionsIdExportRouteImport } from './routes/api/sessions/$id/export'
+import { Route as ApiSessionsIdStateRouteImport } from './routes/api/sessions/$id/state'
+import { Route as ApiSessionsIdEntriesEntryIdThinkingRouteImport } from './routes/api/sessions/$id/entries/$entryId/thinking'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAppUpdateRoute = ApiAppUpdateRouteImport.update({
+  id: '/api/app-update',
+  path: '/api/app-update',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDefaultCwdRoute = ApiDefaultCwdRouteImport.update({
+  id: '/api/default-cwd',
+  path: '/api/default-cwd',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiFileIndexRoute = ApiFileIndexRouteImport.update({
+  id: '/api/file-index',
+  path: '/api/file-index',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHomeRoute = ApiHomeRouteImport.update({
+  id: '/api/home',
+  path: '/api/home',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiModelsRoute = ApiModelsRouteImport.update({
+  id: '/api/models',
+  path: '/api/models',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiModelsConfigRoute = ApiModelsConfigRouteImport.update({
+  id: '/api/models-config',
+  path: '/api/models-config',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPluginsRoute = ApiPluginsRouteImport.update({
+  id: '/api/plugins',
+  path: '/api/plugins',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiProjectTrustRoute = ApiProjectTrustRouteImport.update({
+  id: '/api/project-trust',
+  path: '/api/project-trust',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiProjectsRoute = ApiProjectsRouteImport.update({
+  id: '/api/projects',
+  path: '/api/projects',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiSessionsRoute = ApiSessionsRouteImport.update({
@@ -24,54 +107,458 @@ const ApiSessionsRoute = ApiSessionsRouteImport.update({
   path: '/api/sessions',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSkillsRoute = ApiSkillsRouteImport.update({
+  id: '/api/skills',
+  path: '/api/skills',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWorktreesRoute = ApiWorktreesRouteImport.update({
+  id: '/api/worktrees',
+  path: '/api/worktrees',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAgentIdRoute = ApiAgentIdRouteImport.update({
+  id: '/api/agent/$id',
+  path: '/api/agent/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAgentNewRoute = ApiAgentNewRouteImport.update({
+  id: '/api/agent/new',
+  path: '/api/agent/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAgentRunningRoute = ApiAgentRunningRouteImport.update({
+  id: '/api/agent/running',
+  path: '/api/agent/running',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthAllProvidersRoute = ApiAuthAllProvidersRouteImport.update({
+  id: '/api/auth/all-providers',
+  path: '/api/auth/all-providers',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthProvidersRoute = ApiAuthProvidersRouteImport.update({
+  id: '/api/auth/providers',
+  path: '/api/auth/providers',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCwdBrowseRoute = ApiCwdBrowseRouteImport.update({
+  id: '/api/cwd/browse',
+  path: '/api/cwd/browse',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCwdValidateRoute = ApiCwdValidateRouteImport.update({
+  id: '/api/cwd/validate',
+  path: '/api/cwd/validate',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiFilesSplatRoute = ApiFilesSplatRouteImport.update({
   id: '/api/files/$',
   path: '/api/files/$',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiAgentIdEventsRoute = ApiAgentIdEventsRouteImport.update({
-  id: '/api/agent/$id/events',
-  path: '/api/agent/$id/events',
+const ApiGitDiffRoute = ApiGitDiffRouteImport.update({
+  id: '/api/git/diff',
+  path: '/api/git/diff',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiGitStatusRoute = ApiGitStatusRouteImport.update({
+  id: '/api/git/status',
+  path: '/api/git/status',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiModelsConfigCatalogRoute = ApiModelsConfigCatalogRouteImport.update({
+  id: '/catalog',
+  path: '/catalog',
+  getParentRoute: () => ApiModelsConfigRoute,
+} as any)
+const ApiModelsConfigDiscoverRoute = ApiModelsConfigDiscoverRouteImport.update({
+  id: '/discover',
+  path: '/discover',
+  getParentRoute: () => ApiModelsConfigRoute,
+} as any)
+const ApiModelsConfigTestRoute = ApiModelsConfigTestRouteImport.update({
+  id: '/test',
+  path: '/test',
+  getParentRoute: () => ApiModelsConfigRoute,
+} as any)
+const ApiSessionsIdRoute = ApiSessionsIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => ApiSessionsRoute,
+} as any)
+const ApiSkillsCheckRoute = ApiSkillsCheckRouteImport.update({
+  id: '/check',
+  path: '/check',
+  getParentRoute: () => ApiSkillsRoute,
+} as any)
+const ApiSkillsInstallRoute = ApiSkillsInstallRouteImport.update({
+  id: '/install',
+  path: '/install',
+  getParentRoute: () => ApiSkillsRoute,
+} as any)
+const ApiSkillsSearchRoute = ApiSkillsSearchRouteImport.update({
+  id: '/search',
+  path: '/search',
+  getParentRoute: () => ApiSkillsRoute,
+} as any)
+const ApiSkillsUpdateRoute = ApiSkillsUpdateRouteImport.update({
+  id: '/update',
+  path: '/update',
+  getParentRoute: () => ApiSkillsRoute,
+} as any)
+const ApiAgentIdBashOutputRoute = ApiAgentIdBashOutputRouteImport.update({
+  id: '/bash-output',
+  path: '/bash-output',
+  getParentRoute: () => ApiAgentIdRoute,
+} as any)
+const ApiAgentIdEventsRoute = ApiAgentIdEventsRouteImport.update({
+  id: '/events',
+  path: '/events',
+  getParentRoute: () => ApiAgentIdRoute,
+} as any)
+const ApiAgentRunningEventsRoute = ApiAgentRunningEventsRouteImport.update({
+  id: '/events',
+  path: '/events',
+  getParentRoute: () => ApiAgentRunningRoute,
+} as any)
+const ApiAuthApiKeyProviderRoute = ApiAuthApiKeyProviderRouteImport.update({
+  id: '/api/auth/api-key/$provider',
+  path: '/api/auth/api-key/$provider',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthLoginProviderRoute = ApiAuthLoginProviderRouteImport.update({
+  id: '/api/auth/login/$provider',
+  path: '/api/auth/login/$provider',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthLogoutProviderRoute = ApiAuthLogoutProviderRouteImport.update({
+  id: '/api/auth/logout/$provider',
+  path: '/api/auth/logout/$provider',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSessionsIdAutoNameRoute = ApiSessionsIdAutoNameRouteImport.update({
+  id: '/auto-name',
+  path: '/auto-name',
+  getParentRoute: () => ApiSessionsIdRoute,
+} as any)
+const ApiSessionsIdContextRoute = ApiSessionsIdContextRouteImport.update({
+  id: '/context',
+  path: '/context',
+  getParentRoute: () => ApiSessionsIdRoute,
+} as any)
+const ApiSessionsIdExportRoute = ApiSessionsIdExportRouteImport.update({
+  id: '/export',
+  path: '/export',
+  getParentRoute: () => ApiSessionsIdRoute,
+} as any)
+const ApiSessionsIdStateRoute = ApiSessionsIdStateRouteImport.update({
+  id: '/state',
+  path: '/state',
+  getParentRoute: () => ApiSessionsIdRoute,
+} as any)
+const ApiSessionsIdEntriesEntryIdThinkingRoute =
+  ApiSessionsIdEntriesEntryIdThinkingRouteImport.update({
+    id: '/entries/$entryId/thinking',
+    path: '/entries/$entryId/thinking',
+    getParentRoute: () => ApiSessionsIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/api/sessions': typeof ApiSessionsRoute
+  '/api/app-update': typeof ApiAppUpdateRoute
+  '/api/default-cwd': typeof ApiDefaultCwdRoute
+  '/api/file-index': typeof ApiFileIndexRoute
+  '/api/home': typeof ApiHomeRoute
+  '/api/models': typeof ApiModelsRoute
+  '/api/models-config': typeof ApiModelsConfigRouteWithChildren
+  '/api/plugins': typeof ApiPluginsRoute
+  '/api/project-trust': typeof ApiProjectTrustRoute
+  '/api/projects': typeof ApiProjectsRoute
+  '/api/sessions': typeof ApiSessionsRouteWithChildren
+  '/api/skills': typeof ApiSkillsRouteWithChildren
+  '/api/worktrees': typeof ApiWorktreesRoute
+  '/api/agent/$id': typeof ApiAgentIdRouteWithChildren
+  '/api/agent/new': typeof ApiAgentNewRoute
+  '/api/agent/running': typeof ApiAgentRunningRouteWithChildren
+  '/api/auth/all-providers': typeof ApiAuthAllProvidersRoute
+  '/api/auth/providers': typeof ApiAuthProvidersRoute
+  '/api/cwd/browse': typeof ApiCwdBrowseRoute
+  '/api/cwd/validate': typeof ApiCwdValidateRoute
   '/api/files/$': typeof ApiFilesSplatRoute
+  '/api/git/diff': typeof ApiGitDiffRoute
+  '/api/git/status': typeof ApiGitStatusRoute
+  '/api/models-config/catalog': typeof ApiModelsConfigCatalogRoute
+  '/api/models-config/discover': typeof ApiModelsConfigDiscoverRoute
+  '/api/models-config/test': typeof ApiModelsConfigTestRoute
+  '/api/sessions/$id': typeof ApiSessionsIdRouteWithChildren
+  '/api/skills/check': typeof ApiSkillsCheckRoute
+  '/api/skills/install': typeof ApiSkillsInstallRoute
+  '/api/skills/search': typeof ApiSkillsSearchRoute
+  '/api/skills/update': typeof ApiSkillsUpdateRoute
+  '/api/agent/$id/bash-output': typeof ApiAgentIdBashOutputRoute
   '/api/agent/$id/events': typeof ApiAgentIdEventsRoute
+  '/api/agent/running/events': typeof ApiAgentRunningEventsRoute
+  '/api/auth/api-key/$provider': typeof ApiAuthApiKeyProviderRoute
+  '/api/auth/login/$provider': typeof ApiAuthLoginProviderRoute
+  '/api/auth/logout/$provider': typeof ApiAuthLogoutProviderRoute
+  '/api/sessions/$id/auto-name': typeof ApiSessionsIdAutoNameRoute
+  '/api/sessions/$id/context': typeof ApiSessionsIdContextRoute
+  '/api/sessions/$id/export': typeof ApiSessionsIdExportRoute
+  '/api/sessions/$id/state': typeof ApiSessionsIdStateRoute
+  '/api/sessions/$id/entries/$entryId/thinking': typeof ApiSessionsIdEntriesEntryIdThinkingRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/api/sessions': typeof ApiSessionsRoute
+  '/api/app-update': typeof ApiAppUpdateRoute
+  '/api/default-cwd': typeof ApiDefaultCwdRoute
+  '/api/file-index': typeof ApiFileIndexRoute
+  '/api/home': typeof ApiHomeRoute
+  '/api/models': typeof ApiModelsRoute
+  '/api/models-config': typeof ApiModelsConfigRouteWithChildren
+  '/api/plugins': typeof ApiPluginsRoute
+  '/api/project-trust': typeof ApiProjectTrustRoute
+  '/api/projects': typeof ApiProjectsRoute
+  '/api/sessions': typeof ApiSessionsRouteWithChildren
+  '/api/skills': typeof ApiSkillsRouteWithChildren
+  '/api/worktrees': typeof ApiWorktreesRoute
+  '/api/agent/$id': typeof ApiAgentIdRouteWithChildren
+  '/api/agent/new': typeof ApiAgentNewRoute
+  '/api/agent/running': typeof ApiAgentRunningRouteWithChildren
+  '/api/auth/all-providers': typeof ApiAuthAllProvidersRoute
+  '/api/auth/providers': typeof ApiAuthProvidersRoute
+  '/api/cwd/browse': typeof ApiCwdBrowseRoute
+  '/api/cwd/validate': typeof ApiCwdValidateRoute
   '/api/files/$': typeof ApiFilesSplatRoute
+  '/api/git/diff': typeof ApiGitDiffRoute
+  '/api/git/status': typeof ApiGitStatusRoute
+  '/api/models-config/catalog': typeof ApiModelsConfigCatalogRoute
+  '/api/models-config/discover': typeof ApiModelsConfigDiscoverRoute
+  '/api/models-config/test': typeof ApiModelsConfigTestRoute
+  '/api/sessions/$id': typeof ApiSessionsIdRouteWithChildren
+  '/api/skills/check': typeof ApiSkillsCheckRoute
+  '/api/skills/install': typeof ApiSkillsInstallRoute
+  '/api/skills/search': typeof ApiSkillsSearchRoute
+  '/api/skills/update': typeof ApiSkillsUpdateRoute
+  '/api/agent/$id/bash-output': typeof ApiAgentIdBashOutputRoute
   '/api/agent/$id/events': typeof ApiAgentIdEventsRoute
+  '/api/agent/running/events': typeof ApiAgentRunningEventsRoute
+  '/api/auth/api-key/$provider': typeof ApiAuthApiKeyProviderRoute
+  '/api/auth/login/$provider': typeof ApiAuthLoginProviderRoute
+  '/api/auth/logout/$provider': typeof ApiAuthLogoutProviderRoute
+  '/api/sessions/$id/auto-name': typeof ApiSessionsIdAutoNameRoute
+  '/api/sessions/$id/context': typeof ApiSessionsIdContextRoute
+  '/api/sessions/$id/export': typeof ApiSessionsIdExportRoute
+  '/api/sessions/$id/state': typeof ApiSessionsIdStateRoute
+  '/api/sessions/$id/entries/$entryId/thinking': typeof ApiSessionsIdEntriesEntryIdThinkingRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/api/sessions': typeof ApiSessionsRoute
+  '/api/app-update': typeof ApiAppUpdateRoute
+  '/api/default-cwd': typeof ApiDefaultCwdRoute
+  '/api/file-index': typeof ApiFileIndexRoute
+  '/api/home': typeof ApiHomeRoute
+  '/api/models': typeof ApiModelsRoute
+  '/api/models-config': typeof ApiModelsConfigRouteWithChildren
+  '/api/plugins': typeof ApiPluginsRoute
+  '/api/project-trust': typeof ApiProjectTrustRoute
+  '/api/projects': typeof ApiProjectsRoute
+  '/api/sessions': typeof ApiSessionsRouteWithChildren
+  '/api/skills': typeof ApiSkillsRouteWithChildren
+  '/api/worktrees': typeof ApiWorktreesRoute
+  '/api/agent/$id': typeof ApiAgentIdRouteWithChildren
+  '/api/agent/new': typeof ApiAgentNewRoute
+  '/api/agent/running': typeof ApiAgentRunningRouteWithChildren
+  '/api/auth/all-providers': typeof ApiAuthAllProvidersRoute
+  '/api/auth/providers': typeof ApiAuthProvidersRoute
+  '/api/cwd/browse': typeof ApiCwdBrowseRoute
+  '/api/cwd/validate': typeof ApiCwdValidateRoute
   '/api/files/$': typeof ApiFilesSplatRoute
+  '/api/git/diff': typeof ApiGitDiffRoute
+  '/api/git/status': typeof ApiGitStatusRoute
+  '/api/models-config/catalog': typeof ApiModelsConfigCatalogRoute
+  '/api/models-config/discover': typeof ApiModelsConfigDiscoverRoute
+  '/api/models-config/test': typeof ApiModelsConfigTestRoute
+  '/api/sessions/$id': typeof ApiSessionsIdRouteWithChildren
+  '/api/skills/check': typeof ApiSkillsCheckRoute
+  '/api/skills/install': typeof ApiSkillsInstallRoute
+  '/api/skills/search': typeof ApiSkillsSearchRoute
+  '/api/skills/update': typeof ApiSkillsUpdateRoute
+  '/api/agent/$id/bash-output': typeof ApiAgentIdBashOutputRoute
   '/api/agent/$id/events': typeof ApiAgentIdEventsRoute
+  '/api/agent/running/events': typeof ApiAgentRunningEventsRoute
+  '/api/auth/api-key/$provider': typeof ApiAuthApiKeyProviderRoute
+  '/api/auth/login/$provider': typeof ApiAuthLoginProviderRoute
+  '/api/auth/logout/$provider': typeof ApiAuthLogoutProviderRoute
+  '/api/sessions/$id/auto-name': typeof ApiSessionsIdAutoNameRoute
+  '/api/sessions/$id/context': typeof ApiSessionsIdContextRoute
+  '/api/sessions/$id/export': typeof ApiSessionsIdExportRoute
+  '/api/sessions/$id/state': typeof ApiSessionsIdStateRoute
+  '/api/sessions/$id/entries/$entryId/thinking': typeof ApiSessionsIdEntriesEntryIdThinkingRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/sessions' | '/api/files/$' | '/api/agent/$id/events'
+  fullPaths:
+    | '/'
+    | '/api/app-update'
+    | '/api/default-cwd'
+    | '/api/file-index'
+    | '/api/home'
+    | '/api/models'
+    | '/api/models-config'
+    | '/api/plugins'
+    | '/api/project-trust'
+    | '/api/projects'
+    | '/api/sessions'
+    | '/api/skills'
+    | '/api/worktrees'
+    | '/api/agent/$id'
+    | '/api/agent/new'
+    | '/api/agent/running'
+    | '/api/auth/all-providers'
+    | '/api/auth/providers'
+    | '/api/cwd/browse'
+    | '/api/cwd/validate'
+    | '/api/files/$'
+    | '/api/git/diff'
+    | '/api/git/status'
+    | '/api/models-config/catalog'
+    | '/api/models-config/discover'
+    | '/api/models-config/test'
+    | '/api/sessions/$id'
+    | '/api/skills/check'
+    | '/api/skills/install'
+    | '/api/skills/search'
+    | '/api/skills/update'
+    | '/api/agent/$id/bash-output'
+    | '/api/agent/$id/events'
+    | '/api/agent/running/events'
+    | '/api/auth/api-key/$provider'
+    | '/api/auth/login/$provider'
+    | '/api/auth/logout/$provider'
+    | '/api/sessions/$id/auto-name'
+    | '/api/sessions/$id/context'
+    | '/api/sessions/$id/export'
+    | '/api/sessions/$id/state'
+    | '/api/sessions/$id/entries/$entryId/thinking'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/sessions' | '/api/files/$' | '/api/agent/$id/events'
+  to:
+    | '/'
+    | '/api/app-update'
+    | '/api/default-cwd'
+    | '/api/file-index'
+    | '/api/home'
+    | '/api/models'
+    | '/api/models-config'
+    | '/api/plugins'
+    | '/api/project-trust'
+    | '/api/projects'
+    | '/api/sessions'
+    | '/api/skills'
+    | '/api/worktrees'
+    | '/api/agent/$id'
+    | '/api/agent/new'
+    | '/api/agent/running'
+    | '/api/auth/all-providers'
+    | '/api/auth/providers'
+    | '/api/cwd/browse'
+    | '/api/cwd/validate'
+    | '/api/files/$'
+    | '/api/git/diff'
+    | '/api/git/status'
+    | '/api/models-config/catalog'
+    | '/api/models-config/discover'
+    | '/api/models-config/test'
+    | '/api/sessions/$id'
+    | '/api/skills/check'
+    | '/api/skills/install'
+    | '/api/skills/search'
+    | '/api/skills/update'
+    | '/api/agent/$id/bash-output'
+    | '/api/agent/$id/events'
+    | '/api/agent/running/events'
+    | '/api/auth/api-key/$provider'
+    | '/api/auth/login/$provider'
+    | '/api/auth/logout/$provider'
+    | '/api/sessions/$id/auto-name'
+    | '/api/sessions/$id/context'
+    | '/api/sessions/$id/export'
+    | '/api/sessions/$id/state'
+    | '/api/sessions/$id/entries/$entryId/thinking'
   id:
     | '__root__'
     | '/'
+    | '/api/app-update'
+    | '/api/default-cwd'
+    | '/api/file-index'
+    | '/api/home'
+    | '/api/models'
+    | '/api/models-config'
+    | '/api/plugins'
+    | '/api/project-trust'
+    | '/api/projects'
     | '/api/sessions'
+    | '/api/skills'
+    | '/api/worktrees'
+    | '/api/agent/$id'
+    | '/api/agent/new'
+    | '/api/agent/running'
+    | '/api/auth/all-providers'
+    | '/api/auth/providers'
+    | '/api/cwd/browse'
+    | '/api/cwd/validate'
     | '/api/files/$'
+    | '/api/git/diff'
+    | '/api/git/status'
+    | '/api/models-config/catalog'
+    | '/api/models-config/discover'
+    | '/api/models-config/test'
+    | '/api/sessions/$id'
+    | '/api/skills/check'
+    | '/api/skills/install'
+    | '/api/skills/search'
+    | '/api/skills/update'
+    | '/api/agent/$id/bash-output'
     | '/api/agent/$id/events'
+    | '/api/agent/running/events'
+    | '/api/auth/api-key/$provider'
+    | '/api/auth/login/$provider'
+    | '/api/auth/logout/$provider'
+    | '/api/sessions/$id/auto-name'
+    | '/api/sessions/$id/context'
+    | '/api/sessions/$id/export'
+    | '/api/sessions/$id/state'
+    | '/api/sessions/$id/entries/$entryId/thinking'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  ApiSessionsRoute: typeof ApiSessionsRoute
+  ApiAppUpdateRoute: typeof ApiAppUpdateRoute
+  ApiDefaultCwdRoute: typeof ApiDefaultCwdRoute
+  ApiFileIndexRoute: typeof ApiFileIndexRoute
+  ApiHomeRoute: typeof ApiHomeRoute
+  ApiModelsRoute: typeof ApiModelsRoute
+  ApiModelsConfigRoute: typeof ApiModelsConfigRouteWithChildren
+  ApiPluginsRoute: typeof ApiPluginsRoute
+  ApiProjectTrustRoute: typeof ApiProjectTrustRoute
+  ApiProjectsRoute: typeof ApiProjectsRoute
+  ApiSessionsRoute: typeof ApiSessionsRouteWithChildren
+  ApiSkillsRoute: typeof ApiSkillsRouteWithChildren
+  ApiWorktreesRoute: typeof ApiWorktreesRoute
+  ApiAgentIdRoute: typeof ApiAgentIdRouteWithChildren
+  ApiAgentNewRoute: typeof ApiAgentNewRoute
+  ApiAgentRunningRoute: typeof ApiAgentRunningRouteWithChildren
+  ApiAuthAllProvidersRoute: typeof ApiAuthAllProvidersRoute
+  ApiAuthProvidersRoute: typeof ApiAuthProvidersRoute
+  ApiCwdBrowseRoute: typeof ApiCwdBrowseRoute
+  ApiCwdValidateRoute: typeof ApiCwdValidateRoute
   ApiFilesSplatRoute: typeof ApiFilesSplatRoute
-  ApiAgentIdEventsRoute: typeof ApiAgentIdEventsRoute
+  ApiGitDiffRoute: typeof ApiGitDiffRoute
+  ApiGitStatusRoute: typeof ApiGitStatusRoute
+  ApiAuthApiKeyProviderRoute: typeof ApiAuthApiKeyProviderRoute
+  ApiAuthLoginProviderRoute: typeof ApiAuthLoginProviderRoute
+  ApiAuthLogoutProviderRoute: typeof ApiAuthLogoutProviderRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -83,11 +570,137 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/app-update': {
+      id: '/api/app-update'
+      path: '/api/app-update'
+      fullPath: '/api/app-update'
+      preLoaderRoute: typeof ApiAppUpdateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/default-cwd': {
+      id: '/api/default-cwd'
+      path: '/api/default-cwd'
+      fullPath: '/api/default-cwd'
+      preLoaderRoute: typeof ApiDefaultCwdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/file-index': {
+      id: '/api/file-index'
+      path: '/api/file-index'
+      fullPath: '/api/file-index'
+      preLoaderRoute: typeof ApiFileIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/home': {
+      id: '/api/home'
+      path: '/api/home'
+      fullPath: '/api/home'
+      preLoaderRoute: typeof ApiHomeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/models': {
+      id: '/api/models'
+      path: '/api/models'
+      fullPath: '/api/models'
+      preLoaderRoute: typeof ApiModelsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/models-config': {
+      id: '/api/models-config'
+      path: '/api/models-config'
+      fullPath: '/api/models-config'
+      preLoaderRoute: typeof ApiModelsConfigRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/plugins': {
+      id: '/api/plugins'
+      path: '/api/plugins'
+      fullPath: '/api/plugins'
+      preLoaderRoute: typeof ApiPluginsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/project-trust': {
+      id: '/api/project-trust'
+      path: '/api/project-trust'
+      fullPath: '/api/project-trust'
+      preLoaderRoute: typeof ApiProjectTrustRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/projects': {
+      id: '/api/projects'
+      path: '/api/projects'
+      fullPath: '/api/projects'
+      preLoaderRoute: typeof ApiProjectsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/sessions': {
       id: '/api/sessions'
       path: '/api/sessions'
       fullPath: '/api/sessions'
       preLoaderRoute: typeof ApiSessionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/skills': {
+      id: '/api/skills'
+      path: '/api/skills'
+      fullPath: '/api/skills'
+      preLoaderRoute: typeof ApiSkillsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/worktrees': {
+      id: '/api/worktrees'
+      path: '/api/worktrees'
+      fullPath: '/api/worktrees'
+      preLoaderRoute: typeof ApiWorktreesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/$id': {
+      id: '/api/agent/$id'
+      path: '/api/agent/$id'
+      fullPath: '/api/agent/$id'
+      preLoaderRoute: typeof ApiAgentIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/new': {
+      id: '/api/agent/new'
+      path: '/api/agent/new'
+      fullPath: '/api/agent/new'
+      preLoaderRoute: typeof ApiAgentNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/running': {
+      id: '/api/agent/running'
+      path: '/api/agent/running'
+      fullPath: '/api/agent/running'
+      preLoaderRoute: typeof ApiAgentRunningRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/all-providers': {
+      id: '/api/auth/all-providers'
+      path: '/api/auth/all-providers'
+      fullPath: '/api/auth/all-providers'
+      preLoaderRoute: typeof ApiAuthAllProvidersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/providers': {
+      id: '/api/auth/providers'
+      path: '/api/auth/providers'
+      fullPath: '/api/auth/providers'
+      preLoaderRoute: typeof ApiAuthProvidersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cwd/browse': {
+      id: '/api/cwd/browse'
+      path: '/api/cwd/browse'
+      fullPath: '/api/cwd/browse'
+      preLoaderRoute: typeof ApiCwdBrowseRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cwd/validate': {
+      id: '/api/cwd/validate'
+      path: '/api/cwd/validate'
+      fullPath: '/api/cwd/validate'
+      preLoaderRoute: typeof ApiCwdValidateRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/files/$': {
@@ -97,21 +710,276 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiFilesSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/git/diff': {
+      id: '/api/git/diff'
+      path: '/api/git/diff'
+      fullPath: '/api/git/diff'
+      preLoaderRoute: typeof ApiGitDiffRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/git/status': {
+      id: '/api/git/status'
+      path: '/api/git/status'
+      fullPath: '/api/git/status'
+      preLoaderRoute: typeof ApiGitStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/models-config/catalog': {
+      id: '/api/models-config/catalog'
+      path: '/catalog'
+      fullPath: '/api/models-config/catalog'
+      preLoaderRoute: typeof ApiModelsConfigCatalogRouteImport
+      parentRoute: typeof ApiModelsConfigRoute
+    }
+    '/api/models-config/discover': {
+      id: '/api/models-config/discover'
+      path: '/discover'
+      fullPath: '/api/models-config/discover'
+      preLoaderRoute: typeof ApiModelsConfigDiscoverRouteImport
+      parentRoute: typeof ApiModelsConfigRoute
+    }
+    '/api/models-config/test': {
+      id: '/api/models-config/test'
+      path: '/test'
+      fullPath: '/api/models-config/test'
+      preLoaderRoute: typeof ApiModelsConfigTestRouteImport
+      parentRoute: typeof ApiModelsConfigRoute
+    }
+    '/api/sessions/$id': {
+      id: '/api/sessions/$id'
+      path: '/$id'
+      fullPath: '/api/sessions/$id'
+      preLoaderRoute: typeof ApiSessionsIdRouteImport
+      parentRoute: typeof ApiSessionsRoute
+    }
+    '/api/skills/check': {
+      id: '/api/skills/check'
+      path: '/check'
+      fullPath: '/api/skills/check'
+      preLoaderRoute: typeof ApiSkillsCheckRouteImport
+      parentRoute: typeof ApiSkillsRoute
+    }
+    '/api/skills/install': {
+      id: '/api/skills/install'
+      path: '/install'
+      fullPath: '/api/skills/install'
+      preLoaderRoute: typeof ApiSkillsInstallRouteImport
+      parentRoute: typeof ApiSkillsRoute
+    }
+    '/api/skills/search': {
+      id: '/api/skills/search'
+      path: '/search'
+      fullPath: '/api/skills/search'
+      preLoaderRoute: typeof ApiSkillsSearchRouteImport
+      parentRoute: typeof ApiSkillsRoute
+    }
+    '/api/skills/update': {
+      id: '/api/skills/update'
+      path: '/update'
+      fullPath: '/api/skills/update'
+      preLoaderRoute: typeof ApiSkillsUpdateRouteImport
+      parentRoute: typeof ApiSkillsRoute
+    }
+    '/api/agent/$id/bash-output': {
+      id: '/api/agent/$id/bash-output'
+      path: '/bash-output'
+      fullPath: '/api/agent/$id/bash-output'
+      preLoaderRoute: typeof ApiAgentIdBashOutputRouteImport
+      parentRoute: typeof ApiAgentIdRoute
+    }
     '/api/agent/$id/events': {
       id: '/api/agent/$id/events'
-      path: '/api/agent/$id/events'
+      path: '/events'
       fullPath: '/api/agent/$id/events'
       preLoaderRoute: typeof ApiAgentIdEventsRouteImport
+      parentRoute: typeof ApiAgentIdRoute
+    }
+    '/api/agent/running/events': {
+      id: '/api/agent/running/events'
+      path: '/events'
+      fullPath: '/api/agent/running/events'
+      preLoaderRoute: typeof ApiAgentRunningEventsRouteImport
+      parentRoute: typeof ApiAgentRunningRoute
+    }
+    '/api/auth/api-key/$provider': {
+      id: '/api/auth/api-key/$provider'
+      path: '/api/auth/api-key/$provider'
+      fullPath: '/api/auth/api-key/$provider'
+      preLoaderRoute: typeof ApiAuthApiKeyProviderRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/login/$provider': {
+      id: '/api/auth/login/$provider'
+      path: '/api/auth/login/$provider'
+      fullPath: '/api/auth/login/$provider'
+      preLoaderRoute: typeof ApiAuthLoginProviderRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/logout/$provider': {
+      id: '/api/auth/logout/$provider'
+      path: '/api/auth/logout/$provider'
+      fullPath: '/api/auth/logout/$provider'
+      preLoaderRoute: typeof ApiAuthLogoutProviderRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/sessions/$id/auto-name': {
+      id: '/api/sessions/$id/auto-name'
+      path: '/auto-name'
+      fullPath: '/api/sessions/$id/auto-name'
+      preLoaderRoute: typeof ApiSessionsIdAutoNameRouteImport
+      parentRoute: typeof ApiSessionsIdRoute
+    }
+    '/api/sessions/$id/context': {
+      id: '/api/sessions/$id/context'
+      path: '/context'
+      fullPath: '/api/sessions/$id/context'
+      preLoaderRoute: typeof ApiSessionsIdContextRouteImport
+      parentRoute: typeof ApiSessionsIdRoute
+    }
+    '/api/sessions/$id/export': {
+      id: '/api/sessions/$id/export'
+      path: '/export'
+      fullPath: '/api/sessions/$id/export'
+      preLoaderRoute: typeof ApiSessionsIdExportRouteImport
+      parentRoute: typeof ApiSessionsIdRoute
+    }
+    '/api/sessions/$id/state': {
+      id: '/api/sessions/$id/state'
+      path: '/state'
+      fullPath: '/api/sessions/$id/state'
+      preLoaderRoute: typeof ApiSessionsIdStateRouteImport
+      parentRoute: typeof ApiSessionsIdRoute
+    }
+    '/api/sessions/$id/entries/$entryId/thinking': {
+      id: '/api/sessions/$id/entries/$entryId/thinking'
+      path: '/entries/$entryId/thinking'
+      fullPath: '/api/sessions/$id/entries/$entryId/thinking'
+      preLoaderRoute: typeof ApiSessionsIdEntriesEntryIdThinkingRouteImport
+      parentRoute: typeof ApiSessionsIdRoute
     }
   }
 }
 
+interface ApiModelsConfigRouteChildren {
+  ApiModelsConfigCatalogRoute: typeof ApiModelsConfigCatalogRoute
+  ApiModelsConfigDiscoverRoute: typeof ApiModelsConfigDiscoverRoute
+  ApiModelsConfigTestRoute: typeof ApiModelsConfigTestRoute
+}
+
+const ApiModelsConfigRouteChildren: ApiModelsConfigRouteChildren = {
+  ApiModelsConfigCatalogRoute: ApiModelsConfigCatalogRoute,
+  ApiModelsConfigDiscoverRoute: ApiModelsConfigDiscoverRoute,
+  ApiModelsConfigTestRoute: ApiModelsConfigTestRoute,
+}
+
+const ApiModelsConfigRouteWithChildren = ApiModelsConfigRoute._addFileChildren(
+  ApiModelsConfigRouteChildren,
+)
+
+interface ApiSessionsIdRouteChildren {
+  ApiSessionsIdAutoNameRoute: typeof ApiSessionsIdAutoNameRoute
+  ApiSessionsIdContextRoute: typeof ApiSessionsIdContextRoute
+  ApiSessionsIdExportRoute: typeof ApiSessionsIdExportRoute
+  ApiSessionsIdStateRoute: typeof ApiSessionsIdStateRoute
+  ApiSessionsIdEntriesEntryIdThinkingRoute: typeof ApiSessionsIdEntriesEntryIdThinkingRoute
+}
+
+const ApiSessionsIdRouteChildren: ApiSessionsIdRouteChildren = {
+  ApiSessionsIdAutoNameRoute: ApiSessionsIdAutoNameRoute,
+  ApiSessionsIdContextRoute: ApiSessionsIdContextRoute,
+  ApiSessionsIdExportRoute: ApiSessionsIdExportRoute,
+  ApiSessionsIdStateRoute: ApiSessionsIdStateRoute,
+  ApiSessionsIdEntriesEntryIdThinkingRoute:
+    ApiSessionsIdEntriesEntryIdThinkingRoute,
+}
+
+const ApiSessionsIdRouteWithChildren = ApiSessionsIdRoute._addFileChildren(
+  ApiSessionsIdRouteChildren,
+)
+
+interface ApiSessionsRouteChildren {
+  ApiSessionsIdRoute: typeof ApiSessionsIdRouteWithChildren
+}
+
+const ApiSessionsRouteChildren: ApiSessionsRouteChildren = {
+  ApiSessionsIdRoute: ApiSessionsIdRouteWithChildren,
+}
+
+const ApiSessionsRouteWithChildren = ApiSessionsRoute._addFileChildren(
+  ApiSessionsRouteChildren,
+)
+
+interface ApiSkillsRouteChildren {
+  ApiSkillsCheckRoute: typeof ApiSkillsCheckRoute
+  ApiSkillsInstallRoute: typeof ApiSkillsInstallRoute
+  ApiSkillsSearchRoute: typeof ApiSkillsSearchRoute
+  ApiSkillsUpdateRoute: typeof ApiSkillsUpdateRoute
+}
+
+const ApiSkillsRouteChildren: ApiSkillsRouteChildren = {
+  ApiSkillsCheckRoute: ApiSkillsCheckRoute,
+  ApiSkillsInstallRoute: ApiSkillsInstallRoute,
+  ApiSkillsSearchRoute: ApiSkillsSearchRoute,
+  ApiSkillsUpdateRoute: ApiSkillsUpdateRoute,
+}
+
+const ApiSkillsRouteWithChildren = ApiSkillsRoute._addFileChildren(
+  ApiSkillsRouteChildren,
+)
+
+interface ApiAgentIdRouteChildren {
+  ApiAgentIdBashOutputRoute: typeof ApiAgentIdBashOutputRoute
+  ApiAgentIdEventsRoute: typeof ApiAgentIdEventsRoute
+}
+
+const ApiAgentIdRouteChildren: ApiAgentIdRouteChildren = {
+  ApiAgentIdBashOutputRoute: ApiAgentIdBashOutputRoute,
+  ApiAgentIdEventsRoute: ApiAgentIdEventsRoute,
+}
+
+const ApiAgentIdRouteWithChildren = ApiAgentIdRoute._addFileChildren(
+  ApiAgentIdRouteChildren,
+)
+
+interface ApiAgentRunningRouteChildren {
+  ApiAgentRunningEventsRoute: typeof ApiAgentRunningEventsRoute
+}
+
+const ApiAgentRunningRouteChildren: ApiAgentRunningRouteChildren = {
+  ApiAgentRunningEventsRoute: ApiAgentRunningEventsRoute,
+}
+
+const ApiAgentRunningRouteWithChildren = ApiAgentRunningRoute._addFileChildren(
+  ApiAgentRunningRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  ApiSessionsRoute: ApiSessionsRoute,
+  ApiAppUpdateRoute: ApiAppUpdateRoute,
+  ApiDefaultCwdRoute: ApiDefaultCwdRoute,
+  ApiFileIndexRoute: ApiFileIndexRoute,
+  ApiHomeRoute: ApiHomeRoute,
+  ApiModelsRoute: ApiModelsRoute,
+  ApiModelsConfigRoute: ApiModelsConfigRouteWithChildren,
+  ApiPluginsRoute: ApiPluginsRoute,
+  ApiProjectTrustRoute: ApiProjectTrustRoute,
+  ApiProjectsRoute: ApiProjectsRoute,
+  ApiSessionsRoute: ApiSessionsRouteWithChildren,
+  ApiSkillsRoute: ApiSkillsRouteWithChildren,
+  ApiWorktreesRoute: ApiWorktreesRoute,
+  ApiAgentIdRoute: ApiAgentIdRouteWithChildren,
+  ApiAgentNewRoute: ApiAgentNewRoute,
+  ApiAgentRunningRoute: ApiAgentRunningRouteWithChildren,
+  ApiAuthAllProvidersRoute: ApiAuthAllProvidersRoute,
+  ApiAuthProvidersRoute: ApiAuthProvidersRoute,
+  ApiCwdBrowseRoute: ApiCwdBrowseRoute,
+  ApiCwdValidateRoute: ApiCwdValidateRoute,
   ApiFilesSplatRoute: ApiFilesSplatRoute,
-  ApiAgentIdEventsRoute: ApiAgentIdEventsRoute,
+  ApiGitDiffRoute: ApiGitDiffRoute,
+  ApiGitStatusRoute: ApiGitStatusRoute,
+  ApiAuthApiKeyProviderRoute: ApiAuthApiKeyProviderRoute,
+  ApiAuthLoginProviderRoute: ApiAuthLoginProviderRoute,
+  ApiAuthLogoutProviderRoute: ApiAuthLogoutProviderRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
