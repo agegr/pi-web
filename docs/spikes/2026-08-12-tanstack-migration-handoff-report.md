@@ -1,8 +1,8 @@
 # Pi Web Next.js → TanStack Start 迁移交接报告
 
 > 交接人:pi 执行会话 · 日期:2026-08-12
-> 分支:`migration/tanstack-start` · 最终 HEAD:`19bf76b`
-> 状态:**全部 Phase 完成,未合并/未发布,等待整合决定**
+> 分支:`migration/tanstack-start` · 代码整合候选:`f55acfe`
+> 状态:**全部 Phase 完成,已整合 main@e4ea976 并通过本地门禁,待推送 main;未发布 npm**
 
 ---
 
@@ -15,16 +15,16 @@
 - 前端壳(AppShell/CodexSidebar/SettingsPage/PWA)迁移到 TanStack Router
 - 打包/发布链从 `.next` 预构建转为 Nitro 外部输出 + npm tarball 发布
 
-**基准**:基线 `0f6a152`(受保护文件比对基准)、计划 `6137ff4`、整合主线 `97ca430`。
+**基准**:基线 `0f6a152`(受保护文件比对基准)、计划 `6137ff4`、最新整合主线 `e4ea976`。
 
 ## 2. 最终状态
 
 | 项 | 值 |
 |---|---|
 | 分支 | `migration/tanstack-start`(worktree `/Users/kale/pi-web-worktrees/migration-tanstack-start`) |
-| HEAD | `19bf76b732fb17bc0f4f68d9467d697e9b049603`(已 push) |
-| 提交数 | 28(0f6a152..HEAD) |
-| 变更量 | 127 文件,+9321 / −9755 行 |
+| 代码整合候选 | `f55acfe`(主线合并 + 测试兼容性修正) |
+| 提交数 | 41(0f6a152..HEAD,含 main 合并提交) |
+| 变更量 | 137 文件,+9707 / −9775 行 |
 | 工作树 | 干净,无 `.output`,无未跟踪敏感文件 |
 | 工具链 | Node 22.22.1 · npm 10.9.4 · TanStack Start 1.168.42 · Vite 8.0.14 · Nitro 3.0.260311-beta · Next 16.2.12(已退役) |
 
@@ -77,12 +77,12 @@ next build + .next 发布             vite/nitro 外部输出 + npm tarball(依�
 | 门禁 | 结果 |
 |---|---|
 | `npm ci`(干净) | exit 0 |
-| 测试 | **587/587**,0 fail |
+| 测试 | **592/592**,0 fail |
 | lint | 0 errors / 9 warnings(基线 11,未增加) |
 | tsc | clean |
 | standalone 构建 | 23,707 文件 / 166.4 MB,5 包版本与仓库一致 |
 | 41 路由冒烟 | 59 探测 / 0 失败(无密码 + 密码模式) |
-| tarball | `agegr-pi-web-0.8.8-beta.1.tgz`,**5,002,281 字节**,sha512 `b4f73095…` |
+| tarball | `agegr-pi-web-0.8.8-beta.1.tgz`,**5,003,752 字节**,sha512 `889e65cc…` |
 | 安装包冒烟 | root/sessions/manifest/sw/安全矩阵/59 路由全绿,`lucide-react 0.562.0` 可解析 |
 | **SSE 310s** | 330,011 ms,12 heartbeats(≥10),connected ✓ |
 | **Windows CI** | ✅ [run 31593861847](https://github.com/icekale/pi-web/actions/runs/31593861847)(276243e,13min) |
@@ -108,7 +108,7 @@ next build + .next 发布             vite/nitro 外部输出 + npm tarball(依�
 | prompt 流式消息完成事件 | 隔离环境无 API key,真实凭据不复制 | 发布前在真实环境手工验证一次发消息 |
 | API-key store/remove | 无测试凭据 | 同上,手工验证 |
 | models-config catalog | 上游 502(联网) | 正常网络下验证 |
-| 浏览器交互细节(主题/语言/设置面板点击) | 截图验证渲染,未逐项点击 | 发布前手工过一遍 UI |
+| 浏览器交互细节(主题/语言/设置面板点击) | 本轮无可用浏览器自动化依赖;已安装包 HTTP/UI 入口冒烟通过,未逐项点击 | 发布前手工过一遍 UI |
 | **`~/.pi/agent/models.json` 曾被探测误写** | `PUT /api/models-config` 无校验,已从 `models.json.bak-20260808-133923` 恢复 | **确认 Models 面板配置完整;建议后续给该端点加输入校验** |
 | 未持久化 session 的 DELETE 返回 500 | handler 既有行为(ENOENT),非迁移回归 | 可后续优化 |
 | tarball 5MB 但安装后依赖 ~100MB+ | publication 语义:依赖由 npm 管理 | 符合预期,发布时注意 npm 安装时间 |
@@ -133,11 +133,20 @@ npm publish ./<tarball>.tgz --access public
 
 ## 9. 建议的下一步
 
-1. **整合决策**(用户决定,未经授权不执行):合并 main / PR / 暂不整合
+1. 将已验证整合候选快进到 `main` 并推送;保留迁移 worktree 供复核
 2. 发布前完成 §7 的手工验证项(发消息、UI 点击、catalog)
 3. 后续加固:`PUT /api/models-config` 输入校验(本次事故暴露)
 4. 长期:删除仓库中残留的 Next 相关文件引用(测试断言类,已无害)
 5. Windows CI 工作流(`tanstack-spike-windows.yml`)建议后续更名为 `migration-gate` 并保留
+
+## 11. 最新 main 整合记录
+
+- 已将 `main@e4ea976` 合并到迁移分支: `1de3e1a merge: integrate post-migration main fixes`。
+- 保留 TanStack `navigate(...)` 和标准 Web `Response`,同时纳入主线的 session relation、subagent 分组/隐藏、运行状态动画和同会话点击保护。
+- 将 `components/AppShell.workspace-memory.test.mjs` 的旧 Next Router 源码断言更新为 TanStack search 导航断言: `f55acfe`。
+- 新鲜验证:测试 592/592;lint 0 errors / 9 warnings;`tsc --noEmit`、`git diff --check` 均 clean。
+- `pack:tanstack` exit 0:临时安装成功,root/sessions/manifest/sw/security 全绿,59 路由探针 0 失败;catalog 仍因上游 502 跳过,写入型 models-config 仍按设计不探测。
+- 本次整合未创建仓库 `.output`,未使用真实 API key,未发布 npm。
 
 ## 10. 关键文件索引
 

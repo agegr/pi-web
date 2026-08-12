@@ -140,3 +140,16 @@ Date: 2026-08-12 · Branch: `migration/tanstack-start`
 - Protected files (`lib/rpc-manager.ts`, `lib/agent-event-stream.ts`, `lib/request-security.ts`, `lib/web-auth.ts`) unchanged vs `0f6a152`: diff exit 0
 - No Next.js imports/refs (remaining `.next` matches are ignore-directory names, JS iterators, and anti-Next test assertions); no repository `.output`; no secret-bearing files tracked
 - No merge, tag, npm publish, GitHub Release, or worktree deletion occurred
+
+## Task 23 — Post-main Integration Verification
+
+Date: 2026-08-12 · Branch: `migration/tanstack-start` · Integrated base: `main@e4ea976`
+
+- Merge commit: `1de3e1a merge: integrate post-migration main fixes`; TanStack navigation and Web API responses remain in place while session relations, subagent grouping/hiding, activity indicators, and same-session navigation protection are included.
+- Test compatibility commit: `f55acfe test: adapt session navigation assertion to TanStack`; only the removed Next Router source marker was replaced with the equivalent TanStack search marker.
+- Fresh full suite: 592/592 pass, 0 fail; lint 0 errors / 9 warnings; `tsc --noEmit` clean; `git diff --check` clean.
+- Fresh `pack:tanstack` on `f55acfe`: exit 0; publication build, external staging, tarball install, and installed CLI smoke all pass.
+- Installed smoke: root/sessions/manifest/service worker/security pass; 59 route probes / 0 failures. `PUT /api/models-config` remains intentionally skipped because it writes configuration; `/api/models-config/catalog` remains an environment skip because upstream returned 502.
+- Tarball: `agegr-pi-web-0.8.8-beta.1.tgz`, 5,003,752 bytes, sha512 `889e65ccceacd7ef472628d90c06ae38d8268564093769c7c00c56bcbb5cd705cccd67c50c4af9f71beb1dba9be2977ddfd7dad9de704023f354fa9951a6238a`.
+- Browser click-through was not repeated because no browser automation dependency was available in the integration workspace. Theme/language/settings clicks and real-key prompt/API-key operations remain explicit manual release checks.
+- No repository `.output`, npm publish, tag, GitHub Release, real-key copy, or primary checkout mutation occurred.
