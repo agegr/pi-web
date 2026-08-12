@@ -463,6 +463,7 @@ export const zhCNLocale: LocalePlugin = {
     "i18n.noMessage": "（无消息）",
     "i18n.showExtensionMessage": "显示扩展消息",
     "i18n.collapse": "收起",
+    "i18n.collapsePanel": "折叠",
     "i18n.expand": "展开",
     "i18n.hideDetails": "隐藏详情",
     "i18n.showDetails": "显示详情",

@@ -1,5 +1,7 @@
 "use client";
 
+import { useI18n } from "@/hooks/useI18n";
+
 export const MAX_EXTENSION_WIDGET_LINES = 10;
 
 /** Widget keys whose title bar gets a collapse/expand action button.
@@ -21,6 +23,7 @@ export function ExtensionWidgets({ widgets, onRunCommand }: {
   widgets: Array<{ key: string; lines: string[] }>;
   onRunCommand?: (command: string) => void;
 }) {
+  const { t } = useI18n();
   if (widgets.length === 0) return null;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
@@ -61,7 +64,7 @@ export function ExtensionWidgets({ widgets, onRunCommand }: {
                   <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <polyline points="2 3.5 5 6.5 8 3.5" />
                   </svg>
-                  collapse
+                  {t("i18n.collapsePanel")}
                 </button>
               )}
             </div>
