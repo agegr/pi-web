@@ -1,6 +1,7 @@
 "use client";
 
 import { useI18n } from "@/hooks/useI18n";
+import type { ExtensionWidgetItem } from "@/lib/types";
 
 export const MAX_EXTENSION_WIDGET_LINES = 10;
 
@@ -20,7 +21,7 @@ function getDisplayLines(lines: string[]): string[] {
 }
 
 export function ExtensionWidgets({ widgets, onRunCommand }: {
-  widgets: Array<{ key: string; lines: string[] }>;
+  widgets: ExtensionWidgetItem[];
   onRunCommand?: (command: string) => void;
 }) {
   const { t } = useI18n();
@@ -40,7 +41,7 @@ export function ExtensionWidgets({ widgets, onRunCommand }: {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 9px", borderBottom: "1px solid var(--border)", color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>
-              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{widget.key}</span>
+              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{widget.title ?? widget.key}</span>
               {toggleCommand && (
                 <button
                   onClick={() => onRunCommand?.(toggleCommand)}

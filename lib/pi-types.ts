@@ -89,6 +89,8 @@ type DialogOptionsLike = {
 
 type WidgetOptionsLike = {
   placement?: "aboveEditor" | "belowEditor";
+  /** Optional title shown in the widget's title bar instead of the key. */
+  title?: string;
 };
 
 export interface ExtensionUiContextLike {

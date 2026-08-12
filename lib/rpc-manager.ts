@@ -55,6 +55,7 @@ type ActiveExtensionWidget = {
   key: string;
   component: ExtensionWidgetComponent;
   placement: "aboveEditor" | "belowEditor";
+  title?: string;
   generation: number;
   clearEmitted: boolean;
   rendered: boolean;
@@ -963,6 +964,7 @@ export class AgentSessionWrapper {
       key: active.key,
       lines: widgetLines,
       placement: active.placement,
+      ...(active.title !== undefined ? { title: active.title } : {}),
     });
     active.rendered = true;
     this.emit({
@@ -972,13 +974,14 @@ export class AgentSessionWrapper {
       widgetKey: active.key,
       widgetLines,
       widgetPlacement: active.placement,
+      ...(active.title !== undefined ? { widgetTitle: active.title } : {}),
     } as ExtensionUiRequest as AgentEvent);
   }
 
   private setExtensionWidgetFactory(
     key: string,
     factory: ExtensionWidgetFactory,
-    options?: { placement?: "aboveEditor" | "belowEditor" },
+    options?: { placement?: "aboveEditor" | "belowEditor"; title?: string },
   ): void {
     const hadPrevious = this.extensionWidgets.has(key) || this.activeExtensionWidgets.has(key);
     const generation = this.clearExtensionWidget(key, hadPrevious);
@@ -1018,6 +1021,7 @@ export class AgentSessionWrapper {
       key,
       component: component as ExtensionWidgetComponent,
       placement: options?.placement ?? "aboveEditor",
+      ...(options?.title !== undefined ? { title: options.title } : {}),
       generation,
       clearEmitted: hadPrevious,
       rendered: false,
@@ -1281,6 +1285,7 @@ export class AgentSessionWrapper {
           key,
           lines: content,
           placement: options?.placement ?? "aboveEditor",
+          ...(options?.title !== undefined ? { title: options.title } : {}),
         });
         this.emit({
           type: "extension_ui_request",
@@ -1289,6 +1294,7 @@ export class AgentSessionWrapper {
           widgetKey: key,
           widgetLines: content,
           widgetPlacement: options?.placement,
+          ...(options?.title !== undefined ? { widgetTitle: options.title } : {}),
         } as ExtensionUiRequest as AgentEvent);
       },
       setFooter: () => {},
