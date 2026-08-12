@@ -818,7 +818,7 @@ function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCal
     return <TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} />;
   }
   if (block.type === "thinking") {
-    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} />;
+    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} />;
   }
   if (block.type === "toolCall") {
     const tc = block as ToolCallContent;
@@ -833,12 +833,15 @@ function TextBlock({ block, isStreaming, cwd, onOpenFile }: { block: TextContent
   return <SafeMarkdownBody isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile}>{block.text}</SafeMarkdownBody>;
 }
 
-function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
+function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, isStreaming, cwd, onOpenFile }: {
   block: ThinkingContent;
   duration?: number;
   sessionId?: string;
   entryId?: string;
   blockIndex: number;
+  isStreaming?: boolean;
+  cwd?: string;
+  onOpenFile?: (filePath: string) => void;
 }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
@@ -897,18 +900,14 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
         )}
       </button>
       {expanded && (
-        <div
-          style={{
-            padding: "8px 10px",
-            color: error ? "#f87171" : "var(--text-muted)",
-            fontSize: 12,
-            lineHeight: 1.6,
-            whiteSpace: "pre-wrap",
-            background: "var(--bg-panel)",
-            borderTop: "1px solid var(--border)",
-          }}
-        >
-           {loading ? t("i18n.loadingThinking") : error ?? (block.deferred ? content : block.thinking)}
+        <div style={{ padding: "8px 10px", color: error ? "#f87171" : "var(--text-muted)", fontSize: 12, background: "var(--bg-panel)", borderTop: "1px solid var(--border)" }}>
+          {loading || error ? (
+            loading ? t("i18n.loadingThinking") : error
+          ) : (
+            <SafeMarkdownBody className="markdown-thinking" isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile}>
+              {(block.deferred ? content : block.thinking) ?? ""}
+            </SafeMarkdownBody>
+          )}
         </div>
       )}
     </div>
@@ -916,9 +915,34 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
 }
 
 
+function formatToolValue(value: unknown, depth: number): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "[]";
+    return value.map((item) => {
+      const formatted = formatToolValue(item, depth + 1);
+      return `${"  ".repeat(depth)}- ${formatted}`;
+    }).join("\n");
+  }
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) return "{}";
+    return entries.map(([key, item]) => {
+      const formatted = formatToolValue(item, depth + 1);
+      const nested = Array.isArray(item) || (item !== null && typeof item === "object");
+      return `${"  ".repeat(depth)}${key}:${nested ? `\n${formatted}` : ` ${formatted}`}`;
+    }).join("\n");
+  }
+  return String(value);
+}
+
+export function formatToolInput(input: Record<string, unknown>): string {
+  return formatToolValue(input, 0);
+}
+
 function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number }) {
   const [expanded, setExpanded] = useState(false);
-  const inputStr = JSON.stringify(block.input, null, 2);
+  const inputStr = formatToolInput(block.input);
   const isEditTool = isEditToolName(block.toolName);
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
 
