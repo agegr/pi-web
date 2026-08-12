@@ -1,7 +1,7 @@
 # Pi Web Next.js → TanStack Start 迁移交接报告
 
 > 交接人:pi 执行会话 · 日期:2026-08-12
-> 分支:`migration/tanstack-start` · 代码整合候选:`e8d5473`
+> 分支:`migration/tanstack-start` · 代码整合候选:`4fbec7b`
 > 状态:**全部 Phase 完成,已整合并推送 main;未发布 npm**
 
 ---
@@ -15,16 +15,16 @@
 - 前端壳(AppShell/CodexSidebar/SettingsPage/PWA)迁移到 TanStack Router
 - 打包/发布链从 `.next` 预构建转为 Nitro 外部输出 + npm tarball 发布
 
-**基准**:基线 `0f6a152`(受保护文件比对基准)、计划 `6137ff4`、最新整合主线 `79ee6ac`。
+**基准**:基线 `0f6a152`(受保护文件比对基准)、计划 `6137ff4`、最新本地主线 `f6948ad`、最终候选 `4fbec7b`。
 
 ## 2. 最终状态
 
 | 项 | 值 |
 |---|---|
 | 分支 | `migration/tanstack-start`(worktree `/Users/kale/pi-web-worktrees/migration-tanstack-start`) |
-| 代码整合候选 | `e8d5473`(包含本地 main 最新 4 个提交与 TanStack PATCH 适配) |
-| 代码候选提交数 | 47(0f6a152..e8d5473,含 main 合并提交) |
-| 变更量 | 141 文件,+10088 / −9827 行 |
+| 代码整合候选 | `4fbec7b`(包含本地 `main@f6948ad` 的最新显示更新) |
+| 代码候选提交数 | 54(0f6a152..4fbec7b,含 main 合并提交) |
+| 变更量 | 143 文件,+10514 / −12720 行 |
 | 工作树 | 干净,无 `.output`,无未跟踪敏感文件 |
 | 工具链 | Node 22.22.1 · npm 10.9.4 · TanStack Start 1.168.42 · Vite 8.2.1 · Mermaid 11.16.1 · Nitro 3.0.260311-beta · Next 16.2.12(已退役) |
 
@@ -77,13 +77,13 @@ next build + .next 发布             vite/nitro 外部输出 + npm tarball(依�
 | 门禁 | 结果 |
 |---|---|
 | `npm ci`(干净) | exit 0 |
-| 测试 | **594/594**,0 fail |
+| 测试 | **596/596**,0 fail |
 | `npm audit` | 0 vulnerabilities |
 | lint | 0 errors / 9 warnings(基线 11,未增加) |
 | tsc | clean |
-| standalone 构建 | 23,707 文件 / 166.4 MB,5 包版本与仓库一致 |
-| 41 路由冒烟 | 59 探测 / 0 失败(无密码 + 密码模式) |
-| tarball | `agegr-pi-web-0.8.8-beta.1.tgz`,**5,006,455 字节**,sha512 `43cbbf28…` |
+| publication 构建 | 23,724 文件 / 167,253,240 字节,5 包版本与仓库一致 |
+| 41 路由冒烟 | 60 探测 / 0 失败(最终安装包) |
+| tarball | `agegr-pi-web-0.8.8-beta.1.tgz`,**5,195,225 字节**,sha512 `435ce3ed…7354e7` |
 | 安装包冒烟 | root/sessions/manifest/sw/安全矩阵/60 路由全绿,`lucide-react 0.562.0` 可解析 |
 | **SSE 310s** | 330,011 ms,12 heartbeats(≥10),connected ✓ |
 | **Windows CI** | ✅ [run 31593861847](https://github.com/icekale/pi-web/actions/runs/31593861847)(276243e,13min) |
@@ -161,6 +161,14 @@ npm publish ./<tarball>.tgz --access public
 - 浏览器主题、语言与设置交互、API key store/remove 和真实 prompt SSE 已在隔离凭据环境验证;models-config catalog 仍为上游 502,未持久化 session 的 DELETE 仍返回 500。
 - Vite `8.2.1` 开发 SSR 复测发现 `@lobehub/icons` 的无扩展名 ESM 内部导入导致客户端渲染回退;将该包设为 `ssr.noExternal` 后,根页面返回 12 个 `codex-sidebar` SSR 标记且不含回退/缺模块文本,配置测试锁定该修复。
 - 最终 `pack:tanstack` exit 0:外部输出 23,724 文件/167,251,646 字节;tarball 5,194,550 字节,sha512 `5470eb09…ce173088`;全新安装后 root/sessions/PWA/安全通过,60 路由探针 0 失败,catalog 仍因上游 502 跳过。
+
+## 13. 最终主线显示更新整合
+
+- 将本地 `main@f6948ad` 通过 `4fbec7b merge: integrate latest main display updates` 纳入迁移候选;合并仅涉及工具输入格式化和 thinking Markdown 展示的 3 个已提交文件。
+- MessageView 聚焦测试 9/9、全套测试 596/596;lint 0 errors / 9 existing warnings;`tsc --noEmit`、`npm audit --audit-level=low` 和受保护文件对 `0f6a152` 的比对通过。
+- 在准确候选 `4fbec7b` 上重跑 `pack:tanstack` 并 exit 0:外部输出 23,724 文件/167,253,240 字节;tarball 5,195,225 字节,sha512 `435ce3edbf1d5c2a2bde1786ec702d6cc8ce4846fb69bf98d2270ad478257142540afbdfac172b0308a7bb976ac7f3fd0b852ad512b9f21d2f029258aa7354e7`。
+- 全新安装后依赖版本、root、sessions、manifest、service worker、安全矩阵及 60 个路由探针全部通过,0 失败。写入型 `PUT /api/models-config` 按设计不探测;catalog 仍因上游 502 跳过。
+- 未创建仓库 `.output`,未发布 npm,未打 tag 或创建 GitHub Release;迁移 worktree 保留供审计。
 
 ## 10. 关键文件索引
 

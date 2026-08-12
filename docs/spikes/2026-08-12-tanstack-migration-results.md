@@ -181,3 +181,14 @@ Date: 2026-08-12 · Branch: `migration/tanstack-start`
 - Vite `8.2.1` development SSR initially returned HTTP 200 with React's client-render fallback because `@lobehub/icons` publishes extensionless internal ESM imports that Node 22 cannot resolve when externalized. Adding only that package to `ssr.noExternal` restored real SSR: the root HTML contains 12 `codex-sidebar` markers and no fallback/module-resolution error; a focused config contract locks the fix.
 - Final `pack:tanstack`: exit 0; external output 23,724 files / 167,251,646 bytes; tarball 5,194,550 bytes, sha512 `5470eb094e1cdd6dc376868a47d5dc913a01a1e1708a845455ffac3efc8c7f965607bc0c31fbe2fe72718ae8c84c41d60ba8929366fbae743d1175f1ce173088`.
 - Fresh installed-package smoke passed root, sessions, PWA assets, security, dependency versions, and 60 route probes with 0 failures. The models-config catalog remained an upstream 502 skip.
+
+## Final local-main display integration
+
+Date: 2026-08-12 · Branch: `migration/tanstack-start` · Candidate: `4fbec7b`
+
+- Merged local `main@f6948ad` with `4fbec7b merge: integrate latest main display updates`; the merge only adds the committed tool-input formatting and thinking-Markdown display changes in `app/globals.css`, `components/MessageView.tsx`, and `components/MessageView.test.mjs`.
+- Fresh focused MessageView tests passed 9/9. The full suite passed 596/596; lint reported 0 errors / 9 existing warnings; `tsc --noEmit`, `npm audit --audit-level=low`, and the protected-file diff against `0f6a152` passed.
+- Fresh `pack:tanstack` on the exact candidate exited 0. The external publication output contains 23,724 files / 167,253,240 bytes.
+- Tarball: `agegr-pi-web-0.8.8-beta.1.tgz`, 5,195,225 bytes, sha512 `435ce3edbf1d5c2a2bde1786ec702d6cc8ce4846fb69bf98d2270ad478257142540afbdfac172b0308a7bb976ac7f3fd0b852ad512b9f21d2f029258aa7354e7`.
+- Fresh installation passed dependency-version checks, root, sessions, manifest, service worker, security, and 60 route probes with 0 failures. `PUT /api/models-config` remained intentionally excluded because it writes configuration; `/api/models-config/catalog` remained skipped because its upstream returned 502.
+- No repository `.output`, npm publish, tag, GitHub Release, or migration-worktree cleanup occurred.
