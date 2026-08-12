@@ -634,6 +634,11 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
 .markdown-body .katex {
   font-size: 1.05em;
 }
+
+.markdown-thinking {
+  font-size: 12px;
+  line-height: 1.6;
+}
 .markdown-user-message p {
   white-space: pre-wrap;
 }

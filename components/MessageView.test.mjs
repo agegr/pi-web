@@ -8,7 +8,7 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { MessageView, replaceUserMessageText } = await jiti.import("./MessageView.tsx");
+const { MessageView, formatToolInput, replaceUserMessageText } = await jiti.import("./MessageView.tsx");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
 function renderMessage(message) {
@@ -56,6 +56,32 @@ test("renders partial assistant content before the provider error", () => {
 
   assert.match(html, /Partial response/);
   assert.match(html, /Error: Connection closed/);
+});
+
+test("formats tool string inputs without JSON escape characters", () => {
+  const formatted = formatToolInput({
+    command: 'printf "hello"\nnext line',
+    options: { force: true, label: 'say "yes"' },
+    paths: ["a", "b"],
+  });
+
+  assert.equal(formatted, `command: printf "hello"
+next line
+options:
+  force: true
+  label: say "yes"
+paths:
+  - a
+  - b`);
+  assert.doesNotMatch(formatted, /\\n|\\"/);
+});
+
+test("renders thinking content through the shared Markdown renderer", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("./MessageView.tsx", import.meta.url), "utf8"));
+
+  assert.match(source, /<SafeMarkdownBody className="markdown-thinking"/);
+  assert.match(source, /isStreaming=\{isStreaming\} cwd=\{cwd\} onOpenFile=\{onOpenFile\}/);
+  assert.doesNotMatch(source, /whiteSpace: "pre-wrap",\s*background: "var\(--bg-panel\)"/);
 });
 
 test("renders a complete SDK skill expansion as a compact command", () => {
