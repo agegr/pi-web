@@ -1993,6 +1993,7 @@ export function AppShell() {
         onClose={() => setSettingsOpen(false)}
         onModelsChanged={() => setModelsRefreshKey((key) => key + 1)}
         onSessionReloaded={() => setSessionKey((key) => key + 1)}
+        onProjectsChanged={() => setRefreshKey((key) => key + 1)}
       />
     )}
     {projectTrustDialogOpen && projectTrustCwd && (

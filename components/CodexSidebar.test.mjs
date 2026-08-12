@@ -4,6 +4,8 @@ import test from "node:test";
 
 const sidebar = await readFile(new URL("./CodexSidebar.tsx", import.meta.url), "utf8");
 const shell = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
+const settings = await readFile(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
+const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 
 test("AppShell renders the Codex project sidebar instead of the legacy sidebar", () => {
   assert.match(shell, /import \{ CodexSidebar \} from "\.\/CodexSidebar"/);
@@ -13,10 +15,14 @@ test("AppShell renders the Codex project sidebar instead of the legacy sidebar",
 
 test("project management exposes persistence-backed full actions", () => {
   assert.match(sidebar, /fetch\("\/api\/projects"/);
-  assert.match(sidebar, /method: "PUT"/);
-  for (const action of ["pin", "moveUp", "moveDown", "renameProject", "archiveProject", "restoreProject", "removeProject"]) {
+  assert.match(sidebar, /method: "PATCH"/);
+  assert.match(sidebar, /\{ path, update: serializedUpdate \}/);
+  assert.match(sidebar, /\{ order: next\.map\(\(project\) => project\.path\) \}/);
+  for (const action of ["pin", "moveUp", "moveDown", "renameProject", "archiveProject", "removeProject"]) {
     assert.match(sidebar, new RegExp(`sidebar\\.${action}`));
   }
+  assert.match(settings, /sidebar\.restoreProject/);
+  assert.doesNotMatch(sidebar, /setShowArchived/);
 });
 
 test("project sorting supports drag and keyboard-accessible menu actions", () => {
@@ -35,6 +41,7 @@ test("running projects expose a Codex-style activity spinner", () => {
   assert.match(sidebar, /<LoaderCircle size=\{12\}/);
   assert.match(sidebar, /className="codex-session-running"/);
   assert.match(sidebar, /style=\{\{ animation: "spin 0\.8s linear infinite"/);
+  assert.match(styles, /prefers-reduced-motion: reduce[\s\S]*?animation: pulse 2\.4s ease-in-out infinite !important/);
   assert.match(sidebar, /role="status"/);
 });
 

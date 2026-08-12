@@ -196,6 +196,10 @@ export async function smokeAllRoutes({ origin, authHeaders = {} }) {
       headers: { "content-type": "application/json" },
       body: "{}",
     });
+    await probe("PATCH", "/api/projects", [400], {
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
     await probe("GET", `/api/skills?cwd=${encodeURIComponent(fixtureDir)}`, [200, 400]);
     await probe("PATCH", "/api/skills", [400], {
       headers: { "content-type": "application/json" },

@@ -111,6 +111,8 @@ export const zhCNLocale: LocalePlugin = {
     "sidebar.searchProjects": "搜索项目",
     "sidebar.noProjects": "暂无项目",
     "sidebar.noArchivedProjects": "暂无已归档项目",
+    "settings.archivedProjectsDescription": "从侧边栏归档的项目会显示在这里，并可随时恢复。",
+    "settings.archivedProjectsEmptyDescription": "从侧边栏的项目操作中归档项目后，它会显示在这里。",
     "sidebar.projectActions": "项目操作",
     "sidebar.sessionActions": "会话操作",
     "sidebar.pinned": "已固定",
