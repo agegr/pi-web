@@ -16,7 +16,7 @@ npx @agegr/pi-web@latest
 
 ## 一个界面管理 Pi 工作流
 
-- **项目与会话**：项目常驻可见，支持搜索、排序和归档；可以查找、继续、重命名、导出或删除会话，同时不改变底层目录和 JSONL 文件。
+- **项目与会话**：项目常驻可见，支持搜索、排序和归档；可以查找、继续、重命名、导出或删除会话，并继续使用与 pi 兼容的目录和 JSONL 存储。
 - **实时智能体活动**：查看哪些项目正在运行，跟踪流式 thinking 与工具调用，并在非当前项目中的任务完成时收到反馈。
 - **会话关系**：清楚区分主会话、fork 会话和 subagent 会话；既可从较早消息创建独立会话，也可在当前会话内建立分支。
 - **对话旁的项目文件**：浏览和上传文件、检查 Git Diff，并预览源码、Markdown、图片、音频、PDF 和 DOCX；文件变化后自动刷新。
@@ -34,7 +34,7 @@ Pi Web 与 pi 共用本地设置和凭据存储。保存模型和 Provider 改�
 - 插件包管理及项目扩展重新加载；
 - 外观、语言、完成提示音、项目信任和归档项目管理。
 
-凭据保留在 pi 的本地存储中，API 响应和截图不会暴露原始 Key 内容。
+凭据保留在 pi 的本地存储中。本 README 的截图使用合成 Provider 数据，不包含任何凭据内容。
 
 ![Pi Web 设置中心，在同一工作区中管理模型 Provider、模型、技能和插件](./docs/pi-web-settings.png)
 
@@ -57,7 +57,7 @@ Pi 会话、模型、工具、文件、Git 与 worktree
 - **可安装 PWA**：manifest、service worker、离线页面、响应式布局和浏览器通知让桌面与窄屏都能使用同一工作区。
 - **请求安全**：精确 Host 校验、可选 HTTP Basic Auth、项目信任检查、server function CSRF 防护及受限文件系统根目录共同保护本地智能体能力。
 - **可复现的打包链**：生产输出构建在仓库外，暂存为 npm tarball，再安装到全新临时项目中；发布前通过真实 `pi-web` CLI 完成探测。
-- **跨平台门禁**：除常规测试、lint 和类型检查外，Windows CI 还覆盖 checkout 换行、构建输出、打包、安装、启动和路由冒烟。
+- **Windows 验证**：专用 Windows workflow 覆盖 checkout 换行、构建输出、打包、安装、启动和路由冒烟；常规项目检查覆盖测试、lint 和类型检查。
 
 ## 安装与运行
 
@@ -136,6 +136,23 @@ npx @agegr/pi-web@latest
 - **文件访问边界**：文件浏览器仅能访问在 Pi Web 中选择过的工作目录，以及它已识别的项目或会话根目录；它不是通用文件系统浏览器。
 - **项目信任**：需要信任的项目级扩展和技能在项目被明确授权前保持受限。
 - **Worktree**：切换器何时显示、如何创建和移除，以及 dirty checkout 行为，见 [Pi Web 里的 Worktree](./docs/worktrees.zh-CN.md)。
+
+### 下游会话菜单
+
+桌面封装可以在不修改 `CodexSidebar` 的情况下替换会话行的原生上下文菜单。监听可取消的 `pi-web:session-row-contextmenu` 浏览器事件，并在集成方准备处理菜单时同步调用 `preventDefault()`：
+
+```js
+window.addEventListener("pi-web:session-row-contextmenu", (event) => {
+  event.preventDefault();
+  const { id, path, cwd, name, clientX, clientY, refresh } = event.detail;
+
+  void openSessionMenu({ id, path, cwd, name, clientX, clientY }).then((changed) => {
+    if (changed) refresh();
+  });
+});
+```
+
+事件详情包含会话标识、指针坐标和 `refresh()` 回调。如果没有监听器取消该事件，Pi Web 会保留浏览器原生上下文菜单。
 
 ## 开发
 

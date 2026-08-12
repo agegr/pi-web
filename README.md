@@ -14,7 +14,7 @@ Requires Node.js 22.19.0 or newer. Pi Web opens the browser when the server is r
 
 ## One Workspace For Pi
 
-- **Projects and sessions**: keep repositories directly visible, search and reorder projects, archive inactive work, and browse, resume, rename, export, or delete sessions without changing the underlying directories or JSONL files.
+- **Projects and sessions**: keep repositories directly visible, search and reorder projects, archive inactive work, and browse, resume, rename, export, or delete sessions while continuing to use pi-compatible directories and JSONL storage.
 - **Live agent activity**: see which projects are running, follow streamed thinking and tool calls, and receive completion feedback even when work finishes outside the active project.
 - **Session relationships**: keep primary, forked, and subagent sessions understandable; create an independent session from an earlier message or branch inside the current session.
 - **Files beside the conversation**: browse and upload files, inspect Git diffs, and preview source, Markdown, images, audio, PDFs, and DOCX files with automatic refresh.
@@ -32,7 +32,7 @@ Pi Web shares pi's local settings and credential storage. Saved model and provid
 - plugin packages and project extension reloads;
 - appearance, language, completion sound, project trust, and archived projects.
 
-Credentials remain in pi's local storage. API responses and screenshots do not expose raw key material.
+Credentials remain in pi's local storage. The screenshots in this README use synthetic provider data and contain no credential material.
 
 ![Pi Web Settings with model providers, models, skills, and plugins in one workspace](./docs/pi-web-settings.png)
 
@@ -55,7 +55,7 @@ Pi sessions, models, tools, files, Git, and worktrees
 - **Installable PWA**: the manifest, service worker, offline page, responsive layout, and browser notifications keep the workspace useful across desktop and narrow screens.
 - **Request security**: exact-host validation, optional HTTP Basic Auth, project trust checks, CSRF protection for server functions, and scoped filesystem roots protect local agent capabilities.
 - **Reproducible package path**: production output is built outside the repository, staged into an npm tarball, installed into a fresh temporary project, and probed through the real `pi-web` CLI before publishing.
-- **Cross-platform gate**: Windows CI exercises checkout line endings, build output, packaging, installation, startup, and route smoke tests in addition to the regular tests, lint, and typecheck.
+- **Windows verification**: a dedicated Windows workflow exercises checkout line endings, build output, packaging, installation, startup, and route smoke tests; the regular project checks cover tests, lint, and typecheck.
 
 ## Install And Run
 
@@ -134,6 +134,23 @@ npx @agegr/pi-web@latest
 - **File boundary**: the file browser is limited to working directories selected in Pi Web and project or session roots it already knows about; it is not a general filesystem browser.
 - **Project trust**: project-local extensions and skills that require trust stay restricted until the project is explicitly trusted.
 - **Worktrees**: see [Worktrees in Pi Web](./docs/worktrees.md) for switcher visibility, creation, removal, and dirty-checkout behavior.
+
+### Downstream Session Menus
+
+Desktop wrappers can replace a session row's native context menu without patching `CodexSidebar`. Listen for the cancelable `pi-web:session-row-contextmenu` browser event and call `preventDefault()` synchronously when the integration will handle it:
+
+```js
+window.addEventListener("pi-web:session-row-contextmenu", (event) => {
+  event.preventDefault();
+  const { id, path, cwd, name, clientX, clientY, refresh } = event.detail;
+
+  void openSessionMenu({ id, path, cwd, name, clientX, clientY }).then((changed) => {
+    if (changed) refresh();
+  });
+});
+```
+
+The detail object includes the session identifiers, pointer coordinates, and a `refresh()` callback. If no listener cancels the event, Pi Web preserves the browser's native context menu.
 
 ## Development
 
