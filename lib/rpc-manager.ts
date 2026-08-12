@@ -1426,6 +1426,23 @@ export function getRpcSession(sessionId: string): AgentSessionWrapper | undefine
   return getRegistry().get(sessionId);
 }
 
+export async function refreshRpcSessionModelConfigs(): Promise<number> {
+  const registry = globalThis.__piSessions;
+  if (!registry) return 0;
+
+  let refreshed = 0;
+  for (const wrapper of registry.values()) {
+    if (!wrapper.isAlive()) continue;
+    try {
+      await wrapper.inner.modelRuntime.refresh({ allowNetwork: false });
+      refreshed += 1;
+    } catch (error) {
+      console.error(`[pi-web] failed to refresh model config for session ${wrapper.sessionId}:`, error);
+    }
+  }
+  return refreshed;
+}
+
 function runtimeMessageText(entry: SessionMessageEntry): string {
   if (entry.message.role === "bashExecution") return "";
   const content = entry.message.content;
