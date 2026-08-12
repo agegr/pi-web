@@ -5,6 +5,7 @@ import test from "node:test";
 const sidebar = await readFile(new URL("./CodexSidebar.tsx", import.meta.url), "utf8");
 const shell = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
 const settings = await readFile(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
+const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 
 test("AppShell renders the Codex project sidebar instead of the legacy sidebar", () => {
   assert.match(shell, /import \{ CodexSidebar \} from "\.\/CodexSidebar"/);
@@ -38,6 +39,7 @@ test("running projects expose a Codex-style activity spinner", () => {
   assert.match(sidebar, /<LoaderCircle size=\{12\}/);
   assert.match(sidebar, /className="codex-session-running"/);
   assert.match(sidebar, /style=\{\{ animation: "spin 0\.8s linear infinite"/);
+  assert.match(styles, /prefers-reduced-motion: reduce[\s\S]*?animation: spin 2\.4s linear infinite !important/);
   assert.match(sidebar, /role="status"/);
 });
 

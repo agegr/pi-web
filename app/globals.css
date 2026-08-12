@@ -476,7 +476,7 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
   .codex-sidebar-chevron { transition: none; }
   .codex-project-running > svg,
   .codex-session-subagents > svg,
-  .codex-session-running { animation: none !important; }
+  .codex-session-running { animation: spin 2.4s linear infinite !important; }
 }
 
 /* react-markdown output styles */
