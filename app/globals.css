@@ -476,7 +476,7 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
   .codex-sidebar-chevron { transition: none; }
   .codex-project-running > svg,
   .codex-session-subagents > svg,
-  .codex-session-running { animation: spin 2.4s linear infinite !important; }
+  .codex-session-running { animation: pulse 2.4s ease-in-out infinite !important; }
 }
 
 /* react-markdown output styles */
@@ -1592,6 +1592,7 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
 }
 
 .settings-archived-row button:hover { background: var(--bg-hover); }
+.settings-archived-row button:disabled { cursor: wait; opacity: .6; }
 .settings-archived-row button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

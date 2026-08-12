@@ -15,7 +15,9 @@ test("AppShell renders the Codex project sidebar instead of the legacy sidebar",
 
 test("project management exposes persistence-backed full actions", () => {
   assert.match(sidebar, /fetch\("\/api\/projects"/);
-  assert.match(sidebar, /method: "PUT"/);
+  assert.match(sidebar, /method: "PATCH"/);
+  assert.match(sidebar, /\{ path, update: serializedUpdate \}/);
+  assert.match(sidebar, /\{ order: next\.map\(\(project\) => project\.path\) \}/);
   for (const action of ["pin", "moveUp", "moveDown", "renameProject", "archiveProject", "removeProject"]) {
     assert.match(sidebar, new RegExp(`sidebar\\.${action}`));
   }
@@ -39,7 +41,7 @@ test("running projects expose a Codex-style activity spinner", () => {
   assert.match(sidebar, /<LoaderCircle size=\{12\}/);
   assert.match(sidebar, /className="codex-session-running"/);
   assert.match(sidebar, /style=\{\{ animation: "spin 0\.8s linear infinite"/);
-  assert.match(styles, /prefers-reduced-motion: reduce[\s\S]*?animation: spin 2\.4s linear infinite !important/);
+  assert.match(styles, /prefers-reduced-motion: reduce[\s\S]*?animation: pulse 2\.4s ease-in-out infinite !important/);
   assert.match(sidebar, /role="status"/);
 });
 

@@ -89,6 +89,7 @@ export function SettingsPage({
   const [projects, setProjects] = useState<ProjectPreference[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState<string | null>(null);
+  const [restoringProjects, setRestoringProjects] = useState<Set<string>>(new Set());
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const close = useCallback(() => {
     onModelsChanged();
@@ -104,9 +105,9 @@ export function SettingsPage({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [close]);
 
-  const loadProjects = useCallback(async () => {
+  const loadProjects = useCallback(async (clearError = true) => {
     setProjectsLoading(true);
-    setProjectsError(null);
+    if (clearError) setProjectsError(null);
     try {
       const response = await fetch("/api/projects", { cache: "no-store" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -124,22 +125,29 @@ export function SettingsPage({
   }, [loadProjects, section]);
 
   const restoreProject = useCallback(async (path: string) => {
-    const next = projects.map((project) => project.path === path ? { ...project, archived: false } : project);
-    setProjects(next);
+    if (restoringProjects.has(path)) return;
+    setRestoringProjects((current) => new Set(current).add(path));
     setProjectsError(null);
     try {
       const response = await fetch("/api/projects", {
-        method: "PUT",
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projects: next }),
+        body: JSON.stringify({ path, update: { archived: false } }),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setProjects((current) => current.map((project) => project.path === path ? { ...project, archived: false } : project));
       onProjectsChanged();
     } catch (cause) {
       setProjectsError(cause instanceof Error ? cause.message : String(cause));
-      void loadProjects();
+      void loadProjects(false);
+    } finally {
+      setRestoringProjects((current) => {
+        const next = new Set(current);
+        next.delete(path);
+        return next;
+      });
     }
-  }, [loadProjects, onProjectsChanged, projects]);
+  }, [loadProjects, onProjectsChanged, restoringProjects]);
 
   const sections: { id: SettingsSection; label: string; disabled: boolean }[] = [
     { id: "general", label: t("settings.general"), disabled: false },
@@ -213,14 +221,14 @@ export function SettingsPage({
         <div className="settings-form-heading"><Archive size={18} aria-hidden="true" /><div><h3>{t("sidebar.archivedProjects")}</h3><p>{t("settings.archivedProjectsDescription")}</p></div></div>
         {projectsLoading ? (
           <div className="settings-page-empty"><span>{t("sidebar.loading")}</span></div>
-        ) : archivedProjects.length === 0 ? (
+        ) : projectsError && projects.length === 0 ? null : archivedProjects.length === 0 ? (
           <div className="settings-page-empty"><Archive size={20} aria-hidden="true" /><strong>{t("sidebar.noArchivedProjects")}</strong><span>{t("settings.archivedProjectsEmptyDescription")}</span></div>
         ) : (
           <div className="settings-archived-list">
             {archivedProjects.map((project) => (
               <div className="settings-archived-row" key={project.path}>
                 <div><strong>{project.name ?? project.path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? project.path}</strong><span title={project.path}>{project.path}</span></div>
-                <button type="button" onClick={() => void restoreProject(project.path)}><ArchiveRestore size={14} aria-hidden="true" />{t("sidebar.restoreProject")}</button>
+                <button type="button" disabled={restoringProjects.has(project.path)} onClick={() => void restoreProject(project.path)}><ArchiveRestore size={14} aria-hidden="true" />{t("sidebar.restoreProject")}</button>
               </div>
             ))}
           </div>

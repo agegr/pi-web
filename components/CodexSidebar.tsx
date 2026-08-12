@@ -263,13 +263,13 @@ export function CodexSidebar({
     ?? selectedCwd
   )) ?? null;
 
-  const saveProjects = useCallback(async (next: ProjectPreference[]) => {
+  const saveProjects = useCallback(async (next: ProjectPreference[], mutation: object) => {
     setPreferences(next);
     try {
       const response = await fetch("/api/projects", {
-        method: "PUT",
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projects: next }),
+        body: JSON.stringify(mutation),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
     } catch (cause) {
@@ -281,7 +281,10 @@ export function CodexSidebar({
   const updateProject = useCallback((path: string, update: Partial<ProjectPreference>) => {
     const base = projects.map(({ sessions: _sessions, latestModified: _latestModified, ...project }) => project);
     const next = base.map((project) => project.path === path ? { ...project, ...update } : project);
-    void saveProjects(next);
+    const serializedUpdate = Object.hasOwn(update, "name") && update.name === undefined
+      ? { ...update, name: null }
+      : update;
+    void saveProjects(next, { path, update: serializedUpdate });
   }, [projects, saveProjects]);
 
   const addProject = useCallback(async (path: string) => {
@@ -297,7 +300,10 @@ export function CodexSidebar({
       if (!response.ok || !data.cwd) throw new Error(data.error ?? `HTTP ${response.status}`);
       const existing = projects.find((project) => project.path === data.cwd);
       if (existing) updateProject(data.cwd, { archived: false, removed: false });
-      else await saveProjects([...preferences, { path: data.cwd, pinned: false, archived: false, removed: false, order: projects.length }]);
+      else {
+        const project = { path: data.cwd, pinned: false, archived: false, removed: false, order: projects.length };
+        await saveProjects([...preferences, project], { project });
+      }
       setSelectedCwd(data.cwd);
       setCollapsed((current) => { const next = new Set(current); next.delete(data.cwd!); return next; });
       setDirectoryPickerOpen(false);
@@ -409,7 +415,8 @@ export function CodexSidebar({
     if (from < 0 || to < 0 || ordered[from].pinned !== ordered[to].pinned) return;
     const [moved] = ordered.splice(from, 1);
     ordered.splice(to, 0, moved);
-    void saveProjects(ordered.map((project, order) => ({ ...project, order })));
+    const next = ordered.map((project, order) => ({ ...project, order }));
+    void saveProjects(next, { order: next.map((project) => project.path) });
   }, [draggedProject, projects, saveProjects]);
 
   const moveProject = useCallback((path: string, direction: -1 | 1) => {
@@ -424,7 +431,8 @@ export function CodexSidebar({
     if (target === undefined) return;
     const [moved] = ordered.splice(from, 1);
     ordered.splice(target, 0, moved);
-    void saveProjects(ordered.map((project, order) => ({ ...project, order })));
+    const next = ordered.map((project, order) => ({ ...project, order }));
+    void saveProjects(next, { order: next.map((project) => project.path) });
   }, [projects, saveProjects]);
 
   const removeWorktree = useCallback(async (path: string, force = false) => {
