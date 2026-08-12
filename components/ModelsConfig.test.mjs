@@ -74,6 +74,24 @@ test("blank header drafts are omitted until they have a name", () => {
   );
 });
 
+test("named headers preserve blank values as explicit parent overrides", () => {
+  assert.deepEqual(
+    serializeHeaderRows([
+      { id: 1, name: "X-Blank", value: "" },
+      { id: 2, name: "X-Spaces", value: "   " },
+    ]),
+    { "X-Blank": "", "X-Spaces": "   " },
+  );
+});
+
+test("request header editor localizes copy and documents blank override semantics", () => {
+  assert.match(source, /t\("models\.providerHeadersHelp"\)/);
+  assert.match(source, /t\("models\.headerNamePlaceholder"\)/);
+  assert.match(source, /t\("models\.headerValuePlaceholder"\)/);
+  assert.match(source, /t\("models\.addHeader"\)/);
+  assert.match(source, /t\("models\.headersHelp"\)/);
+});
+
 test("model cost drafts default blank prices to zero unless all are blank", () => {
   const complete = {
     input: "1.25",
