@@ -30,7 +30,11 @@ Date: 2026-08-12 · Branch: `migration/tanstack-start` · Repository: `/Users/ka
 
 ## Windows CI
 
-Recorded in Task 9 (GitHub Actions run URL and results below).
+- Run URL: https://github.com/icekale/pi-web/actions/runs/31569406484
+- Commit: `dee13b0` · Runner: `windows-latest` (x64) · Node 22.19.0
+- Result: `windows-runtime` job succeeded in 2m27s; `npm ci`, external build, `verify-tanstack-output.mjs` (Traced 71 dependencies, 3366 files), and `smoke-tanstack-output.mjs` all passed
+- Smoke: server listened on `http://127.0.0.1:30142/`; root and `/api/sessions` probes returned 200 (`sessions: 0` — runner has no local Pi sessions, expected)
+- Note: checkout/setup-node actions emit a Node 20 deprecation warning only
 
 ## Conclusion
 
