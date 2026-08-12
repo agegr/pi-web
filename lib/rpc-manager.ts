@@ -1405,6 +1405,29 @@ export function getRpcSession(sessionId: string): AgentSessionWrapper | undefine
   return getRegistry().get(sessionId);
 }
 
+/**
+ * Reload the model config in every live AgentSession's ModelRuntime.
+ * pi snapshots models.json when a session is created and has no file
+ * watcher, so without this a config edit only takes effect after the
+ * session hits its idle timeout and is recreated. Called after
+ * PUT /api/models-config. Refreshes serially to avoid racing the shared
+ * FileModelsStore and never throws — a failed refresh only delays the
+ * edit taking effect, it does not undo the saved file.
+ */
+export async function refreshRpcSessionModelConfigs(): Promise<number> {
+  const wrappers = [...getRegistry().values()].filter((wrapper) => wrapper.isAlive());
+  let refreshed = 0;
+  for (const wrapper of wrappers) {
+    try {
+      await wrapper.inner.modelRuntime.refresh({ allowNetwork: false });
+      refreshed += 1;
+    } catch (error) {
+      console.error(`[pi-web] failed to refresh model config for session ${wrapper.sessionId}:`, error);
+    }
+  }
+  return refreshed;
+}
+
 function runtimeMessageText(entry: SessionMessageEntry): string {
   if (entry.message.role === "bashExecution") return "";
   const content = entry.message.content;

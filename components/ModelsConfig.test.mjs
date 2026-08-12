@@ -74,6 +74,21 @@ test("blank header drafts are omitted until they have a name", () => {
   );
 });
 
+test("blank header values stay as placeholders and never override the parent", () => {
+  const rows = [
+    { id: 1, name: "X-Kept", value: "kept" },
+    { id: 2, name: "X-Blank", value: "" },
+    { id: 3, name: "X-Spaces", value: "   " },
+  ];
+
+  assert.deepEqual(serializeHeaderRows(rows), { "X-Kept": "kept" });
+  // Once a value is filled in, the row participates in overriding again.
+  assert.deepEqual(
+    serializeHeaderRows(updateHeaderRow(rows, 2, { value: "now-set" })),
+    { "X-Kept": "kept", "X-Blank": "now-set" },
+  );
+});
+
 test("model cost drafts default blank prices to zero unless all are blank", () => {
   const complete = {
     input: "1.25",
