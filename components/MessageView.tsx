@@ -843,30 +843,27 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, isStre
   onOpenFile?: (filePath: string) => void;
 }) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const toggle = async () => {
-    const nextExpanded = !expanded;
-    setExpanded(nextExpanded);
-    if (!nextExpanded || !block.deferred || content !== null) return;
+  useEffect(() => {
+    if (!expanded || !block.deferred || content !== null) return;
     if (!sessionId || !entryId) {
       setError(t("i18n.thinkingUnavailable"));
       return;
     }
 
+    let cancelled = false;
     setLoading(true);
     setError(null);
-    try {
-      setContent(await loadThinkingContent(sessionId, entryId, blockIndex));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  };
+    void loadThinkingContent(sessionId, entryId, blockIndex)
+      .then((value) => { if (!cancelled) setContent(value); })
+      .catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : String(err)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [block.deferred, blockIndex, content, entryId, expanded, sessionId, t]);
 
   return (
     <div
@@ -878,7 +875,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, isStre
       }}
     >
       <button
-        onClick={() => void toggle()}
+        onClick={() => setExpanded((value) => !value)}
         style={{
           display: "flex",
           alignItems: "center",
@@ -940,7 +937,7 @@ export function formatToolInput(input: Record<string, unknown>): string {
 }
 
 function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const inputStr = formatToolInput(block.input);
   const isEditTool = isEditToolName(block.toolName);
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;

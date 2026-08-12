@@ -813,7 +813,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                   const processGroup = (
                     <ProcessDetailsGroup
                       messageCount={processCount}
-                      defaultExpanded={!finalAnswerMessage}
+                      defaultExpanded
                       t={t}
                       toolCallCount={countToolCalls(messages, visibleProcessIndices) + countToolCallBlocks(finalSplit.processBlocks)}
                     >

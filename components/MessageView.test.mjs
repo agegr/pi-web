@@ -84,6 +84,28 @@ test("renders thinking content through the shared Markdown renderer", async () =
   assert.doesNotMatch(source, /whiteSpace: "pre-wrap",\s*background: "var\(--bg-panel\)"/);
 });
 
+test("shows thinking markdown and readable tool inputs by default", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "openai",
+    model: "gpt-test",
+    content: [
+      { type: "thinking", thinking: "## Plan\n\n- inspect\n- fix" },
+      {
+        type: "toolCall",
+        toolCallId: "tool-1",
+        toolName: "bash",
+        input: { command: 'printf "hello"\nnext line' },
+      },
+    ],
+    stopReason: "toolUse",
+  });
+
+  assert.match(html, /<h2>Plan<\/h2>/);
+  assert.match(html, /<li>inspect<\/li>/);
+  assert.match(html, /command: printf &quot;hello&quot;\nnext line/);
+});
+
 test("renders a complete SDK skill expansion as a compact command", () => {
   const html = renderMessage({
     role: "user",
