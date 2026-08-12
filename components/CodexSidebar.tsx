@@ -766,7 +766,17 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
         tabIndex={0}
         title={title}
       >
-        <span className="codex-session-state" data-running={running} data-unread={unread} />
+        {running ? (
+          <LoaderCircle
+            className="codex-session-running"
+            size={11}
+            strokeWidth={1.8}
+            aria-label={t("sidebar.agentRunning")}
+            role="status"
+          />
+        ) : (
+          <span className="codex-session-state" data-unread={unread} />
+        )}
         {renaming ? (
           <input
             value={value}
