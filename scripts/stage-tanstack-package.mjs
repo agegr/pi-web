@@ -34,8 +34,9 @@ const repoRoot = process.cwd();
 const repoResolved = resolve(repoRoot);
 const stageResolved = resolve(stageArg);
 const relativeStage = relative(repoResolved, stageResolved);
-const stageIsInsideRepository = relativeStage === ""
-  || (!relativeStage.startsWith(`..${sep}`) && relativeStage !== "..");
+const stageIsInsideRepository = !isAbsolute(relativeStage)
+  && (relativeStage === ""
+    || (!relativeStage.startsWith(`..${sep}`) && relativeStage !== ".."));
 if (stageIsInsideRepository) {
   fail(`stage directory must be outside the repository: ${stageResolved}`);
 }
