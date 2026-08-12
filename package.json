@@ -33,6 +33,9 @@
     "build": "next build --webpack",
     "start": "next start -H 127.0.0.1 -p 30141",
     "start:lan": "next start -H 0.0.0.0 -p 30141",
+    "dev:tanstack": "vite dev --config vite.tanstack.config.ts --host 127.0.0.1 --port 30142",
+    "build:tanstack": "vite build --config vite.tanstack.config.ts",
+    "start:tanstack": "node scripts/start-tanstack-output.mjs",
     "lint": "eslint .",
     "test": "node --experimental-strip-types --test \"app/**/*.test.mjs\" \"components/**/*.test.mjs\" \"hooks/**/*.test.mjs\" \"lib/**/*.test.mjs\" \"public/**/*.test.mjs\"",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
@@ -42,6 +45,8 @@
     "@earendil-works/pi-ai": "0.84.1",
     "@earendil-works/pi-coding-agent": "0.84.1",
     "@earendil-works/pi-tui": "0.84.1",
+    "@tanstack/react-router": "1.170.25",
+    "@tanstack/react-start": "1.168.42",
     "js-yaml": "^5.2.3",
     "next": "16.2.12",
     "proper-lockfile": "4.1.2",
@@ -59,12 +64,14 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "@vitejs/plugin-react": "6.0.5",
     "eslint": "^9",
     "eslint-config-next": "16.2.12",
     "jiti": "^2.7.0",
     "katex": "^0.16.47",
     "mammoth": "^1.12.0",
     "mermaid": "^11.14.0",
+    "nitro": "3.0.260311-beta",
     "postcss": "^8",
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.1",
@@ -74,6 +81,7 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "tailwindcss": "^4.2.2",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vite": "8.0.14"
   }
 }
