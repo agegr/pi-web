@@ -5,7 +5,7 @@ export const Route = createFileRoute("/api/files/$")({
   server: {
     handlers: {
       POST: ({ request, params }) => postFiles(request, {
-        params: Promise.resolve({ path: params._splat.split("/") }),
+        params: Promise.resolve({ path: (params._splat ?? "").split("/") }),
       }),
     },
   },

@@ -1,0 +1,31 @@
+name: TanStack spike Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - migration/tanstack-start
+
+jobs:
+  windows-runtime:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: npm
+      - run: npm ci
+      - name: Build outside the checkout
+        shell: pwsh
+        run: |
+          $env:PI_WEB_TANSTACK_OUTPUT_DIR = Join-Path $env:RUNNER_TEMP "pi-web-tanstack-output"
+          npm run build:tanstack
+          node scripts/verify-tanstack-output.mjs $env:PI_WEB_TANSTACK_OUTPUT_DIR
+      - name: Start and probe generated server
+        shell: pwsh
+        run: |
+          $env:PI_WEB_TANSTACK_OUTPUT_DIR = Join-Path $env:RUNNER_TEMP "pi-web-tanstack-output"
+          $env:PI_WEB_TANSTACK_SMOKE_PORT = "30142"
+          node scripts/smoke-tanstack-output.mjs $env:PI_WEB_TANSTACK_OUTPUT_DIR

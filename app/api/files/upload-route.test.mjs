@@ -31,7 +31,7 @@ test("files route uses standard Web request and response APIs", () => {
 });
 
 test("TanStack files route adapts the splat to decoded path segments", () => {
-  assert.match(adapterSource, /params\._splat\.split\("\/"\)/);
+  assert.match(adapterSource, /params\._splat \?\? ""\)\.split\("\/"\)/);
   assert.match(adapterSource, /postFiles\(request/);
 });
 
