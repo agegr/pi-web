@@ -97,7 +97,7 @@ npx @agegr/pi-web@latest
 ### Downstream Session Context Menu
 
 Electron wrappers and other downstream integrations can provide a session-row
-context menu without patching `SessionSidebar`. Listen for the cancelable
+context menu without patching `CodexSidebar`. Listen for the cancelable
 `pi-web:session-row-contextmenu` browser event and call `preventDefault()`
 synchronously when the integration will handle it:
 

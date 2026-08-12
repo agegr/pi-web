@@ -1,0 +1,765 @@
+"use client";
+
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
+import { ChevronRight, Ellipsis, Folder, FolderPlus, Pin, Plus, RefreshCw, Search, X } from "lucide-react";
+import { useI18n } from "@/hooks/useI18n";
+import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
+import type { ProjectPreference } from "@/lib/project-registry";
+import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
+import { skillExpansionToCommand } from "@/lib/slash-display";
+import type { SessionInfo } from "@/lib/types";
+import { DirectoryPicker } from "./DirectoryPicker";
+import { FileExplorer } from "./FileExplorer";
+
+interface Props {
+  selectedSessionId: string | null;
+  onSelectSession: (session: SessionInfo, isRestore?: boolean) => void;
+  onNewSession?: (sessionId: string, cwd: string) => void;
+  initialSessionId?: string | null;
+  skipInitialProjectSelection?: boolean;
+  onInitialRestoreDone?: () => void;
+  refreshKey?: number;
+  onSessionDeleted?: (sessionId: string) => void;
+  selectedCwd?: string | null;
+  onCwdChange?: (cwd: string | null, projectRoot?: string | null) => void;
+  onOpenFile?: (filePath: string, fileName: string, options?: { sourceSessionId?: string | null; modeHint?: "diff" }) => void;
+  explorerRefreshKey?: number;
+  onExplorerRefresh?: () => void;
+  onAtMention?: (relativePath: string, isDir: boolean) => void;
+  onAtMentions?: (relativePaths: string[]) => void;
+  onBackgroundTaskDone?: () => void;
+  onRunningSessionIdsChange?: (ids: Set<string>) => void;
+}
+
+interface ProjectView extends ProjectPreference {
+  sessions: SessionInfo[];
+  latestModified: string;
+}
+
+interface WorktreeEntry {
+  path: string;
+  branch: string | null;
+  isMain: boolean;
+}
+
+const RUNNING_POLL_MS = 2500;
+const COLLAPSED_STORAGE_KEY = "pi-web:collapsed-projects";
+const UNREAD_STORAGE_KEY = "pi-web:unread-session-ids";
+
+function readStringSet(key: string): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const value = JSON.parse(localStorage.getItem(key) ?? "[]") as unknown;
+    return Array.isArray(value)
+      ? new Set(value.filter((item): item is string => typeof item === "string"))
+      : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function writeStringSet(key: string, values: Set<string>): void {
+  try {
+    if (values.size) localStorage.setItem(key, JSON.stringify([...values]));
+    else localStorage.removeItem(key);
+  } catch {
+    // Browser storage is best-effort.
+  }
+}
+
+function projectName(path: string): string {
+  return path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path;
+}
+
+function sessionTitle(session: SessionInfo): string {
+  const firstMessage = skillExpansionToCommand(session.firstMessage) ?? session.firstMessage;
+  return session.name || firstMessage.slice(0, 72) || session.id.slice(0, 12);
+}
+
+function newDraftId(): string {
+  return typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function IconButton({ label, onClick, children, disabled }: {
+  label: string;
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  children: ReactNode;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className="codex-sidebar-icon-button"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Chevron({ open }: { open: boolean }) {
+  return <ChevronRight className="codex-sidebar-chevron" data-open={open} size={14} strokeWidth={2} aria-hidden="true" />;
+}
+
+function FolderIcon() {
+  return <Folder size={15} strokeWidth={1.8} aria-hidden="true" />;
+}
+
+export function CodexSidebar({
+  selectedSessionId,
+  onSelectSession,
+  onNewSession,
+  initialSessionId,
+  skipInitialProjectSelection,
+  onInitialRestoreDone,
+  refreshKey,
+  onSessionDeleted,
+  selectedCwd: selectedCwdProp,
+  onCwdChange,
+  onOpenFile,
+  explorerRefreshKey,
+  onExplorerRefresh,
+  onAtMention,
+  onAtMentions,
+  onBackgroundTaskDone,
+  onRunningSessionIdsChange,
+}: Props) {
+  const { t } = useI18n();
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [preferences, setPreferences] = useState<ProjectPreference[]>([]);
+  const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
+  const [directoryError, setDirectoryError] = useState<string | null>(null);
+  const [directoryBusy, setDirectoryBusy] = useState(false);
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => readStringSet(COLLAPSED_STORAGE_KEY));
+  const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
+  const [unreadIds, setUnreadIds] = useState<Set<string>>(() => readStringSet(UNREAD_STORAGE_KEY));
+  const [menuProject, setMenuProject] = useState<{ path: string; left: number; top: number } | null>(null);
+  const [renamingProject, setRenamingProject] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [draggedProject, setDraggedProject] = useState<string | null>(null);
+  const [explorerOpen, setExplorerOpen] = useState(true);
+  const [explorerKey, setExplorerKey] = useState(0);
+  const [worktrees, setWorktrees] = useState<WorktreeEntry[]>([]);
+  const [worktreeProjectRoot, setWorktreeProjectRoot] = useState<string | null>(null);
+  const [worktreeOpen, setWorktreeOpen] = useState(false);
+  const [worktreeBusy, setWorktreeBusy] = useState(false);
+  const [worktreeError, setWorktreeError] = useState<string | null>(null);
+  const [newBranch, setNewBranch] = useState("");
+  const previousRunningRef = useRef<Set<string>>(new Set());
+  const restoredRef = useRef(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const loadData = useCallback(async (force = false) => {
+    try {
+      const [sessionsResponse, projectsResponse] = await Promise.all([
+        fetch(force ? "/api/sessions?force=1" : "/api/sessions", { cache: "no-store" }),
+        fetch("/api/projects", { cache: "no-store" }),
+      ]);
+      if (!sessionsResponse.ok || !projectsResponse.ok) throw new Error(`HTTP ${sessionsResponse.status}/${projectsResponse.status}`);
+      const sessionData = await sessionsResponse.json() as { sessions: SessionInfo[]; runningSessionIds?: string[] };
+      const projectData = await projectsResponse.json() as { projects: ProjectPreference[] };
+      setSessions(sessionData.sessions);
+      setPreferences(projectData.projects);
+      setRunningIds((current) => current.size ? current : new Set(sessionData.runningSessionIds ?? []));
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadData(refreshKey !== undefined); }, [loadData, refreshKey]);
+  useEffect(() => { setExplorerOpen(loadExplorerOpen()); }, []);
+  useEffect(() => { if (explorerRefreshKey !== undefined) setExplorerKey((key) => key + 1); }, [explorerRefreshKey]);
+  useEffect(() => { writeStringSet(COLLAPSED_STORAGE_KEY, collapsed); }, [collapsed]);
+  useEffect(() => { writeStringSet(UNREAD_STORAGE_KEY, unreadIds); }, [unreadIds]);
+
+  const discovered = useMemo(() => {
+    const byPath = new Map<string, SessionInfo[]>();
+    for (const session of sessions) {
+      const path = session.projectRoot ?? session.cwd;
+      const group = byPath.get(path) ?? [];
+      group.push(session);
+      byPath.set(path, group);
+    }
+    return byPath;
+  }, [sessions]);
+
+  const projects = useMemo<ProjectView[]>(() => {
+    const saved = new Map(preferences.map((project) => [project.path, project]));
+    const paths = new Set([...discovered.keys(), ...preferences.map((project) => project.path)]);
+    return [...paths].map((path, index) => {
+      const projectSessions = [...(discovered.get(path) ?? [])].sort((a, b) => b.modified.localeCompare(a.modified));
+      const preference = saved.get(path);
+      return {
+        path,
+        name: preference?.name,
+        pinned: preference?.pinned ?? false,
+        archived: preference?.archived ?? false,
+        removed: preference?.removed ?? false,
+        order: preference?.order ?? preferences.length + index,
+        sessions: projectSessions,
+        latestModified: projectSessions[0]?.modified ?? "",
+      };
+    }).sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.order - b.order || b.latestModified.localeCompare(a.latestModified));
+  }, [discovered, preferences]);
+
+  const visibleProjects = projects.filter((project) => {
+    if (project.removed || project.archived !== showArchived) return false;
+    const query = filter.trim().toLowerCase();
+    return !query || (project.name ?? projectName(project.path)).toLowerCase().includes(query) || project.path.toLowerCase().includes(query);
+  });
+
+  const selectedSessionProject = sessions.find((session) => session.cwd === selectedCwd)?.projectRoot;
+  const selectedProject = projects.find((project) => project.path === (
+    selectedSessionProject
+    ?? (worktrees.some((worktree) => worktree.path === selectedCwd) ? worktreeProjectRoot : null)
+    ?? selectedCwd
+  )) ?? null;
+
+  const saveProjects = useCallback(async (next: ProjectPreference[]) => {
+    setPreferences(next);
+    try {
+      const response = await fetch("/api/projects", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projects: next }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      void loadData();
+    }
+  }, [loadData]);
+
+  const updateProject = useCallback((path: string, update: Partial<ProjectPreference>) => {
+    const base = projects.map(({ sessions: _sessions, latestModified: _latestModified, ...project }) => project);
+    const next = base.map((project) => project.path === path ? { ...project, ...update } : project);
+    void saveProjects(next);
+  }, [projects, saveProjects]);
+
+  const addProject = useCallback(async (path: string) => {
+    setDirectoryBusy(true);
+    setDirectoryError(null);
+    try {
+      const response = await fetch("/api/cwd/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: path }),
+      });
+      const data = await response.json() as { cwd?: string; error?: string };
+      if (!response.ok || !data.cwd) throw new Error(data.error ?? `HTTP ${response.status}`);
+      const existing = projects.find((project) => project.path === data.cwd);
+      if (existing) updateProject(data.cwd, { archived: false, removed: false });
+      else await saveProjects([...preferences, { path: data.cwd, pinned: false, archived: false, removed: false, order: projects.length }]);
+      setSelectedCwd(data.cwd);
+      setCollapsed((current) => { const next = new Set(current); next.delete(data.cwd!); return next; });
+      setDirectoryPickerOpen(false);
+    } catch (cause) {
+      setDirectoryError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setDirectoryBusy(false);
+    }
+  }, [preferences, projects, saveProjects, updateProject]);
+
+  const createSession = useCallback((cwd: string) => {
+    setSelectedCwd(cwd);
+    onNewSession?.(newDraftId(), cwd);
+  }, [onNewSession]);
+
+  const selectSession = useCallback((session: SessionInfo) => {
+    setSelectedCwd(session.cwd);
+    onSelectSession(session);
+  }, [onSelectSession]);
+
+  useEffect(() => {
+    if (selectedCwdProp) setSelectedCwd(selectedCwdProp);
+  }, [selectedCwdProp]);
+
+  useEffect(() => {
+    const projectRoot = sessions.find((session) => session.cwd === selectedCwd)?.projectRoot ?? selectedCwd;
+    onCwdChange?.(selectedCwd, projectRoot);
+  }, [onCwdChange, selectedCwd, sessions]);
+
+  useEffect(() => {
+    if (loading || skipInitialProjectSelection || selectedCwd || projects.length === 0) return;
+    if (initialSessionId && !restoredRef.current) {
+      restoredRef.current = true;
+      const target = sessions.find((session) => session.id === initialSessionId);
+      if (target) {
+        setSelectedCwd(target.cwd);
+        onSelectSession(target, true);
+        return;
+      }
+      onInitialRestoreDone?.();
+    }
+    const first = projects.find((project) => !project.removed && !project.archived);
+    if (first) setSelectedCwd(first.path);
+  }, [initialSessionId, loading, onInitialRestoreDone, onSelectSession, projects, selectedCwd, sessions, skipInitialProjectSelection]);
+
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      if (stopped || document.visibilityState !== "visible") return;
+      try {
+        const response = await fetch("/api/agent/running", { cache: "no-store" });
+        const data = await response.json() as { runningSessionIds?: string[] };
+        if (!stopped && response.ok) setRunningIds(new Set(data.runningSessionIds ?? []));
+      } catch { /* Retry on the next interval. */ }
+      if (!stopped) timer = setTimeout(() => void poll(), RUNNING_POLL_MS);
+    };
+    const visibility = () => {
+      if (timer) clearTimeout(timer);
+      if (document.visibilityState === "visible") void poll();
+    };
+    void poll();
+    document.addEventListener("visibilitychange", visibility);
+    return () => { stopped = true; if (timer) clearTimeout(timer); document.removeEventListener("visibilitychange", visibility); };
+  }, []);
+
+  useEffect(() => {
+    const previous = previousRunningRef.current;
+    const completed = [...previous].filter((id) => !runningIds.has(id) && id !== selectedSessionId);
+    if (completed.length) {
+      setUnreadIds((current) => new Set([...current, ...completed]));
+      onBackgroundTaskDone?.();
+      void loadData(true);
+    }
+    previousRunningRef.current = runningIds;
+    onRunningSessionIdsChange?.(runningIds);
+  }, [loadData, onBackgroundTaskDone, onRunningSessionIdsChange, runningIds, selectedSessionId]);
+
+  useEffect(() => {
+    if (!selectedSessionId) return;
+    setUnreadIds((current) => {
+      if (!current.has(selectedSessionId)) return current;
+      const next = new Set(current); next.delete(selectedSessionId); return next;
+    });
+  }, [selectedSessionId]);
+
+  useEffect(() => {
+    if (!selectedProject) { setWorktrees([]); setWorktreeProjectRoot(null); return; }
+    fetch(`/api/worktrees?cwd=${encodeURIComponent(selectedCwd ?? selectedProject.path)}`)
+      .then((response) => response.json())
+      .then((data: { projectRoot?: string; worktrees?: WorktreeEntry[] }) => {
+        setWorktrees(data.worktrees ?? []);
+        setWorktreeProjectRoot(data.projectRoot ?? selectedProject.path);
+      })
+      .catch(() => { setWorktrees([]); setWorktreeProjectRoot(null); });
+  }, [selectedCwd, selectedProject]);
+
+  useEffect(() => {
+    const close = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuProject(null);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+
+  const reorderProject = useCallback((targetPath: string) => {
+    if (!draggedProject || draggedProject === targetPath) return;
+    const ordered = projects.map(({ sessions: _sessions, latestModified: _latestModified, ...project }) => project);
+    const from = ordered.findIndex((project) => project.path === draggedProject);
+    const to = ordered.findIndex((project) => project.path === targetPath);
+    if (from < 0 || to < 0 || ordered[from].pinned !== ordered[to].pinned) return;
+    const [moved] = ordered.splice(from, 1);
+    ordered.splice(to, 0, moved);
+    void saveProjects(ordered.map((project, order) => ({ ...project, order })));
+  }, [draggedProject, projects, saveProjects]);
+
+  const moveProject = useCallback((path: string, direction: -1 | 1) => {
+    const ordered = projects.map(({ sessions: _sessions, latestModified: _latestModified, ...project }) => project);
+    const from = ordered.findIndex((project) => project.path === path);
+    if (from < 0) return;
+    const candidates = ordered
+      .map((project, index) => ({ project, index }))
+      .filter(({ project }) => project.pinned === ordered[from].pinned);
+    const groupIndex = candidates.findIndex(({ index }) => index === from);
+    const target = candidates[groupIndex + direction]?.index;
+    if (target === undefined) return;
+    const [moved] = ordered.splice(from, 1);
+    ordered.splice(target, 0, moved);
+    void saveProjects(ordered.map((project, order) => ({ ...project, order })));
+  }, [projects, saveProjects]);
+
+  const removeWorktree = useCallback(async (path: string, force = false) => {
+    if (!selectedProject || worktreeBusy) return;
+    setWorktreeBusy(true);
+    setWorktreeError(null);
+    try {
+      const response = await fetch("/api/worktrees", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: selectedProject.path, path, force }),
+      });
+      const data = await response.json() as { error?: string; dirty?: boolean };
+      if (data.dirty && !force) {
+        if (window.confirm(t("sidebar.forceRemoveCheckout"))) void removeWorktree(path, true);
+        return;
+      }
+      if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
+      setWorktrees((current) => current.filter((worktree) => worktree.path !== path));
+      if (selectedCwd === path) setSelectedCwd(selectedProject.path);
+    } catch (cause) {
+      setWorktreeError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setWorktreeBusy(false);
+    }
+  }, [selectedCwd, selectedProject, t, worktreeBusy]);
+
+  const createWorktree = useCallback(async () => {
+    if (!selectedProject || !newBranch.trim() || worktreeBusy) return;
+    setWorktreeBusy(true);
+    setWorktreeError(null);
+    try {
+      const response = await fetch("/api/worktrees", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: selectedProject.path, branch: newBranch.trim() }),
+      });
+      const data = await response.json() as { path?: string; error?: string };
+      if (!response.ok || !data.path) throw new Error(data.error ?? `HTTP ${response.status}`);
+      setWorktrees((current) => [...current, { path: data.path!, branch: newBranch.trim(), isMain: false }]);
+      setSelectedCwd(data.path);
+      setNewBranch("");
+    } catch (cause) {
+      setWorktreeError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setWorktreeBusy(false);
+    }
+  }, [newBranch, selectedProject, worktreeBusy]);
+
+  return (
+    <div className="codex-sidebar">
+      {directoryPickerOpen && (
+        <DirectoryPicker
+          busy={directoryBusy}
+          error={directoryError}
+          onCancel={() => { setDirectoryPickerOpen(false); setDirectoryError(null); }}
+          onSelect={(path) => void addProject(path)}
+        />
+      )}
+
+      <header className="codex-sidebar-header">
+        <div className="codex-sidebar-brand">Pi Web</div>
+        <div className="codex-sidebar-header-actions">
+          <IconButton label={t("sidebar.refresh")} onClick={() => void loadData(true)}>
+            <RefreshCw size={15} aria-hidden="true" />
+          </IconButton>
+          <IconButton label={t("sidebar.addProject")} onClick={() => setDirectoryPickerOpen(true)}>
+            <FolderPlus size={15} aria-hidden="true" />
+          </IconButton>
+        </div>
+      </header>
+
+      <div className="codex-sidebar-search-wrap">
+        <Search size={14} aria-hidden="true" />
+        <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={t("sidebar.searchProjects")} aria-label={t("sidebar.searchProjects")} />
+      </div>
+
+      <div className="codex-sidebar-section-heading">
+        <button type="button" onClick={() => setShowArchived(false)} data-active={!showArchived}>{t("sidebar.projects")}</button>
+        <button type="button" onClick={() => setShowArchived(true)} data-active={showArchived}>{t("sidebar.archived")}</button>
+      </div>
+
+      <div className="codex-sidebar-projects" role="tree" aria-label={showArchived ? t("sidebar.archivedProjects") : t("sidebar.projects")}>
+        {loading && <div className="codex-sidebar-empty">{t("sidebar.loading")}</div>}
+        {error && <div className="codex-sidebar-error">{error}</div>}
+        {!loading && !error && visibleProjects.length === 0 && (
+          <div className="codex-sidebar-empty">{showArchived ? t("sidebar.noArchivedProjects") : t("sidebar.noProjects")}</div>
+        )}
+        {visibleProjects.map((project) => {
+          const open = !collapsed.has(project.path);
+          const selected = selectedProject?.path === project.path;
+          const runningCount = project.sessions.filter((session) => runningIds.has(session.id)).length;
+          const unreadCount = project.sessions.filter((session) => unreadIds.has(session.id)).length;
+          return (
+            <div
+              className="codex-project"
+              key={project.path}
+              role="treeitem"
+              aria-expanded={open}
+              draggable={!renamingProject}
+              onDragStart={() => setDraggedProject(project.path)}
+              onDragEnd={() => setDraggedProject(null)}
+              onDragOver={(event: DragEvent) => event.preventDefault()}
+              onDrop={() => reorderProject(project.path)}
+              data-dragging={draggedProject === project.path}
+            >
+              <div className="codex-project-row" data-selected={selected}>
+                <div
+                  className="codex-project-main"
+                  title={project.path}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    setSelectedCwd(project.path);
+                    setCollapsed((current) => { const next = new Set(current); next.has(project.path) ? next.delete(project.path) : next.add(project.path); return next; });
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    setSelectedCwd(project.path);
+                    setCollapsed((current) => { const next = new Set(current); next.has(project.path) ? next.delete(project.path) : next.add(project.path); return next; });
+                  }}
+                >
+                  <Chevron open={open} />
+                  <FolderIcon />
+                  {renamingProject === project.path ? (
+                    <input
+                      className="codex-project-rename"
+                      value={renameValue}
+                      autoFocus
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={(event) => setRenameValue(event.target.value)}
+                      onBlur={() => { updateProject(project.path, { name: renameValue.trim() || undefined }); setRenamingProject(null); }}
+                      onKeyDown={(event) => {
+                        event.stopPropagation();
+                        if (event.key === "Enter") event.currentTarget.blur();
+                        if (event.key === "Escape") setRenamingProject(null);
+                      }}
+                    />
+                  ) : (
+                    <span className="codex-project-name">{project.name ?? projectName(project.path)}</span>
+                  )}
+                  {project.pinned && (
+                    <span className="codex-project-pin" title={t("sidebar.pinned")}>
+                      <Pin size={12} aria-hidden="true" />
+                    </span>
+                  )}
+                  {runningCount > 0 && <span className="codex-project-running" title={t("sidebar.agentRunning")}>{runningCount}</span>}
+                  {unreadCount > 0 && <span className="codex-project-unread" title={t("sidebar.newActivity")}>{unreadCount}</span>}
+                </div>
+                {!showArchived && (
+                  <IconButton label={t("sidebar.newSessionTitle", { path: project.path })} onClick={(event) => { event.stopPropagation(); createSession(project.path); }}>
+                    <Plus size={14} strokeWidth={2.2} aria-hidden="true" />
+                  </IconButton>
+                )}
+                <div className="codex-project-menu-wrap">
+                  <IconButton label={t("sidebar.projectActions")} onClick={(event) => {
+                    event.stopPropagation();
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setMenuProject((current) => current?.path === project.path
+                      ? null
+                      : {
+                          path: project.path,
+                          left: Math.max(8, Math.min(window.innerWidth - 180, rect.right - 172)),
+                          top: Math.max(8, Math.min(window.innerHeight - (showArchived ? 50 : 202), rect.bottom + 2)),
+                        });
+                  }}>
+                    <Ellipsis size={15} aria-hidden="true" />
+                  </IconButton>
+                </div>
+              </div>
+
+              {open && (
+                <div className="codex-project-sessions" role="group">
+                  {project.sessions.length === 0 && <div className="codex-project-no-sessions">{t("sidebar.noSessions")}</div>}
+                  {project.sessions.map((session) => (
+                    <SessionRow
+                      key={session.id}
+                      session={session}
+                      selected={session.id === selectedSessionId}
+                      running={runningIds.has(session.id)}
+                      unread={unreadIds.has(session.id)}
+                      onSelect={() => selectSession(session)}
+                      onChanged={() => void loadData(true)}
+                      onDeleted={() => { onSessionDeleted?.(session.id); void loadData(true); }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {selectedProject && !selectedProject.archived && !selectedProject.removed && (
+        <div className="codex-sidebar-project-tools">
+          {worktrees.length > 0 && (
+            <div className="codex-worktree-block">
+              <button type="button" className="codex-sidebar-tool-heading" onClick={() => setWorktreeOpen((open) => !open)}>
+                <Chevron open={worktreeOpen} />
+                <span>{t("sidebar.worktrees")}</span>
+                <span className="codex-sidebar-count">{worktrees.length}</span>
+              </button>
+              {worktreeOpen && (
+                <div className="codex-worktree-list">
+                  {worktrees.map((worktree) => (
+                    <div className="codex-worktree-row" key={worktree.path} data-selected={selectedCwd === worktree.path}>
+                      <button type="button" title={worktree.path} onClick={() => setSelectedCwd(worktree.path)}>{worktree.branch ?? projectName(worktree.path)}</button>
+                      {!worktree.isMain && <IconButton disabled={worktreeBusy} label={t("sidebar.removeWorktreeTitle", { path: worktree.path })} onClick={() => void removeWorktree(worktree.path)}><X size={13} aria-hidden="true" /></IconButton>}
+                    </div>
+                  ))}
+                  <div className="codex-worktree-create">
+                    <input value={newBranch} onChange={(event) => setNewBranch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void createWorktree(); }} placeholder={t("sidebar.branchName")} />
+                    <IconButton disabled={!newBranch.trim() || worktreeBusy} label={t("sidebar.create")} onClick={() => void createWorktree()}>
+                      <Plus size={13} aria-hidden="true" />
+                    </IconButton>
+                  </div>
+                  {worktreeError && <div className="codex-sidebar-error">{worktreeError}</div>}
+                </div>
+              )}
+            </div>
+          )}
+          <button type="button" className="codex-sidebar-tool-heading" onClick={() => { const next = !explorerOpen; setExplorerOpen(next); saveExplorerOpen(next); }}>
+            <Chevron open={explorerOpen} />
+            <span>{t("files.explorer")}</span>
+            <span className="codex-sidebar-spacer" />
+            {explorerOpen && <span onClick={(event) => { event.stopPropagation(); onExplorerRefresh?.(); setExplorerKey((key) => key + 1); }} aria-label={t("sidebar.refreshExplorer")} title={t("sidebar.refreshExplorer")}><RefreshCw size={12} aria-hidden="true" /></span>}
+          </button>
+          {explorerOpen && (
+            <div className="codex-sidebar-files">
+              <FileExplorer
+                cwd={selectedCwd ?? selectedProject.path}
+                onOpenFile={onOpenFile ?? (() => {})}
+                refreshKey={explorerKey}
+                onAtMention={onAtMention}
+                onAtMentions={onAtMentions}
+                changesCollapsed={false}
+              />
+            </div>
+          )}
+        </div>
+      )}
+      {menuProject && createPortal((() => {
+        const project = projects.find((candidate) => candidate.path === menuProject.path);
+        if (!project) return null;
+        return (
+          <div
+            ref={menuRef}
+            className="codex-project-menu codex-project-menu-portal"
+            role="menu"
+            style={{ left: menuProject.left, top: menuProject.top }}
+          >
+            {showArchived ? (
+              <button type="button" role="menuitem" onClick={() => { updateProject(project.path, { archived: false }); setMenuProject(null); }}>{t("sidebar.restoreProject")}</button>
+            ) : (
+              <>
+                <button type="button" role="menuitem" onClick={() => { updateProject(project.path, { pinned: !project.pinned }); setMenuProject(null); }}>{project.pinned ? t("sidebar.unpin") : t("sidebar.pin")}</button>
+                <button type="button" role="menuitem" onClick={() => { moveProject(project.path, -1); setMenuProject(null); }}>{t("sidebar.moveUp")}</button>
+                <button type="button" role="menuitem" onClick={() => { moveProject(project.path, 1); setMenuProject(null); }}>{t("sidebar.moveDown")}</button>
+                <button type="button" role="menuitem" onClick={() => { setRenameValue(project.name ?? projectName(project.path)); setRenamingProject(project.path); setMenuProject(null); }}>{t("sidebar.renameProject")}</button>
+                <button type="button" role="menuitem" onClick={() => { updateProject(project.path, { archived: true }); setMenuProject(null); }}>{t("sidebar.archiveProject")}</button>
+                <button type="button" role="menuitem" className="danger" onClick={() => { updateProject(project.path, { removed: true }); setMenuProject(null); }}>{t("sidebar.removeProject")}</button>
+              </>
+            )}
+          </div>
+        );
+      })(), document.body)}
+    </div>
+  );
+}
+
+function SessionRow({ session, selected, running, unread, onSelect, onChanged, onDeleted }: {
+  session: SessionInfo;
+  selected: boolean;
+  running: boolean;
+  unread: boolean;
+  onSelect: () => void;
+  onChanged: () => void;
+  onDeleted: () => void;
+}) {
+  const { t } = useI18n();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [value, setValue] = useState("");
+  const title = sessionTitle(session);
+
+  const commitRename = async () => {
+    setRenaming(false);
+    const name = value.trim();
+    if (!name || name === title) return;
+    await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    onChanged();
+  };
+
+  const remove = async () => {
+    setMenuOpen(false);
+    if (!window.confirm(t("sidebar.deleteSession", { title }))) return;
+    const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+    if (response.ok) onDeleted();
+  };
+
+  const openContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
+    const handled = dispatchSessionRowContextMenu({
+      id: session.id,
+      path: session.path,
+      cwd: session.cwd,
+      name: session.name,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      refresh: onChanged,
+    });
+    if (!handled) return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  return (
+    <div className="codex-session-row" data-selected={selected} onContextMenu={renaming ? undefined : openContextMenu}>
+      <div
+        className="codex-session-main"
+        onClick={onSelect}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          onSelect();
+        }}
+        role="button"
+        tabIndex={0}
+        title={title}
+      >
+        <span className="codex-session-state" data-running={running} data-unread={unread} />
+        {renaming ? (
+          <input
+            value={value}
+            autoFocus
+            onClick={(event) => event.stopPropagation()}
+            onChange={(event) => setValue(event.target.value)}
+            onBlur={() => void commitRename()}
+            onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setRenaming(false); }}
+          />
+        ) : <span>{title}</span>}
+      </div>
+      {!session.transient && (
+        <div className="codex-session-menu-wrap">
+          <IconButton label={t("sidebar.sessionActions")} onClick={() => setMenuOpen((open) => !open)}>
+            <Ellipsis size={14} aria-hidden="true" />
+          </IconButton>
+          {menuOpen && (
+            <div className="codex-project-menu" role="menu">
+              <button type="button" role="menuitem" onClick={() => { setValue(title); setRenaming(true); setMenuOpen(false); }}>{t("sidebar.rename")}</button>
+              <button type="button" role="menuitem" className="danger" onClick={() => void remove()}>{t("sidebar.delete")}</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

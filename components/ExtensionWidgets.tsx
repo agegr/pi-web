@@ -1,6 +1,7 @@
 "use client";
 
 import { useI18n } from "@/hooks/useI18n";
+import { ChevronDown } from "lucide-react";
 import type { ExtensionWidgetItem } from "@/lib/types";
 
 export const MAX_EXTENSION_WIDGET_LINES = 10;
@@ -62,9 +63,7 @@ export function ExtensionWidgets({ widgets, onRunCommand }: {
                     flexShrink: 0,
                   }}
                 >
-                  <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <polyline points="2 3.5 5 6.5 8 3.5" />
-                  </svg>
+                  <ChevronDown size={9} strokeWidth={1.6} aria-hidden="true" />
                   {t("i18n.collapsePanel")}
                 </button>
               )}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useI18n } from "@/hooks/useI18n";
+import { ShieldCheck } from "lucide-react";
 
 export function ProjectTrustDialog({
   cwd,
@@ -49,21 +50,7 @@ export function ProjectTrustDialog({
         }}
       >
         <div style={{ display: "flex", gap: 12, padding: "18px 18px 14px" }}>
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="#f59e0b"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-            style={{ flexShrink: 0, marginTop: 1 }}
-          >
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
-            <path d="m9 12 2 2 4-4" />
-          </svg>
+          <ShieldCheck size={20} color="#f59e0b" aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }} />
           <div style={{ minWidth: 0 }}>
             <div id="project-trust-title" style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>
               {t("trust.dialogTitle")}
