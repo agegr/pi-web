@@ -315,8 +315,8 @@ html.dark .codex-sidebar-error { color: #f87171; }
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
-  animation: spin .8s linear infinite;
 }
+.codex-project-running > svg { animation: spin .8s linear infinite; }
 .codex-project-unread { color: #087d96; }
 html.dark .codex-project-unread { color: #67e8f9; }
 .codex-project-menu-wrap,
@@ -392,6 +392,11 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
   font-size: 10px;
 }
 .codex-session-subagents > svg { animation: spin .8s linear infinite; }
+.codex-session-running {
+  flex-shrink: 0;
+  color: var(--accent);
+  animation: spin .8s linear infinite;
+}
 .codex-session-state {
   width: 5px;
   height: 5px;
@@ -400,7 +405,6 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
   background: var(--text-dim);
   opacity: .55;
 }
-.codex-session-state[data-running="true"] { background: var(--accent); opacity: 1; animation: codex-sidebar-pulse 1.4s ease-in-out infinite; }
 .codex-session-state[data-unread="true"] { background: #0891b2; opacity: 1; }
 .codex-session-menu-wrap .codex-project-menu { top: 28px; }
 .codex-sidebar-project-tools {
@@ -476,12 +480,11 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
 }
 .codex-sidebar-footer-item:hover:not(:disabled) { color: var(--text); background: var(--bg-hover); }
 .codex-sidebar-footer-item:disabled { opacity: .35; cursor: default; }
-@keyframes codex-sidebar-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) {
   .codex-sidebar-chevron { transition: none; }
-  .codex-project-running,
+  .codex-project-running > svg,
   .codex-session-subagents > svg,
-  .codex-session-state[data-running="true"] { animation: none; }
+  .codex-session-running { animation: none; }
 }
 
 /* react-markdown output styles */
