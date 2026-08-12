@@ -111,6 +111,8 @@ export const enLocale: LocalePlugin = {
     "sidebar.searchProjects": "Search projects",
     "sidebar.noProjects": "No projects yet",
     "sidebar.noArchivedProjects": "No archived projects",
+    "settings.archivedProjectsDescription": "Projects archived from the sidebar appear here and can be restored at any time.",
+    "settings.archivedProjectsEmptyDescription": "Archive a project from its sidebar actions to move it here.",
     "sidebar.projectActions": "Project actions",
     "sidebar.sessionActions": "Session actions",
     "sidebar.pinned": "Pinned",

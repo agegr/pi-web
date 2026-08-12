@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
+  Archive,
+  ArchiveRestore,
   Bell,
   Bot,
   Check,
@@ -23,11 +25,12 @@ import { useI18n } from "@/hooks/useI18n";
 import type { ThemePreference } from "@/hooks/useTheme";
 import type { Locale, LocalePlugin } from "@/lib/i18n/types";
 import type { ProjectTrustStatus } from "@/lib/api-types";
+import type { ProjectPreference } from "@/lib/project-registry";
 import { ModelsConfig } from "./ModelsConfig";
 import { PluginsConfig } from "./PluginsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 
-type SettingsSection = "general" | "project" | "models" | "skills" | "plugins";
+type SettingsSection = "general" | "project" | "archived" | "models" | "skills" | "plugins";
 
 interface Props {
   cwd: string | null;
@@ -46,12 +49,14 @@ interface Props {
   onClose: () => void;
   onModelsChanged: () => void;
   onSessionReloaded: () => void;
+  onProjectsChanged: () => void;
 }
 
 function SectionIcon({ section }: { section: SettingsSection }) {
   const icons = {
     general: SlidersHorizontal,
     project: FolderCog,
+    archived: Archive,
     models: Cpu,
     skills: Layers3,
     plugins: Plug,
@@ -77,9 +82,13 @@ export function SettingsPage({
   onClose,
   onModelsChanged,
   onSessionReloaded,
+  onProjectsChanged,
 }: Props) {
   const { t } = useI18n();
   const [section, setSection] = useState<SettingsSection>("general");
+  const [projects, setProjects] = useState<ProjectPreference[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const close = useCallback(() => {
     onModelsChanged();
@@ -95,9 +104,47 @@ export function SettingsPage({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [close]);
 
+  const loadProjects = useCallback(async () => {
+    setProjectsLoading(true);
+    setProjectsError(null);
+    try {
+      const response = await fetch("/api/projects", { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json() as { projects: ProjectPreference[] };
+      setProjects(data.projects);
+    } catch (cause) {
+      setProjectsError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setProjectsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (section === "archived") void loadProjects();
+  }, [loadProjects, section]);
+
+  const restoreProject = useCallback(async (path: string) => {
+    const next = projects.map((project) => project.path === path ? { ...project, archived: false } : project);
+    setProjects(next);
+    setProjectsError(null);
+    try {
+      const response = await fetch("/api/projects", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projects: next }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      onProjectsChanged();
+    } catch (cause) {
+      setProjectsError(cause instanceof Error ? cause.message : String(cause));
+      void loadProjects();
+    }
+  }, [loadProjects, onProjectsChanged, projects]);
+
   const sections: { id: SettingsSection; label: string; disabled: boolean }[] = [
     { id: "general", label: t("settings.general"), disabled: false },
     { id: "project", label: t("settings.project"), disabled: false },
+    { id: "archived", label: t("sidebar.archived"), disabled: false },
     { id: "models", label: t("common.models"), disabled: false },
     { id: "skills", label: t("common.skills"), disabled: !cwd },
     { id: "plugins", label: t("common.plugins"), disabled: !cwd },
@@ -157,6 +204,28 @@ export function SettingsPage({
           ) : <span className="settings-status"><Check size={14} aria-hidden="true" />{t("settings.ready")}</span>}
         </section>
         {projectTrustError && <div className="settings-inline-error" role="alert">{projectTrustError}</div>}
+      </div>
+    );
+  } else if (section === "archived") {
+    const archivedProjects = projects.filter((project) => project.archived && !project.removed);
+    content = (
+      <div className="settings-form-page">
+        <div className="settings-form-heading"><Archive size={18} aria-hidden="true" /><div><h3>{t("sidebar.archivedProjects")}</h3><p>{t("settings.archivedProjectsDescription")}</p></div></div>
+        {projectsLoading ? (
+          <div className="settings-page-empty"><span>{t("sidebar.loading")}</span></div>
+        ) : archivedProjects.length === 0 ? (
+          <div className="settings-page-empty"><Archive size={20} aria-hidden="true" /><strong>{t("sidebar.noArchivedProjects")}</strong><span>{t("settings.archivedProjectsEmptyDescription")}</span></div>
+        ) : (
+          <div className="settings-archived-list">
+            {archivedProjects.map((project) => (
+              <div className="settings-archived-row" key={project.path}>
+                <div><strong>{project.name ?? project.path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? project.path}</strong><span title={project.path}>{project.path}</span></div>
+                <button type="button" onClick={() => void restoreProject(project.path)}><ArchiveRestore size={14} aria-hidden="true" />{t("sidebar.restoreProject")}</button>
+              </div>
+            ))}
+          </div>
+        )}
+        {projectsError && <div className="settings-inline-error" role="alert">{projectsError}</div>}
       </div>
     );
   } else if (section === "models") {

@@ -4,6 +4,7 @@ import test from "node:test";
 
 const sidebar = await readFile(new URL("./CodexSidebar.tsx", import.meta.url), "utf8");
 const shell = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
+const settings = await readFile(new URL("./SettingsPage.tsx", import.meta.url), "utf8");
 
 test("AppShell renders the Codex project sidebar instead of the legacy sidebar", () => {
   assert.match(shell, /import \{ CodexSidebar \} from "\.\/CodexSidebar"/);
@@ -14,9 +15,11 @@ test("AppShell renders the Codex project sidebar instead of the legacy sidebar",
 test("project management exposes persistence-backed full actions", () => {
   assert.match(sidebar, /fetch\("\/api\/projects"/);
   assert.match(sidebar, /method: "PUT"/);
-  for (const action of ["pin", "moveUp", "moveDown", "renameProject", "archiveProject", "restoreProject", "removeProject"]) {
+  for (const action of ["pin", "moveUp", "moveDown", "renameProject", "archiveProject", "removeProject"]) {
     assert.match(sidebar, new RegExp(`sidebar\\.${action}`));
   }
+  assert.match(settings, /sidebar\.restoreProject/);
+  assert.doesNotMatch(sidebar, /setShowArchived/);
 });
 
 test("project sorting supports drag and keyboard-accessible menu actions", () => {

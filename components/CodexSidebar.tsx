@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, Ellipsis, Folder, FolderPlus, LoaderCircle, Pin, Plus, RefreshCw, Search, X } from "lucide-react";
+import { Archive, ChevronRight, Ellipsis, Folder, FolderPlus, LoaderCircle, Pin, Plus, RefreshCw, Search, X } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import type { ProjectPreference } from "@/lib/project-registry";
@@ -145,7 +145,6 @@ export function CodexSidebar({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
-  const [showArchived, setShowArchived] = useState(false);
   const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
   const [directoryError, setDirectoryError] = useState<string | null>(null);
   const [directoryBusy, setDirectoryBusy] = useState(false);
@@ -252,7 +251,7 @@ export function CodexSidebar({
   }, [discovered, preferences]);
 
   const visibleProjects = projects.filter((project) => {
-    if (project.removed || project.archived !== showArchived) return false;
+    if (project.removed || project.archived) return false;
     const query = filter.trim().toLowerCase();
     return !query || (project.name ?? projectName(project.path)).toLowerCase().includes(query) || project.path.toLowerCase().includes(query);
   });
@@ -503,16 +502,13 @@ export function CodexSidebar({
         <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={t("sidebar.searchProjects")} aria-label={t("sidebar.searchProjects")} />
       </div>
 
-      <div className="codex-sidebar-section-heading">
-        <button type="button" onClick={() => setShowArchived(false)} data-active={!showArchived}>{t("sidebar.projects")}</button>
-        <button type="button" onClick={() => setShowArchived(true)} data-active={showArchived}>{t("sidebar.archived")}</button>
-      </div>
+      <div className="codex-sidebar-section-heading">{t("sidebar.projects")}</div>
 
-      <div className="codex-sidebar-projects" role="tree" aria-label={showArchived ? t("sidebar.archivedProjects") : t("sidebar.projects")}>
+      <div className="codex-sidebar-projects" role="tree" aria-label={t("sidebar.projects")}>
         {loading && <div className="codex-sidebar-empty">{t("sidebar.loading")}</div>}
         {error && <div className="codex-sidebar-error">{error}</div>}
         {!loading && !error && visibleProjects.length === 0 && (
-          <div className="codex-sidebar-empty">{showArchived ? t("sidebar.noArchivedProjects") : t("sidebar.noProjects")}</div>
+          <div className="codex-sidebar-empty">{t("sidebar.noProjects")}</div>
         )}
         {visibleProjects.map((project) => {
           const open = !collapsed.has(project.path);
@@ -580,11 +576,9 @@ export function CodexSidebar({
                   )}
                   {unreadCount > 0 && <span className="codex-project-unread" title={t("sidebar.newActivity")}>{unreadCount}</span>}
                 </div>
-                {!showArchived && (
-                  <IconButton label={t("sidebar.newSessionTitle", { path: project.path })} onClick={(event) => { event.stopPropagation(); createSession(project.path); }}>
-                    <Plus size={14} strokeWidth={2.2} aria-hidden="true" />
-                  </IconButton>
-                )}
+                <IconButton label={t("sidebar.newSessionTitle", { path: project.path })} onClick={(event) => { event.stopPropagation(); createSession(project.path); }}>
+                  <Plus size={14} strokeWidth={2.2} aria-hidden="true" />
+                </IconButton>
                 <div className="codex-project-menu-wrap">
                   <IconButton label={t("sidebar.projectActions")} onClick={(event) => {
                     event.stopPropagation();
@@ -594,7 +588,7 @@ export function CodexSidebar({
                       : {
                           path: project.path,
                           left: Math.max(8, Math.min(window.innerWidth - 180, rect.right - 172)),
-                          top: Math.max(8, Math.min(window.innerHeight - (showArchived ? 50 : 202), rect.bottom + 2)),
+                          top: Math.max(8, Math.min(window.innerHeight - 202, rect.bottom + 2)),
                         });
                   }}>
                     <Ellipsis size={15} aria-hidden="true" />
@@ -683,18 +677,12 @@ export function CodexSidebar({
             role="menu"
             style={{ left: menuProject.left, top: menuProject.top }}
           >
-            {showArchived ? (
-              <button type="button" role="menuitem" onClick={() => { updateProject(project.path, { archived: false }); setMenuProject(null); }}>{t("sidebar.restoreProject")}</button>
-            ) : (
-              <>
-                <button type="button" role="menuitem" onClick={() => { updateProject(project.path, { pinned: !project.pinned }); setMenuProject(null); }}>{project.pinned ? t("sidebar.unpin") : t("sidebar.pin")}</button>
-                <button type="button" role="menuitem" onClick={() => { moveProject(project.path, -1); setMenuProject(null); }}>{t("sidebar.moveUp")}</button>
-                <button type="button" role="menuitem" onClick={() => { moveProject(project.path, 1); setMenuProject(null); }}>{t("sidebar.moveDown")}</button>
-                <button type="button" role="menuitem" onClick={() => { setRenameValue(project.name ?? projectName(project.path)); setRenamingProject(project.path); setMenuProject(null); }}>{t("sidebar.renameProject")}</button>
-                <button type="button" role="menuitem" onClick={() => { updateProject(project.path, { archived: true }); setMenuProject(null); }}>{t("sidebar.archiveProject")}</button>
-                <button type="button" role="menuitem" className="danger" onClick={() => { updateProject(project.path, { removed: true }); setMenuProject(null); }}>{t("sidebar.removeProject")}</button>
-              </>
-            )}
+            <button type="button" role="menuitem" onClick={() => { updateProject(project.path, { pinned: !project.pinned }); setMenuProject(null); }}>{project.pinned ? t("sidebar.unpin") : t("sidebar.pin")}</button>
+            <button type="button" role="menuitem" onClick={() => { moveProject(project.path, -1); setMenuProject(null); }}>{t("sidebar.moveUp")}</button>
+            <button type="button" role="menuitem" onClick={() => { moveProject(project.path, 1); setMenuProject(null); }}>{t("sidebar.moveDown")}</button>
+            <button type="button" role="menuitem" onClick={() => { setRenameValue(project.name ?? projectName(project.path)); setRenamingProject(project.path); setMenuProject(null); }}>{t("sidebar.renameProject")}</button>
+            <button type="button" role="menuitem" onClick={() => { updateProject(project.path, { archived: true }); setMenuProject(null); }}><Archive size={14} aria-hidden="true" />{t("sidebar.archiveProject")}</button>
+            <button type="button" role="menuitem" className="danger" onClick={() => { updateProject(project.path, { removed: true }); setMenuProject(null); }}>{t("sidebar.removeProject")}</button>
           </div>
         );
       })(), document.body)}
