@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import {
   ArrowDown,
   ArrowLeft,
@@ -74,9 +74,13 @@ type AutoNameStatus =
 
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
 export function AppShell() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const [initialNavigation] = useState(() => getInitialNavigation(searchParams));
+  const navigate = useNavigate({ from: "/" });
+  const search = useSearch({ from: "/" });
+  const [initialNavigation] = useState(() => getInitialNavigation(
+    new URLSearchParams(Object.entries(search).flatMap(([key, value]) =>
+      value === undefined ? [] : [[key, value]],
+    )),
+  ));
   const { preference, setPreference: setThemePreference } = useTheme();
   const { locale, setLocale, t: translate, supportedLocales } = useI18n();
   const isMobile = useIsMobile();
@@ -449,13 +453,18 @@ export function AppShell() {
         setSelectedSession(s);
         setSessionKey((k) => k + 1);
         if (new URLSearchParams(window.location.search).get("session") !== s.id) {
-          router.replace(`?session=${encodeURIComponent(s.id)}`, { scroll: false });
+          void navigate({
+            to: "/",
+            search: { session: s.id, cwd: undefined },
+            replace: true,
+            resetScroll: false,
+          });
         }
       })
       .catch(() => {
         // Network hiccup: keep the remembered session for a later retry.
       });
-  }, [router]);
+  }, [navigate]);
 
   const handleCwdChange = useCallback((cwd: string | null, projectRoot?: string | null) => {
     invalidateWorkspaceRestore();
@@ -510,8 +519,13 @@ export function AppShell() {
       // the default welcome page when none is remembered.
       restoreWorkspaceContext(newProject);
     }
-    router.replace("/", { scroll: false });
-  }, [activeCwd, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);
+    void navigate({
+      to: "/",
+      search: { session: undefined, cwd: undefined },
+      replace: true,
+      resetScroll: false,
+    });
+  }, [activeCwd, invalidateWorkspaceRestore, newSessionCwd, navigate, selectedSession, restoreWorkspaceContext]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
     invalidateWorkspaceRestore();
@@ -541,12 +555,17 @@ export function AppShell() {
       // onCwdChange effect firing after setSelectedCwd in the sidebar
       suppressCwdBumpRef.current = true;
     }
-    // Skip router.replace when restoring from URL — the param is already correct
+    // Skip the URL replacement when restoring from URL — the param is already correct
     // and calling replace in production Next.js triggers a Suspense remount loop
     if (!isRestore) {
-      router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
+      void navigate({
+        to: "/",
+        search: { session: session.id, cwd: undefined },
+        replace: true,
+        resetScroll: false,
+      });
     }
-  }, [invalidateWorkspaceRestore, router, isMobile, selectedSession]);
+  }, [invalidateWorkspaceRestore, navigate, isMobile, selectedSession]);
 
   const handleNewSession = useCallback((sessionId: string, cwd: string) => {
     invalidateWorkspaceRestore();
@@ -561,8 +580,13 @@ export function AppShell() {
     setSystemPrompt(null);
     setActiveTopPanel(null);
     if (isMobile) setSidebarOpen(false);
-    router.replace("/", { scroll: false });
-  }, [invalidateWorkspaceRestore, router, isMobile]);
+    void navigate({
+      to: "/",
+      search: { session: undefined, cwd: undefined },
+      replace: true,
+      resetScroll: false,
+    });
+  }, [invalidateWorkspaceRestore, navigate, isMobile]);
 
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
   useGlobalKeyboardShortcuts({
@@ -598,8 +622,13 @@ export function AppShell() {
     setNewSessionCwd(null);
     setSelectedSession(session);
     hydrateSelectedSession(session.id);
-    router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
-  }, [invalidateWorkspaceRestore, router, hydrateSelectedSession]);
+    void navigate({
+      to: "/",
+      search: { session: session.id, cwd: undefined },
+      replace: true,
+      resetScroll: false,
+    });
+  }, [invalidateWorkspaceRestore, navigate, hydrateSelectedSession]);
 
   const deliverSessionNotification = useCallback(({
     targetSession,
@@ -715,8 +744,13 @@ export function AppShell() {
       transient: false,
     }));
     hydrateSelectedSession(newSessionId);
-    router.replace(`?session=${encodeURIComponent(newSessionId)}`, { scroll: false });
-  }, [invalidateWorkspaceRestore, router, hydrateSelectedSession]);
+    void navigate({
+      to: "/",
+      search: { session: newSessionId, cwd: undefined },
+      replace: true,
+      resetScroll: false,
+    });
+  }, [invalidateWorkspaceRestore, navigate, hydrateSelectedSession]);
 
   const handleInitialRestoreDone = useCallback(() => {
     setInitialSessionRestored(true);
@@ -739,9 +773,14 @@ export function AppShell() {
       setBranchActiveLeafId(null);
       setSystemPrompt(null);
       setActiveTopPanel(null);
-      router.replace("/", { scroll: false });
+      void navigate({
+        to: "/",
+        search: { session: undefined, cwd: undefined },
+        replace: true,
+        resetScroll: false,
+      });
     }
-  }, [invalidateWorkspaceRestore, selectedSession, router]);
+  }, [invalidateWorkspaceRestore, selectedSession, navigate]);
 
   const handleOpenFile = useCallback((
     filePath: string,
