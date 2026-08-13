@@ -15,42 +15,46 @@ const model = {
   usedTokens: 31000,
   contextWindow: 1_000_000,
   availableTokens: 969000,
-  inputTokens: 6400,
-  outputTokens: 22000,
-  cacheRead: 339000,
-  cacheWrite: 0,
-  cacheRate: 98.1,
-  totalTokens: 367400,
-  modelLabel: "deepseek-v4-flash",
-  cost: 0.008,
+  userMessages: 1,
+  toolCalls: 2,
 };
 
-test("renders the DSCode-style context metrics", () => {
+test("renders a compact session summary instead of cumulative token metrics", () => {
   const html = renderToStaticMarkup(React.createElement(I18nProvider, null,
     React.createElement(DesktopConversationContext, { model, onOpenDetails() {} }),
   ));
   assert.match(html, /Conversation context/);
   assert.match(html, /2\.9%/);
   assert.match(html, /31k/);
-  assert.match(html, /367k/);
-  assert.match(html, /6\.4k/);
-  assert.match(html, /22k/);
-  assert.match(html, /98\.1%/);
-  assert.match(html, /deepseek-v4-flash/);
-  assert.match(html, /\$0\.0080/);
+  assert.match(html, /969k available/);
+  assert.doesNotMatch(html, /deepseek-v4-flash/);
+  assert.doesNotMatch(html, /\$0\.0080/);
+  assert.match(html, /1 turn/);
+  assert.match(html, /2 tool calls/);
+  assert.doesNotMatch(html, /Total tokens/);
+  assert.doesNotMatch(html, /Cache Read/);
+  assert.doesNotMatch(html, /Model/);
+  assert.doesNotMatch(html, /Cost/);
 });
 
-test("centers the full-capacity label inside the ring", () => {
+test("uses a horizontal context bar with capacity-aware tones", () => {
+  const html = renderToStaticMarkup(React.createElement(I18nProvider, null,
+    React.createElement(DesktopConversationContext, { model, onOpenDetails() {} }),
+  ));
+  assert.match(html, /desktop-context-progress/);
+  assert.match(html, /--context-percent:2\.9%/);
+  assert.match(html, /--context-tone:var\(--accent\)/);
+  assert.match(css, /\.desktop-context-progress\s*\{[^}]*height:\s*6px;[^}]*border-radius:\s*999px;/s);
+});
+
+test("uses an alert tone near the context limit", () => {
   const html = renderToStaticMarkup(React.createElement(I18nProvider, null,
     React.createElement(DesktopConversationContext, {
-      model: { ...model, percent: 100 },
+      model: { ...model, percent: 96 },
       onOpenDetails() {},
     }),
   ));
-
-  assert.match(html, /desktop-context-ring-label[^>]*><strong>100\.0%<\/strong>/);
-  assert.match(css, /\.desktop-context-ring-label\s*\{[^}]*position:\s*absolute;[^}]*inset:\s*6px;[^}]*place-content:\s*center;/s);
-  assert.match(css, /\.desktop-context-ring strong\s*\{[^}]*font-size:\s*12px;[^}]*white-space:\s*nowrap;/s);
+  assert.match(html, /--context-tone:#dc2626/);
 });
 
 test("pulls the context card toward the transcript only on roomy desktops", () => {

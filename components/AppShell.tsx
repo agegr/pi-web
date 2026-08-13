@@ -250,13 +250,10 @@ export function AppShell() {
 
   // Context usage — populated by ChatWindow, displayed in top bar
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
-  const [displayModel, setDisplayModel] = useState<{ provider: string; modelId: string; label: string } | null>(null);
-  const handleDisplayModelChange = useCallback((model: { provider: string; modelId: string; label: string } | null) => setDisplayModel(model), []);
   const conversationContextModel = sessionStats
     ? buildConversationContextModel({
         stats: sessionStats,
         contextUsage,
-        modelLabel: displayModel?.label ?? displayModel?.modelId ?? null,
       })
     : null;
   const handleContextUsageChange = useCallback((usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => {
@@ -1940,7 +1937,6 @@ export function AppShell() {
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onContextUsageChange={handleContextUsageChange}
               onOpenFile={handleOpenLinkedFile}
-              onDisplayModelChange={handleDisplayModelChange}
               desktopAside={conversationContextModel ? (
                 <DesktopConversationContext
                   model={conversationContextModel}

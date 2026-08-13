@@ -45,9 +45,6 @@ interface Props {
   onSessionStatsPanelOpen?: () => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
   onOpenFile?: (filePath: string) => void;
-  /** Notifies AppShell of the resolved display model so the desktop context
-   *  card can show the real model id/name instead of the session title. */
-  onDisplayModelChange?: (model: { provider: string; modelId: string; label: string } | null) => void;
   /** Optional right-side slot rendered only inside the session workspace. */
   desktopAside?: ReactNode;
   /** Completion sound state + controls, owned by AppShell so tasks finishing in
@@ -263,7 +260,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, hasError = false, de
   );
 }
 
-export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onDisplayModelChange, desktopAside, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, desktopAside, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
 
@@ -299,19 +296,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   });
   const sessionBusy = agentRunning || bashRunning;
-  const displayModelProvider = displayModelValue?.provider ?? "";
-  const displayModelId = displayModelValue?.modelId ?? "";
-  const displayModelLabel = displayModelId
-    ? modelNames[`${displayModelProvider}:${displayModelId}`] ?? displayModelId
-    : "";
-  useEffect(() => {
-    onDisplayModelChange?.(displayModelId ? {
-      provider: displayModelProvider,
-      modelId: displayModelId,
-      label: displayModelLabel,
-    } : null);
-    return () => onDisplayModelChange?.(null);
-  }, [displayModelId, displayModelLabel, displayModelProvider, onDisplayModelChange]);
   const goalModel = resolveGoalPanelModel({
     widgets: extensionWidgets,
     statuses: extensionStatuses,
