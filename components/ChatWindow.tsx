@@ -1228,6 +1228,12 @@ function ExtensionCustomPanel({
           spellCheck={false}
           onKeyDown={(event) => {
             if (composingRef.current || event.nativeEvent.isComposing) return;
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              onInput(request, "\x03");
+              return;
+            }
             const data = toTerminalKeyData(event);
             if (!data) return;
             event.preventDefault();

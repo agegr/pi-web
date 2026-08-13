@@ -30,4 +30,6 @@ test("quick switcher uses shared tool dimensions without changing keyboard navig
 test("tool dialog content fills the shared shell and mobile viewport", () => {
   assert.match(styles, /\.codex-dialog-tool-body\s*\{[\s\S]*?padding:\s*0;[\s\S]*?display:\s*flex;/);
   assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?\.codex-dialog\[data-size="tool"\][\s\S]*?height:\s*100dvh/);
+  assert.doesNotMatch(styles, /\.codex-quick-switcher::backdrop\s*\{[^}]*backdrop-filter/);
+  assert.doesNotMatch(styles, /\.codex-quick-switcher\s*\{[^}]*0 20px 60px/);
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from "react";
 import { X } from "lucide-react";
 
 export type DialogSize = "confirm" | "request" | "editor" | "tool" | "terminal";
@@ -12,6 +12,8 @@ export function DialogShell({
   subtitle,
   onClose,
   dismissible = true,
+  backdropDismissible = dismissible,
+  returnFocusRef,
   showClose = false,
   bodyClassName,
   footer,
@@ -23,6 +25,8 @@ export function DialogShell({
   subtitle?: ReactNode;
   onClose(): void;
   dismissible?: boolean;
+  backdropDismissible?: boolean;
+  returnFocusRef?: RefObject<HTMLElement | null>;
   showClose?: boolean;
   bodyClassName?: string;
   footer?: ReactNode;
@@ -38,7 +42,7 @@ export function DialogShell({
     if (dialog && !dialog.open) dialog.showModal();
     return () => {
       if (dialog?.open) dialog.close();
-      previousFocusRef.current?.focus({ preventScroll: true });
+      (returnFocusRef?.current ?? previousFocusRef.current)?.focus({ preventScroll: true });
     };
   }, []);
 
@@ -56,7 +60,7 @@ export function DialogShell({
       aria-label={title ? undefined : ariaLabel}
       onCancel={handleCancel}
       onClick={(event) => {
-        if (dismissible && event.target === event.currentTarget) onClose();
+        if (backdropDismissible && event.target === event.currentTarget) onClose();
       }}
     >
       {(title || subtitle || showClose) && (

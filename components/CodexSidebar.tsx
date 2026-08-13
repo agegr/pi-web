@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  forwardRef,
   useCallback,
   useEffect,
   useMemo,
@@ -92,14 +93,15 @@ function newDraftId(): string {
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-function IconButton({ label, onClick, children, disabled }: {
+const IconButton = forwardRef<HTMLButtonElement, {
   label: string;
   onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
   children: ReactNode;
   disabled?: boolean;
-}) {
+}>(function IconButton({ label, onClick, children, disabled }, ref) {
   return (
     <button
+      ref={ref}
       type="button"
       className="codex-sidebar-icon-button"
       aria-label={label}
@@ -110,7 +112,7 @@ function IconButton({ label, onClick, children, disabled }: {
       {children}
     </button>
   );
-}
+});
 
 function Chevron({ open }: { open: boolean }) {
   return <ChevronRight className="codex-sidebar-chevron" data-open={open} size={14} strokeWidth={2} aria-hidden="true" />;
@@ -530,7 +532,7 @@ export function CodexSidebar({
   }, [projects, saveProjects]);
 
   const removeWorktree = useCallback(async (path: string, force = false) => {
-    if (!selectedProject || worktreeBusy) return;
+    if (!selectedProject || worktreeBusy) return false;
     setWorktreeBusy(true);
     setWorktreeError(null);
     try {
@@ -542,13 +544,15 @@ export function CodexSidebar({
       const data = await response.json() as { error?: string; dirty?: boolean };
       if (data.dirty && !force) {
         setPendingConfirmation({ type: "worktree", path });
-        return;
+        return false;
       }
       if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
       setWorktrees((current) => current.filter((worktree) => worktree.path !== path));
       if (selectedCwd === path) setSelectedCwd(selectedProject.path);
+      return true;
     } catch (cause) {
       setWorktreeError(cause instanceof Error ? cause.message : String(cause));
+      return false;
     } finally {
       setWorktreeBusy(false);
     }
@@ -870,18 +874,20 @@ export function CodexSidebar({
           title={t("sidebar.forceRemoveCheckout")}
           ariaLabel={t("sidebar.cancel")}
           onClose={() => setPendingConfirmation(null)}
+          dismissible={!worktreeBusy}
+          backdropDismissible={false}
           footer={(
             <>
-              <button type="button" className="codex-dialog-button" onClick={() => setPendingConfirmation(null)}>{t("sidebar.cancel")}</button>
-              <button type="button" className="codex-dialog-button" data-variant="danger" onClick={() => {
+              <button type="button" className="codex-dialog-button" onClick={() => setPendingConfirmation(null)} disabled={worktreeBusy}>{t("sidebar.cancel")}</button>
+              <button type="button" className="codex-dialog-button" data-variant="danger" disabled={worktreeBusy} onClick={async () => {
                 const path = pendingConfirmation.path;
-                setPendingConfirmation(null);
-                void removeWorktree(path, true);
+                if (await removeWorktree(path, true)) setPendingConfirmation(null);
               }}>{t("sidebar.force")}</button>
             </>
           )}
         >
           <code className="codex-dialog-inset">{pendingConfirmation.path}</code>
+          {worktreeError && <div role="alert" className="codex-dialog-error">{worktreeError}</div>}
         </DialogShell>
       )}
       <dialog
@@ -963,9 +969,11 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
   const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [value, setValue] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
-  const menuButtonRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const title = sessionTitle(session);
   const isRecent = variant === "recent";
   const rowTitle = isRecent && projectLabel ? `${projectLabel} · ${title}` : title;
@@ -1003,9 +1011,19 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
   };
 
   const remove = async () => {
-    setDeleteConfirmationOpen(false);
-    const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
-    if (response.ok) onDeleted();
+    if (deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setDeleteConfirmationOpen(false);
+      onDeleted();
+    } catch (cause) {
+      setDeleteError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const openContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -1076,8 +1094,8 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
       </div>
       {isRecent && relativeTime ? <span className="codex-recent-session-time">{relativeTime}</span> : null}
       {!session.transient && (
-        <div className="codex-session-menu-wrap" ref={menuButtonRef}>
-          <IconButton label={t("sidebar.sessionActions")} onClick={(event) => {
+        <div className="codex-session-menu-wrap">
+          <IconButton ref={menuButtonRef} label={t("sidebar.sessionActions")} onClick={(event) => {
             const rect = event.currentTarget.getBoundingClientRect();
             setMenuPos((current) => current ? null : {
               left: Math.max(8, Math.min(window.innerWidth - 180, rect.right - 172)),
@@ -1090,7 +1108,7 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
             <div ref={menuRef} className="codex-project-menu codex-project-menu-portal" role="menu" style={{ left: menuPos.left, top: menuPos.top }}>
               <button type="button" role="menuitem" onClick={() => { setValue(title); setRenaming(true); setMenuPos(null); }}><Pencil size={14} aria-hidden="true" />{t("sidebar.rename")}</button>
               <button type="button" role="menuitem" onClick={() => { setMenuPos(null); onArchive(); }}><Archive size={14} aria-hidden="true" />{t("sidebar.archiveSession")}</button>
-              <button type="button" role="menuitem" className="danger" onClick={() => { setMenuPos(null); setDeleteConfirmationOpen(true); }}><Trash2 size={14} aria-hidden="true" />{t("sidebar.delete")}</button>
+              <button type="button" role="menuitem" className="danger" onClick={() => { setMenuPos(null); setDeleteError(null); setDeleteConfirmationOpen(true); }}><Trash2 size={14} aria-hidden="true" />{t("sidebar.delete")}</button>
             </div>,
             document.body,
           )}
@@ -1103,14 +1121,18 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
         title={t("sidebar.deleteSession", { title })}
         ariaLabel={t("sidebar.cancel")}
         onClose={() => setDeleteConfirmationOpen(false)}
+        dismissible={!deleting}
+        backdropDismissible={false}
+        returnFocusRef={menuButtonRef}
         footer={(
           <>
-            <button type="button" className="codex-dialog-button" onClick={() => setDeleteConfirmationOpen(false)}>{t("sidebar.cancel")}</button>
-            <button type="button" className="codex-dialog-button" data-variant="danger" onClick={() => void remove()}>{t("sidebar.delete")}</button>
+            <button type="button" className="codex-dialog-button" onClick={() => setDeleteConfirmationOpen(false)} disabled={deleting}>{t("sidebar.cancel")}</button>
+            <button type="button" className="codex-dialog-button" data-variant="danger" onClick={() => void remove()} disabled={deleting}>{t("sidebar.delete")}</button>
           </>
         )}
       >
         <code className="codex-dialog-inset">{title}</code>
+        {deleteError && <div role="alert" className="codex-dialog-error">{deleteError}</div>}
       </DialogShell>
     )}
     </>

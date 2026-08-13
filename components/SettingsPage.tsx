@@ -377,6 +377,7 @@ export function SettingsPage({
           title={t("models.unsavedChanges")}
           ariaLabel={t("models.keepEditing")}
           onClose={() => setDiscardDialogOpen(false)}
+          backdropDismissible={false}
           footer={(
             <>
               <button type="button" className="codex-dialog-button" onClick={() => setDiscardDialogOpen(false)}>{t("models.keepEditing")}</button>

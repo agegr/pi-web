@@ -13,14 +13,15 @@ test("uses a native modal and restores focus", async () => {
   const value = await source();
   assert.match(value, /useRef<HTMLDialogElement>/);
   assert.match(value, /dialog\.showModal\(\)/);
-  assert.match(value, /previousFocusRef\.current\?\.focus/);
+  assert.match(value, /returnFocusRef\?\.current \?\? previousFocusRef\.current/);
 });
 
-test("supports explicit Escape and safe backdrop dismissal", async () => {
+test("supports separate Escape and safe backdrop dismissal", async () => {
   const value = await source();
+  assert.match(value, /backdropDismissible = dismissible/);
   assert.match(value, /onCancel=\{handleCancel\}/);
-  assert.match(value, /event\.target === event\.currentTarget/);
-  assert.match(value, /dismissible/);
+  assert.match(value, /backdropDismissible && event\.target === event\.currentTarget/);
+  assert.match(value, /returnFocusRef\?\.current/);
 });
 
 test("exposes shared title body footer and close chrome", async () => {
@@ -37,5 +38,5 @@ test("defines fixed desktop and mobile dialog dimensions", () => {
   assert.match(styles, /\.codex-dialog\[data-size="tool"\][\s\S]*?width:\s*min\(820px, calc\(100vw - 32px\)\)/);
   assert.match(styles, /\.codex-dialog\[data-size="terminal"\][\s\S]*?width:\s*min\(920px, calc\(100vw - 32px\)\)/);
   assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?\.codex-dialog\[data-size="confirm"\][\s\S]*?margin:\s*auto 0 0/);
-  assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?\.codex-dialog\[data-size="tool"\][\s\S]*?height:\s*100dvh/);
+  assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?\.codex-dialog\[data-size="tool"\][\s\S]*?height:\s*var\(--app-viewport-height, 100dvh\)/);
 });

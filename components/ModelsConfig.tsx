@@ -2213,6 +2213,7 @@ export function ModelsConfig({ onControllerChange }: ModelsConfigProps) {
           title={pendingDeleteTitle}
           ariaLabel={t("i18n.cancel")}
           onClose={() => setPendingDelete(null)}
+          backdropDismissible={false}
           footer={(
             <>
               <button type="button" className="codex-dialog-button" onClick={() => setPendingDelete(null)}>{t("i18n.cancel")}</button>

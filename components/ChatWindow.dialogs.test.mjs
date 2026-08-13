@@ -32,6 +32,7 @@ test("select options are dense rows rather than cards", () => {
 
 test("custom terminal UI uses the terminal shell and preserves Ctrl+C close", () => {
   assert.match(source, /<DialogShell[\s\S]*?size="terminal"[\s\S]*?onClose=\{\(\) => onInput\(request, "\\x03"\)\}/);
+  assert.match(source, /event\.key === "Escape"[\s\S]*?onInput\(request, "\\x03"\)/);
   assert.match(source, /toTerminalKeyData\(event\)/);
   assert.match(source, /asBracketedPaste\(text\)/);
 });

@@ -24,6 +24,24 @@ test("busy trust confirmation cannot be dismissed or repeated", () => {
   assert.match(trust, /disabled=\{busy\}/);
 });
 
+test("destructive confirmations reject backdrop dismissal", () => {
+  assert.match(settings, /size="confirm"[\s\S]*?backdropDismissible=\{false\}/);
+  assert.match(models, /size="confirm"[\s\S]*?backdropDismissible=\{false\}/);
+  assert.match(sidebar, /size="confirm"[\s\S]*?backdropDismissible=\{false\}/);
+});
+
+test("async destructive actions stay visible and disabled while pending", () => {
+  assert.match(sidebar, /const \[deleting, setDeleting\] = useState\(false\)/);
+  assert.match(sidebar, /dismissible=\{!deleting\}/);
+  assert.match(sidebar, /disabled=\{deleting\}/);
+  assert.match(sidebar, /await removeWorktree\(path, true\)/);
+});
+
+test("session deletion restores focus to its action button", () => {
+  assert.match(sidebar, /returnFocusRef=\{menuButtonRef\}/);
+  assert.match(sidebar, /ref=\{menuButtonRef\}/);
+});
+
 test("destructive actions use the shared danger button", () => {
   assert.match(settings, /className="codex-dialog-button" data-variant="danger"/);
   assert.match(models, /className="codex-dialog-button" data-variant="danger"/);

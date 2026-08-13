@@ -159,7 +159,7 @@ html.dark .codex-dialog-error { color: #f87171; }
   .codex-dialog[data-size="editor"] {
     width: 100%;
     max-width: none;
-    max-height: calc(100dvh - env(safe-area-inset-top));
+    max-height: calc(var(--app-viewport-height, 100dvh) - env(safe-area-inset-top));
     margin: auto 0 0;
     border-right: 0;
     border-bottom: 0;
@@ -170,7 +170,7 @@ html.dark .codex-dialog-error { color: #f87171; }
   .codex-dialog[data-size="terminal"] {
     width: 100%;
     max-width: none;
-    height: 100dvh;
+    height: var(--app-viewport-height, 100dvh);
     max-height: none;
     margin: 0;
     border: 0;
@@ -184,7 +184,7 @@ html.dark .codex-dialog-error { color: #f87171; }
   .codex-dialog-option { min-height: 44px; }
   .codex-dialog-input { height: 44px; font-size: 16px; }
   .codex-dialog-editor { min-height: 180px; font-size: 16px; }
-  .codex-dialog-terminal { height: calc(100dvh - 52px); max-height: none; }
+  .codex-dialog-terminal { height: calc(var(--app-viewport-height, 100dvh) - 52px); max-height: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -807,11 +807,10 @@ pre, code {
   border-radius: 8px;
   color: var(--text);
   background: var(--bg);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, .3);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, .28);
 }
 .codex-quick-switcher::backdrop {
-  background: rgba(0, 0, 0, .46);
-  backdrop-filter: blur(2px);
+  background: rgba(0, 0, 0, .4);
 }
 .codex-quick-switcher-shell {
   display: flex;

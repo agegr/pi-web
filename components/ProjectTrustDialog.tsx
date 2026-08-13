@@ -26,6 +26,7 @@ export function ProjectTrustDialog({
       ariaLabel={t("trust.cancel")}
       onClose={onCancel}
       dismissible={!busy}
+      backdropDismissible={false}
       footer={(
         <>
           <button type="button" className="codex-dialog-button" onClick={onCancel} disabled={busy}>{t("trust.cancel")}</button>
