@@ -9,23 +9,29 @@ import { normalize as normalizePath } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
 import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } from "@earendil-works/pi-coding-agent";
 import { normalizeToolCalls } from "./normalize";
+import { projectIdentityKey } from "./project-identity";
 import { sessionPathKey } from "./session-path";
 import { resolveProject, type ProjectInfo } from "./worktree";
 
 export { getAgentDir };
 
 export async function attachSessionProjectInfo(sessions: SessionInfo[]): Promise<SessionInfo[]> {
-  const uniqueCwds = [...new Set(sessions.map((s) => s.cwd).filter(Boolean))];
-  const projectByCwd = new Map<string, ProjectInfo>();
-  await Promise.all(uniqueCwds.map(async (cwd) => {
-    projectByCwd.set(cwd, await resolveProject(cwd));
+  const cwdByKey = new Map<string, string>();
+  for (const session of sessions) {
+    if (session.cwd) cwdByKey.set(projectIdentityKey(session.cwd), session.cwd);
+  }
+  const projectByCwdKey = new Map<string, ProjectInfo>();
+  await Promise.all([...cwdByKey].map(async ([cwdKey, cwd]) => {
+    projectByCwdKey.set(cwdKey, await resolveProject(cwd));
   }));
 
   return sessions.map((session) => {
-    const project = session.cwd ? projectByCwd.get(session.cwd) : undefined;
+    const project = projectByCwdKey.get(projectIdentityKey(session.cwd));
+    const projectRoot = project?.projectRoot ?? session.cwd;
     return {
       ...session,
-      projectRoot: project?.projectRoot ?? session.cwd,
+      projectRoot,
+      projectKey: projectIdentityKey(projectRoot),
       ...(project?.isWorktree && project.branch ? { worktreeBranch: project.branch } : {}),
     };
   });
