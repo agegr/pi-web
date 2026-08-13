@@ -69,10 +69,10 @@ const CHAT_MINIMAP_WIDTH = 36;
 const CHAT_COLUMN_PADDING = 16;
 
 const HOME_STARTERS = [
-  { key: "chat.homeExplore" as const, icon: Compass, color: "#38bdf8" },
-  { key: "chat.homeBuild" as const, icon: Sparkles, color: "#a78bfa" },
-  { key: "chat.homeReview" as const, icon: GitPullRequest, color: "#34d399" },
-  { key: "chat.homeFix" as const, icon: Bug, color: "#fb923c" },
+  { key: "chat.homeExplore" as const, prompt: "chat.homeExplorePrompt" as const, skill: "brainstorming", icon: Compass, color: "#38bdf8" },
+  { key: "chat.homeBuild" as const, prompt: "chat.homeBuildPrompt" as const, skill: "ponytail", icon: Sparkles, color: "#a78bfa" },
+  { key: "chat.homeReview" as const, prompt: "chat.homeReviewPrompt" as const, skill: "requesting-code-review", icon: GitPullRequest, color: "#34d399" },
+  { key: "chat.homeFix" as const, prompt: "chat.homeFixPrompt" as const, skill: "systematic-debugging", icon: Bug, color: "#fb923c" },
 ];
 
 function cwdBasename(cwd: string | null | undefined): string | null {
@@ -673,11 +673,11 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 marginTop: 20,
                 textAlign: "left",
               }}>
-                {HOME_STARTERS.map(({ key, icon: Icon, color }) => (
+                {HOME_STARTERS.map(({ key, prompt, skill, icon: Icon, color }) => (
                   <button
                     key={key}
                     type="button"
-                    onClick={() => chatInputRef?.current?.insertIfEmpty(t(key))}
+                    onClick={() => { void handleSend(`/skill:${skill} ${t(prompt)}`); }}
                     style={{
                       display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 10,
                       minHeight: 92, padding: "12px 14px",

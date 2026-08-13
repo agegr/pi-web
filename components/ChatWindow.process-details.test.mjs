@@ -7,7 +7,8 @@ const source = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf
 test("renders a Codex-style new-session home", () => {
   assert.match(source, /chat\.homeTitle/);
   assert.match(source, /className="new-session-home/);
-  assert.match(source, /insertIfEmpty\(/);
+  assert.match(source, /handleSend\(`\/skill:\$\{skill\}/);
+  assert.match(source, /skill: "requesting-code-review"/);
   assert.match(source, /chat\.homeExplore/);
 });
 
