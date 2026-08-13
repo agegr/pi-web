@@ -1069,9 +1069,9 @@ export function AppShell() {
             alignItems: "center",
             justifyContent: "center",
             gap: 6,
-            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : undefined,
+            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : TOP_BAR_ICON_BUTTON_SIZE,
             height: "100%",
-            padding: mobile ? 0 : "0 12px",
+            padding: 0,
             background: "none",
             border: "none",
             borderTop: "2px solid transparent",
@@ -1095,8 +1095,7 @@ export function AppShell() {
           }}
           data-mobile-toolbar-action={mobile ? "history" : undefined}
         >
-          <History size={12} strokeWidth={2} style={{ color: selectedSession ? "var(--text-muted)" : "var(--text-dim)", flexShrink: 0 }} aria-hidden="true" />
-          {!mobile && <span>{translate("history.label")}</span>}
+          <History size={13} strokeWidth={2} style={{ color: selectedSession ? "var(--text-muted)" : "var(--text-dim)", flexShrink: 0 }} aria-hidden="true" />
         </button>
         {(() => {
           // 上下文压缩后当前消息可能不再包含 user 消息，需同时参考会话文件的消息总数。
@@ -1134,8 +1133,8 @@ export function AppShell() {
               aria-label={label}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                width: mobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : undefined,
-                height: "100%", padding: mobile ? 0 : "0 12px",
+                width: mobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : TOP_BAR_ICON_BUTTON_SIZE,
+                height: "100%", padding: 0,
                 background: "none", border: "none",
                 borderTop: "2px solid transparent",
                 borderRight: "1px solid var(--border)",
@@ -1163,7 +1162,6 @@ export function AppShell() {
               ) : (
                 <WandSparkles size={13} strokeWidth={2} aria-hidden="true" />
               )}
-              {!mobile && <span>{label}</span>}
             </button>
           );
         })()}
@@ -1198,6 +1196,7 @@ export function AppShell() {
             open={activeTopPanel === "branches"}
             onToggle={() => toggleTopPanel("branches")}
             hasSession
+            compact
           />
         )}
         <button
@@ -1210,8 +1209,8 @@ export function AppShell() {
           aria-pressed={activeTopPanel === "system"}
           style={{
             display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : undefined,
-            height: "100%", padding: mobile ? 0 : "0 12px",
+            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : TOP_BAR_ICON_BUTTON_SIZE,
+            height: "100%", padding: 0,
             background: activeTopPanel === "system" ? "var(--bg-selected)" : "none",
             border: "none",
             borderTop: activeTopPanel === "system" ? "2px solid var(--accent)" : "2px solid transparent",
@@ -1231,7 +1230,6 @@ export function AppShell() {
           data-mobile-toolbar-action={mobile ? "system" : undefined}
         >
           <FileText size={12} strokeWidth={2} style={{ color: systemPrompt ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }} aria-hidden="true" />
-          {!mobile && <span>{translate("system.label")}</span>}
         </button>
       </div>
     );
@@ -1288,20 +1286,22 @@ export function AppShell() {
         data-mobile-toolbar-stats={mobile ? "true" : undefined}
         style={{
           marginLeft: mobile ? 0 : "auto",
+          alignSelf: "center",
           display: "flex", alignItems: "center", justifyContent: mobile ? "center" : "flex-end",
           flex: mobile ? "0 0 auto" : undefined,
           width: mobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : undefined,
           minWidth: 0,
-          gap: mobile ? 0 : 10,
-          padding: mobile ? 0 : "0 12px",
-          height: "100%",
+          gap: mobile ? 0 : 8,
+          padding: mobile ? 0 : "4px 10px",
+          height: mobile ? "100%" : 24,
           overflow: "hidden",
           visibility: covered ? "hidden" : "visible",
           pointerEvents: covered ? "none" : "auto",
           background: activeTopPanel === "session" ? "var(--bg-selected)" : "none",
-          border: "none",
-          borderTop: activeTopPanel === "session" ? "2px solid var(--accent)" : "2px solid transparent",
+          border: mobile ? "none" : `1px solid ${activeTopPanel === "session" ? "color-mix(in srgb, var(--accent) 45%, transparent)" : "color-mix(in srgb, var(--border) 60%, transparent)"}`,
+          borderRadius: 7,
           fontSize: 11, color: "var(--text-muted)",
+          fontFamily: "var(--font-mono)",
           whiteSpace: "nowrap", cursor: showChat ? "pointer" : "default",
           fontVariantNumeric: "tabular-nums",
           transition: "color 0.1s, background 0.1s",
@@ -1547,6 +1547,25 @@ export function AppShell() {
               <Menu size={18} strokeWidth={2} aria-hidden="true" />
             )}
           </button>
+          {!isMobile && selectedSession && (
+            <div
+              title={selectedSession.name || selectedSession.firstMessage || translate("i18n.newSession")}
+              style={{
+                marginLeft: 12,
+                flexShrink: 1,
+                minWidth: 0,
+                maxWidth: "32vw",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                color: "var(--text-muted)",
+                fontSize: 12,
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              {selectedSession.name || selectedSession.firstMessage || translate("i18n.newSession")}
+            </div>
+          )}
           {isMobile && (
             <div
               ref={mobileToolbarRef}

@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useState, useRef, useEffect, useMemo } from "react";
-import { ArrowDown, Check, ChevronDown, Copy, CornerDownRight, GitBranch } from "lucide-react";
+import { ArrowDown, Check, ChevronDown, Copy, CornerDownRight, GitBranch, LoaderCircle, Minus, X } from "lucide-react";
 import { MarkdownBody } from "./MarkdownBody";
 import { ImagePreview } from "./ImagePreview";
 import { copyText } from "@/lib/clipboard";
@@ -367,19 +367,18 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
 
   return (
     <div
-      style={{ marginBottom: 10, display: "flex", flexDirection: "column", alignItems: "flex-end" }}
+      style={{ marginBottom: 10, display: "flex", flexDirection: "column", alignItems: "stretch" }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "85%" }}>
+      <div style={{ fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 600, letterSpacing: "0.08em", color: "#3b82f6", marginBottom: 4 }}>
+        USER
+      </div>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "100%" }}>
         <div
           style={{
             flex: 1,
             minWidth: 0,
-            background: "var(--user-bg)",
-            border: "1px solid rgba(59,130,246,0.2)",
-            borderRadius: 12,
-            padding: "8px 12px",
             fontSize: 14,
             lineHeight: 1.6,
             color: "var(--text)",
@@ -705,15 +704,17 @@ function AssistantMessageView({
       <div
         style={{
           fontSize: 11,
+          fontFamily: "var(--font-mono)",
           color: "var(--text-dim)",
           marginBottom: 4,
           display: "flex",
           alignItems: "center",
-          gap: 6,
+          gap: 8,
         }}
       >
+        <span style={{ fontWeight: 600, letterSpacing: "0.08em", color: "var(--text-muted)" }}>ASSISTANT</span>
         {message.provider && (
-          <span>{modelNames?.[`${message.provider}:${message.model}`] ?? modelNames?.[message.model] ?? message.model}</span>
+          <span style={{ letterSpacing: "0.02em" }}>{modelNames?.[`${message.provider}:${message.model}`] ?? modelNames?.[message.model] ?? message.model}</span>
         )}
         {isStreaming && (() => {
           const est = Math.round(estimatedTokens);
@@ -776,7 +777,7 @@ function AssistantMessageView({
         display: "flex", alignItems: "center", gap: 8, marginTop: 4,
       }}>
         {message.usage && !isStreaming && (
-          <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
+          <div style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>
             {formatUsage(message.usage)}
           </div>
         )}
@@ -827,7 +828,7 @@ function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCal
     const tc = block as ToolCallContent;
     const result = toolResults?.get(tc.toolCallId);
     const duration = toolCallDurations?.get(tc.toolCallId);
-    return <ToolCallBlock block={tc} result={result} duration={duration} defaultExpanded={defaultDetailsExpanded} />;
+    return <ToolCallBlock block={tc} result={result} duration={duration} defaultExpanded={defaultDetailsExpanded} isStreaming={isStreaming} />;
   }
   return null;
 }
@@ -941,7 +942,7 @@ export function formatToolInput(input: Record<string, unknown>): string {
   return formatToolValue(input, 0);
 }
 
-function ToolCallBlock({ block, result, duration, defaultExpanded }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; defaultExpanded: boolean }) {
+function ToolCallBlock({ block, result, duration, defaultExpanded, isStreaming }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; defaultExpanded: boolean; isStreaming?: boolean }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const inputStr = formatToolInput(block.input);
   const isEditTool = isEditToolName(block.toolName);
@@ -982,6 +983,17 @@ function ToolCallBlock({ block, result, duration, defaultExpanded }: { block: To
           minWidth: 0,
         }}
       >
+        {!result ? (
+          isStreaming ? (
+            <LoaderCircle size={11} strokeWidth={2} aria-hidden="true" style={{ flexShrink: 0, color: "var(--accent)", animation: "spin 1s linear infinite" }} />
+          ) : (
+            <Minus size={11} strokeWidth={2} aria-hidden="true" style={{ flexShrink: 0, color: "var(--text-dim)" }} />
+          )
+        ) : isError ? (
+          <X size={11} strokeWidth={2.2} aria-hidden="true" style={{ flexShrink: 0, color: "#f87171" }} />
+        ) : (
+          <Check size={11} strokeWidth={2.2} aria-hidden="true" style={{ flexShrink: 0, color: "#16a34a" }} />
+        )}
         <span style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
           {block.toolName}
         </span>
