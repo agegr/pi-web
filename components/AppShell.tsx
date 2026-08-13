@@ -27,6 +27,7 @@ import {
   shouldShowBrowserNotification,
   showBrowserNotification,
 } from "@/lib/browser-notifications";
+import { setupPushSubscription } from "@/lib/push-client";
 import { getInitialNavigation } from "@/lib/initial-navigation";
 import {
   clearLastOpen,
@@ -71,6 +72,16 @@ export function AppShell() {
   const { locale, setLocale, t: translate, supportedLocales } = useI18n();
   const isMobile = useIsMobile();
   useViewportHeight();
+  const [pushActive, setPushActive] = useState(false);
+
+  // Once the user has granted notification permission, register a Web Push
+  // subscription so the server can notify backgrounded PWAs (notably iOS,
+  // which suspends page JS and never receives the SSE completion event).
+  useEffect(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    void setupPushSubscription(locale).then(setPushActive);
+  }, [locale]);
   // Audio ownership lives here (not in ChatWindow) so the completion tone can
   // also fire for tasks finishing in a non-active workspace whose ChatWindow
   // is not mounted. ChatWindow receives the audio callbacks as props.
@@ -671,16 +682,23 @@ export function AppShell() {
 
     if (Notification.permission === "granted") {
       fire();
+      void setupPushSubscription(locale).then(setPushActive);
     } else if (Notification.permission === "default") {
-      void Notification.requestPermission().then((p) => { if (p === "granted") fire(); });
+      void Notification.requestPermission().then((p) => {
+        if (p === "granted") {
+          fire();
+          void setupPushSubscription(locale).then(setPushActive);
+        }
+      });
     }
-  }, [handleSelectSession]);
+  }, [handleSelectSession, locale]);
 
   const handleAgentEnd = useCallback(() => {
     setRefreshKey((k) => k + 1);
     setExplorerRefreshKey((k) => k + 1);
     if (selectedSession) hydrateSelectedSession(selectedSession.id);
 
+    if (pushActive) return; // The service worker delivers a push notification instead.
     if (!shouldShowBrowserNotification()) return;
     const targetSession = selectedSession;
     deliverSessionNotification({
@@ -688,7 +706,7 @@ export function AppShell() {
       title: targetSession?.name ?? translate("i18n.sessionComplete"),
       body: translate("i18n.taskFinished"),
     });
-  }, [deliverSessionNotification, hydrateSelectedSession, selectedSession, translate]);
+  }, [deliverSessionNotification, hydrateSelectedSession, pushActive, selectedSession, translate]);
 
   const handleAttentionNeeded = useCallback((request: BlockingExtensionUiRequest) => {
     if (!shouldShowBrowserNotification()) return;
