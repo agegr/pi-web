@@ -1,5 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, Theme } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
@@ -7,6 +7,11 @@ import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
 import { invalidateModelsCache } from "./models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
+import {
+  createProjectCommandBashExtension,
+  createProjectCommandBashOperations,
+  preferUserBashExtension,
+} from "./project-command-env";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
@@ -738,7 +743,12 @@ export class AgentSessionWrapper {
         const execution = this.inner.executeBash(
           command.command as string,
           undefined,
-          { excludeFromContext: command.excludeFromContext as boolean | undefined },
+          {
+            excludeFromContext: command.excludeFromContext as boolean | undefined,
+            operations: createProjectCommandBashOperations({
+              shellPath: this.inner.settingsManager.getShellPath(),
+            }),
+          },
         );
         notifyRunningChange();
         try {
@@ -1600,9 +1610,20 @@ export async function startRpcSession(
     // Gate untrusted project extensions so opening a repository does not run
     // its .pi/extensions code automatically (see lib/project-trust.ts, #236).
     const trustReloadOptions = projectTrustReloadOptions(sessionCwd, agentDir);
+    const settingsManager = SettingsManager.create(sessionCwd, agentDir);
     const services = await createAgentSessionServices({
       cwd: sessionCwd,
       agentDir,
+      settingsManager,
+      resourceLoaderOptions: {
+        extensionFactories: [
+          createProjectCommandBashExtension({
+            cwd: sessionCwd,
+            settings: settingsManager,
+          }),
+        ],
+        extensionsOverride: preferUserBashExtension,
+      },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
     const scope = await resolveVisibleModels(
