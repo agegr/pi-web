@@ -1845,14 +1845,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             style={{
               minWidth: 0,
               display: "flex",
-              gap: 8,
+              gap: 10,
               alignItems: "center",
               background: "var(--bg)",
               border: `1px solid ${bashMode ? "var(--tool-bg)" : isStreaming && (onSteer || onFollowUp)
                 ? "rgba(234,179,8,0.4)"
                 : "color-mix(in srgb, var(--border) 90%, transparent)"}`,
-              borderRadius: 8,
-              padding: "7px 7px 7px 9px",
+              borderRadius: 10,
+              padding: "10px 12px",
               transition: "border-color 0.15s, background 0.15s",
             } as React.CSSProperties}
           >
@@ -1863,9 +1863,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             aria-label={t("chat.attachImage")}
             style={{
               flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-              width: isMobile ? 40 : 30, height: isMobile ? 40 : 30, padding: 0,
+              width: isMobile ? 40 : 34, height: isMobile ? 40 : 34, padding: 0,
               background: "none", border: "none",
-              borderRadius: 7,
+              borderRadius: 8,
               color: attachedImages.length ? "var(--accent)" : "var(--text-dim)",
               cursor: "pointer",
               transition: "background 0.12s, color 0.12s",
@@ -1986,11 +1986,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 flexShrink: 0,
                 alignSelf: "flex-end",
                 display: "flex", alignItems: "center", gap: 6,
-                width: isMobile ? 44 : 32, height: isMobile ? 44 : 32,
+                width: isMobile ? 44 : 36, height: isMobile ? 44 : 36,
                 padding: 0,
                 background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
                 border: "none",
-                borderRadius: 8,
+                borderRadius: 9,
                 color: (value.trim() || attachedImages.length) ? "#fff" : "var(--text-dim)",
                 cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
                 transition: "background 0.15s",
@@ -2039,8 +2039,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     style={{
                       display: "flex", alignItems: "center", gap: 6,
                       justifyContent: isMobile ? "flex-start" : undefined,
-                      padding: isMobile ? "8px 10px" : "5px 12px",
-                      height: isMobile ? 44 : 30,
+                      padding: isMobile ? "8px 10px" : "6px 13px",
+                      height: isMobile ? 44 : 34,
                       width: isMobile ? "100%" : undefined,
                       maxWidth: isMobile ? "100%" : 240,
                       overflow: "hidden",
@@ -2049,7 +2049,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       borderRadius: 8,
                       color: "var(--text-muted)",
                       cursor: isStreaming || modelSwitching ? "not-allowed" : "pointer",
-                      fontSize: 11.5,
+                      fontSize: 12,
                       opacity: isStreaming ? 0.5 : 1,
                       transition: "background 0.12s, color 0.12s",
                     }}
@@ -2266,10 +2266,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                    title={t("chat.changeReasoning", { level: thinkingDisplayLabel })}
                    aria-label={t("chat.changeReasoningLabel")}
                   style={{
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                    padding: isMobile ? "0 6px" : "8px 12px",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                    padding: isMobile ? "0 6px" : "7px 13px",
                     width: isMobile ? "auto" : undefined,
-                    height: isMobile ? 44 : 30,
+                    height: isMobile ? 44 : 34,
                     background: thinkingDropdownOpen ? "var(--bg-hover)" : "none",
                     border: isMobile ? "none" : "1px solid color-mix(in srgb, var(--border) 70%, transparent)",
                     borderRadius: 8,
@@ -2289,8 +2289,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     e.currentTarget.style.color = "var(--text-muted)";
                   }}
                 >
-                  <Lightbulb size={11} strokeWidth={2} aria-hidden="true" />
-                  {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap", fontFamily: "var(--font-mono)", fontSize: 11.5 }}>{thinkingDisplayLabel}</span>}
+                  <Lightbulb size={12} strokeWidth={2} aria-hidden="true" />
+                  {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap", fontFamily: "var(--font-mono)", fontSize: 12 }}>{thinkingDisplayLabel}</span>}
                 </button>
                 {thinkingDropdownOpen && (
                   <div style={{
@@ -2350,10 +2350,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                    title={t("chat.changeToolPreset") + `: ${toolPresetLabel}`}
                    aria-label={t("chat.changeToolPreset")}
                   style={{
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                    padding: isMobile ? "0 6px" : "8px 12px",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                    padding: isMobile ? "0 6px" : "7px 13px",
                     width: isMobile ? "auto" : undefined,
-                    height: isMobile ? 44 : 30,
+                    height: isMobile ? 44 : 34,
                     background: toolDropdownOpen ? "var(--bg-hover)" : "none",
                     border: isMobile ? "none" : "1px solid color-mix(in srgb, var(--border) 70%, transparent)",
                     borderRadius: 8,
@@ -2373,8 +2373,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     e.currentTarget.style.color = "var(--text-muted)";
                   }}
                 >
-                  <Wrench size={11} strokeWidth={2} aria-hidden="true" />
-                  {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap", fontFamily: "var(--font-mono)", fontSize: 11.5 }}>{toolPresetLabel}</span>}
+                  <Wrench size={12} strokeWidth={2} aria-hidden="true" />
+                  {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap", fontFamily: "var(--font-mono)", fontSize: 12 }}>{toolPresetLabel}</span>}
                 </button>
                 {toolDropdownOpen && (
                   <div style={{
@@ -2430,10 +2430,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   onClick={isCompacting ? onAbortCompaction : onCompact}
                   disabled={isStreaming && !isCompacting}
                   style={{
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                    padding: isMobile ? "0 6px" : "8px 12px",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                    padding: isMobile ? "0 6px" : "7px 13px",
                     width: isMobile ? "auto" : undefined,
-                    height: isMobile ? 44 : 30,
+                    height: isMobile ? 44 : 34,
                     background: isCompacting ? "rgba(239,68,68,0.08)" : "none",
                     border: isMobile ? "none" : "1px solid color-mix(in srgb, var(--border) 70%, transparent)",
                     borderRadius: 8,
@@ -2457,7 +2457,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   {isCompacting ? (
                     <><Square size={10} fill="currentColor" aria-hidden="true" />{(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{t("chat.compacting")}</span>}</>
                   ) : (
-                    <><Minimize2 size={11} strokeWidth={2} aria-hidden="true" />{(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap", fontFamily: "var(--font-mono)", fontSize: 11.5 }}>{t("chat.compact")}</span>}</>
+                    <><Minimize2 size={12} strokeWidth={2} aria-hidden="true" />{(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap", fontFamily: "var(--font-mono)", fontSize: 12 }}>{t("chat.compact")}</span>}</>
                   )}
                 </button>
               </div>
