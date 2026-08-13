@@ -1,7 +1,7 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
 import { ArrowDown, ChevronRight, ExternalLink } from "lucide-react";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, cloneElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
@@ -644,7 +644,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 justifyContent: "space-between",
                 gap: 12,
                 marginLeft: 16,
-                marginRight: isMobile ? 16 : 52,
+                marginRight: 16,
                 fontFamily: "var(--font-mono)",
               }}
             >
@@ -668,7 +668,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 void runExtensionCommand("goal", editMode === "edit" ? `edit ${objective}` : objective);
               }}
             />
-            {chatInputElement}
+            {cloneElement(chatInputElement, { minimapOffset: false })}
             <ExtensionStatusBar statuses={visibleStatuses} widgets={visibleWidgets} onRunCommand={runExtensionCommand} />
           </div>
         </div>

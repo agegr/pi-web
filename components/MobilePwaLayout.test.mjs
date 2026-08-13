@@ -44,6 +44,12 @@ test("contains chat content and inputs within the mobile viewport", () => {
   assert.match(chatInputSource, /flex: 1,\s*minWidth: 0,\s*width: "100%",/);
 });
 
+test("centers the composer without the minimap offset on the home screen", () => {
+  assert.match(chatInputSource, /minimapOffset\?: boolean/);
+  assert.match(chatInputSource, /paddingRight: isMobile \? 16 : \(minimapOffset \? 52 : 16\)/);
+  assert.match(chatWindowSource, /cloneElement\(chatInputElement, \{ minimapOffset: false \}\)/);
+});
+
 test("prevents iOS focus zoom from widening the layout", () => {
   assert.match(cssSource, /@media \(max-width: 640px\)[\s\S]*?textarea,[\s\S]*?input,[\s\S]*?select \{\s*font-size: 16px !important;/);
 });
