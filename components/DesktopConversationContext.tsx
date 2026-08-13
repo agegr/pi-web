@@ -38,8 +38,10 @@ export function DesktopConversationContext({ model, onOpenDetails }: Props) {
           className="desktop-context-ring"
           style={{ "--context-percent": `${model.percent ?? 0}%` } as React.CSSProperties}
         >
-          <strong>{model.percent === null ? "?" : `${model.percent.toFixed(1)}%`}</strong>
-          <span>{t("context.used")}</span>
+          <div className="desktop-context-ring-label">
+            <strong>{model.percent === null ? "?" : `${model.percent.toFixed(1)}%`}</strong>
+            <span>{t("context.used")}</span>
+          </div>
         </div>
         <div>
           <span>{t("context.capacity")}</span>

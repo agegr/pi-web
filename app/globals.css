@@ -3884,8 +3884,17 @@ span.linenumber {
   border-radius: 50%;
   background: var(--bg);
 }
-.desktop-context-ring strong { font-size: 14px; font-variant-numeric: tabular-nums; }
-.desktop-context-ring span { color: var(--text-dim); font-size: 9px; }
+.desktop-context-ring-label {
+  position: absolute;
+  inset: 6px;
+  z-index: 1;
+  display: grid;
+  place-content: center;
+  gap: 1px;
+  text-align: center;
+}
+.desktop-context-ring strong { font-size: 12px; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.desktop-context-ring span { color: var(--text-dim); font-size: 8px; line-height: 1; }
 .desktop-context-metrics { padding: 14px; border-bottom: 1px solid var(--border); }
 .desktop-context-metric-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-muted); font-size: 11px; }
 .desktop-context-metric-heading strong { color: var(--text); font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -3976,6 +3985,9 @@ span.linenumber {
       flex: 0 0 292px;
       overflow: auto;
     }
+  }
+  @container chat-center (min-width: 1121px) {
+    .desktop-workspace-context { transform: translateX(-42px); }
   }
   @container chat-center (min-width: 1000px) and (max-width: 1120px) {
     .desktop-workspace-context { width: 280px; flex-basis: 280px; padding-inline: 6px; }
