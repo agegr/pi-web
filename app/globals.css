@@ -2880,7 +2880,11 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
 
 /* Styled native confirmation dialogs (delete, discard) */
 .models-settings-dialog {
+  position: fixed;
+  inset: 0;
   width: min(420px, calc(100vw - 32px));
+  height: fit-content;
+  margin: auto;
   padding: 20px;
   border: 1px solid var(--border);
   border-radius: 10px;

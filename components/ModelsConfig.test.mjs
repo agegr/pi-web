@@ -14,6 +14,7 @@ const {
 } = await jiti.import("./models-config-helpers.ts");
 
 const source = await readFile(new URL("./ModelsConfig.tsx", import.meta.url), "utf8");
+const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 
 test("custom model config exposes provider-level request headers", () => {
   const providerDetail = source.slice(
@@ -240,6 +241,7 @@ test("provider and model deletion is confirmed and stays a draft until Save", ()
   assert.match(source, /removeModel\(pendingDelete\.providerName, pendingDelete\.index\)/);
   assert.match(source, /t\("models\.deleteDraftNote"\)/);
   assert.match(source, /ref=\{deleteDialogRef\}/);
+  assert.match(styles, /\.models-settings-dialog \{[\s\S]*?margin: auto;/);
 });
 
 test("provider detail keeps import/discovery common and headers advanced", () => {
