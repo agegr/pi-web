@@ -603,6 +603,19 @@ pre, code {
   outline: 2px solid color-mix(in srgb, var(--accent) 75%, transparent);
   outline-offset: -2px;
 }
+.codex-sidebar-brand-header {
+  height: 40px;
+  padding: 0 10px 0 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.codex-sidebar-brand {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 620;
+}
 .codex-sidebar-workspace-toolbar {
   height: 32px;
   padding: 0 9px 0 10px;

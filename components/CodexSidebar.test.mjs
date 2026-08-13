@@ -17,10 +17,10 @@ test("AppShell renders the Codex project sidebar instead of the legacy sidebar",
   assert.doesNotMatch(shell, /<SessionSidebar/);
 });
 
-test("workspace toolbar groups search, project creation, and collapse controls", () => {
+test("brand header keeps refresh separate from workspace controls", () => {
   assert.match(sidebar, /onToggleSidebar\?: \(\) => void/);
+  assert.match(sidebar, /codex-sidebar-brand-header[\s\S]*?codex-sidebar-brand[\s\S]*?sidebar\.refresh[\s\S]*?codex-sidebar-new-task/);
   assert.match(sidebar, /codex-sidebar-workspace-actions[\s\S]*?sidebar\.searchProjects[\s\S]*?sidebar\.addProject[\s\S]*?sidebar\.hide/);
-  assert.doesNotMatch(sidebar, /sidebar\.refresh/);
   assert.match(styles, /\.codex-sidebar-icon-button\s*\{[\s\S]*?width:\s*28px;[\s\S]*?height:\s*28px;/);
   assert.match(shell, /<CodexSidebar[\s\S]*?onToggleSidebar=\{handleSidebarToggle\}/);
 });
@@ -72,12 +72,14 @@ test("settings footer is a gear with a label", () => {
   assert.match(styles, /\.codex-sidebar-footer-item \{[\s\S]*?padding: 0 10px/);
 });
 
-test("sidebar header is a compact new-session and workspace toolbar", () => {
+test("sidebar header restores restrained branding above the compact workspace toolbar", () => {
+  assert.match(sidebar, /className="codex-sidebar-brand-header"/);
+  assert.match(sidebar, /className="codex-sidebar-brand">Pi Web<\/div>/);
+  assert.match(sidebar, /<RefreshCw size=\{14\}/);
   assert.match(sidebar, /className="codex-sidebar-new-task"/);
   assert.match(sidebar, /className="codex-sidebar-workspace-toolbar"/);
   assert.match(sidebar, /className="codex-sidebar-search-trigger"/);
-  assert.doesNotMatch(sidebar, /className="codex-sidebar-brand"/);
-  assert.doesNotMatch(sidebar, /<RefreshCw size=\{15\}/);
+  assert.match(styles, /\.codex-sidebar-brand-header \{[\s\S]*?height:\s*40px;/);
   assert.match(styles, /\.codex-sidebar-new-task \{[\s\S]*?background: var\(--bg-panel\)/);
 });
 

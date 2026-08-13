@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { Archive, ArrowDown, ArrowUp, ChevronRight, Ellipsis, Folder, FolderPlus, LoaderCircle, MessageSquare, PanelLeft, Pencil, Pin, PinOff, Plus, Search, Trash2, X } from "lucide-react";
+import { Archive, ArrowDown, ArrowUp, ChevronRight, Ellipsis, Folder, FolderPlus, LoaderCircle, MessageSquare, PanelLeft, Pencil, Pin, PinOff, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import { readArchivedSessionIds, writeArchivedSessionIds } from "@/lib/archived-sessions";
@@ -595,6 +595,13 @@ export function CodexSidebar({
           onSelect={(path) => void addProject(path)}
         />
       )}
+
+      <header className="codex-sidebar-brand-header">
+        <div className="codex-sidebar-brand">Pi Web</div>
+        <IconButton label={t("sidebar.refresh")} onClick={() => void loadData(true)}>
+          <RefreshCw size={14} aria-hidden="true" />
+        </IconButton>
+      </header>
 
       <button
         type="button"

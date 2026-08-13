@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the brand-heavy sidebar header with a new-session button and compact workspace toolbar.
+**Goal:** Retain a restrained Pi Web brand/refresh row above the new-session button and compact workspace toolbar.
 
-**Architecture:** Keep all project management handlers in `CodexSidebar`; only reorganize their controls. Search becomes a toolbar-triggered inline input and uses the existing filter state.
+**Architecture:** Keep all project management handlers in `CodexSidebar`; only reorganize their controls. The slim brand row owns refresh, while search becomes a toolbar-triggered inline input using the existing filter state.
 
 **Tech Stack:** React, TypeScript, Lucide, CSS, Node test runner.
 
@@ -15,7 +15,7 @@
 **Files:**
 - Modify: `components/CodexSidebar.test.mjs`
 
-- [ ] Add a failing source-contract test requiring the new-session button, workspace toolbar, toolbar search trigger, and removal of the old Pi Web brand/refresh header.
+- [ ] Add a failing source-contract test requiring the slim Pi Web brand/refresh row, new-session button, workspace toolbar, and toolbar search trigger.
 - [ ] Run `node --experimental-strip-types --test components/CodexSidebar.test.mjs` and confirm the new assertion fails.
 
 ### Task 2: Implement the compact header
@@ -25,7 +25,7 @@
 - Modify: `app/globals.css`
 
 - [ ] Add toolbar-controlled search state and focus behavior.
-- [ ] Remove the brand header and refresh action.
+- [ ] Add the restrained brand row and refresh action above the new-session button.
 - [ ] Render the new-session button, workspace toolbar, and conditionally expanded search input using existing handlers.
 - [ ] Update styles for the reference hierarchy without changing project/recent lists.
 - [ ] Run focused tests and confirm all pass.
