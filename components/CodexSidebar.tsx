@@ -12,7 +12,6 @@ import {
 import { createPortal } from "react-dom";
 import { Archive, ChevronRight, Ellipsis, Folder, FolderPlus, LoaderCircle, MessageSquare, Pin, Plus, RefreshCw, Search, X } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
-import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { readArchivedSessionIds, writeArchivedSessionIds } from "@/lib/archived-sessions";
 import { filterProjectSessions, matchesSidebarQuery, sidebarProjectName, sidebarSessionTitle } from "@/lib/codex-sidebar-search";
 import type { ProjectPreference } from "@/lib/project-registry";
@@ -20,7 +19,6 @@ import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { activeSessionRoots } from "@/lib/session-relations";
 import type { SessionInfo } from "@/lib/types";
 import { DirectoryPicker } from "./DirectoryPicker";
-import { FileExplorer } from "./FileExplorer";
 
 interface Props {
   selectedSessionId: string | null;
@@ -33,11 +31,6 @@ interface Props {
   onSessionDeleted?: (sessionId: string) => void;
   selectedCwd?: string | null;
   onCwdChange?: (cwd: string | null, projectRoot?: string | null) => void;
-  onOpenFile?: (filePath: string, fileName: string, options?: { sourceSessionId?: string | null; modeHint?: "diff" }) => void;
-  explorerRefreshKey?: number;
-  onExplorerRefresh?: () => void;
-  onAtMention?: (relativePath: string, isDir: boolean) => void;
-  onAtMentions?: (relativePaths: string[]) => void;
   onBackgroundTaskDone?: () => void;
   onRunningSessionIdsChange?: (ids: Set<string>) => void;
 }
@@ -134,11 +127,6 @@ export function CodexSidebar({
   onSessionDeleted,
   selectedCwd: selectedCwdProp,
   onCwdChange,
-  onOpenFile,
-  explorerRefreshKey,
-  onExplorerRefresh,
-  onAtMention,
-  onAtMentions,
   onBackgroundTaskDone,
   onRunningSessionIdsChange,
 }: Props) {
@@ -162,8 +150,6 @@ export function CodexSidebar({
   const [renamingProject, setRenamingProject] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [draggedProject, setDraggedProject] = useState<string | null>(null);
-  const [explorerOpen, setExplorerOpen] = useState(false);
-  const [explorerKey, setExplorerKey] = useState(0);
   const [worktrees, setWorktrees] = useState<WorktreeEntry[]>([]);
   const [worktreeProjectRoot, setWorktreeProjectRoot] = useState<string | null>(null);
   const [worktreeOpen, setWorktreeOpen] = useState(false);
@@ -199,8 +185,6 @@ export function CodexSidebar({
   }, []);
 
   useEffect(() => { void loadData(refreshKey !== undefined); }, [loadData, refreshKey]);
-  useEffect(() => { setExplorerOpen(loadExplorerOpen()); }, []);
-  useEffect(() => { if (explorerRefreshKey !== undefined) setExplorerKey((key) => key + 1); }, [explorerRefreshKey]);
   useEffect(() => { writeStringSet(COLLAPSED_STORAGE_KEY, collapsed); }, [collapsed]);
   useEffect(() => { writeStringSet(UNREAD_STORAGE_KEY, unreadIds); }, [unreadIds]);
   useEffect(() => { writeArchivedSessionIds(archivedIds); }, [archivedIds]);
@@ -743,9 +727,8 @@ export function CodexSidebar({
         })}
       </div>
 
-      {selectedProject && !selectedProject.archived && !selectedProject.removed && (
+      {selectedProject && !selectedProject.archived && !selectedProject.removed && worktrees.length > 0 && (
         <div className="codex-sidebar-project-tools">
-          {worktrees.length > 0 && (
             <div className="codex-worktree-block">
               <button type="button" className="codex-sidebar-tool-heading" onClick={() => setWorktreeOpen((open) => !open)}>
                 <Chevron open={worktreeOpen} />
@@ -770,25 +753,6 @@ export function CodexSidebar({
                 </div>
               )}
             </div>
-          )}
-          <button type="button" className="codex-sidebar-tool-heading" onClick={() => { const next = !explorerOpen; setExplorerOpen(next); saveExplorerOpen(next); }}>
-            <Chevron open={explorerOpen} />
-            <span>{t("files.explorer")}</span>
-            <span className="codex-sidebar-spacer" />
-            {explorerOpen && <span onClick={(event) => { event.stopPropagation(); onExplorerRefresh?.(); setExplorerKey((key) => key + 1); }} aria-label={t("sidebar.refreshExplorer")} title={t("sidebar.refreshExplorer")}><RefreshCw size={12} aria-hidden="true" /></span>}
-          </button>
-          {explorerOpen && (
-            <div className="codex-sidebar-files">
-              <FileExplorer
-                cwd={selectedCwd ?? selectedProject.path}
-                onOpenFile={onOpenFile ?? (() => {})}
-                refreshKey={explorerKey}
-                onAtMention={onAtMention}
-                onAtMentions={onAtMentions}
-                changesCollapsed={false}
-              />
-            </div>
-          )}
         </div>
       )}
       {menuProject && createPortal((() => {

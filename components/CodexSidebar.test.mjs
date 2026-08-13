@@ -36,10 +36,17 @@ test("project sorting supports drag and keyboard-accessible menu actions", () =>
   assert.match(sidebar, /event\.key !== "Enter" && event\.key !== " "/);
 });
 
-test("file explorer starts collapsed and remembers explicit toggles", () => {
-  assert.match(sidebar, /const \[explorerOpen, setExplorerOpen\] = useState\(false\)/);
-  assert.match(sidebar, /setExplorerOpen\(loadExplorerOpen\(\)\)/);
-  assert.match(sidebar, /saveExplorerOpen\(next\)/);
+test("keeps the file explorer out of the project sidebar", () => {
+  assert.doesNotMatch(sidebar, /<FileExplorer/);
+  assert.doesNotMatch(sidebar, /files\.explorer/);
+  assert.doesNotMatch(sidebar, /saveExplorerOpen/);
+});
+
+test("settings footer is an icon-only gear", () => {
+  assert.match(shell, /className="codex-sidebar-footer-item"/);
+  assert.match(shell, /<Settings size=\{14\}/);
+  assert.doesNotMatch(shell, /codex-sidebar-footer-item[\s\S]*<span>\{translate\("common\.settings"\)\}<\/span>/);
+  assert.match(styles, /\.codex-sidebar-footer-item \{[\s\S]*?width: 28px/);
 });
 
 test("running projects expose a Codex-style activity spinner", () => {

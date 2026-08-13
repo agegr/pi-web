@@ -944,26 +944,23 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
 .codex-worktree-create { height: 28px; display: flex; align-items: center; padding-left: 7px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); }
 .codex-worktree-create input { font-size: 11px; }
 .codex-sidebar-footer {
-  padding: 5px 6px 7px;
+  padding: 6px 8px 8px;
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  align-items: center;
   flex-shrink: 0;
   border-top: 1px solid var(--border);
 }
 .codex-sidebar-footer-item {
-  width: 100%;
-  height: 30px;
-  padding: 0 9px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   display: flex;
   align-items: center;
-  gap: 9px;
+  justify-content: center;
   border: 0;
-  border-radius: 5px;
+  border-radius: 999px;
   color: var(--text-muted);
   background: transparent;
-  font-size: 12px;
-  text-align: left;
   cursor: pointer;
 }
 .codex-sidebar-footer-item:hover:not(:disabled) { color: var(--text); background: var(--bg-hover); }
@@ -3473,6 +3470,7 @@ span.linenumber {
     height: 44px;
   }
   .codex-sidebar-footer-item {
+    width: 44px;
     height: 44px;
   }
   .codex-worktree-row {
