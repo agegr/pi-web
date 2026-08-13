@@ -3,9 +3,23 @@ import { isApiRequestAllowed } from "@/lib/request-security";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 const MAX_DICTATION_BYTES = 20 * 1024 * 1024;
 const TRANSCRIPTION_TIMEOUT_MS = 60_000;
+const SUPPORTED_AUDIO_TYPES = new Set([
+  "audio/aac",
+  "audio/flac",
+  "audio/m4a",
+  "audio/mp4",
+  "audio/mpeg",
+  "audio/ogg",
+  "audio/opus",
+  "audio/wav",
+  "audio/webm",
+  "audio/x-m4a",
+  "audio/x-wav",
+]);
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -38,13 +52,21 @@ export async function POST(request: Request) {
   if (file.size > MAX_DICTATION_BYTES) {
     return NextResponse.json({ error: "Audio file is too large" }, { status: 413 });
   }
+  const mediaType = file.type.split(";", 1)[0]?.trim().toLowerCase();
+  if (!SUPPORTED_AUDIO_TYPES.has(mediaType)) {
+    return NextResponse.json({ error: "Unsupported audio file type" }, { status: 415 });
+  }
 
   try {
     const { resolveConfiguredProviderKey, transcribeAudio } = await import("@/lib/server-transcription");
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TRANSCRIPTION_TIMEOUT_MS);
     try {
-      const provider = process.env.PI_WEB_DICTATION_PROVIDER === "groq" ? "groq" : "openai";
+      const configuredProvider = process.env.PI_WEB_DICTATION_PROVIDER?.trim().toLowerCase() || "openai";
+      if (configuredProvider !== "openai" && configuredProvider !== "groq") {
+        return NextResponse.json({ error: "Unsupported dictation provider" }, { status: 503 });
+      }
+      const provider = configuredProvider;
       const apiKey = process.env.PI_WEB_DICTATION_API_KEY
         ?? await resolveConfiguredProviderKey(provider);
       const transcript = await transcribeAudio(file, controller.signal, {

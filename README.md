@@ -47,12 +47,38 @@ For port and hostname, command-line options override the corresponding environme
 | `--no-open` or `PI_WEB_NO_OPEN=1` | Do not open a browser automatically | Browser opens |
 | `PI_WEB_ALLOWED_HOSTS` | Additional exact proxy or custom hostnames, comma-separated | Unset |
 | `PI_WEB_PASSWORD` | Enable HTTP Basic Auth; the username is always `pi` | Authentication disabled |
+| `PI_WEB_DICTATION_PROVIDER` | Server dictation provider (`openai` or `groq`) | `openai` |
+| `PI_WEB_DICTATION_MODEL` | Optional transcription model override | Provider default |
+| `PI_WEB_DICTATION_ENDPOINT` | Optional OpenAI-compatible API base URL | Provider default |
+| `PI_WEB_DICTATION_API_KEY` | Optional server-side transcription API key; otherwise Pi provider credentials are used | Unset |
 
 For example:
 
 ```bash
 pi-web -p 8080 -H 0.0.0.0 --no-open
 ```
+
+### Dictation
+
+The composer includes a push-to-talk dictation button when the browser supports
+Web Speech recognition or `MediaRecorder` microphone capture. Web Speech is used
+first; browsers without it use a same-origin server transcription request.
+
+The server fallback requires a configured transcription provider. Credentials
+remain on the server and are never sent to the browser. OpenAI-compatible
+providers can be configured with environment variables:
+
+```bash
+PI_WEB_DICTATION_PROVIDER=openai \
+PI_WEB_DICTATION_MODEL=gpt-4o-mini-transcribe \
+PI_WEB_DICTATION_API_KEY=... \
+pi-web --no-open
+```
+
+For Groq, use `whisper-large-v3-turbo` (the default when the provider is
+`groq`) or set another supported model. `PI_WEB_DICTATION_ENDPOINT` is a base
+URL; `/audio/transcriptions` is appended automatically for compatible APIs.
+Microphone capture requires a secure browser context or a loopback origin.
 
 ### Remote Access
 

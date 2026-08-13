@@ -29,9 +29,11 @@ function envValue(...names: string[]): string | undefined {
 function readConfig(): TranscriptionConfig {
   // Configuration is intentionally environment-first for the prototype. A
   // future settings panel can persist this file after its schema is reviewed.
+  const providerValue = envValue("PI_WEB_DICTATION_PROVIDER") ?? "openai";
+  const provider = providerValue === "groq" || providerValue === "openai" ? providerValue : undefined;
   return {
-    provider: (envValue("PI_WEB_DICTATION_PROVIDER") as TranscriptionConfig["provider"] | undefined) ?? "openai",
-    model: envValue("PI_WEB_DICTATION_MODEL") ?? "gpt-4o-mini-transcribe",
+    provider,
+    model: envValue("PI_WEB_DICTATION_MODEL"),
     apiKey: envValue("PI_WEB_DICTATION_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY"),
     endpoint: envValue("PI_WEB_DICTATION_ENDPOINT"),
   };
@@ -68,12 +70,16 @@ export async function transcribeAudio(
   resolver?: TranscriptionResolver,
 ): Promise<string> {
   const config = resolver ? await resolver.resolve() : readConfig();
+  if (config.provider !== "openai" && config.provider !== "groq") {
+    throw new TranscriptionUnavailableError("Speech-to-text provider is not configured");
+  }
   const apiKey = providerApiKey(config);
   if (!apiKey) throw new TranscriptionUnavailableError();
 
   const form = new FormData();
   form.append("file", file, file.name || `dictation-${randomUUID()}.webm`);
-  form.append("model", config.model ?? "gpt-4o-mini-transcribe");
+  const defaultModel = config.provider === "groq" ? "whisper-large-v3-turbo" : "gpt-4o-mini-transcribe";
+  form.append("model", config.model ?? defaultModel);
   const response = await fetch(providerEndpoint(config), {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}` },

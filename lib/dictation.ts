@@ -118,6 +118,7 @@ export function createWebSpeechDictationProvider(): DictationProvider {
       recognition.maxAlternatives = 1;
 
       recognition.onresult = (event) => {
+        if (ended) return;
         const startIndex = event.resultIndex ?? 0;
         let finalText = "";
         let interimText = "";
@@ -132,6 +133,7 @@ export function createWebSpeechDictationProvider(): DictationProvider {
       };
 
       recognition.onerror = (event) => {
+        if (ended) return;
         const error = normalizeError(event.error);
         if (error !== "aborted") callbacks.onError(error);
       };

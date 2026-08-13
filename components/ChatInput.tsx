@@ -480,7 +480,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     });
   }, []);
 
-  const dictation = useDictation(dictationProvider, insertComposerText);
+  const dictation = useDictation(dictationProvider, insertComposerText, !isStreaming);
 
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {

@@ -41,7 +41,11 @@ function preferredMimeType(): string {
 }
 
 function extensionForMimeType(type: string): string {
-  return type.includes("ogg") ? "ogg" : "webm";
+  if (type.includes("ogg")) return "ogg";
+  if (type.includes("wav") || type.includes("x-wav")) return "wav";
+  if (type.includes("mpeg") || type.includes("mp3")) return "mp3";
+  if (type.includes("mp4") || type.includes("m4a")) return "m4a";
+  return "webm";
 }
 
 /**
@@ -65,13 +69,14 @@ export function createServerDictationProvider(
 
       const serverOptions = options as ServerDictationOptions;
       const endpoint = serverOptions.endpoint ?? defaults.endpoint ?? DEFAULT_ENDPOINT;
-      const maxAudioBytes = defaults.maxAudioBytes ?? DEFAULT_MAX_AUDIO_BYTES;
+      const maxAudioBytes = serverOptions.maxAudioBytes ?? defaults.maxAudioBytes ?? DEFAULT_MAX_AUDIO_BYTES;
       const controller = new AbortController();
       let stream: MediaStream | null = null;
       let recorder: MediaRecorder | null = null;
       let chunks: Blob[] = [];
       let ended = false;
       let stopRequested = false;
+      let submitting = false;
 
       const finish = () => {
         if (ended) return;
@@ -90,6 +95,7 @@ export function createServerDictationProvider(
           return;
         }
 
+        submitting = true;
         const form = new FormData();
         form.append(
           "file",
@@ -111,6 +117,8 @@ export function createServerDictationProvider(
           }
         } catch (error) {
           if (!controller.signal.aborted) callbacks.onError(errorCodeFromException(error));
+        } finally {
+          submitting = false;
         }
       };
 
@@ -154,6 +162,10 @@ export function createServerDictationProvider(
       return {
         stop: () => {
           stopRequested = true;
+          if (submitting) {
+            controller.abort();
+            return;
+          }
           if (recorder && recorder.state !== "inactive") recorder.stop();
           else if (!recorder) finish();
         },

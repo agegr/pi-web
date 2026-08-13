@@ -1,0 +1,26 @@
+{
+  "version": "0.1.00",
+  "title": "Add browser dictation input",
+  "description": "Added Web Speech and MediaRecorder/server-STT providers, server-side provider configuration, lifecycle hardening, and documentation.",
+  "audience": "user-facing",
+  "visibility": "public",
+  "release_scope": "prod",
+  "public_description": "Added push-to-talk voice dictation to the message composer.",
+  "internal_description": "Added Web Speech and MediaRecorder/server-STT providers, server-side provider configuration, lifecycle hardening, and documentation.",
+  "files_changed": [
+    "README.md",
+    "app/api/dictation/route.ts",
+    "components/ChatInput.tsx",
+    "hooks/useDictation.ts",
+    "lib/dictation.ts",
+    "lib/server-dictation.ts",
+    "lib/server-transcription.ts"
+  ],
+  "timestamp": "2026-08-13T12:48:25.547334Z",
+  "git": {
+    "branch": "feat/push-to-talk-dictation",
+    "base_commit": "0c4a8ae88f6a4e59961be27b5bc05d7a2d9aa90b",
+    "deployment_commit": null,
+    "deployment_commit_note": "Final commit SHA is only known after commit creation; correlate by reading this changelog entry from the deployed GitHub Actions headSha."
+  }
+}

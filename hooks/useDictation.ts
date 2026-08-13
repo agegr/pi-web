@@ -28,12 +28,19 @@ export interface UseDictationResult {
 export function useDictation(
   provider?: DictationProvider,
   onFinalText?: (text: string) => void,
+  enabled = true,
 ): UseDictationResult {
   const defaultProviders = useMemo(() => [
     createWebSpeechDictationProvider(),
     createServerDictationProvider(),
   ], []);
-  const activeProvider = provider ?? defaultProviders.find((candidate) => candidate.isSupported()) ?? defaultProviders[0];
+  const providers = useMemo(
+    () => provider ? [provider] : defaultProviders,
+    [defaultProviders, provider],
+  );
+  const [activeProvider, setActiveProvider] = useState<DictationProvider>(provider ?? defaultProviders[0]);
+  const [supported, setSupported] = useState(false);
+  const providerRef = useRef(activeProvider);
   const [isListening, setIsListening] = useState(false);
   const [interimText, setInterimText] = useState("");
   const [error, setError] = useState<DictationErrorCode | null>(null);
@@ -56,7 +63,7 @@ export function useDictation(
   }, []);
 
   const start = useCallback(() => {
-    if (sessionRef.current || !activeProvider.isSupported()) return;
+    if (sessionRef.current || !enabled || !activeProvider.isSupported()) return;
     setError(null);
     setInterimText("");
     setIsListening(true);
@@ -97,10 +104,31 @@ export function useDictation(
       setInterimText("");
       setError("unknown");
     }
-  }, [activeProvider]);
+  }, [activeProvider, enabled]);
 
   const stop = useCallback(() => stopSession(false), [stopSession]);
   const abort = useCallback(() => stopSession(true), [stopSession]);
+
+  useEffect(() => {
+    if (!enabled) {
+      sessionRef.current?.abort();
+      sessionRef.current = null;
+      setIsListening(false);
+      setInterimText("");
+      return;
+    }
+
+    const nextProvider = providers.find((candidate) => candidate.isSupported()) ?? providers[0];
+    if (providerRef.current !== nextProvider) {
+      sessionRef.current?.abort();
+      sessionRef.current = null;
+      setIsListening(false);
+      setInterimText("");
+    }
+    providerRef.current = nextProvider;
+    setActiveProvider(nextProvider);
+    setSupported(nextProvider.isSupported());
+  }, [enabled, providers]);
 
   useEffect(() => () => {
     sessionRef.current?.abort();
@@ -108,7 +136,7 @@ export function useDictation(
   }, []);
 
   return {
-    supported: activeProvider.isSupported(),
+    supported: enabled && supported,
     isListening,
     interimText,
     error,
