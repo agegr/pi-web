@@ -12,9 +12,11 @@ import {
 import { createPortal } from "react-dom";
 import { Archive, ChevronRight, Ellipsis, Folder, FolderPlus, LoaderCircle, MessageSquare, Pin, Plus, RefreshCw, Search, X } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
+import { formatRelativeTime } from "@/lib/i18n/format";
 import { readArchivedSessionIds, writeArchivedSessionIds } from "@/lib/archived-sessions";
 import { filterProjectSessions, matchesSidebarQuery, sidebarProjectName, sidebarSessionTitle } from "@/lib/codex-sidebar-search";
 import type { ProjectPreference } from "@/lib/project-registry";
+import { buildRecentSessions } from "@/lib/recent-sessions";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { activeSessionRoots } from "@/lib/session-relations";
 import type { SessionInfo } from "@/lib/types";
@@ -50,7 +52,6 @@ type QuickResult =
   | { type: "project"; project: ProjectView }
   | { type: "session"; session: SessionInfo; project: ProjectView };
 
-const COLLAPSED_STORAGE_KEY = "pi-web:collapsed-projects";
 const UNREAD_STORAGE_KEY = "pi-web:unread-session-ids";
 
 function readStringSet(key: string): Set<string> {
@@ -130,7 +131,7 @@ export function CodexSidebar({
   onBackgroundTaskDone,
   onRunningSessionIdsChange,
 }: Props) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [preferences, setPreferences] = useState<ProjectPreference[]>([]);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
@@ -142,7 +143,6 @@ export function CodexSidebar({
   const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
   const [directoryError, setDirectoryError] = useState<string | null>(null);
   const [directoryBusy, setDirectoryBusy] = useState(false);
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => readStringSet(COLLAPSED_STORAGE_KEY));
   const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
   const [unreadIds, setUnreadIds] = useState<Set<string>>(() => readStringSet(UNREAD_STORAGE_KEY));
   const [archivedIds, setArchivedIds] = useState<Set<string>>(() => readArchivedSessionIds());
@@ -185,7 +185,6 @@ export function CodexSidebar({
   }, []);
 
   useEffect(() => { void loadData(refreshKey !== undefined); }, [loadData, refreshKey]);
-  useEffect(() => { writeStringSet(COLLAPSED_STORAGE_KEY, collapsed); }, [collapsed]);
   useEffect(() => { writeStringSet(UNREAD_STORAGE_KEY, unreadIds); }, [unreadIds]);
   useEffect(() => { writeArchivedSessionIds(archivedIds); }, [archivedIds]);
   useEffect(() => { setArchivedIds(readArchivedSessionIds()); }, [refreshKey]);
@@ -252,6 +251,10 @@ export function CodexSidebar({
   const activeProjects = useMemo(
     () => projects.filter((project) => !project.removed && !project.archived),
     [projects],
+  );
+  const recentSessions = useMemo(
+    () => buildRecentSessions(visibleSessions, activeProjects, archivedIds),
+    [activeProjects, archivedIds, visibleSessions],
   );
   const quickSearch = quickQuery.trim().toLowerCase();
   const quickProjectResults = useMemo(() => activeProjects
@@ -321,7 +324,6 @@ export function CodexSidebar({
         await saveProjects([...preferences, project], { project });
       }
       setSelectedCwd(data.cwd);
-      setCollapsed((current) => { const next = new Set(current); next.delete(data.cwd!); return next; });
       setDirectoryPickerOpen(false);
     } catch (cause) {
       setDirectoryError(cause instanceof Error ? cause.message : String(cause));
@@ -334,6 +336,12 @@ export function CodexSidebar({
     setSelectedCwd(cwd);
     onNewSession?.(newDraftId(), cwd);
   }, [onNewSession]);
+
+  const createNewTask = useCallback(() => {
+    const cwd = selectedCwd ?? activeProjects[0]?.path;
+    if (cwd) createSession(cwd);
+    else setDirectoryPickerOpen(true);
+  }, [activeProjects, createSession, selectedCwd]);
 
   const selectSession = useCallback((session: SessionInfo) => {
     setSelectedCwd(session.cwd);
@@ -358,11 +366,6 @@ export function CodexSidebar({
     if (result.type === "session") selectSession(result.session);
     else {
       setSelectedCwd(result.project.path);
-      setCollapsed((current) => {
-        const next = new Set(current);
-        next.delete(result.project.path);
-        return next;
-      });
     }
     closeQuickSwitcher();
   }, [closeQuickSwitcher, selectSession]);
@@ -580,6 +583,12 @@ export function CodexSidebar({
         </div>
       </header>
 
+      <button type="button" className="codex-sidebar-new-task" onClick={createNewTask}>
+        <Plus size={15} strokeWidth={1.8} aria-hidden="true" />
+        <span>{t("sidebar.newTask")}</span>
+        <kbd>⌃⌥N</kbd>
+      </button>
+
       <div className="codex-sidebar-search-wrap">
         <Search size={14} aria-hidden="true" />
         <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={t("sidebar.searchProjects")} aria-label={t("sidebar.searchProjects")} />
@@ -588,144 +597,140 @@ export function CodexSidebar({
         </button>
       </div>
 
-      <div className="codex-sidebar-section-heading">{t("sidebar.projects")}</div>
-
-      <div className="codex-sidebar-projects" role="tree" aria-label={t("sidebar.projects")}>
-        {loading && <div className="codex-sidebar-empty">{t("sidebar.loading")}</div>}
-        {error && <div className="codex-sidebar-error">{error}</div>}
-        {!loading && !error && visibleProjects.length === 0 && (
-          <div className="codex-sidebar-empty">{t("sidebar.noProjects")}</div>
-        )}
-        {visibleProjects.map((project) => {
-          const matchingSessions = filterProjectSessions(project, filterQuery) ?? [];
-          const open = filterQuery ? matchingSessions.length > 0 : !collapsed.has(project.path);
-          const selected = selectedProject?.path === project.path;
-          const runningCount = project.sessions.filter((session) => activeRootIds.has(session.id)).length;
-          const unreadCount = project.sessions.filter((session) => unreadIds.has(session.id)).length;
-          return (
-            <div
-              className="codex-project"
-              key={project.path}
-              role="treeitem"
-              aria-expanded={open}
-              draggable={!renamingProject}
-              onDragStart={() => setDraggedProject(project.path)}
-              onDragEnd={() => setDraggedProject(null)}
-              onDragOver={(event: DragEvent) => event.preventDefault()}
-              onDrop={() => reorderProject(project.path)}
-              data-dragging={draggedProject === project.path}
-              onContextMenu={(event) => {
-                if (renamingProject === project.path) return;
-                event.preventDefault();
-                event.stopPropagation();
-                setMenuProject((current) => current?.path === project.path
-                  ? null
-                  : {
-                      path: project.path,
-                      left: Math.max(8, Math.min(window.innerWidth - 180, event.clientX)),
-                      top: Math.max(8, Math.min(window.innerHeight - 202, event.clientY)),
-                    });
-              }}
-            >
-              <div className="codex-project-row" data-selected={selected}>
-                <div
-                  className="codex-project-main"
-                  title={project.path}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => {
-                    setSelectedCwd(project.path);
-                    setCollapsed((current) => { const next = new Set(current); next.has(project.path) ? next.delete(project.path) : next.add(project.path); return next; });
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    setSelectedCwd(project.path);
-                    setCollapsed((current) => { const next = new Set(current); next.has(project.path) ? next.delete(project.path) : next.add(project.path); return next; });
-                  }}
-                >
-                  <Chevron open={open} />
-                  <FolderIcon />
-                  {renamingProject === project.path ? (
-                    <input
-                      className="codex-project-rename"
-                      value={renameValue}
-                      autoFocus
-                      onClick={(event) => event.stopPropagation()}
-                      onChange={(event) => setRenameValue(event.target.value)}
-                      onBlur={() => { updateProject(project.path, { name: renameValue.trim() || undefined }); setRenamingProject(null); }}
-                      onKeyDown={(event) => {
-                        event.stopPropagation();
-                        if (event.key === "Enter") event.currentTarget.blur();
-                        if (event.key === "Escape") setRenamingProject(null);
-                      }}
-                    />
-                  ) : (
-                    <span className="codex-project-name">{project.name ?? projectName(project.path)}</span>
-                  )}
-                  {project.pinned && (
-                    <span className="codex-project-pin" title={t("sidebar.pinned")}>
-                      <Pin size={12} aria-hidden="true" />
-                    </span>
-                  )}
-                  {runningCount > 0 && (
-                    <span className="codex-project-running" title={t("sidebar.agentRunning")} aria-label={t("sidebar.agentRunning")} role="status">
-                      <LoaderCircle size={12} strokeWidth={1.8} style={{ animation: "spin 0.8s linear infinite" }} aria-hidden="true" />
-                    </span>
-                  )}
-                  {unreadCount > 0 && <span className="codex-project-unread" title={t("sidebar.newActivity")}>{unreadCount}</span>}
-                </div>
-                <IconButton label={t("sidebar.newSessionTitle", { path: project.path })} onClick={(event) => { event.stopPropagation(); createSession(project.path); }}>
-                  <Plus size={14} strokeWidth={2.2} aria-hidden="true" />
-                </IconButton>
-                <div className="codex-project-menu-wrap">
-                  <IconButton label={t("sidebar.projectActions")} onClick={(event) => {
-                    event.stopPropagation();
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    setMenuProject((current) => current?.path === project.path
-                      ? null
-                      : {
-                          path: project.path,
-                          left: Math.max(8, Math.min(window.innerWidth - 180, rect.right - 172)),
-                          top: Math.max(8, Math.min(window.innerHeight - 202, rect.bottom + 2)),
-                        });
-                  }}>
-                    <Ellipsis size={15} aria-hidden="true" />
+      <section className="codex-sidebar-section">
+        <div className="codex-sidebar-section-heading">{t("sidebar.projects")}</div>
+        <div className="codex-sidebar-project-list" role="list">
+          {loading && <div className="codex-sidebar-empty">{t("sidebar.loading")}</div>}
+          {error && <div className="codex-sidebar-error">{error}</div>}
+          {!loading && !error && visibleProjects.length === 0 && (
+            <div className="codex-sidebar-empty">{t("sidebar.noProjects")}</div>
+          )}
+          {visibleProjects.map((project) => {
+            const selected = selectedProject?.path === project.path;
+            const runningCount = project.sessions.filter((session) => activeRootIds.has(session.id)).length;
+            const unreadCount = project.sessions.filter((session) => unreadIds.has(session.id)).length;
+            return (
+              <div
+                className="codex-project"
+                key={project.path}
+                role="listitem"
+                draggable={!renamingProject}
+                onDragStart={() => setDraggedProject(project.path)}
+                onDragEnd={() => setDraggedProject(null)}
+                onDragOver={(event: DragEvent) => event.preventDefault()}
+                onDrop={() => reorderProject(project.path)}
+                data-dragging={draggedProject === project.path}
+                onContextMenu={(event) => {
+                  if (renamingProject === project.path) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setMenuProject((current) => current?.path === project.path
+                    ? null
+                    : {
+                        path: project.path,
+                        left: Math.max(8, Math.min(window.innerWidth - 180, event.clientX)),
+                        top: Math.max(8, Math.min(window.innerHeight - 202, event.clientY)),
+                      });
+                }}
+              >
+                <div className="codex-project-row" data-selected={selected}>
+                  <div
+                    className="codex-project-main"
+                    title={project.path}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedCwd(project.path)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      setSelectedCwd(project.path);
+                    }}
+                  >
+                    <FolderIcon />
+                    {renamingProject === project.path ? (
+                      <input
+                        className="codex-project-rename"
+                        value={renameValue}
+                        autoFocus
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) => setRenameValue(event.target.value)}
+                        onBlur={() => { updateProject(project.path, { name: renameValue.trim() || undefined }); setRenamingProject(null); }}
+                        onKeyDown={(event) => {
+                          event.stopPropagation();
+                          if (event.key === "Enter") event.currentTarget.blur();
+                          if (event.key === "Escape") setRenamingProject(null);
+                        }}
+                      />
+                    ) : (
+                      <span className="codex-project-name">{project.name ?? projectName(project.path)}</span>
+                    )}
+                    {project.pinned && (
+                      <span className="codex-project-pin" title={t("sidebar.pinned")}>
+                        <Pin size={12} aria-hidden="true" />
+                      </span>
+                    )}
+                    {runningCount > 0 && (
+                      <span className="codex-project-running" title={t("sidebar.agentRunning")} aria-label={t("sidebar.agentRunning")} role="status">
+                        <LoaderCircle size={12} strokeWidth={1.8} style={{ animation: "spin 0.8s linear infinite" }} aria-hidden="true" />
+                      </span>
+                    )}
+                    {unreadCount > 0 && <span className="codex-project-unread" title={t("sidebar.newActivity")}>{unreadCount}</span>}
+                  </div>
+                  <IconButton label={t("sidebar.newSessionTitle", { path: project.path })} onClick={(event) => { event.stopPropagation(); createSession(project.path); }}>
+                    <Plus size={14} strokeWidth={2.2} aria-hidden="true" />
                   </IconButton>
+                  <div className="codex-project-menu-wrap">
+                    <IconButton label={t("sidebar.projectActions")} onClick={(event) => {
+                      event.stopPropagation();
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      setMenuProject((current) => current?.path === project.path
+                        ? null
+                        : {
+                            path: project.path,
+                            left: Math.max(8, Math.min(window.innerWidth - 180, rect.right - 172)),
+                            top: Math.max(8, Math.min(window.innerHeight - 202, rect.bottom + 2)),
+                          });
+                    }}>
+                      <Ellipsis size={15} aria-hidden="true" />
+                    </IconButton>
+                  </div>
                 </div>
               </div>
+            );
+          })}
+        </div>
+      </section>
 
-              {open && (
-                <div className="codex-project-sessions" role="group">
-                  {matchingSessions.length === 0 && <div className="codex-project-no-sessions">{t("sidebar.noSessions")}</div>}
-                  {matchingSessions.map((session) => (
-                    <SessionRow
-                      key={session.id}
-                      session={session}
-                      selected={session.id === selectedSessionId}
-                      running={activeRootIds.has(session.id)}
-                      runningSubagentCount={(subagentsByRoot.get(session.id) ?? []).filter((child) => runningIds.has(child.id)).length}
-                      unread={unreadIds.has(session.id)}
-                      onSelect={() => selectSession(session)}
-                      onChanged={() => void loadData(true)}
-                      onDeleted={() => { onSessionDeleted?.(session.id); void loadData(true); }}
-                      onArchive={() => {
-                        setArchivedIds((current) => new Set(current).add(session.id));
-                        setUnreadIds((current) => {
-                          if (!current.has(session.id)) return current;
-                          const next = new Set(current);
-                          next.delete(session.id);
-                          return next;
-                        });
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      <section className="codex-sidebar-section codex-sidebar-recent">
+        <div className="codex-sidebar-section-heading">{t("sidebar.recent")}</div>
+        <div role="list">
+          {recentSessions.map(({ session, projectLabel }) => (
+            <SessionRow
+              key={session.id}
+              session={session}
+              selected={session.id === selectedSessionId}
+              running={activeRootIds.has(session.id)}
+              runningSubagentCount={(subagentsByRoot.get(session.id) ?? []).filter((child) => runningIds.has(child.id)).length}
+              unread={unreadIds.has(session.id)}
+              variant="recent"
+              projectLabel={projectLabel}
+              relativeTime={formatRelativeTime(session.modified, locale)}
+              onSelect={() => selectSession(session)}
+              onChanged={() => void loadData(true)}
+              onDeleted={() => { onSessionDeleted?.(session.id); void loadData(true); }}
+              onArchive={() => {
+                setArchivedIds((current) => new Set(current).add(session.id));
+                setUnreadIds((current) => {
+                  if (!current.has(session.id)) return current;
+                  const next = new Set(current);
+                  next.delete(session.id);
+                  return next;
+                });
+              }}
+            />
+          ))}
+        </div>
+      </section>
 
       {selectedProject && !selectedProject.archived && !selectedProject.removed && worktrees.length > 0 && (
         <div className="codex-sidebar-project-tools">
@@ -834,12 +839,15 @@ export function CodexSidebar({
   );
 }
 
-function SessionRow({ session, selected, running, runningSubagentCount, unread, onSelect, onChanged, onDeleted, onArchive }: {
+function SessionRow({ session, selected, running, runningSubagentCount, unread, variant = "nested", projectLabel, relativeTime, onSelect, onChanged, onDeleted, onArchive }: {
   session: SessionInfo;
   selected: boolean;
   running: boolean;
   runningSubagentCount: number;
   unread: boolean;
+  variant?: "nested" | "recent";
+  projectLabel?: string;
+  relativeTime?: string;
   onSelect: () => void;
   onChanged: () => void;
   onDeleted: () => void;
@@ -852,6 +860,8 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLDivElement>(null);
   const title = sessionTitle(session);
+  const isRecent = variant === "recent";
+  const rowTitle = isRecent && projectLabel ? `${projectLabel} · ${title}` : title;
 
   useEffect(() => {
     if (!menuPos) return;
@@ -915,7 +925,7 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
   };
 
   return (
-    <div className="codex-session-row" data-selected={selected} onContextMenu={renaming ? undefined : openContextMenu}>
+    <div className={`codex-session-row${isRecent ? " codex-recent-session-row" : ""}`} data-selected={selected} onContextMenu={renaming ? undefined : openContextMenu}>
       <div
         className="codex-session-main"
         onClick={onSelect}
@@ -926,7 +936,7 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
         }}
         role="button"
         tabIndex={0}
-        title={title}
+        title={rowTitle}
       >
         {running ? (
           <LoaderCircle
@@ -949,7 +959,7 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
             onBlur={() => void commitRename()}
             onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setRenaming(false); }}
           />
-        ) : <span className="codex-session-title">{title}</span>}
+        ) : <span className={`codex-session-title${isRecent ? " codex-recent-session-title" : ""}`}>{title}</span>}
         {runningSubagentCount > 0 && (
           <span className="codex-session-subagents" title={t("sidebar.runningSubagents", { count: runningSubagentCount })}>
             <LoaderCircle size={11} strokeWidth={1.8} style={{ animation: "spin 0.8s linear infinite" }} aria-hidden="true" />
@@ -957,6 +967,7 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
           </span>
         )}
       </div>
+      {isRecent && relativeTime ? <span className="codex-recent-session-time">{relativeTime}</span> : null}
       {!session.transient && (
         <div className="codex-session-menu-wrap" ref={menuButtonRef}>
           <IconButton label={t("sidebar.sessionActions")} onClick={(event) => {

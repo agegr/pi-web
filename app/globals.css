@@ -717,6 +717,24 @@ pre, code {
 }
 .codex-quick-switcher-results strong { color: inherit; font-size: 12px; font-weight: 580; }
 .codex-quick-switcher-results small { color: var(--text-dim); font-size: 10px; }
+.codex-sidebar-new-task {
+  width: calc(100% - 16px);
+  height: 34px;
+  margin: 0 8px 8px;
+  padding: 0 9px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text);
+  background: transparent;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.codex-sidebar-new-task:hover { background: var(--bg-hover); }
+.codex-sidebar-new-task kbd { margin-left: auto; color: var(--text-dim); font: 10px var(--font-mono); }
 .codex-sidebar-section-heading {
   height: 31px;
   padding: 0 10px;
@@ -728,15 +746,15 @@ pre, code {
   font-size: 11px;
   font-weight: 600;
 }
-.codex-sidebar-projects {
-  min-height: 92px;
-  flex: 1 1 auto;
-  padding: 5px 6px 8px;
-  overflow: auto;
-}
+.codex-sidebar-section { min-height: 0; flex: 0 1 auto; }
+.codex-sidebar-project-list { padding: 2px 7px 8px; }
+.codex-sidebar-recent { min-height: 150px; flex: 1 1 auto; overflow: hidden; }
+.codex-sidebar-recent > [role="list"] { height: calc(100% - 31px); padding: 2px 7px 8px; overflow: auto; }
+.codex-recent-session-row { height: 34px; }
+.codex-recent-session-title { font-weight: 520; }
+.codex-recent-session-time { flex-shrink: 0; color: var(--text-dim); font-size: 10px; }
 .codex-sidebar-empty,
-.codex-sidebar-error,
-.codex-project-no-sessions {
+.codex-sidebar-error {
   padding: 10px 9px;
   color: var(--text-muted);
   font-size: 12px;
@@ -846,7 +864,6 @@ html.dark .codex-project-unread { color: #67e8f9; }
 .codex-project-menu button:hover { background: var(--bg-hover); }
 .codex-project-menu button.danger { color: #dc2626; }
 html.dark .codex-project-menu button.danger { color: #f87171; }
-.codex-project-sessions { padding: 1px 0 3px 20px; }
 .codex-session-row {
   height: 29px;
   display: flex;

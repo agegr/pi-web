@@ -107,6 +107,8 @@ export const zhCNLocale: LocalePlugin = {
     "sidebar.useDefaultDirectory": "使用默认目录",
     "sidebar.customPath": "自定义路径…",
     "sidebar.projects": "项目",
+    "sidebar.newTask": "新建任务",
+    "sidebar.recent": "最近",
     "sidebar.archived": "已归档",
     "sidebar.archivedProjects": "已归档项目",
     "sidebar.addProject": "添加项目",

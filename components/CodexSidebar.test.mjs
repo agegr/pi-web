@@ -79,6 +79,39 @@ test("session overflow menu portals, dismisses, and archives locally", () => {
   assert.match(settings, /writeArchivedSessionIds\(next\)/);
 });
 
+test("desktop sidebar exposes new task, projects, and recent sessions", () => {
+  assert.match(sidebar, /className="codex-sidebar-new-task"/);
+  assert.match(sidebar, /sidebar\.newTask/);
+  assert.match(sidebar, /sidebar\.projects/);
+  assert.match(sidebar, /sidebar\.recent/);
+  assert.match(sidebar, /buildRecentSessions\(visibleSessions, activeProjects, archivedIds\)/);
+  assert.match(sidebar, /recentSessions\.map/);
+});
+
+test("project rows do not inline every session", () => {
+  assert.doesNotMatch(sidebar, /className="codex-project-sessions"/);
+  assert.doesNotMatch(sidebar, /matchingSessions\.map/);
+  assert.match(sidebar, /onClick=\{\(\) => setSelectedCwd\(project\.path\)\}/);
+});
+
+test("recent session rows preserve activity, selection, and session management", () => {
+  assert.match(sidebar, /<SessionRow[\s\S]*?variant="recent"/);
+  assert.match(sidebar, /projectLabel=\{projectLabel\}/);
+  assert.match(sidebar, /relativeTime=\{formatRelativeTime\(session\.modified, locale\)\}/);
+  assert.match(sidebar, /data-selected=\{selected\}/);
+  assert.match(sidebar, /dispatchSessionRowContextMenu/);
+  assert.match(sidebar, /sidebar\.archiveSession/);
+  assert.match(sidebar, /method: "DELETE"/);
+});
+
+test("sidebar recomposition preserves worktree switching and creation", () => {
+  assert.match(sidebar, /className="codex-worktree-block"/);
+  assert.match(sidebar, /\/api\/worktrees/);
+  assert.match(sidebar, /createWorktree/);
+  assert.match(sidebar, /removeWorktree/);
+  assert.match(sidebar, /sidebar\.forceRemoveCheckout/);
+});
+
 test("searches sessions and exposes a Codex-style quick switcher", () => {
   assert.match(sidebar, /function sessionTitle\(session: SessionInfo\)/);
   assert.match(sidebar, /visibleSessions\.filter\(\(session\) =>/);

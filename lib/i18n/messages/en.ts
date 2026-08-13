@@ -107,6 +107,8 @@ export const enLocale: LocalePlugin = {
     "sidebar.useDefaultDirectory": "Use default directory",
     "sidebar.customPath": "Custom path…",
     "sidebar.projects": "Projects",
+    "sidebar.newTask": "New task",
+    "sidebar.recent": "Recent",
     "sidebar.archived": "Archived",
     "sidebar.archivedProjects": "Archived projects",
     "sidebar.addProject": "Add project",
