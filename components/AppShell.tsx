@@ -34,6 +34,7 @@ import { SettingsPage } from "./SettingsPage";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { BranchNavigator } from "./BranchNavigator";
 import { TaskHeader } from "./TaskHeader";
+import { DesktopConversationContext } from "./DesktopConversationContext";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -50,6 +51,7 @@ import {
   showBrowserNotification,
 } from "@/lib/browser-notifications";
 import { getInitialNavigation } from "@/lib/initial-navigation";
+import { buildConversationContextModel } from "@/lib/conversation-context";
 import { clearLastOpen, getLastOpenSession, setLastOpenSession } from "@/lib/workspace-memory";
 import {
   getDefaultRightPanelWidth,
@@ -248,6 +250,15 @@ export function AppShell() {
 
   // Context usage — populated by ChatWindow, displayed in top bar
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
+  const [displayModel, setDisplayModel] = useState<{ provider: string; modelId: string; label: string } | null>(null);
+  const handleDisplayModelChange = useCallback((model: { provider: string; modelId: string; label: string } | null) => setDisplayModel(model), []);
+  const conversationContextModel = sessionStats
+    ? buildConversationContextModel({
+        stats: sessionStats,
+        contextUsage,
+        modelLabel: displayModel?.label ?? displayModel?.modelId ?? null,
+      })
+    : null;
   const handleContextUsageChange = useCallback((usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => {
     setContextUsage(usage);
   }, []);
@@ -1892,7 +1903,7 @@ export function AppShell() {
         </div>
 
         {/* Chat content */}
-        <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+        <div className="app-center-column" style={{ flex: 1, overflow: "hidden", position: "relative" }}>
           {showChat ? (
             <ChatWindow
               key={sessionKey}
@@ -1912,6 +1923,13 @@ export function AppShell() {
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onContextUsageChange={handleContextUsageChange}
               onOpenFile={handleOpenLinkedFile}
+              onDisplayModelChange={handleDisplayModelChange}
+              desktopAside={conversationContextModel ? (
+                <DesktopConversationContext
+                  model={conversationContextModel}
+                  onOpenDetails={() => toggleTopPanel("session")}
+                />
+              ) : null}
               soundEnabled={soundEnabled}
               playDoneSound={playDoneSound}
               unlockAudio={unlockAudio}

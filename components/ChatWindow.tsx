@@ -45,6 +45,11 @@ interface Props {
   onSessionStatsPanelOpen?: () => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
   onOpenFile?: (filePath: string) => void;
+  /** Notifies AppShell of the resolved display model so the desktop context
+   *  card can show the real model id/name instead of the session title. */
+  onDisplayModelChange?: (model: { provider: string; modelId: string; label: string } | null) => void;
+  /** Optional right-side slot rendered only inside the session workspace. */
+  desktopAside?: ReactNode;
   /** Completion sound state + controls, owned by AppShell so tasks finishing in
    *  a non-active workspace can still ring. */
   soundEnabled?: boolean;
@@ -258,7 +263,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, hasError = false, de
   );
 }
 
-export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onDisplayModelChange, desktopAside, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
 
@@ -294,6 +299,19 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   });
   const sessionBusy = agentRunning || bashRunning;
+  const displayModelProvider = displayModelValue?.provider ?? "";
+  const displayModelId = displayModelValue?.modelId ?? "";
+  const displayModelLabel = displayModelId
+    ? modelNames[`${displayModelProvider}:${displayModelId}`] ?? displayModelId
+    : "";
+  useEffect(() => {
+    onDisplayModelChange?.(displayModelId ? {
+      provider: displayModelProvider,
+      modelId: displayModelId,
+      label: displayModelLabel,
+    } : null);
+    return () => onDisplayModelChange?.(null);
+  }, [displayModelId, displayModelLabel, displayModelProvider, onDisplayModelChange]);
   const goalModel = resolveGoalPanelModel({
     widgets: extensionWidgets,
     statuses: extensionStatuses,
@@ -722,7 +740,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
           </div>
         </div>
       ) : (
-      <>
+      <div className="chat-workspace-body">
+        <div className="chat-workspace-main">
       <div className="relative flex min-w-0 flex-1 overflow-hidden">
         <div
           style={{
@@ -1007,8 +1026,10 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
           {chatInputElement}
         </div>
         <ExtensionStatusBar statuses={visibleStatuses} widgets={visibleWidgets} onRunCommand={runExtensionCommand} />
+        </div>
+        {desktopAside ? <div className="desktop-workspace-context">{desktopAside}</div> : null}
       </div>
-      </>
+      </div>
       )}
     </div>
   );

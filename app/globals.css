@@ -3939,3 +3939,26 @@ span.linenumber {
 
 /* DSCode process summary row */
 .chat-process-summary { border-bottom: 1px solid var(--border); }
+
+/* DSCode desktop workspace: center column container + context gutter */
+.app-center-column {
+  container-type: inline-size;
+  container-name: chat-center;
+}
+.chat-workspace-body { min-width: 0; min-height: 0; flex: 1; display: flex; overflow: hidden; }
+.chat-workspace-main { min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.desktop-workspace-context { display: none; }
+@media (min-width: 1280px) {
+  @container chat-center (min-width: 1000px) {
+    .desktop-workspace-context {
+      width: 292px;
+      padding: 16px 12px;
+      display: block;
+      flex: 0 0 292px;
+      overflow: auto;
+    }
+  }
+  @container chat-center (min-width: 1000px) and (max-width: 1120px) {
+    .desktop-workspace-context { width: 280px; flex-basis: 280px; padding-inline: 6px; }
+  }
+}
