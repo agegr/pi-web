@@ -70,7 +70,7 @@ export function ImagePreview({ src, alt = "", children, className, style }: Imag
       {open && (
         <dialog
           ref={dialogRef}
-          className="image-preview-dialog"
+          className="codex-viewer image-preview-dialog"
           aria-label={t("chat.previewImage")}
           onCancel={(event) => {
             event.preventDefault();
@@ -91,7 +91,7 @@ export function ImagePreview({ src, alt = "", children, className, style }: Imag
           <button
             ref={closeButtonRef}
             type="button"
-            className="image-preview-close"
+            className="codex-viewer-close image-preview-close"
             onClick={closePreview}
             aria-label={t("chat.close")}
             title={t("chat.close")}

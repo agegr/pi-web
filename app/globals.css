@@ -1520,6 +1520,10 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
   outline-offset: -2px;
 }
 
+.codex-viewer::backdrop {
+  background: rgba(0, 0, 0, .4);
+}
+
 .image-preview-dialog {
   position: fixed;
   inset: 0;
@@ -1605,9 +1609,6 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
   border: 0;
   background: var(--bg);
   color: var(--text);
-}
-.mermaid-zoom-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.35);
 }
 .mermaid-zoom-layout {
   display: grid;

@@ -138,7 +138,7 @@ function MermaidZoomDialog({ svg, onClose }: { svg: string; onClose: () => void 
   return (
     <dialog
       ref={dialogRef}
-      className="mermaid-zoom-dialog"
+      className="codex-viewer mermaid-zoom-dialog"
       aria-label={t("i18n.mermaidViewer")}
       onCancel={(event) => {
         event.preventDefault();
@@ -192,7 +192,7 @@ function MermaidZoomDialog({ svg, onClose }: { svg: string; onClose: () => void 
             </button>
             <button
               type="button"
-              className="mermaid-zoom-icon-button"
+              className="codex-viewer-close mermaid-zoom-icon-button"
               onClick={onClose}
               title={t("i18n.close")}
               aria-label={t("i18n.close")}
