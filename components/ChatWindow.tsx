@@ -735,7 +735,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 void runExtensionCommand("goal", editMode === "edit" ? `edit ${objective}` : objective);
               }}
             />
-            {cloneElement(chatInputElement, { minimapOffset: false })}
+            {chatInputElement}
             <ExtensionStatusBar statuses={visibleStatuses} widgets={visibleWidgets} onRunCommand={runExtensionCommand} />
           </div>
         </div>
@@ -986,15 +986,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
             </div>
           </div>
         </div>
-        {isMobile ? null : (
-          <ChatMinimap
-            messages={messages}
-            streamingMessage={streamState.streamingMessage}
-            scrollContainer={scrollContainerRef}
-            messageRefs={messageRefs}
-            onRevealHistory={revealHistoryForMinimap}
-          />
-        )}
       </div>
 
       <div className="relative">
@@ -1029,6 +1020,15 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
         </div>
         </div>
         {desktopAside ? <div className="desktop-workspace-context">{desktopAside}</div> : null}
+        {isMobile ? null : (
+          <ChatMinimap
+            messages={messages}
+            streamingMessage={streamState.streamingMessage}
+            scrollContainer={scrollContainerRef}
+            messageRefs={messageRefs}
+            onRevealHistory={revealHistoryForMinimap}
+          />
+        )}
       </div>
       )}
     </div>
