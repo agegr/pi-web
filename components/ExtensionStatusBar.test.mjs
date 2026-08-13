@@ -10,8 +10,6 @@ const jiti = createJiti(import.meta.url, {
 });
 const {
   ExtensionStatusBar,
-  formatExtensionStatusLine,
-  sanitizeExtensionStatusText,
 } = await jiti.import("./ExtensionStatusBar.tsx");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
@@ -25,45 +23,18 @@ function renderStatusBar(props) {
   );
 }
 
-test("sorts status text by hidden key like the Pi CLI footer", () => {
-  const statuses = [
-    { key: "20-memory", text: "memory" },
-    { key: "90-notify", text: "notify" },
-    { key: "10-permissions", text: "permissions" },
-    { key: "05-ponytail", text: "ponytail" },
-  ];
-
-  assert.equal(
-    formatExtensionStatusLine(statuses),
-    "ponytail permissions memory notify",
-  );
-});
-
-test("sanitizes status text for a single-line display", () => {
-  assert.equal(
-    sanitizeExtensionStatusText("  first\tsecond \r\n third  "),
-    "first second third",
-  );
-});
-
-test("renders a single status line without identifier keys", () => {
+test("hides passive extension statuses when there are no widgets", () => {
   const html = renderStatusBar({
     statuses: [
-      { key: "20-memory", text: "\x1b[32mmemory\x1b[0m" },
-      { key: "05-ponytail", text: "ponytail" },
+      { key: "20-memory", text: "memory" },
+      { key: "05-ponytail", text: "ponytail: FULL" },
     ],
   });
 
-  assert.match(html, /aria-label="ponytail memory"/);
-  assert.match(html, /extension-status-shelf/);
-  assert.match(html, /extension-status-line/);
-  assert.match(html, /extension-status-item/);
-  assert.match(html, /title="ponytail"><span>ponytail<\/span>/);
-  assert.match(html, />memory</);
-  assert.doesNotMatch(html, /05-ponytail|20-memory/);
+  assert.equal(html, "");
 });
 
-test("renders widgets and status text in one footer", () => {
+test("keeps widgets without rendering the passive status line", () => {
   const html = renderStatusBar({
     statuses: [{ key: "status", text: "connected" }],
     widgets: [{
@@ -73,8 +44,8 @@ test("renders widgets and status text in one footer", () => {
     }],
   });
 
-  assert.match(html, /extension-status-shelf has-widgets has-status/);
+  assert.match(html, /extension-status-shelf has-widgets/);
   assert.match(html, /extension-widget-triggers/);
   assert.match(html, /usage/);
-  assert.match(html, /connected/);
+  assert.doesNotMatch(html, /extension-status-line|connected/);
 });

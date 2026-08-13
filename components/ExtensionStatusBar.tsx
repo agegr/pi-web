@@ -1,25 +1,9 @@
 "use client";
 
-import { parseAnsiLine, stripAnsi } from "@/lib/ansi";
 import type { ExtensionStatusItem, ExtensionWidgetItem } from "@/lib/types";
 import { ExtensionWidgets } from "./ExtensionWidgets";
 
-export function sanitizeExtensionStatusText(text: string): string {
-  return text
-    .replace(/[\r\n\t]/g, " ")
-    .replace(/ +/g, " ")
-    .trim();
-}
-
-export function formatExtensionStatusLine(statuses: ExtensionStatusItem[]): string {
-  return [...statuses]
-    .sort((a, b) => a.key.localeCompare(b.key))
-    .map(({ text }) => sanitizeExtensionStatusText(text))
-    .join(" ");
-}
-
 export function ExtensionStatusBar({
-  statuses,
   widgets = [],
   onRunCommand,
 }: {
@@ -27,34 +11,11 @@ export function ExtensionStatusBar({
   widgets?: ExtensionWidgetItem[];
   onRunCommand?: (command: string) => void;
 }) {
-  if (statuses.length === 0 && widgets.length === 0) return null;
-
-  const sortedStatuses = [...statuses].sort((a, b) => a.key.localeCompare(b.key));
-  const plainStatusLine = stripAnsi(formatExtensionStatusLine(statuses));
+  if (widgets.length === 0) return null;
 
   return (
-    <div
-      className={`extension-status-shelf${widgets.length > 0 ? " has-widgets" : ""}${statuses.length > 0 ? " has-status" : ""}`}
-    >
-      {widgets.length > 0 && <ExtensionWidgets widgets={widgets} onRunCommand={onRunCommand} />}
-      {statuses.length > 0 && (
-        <div
-          role="status"
-          className="extension-status-line"
-          aria-label={plainStatusLine}
-        >
-          {sortedStatuses.map(({ key, text }) => {
-            const itemText = sanitizeExtensionStatusText(text);
-            return (
-              <span key={key} className="extension-status-item" title={stripAnsi(itemText)}>
-                {parseAnsiLine(itemText).map((segment, index) => (
-                  <span key={index} style={segment.style}>{segment.text}</span>
-                ))}
-              </span>
-            );
-          })}
-        </div>
-      )}
+    <div className="extension-status-shelf has-widgets">
+      <ExtensionWidgets widgets={widgets} onRunCommand={onRunCommand} />
     </div>
   );
 }
