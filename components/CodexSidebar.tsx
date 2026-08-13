@@ -886,7 +886,8 @@ export function CodexSidebar({
       )}
       <dialog
         ref={quickDialogRef}
-        className="codex-quick-switcher"
+        className="codex-dialog codex-quick-switcher"
+        data-size="tool"
         aria-label={t("sidebar.quickSwitcher")}
         onClick={(event) => {
           if (event.target === event.currentTarget) closeQuickSwitcher();

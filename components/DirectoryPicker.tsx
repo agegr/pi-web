@@ -2,8 +2,9 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronUp, Folder, FolderPlus, HardDrive, X } from "lucide-react";
+import { ChevronUp, Folder, FolderPlus, HardDrive } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
+import { DialogShell } from "./DialogShell";
 
 interface DirectoryEntry {
   name: string;
@@ -132,36 +133,30 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
   if (!portalTarget) return null;
 
   return createPortal(
-    <div
-      className="directory-picker-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-label={t("directoryPicker.selectDirectory")}
-      onClick={(event) => {
-        if (event.target === event.currentTarget && !busy) onCancel();
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && !busy) onCancel();
-      }}
-      style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.35)" }}
-    >
-      <div className="directory-picker-panel" style={{ width: 520, maxWidth: "calc(100vw - 16px)", height: "min(620px, calc(100dvh - 16px))", maxHeight: "calc(100dvh - 16px)", display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, padding: "12px 18px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ color: "var(--text)", fontWeight: 700, fontSize: 15 }}>{t("directoryPicker.selectDirectory")}</div>
-          </div>
+    <DialogShell
+      size="tool"
+      title={t("directoryPicker.selectDirectory")}
+      ariaLabel={t("i18n.close")}
+      onClose={onCancel}
+      dismissible={!busy}
+      showClose
+      bodyClassName="codex-dialog-tool-body directory-picker-panel"
+      footer={(
+        <div className="directory-picker-footer">
+          <button className="codex-dialog-button directory-picker-action" type="button" onClick={onCancel} disabled={busy}>{t("i18n.cancel")}</button>
           <button
+            className="codex-dialog-button directory-picker-action"
+            data-variant="primary"
             type="button"
-            onClick={onCancel}
-            disabled={busy}
-            title={t("i18n.close")}
-            aria-label={t("i18n.close")}
-            style={{ padding: "2px 6px", border: 0, background: "none", color: "var(--text-muted)", fontSize: 20, lineHeight: 1, cursor: busy ? "default" : "pointer", opacity: busy ? 0.5 : 1 }}
+            onClick={() => onSelect(currentPath)}
+            disabled={!canSelect}
+            title={hasUncommittedPath ? t("directoryPicker.openBeforeSelecting") : t("directoryPicker.selectCurrentDirectory")}
           >
-            <X size={17} aria-hidden="true" />
+            {busy ? t("i18n.checking") : t("directoryPicker.selectThisFolder")}
           </button>
         </div>
-
+      )}
+    >
         <form onSubmit={handlePathSubmit} style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, padding: "10px 14px", borderBottom: "1px solid var(--border)" }}>
           <button className="directory-picker-back" type="button" onClick={() => void navigateTo(parentDirectory ?? undefined)} disabled={loading || !canNavigateUp} title={t("directoryPicker.goToParent")} aria-label={t("directoryPicker.goToParent")} style={{ width: 36, height: 36, padding: 0, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-hover)", color: "var(--text-muted)", cursor: canNavigateUp ? "pointer" : "default", opacity: canNavigateUp ? 1 : 0.45 }}>
             <ChevronUp size={16} strokeWidth={1.8} aria-hidden="true" />
@@ -294,22 +289,7 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
           )}
           {(loadError || error) && <div style={{ padding: "8px", color: "#dc2626", fontSize: 11 }}>{loadError ?? error}</div>}
         </div>
-
-        <div className="directory-picker-footer" style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, flexShrink: 0, padding: "10px 18px", borderTop: "1px solid var(--border)" }}>
-          <button className="directory-picker-action" type="button" onClick={onCancel} disabled={busy} style={{ padding: "6px 14px", border: "1px solid var(--border)", borderRadius: 6, background: "none", color: "var(--text-muted)", cursor: busy ? "default" : "pointer", fontSize: 13 }}>{t("i18n.cancel")}</button>
-          <button
-            className="directory-picker-action"
-            type="button"
-            onClick={() => onSelect(currentPath)}
-            disabled={!canSelect}
-            title={hasUncommittedPath ? t("directoryPicker.openBeforeSelecting") : t("directoryPicker.selectCurrentDirectory")}
-            style={{ padding: "6px 16px", border: 0, borderRadius: 6, background: "var(--accent)", color: "#fff", fontSize: 13, fontWeight: 600, opacity: canSelect ? 1 : 0.6, cursor: canSelect ? "pointer" : "default" }}
-          >
-            {busy ? t("i18n.checking") : t("directoryPicker.selectThisFolder")}
-          </button>
-        </div>
-      </div>
-    </div>,
+    </DialogShell>,
     portalTarget,
   );
 }

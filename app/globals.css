@@ -150,6 +150,7 @@ html.dark .codex-dialog-error { color: #f87171; }
 .codex-dialog-input { height: 36px; padding: 0 10px; font-size: 13px; }
 .codex-dialog-editor { min-height: 220px; max-height: min(520px, calc(100dvh - 180px)); padding: 10px; resize: vertical; font: 13px/1.55 var(--font-mono); }
 .codex-dialog-terminal-body { position: relative; padding: 0; }
+.codex-dialog-tool-body { min-height: 0; padding: 0; display: flex; flex: 1; flex-direction: column; }
 .codex-dialog-terminal { min-height: 280px; max-height: calc(min(760px, 100dvh - 32px) - 49px); margin: 0; padding: 14px; overflow: auto; color: var(--text); background: var(--bg-panel); font: 13px/1.45 var(--font-mono); white-space: pre; }
 
 @media (max-width: 640px) {
@@ -2917,27 +2918,15 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
 
 /* Add-provider picker: native dialog (focus trap + inert backdrop) */
 .models-picker {
-  width: 820px;
-  max-width: calc(100vw - 32px);
-  max-height: min(72vh, calc(100vh - 32px));
-  margin: auto;
+  max-height: min(760px, calc(100dvh - 32px));
   padding: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg);
-  color: var(--text);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.22);
 }
 
 .models-picker[open] {
   display: flex;
-}
-
-.models-picker::backdrop {
-  background: rgba(0, 0, 0, 0.4);
 }
 
 .models-picker-header {
@@ -2986,6 +2975,7 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
   color: var(--text);
 }
 
+.models-picker-close { margin-left: auto; }
 .models-picker-scroll {
   flex: 1;
   overflow-y: auto;
@@ -3211,13 +3201,7 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
   }
 
   .models-picker {
-    width: 100%;
-    max-width: none;
     max-height: none;
-    height: 100dvh;
-    margin: 0;
-    border: 0;
-    border-radius: 0;
   }
 
   .models-picker-header {
@@ -3657,9 +3641,9 @@ span.linenumber {
     height: 40px;
   }
   .codex-quick-switcher {
-    width: calc(100vw - 16px);
-    max-height: calc(var(--app-viewport-height, 100dvh) - 24px);
-    margin: max(8px, env(safe-area-inset-top)) auto 8px;
+    width: 100%;
+    max-height: none;
+    margin: 0;
   }
   .codex-quick-switcher-search { min-height: 56px; }
   .codex-quick-switcher-results button { min-height: 52px; }

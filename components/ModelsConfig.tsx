@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { ArrowLeft, Check as CheckIcon, ChevronDown, Eye, EyeOff, Plus, Search } from "lucide-react";
+import { ArrowLeft, Check as CheckIcon, ChevronDown, Eye, EyeOff, Plus, Search, X } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
@@ -1669,7 +1669,8 @@ function AddProviderPicker({
   return (
     <dialog
       ref={dialogRef}
-      className="models-picker"
+      className="codex-dialog models-picker"
+      data-size="tool"
       aria-label={t("i18n.addProvider")}
       onCancel={(event) => { event.preventDefault(); onClose(); }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
@@ -1689,6 +1690,9 @@ function AddProviderPicker({
              placeholder={t("i18n.searchProviders")}
             aria-label={t("i18n.searchProviders")}
           />
+          <button type="button" className="models-picker-close codex-dialog-close" onClick={onClose} aria-label={t("i18n.close")} title={t("i18n.close")}>
+            <X size={14} strokeWidth={2} aria-hidden="true" />
+          </button>
         </div>
 
         <div className="models-picker-scroll">
