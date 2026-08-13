@@ -713,7 +713,7 @@ export function SkillsConfig({
   onControllerChange,
 }: {
   cwd: string;
-  onControllerChange(controller: SettingsSectionController): void;
+  onControllerChange?(controller: SettingsSectionController): void;
 }) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
@@ -915,7 +915,7 @@ export function SkillsConfig({
   }), [handleBack, isMobile, mobileView]);
 
   useEffect(() => {
-    onControllerChange(controller);
+    onControllerChange?.(controller);
   }, [controller, onControllerChange]);
 
   const openDetail = (filePath: string | null, add = false) => {

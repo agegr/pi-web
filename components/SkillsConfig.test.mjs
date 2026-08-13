@@ -5,7 +5,8 @@ import test from "node:test";
 const source = await readFile(new URL("./SkillsConfig.tsx", import.meta.url), "utf8");
 
 test("SkillsConfig is Settings-only master-detail and keeps API contracts", () => {
-  assert.match(source, /onControllerChange\(controller: SettingsSectionController\)/);
+  assert.match(source, /onControllerChange\?\(controller: SettingsSectionController\)/);
+  assert.match(source, /onControllerChange\?\.\(controller\)/);
   assert.doesNotMatch(source, /embedded = false/);
   assert.match(source, /<SkillsNavigator/);
   assert.match(source, /resource-settings-layout/);

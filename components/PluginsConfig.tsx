@@ -630,7 +630,7 @@ export function PluginsConfig({
   cwd: string;
   sessionId: string | null;
   onReloaded?: () => void;
-  onControllerChange(controller: SettingsSectionController): void;
+  onControllerChange?(controller: SettingsSectionController): void;
 }) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
@@ -796,7 +796,7 @@ export function PluginsConfig({
   }), [handleBack, isMobile, mobileView]);
 
   useEffect(() => {
-    onControllerChange(controller);
+    onControllerChange?.(controller);
   }, [controller, onControllerChange]);
 
   const openDetail = (id: string | null, add = false) => {

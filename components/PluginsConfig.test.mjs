@@ -5,7 +5,8 @@ import test from "node:test";
 const source = await readFile(new URL("./PluginsConfig.tsx", import.meta.url), "utf8");
 
 test("PluginsConfig is Settings-only master-detail and keeps POST payloads", () => {
-  assert.match(source, /onControllerChange\(controller: SettingsSectionController\)/);
+  assert.match(source, /onControllerChange\?\(controller: SettingsSectionController\)/);
+  assert.match(source, /onControllerChange\?\.\(controller\)/);
   assert.doesNotMatch(source, /embedded = false/);
   assert.match(source, /<PluginsNavigator/);
   assert.match(source, /fetch\(`\/api\/plugins\?cwd=\$\{encodeURIComponent\(cwd\)\}`\)/);
