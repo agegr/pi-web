@@ -119,6 +119,32 @@ html.dark {
 .codex-dialog-button[data-variant="primary"] { border-color: var(--accent); color: #fff; background: var(--accent); font-weight: 600; }
 .codex-dialog-button[data-variant="danger"] { border-color: #b44747; color: #fff; background: #b44747; font-weight: 600; }
 .codex-dialog-button:disabled { opacity: .5; cursor: default; }
+.codex-dialog-message { white-space: pre-wrap; }
+.codex-dialog-options { display: grid; gap: 5px; }
+.codex-dialog-option {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  background: var(--bg-panel);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.codex-dialog-option:hover { background: var(--bg-hover); }
+.codex-dialog-option-key { width: 19px; height: 19px; display: inline-grid; place-items: center; flex: 0 0 auto; border: 1px solid var(--border); border-radius: 4px; color: var(--text-dim); font: 10px var(--font-mono); }
+.codex-dialog-input,
+.codex-dialog-editor { width: 100%; border: 1px solid var(--border); border-radius: 5px; color: var(--text); background: var(--bg-panel); font: inherit; }
+.codex-dialog-input { height: 36px; padding: 0 10px; font-size: 13px; }
+.codex-dialog-editor { min-height: 220px; max-height: min(520px, calc(100dvh - 180px)); padding: 10px; resize: vertical; font: 13px/1.55 var(--font-mono); }
+.codex-dialog-terminal-body { position: relative; padding: 0; }
+.codex-dialog-terminal { min-height: 280px; max-height: calc(min(760px, 100dvh - 32px) - 49px); margin: 0; padding: 14px; overflow: auto; color: var(--text); background: var(--bg-panel); font: 13px/1.45 var(--font-mono); white-space: pre; }
 
 @media (max-width: 640px) {
   .codex-dialog[data-size="confirm"],
@@ -148,6 +174,10 @@ html.dark {
   .codex-dialog-body { padding: 14px 12px; }
   .codex-dialog-footer { min-height: 60px; padding: 8px 12px max(8px, env(safe-area-inset-bottom)); }
   .codex-dialog-button { min-height: 44px; }
+  .codex-dialog-option { min-height: 44px; }
+  .codex-dialog-input { height: 44px; font-size: 16px; }
+  .codex-dialog-editor { min-height: 180px; font-size: 16px; }
+  .codex-dialog-terminal { height: calc(100dvh - 52px); max-height: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

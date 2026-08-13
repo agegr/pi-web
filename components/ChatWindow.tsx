@@ -13,6 +13,7 @@ import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { ConversationPlan, getConversationPlanWidget } from "./ConversationPlan";
 import { GoalPanel } from "./GoalPanel";
+import { DialogShell } from "./DialogShell";
 import { filterGoalStatuses, filterGoalWidgets, resolveGoalPanelModel } from "@/lib/goal-panel";
 import { useI18n } from "@/hooks/useI18n";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
@@ -1126,157 +1127,60 @@ function ExtensionDialog({
   };
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        inset: 0,
-        zIndex: 90,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 20,
-        background: "rgba(0,0,0,0.18)",
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        style={{
-          width: "min(560px, 100%)",
-          border: "1px solid var(--border)",
-          borderRadius: 8,
-          background: "var(--bg)",
-          boxShadow: "0 20px 60px rgba(0,0,0,0.28)",
-          overflow: "hidden",
-        }}
-      >
-        <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650 }}>{request.title}</div>
-          <div style={{ marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>{t("chat.extensionRequest")}</div>
-        </div>
-
-        <div style={{ padding: 14 }}>
-          {request.method === "confirm" && (
-            <div style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{request.message}</div>
-          )}
-          {request.method === "select" && (
-            <div style={{ display: "grid", gap: 8 }}>
-              {request.options.map((option) => (
-                <button
-                  key={option}
-                  onClick={() => onRespond(request, { value: option })}
-                  style={{
-                    width: "100%",
-                    padding: "9px 10px",
-                    borderRadius: 7,
-                    border: "1px solid var(--border)",
-                    background: "var(--bg-panel)",
-                    color: "var(--text)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    fontSize: 13,
-                  }}
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
-          )}
-          {request.method === "input" && (
-            <input
-              autoFocus
-              value={value}
-              placeholder={request.placeholder}
-              onChange={(e) => setValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") submitValue();
-                if (e.key === "Escape") onRespond(request, { cancelled: true });
-              }}
-              style={{
-                width: "100%",
-                padding: "9px 10px",
-                borderRadius: 7,
-                border: "1px solid var(--border)",
-                background: "var(--bg-panel)",
-                color: "var(--text)",
-                outline: "none",
-                fontSize: 13,
-              }}
-            />
-          )}
-          {request.method === "editor" && (
-            <textarea
-              autoFocus
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") onRespond(request, { cancelled: true });
-                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submitValue();
-              }}
-              style={{
-                width: "100%",
-                minHeight: 220,
-                padding: 10,
-                borderRadius: 7,
-                border: "1px solid var(--border)",
-                background: "var(--bg-panel)",
-                color: "var(--text)",
-                outline: "none",
-                resize: "vertical",
-                fontSize: 13,
-                lineHeight: 1.55,
-                fontFamily: "var(--font-mono)",
-              }}
-            />
-          )}
-        </div>
-
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "10px 14px", borderTop: "1px solid var(--border)", background: "var(--bg-panel)" }}>
-          <button
-            onClick={() => onRespond(request, { cancelled: true })}
-            style={{
-              padding: "6px 10px",
-              borderRadius: 6,
-              border: "1px solid var(--border)",
-              background: "var(--bg)",
-              color: "var(--text-muted)",
-              cursor: "pointer",
-            }}
-          >
-             {t("chat.cancel")}
-          </button>
+    <DialogShell
+      size={request.method === "editor" ? "editor" : "request"}
+      title={request.title}
+      subtitle={t("chat.extensionRequest")}
+      ariaLabel={t("chat.cancel")}
+      onClose={() => onRespond(request, { cancelled: true })}
+      footer={(
+        <>
+          <button type="button" className="codex-dialog-button" onClick={() => onRespond(request, { cancelled: true })}>{t("chat.cancel")}</button>
           {request.method === "confirm" ? (
-            <button
-              onClick={submitValue}
-              style={{
-                padding: "6px 10px",
-                borderRadius: 6,
-                border: "1px solid var(--accent)",
-                background: "var(--accent)",
-                color: "#fff",
-                cursor: "pointer",
-              }}
-            >
-               {t("chat.confirm")}
-            </button>
+            <button type="button" className="codex-dialog-button" data-variant="primary" onClick={submitValue}>{t("chat.confirm")}</button>
           ) : request.method !== "select" ? (
-            <button
-              onClick={submitValue}
-              style={{
-                padding: "6px 10px",
-                borderRadius: 6,
-                border: "1px solid var(--accent)",
-                background: "var(--accent)",
-                color: "#fff",
-                cursor: "pointer",
-              }}
-            >
-               {t("chat.submit")}
-            </button>
+            <button type="button" className="codex-dialog-button" data-variant="primary" onClick={submitValue}>{t("chat.submit")}</button>
           ) : null}
+        </>
+      )}
+    >
+      {request.method === "confirm" && <div className="codex-dialog-message">{request.message}</div>}
+      {request.method === "select" && (
+        <div className="codex-dialog-options">
+          {request.options.map((option, index) => (
+            <button key={option} type="button" className="codex-dialog-option" onClick={() => onRespond(request, { value: option })}>
+              <span className="codex-dialog-option-key">{index + 1}</span>
+              <span>{option}</span>
+            </button>
+          ))}
         </div>
-      </div>
-    </div>
+      )}
+      {request.method === "input" && (
+        <input
+          className="codex-dialog-input"
+          autoFocus
+          value={value}
+          placeholder={request.placeholder}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submitValue();
+            if (e.key === "Escape") onRespond(request, { cancelled: true });
+          }}
+        />
+      )}
+      {request.method === "editor" && (
+        <textarea
+          className="codex-dialog-editor"
+          autoFocus
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") onRespond(request, { cancelled: true });
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submitValue();
+          }}
+        />
+      )}
+    </DialogShell>
   );
 }
 
@@ -1307,38 +1211,16 @@ function ExtensionCustomPanel({
   }, [request.id]);
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        inset: 0,
-        zIndex: 95,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 20,
-        background: "rgba(0,0,0,0.18)",
-      }}
+    <DialogShell
+      size="terminal"
+      title={t("chat.extensionPanel")}
+      ariaLabel={t("chat.close")}
+      onClose={() => onInput(request, "\x03")}
+      showClose
+      bodyClassName="codex-dialog-terminal-body"
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        onClick={(event) => {
-          if (!(event.target as HTMLElement).closest("button")) inputRef.current?.focus();
-        }}
-        style={{
-          position: "relative",
-          width: "min(920px, 100%)",
-          maxHeight: "min(760px, calc(100vh - 40px))",
-          border: "1px solid var(--border)",
-          borderRadius: 8,
-          background: "var(--bg)",
-          boxShadow: "0 20px 60px rgba(0,0,0,0.28)",
-          overflow: "hidden",
-          outline: "none",
-        }}
-      >
-        <textarea
-          ref={inputRef}
+      <textarea
+        ref={inputRef}
            aria-label={t("chat.extensionInput")}
           autoCapitalize="off"
           autoComplete="off"
@@ -1385,45 +1267,14 @@ function ExtensionCustomPanel({
             pointerEvents: "none",
           }}
         />
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
-           <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 650 }}>{t("chat.extensionPanel")}</div>
-          <button
-            onClick={() => onInput(request, "\x03")}
-            style={{
-              padding: "5px 9px",
-              borderRadius: 6,
-              border: "1px solid var(--border)",
-              background: "var(--bg-panel)",
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              fontSize: 12,
-            }}
-          >
-             {t("chat.close")}
-          </button>
-        </div>
-        <pre
-          style={{
-            margin: 0,
-            padding: 14,
-            maxHeight: "calc(min(760px, 100vh - 40px) - 48px)",
-            overflow: "auto",
-            background: "var(--bg-panel)",
-            color: "var(--text)",
-            fontFamily: "var(--font-mono)",
-            fontSize: 13,
-            lineHeight: 1.45,
-            whiteSpace: "pre",
-          }}
-        >
+      <pre className="codex-dialog-terminal">
           {(displayLines.length ? displayLines : [""]).map((line, index, allLines) => (
             <Fragment key={index}>
               {renderAnsiLine(line, `line-${index}`)}
               {index < allLines.length - 1 ? "\n" : null}
             </Fragment>
           ))}
-        </pre>
-      </div>
-    </div>
+      </pre>
+    </DialogShell>
   );
 }
