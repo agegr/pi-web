@@ -182,3 +182,123 @@ test("thinking level overrides keep explicit default, disabled, and custom contr
   assert.match(editor, /state === "null"/);
   assert.match(editor, /state === "string"/);
 });
+
+test("ModelsConfig is a Settings-only master-detail surface", () => {
+  assert.match(source, /export function ModelsConfig\(\{ onControllerChange \}: ModelsConfigProps\)/);
+  assert.doesNotMatch(source, /embedded = false/);
+  assert.doesNotMatch(source, /\{ onClose \}/);
+  assert.match(source, /<ModelsConfigNavigator/);
+  assert.match(source, /models-settings-layout/);
+  assert.match(source, /models-settings-detail/);
+  // Old stacked mobile tree is gone.
+  assert.doesNotMatch(source, /maxHeight: isMobile \? "40vh"/);
+  assert.doesNotMatch(source, /flexDirection: isMobile \? "column" : "row"/);
+});
+
+test("initial load stores both baseline and draft, and Save reloads the normalized document", () => {
+  assert.match(source, /setBaselineConfig\(normalized\);/);
+  assert.match(source, /setConfig\(normalized\);/);
+  assert.match(source, /const dirty = isModelsConfigDirty\(baselineConfig, config\);/);
+  assert.match(source, /\/\/ The server normalizes the document/);
+  assert.match(source, /applySavedModelsConfig\(config, configRef\.current, normalized\)/);
+  assert.match(source, /disabled=\{!dirty \|\| saving \|\| savedOk\}/);
+  assert.match(source, /setSelection\(\(current\) => resolveModelsSelection\(current, next, oauthProviders, apiKeyProviders\)\);/);
+});
+
+test("save errors keep the draft dirty", () => {
+  assert.match(source, /if \(!res\.ok \|\| d\.error\) \{\n\s*setSaveError\(d\.error \?\? `HTTP \$\{res\.status\}`\);/);
+  assert.match(source, /setSaveError\(e instanceof Error \? e\.message : String\(e\)\);/);
+});
+
+test("mobile list/detail never render together and back preserves state", () => {
+  assert.match(source, /useState<"list" \| "detail">\("list"\)/);
+  assert.match(source, /data-mobile-view=\{isMobile \? mobileView : undefined\}/);
+  assert.match(source, /if \(isMobile\) setMobileView\("detail"\);/);
+  assert.match(source, /models-settings-back/);
+  assert.match(source, /onClick=\{\(\) => setMobileView\("list"\)\}/);
+});
+
+test("Models publishes a draft controller with nested back priority", () => {
+  assert.match(source, /useMemo<ModelsDraftController>\(\(\) => \(\{/);
+  assert.match(source, /if \(pickerOpen\) \{ setPickerOpen\(false\); return true; \}/);
+  assert.match(source, /if \(pendingDelete\) \{ setPendingDelete\(null\); return true; \}/);
+  assert.match(source, /if \(isMobile && mobileView === "detail"\) \{ setMobileView\("list"\); return true; \}/);
+  assert.match(source, /mobileDetailOpen: isMobile && mobileView === "detail",/);
+  assert.match(source, /onControllerChange\(controller\);/);
+});
+
+test("dirty drafts register beforeunload only while unsaved", () => {
+  assert.match(source, /addEventListener\("beforeunload", onBeforeUnload\)/);
+  assert.match(source, /if \(!dirty\) return;/);
+});
+
+test("provider and model deletion is confirmed and stays a draft until Save", () => {
+  assert.match(source, /requestDelete\(\{ type: "provider", name: selection\.name \}\)/);
+  assert.match(source, /requestDelete\(\{ type: "model", providerName: selection\.providerName, index: selection\.index \}\)/);
+  assert.match(source, /const confirmDelete = useCallback\(\(\) => \{/);
+  assert.match(source, /deleteProvider\(pendingDelete\.name\)/);
+  assert.match(source, /removeModel\(pendingDelete\.providerName, pendingDelete\.index\)/);
+  assert.match(source, /t\("models\.deleteDraftNote"\)/);
+  assert.match(source, /ref=\{deleteDialogRef\}/);
+});
+
+test("provider detail keeps import/discovery common and headers advanced", () => {
+  const providerDetail = source.slice(
+    source.indexOf("function ProviderDetail"),
+    source.indexOf("// ── ThinkingLevelMap editor"),
+  );
+  assert.match(providerDetail, /aria-controls="provider-advanced-settings"/);
+  assert.match(providerDetail, /models\.advancedSettings/);
+  assert.match(providerDetail, /models-settings-danger-zone/);
+  assert.match(providerDetail, /t\("models\.deleteProvider"\)/);
+  assert.match(providerDetail, /models\.modelCount/);
+});
+
+test("discard repairs selection and returns to the list when nothing remains", () => {
+  assert.match(source, /resolveModelsSelection\(current, baselineConfig, oauthProviders, apiKeyProviders\)/);
+  assert.match(source, /if \(!next\) setMobileView\("list"\)/);
+});
+
+test("auth list refresh repairs a disconnected account selection", () => {
+  assert.match(source, /resolveModelsSelection\(current, configRef\.current, oauthProviders, apiKeyProviders\)/);
+  assert.match(
+    source,
+    /configRef\.current, oauthProviders, apiKeyProviders\);\s*if \(!next\) setMobileView\("list"\)/,
+  );
+  assert.match(source, /\}, \[oauthProviders, apiKeyProviders\]\);/);
+});
+
+test("oauth and API-key loaders keep independent error state", () => {
+  assert.match(source, /setOauthError\(null\)/);
+  assert.match(source, /setApiKeyError\(null\)/);
+  assert.match(source, /setOauthError\(t\("models\.accountsLoadFailed"\)\)/);
+  assert.match(source, /setApiKeyError\(t\("models\.accountsLoadFailed"\)\)/);
+  assert.doesNotMatch(source, /setAccountsError/);
+});
+
+test("accounts retry does not reload custom config, and config retry skips dirty drafts", () => {
+  assert.match(source, /onRetryAccounts=\{refreshAuthProviders\}/);
+  assert.match(source, /onRetryConfig=\{\(\) => \{ if \(!dirty\) void loadConfig\(\); \}\}/);
+});
+
+test("add-provider picker is a modal dialog that restores focus", () => {
+  const picker = source.slice(
+    source.indexOf("function AddProviderPicker"),
+    source.indexOf("// ── Main component"),
+  );
+  assert.match(picker, /<dialog/);
+  assert.match(picker, /dialog\.showModal\(\)/);
+  assert.match(picker, /previousFocusRef\.current\?\.focus\(\)/);
+  assert.match(picker, /aria-label=\{t\("i18n\.addProvider"\)\}/);
+});
+
+test("model detail moves deletion to a labelled danger section", () => {
+  const modelDetail = source.slice(
+    source.indexOf("function ModelDetail"),
+    source.indexOf("// ── OAuth detail"),
+  );
+  assert.match(modelDetail, /models-settings-danger-zone/);
+  assert.match(modelDetail, /t\("models\.deleteModel"\)/);
+  assert.doesNotMatch(modelDetail, /t\("i18n\.remove"\)/);
+  assert.match(modelDetail, /aria-controls="model-advanced-settings"/);
+});

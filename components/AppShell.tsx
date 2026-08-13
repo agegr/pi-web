@@ -255,6 +255,9 @@ export function AppShell() {
   // settings, top panel, toolbar menu) is open, trap the history so back closes
   // the topmost overlay instead of leaving the app. Each popstate closes one
   // layer and re-arms the trap while any other layer stays open.
+  // Settings registers a nested handler (Models picker/confirmation/detail +
+  // dirty-exit dialog); when it consumes the back, Settings stays open.
+  const settingsBackHandlerRef = useRef<(() => boolean) | null>(null);
   const mobileOverlaysRef = useRef({ sidebarOpen, mobileToolbarMoreOpen, rightPanelOpen, settingsOpen, activeTopPanel });
   mobileOverlaysRef.current = { sidebarOpen, mobileToolbarMoreOpen, rightPanelOpen, settingsOpen, activeTopPanel };
   useEffect(() => {
@@ -268,12 +271,18 @@ export function AppShell() {
       // Close the topmost layer; the ref still holds pre-close values, so
       // exclude the closed layer when checking whether to re-arm.
       let closed: "settings" | "right" | "panel" | "more" | "sidebar" | null = null;
-      if (overlays.settingsOpen) { setSettingsOpen(false); closed = "settings"; }
+      let settingsConsumed = false;
+      if (overlays.settingsOpen) {
+        settingsConsumed = settingsBackHandlerRef.current?.() ?? false;
+        if (!settingsConsumed) setSettingsOpen(false);
+        closed = "settings";
+      }
       else if (overlays.rightPanelOpen) { setRightPanelOpen(false); closed = "right"; }
       else if (overlays.activeTopPanel !== null) { setActiveTopPanel(null); closed = "panel"; }
       else if (overlays.mobileToolbarMoreOpen) { setMobileToolbarMoreOpen(false); closed = "more"; }
       else if (overlays.sidebarOpen) { setSidebarOpen(false); closed = "sidebar"; }
-      const remaining = (closed !== "settings" && overlays.settingsOpen)
+      const remaining = settingsConsumed
+        || (closed !== "settings" && overlays.settingsOpen)
         || (closed !== "right" && overlays.rightPanelOpen)
         || (closed !== "panel" && overlays.activeTopPanel !== null)
         || (closed !== "more" && overlays.mobileToolbarMoreOpen)
@@ -2042,14 +2051,8 @@ export function AppShell() {
         onLocaleChange={setLocale}
         soundEnabled={soundEnabled}
         onSoundToggle={onSoundToggle}
-        projectTrust={projectTrust}
-        projectTrustBusy={projectTrustBusy}
-        projectTrustError={projectTrustError}
-        onTrustProject={() => {
-          setProjectTrustError(null);
-          setProjectTrustDialogOpen(true);
-        }}
         onClose={() => setSettingsOpen(false)}
+        onRegisterSettingsBack={(handler) => { settingsBackHandlerRef.current = handler; }}
         onModelsChanged={() => setModelsRefreshKey((key) => key + 1)}
         onSessionReloaded={() => setSessionKey((key) => key + 1)}
         onProjectsChanged={() => setRefreshKey((key) => key + 1)}

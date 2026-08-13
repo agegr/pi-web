@@ -10,13 +10,13 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { Archive, ChevronRight, Ellipsis, Folder, FolderPlus, LoaderCircle, Pin, Plus, RefreshCw, Search, X } from "lucide-react";
+import { Archive, ChevronRight, Ellipsis, Folder, FolderPlus, LoaderCircle, MessageSquare, Pin, Plus, RefreshCw, Search, X } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
+import { filterProjectSessions, matchesSidebarQuery, sidebarProjectName, sidebarSessionTitle } from "@/lib/codex-sidebar-search";
 import type { ProjectPreference } from "@/lib/project-registry";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { activeSessionRoots } from "@/lib/session-relations";
-import { skillExpansionToCommand } from "@/lib/slash-display";
 import type { SessionInfo } from "@/lib/types";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer } from "./FileExplorer";
@@ -52,6 +52,10 @@ interface WorktreeEntry {
   isMain: boolean;
 }
 
+type QuickResult =
+  | { type: "project"; project: ProjectView }
+  | { type: "session"; session: SessionInfo; project: ProjectView };
+
 const COLLAPSED_STORAGE_KEY = "pi-web:collapsed-projects";
 const UNREAD_STORAGE_KEY = "pi-web:unread-session-ids";
 
@@ -77,12 +81,11 @@ function writeStringSet(key: string, values: Set<string>): void {
 }
 
 function projectName(path: string): string {
-  return path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path;
+  return sidebarProjectName(path);
 }
 
 function sessionTitle(session: SessionInfo): string {
-  const firstMessage = skillExpansionToCommand(session.firstMessage) ?? session.firstMessage;
-  return session.name || firstMessage.slice(0, 72) || session.id.slice(0, 12);
+  return sidebarSessionTitle(session);
 }
 
 function newDraftId(): string {
@@ -145,6 +148,8 @@ export function CodexSidebar({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [quickQuery, setQuickQuery] = useState("");
+  const [quickActiveIndex, setQuickActiveIndex] = useState(0);
   const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
   const [directoryError, setDirectoryError] = useState<string | null>(null);
   const [directoryBusy, setDirectoryBusy] = useState(false);
@@ -167,6 +172,9 @@ export function CodexSidebar({
   const previousRawRunningRef = useRef<Set<string>>(new Set());
   const restoredRef = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const quickDialogRef = useRef<HTMLDialogElement>(null);
+  const quickInputRef = useRef<HTMLInputElement>(null);
+  const quickPreviousFocusRef = useRef<HTMLElement | null>(null);
 
   const loadData = useCallback(async (force = false) => {
     try {
@@ -250,11 +258,31 @@ export function CodexSidebar({
     }).sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.order - b.order || b.latestModified.localeCompare(a.latestModified));
   }, [discovered, preferences]);
 
-  const visibleProjects = projects.filter((project) => {
-    if (project.removed || project.archived) return false;
-    const query = filter.trim().toLowerCase();
-    return !query || (project.name ?? projectName(project.path)).toLowerCase().includes(query) || project.path.toLowerCase().includes(query);
-  });
+  const filterQuery = filter.trim().toLowerCase();
+  const visibleProjects = projects.filter((project) => filterProjectSessions(project, filterQuery) !== null);
+
+  const activeProjects = useMemo(
+    () => projects.filter((project) => !project.removed && !project.archived),
+    [projects],
+  );
+  const quickSearch = quickQuery.trim().toLowerCase();
+  const quickProjectResults = useMemo(() => activeProjects
+    .filter((project) => !quickSearch || matchesSidebarQuery([project.name ?? projectName(project.path), project.path], quickSearch))
+    .slice(0, 8), [activeProjects, quickSearch]);
+  const quickSessionResults = useMemo(() => visibleSessions.filter((session) => {
+    const project = activeProjects.find((candidate) => candidate.path === (session.projectRoot ?? session.cwd));
+    return project && (!quickSearch || matchesSidebarQuery([
+      sessionTitle(session),
+      session.firstMessage,
+    ], quickSearch));
+  }).sort((a, b) => b.modified.localeCompare(a.modified)).slice(0, 12), [activeProjects, quickSearch, visibleSessions]);
+  const quickResults = useMemo<QuickResult[]>(() => [
+    ...quickProjectResults.map((project): QuickResult => ({ type: "project", project })),
+    ...quickSessionResults.flatMap((session): QuickResult[] => {
+      const project = activeProjects.find((candidate) => candidate.path === (session.projectRoot ?? session.cwd));
+      return project ? [{ type: "session", session, project }] : [];
+    }),
+  ], [activeProjects, quickProjectResults, quickSessionResults]);
 
   const selectedSessionProject = sessions.find((session) => session.cwd === selectedCwd)?.projectRoot;
   const selectedProject = projects.find((project) => project.path === (
@@ -323,6 +351,65 @@ export function CodexSidebar({
     setSelectedCwd(session.cwd);
     onSelectSession(session);
   }, [onSelectSession]);
+
+  const closeQuickSwitcher = useCallback(() => {
+    quickDialogRef.current?.close();
+  }, []);
+
+  const openQuickSwitcher = useCallback((trigger?: HTMLElement | null) => {
+    const dialog = quickDialogRef.current;
+    if (!dialog || dialog.open) return;
+    quickPreviousFocusRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setQuickQuery("");
+    setQuickActiveIndex(0);
+    dialog.showModal();
+    requestAnimationFrame(() => quickInputRef.current?.focus());
+  }, []);
+
+  const chooseQuickResult = useCallback((result: QuickResult) => {
+    if (result.type === "session") selectSession(result.session);
+    else {
+      setSelectedCwd(result.project.path);
+      setCollapsed((current) => {
+        const next = new Set(current);
+        next.delete(result.project.path);
+        return next;
+      });
+    }
+    closeQuickSwitcher();
+  }, [closeQuickSwitcher, selectSession]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "k" && (event.metaKey || event.ctrlKey) && !event.altKey) {
+        const target = event.target;
+        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || (target instanceof HTMLElement && target.isContentEditable)) return;
+        event.preventDefault();
+        openQuickSwitcher();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [openQuickSwitcher]);
+
+  useEffect(() => {
+    setQuickActiveIndex((current) => Math.min(current, Math.max(0, quickResults.length - 1)));
+  }, [quickResults.length]);
+
+  useEffect(() => {
+    quickDialogRef.current?.querySelector<HTMLElement>("[data-active='true']")?.scrollIntoView({ block: "nearest" });
+  }, [quickActiveIndex]);
+
+  useEffect(() => {
+    const dialog = quickDialogRef.current;
+    if (!dialog) return;
+    const restoreFocus = () => {
+      quickPreviousFocusRef.current?.focus();
+      quickPreviousFocusRef.current = null;
+    };
+    dialog.addEventListener("close", restoreFocus);
+    return () => dialog.removeEventListener("close", restoreFocus);
+  }, []);
 
   useEffect(() => {
     if (selectedCwdProp) setSelectedCwd(selectedCwdProp);
@@ -508,6 +595,9 @@ export function CodexSidebar({
       <div className="codex-sidebar-search-wrap">
         <Search size={14} aria-hidden="true" />
         <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={t("sidebar.searchProjects")} aria-label={t("sidebar.searchProjects")} />
+        <button type="button" className="codex-sidebar-search-shortcut" aria-label={t("sidebar.quickSwitcher")} title={t("sidebar.quickSwitcher")} onClick={(event) => openQuickSwitcher(event.currentTarget)}>
+          <kbd>⌘K</kbd>
+        </button>
       </div>
 
       <div className="codex-sidebar-section-heading">{t("sidebar.projects")}</div>
@@ -519,7 +609,8 @@ export function CodexSidebar({
           <div className="codex-sidebar-empty">{t("sidebar.noProjects")}</div>
         )}
         {visibleProjects.map((project) => {
-          const open = !collapsed.has(project.path);
+          const matchingSessions = filterProjectSessions(project, filterQuery) ?? [];
+          const open = filterQuery ? matchingSessions.length > 0 : !collapsed.has(project.path);
           const selected = selectedProject?.path === project.path;
           const runningCount = project.sessions.filter((session) => activeRootIds.has(session.id)).length;
           const unreadCount = project.sessions.filter((session) => unreadIds.has(session.id)).length;
@@ -618,8 +709,8 @@ export function CodexSidebar({
 
               {open && (
                 <div className="codex-project-sessions" role="group">
-                  {project.sessions.length === 0 && <div className="codex-project-no-sessions">{t("sidebar.noSessions")}</div>}
-                  {project.sessions.map((session) => (
+                  {matchingSessions.length === 0 && <div className="codex-project-no-sessions">{t("sidebar.noSessions")}</div>}
+                  {matchingSessions.map((session) => (
                     <SessionRow
                       key={session.id}
                       session={session}
@@ -706,6 +797,62 @@ export function CodexSidebar({
           </div>
         );
       })(), document.body)}
+      <dialog
+        ref={quickDialogRef}
+        className="codex-quick-switcher"
+        aria-label={t("sidebar.quickSwitcher")}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) closeQuickSwitcher();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") { event.preventDefault(); closeQuickSwitcher(); return; }
+          if (!quickResults.length) return;
+          if (event.key === "ArrowDown") { event.preventDefault(); setQuickActiveIndex((current) => (current + 1) % quickResults.length); }
+          if (event.key === "ArrowUp") { event.preventDefault(); setQuickActiveIndex((current) => (current - 1 + quickResults.length) % quickResults.length); }
+          if (event.key === "Enter") { event.preventDefault(); chooseQuickResult(quickResults[quickActiveIndex]); }
+        }}
+      >
+        <div className="codex-quick-switcher-shell">
+          <div className="codex-quick-switcher-search">
+            <Search size={16} aria-hidden="true" />
+            <input
+              ref={quickInputRef}
+              value={quickQuery}
+              onChange={(event) => { setQuickQuery(event.target.value); setQuickActiveIndex(0); }}
+              placeholder={t("sidebar.quickSwitcherHint")}
+              aria-label={t("sidebar.quickSwitcherHint")}
+            />
+            <kbd>Esc</kbd>
+          </div>
+          <div className="codex-quick-switcher-results" role="listbox" aria-label={t("sidebar.quickSwitcher")}>
+            {quickResults.length === 0 && <div className="codex-sidebar-empty">{t("sidebar.noMatches")}</div>}
+            {quickResults.map((result, index) => {
+              const title = result.type === "project" ? result.project.name ?? projectName(result.project.path) : sessionTitle(result.session);
+              const subtitle = result.type === "project" ? result.project.path : result.project.name ?? projectName(result.project.path);
+              return (
+                <div key={`${result.type}:${result.type === "project" ? result.project.path : result.session.id}`}>
+                  {(index === 0 || index === quickProjectResults.length) && (
+                    <div className="codex-quick-switcher-group">
+                      {result.type === "project" ? t("sidebar.projectsGroup") : t("sidebar.sessionsGroup")}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={index === quickActiveIndex}
+                    data-active={index === quickActiveIndex}
+                    onMouseEnter={() => setQuickActiveIndex(index)}
+                    onClick={() => chooseQuickResult(result)}
+                  >
+                    {result.type === "project" ? <Folder size={15} aria-hidden="true" /> : <MessageSquare size={15} aria-hidden="true" />}
+                    <span><strong>{title}</strong><small>{subtitle}</small></span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </dialog>
     </div>
   );
 }

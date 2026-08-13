@@ -6,8 +6,6 @@ import {
   Archive,
   ArchiveRestore,
   Bell,
-  Bot,
-  Check,
   Cpu,
   FolderCog,
   Info,
@@ -16,7 +14,6 @@ import {
   Monitor,
   Moon,
   Plug,
-  ShieldCheck,
   SlidersHorizontal,
   Sun,
   Volume2,
@@ -25,13 +22,14 @@ import {
 import { useI18n } from "@/hooks/useI18n";
 import type { ThemePreference } from "@/hooks/useTheme";
 import type { Locale, LocalePlugin } from "@/lib/i18n/types";
-import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ProjectPreference } from "@/lib/project-registry";
 import { ModelsConfig } from "./ModelsConfig";
+import type { ModelsDraftController } from "./models-config/models-config-types";
+import type { SettingsSectionController } from "./resource-settings/resource-settings-types";
 import { PluginsConfig } from "./PluginsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 
-type SettingsSection = "general" | "project" | "archived" | "models" | "skills" | "plugins";
+type SettingsSection = "general" | "archived" | "models" | "skills" | "plugins";
 
 interface Props {
   cwd: string | null;
@@ -43,20 +41,16 @@ interface Props {
   onLocaleChange: (locale: Locale) => void;
   soundEnabled: boolean;
   onSoundToggle: () => void;
-  projectTrust: ProjectTrustStatus | null;
-  projectTrustBusy: boolean;
-  projectTrustError: string | null;
-  onTrustProject: () => void;
   onClose: () => void;
   onModelsChanged: () => void;
   onSessionReloaded: () => void;
   onProjectsChanged: () => void;
+  onRegisterSettingsBack: (handler: () => boolean) => void;
 }
 
 function SectionIcon({ section }: { section: SettingsSection }) {
   const icons = {
     general: SlidersHorizontal,
-    project: FolderCog,
     archived: Archive,
     models: Cpu,
     skills: Layers3,
@@ -76,14 +70,11 @@ export function SettingsPage({
   onLocaleChange,
   soundEnabled,
   onSoundToggle,
-  projectTrust,
-  projectTrustBusy,
-  projectTrustError,
-  onTrustProject,
   onClose,
   onModelsChanged,
   onSessionReloaded,
   onProjectsChanged,
+  onRegisterSettingsBack,
 }: Props) {
   const { t } = useI18n();
   const [section, setSection] = useState<SettingsSection>("general");
@@ -92,19 +83,81 @@ export function SettingsPage({
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [restoringProjects, setRestoringProjects] = useState<Set<string>>(new Set());
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const [modelsController, setModelsController] = useState<ModelsDraftController | null>(null);
+  const [skillsController, setSkillsController] = useState<SettingsSectionController | null>(null);
+  const [pluginsController, setPluginsController] = useState<SettingsSectionController | null>(null);
+  const [discardDialogOpen, setDiscardDialogOpen] = useState(false);
+  const [pendingExit, setPendingExit] = useState<(() => void) | null>(null);
+  const discardDialogRef = useRef<HTMLDialogElement>(null);
+
   const close = useCallback(() => {
     onModelsChanged();
     onClose();
   }, [onClose, onModelsChanged]);
 
+  // One exit-request path: every Settings close/navigation action goes through
+  // here so unsaved custom model drafts are never lost silently.
+  const requestCloseOrNavigate = useCallback((action: () => void) => {
+    if (modelsController?.dirty) {
+      setPendingExit(() => action);
+      setDiscardDialogOpen(true);
+    } else {
+      action();
+    }
+  }, [modelsController]);
+
+  useEffect(() => {
+    const dialog = discardDialogRef.current;
+    if (!dialog) return;
+    if (discardDialogOpen && !dialog.open) dialog.showModal();
+    else if (!discardDialogOpen && dialog.open) dialog.close();
+  }, [discardDialogOpen]);
+
+  const handleDiscardConfirm = useCallback(() => {
+    const action = pendingExit;
+    setDiscardDialogOpen(false);
+    setPendingExit(null);
+    setModelsController(null);
+    modelsController?.discard();
+    action?.();
+  }, [modelsController, pendingExit]);
+
+  const activeController = section === "models"
+    ? modelsController
+    : section === "skills"
+      ? skillsController
+      : section === "plugins"
+        ? pluginsController
+        : null;
+
   useEffect(() => {
     closeButtonRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
+      if (event.key !== "Escape") return;
+      if (discardDialogOpen) return; // native <dialog> handles its own Escape
+      if (activeController?.handleBack()) return;
+      requestCloseOrNavigate(close);
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [close]);
+  }, [activeController, close, discardDialogOpen, requestCloseOrNavigate]);
+
+  const handleSettingsBack = useCallback((): boolean => {
+    if (activeController?.handleBack()) return true;
+    if (modelsController?.dirty) {
+      setPendingExit(() => close);
+      setDiscardDialogOpen(true);
+      return true;
+    }
+    return false;
+  }, [activeController, close, modelsController]);
+
+  useEffect(() => {
+    onRegisterSettingsBack(handleSettingsBack);
+  }, [onRegisterSettingsBack, handleSettingsBack]);
 
   const loadProjects = useCallback(async (clearError = true) => {
     setProjectsLoading(true);
@@ -152,7 +205,6 @@ export function SettingsPage({
 
   const sections: { id: SettingsSection; label: string; disabled: boolean }[] = [
     { id: "general", label: t("settings.general"), disabled: false },
-    { id: "project", label: t("settings.project"), disabled: false },
     { id: "archived", label: t("sidebar.archived"), disabled: false },
     { id: "models", label: t("common.models"), disabled: false },
     { id: "skills", label: t("common.skills"), disabled: !cwd },
@@ -199,25 +251,6 @@ export function SettingsPage({
         </section>
       </div>
     );
-  } else if (section === "project") {
-    content = !cwd ? (
-      <div className="settings-page-empty"><FolderCog size={20} aria-hidden="true" /><strong>{t("settings.projectRequired")}</strong><span>{t("settings.projectSettingsDescription")}</span></div>
-    ) : (
-      <div className="settings-form-page">
-        <div className="settings-form-heading"><FolderCog size={18} aria-hidden="true" /><div><h3>{t("settings.project")}</h3><p>{t("settings.projectDescription")}</p></div></div>
-        <section className="settings-form-section settings-project-path">
-          <div className="settings-form-label"><Bot size={16} aria-hidden="true" /><div><strong>{t("settings.activeProject")}</strong><span>{t("settings.activeProjectDescription")}</span></div></div>
-          <code title={cwd}>{cwd}</code>
-        </section>
-        <section className="settings-form-section">
-          <div className="settings-form-label"><ShieldCheck size={16} aria-hidden="true" /><div><strong>{t("settings.projectTrust")}</strong><span>{projectTrust?.requiresTrust ? (projectTrust.trusted ? t("settings.projectTrusted") : t("settings.projectRestricted")) : t("settings.projectTrustNotRequired")}</span></div></div>
-          {projectTrust?.requiresTrust && !projectTrust.trusted ? (
-            <button className="settings-primary-button" type="button" disabled={projectTrustBusy} onClick={onTrustProject}>{projectTrustBusy ? t("trust.trusting") : t("trust.trustProject")}</button>
-          ) : <span className="settings-status"><Check size={14} aria-hidden="true" />{t("settings.ready")}</span>}
-        </section>
-        {projectTrustError && <div className="settings-inline-error" role="alert">{projectTrustError}</div>}
-      </div>
-    );
   } else if (section === "archived") {
     const archivedProjects = projects.filter((project) => project.archived && !project.removed);
     content = (
@@ -241,7 +274,7 @@ export function SettingsPage({
       </div>
     );
   } else if (section === "models") {
-    content = <ModelsConfig embedded onClose={close} />;
+    content = <ModelsConfig onControllerChange={setModelsController} />;
   } else if (!cwd) {
     content = (
       <div className="settings-page-empty">
@@ -251,15 +284,14 @@ export function SettingsPage({
       </div>
     );
   } else if (section === "skills") {
-    content = <SkillsConfig embedded cwd={cwd} onClose={close} />;
+    content = <SkillsConfig cwd={cwd} onControllerChange={setSkillsController} />;
   } else {
     content = (
       <PluginsConfig
-        embedded
         cwd={cwd}
         sessionId={sessionId}
-        onClose={close}
         onReloaded={onSessionReloaded}
+        onControllerChange={setPluginsController}
       />
     );
   }
@@ -270,15 +302,19 @@ export function SettingsPage({
       role="dialog"
       aria-modal="true"
       aria-labelledby="settings-page-title"
-      onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}
+      onMouseDown={(event) => { if (event.target === event.currentTarget) requestCloseOrNavigate(close); }}
     >
       <div className="settings-page-shell">
         <header className="settings-page-header">
           <h2 id="settings-page-title">{t("common.settings")}</h2>
-          <button ref={closeButtonRef} type="button" onClick={close} aria-label={t("i18n.close")} title={t("i18n.close")}><X size={17} aria-hidden="true" /></button>
+          <button ref={closeButtonRef} type="button" onClick={() => requestCloseOrNavigate(close)} aria-label={t("i18n.close")} title={t("i18n.close")}><X size={17} aria-hidden="true" /></button>
         </header>
         <div className="settings-page-layout">
-          <nav className="settings-page-nav" aria-label={t("settings.categories")}>
+          <nav
+            className="settings-page-nav"
+            aria-label={t("settings.categories")}
+            data-hidden-mobile={activeController?.mobileDetailOpen ? "true" : undefined}
+          >
             {sections.map((item) => (
               <button
                 key={item.id}
@@ -286,7 +322,7 @@ export function SettingsPage({
                 data-active={section === item.id}
                 disabled={item.disabled}
                 title={item.disabled ? t("settings.selectProjectFirst") : item.label}
-                onClick={() => setSection(item.id)}
+                onClick={() => requestCloseOrNavigate(() => setSection(item.id))}
               >
                 <SectionIcon section={item.id} />
                 <span>{item.label}</span>
@@ -296,6 +332,18 @@ export function SettingsPage({
           <main className="settings-page-content">{content}</main>
         </div>
       </div>
+      <dialog
+        ref={discardDialogRef}
+        className="models-settings-dialog"
+        onCancel={() => setDiscardDialogOpen(false)}
+      >
+        <h3>{t("models.unsavedChanges")}</h3>
+        <p>{t("models.discardChangesDescription")}</p>
+        <div className="models-settings-dialog-actions">
+          <button type="button" onClick={() => setDiscardDialogOpen(false)}>{t("models.keepEditing")}</button>
+          <button type="button" className="models-settings-dialog-danger" onClick={handleDiscardConfirm}>{t("models.discard")}</button>
+        </div>
+      </dialog>
     </div>,
     document.body,
   );
