@@ -944,7 +944,7 @@ export function formatToolInput(input: Record<string, unknown>): string {
 
 function ToolCallBlock({ block, result, duration, defaultExpanded, isStreaming }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; defaultExpanded: boolean; isStreaming?: boolean }) {
   const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
-  const expanded = userExpanded ?? (defaultExpanded || Boolean(isStreaming && !result));
+  const expanded = userExpanded ?? defaultExpanded;
   const inputStr = formatToolInput(block.input);
   const isEditTool = isEditToolName(block.toolName);
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;

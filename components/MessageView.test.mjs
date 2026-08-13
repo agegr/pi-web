@@ -118,6 +118,14 @@ test("expands thinking and tool inputs for a live message", () => {
   assert.match(html, /command: printf &quot;hello&quot;\nnext line/);
 });
 
+test("keeps streaming thinking and tool inputs collapsed by default", () => {
+  const html = renderMessage(assistantWithThinkingAndTool(), { isStreaming: true });
+
+  assert.doesNotMatch(html, /<h2>Plan<\/h2>/);
+  assert.doesNotMatch(html, /<li>inspect<\/li>/);
+  assert.doesNotMatch(html, /command: printf/);
+});
+
 test("renders a complete SDK skill expansion as a compact command", () => {
   const html = renderMessage({
     role: "user",
@@ -170,7 +178,7 @@ test("renders user-message images as buttons that open a larger preview", () => 
   assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
 });
 
-test("expands a streaming write so the file contents stay visible", () => {
+test("keeps a streaming write collapsed until the user expands it", () => {
   const html = renderMessage({
     role: "assistant",
     provider: "openai",
@@ -184,7 +192,8 @@ test("expands a streaming write so the file contents stay visible", () => {
   }, { isStreaming: true });
 
   assert.match(html, />write</);
-  assert.match(html, /# Hello/);
+  assert.match(html, /\/tmp\/a\.md/);
+  assert.doesNotMatch(html, /# Hello/);
 });
 
 test("renders custom-message images as buttons that open a larger preview", () => {
