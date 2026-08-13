@@ -1545,6 +1545,7 @@ export function AppShell() {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Top bar with sidebar toggle */}
         <div ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
+        {!isWideDesktop && (
         <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: `calc(${isMobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : 36}px + env(safe-area-inset-top))`, paddingTop: "env(safe-area-inset-top)" }}>
           <button
             onClick={handleSidebarToggle}
@@ -1649,25 +1650,6 @@ export function AppShell() {
               )}
             </div>
           )}
-          {isWideDesktop && (
-            <>
-              <TaskHeader
-                title={taskTitle}
-                running={taskRunning}
-                modified={selectedSession?.modified ?? null}
-                onToggleSidebar={() => setSidebarOpen((open) => !open)}
-                onViewHistory={handleViewFullHistory}
-                historyDisabled={!selectedSession}
-                onAutoName={() => void handleAutoName()}
-                autoNameDisabled={!selectedSession || selectedSession.transient || !((sessionStats?.userMessages ?? 0) > 0 || selectedSession.messageCount > 0) || autoNameStatus.kind === "naming"}
-                onOpenBranches={() => toggleTopPanel("branches", true)}
-                onOpenSystem={() => toggleTopPanel("system", true)}
-                onToggleFiles={handleRightPanelToggle}
-                filePanelOpen={rightPanelOpen}
-              />
-              {renderProjectTrustWarning(false)}
-            </>
-          )}
           {!isMobile && !isWideDesktop && (
             <>
               {renderProjectTrustWarning(false)}
@@ -1676,7 +1658,7 @@ export function AppShell() {
             </>
           )}
           {!isMobile && renderMainFileToggle(false)}
-          {(isMobile || isWideDesktop) && (
+          {isMobile && (
             <BranchNavigator
               tree={branchTree}
               activeLeafId={branchActiveLeafId}
@@ -1690,6 +1672,39 @@ export function AppShell() {
               hideInlineButton
             />
           )}
+        </div>
+        )}
+        {isWideDesktop && (
+          <>
+            <TaskHeader
+              title={taskTitle}
+              running={taskRunning}
+              modified={selectedSession?.modified ?? null}
+              onToggleSidebar={() => setSidebarOpen((open) => !open)}
+              onViewHistory={handleViewFullHistory}
+              historyDisabled={!selectedSession}
+              onAutoName={() => void handleAutoName()}
+              autoNameDisabled={!selectedSession || selectedSession.transient || !((sessionStats?.userMessages ?? 0) > 0 || selectedSession.messageCount > 0) || autoNameStatus.kind === "naming"}
+              onOpenBranches={() => toggleTopPanel("branches", true)}
+              onOpenSystem={() => toggleTopPanel("system", true)}
+              onToggleFiles={handleRightPanelToggle}
+              filePanelOpen={rightPanelOpen}
+            />
+            {renderProjectTrustWarning(false)}
+            <BranchNavigator
+              tree={branchTree}
+              activeLeafId={branchActiveLeafId}
+              onLeafChange={handleBranchLeafChange}
+              inline
+              compact
+              containerRef={topBarRef}
+              open={activeTopPanel === "branches"}
+              onToggle={() => toggleTopPanel("branches")}
+              hasSession={showChat}
+              hideInlineButton
+            />
+          </>
+        )}
           {/* Top panel dropdown — shared, only one active at a time */}
           {activeTopPanel && topPanelPos && (
             <div style={{
@@ -1898,7 +1913,6 @@ export function AppShell() {
             </div>
           )}
 
-        </div>
         {isMobile && renderProjectTrustWarning(true)}
         </div>
 

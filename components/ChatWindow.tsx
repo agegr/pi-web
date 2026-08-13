@@ -1027,8 +1027,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
         </div>
         <ExtensionStatusBar statuses={visibleStatuses} widgets={visibleWidgets} onRunCommand={runExtensionCommand} />
         </div>
+        </div>
         {desktopAside ? <div className="desktop-workspace-context">{desktopAside}</div> : null}
-      </div>
       </div>
       )}
     </div>
