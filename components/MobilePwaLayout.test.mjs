@@ -47,3 +47,10 @@ test("contains chat content and inputs within the mobile viewport", () => {
 test("prevents iOS focus zoom from widening the layout", () => {
   assert.match(cssSource, /@media \(max-width: 640px\)[\s\S]*?textarea,[\s\S]*?input,[\s\S]*?select \{\s*font-size: 16px !important;/);
 });
+
+test("hides the extension status shelf while the mobile keyboard is open", () => {
+  assert.match(viewportHookSource, /classList\.add\("keyboard-open"\)/);
+  assert.match(viewportHookSource, /classList\.remove\("keyboard-open"\)/);
+  assert.match(cssSource, /html\.keyboard-open \.extension-status-shelf \{[\s\S]*?display:\s*none/);
+  assert.match(cssSource, /\.extension-status-line \{[\s\S]*?overflow-x:\s*auto/);
+});

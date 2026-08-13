@@ -52,8 +52,10 @@ export function useViewportHeight(): void {
       });
       if (keyboardOpen) {
         root.style.setProperty("--app-viewport-height", `${viewport.height}px`);
+        root.classList.add("keyboard-open");
       } else {
         root.style.removeProperty("--app-viewport-height");
+        root.classList.remove("keyboard-open");
       }
 
       const pageWasShifted = window.scrollX !== 0 || window.scrollY !== 0;
@@ -89,6 +91,7 @@ export function useViewportHeight(): void {
       window.removeEventListener("pageshow", scheduleUpdate);
       if (frameId !== null) window.cancelAnimationFrame(frameId);
       root.style.removeProperty("--app-viewport-height");
+      root.classList.remove("keyboard-open");
     };
   }, []);
 }

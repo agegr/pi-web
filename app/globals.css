@@ -341,7 +341,16 @@ button.extension-widget-trigger:focus-visible {
   align-items: stretch;
   min-width: 0;
   height: 35px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.extension-status-line::-webkit-scrollbar {
+  display: none;
+}
+html.keyboard-open .extension-status-shelf {
+  display: none;
 }
 
 /* VS Code-style status bar: one padded segment per extension, separated by
@@ -350,6 +359,7 @@ button.extension-widget-trigger:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  flex: 0 0 auto;
   min-width: 0;
   padding: 0 9px;
   border-left: 1px solid var(--border);
@@ -357,8 +367,6 @@ button.extension-widget-trigger:focus-visible {
   font-family: var(--font-mono);
   font-size: 11px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .extension-status-item:first-child {
   border-left: 0;
