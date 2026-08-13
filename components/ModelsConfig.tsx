@@ -18,6 +18,7 @@ import {
   type ModelCostKey,
 } from "./models-config-helpers";
 import { ModelsConfigNavigator, ProviderIcon } from "./models-config/ModelsConfigNavigator";
+import { DialogShell } from "./DialogShell";
 import {
   applySavedModelsConfig,
   filterModelsNavigation,
@@ -1769,7 +1770,6 @@ export function ModelsConfig({ onControllerChange }: ModelsConfigProps) {
   const [expandedProviders, setExpandedProviders] = useState<ReadonlySet<string>>(new Set());
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
   const [pendingDelete, setPendingDelete] = useState<Selection | null>(null);
-  const deleteDialogRef = useRef<HTMLDialogElement>(null);
   const configRef = useRef(config);
   configRef.current = config;
 
@@ -1996,13 +1996,6 @@ export function ModelsConfig({ onControllerChange }: ModelsConfigProps) {
     setPendingDelete(sel);
   }, []);
 
-  useEffect(() => {
-    const dialog = deleteDialogRef.current;
-    if (!dialog) return;
-    if (pendingDelete && !dialog.open) dialog.showModal();
-    else if (!pendingDelete && dialog.open) dialog.close();
-  }, [pendingDelete]);
-
   const confirmDelete = useCallback(() => {
     if (!pendingDelete) return;
     if (pendingDelete.type === "provider") deleteProvider(pendingDelete.name);
@@ -2210,18 +2203,22 @@ export function ModelsConfig({ onControllerChange }: ModelsConfigProps) {
         />
       )}
 
-      <dialog
-        ref={deleteDialogRef}
-        className="models-settings-dialog"
-        onCancel={() => setPendingDelete(null)}
-      >
-        <h3>{pendingDeleteTitle}</h3>
-        <p>{t("models.deleteDraftNote")}</p>
-        <div className="models-settings-dialog-actions">
-          <button type="button" onClick={() => setPendingDelete(null)}>{t("i18n.cancel")}</button>
-          <button type="button" className="models-settings-dialog-danger" onClick={confirmDelete}>{t("i18n.delete")}</button>
-        </div>
-      </dialog>
+      {pendingDelete && (
+        <DialogShell
+          size="confirm"
+          title={pendingDeleteTitle}
+          ariaLabel={t("i18n.cancel")}
+          onClose={() => setPendingDelete(null)}
+          footer={(
+            <>
+              <button type="button" className="codex-dialog-button" onClick={() => setPendingDelete(null)}>{t("i18n.cancel")}</button>
+              <button type="button" className="codex-dialog-button" data-variant="danger" onClick={confirmDelete}>{t("i18n.delete")}</button>
+            </>
+          )}
+        >
+          <p className="codex-dialog-copy">{t("models.deleteDraftNote")}</p>
+        </DialogShell>
+      )}
     </div>
   );
 }

@@ -31,6 +31,7 @@ import type { ModelsDraftController } from "./models-config/models-config-types"
 import type { SettingsSectionController } from "./resource-settings/resource-settings-types";
 import { PluginsConfig } from "./PluginsConfig";
 import { SkillsConfig } from "./SkillsConfig";
+import { DialogShell } from "./DialogShell";
 
 type SettingsSection = "general" | "archived" | "models" | "skills" | "plugins";
 
@@ -93,7 +94,6 @@ export function SettingsPage({
   const [pluginsController, setPluginsController] = useState<SettingsSectionController | null>(null);
   const [discardDialogOpen, setDiscardDialogOpen] = useState(false);
   const [pendingExit, setPendingExit] = useState<(() => void) | null>(null);
-  const discardDialogRef = useRef<HTMLDialogElement>(null);
 
   const close = useCallback(() => {
     onModelsChanged();
@@ -110,13 +110,6 @@ export function SettingsPage({
       action();
     }
   }, [modelsController]);
-
-  useEffect(() => {
-    const dialog = discardDialogRef.current;
-    if (!dialog) return;
-    if (discardDialogOpen && !dialog.open) dialog.showModal();
-    else if (!discardDialogOpen && dialog.open) dialog.close();
-  }, [discardDialogOpen]);
 
   const handleDiscardConfirm = useCallback(() => {
     const action = pendingExit;
@@ -378,18 +371,22 @@ export function SettingsPage({
           <main className="settings-page-content">{content}</main>
         </div>
       </div>
-      <dialog
-        ref={discardDialogRef}
-        className="models-settings-dialog"
-        onCancel={() => setDiscardDialogOpen(false)}
-      >
-        <h3>{t("models.unsavedChanges")}</h3>
-        <p>{t("models.discardChangesDescription")}</p>
-        <div className="models-settings-dialog-actions">
-          <button type="button" onClick={() => setDiscardDialogOpen(false)}>{t("models.keepEditing")}</button>
-          <button type="button" className="models-settings-dialog-danger" onClick={handleDiscardConfirm}>{t("models.discard")}</button>
-        </div>
-      </dialog>
+      {discardDialogOpen && (
+        <DialogShell
+          size="confirm"
+          title={t("models.unsavedChanges")}
+          ariaLabel={t("models.keepEditing")}
+          onClose={() => setDiscardDialogOpen(false)}
+          footer={(
+            <>
+              <button type="button" className="codex-dialog-button" onClick={() => setDiscardDialogOpen(false)}>{t("models.keepEditing")}</button>
+              <button type="button" className="codex-dialog-button" data-variant="danger" onClick={handleDiscardConfirm}>{t("models.discard")}</button>
+            </>
+          )}
+        >
+          <p className="codex-dialog-copy">{t("models.discardChangesDescription")}</p>
+        </DialogShell>
+      )}
     </div>,
     document.body,
   );

@@ -27,7 +27,7 @@ test("settings guards every exit path behind one discard confirmation", () => {
   assert.match(settings, /setDiscardDialogOpen\(true\)/);
   assert.match(settings, /onClick=\{\(\) => requestCloseOrNavigate\(close\)\}/);
   assert.match(settings, /onMouseDown=\{\(event\) => \{ if \(event\.target === event\.currentTarget\) requestCloseOrNavigate\(close\); \}\}/);
-  assert.match(settings, /<dialog\n\s*ref=\{discardDialogRef\}/);
+  assert.match(settings, /<DialogShell[\s\S]*?size="confirm"/);
   assert.match(settings, /t\("models\.unsavedChanges"\)/);
   assert.match(settings, /t\("models\.keepEditing"\)/);
   assert.match(settings, /t\("models\.discard"\)/);

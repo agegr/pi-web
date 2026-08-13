@@ -96,10 +96,12 @@ test("running projects expose a Codex-style activity spinner", () => {
   assert.match(sidebar, /role="status"/);
 });
 
-test("preserves desktop session context menus and dirty-worktree force confirmation", () => {
+test("preserves desktop session context menus and styled dirty-worktree confirmation", () => {
   assert.match(sidebar, /dispatchSessionRowContextMenu\(\{/);
-  assert.match(sidebar, /window\.confirm\(t\("sidebar\.forceRemoveCheckout"\)\)/);
+  assert.match(sidebar, /setPendingConfirmation\(\{ type: "worktree", path \}\)/);
+  assert.match(sidebar, /<DialogShell[\s\S]*?sidebar\.forceRemoveCheckout/);
   assert.match(sidebar, /removeWorktree\(path, true\)/);
+  assert.doesNotMatch(sidebar, /window\.confirm/);
 });
 
 test("session overflow menu portals, dismisses, and archives locally", () => {

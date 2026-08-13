@@ -240,8 +240,9 @@ test("provider and model deletion is confirmed and stays a draft until Save", ()
   assert.match(source, /deleteProvider\(pendingDelete\.name\)/);
   assert.match(source, /removeModel\(pendingDelete\.providerName, pendingDelete\.index\)/);
   assert.match(source, /t\("models\.deleteDraftNote"\)/);
-  assert.match(source, /ref=\{deleteDialogRef\}/);
-  assert.match(styles, /\.models-settings-dialog \{[\s\S]*?margin: auto;/);
+  assert.match(source, /<DialogShell[\s\S]*?size="confirm"/);
+  assert.match(source, /data-variant="danger"[\s\S]*?confirmDelete/);
+  assert.match(styles, /\.codex-dialog\[data-size="confirm"\][\s\S]*?margin: auto;/);
 });
 
 test("provider detail keeps import/discovery common and headers advanced", () => {

@@ -120,6 +120,12 @@ html.dark {
 .codex-dialog-button[data-variant="danger"] { border-color: #b44747; color: #fff; background: #b44747; font-weight: 600; }
 .codex-dialog-button:disabled { opacity: .5; cursor: default; }
 .codex-dialog-message { white-space: pre-wrap; }
+.codex-dialog-copy { margin: 0; }
+.codex-dialog-confirm-copy { display: flex; align-items: flex-start; gap: 9px; }
+.codex-dialog-confirm-copy > svg { flex: 0 0 auto; margin-top: 1px; }
+.codex-dialog-inset { display: block; margin-top: 11px; padding: 8px 9px; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: 5px; color: var(--text); background: var(--bg-panel); font: 11px/1.5 var(--font-mono); }
+.codex-dialog-error { margin-top: 10px; color: #dc2626; font-size: 12px; line-height: 1.5; }
+html.dark .codex-dialog-error { color: #f87171; }
 .codex-dialog-options { display: grid; gap: 5px; }
 .codex-dialog-option {
   width: 100%;

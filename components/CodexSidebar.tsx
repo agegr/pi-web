@@ -21,6 +21,7 @@ import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { activeSessionRoots } from "@/lib/session-relations";
 import type { SessionInfo } from "@/lib/types";
 import { DirectoryPicker } from "./DirectoryPicker";
+import { DialogShell } from "./DialogShell";
 
 interface Props {
   selectedSessionId: string | null;
@@ -161,6 +162,7 @@ export function CodexSidebar({
   const [recentOpen, setRecentOpen] = useState(true);
   const [worktreeBusy, setWorktreeBusy] = useState(false);
   const [worktreeError, setWorktreeError] = useState<string | null>(null);
+  const [pendingConfirmation, setPendingConfirmation] = useState<{ type: "worktree"; path: string } | null>(null);
   const [newBranch, setNewBranch] = useState("");
   const previousRunningRef = useRef<Set<string>>(new Set());
   const previousRawRunningRef = useRef<Set<string>>(new Set());
@@ -539,7 +541,7 @@ export function CodexSidebar({
       });
       const data = await response.json() as { error?: string; dirty?: boolean };
       if (data.dirty && !force) {
-        if (window.confirm(t("sidebar.forceRemoveCheckout"))) void removeWorktree(path, true);
+        setPendingConfirmation({ type: "worktree", path });
         return;
       }
       if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
@@ -862,6 +864,26 @@ export function CodexSidebar({
           </div>
         );
       })(), document.body)}
+      {pendingConfirmation?.type === "worktree" && (
+        <DialogShell
+          size="confirm"
+          title={t("sidebar.forceRemoveCheckout")}
+          ariaLabel={t("sidebar.cancel")}
+          onClose={() => setPendingConfirmation(null)}
+          footer={(
+            <>
+              <button type="button" className="codex-dialog-button" onClick={() => setPendingConfirmation(null)}>{t("sidebar.cancel")}</button>
+              <button type="button" className="codex-dialog-button" data-variant="danger" onClick={() => {
+                const path = pendingConfirmation.path;
+                setPendingConfirmation(null);
+                void removeWorktree(path, true);
+              }}>{t("sidebar.force")}</button>
+            </>
+          )}
+        >
+          <code className="codex-dialog-inset">{pendingConfirmation.path}</code>
+        </DialogShell>
+      )}
       <dialog
         ref={quickDialogRef}
         className="codex-quick-switcher"
@@ -939,6 +961,7 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
   const { t } = useI18n();
   const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
+  const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
   const [value, setValue] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLDivElement>(null);
@@ -979,8 +1002,7 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
   };
 
   const remove = async () => {
-    setMenuPos(null);
-    if (!window.confirm(t("sidebar.deleteSession", { title }))) return;
+    setDeleteConfirmationOpen(false);
     const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
     if (response.ok) onDeleted();
   };
@@ -1008,6 +1030,7 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
   };
 
   return (
+    <>
     <div className={`codex-session-row${isRecent ? " codex-recent-session-row" : ""}`} data-selected={selected} onContextMenu={renaming ? undefined : openContextMenu}>
       <div
         className="codex-session-main"
@@ -1066,12 +1089,29 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
             <div ref={menuRef} className="codex-project-menu codex-project-menu-portal" role="menu" style={{ left: menuPos.left, top: menuPos.top }}>
               <button type="button" role="menuitem" onClick={() => { setValue(title); setRenaming(true); setMenuPos(null); }}><Pencil size={14} aria-hidden="true" />{t("sidebar.rename")}</button>
               <button type="button" role="menuitem" onClick={() => { setMenuPos(null); onArchive(); }}><Archive size={14} aria-hidden="true" />{t("sidebar.archiveSession")}</button>
-              <button type="button" role="menuitem" className="danger" onClick={() => void remove()}><Trash2 size={14} aria-hidden="true" />{t("sidebar.delete")}</button>
+              <button type="button" role="menuitem" className="danger" onClick={() => { setMenuPos(null); setDeleteConfirmationOpen(true); }}><Trash2 size={14} aria-hidden="true" />{t("sidebar.delete")}</button>
             </div>,
             document.body,
           )}
         </div>
       )}
     </div>
+    {deleteConfirmationOpen && (
+      <DialogShell
+        size="confirm"
+        title={t("sidebar.deleteSession", { title })}
+        ariaLabel={t("sidebar.cancel")}
+        onClose={() => setDeleteConfirmationOpen(false)}
+        footer={(
+          <>
+            <button type="button" className="codex-dialog-button" onClick={() => setDeleteConfirmationOpen(false)}>{t("sidebar.cancel")}</button>
+            <button type="button" className="codex-dialog-button" data-variant="danger" onClick={() => void remove()}>{t("sidebar.delete")}</button>
+          </>
+        )}
+      >
+        <code className="codex-dialog-inset">{title}</code>
+      </DialogShell>
+    )}
+    </>
   );
 }
