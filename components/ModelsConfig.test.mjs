@@ -260,7 +260,11 @@ test("discard repairs selection and returns to the list when nothing remains", (
 });
 
 test("auth list refresh repairs a disconnected account selection", () => {
-  assert.match(source, /setSelection\(\(current\) => resolveModelsSelection\(current, configRef\.current, oauthProviders, apiKeyProviders\)\);/);
+  assert.match(source, /resolveModelsSelection\(current, configRef\.current, oauthProviders, apiKeyProviders\)/);
+  assert.match(
+    source,
+    /configRef\.current, oauthProviders, apiKeyProviders\);\s*if \(!next\) setMobileView\("list"\)/,
+  );
   assert.match(source, /\}, \[oauthProviders, apiKeyProviders\]\);/);
 });
 

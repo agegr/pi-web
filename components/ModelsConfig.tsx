@@ -1832,7 +1832,11 @@ export function ModelsConfig({ onControllerChange }: ModelsConfigProps) {
   }, []);
 
   useEffect(() => {
-    setSelection((current) => resolveModelsSelection(current, configRef.current, oauthProviders, apiKeyProviders));
+    setSelection((current) => {
+      const next = resolveModelsSelection(current, configRef.current, oauthProviders, apiKeyProviders);
+      if (!next) setMobileView("list");
+      return next;
+    });
   }, [oauthProviders, apiKeyProviders]);
 
   const addCustomProvider = useCallback(() => {
