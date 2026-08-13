@@ -51,15 +51,17 @@ function extensionForMimeType(type: string): string {
 export function createServerDictationProvider(
   defaults: ServerDictationOptions = {},
 ): DictationProvider {
-  return {
-    id: "server",
-    isSupported: () => (
+  const isSupported = () => (
       typeof navigator !== "undefined"
       && Boolean(navigator.mediaDevices?.getUserMedia)
       && typeof MediaRecorder !== "undefined"
-    ),
+    );
+
+  return {
+    id: "server",
+    isSupported,
     start(callbacks, options = {}) {
-      if (!this.isSupported()) throw new Error("Audio recording is not supported");
+      if (!isSupported()) throw new Error("Audio recording is not supported");
 
       const serverOptions = options as ServerDictationOptions;
       const endpoint = serverOptions.endpoint ?? defaults.endpoint ?? DEFAULT_ENDPOINT;

@@ -44,18 +44,16 @@ export async function POST(request: Request) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TRANSCRIPTION_TIMEOUT_MS);
     try {
+      const provider = process.env.PI_WEB_DICTATION_PROVIDER === "groq" ? "groq" : "openai";
+      const apiKey = process.env.PI_WEB_DICTATION_API_KEY
+        ?? await resolveConfiguredProviderKey(provider);
       const transcript = await transcribeAudio(file, controller.signal, {
-        resolve: async () => {
-          const provider = process.env.PI_WEB_DICTATION_PROVIDER === "groq" ? "groq" : "openai";
-          const apiKey = process.env.PI_WEB_DICTATION_API_KEY
-            ?? await resolveConfiguredProviderKey(provider);
-          return {
-            provider,
-            model: process.env.PI_WEB_DICTATION_MODEL,
-            endpoint: process.env.PI_WEB_DICTATION_ENDPOINT,
-            apiKey,
-          };
-        },
+        resolve: () => ({
+          provider,
+          model: process.env.PI_WEB_DICTATION_MODEL,
+          endpoint: process.env.PI_WEB_DICTATION_ENDPOINT,
+          apiKey,
+        }),
       });
       return NextResponse.json({ ok: true, transcript });
     } finally {
