@@ -33,9 +33,11 @@ import { openFileTab, saveFileViewerState } from "./file-tab-state";
 import { SettingsPage } from "./SettingsPage";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { BranchNavigator } from "./BranchNavigator";
+import { TaskHeader } from "./TaskHeader";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useIsWideDesktop } from "@/hooks/useIsWideDesktop";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useAudio } from "@/hooks/useAudio";
@@ -87,6 +89,7 @@ export function AppShell() {
   const { preference, setPreference: setThemePreference } = useTheme();
   const { locale, setLocale, t: translate, supportedLocales } = useI18n();
   const isMobile = useIsMobile();
+  const isWideDesktop = useIsWideDesktop();
   useViewportHeight();
   // Audio ownership lives here (not in ChatWindow) so the completion tone can
   // also fire for tasks finishing in a non-active workspace whose ChatWindow
@@ -975,6 +978,11 @@ export function AppShell() {
   const activeFileTab = fileTabs.find((tab) => tab.id === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
   const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
+  const taskTitle = selectedSession?.name
+    || selectedSession?.firstMessage
+    || activeCwdName
+    || translate("i18n.newSession");
+  const taskRunning = Boolean(selectedSession && runningSessionIds.has(selectedSession.id));
 
   useEffect(() => {
     const syncWindowTitle = () => {
@@ -1630,7 +1638,26 @@ export function AppShell() {
               )}
             </div>
           )}
-          {!isMobile && (
+          {isWideDesktop && (
+            <>
+              <TaskHeader
+                title={taskTitle}
+                running={taskRunning}
+                modified={selectedSession?.modified ?? null}
+                onToggleSidebar={() => setSidebarOpen((open) => !open)}
+                onViewHistory={handleViewFullHistory}
+                historyDisabled={!selectedSession}
+                onAutoName={() => void handleAutoName()}
+                autoNameDisabled={!selectedSession || selectedSession.transient || !((sessionStats?.userMessages ?? 0) > 0 || selectedSession.messageCount > 0) || autoNameStatus.kind === "naming"}
+                onOpenBranches={() => toggleTopPanel("branches", true)}
+                onOpenSystem={() => toggleTopPanel("system", true)}
+                onToggleFiles={handleRightPanelToggle}
+                filePanelOpen={rightPanelOpen}
+              />
+              {renderProjectTrustWarning(false)}
+            </>
+          )}
+          {!isMobile && !isWideDesktop && (
             <>
               {renderProjectTrustWarning(false)}
               {renderChatToolbarActions(false)}
@@ -1638,7 +1665,7 @@ export function AppShell() {
             </>
           )}
           {!isMobile && renderMainFileToggle(false)}
-          {isMobile && (
+          {(isMobile || isWideDesktop) && (
             <BranchNavigator
               tree={branchTree}
               activeLeafId={branchActiveLeafId}

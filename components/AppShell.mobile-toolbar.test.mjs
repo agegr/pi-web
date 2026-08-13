@@ -23,6 +23,16 @@ test("keeps covered statistics and file controls out of interaction and focus", 
   assert.match(source, /aria-hidden=\{covered \? true : undefined\}/);
 });
 
+test("uses TaskHeader only on wide desktop and preserves narrower toolbars", () => {
+  assert.match(source, /const isWideDesktop = useIsWideDesktop\(\)/);
+  assert.match(source, /isWideDesktop && \([\s\S]*?<TaskHeader/);
+  assert.match(source, /!isMobile && !isWideDesktop[\s\S]*?renderChatToolbarActions\(false\)/);
+  assert.match(source, /isMobile && \([\s\S]*?data-mobile-toolbar="true"/);
+  assert.match(source, /data-mobile-toolbar-actions="true"/);
+  assert.match(source, /isWideDesktop[\s\S]*?renderProjectTrustWarning\(false\)/);
+  assert.match(source, /<BranchNavigator[\s\S]*?hideInlineButton/);
+});
+
 test("closes the mobile action layer on outside click, Escape, and session changes", () => {
   assert.match(source, /event\.composedPath\(\)\.includes\(toolbar\)/);
   assert.match(source, /document\.addEventListener\("pointerdown", handlePointerDown, true\)/);

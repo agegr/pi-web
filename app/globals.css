@@ -3889,3 +3889,42 @@ span.linenumber {
   white-space: nowrap;
   font: 11px var(--font-mono);
 }
+
+/* DSCode wide-desktop task header */
+.task-header { height: 56px; display: flex; align-items: center; border-bottom: 1px solid var(--border); background: var(--bg); }
+.task-header-sidebar { width: 42px; height: 100%; display: grid; place-items: center; border: 0; border-right: 1px solid var(--border); color: var(--text-muted); background: transparent; cursor: pointer; }
+.task-header-sidebar:hover { color: var(--text); background: var(--bg-hover); }
+.task-header-copy { min-width: 0; flex: 1; padding: 0 14px; display: flex; flex-direction: column; gap: 2px; }
+.task-header-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 620; }
+.task-header-copy span { color: var(--text-dim); font-size: 10px; }
+.task-header-actions { display: flex; align-items: center; gap: 4px; padding: 0 8px; }
+.task-header-actions > button,
+.task-header-menu-wrap > button { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 7px; color: var(--text-muted); background: transparent; cursor: pointer; }
+.task-header-actions button:hover,
+.task-header-actions button[aria-pressed="true"] { color: var(--text); background: var(--bg-hover); }
+.task-header-menu-wrap { position: relative; }
+.task-header-menu {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  z-index: 300;
+  width: 172px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  box-shadow: 0 6px 8px rgba(0, 0, 0, .14);
+}
+.task-header-menu button {
+  width: 100%;
+  height: 29px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  color: var(--text);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.task-header-menu button:hover:not(:disabled) { background: var(--bg-hover); }
+.task-header-menu button:disabled { opacity: .4; cursor: default; }

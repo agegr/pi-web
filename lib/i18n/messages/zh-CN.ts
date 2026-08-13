@@ -44,6 +44,11 @@ export const zhCNLocale: LocalePlugin = {
     "theme.dark": "深色模式（点击切换到跟随系统）",
     "theme.auto": "跟随系统（点击切换到浅色）",
     "history.full": "完整历史",
+    "task.running": "运行中",
+    "task.ready": "就绪",
+    "task.actions": "任务操作",
+    "sidebar.toggle": "切换侧边栏",
+
     "history.unsaved": "会话保存后才能查看完整历史",
     "history.label": "完整历史",
     "title.generating": "正在生成...",

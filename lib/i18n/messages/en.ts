@@ -44,6 +44,11 @@ export const enLocale: LocalePlugin = {
     "theme.dark": "Dark mode (click for system)",
     "theme.auto": "System theme (click for light)",
     "history.full": "Full history",
+    "task.running": "Running",
+    "task.ready": "Ready",
+    "task.actions": "Task actions",
+    "sidebar.toggle": "Toggle sidebar",
+
     "history.unsaved": "Full history is available after the session is saved",
     "history.label": "Full history",
     "title.generating": "Generating...",
