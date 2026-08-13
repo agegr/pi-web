@@ -11,6 +11,8 @@ import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
+import { GoalPanel } from "./GoalPanel";
+import { filterGoalStatuses, filterGoalWidgets, resolveGoalPanelModel } from "@/lib/goal-panel";
 import { useI18n } from "@/hooks/useI18n";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
 import { useDragDrop } from "@/hooks/useDragDrop";
@@ -254,7 +256,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   }, [chatInputRef]);
 
   const {
-    loading, error, messages, entryIds, streamState,
+    data, loading, error, messages, entryIds, streamState,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
@@ -275,6 +277,14 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   });
   const sessionBusy = agentRunning || bashRunning;
+  const goalModel = resolveGoalPanelModel({
+    widgets: extensionWidgets,
+    statuses: extensionStatuses,
+    sessionGoal: data?.context.goal ?? null,
+    live: Boolean(sessionRunning || agentRunning),
+  });
+  const visibleStatuses = filterGoalStatuses(extensionStatuses);
+  const visibleWidgets = filterGoalWidgets(extensionWidgets);
 
   useEffect(() => {
     if (!extensionDialog || soundedExtensionDialogIdRef.current === extensionDialog.id) return;
@@ -650,8 +660,15 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               </div>
             )}
             <NoticeShelf notices={notices} align="right" />
+            <GoalPanel
+              model={goalModel}
+              onAction={(subcommand) => { void runExtensionCommand("goal", subcommand); }}
+              onEditSubmit={(objective, editMode) => {
+                void runExtensionCommand("goal", editMode === "edit" ? `edit ${objective}` : objective);
+              }}
+            />
             {chatInputElement}
-            <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} onRunCommand={runExtensionCommand} />
+            <ExtensionStatusBar statuses={visibleStatuses} widgets={visibleWidgets} onRunCommand={runExtensionCommand} />
           </div>
         </div>
       ) : (
@@ -907,8 +924,15 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       </div>
 
       <div className="relative">
+        <GoalPanel
+          model={goalModel}
+          onAction={(subcommand) => { void runExtensionCommand("goal", subcommand); }}
+          onEditSubmit={(objective, editMode) => {
+            void runExtensionCommand("goal", editMode === "edit" ? `edit ${objective}` : objective);
+          }}
+        />
         {chatInputElement}
-        <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} onRunCommand={runExtensionCommand} />
+        <ExtensionStatusBar statuses={visibleStatuses} widgets={visibleWidgets} onRunCommand={runExtensionCommand} />
       </div>
       </>
       )}

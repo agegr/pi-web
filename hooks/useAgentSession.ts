@@ -42,6 +42,7 @@ export interface SessionData {
     entryIds: string[];
     thinkingLevel: string;
     model: { provider: string; modelId: string } | null;
+    goal?: import("@/lib/goal-panel").GoalPanelModel | null;
   };
 }
 
@@ -730,9 +731,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       await sendAgentCommand(sid, { type: "run_command", name, ...(args !== undefined ? { args } : {}) });
       const state = await sendAgentCommand<AgentStateResponse>(sid, { type: "get_state" });
-      if (sessionIdRef.current === sid && state?.extensionWidgets !== undefined) {
-        setExtensionWidgets(state.extensionWidgets ?? []);
-      }
+      if (sessionIdRef.current !== sid) return;
+      if (state?.extensionWidgets !== undefined) setExtensionWidgets(state.extensionWidgets ?? []);
+      if (state?.extensionStatuses !== undefined) setExtensionStatuses(state.extensionStatuses ?? []);
     } catch (e) {
       console.error(`Failed to run extension command /${name}:`, e);
     }

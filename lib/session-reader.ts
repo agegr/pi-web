@@ -8,6 +8,7 @@ import { closeSync, openSync, readSync } from "fs";
 import { normalize as normalizePath } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
 import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } from "@earendil-works/pi-coding-agent";
+import { extractGoalFromEntries } from "./goal-panel";
 import { normalizeToolCalls } from "./normalize";
 import { sessionPathKey } from "./session-path";
 import { resolveProject, type ProjectInfo } from "./worktree";
@@ -258,6 +259,7 @@ export function buildSessionContext(
     entryIds,
     thinkingLevel: piCtx.thinkingLevel,
     model: piCtx.model,
+    goal: extractGoalFromEntries(entries),
   };
 }
 
