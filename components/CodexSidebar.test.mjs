@@ -103,6 +103,8 @@ test("recent session rows preserve activity, selection, and session management",
   assert.match(sidebar, /dispatchSessionRowContextMenu/);
   assert.match(sidebar, /sidebar\.archiveSession/);
   assert.match(sidebar, /method: "DELETE"/);
+  assert.match(sidebar, /setRecentOpen\(\(open\) => !open\)/);
+  assert.match(sidebar, /aria-expanded=\{recentOpen\}/);
 });
 
 test("sidebar recomposition preserves worktree switching and creation", () => {

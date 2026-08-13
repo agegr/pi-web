@@ -155,6 +155,7 @@ export function CodexSidebar({
   const [worktrees, setWorktrees] = useState<WorktreeEntry[]>([]);
   const [worktreeProjectRoot, setWorktreeProjectRoot] = useState<string | null>(null);
   const [worktreeOpen, setWorktreeOpen] = useState(false);
+  const [recentOpen, setRecentOpen] = useState(true);
   const [worktreeBusy, setWorktreeBusy] = useState(false);
   const [worktreeError, setWorktreeError] = useState<string | null>(null);
   const [newBranch, setNewBranch] = useState("");
@@ -746,7 +747,11 @@ export function CodexSidebar({
       </section>
 
       <section className="codex-sidebar-section codex-sidebar-recent">
-        <div className="codex-sidebar-section-heading">{t("sidebar.recent")}</div>
+        <button type="button" className="codex-sidebar-tool-heading codex-sidebar-section-heading" onClick={() => setRecentOpen((open) => !open)} aria-expanded={recentOpen}>
+          <Chevron open={recentOpen} />
+          <span>{t("sidebar.recent")}</span>
+        </button>
+        {recentOpen && (
         <div role="list">
           {recentSessions.map(({ session, projectLabel }) => (
             <SessionRow
@@ -774,6 +779,7 @@ export function CodexSidebar({
             />
           ))}
         </div>
+        )}
       </section>
 
       {selectedProject && !selectedProject.archived && !selectedProject.removed && worktrees.length > 0 && (
