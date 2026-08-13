@@ -36,6 +36,11 @@ export interface DictationProvider {
   start: (callbacks: DictationCallbacks, options?: DictationOptions) => DictationSession;
 }
 
+/**
+ * Provider boundary for browser or server-backed speech-to-text implementations.
+ * A provider owns capture/transcription mechanics; the composer only consumes
+ * normalized text and lifecycle events.
+ */
 interface WebSpeechRecognitionResult {
   readonly isFinal: boolean;
   readonly length?: number;
@@ -141,7 +146,15 @@ export function createWebSpeechDictationProvider(): DictationProvider {
         callbacks.onEnd();
       };
 
-      recognition.start();
+      try {
+        recognition.start();
+      } catch (error) {
+        ended = true;
+        recognition.onresult = null;
+        recognition.onerror = null;
+        recognition.onend = null;
+        throw error;
+      }
 
       const finish = (method: "stop" | "abort") => {
         if (ended) return;

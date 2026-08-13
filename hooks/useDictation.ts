@@ -7,6 +7,7 @@ import {
   type DictationProvider,
   type DictationSession,
 } from "@/lib/dictation";
+import { createServerDictationProvider } from "@/lib/server-dictation";
 
 export interface UseDictationResult {
   supported: boolean;
@@ -16,6 +17,7 @@ export interface UseDictationResult {
   start: () => void;
   stop: () => void;
   abort: () => void;
+  providerId: string;
 }
 
 /**
@@ -27,8 +29,11 @@ export function useDictation(
   provider?: DictationProvider,
   onFinalText?: (text: string) => void,
 ): UseDictationResult {
-  const defaultProvider = useMemo(() => createWebSpeechDictationProvider(), []);
-  const activeProvider = provider ?? defaultProvider;
+  const defaultProviders = useMemo(() => [
+    createWebSpeechDictationProvider(),
+    createServerDictationProvider(),
+  ], []);
+  const activeProvider = provider ?? defaultProviders.find((candidate) => candidate.isSupported()) ?? defaultProviders[0];
   const [isListening, setIsListening] = useState(false);
   const [interimText, setInterimText] = useState("");
   const [error, setError] = useState<DictationErrorCode | null>(null);
@@ -40,8 +45,12 @@ export function useDictation(
     const session = sessionRef.current;
     sessionRef.current = null;
     if (!session) return;
-    if (abort) session.abort();
-    else session.stop();
+    try {
+      if (abort) session.abort();
+      else session.stop();
+    } catch {
+      // Providers may race a browser/device teardown; state still needs to settle.
+    }
     setIsListening(false);
     setInterimText("");
   }, []);
@@ -53,7 +62,9 @@ export function useDictation(
     setIsListening(true);
 
     try {
-      sessionRef.current = activeProvider.start(
+      let session: DictationSession | null = null;
+      let endedDuringStart = false;
+      const startedSession = activeProvider.start(
         {
           onFinalText: (text) => onFinalTextRef.current?.(text),
           onInterimText: setInterimText,
@@ -61,6 +72,11 @@ export function useDictation(
             if (nextError !== "aborted") setError(nextError);
           },
           onEnd: () => {
+            if (!session) {
+              endedDuringStart = true;
+              return;
+            }
+            if (sessionRef.current !== session) return;
             sessionRef.current = null;
             setIsListening(false);
             setInterimText("");
@@ -68,6 +84,13 @@ export function useDictation(
         },
         { interimResults: true },
       );
+      session = startedSession;
+      if (endedDuringStart) {
+        setIsListening(false);
+        setInterimText("");
+      } else {
+        sessionRef.current = startedSession;
+      }
     } catch {
       sessionRef.current = null;
       setIsListening(false);
@@ -92,5 +115,6 @@ export function useDictation(
     start,
     stop,
     abort,
+    providerId: activeProvider.id,
   };
 }

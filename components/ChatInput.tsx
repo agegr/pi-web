@@ -2000,6 +2000,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 aria-label={dictation.isListening ? t("chat.stopDictation") : t("chat.startDictation")}
                 aria-pressed={dictation.isListening}
                 title={dictation.isListening ? t("chat.stopDictation") : t("chat.startDictation")}
+                data-testid="dictation-button"
+                data-dictation-provider={dictation.providerId}
                 style={{
                   flexShrink: 0,
                   alignSelf: "flex-end",
