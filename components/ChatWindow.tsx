@@ -11,6 +11,7 @@ import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
+import { ConversationPlan, getConversationPlanWidget } from "./ConversationPlan";
 import { GoalPanel } from "./GoalPanel";
 import { filterGoalStatuses, filterGoalWidgets, resolveGoalPanelModel } from "@/lib/goal-panel";
 import { useI18n } from "@/hooks/useI18n";
@@ -304,6 +305,10 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   });
   const visibleStatuses = filterGoalStatuses(extensionStatuses);
   const visibleWidgets = filterGoalWidgets(extensionWidgets);
+  const conversationPlanWidget = getConversationPlanWidget(visibleWidgets);
+  const footerWidgets = conversationPlanWidget
+    ? visibleWidgets.filter((widget) => widget !== conversationPlanWidget)
+    : visibleWidgets;
 
   useEffect(() => {
     if (!extensionDialog || soundedExtensionDialogIdRef.current === extensionDialog.id) return;
@@ -720,7 +725,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               }}
             />
             {chatInputElement}
-            <ExtensionStatusBar statuses={visibleStatuses} widgets={visibleWidgets} onRunCommand={runExtensionCommand} />
+            <ExtensionStatusBar statuses={visibleStatuses} widgets={footerWidgets} />
           </div>
         </div>
       ) : (
@@ -964,6 +969,14 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               />
             )}
 
+            {conversationPlanWidget ? (
+              <ConversationPlan
+                key={session?.id ?? "conversation-plan"}
+                widget={conversationPlanWidget}
+                onRequestItems={() => { void runExtensionCommand("todos-toggle"); }}
+              />
+            ) : null}
+
             <div ref={promptAnchorSpacerRef} aria-hidden="true" />
 
             <div ref={messagesEndRef} />
@@ -1000,7 +1013,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
           )}
           {chatInputElement}
         </div>
-        <ExtensionStatusBar statuses={visibleStatuses} widgets={visibleWidgets} onRunCommand={runExtensionCommand} />
+        <ExtensionStatusBar statuses={visibleStatuses} widgets={footerWidgets} />
         </div>
         </div>
         {desktopAside ? <div className="desktop-workspace-context">{desktopAside}</div> : null}

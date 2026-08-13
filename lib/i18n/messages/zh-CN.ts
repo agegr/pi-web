@@ -247,6 +247,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.runningCommand": "正在运行命令...",
     "chat.thinking": "正在思考...",
     "chat.processDetails": "处理详情",
+    "chat.updatePlan": "更新计划",
     "chat.processCompleted": "处理完成",
     "chat.processErrors": "处理完成，但有错误",
     "chat.message": "条消息",

@@ -1,113 +1,11 @@
 "use client";
 
-import { CheckCircle2, ChevronDown, ChevronRight, Circle, LoaderCircle } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
-import { stripAnsi } from "@/lib/ansi";
 import { useI18n } from "@/hooks/useI18n";
 import type { ExtensionWidgetItem } from "@/lib/types";
 
 export const DEFAULT_EXPANDED_WIDGET_LINES = 3;
 export const WIDGET_UPDATE_IDLE_MS = 1100;
-
-const WIDGET_TOGGLE_COMMANDS: Record<string, string> = {
-  "rpiv-todos": "todos-toggle",
-};
-
-type TodoStatus = "pending" | "in_progress" | "completed" | "deleted";
-
-interface TodoWidgetModel {
-  label: string;
-  completed: number;
-  total: number;
-  items: Array<{ status: TodoStatus; text: string; detail?: string }>;
-  summary?: string;
-}
-
-const TODO_STATUS: Record<string, TodoStatus> = {
-  "○": "pending",
-  "◐": "in_progress",
-  "✓": "completed",
-  "✗": "deleted",
-};
-
-export function parseTodoWidget(lines: string[], title?: string): TodoWidgetModel | null {
-  const cleanLines = lines.map((line) => stripAnsi(line).trimEnd()).filter(Boolean);
-  const heading = cleanLines[0] ?? (title ? stripAnsi(title) : "");
-  const headingMatch = heading.match(/^[●○]\s+(.+?)\s+\((\d+)\/(\d+)\)$/);
-  if (!headingMatch) return null;
-
-  const items: TodoWidgetModel["items"] = [];
-  let summary: string | undefined;
-  for (const line of cleanLines.slice(1)) {
-    const row = line.match(/^[├└]─\s+([○◐✓✗])(?:\s+#\d+)?\s+(.+)$/);
-    if (!row) {
-      const summaryMatch = line.match(/^[├└]─\s+(.+)$/);
-      if (summaryMatch) summary = summaryMatch[1];
-      continue;
-    }
-    const status = TODO_STATUS[row[1]];
-    let text = row[2];
-    let detail: string | undefined;
-    if (status === "in_progress") {
-      const detailMatch = text.match(/^(.*?)\s+\(([^()]*)\)$/);
-      if (detailMatch) [, text, detail] = detailMatch;
-    }
-    items.push({ status, text, ...(detail ? { detail } : {}) });
-  }
-
-  return {
-    label: headingMatch[1],
-    completed: Number(headingMatch[2]),
-    total: Number(headingMatch[3]),
-    items,
-    ...(summary ? { summary } : {}),
-  };
-}
-
-function TodoStatusIcon({ status }: { status: TodoStatus }) {
-  if (status === "completed") return <CheckCircle2 size={14} aria-hidden="true" />;
-  if (status === "in_progress") return <LoaderCircle size={14} aria-hidden="true" />;
-  if (status === "deleted") return <Circle size={14} aria-hidden="true" />;
-  return <Circle size={14} aria-hidden="true" />;
-}
-
-function CodexTodoPanel({ widget, onToggle }: {
-  widget: ExtensionWidgetItem;
-  onToggle?: () => void;
-}) {
-  const { t } = useI18n();
-  const model = parseTodoWidget(widget.lines, widget.title);
-  if (!model) return null;
-  const collapsed = model.items.length === 0;
-
-  return (
-    <section className="codex-todo-panel" aria-label={model.label}>
-      <div className="codex-todo-heading">
-        <strong>{model.label}</strong>
-        <span className="codex-todo-count">{model.completed}/{model.total}</span>
-        {onToggle ? (
-          <button type="button" onClick={onToggle} aria-label={t(collapsed ? "i18n.expand" : "i18n.collapse")}>
-            {collapsed ? <ChevronRight size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
-          </button>
-        ) : null}
-      </div>
-      {!collapsed ? (
-        <div className="codex-todo-list">
-          {model.items.map((item, index) => (
-            <div className="codex-todo-item" data-status={item.status} key={`${item.status}:${item.text}:${index}`}>
-              <span className="codex-todo-status"><TodoStatusIcon status={item.status} /></span>
-              <span className="codex-todo-copy">
-                <span>{item.text}</span>
-                {item.detail ? <small>{item.detail}</small> : null}
-              </span>
-            </div>
-          ))}
-          {model.summary ? <div className="codex-todo-summary">{model.summary}</div> : null}
-        </div>
-      ) : null}
-    </section>
-  );
-}
 
 export function formatExtensionWidgetContent(lines: string[]): string {
   return lines.join("\n");
@@ -135,7 +33,6 @@ export function getUpdatedExtensionWidgetKeys(
 
 function getDefaultExpandedWidgetKey(widgets: ExtensionWidgetItem[]): string | null {
   return widgets.find((widget) => {
-    if (widget.key === "rpiv-todos" && parseTodoWidget(widget.lines, widget.title)) return false;
     const lineCount = widget.lines.length;
     return lineCount > 1 && lineCount <= DEFAULT_EXPANDED_WIDGET_LINES;
   })?.key ?? null;
@@ -148,9 +45,8 @@ export function getNextExpandedWidgetKey(
   return currentKey === requestedKey ? null : requestedKey;
 }
 
-export function ExtensionWidgets({ widgets, onRunCommand }: {
+export function ExtensionWidgets({ widgets }: {
   widgets: ExtensionWidgetItem[];
-  onRunCommand?: (command: string) => void;
 }) {
   const { t } = useI18n();
   const idPrefix = useId();
@@ -209,10 +105,7 @@ export function ExtensionWidgets({ widgets, onRunCommand }: {
 
   if (widgets.length === 0) return null;
 
-  const todoWidget = widgets.find((widget) => widget.key === "rpiv-todos");
-  const todoModel = todoWidget ? parseTodoWidget(todoWidget.lines, todoWidget.title) : null;
-  const genericWidgets = todoModel ? widgets.filter((widget) => widget !== todoWidget) : widgets;
-  const expandedWidget = genericWidgets.find((widget) => (
+  const expandedWidget = widgets.find((widget) => (
     widget.key === expandedWidgetKey
     && widget.lines.length > 1
   ));
@@ -223,20 +116,13 @@ export function ExtensionWidgets({ widgets, onRunCommand }: {
 
   return (
     <>
-      {todoWidget && todoModel ? (
-        <CodexTodoPanel
-          widget={todoWidget}
-          onToggle={onRunCommand ? () => onRunCommand(WIDGET_TOGGLE_COMMANDS[todoWidget.key]) : undefined}
-        />
-      ) : null}
       {expandedWidget && (
         <div className="extension-widget-panels">
           {(() => {
             const widget = expandedWidget;
-            const index = genericWidgets.indexOf(widget);
+            const index = widgets.indexOf(widget);
             const triggerId = `${idPrefix}-trigger-${index}`;
             const panelId = `${idPrefix}-panel-${index}`;
-            const toggleCommand = onRunCommand ? WIDGET_TOGGLE_COMMANDS[widget.key] : undefined;
             return (
               <section
                 key={widget.key}
@@ -246,11 +132,6 @@ export function ExtensionWidgets({ widgets, onRunCommand }: {
               >
                 <div className="extension-widget-panel-heading">
                   <span>{widget.title ?? widget.key}</span>
-                  {toggleCommand && (
-                    <button type="button" onClick={() => onRunCommand?.(toggleCommand)}>
-                      {t("i18n.collapsePanel")}
-                    </button>
-                  )}
                 </div>
                 <pre className="extension-widget-content">
                   {formatExtensionWidgetContent(widget.lines)}
@@ -260,9 +141,8 @@ export function ExtensionWidgets({ widgets, onRunCommand }: {
           })()}
         </div>
       )}
-      {genericWidgets.length > 0 ? (
       <div className="extension-widget-triggers" aria-label={t("chat.extensionWidgets")}>
-        {genericWidgets.map((widget, index) => {
+        {widgets.map((widget, index) => {
           const expandable = widget.lines.length > 1;
           const expanded = expandable && widget.key === expandedWidget?.key;
           const updating = updatingWidgetKeys.has(widget.key);
@@ -326,7 +206,6 @@ export function ExtensionWidgets({ widgets, onRunCommand }: {
           );
         })}
       </div>
-      ) : null}
     </>
   );
 }
