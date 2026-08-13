@@ -755,6 +755,7 @@ pre, code {
 .codex-recent-session-title { font-weight: 520; }
 .codex-recent-session-time { flex-shrink: 0; color: var(--text-dim); font-size: 10px; }
 .codex-sidebar-empty,
+.codex-project-no-sessions,
 .codex-sidebar-error {
   padding: 10px 9px;
   color: var(--text-muted);
@@ -865,6 +866,7 @@ html.dark .codex-project-unread { color: #67e8f9; }
 .codex-project-menu button:hover { background: var(--bg-hover); }
 .codex-project-menu button.danger { color: #dc2626; }
 html.dark .codex-project-menu button.danger { color: #f87171; }
+.codex-project-sessions { padding: 1px 0 3px 20px; }
 .codex-session-row {
   height: 29px;
   display: flex;

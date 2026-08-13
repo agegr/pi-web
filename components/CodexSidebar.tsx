@@ -52,6 +52,7 @@ type QuickResult =
   | { type: "project"; project: ProjectView }
   | { type: "session"; session: SessionInfo; project: ProjectView };
 
+const COLLAPSED_STORAGE_KEY = "pi-web:collapsed-projects";
 const UNREAD_STORAGE_KEY = "pi-web:unread-session-ids";
 
 function readStringSet(key: string): Set<string> {
@@ -143,6 +144,7 @@ export function CodexSidebar({
   const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
   const [directoryError, setDirectoryError] = useState<string | null>(null);
   const [directoryBusy, setDirectoryBusy] = useState(false);
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => readStringSet(COLLAPSED_STORAGE_KEY));
   const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
   const [unreadIds, setUnreadIds] = useState<Set<string>>(() => readStringSet(UNREAD_STORAGE_KEY));
   const [archivedIds, setArchivedIds] = useState<Set<string>>(() => readArchivedSessionIds());
@@ -185,6 +187,7 @@ export function CodexSidebar({
   }, []);
 
   useEffect(() => { void loadData(refreshKey !== undefined); }, [loadData, refreshKey]);
+  useEffect(() => { writeStringSet(COLLAPSED_STORAGE_KEY, collapsed); }, [collapsed]);
   useEffect(() => { writeStringSet(UNREAD_STORAGE_KEY, unreadIds); }, [unreadIds]);
   useEffect(() => { writeArchivedSessionIds(archivedIds); }, [archivedIds]);
   useEffect(() => { setArchivedIds(readArchivedSessionIds()); }, [refreshKey]);
@@ -324,6 +327,7 @@ export function CodexSidebar({
         await saveProjects([...preferences, project], { project });
       }
       setSelectedCwd(data.cwd);
+      setCollapsed((current) => { const next = new Set(current); next.delete(data.cwd!); return next; });
       setDirectoryPickerOpen(false);
     } catch (cause) {
       setDirectoryError(cause instanceof Error ? cause.message : String(cause));
@@ -366,6 +370,11 @@ export function CodexSidebar({
     if (result.type === "session") selectSession(result.session);
     else {
       setSelectedCwd(result.project.path);
+      setCollapsed((current) => {
+        const next = new Set(current);
+        next.delete(result.project.path);
+        return next;
+      });
     }
     closeQuickSwitcher();
   }, [closeQuickSwitcher, selectSession]);
@@ -606,6 +615,8 @@ export function CodexSidebar({
             <div className="codex-sidebar-empty">{t("sidebar.noProjects")}</div>
           )}
           {visibleProjects.map((project) => {
+            const matchingSessions = filterProjectSessions(project, filterQuery) ?? [];
+            const open = filterQuery ? matchingSessions.length > 0 : !collapsed.has(project.path);
             const selected = selectedProject?.path === project.path;
             const runningCount = project.sessions.filter((session) => activeRootIds.has(session.id)).length;
             const unreadCount = project.sessions.filter((session) => unreadIds.has(session.id)).length;
@@ -639,13 +650,18 @@ export function CodexSidebar({
                     title={project.path}
                     role="button"
                     tabIndex={0}
-                    onClick={() => setSelectedCwd(project.path)}
+                    onClick={() => {
+                      setSelectedCwd(project.path);
+                      setCollapsed((current) => { const next = new Set(current); next.has(project.path) ? next.delete(project.path) : next.add(project.path); return next; });
+                    }}
                     onKeyDown={(event) => {
                       if (event.key !== "Enter" && event.key !== " ") return;
                       event.preventDefault();
                       setSelectedCwd(project.path);
+                      setCollapsed((current) => { const next = new Set(current); next.has(project.path) ? next.delete(project.path) : next.add(project.path); return next; });
                     }}
                   >
+                    <Chevron open={open} />
                     <FolderIcon />
                     {renamingProject === project.path ? (
                       <input
@@ -695,6 +711,34 @@ export function CodexSidebar({
                     </IconButton>
                   </div>
                 </div>
+
+                {open && (
+                  <div className="codex-project-sessions" role="group">
+                    {matchingSessions.length === 0 && <div className="codex-project-no-sessions">{t("sidebar.noSessions")}</div>}
+                    {matchingSessions.map((session) => (
+                      <SessionRow
+                        key={session.id}
+                        session={session}
+                        selected={session.id === selectedSessionId}
+                        running={activeRootIds.has(session.id)}
+                        runningSubagentCount={(subagentsByRoot.get(session.id) ?? []).filter((child) => runningIds.has(child.id)).length}
+                        unread={unreadIds.has(session.id)}
+                        onSelect={() => selectSession(session)}
+                        onChanged={() => void loadData(true)}
+                        onDeleted={() => { onSessionDeleted?.(session.id); void loadData(true); }}
+                        onArchive={() => {
+                          setArchivedIds((current) => new Set(current).add(session.id));
+                          setUnreadIds((current) => {
+                            if (!current.has(session.id)) return current;
+                            const next = new Set(current);
+                            next.delete(session.id);
+                            return next;
+                          });
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}

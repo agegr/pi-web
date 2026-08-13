@@ -88,10 +88,11 @@ test("desktop sidebar exposes new task, projects, and recent sessions", () => {
   assert.match(sidebar, /recentSessions\.map/);
 });
 
-test("project rows do not inline every session", () => {
-  assert.doesNotMatch(sidebar, /className="codex-project-sessions"/);
-  assert.doesNotMatch(sidebar, /matchingSessions\.map/);
-  assert.match(sidebar, /onClick=\{\(\) => setSelectedCwd\(project\.path\)\}/);
+test("project rows expand to list their sessions", () => {
+  assert.match(sidebar, /const matchingSessions = filterProjectSessions\(project, filterQuery\)/);
+  assert.match(sidebar, /className="codex-project-sessions"/);
+  assert.match(sidebar, /matchingSessions\.map/);
+  assert.match(sidebar, /<Chevron open=\{open\} \/>/);
 });
 
 test("recent session rows preserve activity, selection, and session management", () => {
