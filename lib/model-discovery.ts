@@ -11,6 +11,31 @@ function cleanString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+const OPENAI_STYLE_APIS = new Set(["openai-completions", "openai-responses", "openai-codex-responses"]);
+
+/**
+ * OpenAI-compatible relays serve `/v1/chat/completions` and `/v1/responses`;
+ * a host-only baseUrl omitting `/v1` hits the bare path, which some relays
+ * (e.g. codex2api.com) WAF-block for the SDK's `OpenAI/*` User-Agent while
+ * still answering a plain `/models` discovery — so discovery succeeds and the
+ * saved config then fails. Normalize a host-only baseUrl to include `/v1` for
+ * OpenAI-style APIs so discovery and completions use the same path.
+ */
+export function normalizeProviderBaseUrl(baseUrl: unknown, api: unknown): string {
+  if (typeof baseUrl !== "string") return "";
+  const trimmed = baseUrl.trim();
+  if (!trimmed || typeof api !== "string" || !OPENAI_STYLE_APIS.has(api)) return trimmed;
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return trimmed;
+  }
+  const path = url.pathname.replace(/\/+$/, "");
+  if (path === "") url.pathname = "/v1";
+  return url.toString();
+}
+
 function modelFromValue(value: unknown): DiscoveredModel | null {
   if (typeof value === "string") {
     const id = value.trim();
@@ -55,7 +80,7 @@ export function parseDiscoveredModels(value: unknown): DiscoveredModel[] {
 }
 
 export function buildModelsListUrl(baseUrl: string, api: string): URL {
-  const url = new URL(baseUrl.trim());
+  const url = new URL(normalizeProviderBaseUrl(baseUrl, api));
   const trimmedPath = url.pathname.replace(/\/+$/, "");
 
   if (!/\/models$/i.test(trimmedPath)) {

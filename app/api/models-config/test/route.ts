@@ -4,6 +4,7 @@ import { join } from "path";
 import { completeSimple, type AssistantMessage } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { normalizeProviderBaseUrl } from "@/lib/model-discovery";
 
 export const dynamic = "force-dynamic";
 
@@ -49,10 +50,14 @@ export async function POST(req: Request) {
 
     tempDir = mkdtempSync(join(tmpdir(), "pi-web-model-test-"));
     const modelsPath = join(tempDir, "models.json");
+    const normalizedProvider = {
+      ...body.provider,
+      baseUrl: normalizeProviderBaseUrl(body.provider.baseUrl, body.provider.api),
+    };
     writeFileSync(modelsPath, JSON.stringify({
       providers: {
         [providerName]: {
-          ...body.provider,
+          ...normalizedProvider,
           models: [{ ...body.model, id: modelId }],
         },
       },

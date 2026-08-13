@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
 import { invalidateModelsCache } from "./models-cache";
+import { normalizeProviderBaseUrl } from "./model-discovery";
 
 const MODEL_COST_KEYS = ["input", "output", "cacheRead", "cacheWrite"] as const;
 
@@ -47,11 +48,14 @@ function sanitizeModelsConfig(data: Record<string, unknown>): Record<string, unk
   if (!isRecord(data.providers)) return data;
 
   const providers = Object.fromEntries(Object.entries(data.providers).map(([providerId, provider]) => {
-    if (!isRecord(provider) || !Array.isArray(provider.models)) return [providerId, provider];
+    if (!isRecord(provider)) return [providerId, provider];
+    const normalizedBaseUrl = normalizeProviderBaseUrl(provider.baseUrl, provider.api);
+    const normalized = normalizedBaseUrl ? { ...provider, baseUrl: normalizedBaseUrl } : provider;
+    if (!Array.isArray(provider.models)) return [providerId, normalized];
     const models = provider.models.filter((model) => (
       !isRecord(model) || typeof model.id !== "string" || model.id.trim().length > 0
     ));
-    return [providerId, { ...provider, models }];
+    return [providerId, { ...normalized, models }];
   }));
 
   return { ...data, providers };
