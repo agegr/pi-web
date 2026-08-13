@@ -1021,6 +1021,7 @@ export function AppShell() {
         onCwdChange={handleCwdChange}
         onBackgroundTaskDone={handleBackgroundTaskDone}
         onRunningSessionIdsChange={handleRunningSessionIdsChange}
+        onToggleSidebar={handleSidebarToggle}
       />
       <div className="codex-sidebar-footer">
         <button className="codex-sidebar-footer-item" onClick={() => setSettingsOpen(true)} title={translate("common.settings")} aria-label={translate("common.settings")}>
@@ -1679,6 +1680,7 @@ export function AppShell() {
             <TaskHeader
               title={taskTitle}
               running={taskRunning}
+              sidebarOpen={sidebarOpen}
               modified={selectedSession?.modified ?? null}
               onToggleSidebar={() => setSidebarOpen((open) => !open)}
               onViewHistory={handleViewFullHistory}

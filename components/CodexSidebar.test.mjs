@@ -17,6 +17,13 @@ test("AppShell renders the Codex project sidebar instead of the legacy sidebar",
   assert.doesNotMatch(shell, /<SessionSidebar/);
 });
 
+test("sidebar header aligns refresh, add, and collapse controls", () => {
+  assert.match(sidebar, /onToggleSidebar\?: \(\) => void/);
+  assert.match(sidebar, /codex-sidebar-header-actions[\s\S]*?sidebar\.refresh[\s\S]*?sidebar\.addProject[\s\S]*?sidebar\.hide/);
+  assert.match(styles, /\.codex-sidebar-icon-button\s*\{[\s\S]*?width:\s*28px;[\s\S]*?height:\s*28px;/);
+  assert.match(shell, /<CodexSidebar[\s\S]*?onToggleSidebar=\{handleSidebarToggle\}/);
+});
+
 test("project management exposes persistence-backed full actions", () => {
   assert.match(sidebar, /fetch\("\/api\/projects"/);
   assert.match(sidebar, /method: "PATCH"/);

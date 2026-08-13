@@ -6,6 +6,7 @@ import { formatRelativeTime } from "@/lib/i18n/format";
 interface Props {
   title: string;
   running: boolean;
+  sidebarOpen: boolean;
   modified?: string | null;
   onToggleSidebar(): void;
   onViewHistory(): void;
@@ -21,6 +22,7 @@ interface Props {
 export function TaskHeader({
   title,
   running,
+  sidebarOpen,
   modified,
   onToggleSidebar,
   onViewHistory,
@@ -56,9 +58,11 @@ export function TaskHeader({
 
   return (
     <header className="task-header">
-      <button className="task-header-sidebar" onClick={onToggleSidebar} aria-label={t("sidebar.toggle")}>
-        <PanelLeft size={15} aria-hidden="true" />
-      </button>
+      {!sidebarOpen ? (
+        <button className="task-header-sidebar" onClick={onToggleSidebar} aria-label={t("sidebar.toggle")}>
+          <PanelLeft size={15} aria-hidden="true" />
+        </button>
+      ) : null}
       <div className="task-header-copy">
         <strong>{title}</strong>
         <span>{running ? t("task.running") : t("task.ready")}{modified ? ` · ${formatRelativeTime(modified, locale)}` : ""}</span>

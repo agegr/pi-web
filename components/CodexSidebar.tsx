@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { Archive, ArrowDown, ArrowUp, ChevronRight, Ellipsis, Folder, FolderPlus, LoaderCircle, MessageSquare, Pencil, Pin, PinOff, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { Archive, ArrowDown, ArrowUp, ChevronRight, Ellipsis, Folder, FolderPlus, LoaderCircle, MessageSquare, PanelLeft, Pencil, Pin, PinOff, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import { readArchivedSessionIds, writeArchivedSessionIds } from "@/lib/archived-sessions";
@@ -35,6 +35,7 @@ interface Props {
   onCwdChange?: (cwd: string | null, projectRoot?: string | null) => void;
   onBackgroundTaskDone?: () => void;
   onRunningSessionIdsChange?: (ids: Set<string>) => void;
+  onToggleSidebar?: () => void;
 }
 
 interface ProjectView extends ProjectPreference {
@@ -131,6 +132,7 @@ export function CodexSidebar({
   onCwdChange,
   onBackgroundTaskDone,
   onRunningSessionIdsChange,
+  onToggleSidebar,
 }: Props) {
   const { t, locale } = useI18n();
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
@@ -590,6 +592,11 @@ export function CodexSidebar({
           <IconButton label={t("sidebar.addProject")} onClick={() => setDirectoryPickerOpen(true)}>
             <FolderPlus size={15} aria-hidden="true" />
           </IconButton>
+          {onToggleSidebar ? (
+            <IconButton label={t("sidebar.hide")} onClick={onToggleSidebar}>
+              <PanelLeft size={15} aria-hidden="true" />
+            </IconButton>
+          ) : null}
         </div>
       </header>
 

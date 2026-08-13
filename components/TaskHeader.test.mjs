@@ -13,6 +13,7 @@ test("renders a title, real status, and accessible action buttons", () => {
     React.createElement(TaskHeader, {
       title: "build a game to play",
       running: true,
+      sidebarOpen: true,
       modified: "2026-08-13T08:00:00Z",
       onToggleSidebar() {},
       onViewHistory() {},
@@ -29,4 +30,26 @@ test("renders a title, real status, and accessible action buttons", () => {
   assert.match(html, /Running/);
   assert.match(html, /aria-label="Task actions"/);
   assert.match(html, /aria-label="Show file panel"/);
+  assert.doesNotMatch(html, /aria-label="Toggle sidebar"/);
+});
+
+test("shows the sidebar restore button only while the sidebar is closed", () => {
+  const html = renderToStaticMarkup(React.createElement(I18nProvider, null,
+    React.createElement(TaskHeader, {
+      title: "build a game to play",
+      running: false,
+      sidebarOpen: false,
+      onToggleSidebar() {},
+      onViewHistory() {},
+      historyDisabled: false,
+      onAutoName() {},
+      autoNameDisabled: false,
+      onOpenBranches() {},
+      onOpenSystem() {},
+      onToggleFiles() {},
+      filePanelOpen: false,
+    }),
+  ));
+
+  assert.match(html, /aria-label="Toggle sidebar"/);
 });
