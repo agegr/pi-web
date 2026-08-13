@@ -30,6 +30,14 @@ test("closes the mobile action layer on outside click, Escape, and session chang
   assert.match(source, /\}, \[isMobile, selectedSession\?\.id, newSessionDraftId\]\);/);
 });
 
+test("Android back runs the nested Settings handler before closing Settings", () => {
+  assert.match(source, /settingsBackHandlerRef = useRef/);
+  assert.match(source, /settingsBackHandlerRef\.current\?\.\(\)/);
+  assert.match(source, /if \(!settingsConsumed\) setSettingsOpen\(false\)/);
+  assert.match(source, /const remaining = settingsConsumed/);
+  assert.match(source, /onRegisterSettingsBack=\{\(handler\) => \{ settingsBackHandlerRef\.current = handler; \}\}/);
+});
+
 test("keeps the mobile action layer open after using an expanded action", () => {
   const toggleTopPanel = source.match(/const toggleTopPanel = useCallback\([\s\S]*?\n  \}, \[isMobile\]\);/)?.[0];
   const historyHandler = source.match(/onClick=\{\(\) => \{[\s\S]*?handleViewFullHistory\(\);[\s\S]*?\n          \}\}/)?.[0];

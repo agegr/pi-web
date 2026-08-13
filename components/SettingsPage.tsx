@@ -28,6 +28,7 @@ import type { Locale, LocalePlugin } from "@/lib/i18n/types";
 import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ProjectPreference } from "@/lib/project-registry";
 import { ModelsConfig } from "./ModelsConfig";
+import type { ModelsDraftController } from "./models-config/models-config-types";
 import { PluginsConfig } from "./PluginsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 
@@ -51,6 +52,7 @@ interface Props {
   onModelsChanged: () => void;
   onSessionReloaded: () => void;
   onProjectsChanged: () => void;
+  onRegisterSettingsBack: (handler: () => boolean) => void;
 }
 
 function SectionIcon({ section }: { section: SettingsSection }) {
@@ -84,6 +86,7 @@ export function SettingsPage({
   onModelsChanged,
   onSessionReloaded,
   onProjectsChanged,
+  onRegisterSettingsBack,
 }: Props) {
   const { t } = useI18n();
   const [section, setSection] = useState<SettingsSection>("general");
@@ -92,19 +95,73 @@ export function SettingsPage({
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [restoringProjects, setRestoringProjects] = useState<Set<string>>(new Set());
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const [modelsController, setModelsController] = useState<ModelsDraftController | null>(null);
+  const [discardDialogOpen, setDiscardDialogOpen] = useState(false);
+  const [pendingExit, setPendingExit] = useState<(() => void) | null>(null);
+  const discardDialogRef = useRef<HTMLDialogElement>(null);
+
   const close = useCallback(() => {
     onModelsChanged();
     onClose();
   }, [onClose, onModelsChanged]);
 
+  // One exit-request path: every Settings close/navigation action goes through
+  // here so unsaved custom model drafts are never lost silently.
+  const requestCloseOrNavigate = useCallback((action: () => void) => {
+    if (modelsController?.dirty) {
+      setPendingExit(() => action);
+      setDiscardDialogOpen(true);
+    } else {
+      action();
+    }
+  }, [modelsController]);
+
+  useEffect(() => {
+    const dialog = discardDialogRef.current;
+    if (!dialog) return;
+    if (discardDialogOpen && !dialog.open) dialog.showModal();
+    else if (!discardDialogOpen && dialog.open) dialog.close();
+  }, [discardDialogOpen]);
+
+  const handleDiscardConfirm = useCallback(() => {
+    const action = pendingExit;
+    setDiscardDialogOpen(false);
+    setPendingExit(null);
+    setModelsController(null);
+    modelsController?.discard();
+    action?.();
+  }, [modelsController, pendingExit]);
+
   useEffect(() => {
     closeButtonRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
+      if (event.key !== "Escape") return;
+      if (discardDialogOpen) return; // native <dialog> handles its own Escape
+      if (modelsController?.handleBack()) return; // Models consumed the key
+      requestCloseOrNavigate(close);
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [close]);
+  }, [close, discardDialogOpen, modelsController, requestCloseOrNavigate]);
+
+  // Android/browser back: Models layers first (picker, confirmation, detail),
+  // then the dirty-exit confirmation, and only then closing Settings.
+  const handleSettingsBack = useCallback((): boolean => {
+    if (modelsController?.handleBack()) return true;
+    if (modelsController?.dirty) {
+      setPendingExit(() => close);
+      setDiscardDialogOpen(true);
+      return true;
+    }
+    return false;
+  }, [close, modelsController]);
+
+  useEffect(() => {
+    onRegisterSettingsBack(handleSettingsBack);
+  }, [onRegisterSettingsBack, handleSettingsBack]);
 
   const loadProjects = useCallback(async (clearError = true) => {
     setProjectsLoading(true);
@@ -241,7 +298,7 @@ export function SettingsPage({
       </div>
     );
   } else if (section === "models") {
-    content = <ModelsConfig embedded onClose={close} />;
+    content = <ModelsConfig onControllerChange={setModelsController} />;
   } else if (!cwd) {
     content = (
       <div className="settings-page-empty">
@@ -270,15 +327,19 @@ export function SettingsPage({
       role="dialog"
       aria-modal="true"
       aria-labelledby="settings-page-title"
-      onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}
+      onMouseDown={(event) => { if (event.target === event.currentTarget) requestCloseOrNavigate(close); }}
     >
       <div className="settings-page-shell">
         <header className="settings-page-header">
           <h2 id="settings-page-title">{t("common.settings")}</h2>
-          <button ref={closeButtonRef} type="button" onClick={close} aria-label={t("i18n.close")} title={t("i18n.close")}><X size={17} aria-hidden="true" /></button>
+          <button ref={closeButtonRef} type="button" onClick={() => requestCloseOrNavigate(close)} aria-label={t("i18n.close")} title={t("i18n.close")}><X size={17} aria-hidden="true" /></button>
         </header>
         <div className="settings-page-layout">
-          <nav className="settings-page-nav" aria-label={t("settings.categories")}>
+          <nav
+            className="settings-page-nav"
+            aria-label={t("settings.categories")}
+            data-hidden-mobile={modelsController?.mobileDetailOpen ? "true" : undefined}
+          >
             {sections.map((item) => (
               <button
                 key={item.id}
@@ -286,7 +347,7 @@ export function SettingsPage({
                 data-active={section === item.id}
                 disabled={item.disabled}
                 title={item.disabled ? t("settings.selectProjectFirst") : item.label}
-                onClick={() => setSection(item.id)}
+                onClick={() => requestCloseOrNavigate(() => setSection(item.id))}
               >
                 <SectionIcon section={item.id} />
                 <span>{item.label}</span>
@@ -296,6 +357,18 @@ export function SettingsPage({
           <main className="settings-page-content">{content}</main>
         </div>
       </div>
+      <dialog
+        ref={discardDialogRef}
+        className="models-settings-dialog"
+        onCancel={() => setDiscardDialogOpen(false)}
+      >
+        <h3>{t("models.unsavedChanges")}</h3>
+        <p>{t("models.discardChangesDescription")}</p>
+        <div className="models-settings-dialog-actions">
+          <button type="button" onClick={() => setDiscardDialogOpen(false)}>{t("models.keepEditing")}</button>
+          <button type="button" className="models-settings-dialog-danger" onClick={handleDiscardConfirm}>{t("models.discard")}</button>
+        </div>
+      </dialog>
     </div>,
     document.body,
   );

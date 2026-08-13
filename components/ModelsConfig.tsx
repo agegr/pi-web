@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Check as CheckIcon, ChevronDown, Cpu, Eye, EyeOff, Plus, Search } from "lucide-react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { ArrowLeft, Check as CheckIcon, ChevronDown, Eye, EyeOff, Plus, Search } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
@@ -17,106 +17,27 @@ import {
   type ModelCostDraft,
   type ModelCostKey,
 } from "./models-config-helpers";
-// Color icons (have their own fill colors — no background needed)
-import AnthropicIcon from "@lobehub/icons/es/Anthropic/components/Mono";
-import OpenAIIcon from "@lobehub/icons/es/OpenAI/components/Mono";
-import GoogleColorIcon from "@lobehub/icons/es/Google/components/Color";
-import DeepSeekColorIcon from "@lobehub/icons/es/DeepSeek/components/Color";
-import GroqIcon from "@lobehub/icons/es/Groq/components/Mono";
-import MistralColorIcon from "@lobehub/icons/es/Mistral/components/Color";
-import MoonshotIcon from "@lobehub/icons/es/Moonshot/components/Mono";
-import MinimaxColorIcon from "@lobehub/icons/es/Minimax/components/Color";
-import FireworksColorIcon from "@lobehub/icons/es/Fireworks/components/Color";
-import HuggingFaceColorIcon from "@lobehub/icons/es/HuggingFace/components/Color";
-import CerebrasColorIcon from "@lobehub/icons/es/Cerebras/components/Color";
-import OpenRouterIcon from "@lobehub/icons/es/OpenRouter/components/Mono";
-import XAIIcon from "@lobehub/icons/es/XAI/components/Mono";
-import CloudflareColorIcon from "@lobehub/icons/es/Cloudflare/components/Color";
-import VercelIcon from "@lobehub/icons/es/Vercel/components/Mono";
-import GithubCopilotIcon from "@lobehub/icons/es/GithubCopilot/components/Mono";
-import AwsColorIcon from "@lobehub/icons/es/Aws/components/Color";
-import AzureColorIcon from "@lobehub/icons/es/Azure/components/Color";
-import KimiColorIcon from "@lobehub/icons/es/Kimi/components/Color";
-import QwenColorIcon from "@lobehub/icons/es/Qwen/components/Color";
-import ZhipuColorIcon from "@lobehub/icons/es/Zhipu/components/Color";
-import CohereColorIcon from "@lobehub/icons/es/Cohere/components/Color";
-import PerplexityColorIcon from "@lobehub/icons/es/Perplexity/components/Color";
-import TogetherColorIcon from "@lobehub/icons/es/Together/components/Color";
-import GrokIcon from "@lobehub/icons/es/Grok/components/Mono";
-import AntGroupColorIcon from "@lobehub/icons/es/AntGroup/components/Color";
-import NvidiaColorIcon from "@lobehub/icons/es/Nvidia/components/Color";
-import OpenCodeIcon from "@lobehub/icons/es/OpenCode/components/Mono";
-import XiaomiMiMoIcon from "@lobehub/icons/es/XiaomiMiMo/components/Mono";
-import ZAIIcon from "@lobehub/icons/es/ZAI/components/Mono";
+import { ModelsConfigNavigator, ProviderIcon } from "./models-config/ModelsConfigNavigator";
+import {
+  applySavedModelsConfig,
+  filterModelsNavigation,
+  isModelsConfigDirty,
+  modelsSelectionLabel,
+  resolveModelsSelection,
+} from "./models-config/models-config-navigation";
+import type {
+  ApiKeyProvider,
+  ModelEntry,
+  ModelsAccountItem,
+  ModelsCustomProviderItem,
+  ModelsDraftController,
+  ModelsJson,
+  OAuthProvider,
+  ProviderEntry,
+  Selection,
+} from "./models-config/models-config-types";
 
-type IconComponent = React.ComponentType<{ size?: number | string; style?: React.CSSProperties }>;
-
-// hasColor=true → Color icon (self-colored SVG, no wrapper)
-// hasColor=false → Mono icon (rendered with currentColor, inherits theme text color)
-const PROVIDER_ICONS: Record<string, { Icon: IconComponent; hasColor: boolean }> = {
-  "anthropic":              { Icon: AnthropicIcon,        hasColor: false },
-  "openai":                 { Icon: OpenAIIcon,           hasColor: false },
-  "openai-codex":           { Icon: OpenAIIcon,           hasColor: false },
-  "google":                 { Icon: GoogleColorIcon,      hasColor: true },
-  "google-vertex":          { Icon: GoogleColorIcon,      hasColor: true },
-  "ant-ling":               { Icon: AntGroupColorIcon,    hasColor: true },
-  "deepseek":               { Icon: DeepSeekColorIcon,    hasColor: true },
-  "groq":                   { Icon: GroqIcon,             hasColor: false },
-  "mistral":                { Icon: MistralColorIcon,     hasColor: true },
-  "moonshotai":             { Icon: MoonshotIcon,         hasColor: false },
-  "moonshotai-cn":          { Icon: MoonshotIcon,         hasColor: false },
-  "moonshot":               { Icon: MoonshotIcon,         hasColor: false },
-  "minimax":                { Icon: MinimaxColorIcon,     hasColor: true },
-  "minimax-cn":             { Icon: MinimaxColorIcon,     hasColor: true },
-  "fireworks":              { Icon: FireworksColorIcon,   hasColor: true },
-  "huggingface":            { Icon: HuggingFaceColorIcon, hasColor: true },
-  "cerebras":               { Icon: CerebrasColorIcon,    hasColor: true },
-  "openrouter":             { Icon: OpenRouterIcon,       hasColor: false },
-  "xai":                    { Icon: XAIIcon,              hasColor: false },
-  "cloudflare-ai-gateway":  { Icon: CloudflareColorIcon,  hasColor: true },
-  "cloudflare-workers-ai":  { Icon: CloudflareColorIcon,  hasColor: true },
-  "vercel-ai-gateway":      { Icon: VercelIcon,           hasColor: false },
-  "github-copilot":         { Icon: GithubCopilotIcon,    hasColor: false },
-  "amazon-bedrock":         { Icon: AwsColorIcon,         hasColor: true },
-  "azure-openai-responses": { Icon: AzureColorIcon,       hasColor: true },
-  "kimi-coding":            { Icon: KimiColorIcon,        hasColor: true },
-  "nvidia":                 { Icon: NvidiaColorIcon,      hasColor: true },
-  "opencode":               { Icon: OpenCodeIcon,         hasColor: false },
-  "opencode-go":            { Icon: OpenCodeIcon,         hasColor: false },
-  "qwen":                   { Icon: QwenColorIcon,        hasColor: true },
-  "xiaomi":                 { Icon: XiaomiMiMoIcon,       hasColor: false },
-  "xiaomi-token-plan-ams":  { Icon: XiaomiMiMoIcon,       hasColor: false },
-  "xiaomi-token-plan-cn":   { Icon: XiaomiMiMoIcon,       hasColor: false },
-  "xiaomi-token-plan-sgp":  { Icon: XiaomiMiMoIcon,       hasColor: false },
-  "zai":                    { Icon: ZAIIcon,              hasColor: false },
-  "zai-coding-cn":          { Icon: ZAIIcon,              hasColor: false },
-  "zhipu":                  { Icon: ZhipuColorIcon,       hasColor: true },
-  "cohere":                 { Icon: CohereColorIcon,      hasColor: true },
-  "perplexity":             { Icon: PerplexityColorIcon,  hasColor: true },
-  "together":               { Icon: TogetherColorIcon,    hasColor: true },
-  "grok":                   { Icon: GrokIcon,             hasColor: false },
-};
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-interface OAuthProvider {
-  id: string;
-  name: string;
-  usesCallbackServer: boolean;
-  loggedIn: boolean;
-  /** Provider also accepts an API key, so it appears in both picker sections. */
-  supportsApiKey?: boolean;
-}
-
-interface ApiKeyProvider {
-  id: string;
-  displayName: string;
-  configured: boolean;
-  source?: string;
-  modelCount: number;
-  /** Provider also supports OAuth, so it appears in both picker sections. */
-  supportsOAuth?: boolean;
-}
+// ── Component-local state types ────────────────────────────────────────────────
 
 type OAuthLoginState =
   | { phase: "idle" }
@@ -129,33 +50,7 @@ type OAuthLoginState =
   | { phase: "success" }
   | { phase: "error"; message: string };
 
-interface ModelEntry {
-  id: string;
-  name?: string;
-  api?: string;
-  reasoning?: boolean;
-  thinkingLevelMap?: Record<string, string | null>;
-  input?: string[];
-  contextWindow?: number;
-  maxTokens?: number;
-  cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; tiers?: unknown };
-  headers?: Record<string, string>;
-  compat?: Record<string, unknown>;
-}
-
-interface ProviderEntry {
-  baseUrl?: string;
-  api?: string;
-  apiKey?: string;
-  headers?: Record<string, string>;
-  compat?: Record<string, unknown>;
-  models?: ModelEntry[];
-  modelOverrides?: Record<string, unknown>;
-}
-
-interface ModelsJson {
-  providers?: Record<string, ProviderEntry>;
-}
+// ── Component-local state types ────────────────────────────────────────────────
 
 type ModelTestState =
   | { phase: "idle" }
@@ -175,14 +70,7 @@ type ModelCatalogState =
   | { phase: "success"; recommendation: ModelCatalogRecommendation; appliedCount: number }
   | { phase: "error"; message: string };
 
-type Selection =
-  | { type: "provider"; name: string }
-  | { type: "model"; providerName: string; index: number }
-  | { type: "oauth"; providerId: string }
-  | { type: "apikey"; providerId: string };
-
 const API_OPTIONS = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"] as const;
-
 // ── Form field helpers ────────────────────────────────────────────────────────
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -322,6 +210,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
   const [discoveryState, setDiscoveryState] = useState<ModelDiscoveryState>({ phase: "idle" });
   const [discoveryQuery, setDiscoveryQuery] = useState("");
   const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const discoveryRequestIdRef = useRef(0);
   const selectShownRef = useRef<HTMLInputElement>(null);
   useEffect(() => setEditingName(name), [name]);
@@ -409,10 +298,9 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
          <SectionTitle>{t("i18n.provider")}</SectionTitle>
-        <button onClick={onDelete}
-          style={{ padding: "3px 8px", background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 4, color: "#ef4444", cursor: "pointer", fontSize: 11 }}>
-           {t("i18n.delete")}
-        </button>
+        <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+          {t("models.modelCount", { count: provider.models?.length ?? 0 })}
+        </span>
       </div>
 
        <Field label={t("i18n.providerName")}>
@@ -442,15 +330,43 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
         <Select value={provider.api ?? "openai-completions"} onChange={(v) => set("api", v)} options={API_OPTIONS} required />
       </Field>
 
-      <Field label={t("models.headers")}>
-        <HeaderListEditor
-          headers={provider.headers}
-          onChange={(headers) => set("headers", headers)}
-        />
-        <span style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
-          {t("models.providerHeadersHelp")}
-        </span>
-      </Field>
+      <section style={{ borderTop: "1px solid var(--border)" }}>
+        <button
+          type="button"
+          onClick={() => setAdvancedOpen((open) => !open)}
+          aria-expanded={advancedOpen}
+          aria-controls="provider-advanced-settings"
+          style={{
+            width: "100%", minHeight: 44, padding: "8px 0", border: "none", background: "transparent",
+            display: "grid", gridTemplateColumns: "minmax(0, 1fr) 18px", alignItems: "center", gap: 10,
+            color: "var(--text)", cursor: "pointer", textAlign: "left",
+          }}
+        >
+          <span style={{ minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 11, fontWeight: 600 }}>{t("models.advancedSettings")}</span>
+            <span style={{ display: "block", marginTop: 3, color: "var(--text-dim)", fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {Object.keys(provider.headers ?? {}).length
+                ? t("models.headersSummary", { count: Object.keys(provider.headers ?? {}).length })
+                : t("models.providerDefaults")}
+            </span>
+          </span>
+          <ChevronDown size={16} strokeWidth={2} aria-hidden="true" style={{ color: "var(--text-dim)", transform: advancedOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s ease" }} />
+        </button>
+
+        {advancedOpen && (
+          <div id="provider-advanced-settings" style={{ display: "flex", flexDirection: "column", gap: 14, padding: "4px 0 16px" }}>
+            <Field label={t("models.headers")}>
+              <HeaderListEditor
+                headers={provider.headers}
+                onChange={(headers) => set("headers", headers)}
+              />
+              <span style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
+                {t("models.providerHeadersHelp")}
+              </span>
+            </Field>
+          </div>
+        )}
+      </section>
 
       <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
         {discoveryState.phase !== "success" && (
@@ -551,6 +467,17 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
             </div>
           </>
         )}
+      </div>
+
+      <div className="models-settings-danger-zone">
+        <span className="models-settings-danger-zone-label">{t("models.dangerZone")}</span>
+        <button
+          type="button"
+          className="models-settings-danger-button"
+          onClick={onDelete}
+        >
+          {t("models.deleteProvider")}
+        </button>
       </div>
     </div>
   );
@@ -1092,10 +1019,6 @@ function ModelDetail({
             )}
              {testState.phase === "testing" ? t("i18n.checking") : testState.phase === "success" ? t("common.ok") : t("i18n.test")}
           </button>
-          <button onClick={onDelete}
-            style={{ height: 24, padding: "0 8px", background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 4, color: "#ef4444", cursor: "pointer", fontSize: 11, boxSizing: "border-box" }}>
-             {t("i18n.remove")}
-          </button>
         </div>
       </div>
 
@@ -1296,6 +1219,17 @@ function ModelDetail({
           </div>
         )}
       </section>
+
+      <div className="models-settings-danger-zone">
+        <span className="models-settings-danger-zone-label">{t("models.dangerZone")}</span>
+        <button
+          type="button"
+          className="models-settings-danger-button"
+          onClick={onDelete}
+        >
+          {t("models.deleteModel")}
+        </button>
+      </div>
     </div>
   );
 }
@@ -1690,51 +1624,12 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
   );
 }
 
-// ── Provider icon ─────────────────────────────────────────────────────────────
-
-function ProviderIcon({ id, size }: { id: string; size: number }) {
-  const pi = PROVIDER_ICONS[id];
-  if (!pi) {
-    const label = id
-      .split(/[-_]/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0])
-      .join("")
-      .toUpperCase() || "?";
-    return (
-      <span
-        aria-hidden="true"
-        style={{
-          width: size,
-          height: size,
-          border: "1px solid var(--border)",
-          borderRadius: 4,
-          color: "var(--text-dim)",
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-          fontSize: Math.max(8, Math.floor(size * 0.42)),
-          fontWeight: 700,
-          lineHeight: 1,
-        }}
-      >
-        {label}
-      </span>
-    );
-  }
-  // Color icons: self-colored SVG, no wrapper needed
-  if (pi.hasColor) return <pi.Icon size={size} />;
-  // Mono icons: use currentColor so they adapt to light/dark theme
-  return <pi.Icon size={size} style={{ color: "var(--text-muted)" }} />;
-}
-
 // ── Add provider picker ───────────────────────────────────────────────────────
 
 interface AddProviderPickerProps {
   oauthProviders: OAuthProvider[];
   apiKeyProviders: ApiKeyProvider[];
+  mobile: boolean;
   onSelectOAuth: (id: string) => void;
   onSelectApiKey: (id: string) => void;
   onAddCustom: () => void;
@@ -1742,14 +1637,25 @@ interface AddProviderPickerProps {
 }
 
 function AddProviderPicker({
-  oauthProviders, apiKeyProviders,
+  oauthProviders, apiKeyProviders, mobile,
   onSelectOAuth, onSelectApiKey, onAddCustom, onClose,
 }: AddProviderPickerProps) {
   const [search, setSearch] = useState("");
   const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
 
-  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 30); }, []);
+  useEffect(() => {
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    if (dialog && !dialog.open) dialog.showModal();
+    setTimeout(() => inputRef.current?.focus(), 30);
+    return () => {
+      if (dialog?.open) dialog.close();
+      previousFocusRef.current?.focus();
+    };
+  }, []);
 
   const q = search.trim().toLowerCase();
 
@@ -1759,116 +1665,99 @@ function AddProviderPicker({
 
   const totalCount = availableOAuth.length + availableApiKey.length + (showCustom ? 1 : 0);
 
-  const cardStyle: React.CSSProperties = {
-    display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
-    padding: "10px 12px",
-    background: "var(--bg-panel)",
-    border: "1px solid var(--border)",
-    borderRadius: 7,
-    boxSizing: "border-box",
-    cursor: "pointer",
-    minWidth: 0,
-    textAlign: "left",
-    transition: "border-color 0.12s, background 0.12s",
-    width: "100%",
-  };
-
-
-
   return (
-    <div
-      style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}
+    <dialog
+      ref={dialogRef}
+      className="models-picker"
+      aria-label={t("i18n.addProvider")}
+      onCancel={(event) => { event.preventDefault(); onClose(); }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div style={{ width: 820, maxWidth: "calc(100vw - 32px)", maxHeight: "min(72vh, calc(100vh - 32px))", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.22)", overflow: "hidden" }}>
-        {/* Search */}
-        <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", flexShrink: 0, display: "flex", alignItems: "center", gap: 8 }}>
-          <Search size={13} strokeWidth={2} style={{ color: "var(--text-dim)", flexShrink: 0 }} aria-hidden="true" />
+        <div className="models-picker-header">
+          {mobile && (
+            <button type="button" className="models-picker-back" onClick={onClose} aria-label={t("i18n.back")} title={t("i18n.back")}>
+              <ArrowLeft size={16} strokeWidth={2} aria-hidden="true" />
+            </button>
+          )}
+          <Search size={13} strokeWidth={2} className="models-picker-search-icon" aria-hidden="true" />
           <input
             ref={inputRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
              placeholder={t("i18n.searchProviders")}
-            style={{ flex: 1, background: "none", border: "none", outline: "none", color: "var(--text)", fontSize: 13, boxSizing: "border-box" }}
+            aria-label={t("i18n.searchProviders")}
           />
         </div>
 
-        {/* Card grid */}
-        <div style={{ flex: 1, overflowY: "auto", padding: 14 }}>
+        <div className="models-picker-scroll">
           {totalCount === 0 ? (
-            <div style={{ padding: "20px 0", fontSize: 12, color: "var(--text-dim)", textAlign: "center" }}>{t("i18n.noProviders")}</div>
+            <div className="models-picker-empty">{t("i18n.noProviders")}</div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))", gap: 8 }}>
-              {showCustom && (
-                 <div style={{ gridColumn: "1 / -1", fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>{t("i18n.custom")}</div>
-              )}
+            <div className="models-picker-grid">
               {showCustom && (
                 <button
+                  type="button"
+                  className="models-picker-card models-picker-card-full"
                   onClick={() => { onAddCustom(); onClose(); }}
-                  style={cardStyle}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--bg-panel)"; }}
                 >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>OpenAI / Anthropic compatible</div>
-                     <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>{t("i18n.customEndpoint")}</div>
+                  <div className="models-picker-card-text">
+                    <strong>OpenAI / Anthropic compatible</strong>
+                    <span>{t("i18n.customEndpoint")}</span>
                   </div>
-                  <span style={{ width: 26, height: 26, borderRadius: 5, background: "var(--bg-hover)", border: "1px dashed var(--border)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    <Plus size={13} strokeWidth={2} style={{ color: "var(--text-dim)" }} aria-hidden="true" />
+                  <span className="models-picker-card-icon">
+                    <Plus size={13} strokeWidth={2} aria-hidden="true" />
                   </span>
                 </button>
               )}
 
               {availableOAuth.length > 0 && (
-                 <div style={{ gridColumn: "1 / -1", paddingTop: showCustom ? 6 : 0, fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>{t("i18n.subscriptions")}</div>
+                <div className="models-picker-group">{t("i18n.subscriptions")}</div>
               )}
               {availableOAuth.map((p) => (
-                <button key={p.id} onClick={() => { onSelectOAuth(p.id); onClose(); }}
-                  style={cardStyle}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--bg-panel)"; }}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
-                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>OAuth</div>
+                <button key={p.id} type="button" className="models-picker-card" onClick={() => { onSelectOAuth(p.id); onClose(); }}>
+                  <div className="models-picker-card-text">
+                    <strong>{p.name}</strong>
+                    <span>OAuth</span>
                   </div>
                   <ProviderIcon id={p.id} size={28} />
                 </button>
               ))}
 
               {availableApiKey.length > 0 && (
-                <div style={{ gridColumn: "1 / -1", paddingTop: availableOAuth.length > 0 ? 6 : 0, fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>API Key</div>
+                <div className="models-picker-group">API Key</div>
               )}
               {availableApiKey.map((p) => (
-                <button key={p.id} onClick={() => { onSelectApiKey(p.id); onClose(); }}
-                  style={cardStyle}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--bg-panel)"; }}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.displayName}</div>
-                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>{p.modelCount} models</div>
+                <button key={p.id} type="button" className="models-picker-card" onClick={() => { onSelectApiKey(p.id); onClose(); }}>
+                  <div className="models-picker-card-text">
+                    <strong>{p.displayName}</strong>
+                    <span>{t("models.modelCount", { count: p.modelCount })}</span>
                   </div>
                   <ProviderIcon id={p.id} size={28} />
                 </button>
               ))}
-
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </dialog>
   );
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ModelsConfig({ onClose, embedded = false }: { onClose: () => void; embedded?: boolean }) {
+interface ModelsConfigProps {
+  onControllerChange(controller: ModelsDraftController): void;
+}
+
+export function ModelsConfig({ onControllerChange }: ModelsConfigProps) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
   const [config, setConfig] = useState<ModelsJson>({ providers: {} });
+  const [baselineConfig, setBaselineConfig] = useState<ModelsJson | null>(null);
   const [loading, setLoading] = useState(true);
+  const [configError, setConfigError] = useState<string | null>(null);
+  const [oauthError, setOauthError] = useState<string | null>(null);
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
@@ -1876,20 +1765,33 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
   const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [expandedProviders, setExpandedProviders] = useState<ReadonlySet<string>>(new Set());
+  const [mobileView, setMobileView] = useState<"list" | "detail">("list");
+  const [pendingDelete, setPendingDelete] = useState<Selection | null>(null);
+  const deleteDialogRef = useRef<HTMLDialogElement>(null);
+  const configRef = useRef(config);
+  configRef.current = config;
 
   const loadOAuthProviders = useCallback(() => {
     fetch("/api/auth/providers")
       .then((r) => r.json())
-      .then((d: { providers: OAuthProvider[] }) => setOauthProviders(d.providers))
-      .catch(() => {});
-  }, []);
+      .then((d: { providers: OAuthProvider[] }) => {
+        setOauthProviders(d.providers);
+        setOauthError(null);
+      })
+      .catch(() => setOauthError(t("models.accountsLoadFailed")));
+  }, [t]);
 
   const loadApiKeyProviders = useCallback(() => {
     fetch("/api/auth/all-providers")
       .then((r) => r.json())
-      .then((d: { providers: ApiKeyProvider[] }) => setApiKeyProviders(d.providers))
-      .catch(() => {});
-  }, []);
+      .then((d: { providers: ApiKeyProvider[] }) => {
+        setApiKeyProviders(d.providers);
+        setApiKeyError(null);
+      })
+      .catch(() => setApiKeyError(t("models.accountsLoadFailed")));
+  }, [t]);
 
   // A dual-auth provider moves between the two lists when its credential type
   // changes, so any auth change has to reload both — refreshing only one leaves
@@ -1900,19 +1802,38 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
     loadApiKeyProviders();
   }, [loadOAuthProviders, loadApiKeyProviders]);
 
-  useEffect(() => {
-    fetch("/api/models-config")
-      .then((r) => r.json())
-      .then((d: ModelsJson) => {
-        const normalized = d.providers ? d : { ...d, providers: {} };
-        setConfig(normalized);
+  const loadConfig = useCallback(async () => {
+    setLoading(true);
+    setConfigError(null);
+    try {
+      const res = await fetch("/api/models-config");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json() as ModelsJson;
+      const normalized = d.providers ? d : { ...d, providers: {} };
+      setBaselineConfig(normalized);
+      setConfig(normalized);
+      setSelection((current) => {
+        if (current) return resolveModelsSelection(current, normalized, oauthProviders, apiKeyProviders);
         const keys = Object.keys(normalized.providers ?? {});
-        if (keys.length > 0) setSelection({ type: "provider", name: keys[0] });
-      })
-      .catch(() => setConfig({ providers: {} }))
-      .finally(() => setLoading(false));
+        return keys.length > 0 ? { type: "provider", name: keys[0] } : null;
+      });
+    } catch (error) {
+      setConfigError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoading(false);
+    }
+  }, [oauthProviders, apiKeyProviders]);
+
+  useEffect(() => {
+    void loadConfig();
     refreshAuthProviders();
-  }, [refreshAuthProviders]);
+    // Initial load only; auth refresh handles later re-syncs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    setSelection((current) => resolveModelsSelection(current, configRef.current, oauthProviders, apiKeyProviders));
+  }, [oauthProviders, apiKeyProviders]);
 
   const addCustomProvider = useCallback(() => {
     let finalName = "new-provider";
@@ -1944,16 +1865,24 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
 
   const deleteProvider = useCallback((name: string) => {
     setConfig((prev) => {
+      if (!prev.providers?.[name]) return prev;
       const providers = { ...(prev.providers ?? {}) };
       delete providers[name];
       return { ...prev, providers };
     });
-    setConfig((prev) => {
-      const remaining = Object.keys(prev.providers ?? {});
-      setSelection(remaining.length > 0 ? { type: "provider", name: remaining[0] } : null);
-      return prev;
+    setSelection((current) => {
+      if (!current) return null;
+      if (current.type === "provider" && current.name === name) {
+        const remaining = Object.keys(config.providers ?? {}).filter((n) => n !== name);
+        return remaining.length > 0 ? { type: "provider", name: remaining[0] } : null;
+      }
+      if (current.type === "model" && current.providerName === name) {
+        const remaining = Object.keys(config.providers ?? {}).filter((n) => n !== name);
+        return remaining.length > 0 ? { type: "provider", name: remaining[0] } : null;
+      }
+      return current;
     });
-  }, []);
+  }, [config.providers]);
 
   const addModel = useCallback((providerName: string) => {
     setConfig((prev) => {
@@ -2002,6 +1931,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
   }, []);
 
   const handleSave = useCallback(async () => {
+    if (saving) return;
     setSaving(true);
     setSaveError(null);
     setSavedOk(false);
@@ -2012,18 +1942,146 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
         body: JSON.stringify(config),
       });
       const d = await res.json() as { success?: boolean; error?: string };
-      if (!res.ok || d.error) setSaveError(d.error ?? `HTTP ${res.status}`);
-      else { setSavedOk(true); setTimeout(() => setSavedOk(false), 2000); }
+      if (!res.ok || d.error) {
+        setSaveError(d.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      // The server normalizes the document (base URLs, costs, blank model
+      // rows), so reload it as the new baseline and draft to avoid a
+      // false-clean UI that differs from disk.
+      const res2 = await fetch("/api/models-config");
+      if (!res2.ok) throw new Error(`HTTP ${res2.status}`);
+      const normalized = (await res2.json()) as ModelsJson;
+      const next = applySavedModelsConfig(config, configRef.current, normalized);
+      setBaselineConfig(normalized);
+      setConfig(next);
+      setSelection((current) => resolveModelsSelection(current, next, oauthProviders, apiKeyProviders));
+      setSavedOk(true);
+      setTimeout(() => setSavedOk(false), 2000);
     } catch (e) {
-      setSaveError(String(e));
+      setSaveError(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
-  }, [config]);
+  }, [config, saving, oauthProviders, apiKeyProviders]);
 
-  const providers = Object.entries(config.providers ?? {});
-  const activeOAuth = oauthProviders.filter((p) => p.loggedIn);
-  const activeApiKey = apiKeyProviders.filter((p) => p.configured);
+  const toggleProvider = useCallback((name: string) => {
+    setExpandedProviders((current) => {
+      const next = new Set(current);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  }, []);
+
+  const handleSelect = useCallback((sel: Selection) => {
+    setSelection(sel);
+    if (isMobile) setMobileView("detail");
+  }, [isMobile]);
+
+  const handleAddModel = useCallback((providerName: string) => {
+    addModel(providerName);
+    if (isMobile) setMobileView("detail");
+  }, [addModel, isMobile]);
+
+  const handleAddCustom = useCallback(() => {
+    addCustomProvider();
+    if (isMobile) setMobileView("detail");
+  }, [addCustomProvider, isMobile]);
+
+  const requestDelete = useCallback((sel: Selection) => {
+    setPendingDelete(sel);
+  }, []);
+
+  useEffect(() => {
+    const dialog = deleteDialogRef.current;
+    if (!dialog) return;
+    if (pendingDelete && !dialog.open) dialog.showModal();
+    else if (!pendingDelete && dialog.open) dialog.close();
+  }, [pendingDelete]);
+
+  const confirmDelete = useCallback(() => {
+    if (!pendingDelete) return;
+    if (pendingDelete.type === "provider") deleteProvider(pendingDelete.name);
+    else if (pendingDelete.type === "model") removeModel(pendingDelete.providerName, pendingDelete.index);
+    setPendingDelete(null);
+  }, [pendingDelete, deleteProvider, removeModel]);
+
+  // Draft protection: any unsaved custom edit blocks leaving Models, closing
+  // Settings, and page reload until explicitly discarded.
+  const dirty = isModelsConfigDirty(baselineConfig, config);
+
+  const discard = useCallback(() => {
+    if (!baselineConfig) {
+      setConfig({ providers: {} });
+      setSelection(null);
+      setMobileView("list");
+      setSaveError(null);
+      return;
+    }
+    setConfig(baselineConfig);
+    setSelection((current) => {
+      const next = resolveModelsSelection(current, baselineConfig, oauthProviders, apiKeyProviders);
+      if (!next) setMobileView("list");
+      return next;
+    });
+    setSaveError(null);
+  }, [baselineConfig, oauthProviders, apiKeyProviders]);
+
+  const handleBack = useCallback(() => {
+    if (pickerOpen) { setPickerOpen(false); return true; }
+    if (pendingDelete) { setPendingDelete(null); return true; }
+    if (isMobile && mobileView === "detail") { setMobileView("list"); return true; }
+    return false;
+  }, [pickerOpen, pendingDelete, isMobile, mobileView]);
+
+  const controller = useMemo<ModelsDraftController>(() => ({
+    dirty,
+    discard,
+    handleBack,
+    mobileDetailOpen: isMobile && mobileView === "detail",
+  }), [dirty, discard, handleBack, isMobile, mobileView]);
+
+  useEffect(() => {
+    onControllerChange(controller);
+  }, [onControllerChange, controller]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
+
+  const accountItems = useMemo<ModelsAccountItem[]>(() => {
+    const seen = new Set<string>();
+    const items: ModelsAccountItem[] = [];
+    for (const p of oauthProviders) {
+      if (!p.loggedIn || seen.has(p.id)) continue;
+      seen.add(p.id);
+      items.push({ kind: "oauth", id: p.id, name: p.name, connected: true, modelCount: 0 });
+    }
+    for (const p of apiKeyProviders) {
+      if (!p.configured || seen.has(p.id)) continue;
+      seen.add(p.id);
+      items.push({ kind: "apikey", id: p.id, name: p.displayName, connected: true, modelCount: p.modelCount });
+    }
+    return items;
+  }, [oauthProviders, apiKeyProviders]);
+
+  const providerItems = useMemo<ModelsCustomProviderItem[]>(() =>
+    Object.entries(config.providers ?? {}).map(([name, p]) => ({
+      name,
+      baseUrl: p.baseUrl,
+      api: p.api,
+      modelCount: p.models?.length ?? 0,
+      models: (p.models ?? []).map((m, index) => ({ id: m.id, name: m.name, reasoning: m.reasoning, index })),
+    })),
+  [config.providers]);
+
+  const filtered = useMemo(
+    () => filterModelsNavigation({ accounts: accountItems, providers: providerItems, expandedProviders }, query),
+    [accountItems, providerItems, expandedProviders, query],
+  );
 
   // Resolve current detail
   const detailContent = (() => {
@@ -2048,7 +2106,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
           provider={provider}
           onChange={(p) => updateProvider(selection.name, p)}
           onRename={(n) => renameProvider(selection.name, n)}
-          onDelete={() => deleteProvider(selection.name)}
+          onDelete={() => requestDelete({ type: "provider", name: selection.name })}
           onAddModels={(models) => addDiscoveredModels(selection.name, models)}
         />
       );
@@ -2063,194 +2121,103 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
         provider={provider}
         model={model}
         onChange={(m) => updateModel(selection.providerName, selection.index, m)}
-        onDelete={() => removeModel(selection.providerName, selection.index)}
+        onDelete={() => requestDelete({ type: "model", providerName: selection.providerName, index: selection.index })}
       />
     );
   })();
 
+  const selectionLabel = modelsSelectionLabel(selection, config, oauthProviders, apiKeyProviders);
+  const pendingDeleteTitle = (() => {
+    if (!pendingDelete) return "";
+    const name = modelsSelectionLabel(pendingDelete, config, oauthProviders, apiKeyProviders).title;
+    return pendingDelete.type === "provider"
+      ? t("models.confirmDeleteProvider", { name })
+      : t("models.confirmDeleteModel", { name });
+  })();
+
   return (
-    <>
-    <div style={embedded ? { width: "100%", height: "100%", minHeight: 0, display: "flex" } : { position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center" }}
-      onClick={(e) => { if (!embedded && e.target === e.currentTarget) onClose(); }}>
-      <div style={embedded ? { width: "100%", height: "100%", minHeight: 0, background: "var(--bg)", display: "flex", flexDirection: "column", overflow: "hidden" } : { width: isMobile ? "calc(100vw - 16px)" : 860, maxWidth: "calc(100vw - 16px)", height: isMobile ? "calc(100dvh - 16px)" : "78vh", maxHeight: "calc(100dvh - 16px)", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.18)", overflow: "hidden" }}>
-
-        {/* Header */}
-        {!embedded && <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-             <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>{t("common.models")}</span>
-            <code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>~/.pi/agent/models.json</code>
-          </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: "2px 6px" }}>×</button>
-        </div>}
-
-        {/* Body */}
-        <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
-
-          {/* Left: tree */}
-          <div style={{
-            width: isMobile ? "100%" : 210,
-            maxHeight: isMobile ? "40vh" : undefined,
-            borderRight: isMobile ? "none" : "1px solid var(--border)",
-            borderBottom: isMobile ? "1px solid var(--border)" : "none",
-            display: "flex", flexDirection: "column", flexShrink: 0, background: "var(--bg-panel)",
-          }}>
-            <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>
-              {/* Active OAuth subscriptions */}
-              {activeOAuth.map((p) => {
-                const isSelected = selection?.type === "oauth" && selection.providerId === p.id;
-                return (
-                  <div
-                    key={p.id}
-                    onClick={() => setSelection({ type: "oauth", providerId: p.id })}
-                    style={{ display: "flex", alignItems: "center", gap: 7, padding: "5px 8px", borderRadius: 5, cursor: "pointer", background: isSelected ? "var(--bg-selected)" : "none" }}
-                    onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                    onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "none"; }}
-                  >
-                    <ProviderIcon id={p.id} size={16} />
-                    <span style={{ fontSize: 12, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-                  </div>
-                );
-              })}
-
-              {/* Active API key providers */}
-              {activeApiKey.map((p) => {
-                const isSelected = selection?.type === "apikey" && selection.providerId === p.id;
-                return (
-                  <div
-                    key={p.id}
-                    onClick={() => setSelection({ type: "apikey", providerId: p.id })}
-                    style={{ display: "flex", alignItems: "center", gap: 7, padding: "5px 8px", borderRadius: 5, cursor: "pointer", background: isSelected ? "var(--bg-selected)" : "none" }}
-                    onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                    onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "none"; }}
-                  >
-                    <ProviderIcon id={p.id} size={16} />
-                    <span style={{ fontSize: 12, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.displayName}</span>
-                  </div>
-                );
-              })}
-
-              {/* Divider before custom providers, only when there are active managed providers */}
-              {(activeOAuth.length > 0 || activeApiKey.length > 0) && providers.length > 0 && (
-                <div style={{ margin: "4px 8px", borderTop: "1px solid var(--border)" }} />
-              )}
-
-              {/* Custom providers */}
-              {loading ? (
-                 <div style={{ padding: "10px 8px", fontSize: 12, color: "var(--text-muted)" }}>{t("i18n.loading")}</div>
-              ) : providers.map(([pName, pData]) => {
-                const isProviderSelected = selection?.type === "provider" && selection.name === pName;
-                const models = pData.models ?? [];
-                return (
-                  <div key={pName} style={{ marginBottom: 2 }}>
-                    {/* Provider row */}
-                    <div
-                      onClick={() => setSelection({ type: "provider", name: pName })}
-                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 8px", borderRadius: 5, cursor: "pointer", background: isProviderSelected ? "var(--bg-selected)" : "none" }}
-                      onMouseEnter={(e) => { if (!isProviderSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                      onMouseLeave={(e) => { if (!isProviderSelected) e.currentTarget.style.background = "none"; }}
-                    >
-                      <Cpu size={11} strokeWidth={2} style={{ color: "var(--text-dim)", flexShrink: 0 }} aria-hidden="true" />
-                      <span style={{ fontSize: 12, fontWeight: isProviderSelected ? 600 : 400, color: "var(--text)", fontFamily: "var(--font-mono)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {pName}
-                      </span>
-                    </div>
-
-                    {/* Model rows */}
-                    {models.map((m, i) => {
-                      const isModelSelected = selection?.type === "model" && selection.providerName === pName && selection.index === i;
-                      return (
-                        <div
-                          key={i}
-                          onClick={() => setSelection({ type: "model", providerName: pName, index: i })}
-                          style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px 5px 26px", borderRadius: 5, cursor: "pointer", background: isModelSelected ? "var(--bg-selected)" : "none" }}
-                          onMouseEnter={(e) => { if (!isModelSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                          onMouseLeave={(e) => { if (!isModelSelected) e.currentTarget.style.background = "none"; }}
-                        >
-                          <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: m.id ? "var(--text-muted)" : "var(--text-dim)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                             {m.id || t("i18n.newModel")}
-                          </span>
-                          {m.reasoning && (
-                            <span style={{ fontSize: 9, padding: "1px 4px", background: "rgba(99,102,241,0.12)", color: "rgba(99,102,241,0.8)", borderRadius: 3, flexShrink: 0 }}>T</span>
-                          )}
-                        </div>
-                      );
-                    })}
-
-                    {/* Add model button */}
-                    <div
-                      onClick={(e) => { e.stopPropagation(); addModel(pName); }}
-                      style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 8px 4px 26px", borderRadius: 5, cursor: "pointer", color: "var(--text-dim)" }}
-                      onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
-                    >
-                       <span style={{ fontSize: 11 }}>+ {t("i18n.model")}</span>
-                    </div>
-                  </div>
-                );
-              })}
+    <div className="models-settings-page">
+      <div className="models-settings-header">
+        {isMobile && mobileView === "detail" ? (
+          <>
+            <button type="button" className="models-settings-back" onClick={() => setMobileView("list")} aria-label={t("i18n.back")} title={t("i18n.back")}>
+              <ArrowLeft size={16} strokeWidth={2} aria-hidden="true" />
+            </button>
+            <div className="models-settings-header-title">
+              <span>{selectionLabel.title}</span>
+              {selectionLabel.subtitle && <code>{selectionLabel.subtitle}</code>}
             </div>
-
-            {/* Add provider */}
-            <div style={{ borderTop: "1px solid var(--border)", padding: "8px 6px" }}>
-              <button onClick={() => setPickerOpen(true)} style={{
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                width: "100%", padding: "6px 0", background: "none", border: "1px dashed var(--border)", borderRadius: 5,
-                color: "var(--text-muted)", cursor: "pointer", fontSize: 12,
-              }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.color = "var(--accent)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-muted)"; }}
-              >
-                 + {t("i18n.addProvider")}
-              </button>
-            </div>
+          </>
+        ) : (
+          <div className="models-settings-header-title">
+            <span>{t("common.models")}</span>
+            <code>~/.pi/agent/models.json</code>
           </div>
-
-          {/* Right: detail */}
-          <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
-            {loading ? null : detailContent ?? (
-              <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 13 }}>
-                 {t("i18n.selectProviderModel")}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, padding: "10px 18px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
-          {saveError && <span style={{ fontSize: 12, color: "#f87171", flex: 1 }}>{saveError}</span>}
-          {!embedded && <button onClick={onClose} style={{ padding: "6px 14px", background: "none", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer", fontSize: 13 }}>
-             {t("i18n.cancel")}
-          </button>}
-          <button onClick={handleSave} disabled={saving || savedOk} style={{
-            position: "relative",
-            padding: "6px 16px",
-            minWidth: 92,
-            background: savedOk ? "#16a34a" : saving ? "var(--bg-panel)" : "var(--accent)",
-            border: "none", borderRadius: 6,
-            color: savedOk ? "#fff" : saving ? "var(--text-muted)" : "#fff",
-            cursor: (saving || savedOk) ? "default" : "pointer", fontSize: 13, fontWeight: 600,
-            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-            transition: "background-color 0.2s ease, color 0.2s ease",
-            animation: savedOk ? "saved-pop 0.45s ease" : undefined,
-          }}>
-            {savedOk && (
-              <CheckIcon size={14} strokeWidth={3} aria-hidden="true" style={{ strokeDasharray: 18, animation: "saved-check-draw 0.35s ease forwards", flexShrink: 0 }} />
-            )}
-             <span>{savedOk ? t("i18n.saved") : saving ? t("i18n.saving") : t("i18n.save")}</span>
+        )}
+        <div className="models-settings-header-actions">
+          {saveError && <span className="models-settings-save-error" role="alert">{saveError}</span>}
+          <button
+            type="button"
+            className="models-settings-save"
+            disabled={!dirty || saving || savedOk}
+            onClick={handleSave}
+          >
+            {savedOk && <CheckIcon size={14} strokeWidth={3} aria-hidden="true" />}
+            <span>{savedOk ? t("i18n.saved") : saving ? t("i18n.saving") : t("i18n.save")}</span>
           </button>
         </div>
       </div>
+
+      <div className="models-settings-layout" data-mobile-view={isMobile ? mobileView : undefined}>
+        <ModelsConfigNavigator
+          selection={selection}
+          query={query}
+          expandedProviders={filtered.expandedProviders}
+          accounts={filtered.accounts}
+          providers={filtered.providers}
+          loading={loading}
+          errors={{ accounts: oauthError ?? apiKeyError ?? undefined, config: configError ?? undefined }}
+          onQueryChange={setQuery}
+          onToggleProvider={toggleProvider}
+          onSelect={handleSelect}
+          onAddProvider={() => setPickerOpen(true)}
+          onAddModel={handleAddModel}
+          onRetryAccounts={refreshAuthProviders}
+          onRetryConfig={() => { if (!dirty) void loadConfig(); }}
+        />
+        <div className="models-settings-detail">
+          {loading ? null : detailContent ?? (
+            <div className="models-settings-detail-empty">
+              {t("i18n.selectProviderModel")}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {pickerOpen && (
+        <AddProviderPicker
+          oauthProviders={oauthProviders}
+          apiKeyProviders={apiKeyProviders}
+          mobile={isMobile}
+          onSelectOAuth={(id) => handleSelect({ type: "oauth", providerId: id })}
+          onSelectApiKey={(id) => handleSelect({ type: "apikey", providerId: id })}
+          onAddCustom={handleAddCustom}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
+
+      <dialog
+        ref={deleteDialogRef}
+        className="models-settings-dialog"
+        onCancel={() => setPendingDelete(null)}
+      >
+        <h3>{pendingDeleteTitle}</h3>
+        <p>{t("models.deleteDraftNote")}</p>
+        <div className="models-settings-dialog-actions">
+          <button type="button" onClick={() => setPendingDelete(null)}>{t("i18n.cancel")}</button>
+          <button type="button" className="models-settings-dialog-danger" onClick={confirmDelete}>{t("i18n.delete")}</button>
+        </div>
+      </dialog>
     </div>
-    {pickerOpen && (
-      <AddProviderPicker
-        oauthProviders={oauthProviders}
-        apiKeyProviders={apiKeyProviders}
-        onSelectOAuth={(id) => setSelection({ type: "oauth", providerId: id })}
-        onSelectApiKey={(id) => setSelection({ type: "apikey", providerId: id })}
-        onAddCustom={addCustomProvider}
-        onClose={() => setPickerOpen(false)}
-      />
-    )}
-    </>
   );
 }

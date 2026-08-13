@@ -12,11 +12,50 @@ test("AppShell exposes one unified settings entry", () => {
   assert.doesNotMatch(shell, /<ModelsConfig|<SkillsConfig|<PluginsConfig/);
 });
 
-test("settings embeds the existing model, skill, and plugin modules", () => {
-  assert.match(settings, /<ModelsConfig embedded/);
+test("settings embeds the model, skill, and plugin modules", () => {
+  assert.match(settings, /<ModelsConfig onControllerChange=\{setModelsController\} \/>/);
   assert.match(settings, /<SkillsConfig embedded/);
   assert.match(settings, /<PluginsConfig\s+embedded/);
   assert.match(settings, /type SettingsSection = "general" \| "project" \| "archived" \| "models" \| "skills" \| "plugins"/);
+});
+
+test("settings guards every exit path behind one discard confirmation", () => {
+  assert.match(settings, /const requestCloseOrNavigate = useCallback\(/);
+  assert.match(settings, /if \(modelsController\?\.dirty\)/);
+  assert.match(settings, /setPendingExit\(\(\) => action\)/);
+  assert.match(settings, /setDiscardDialogOpen\(true\)/);
+  assert.match(settings, /onClick=\{\(\) => requestCloseOrNavigate\(close\)\}/);
+  assert.match(settings, /onMouseDown=\{\(event\) => \{ if \(event\.target === event\.currentTarget\) requestCloseOrNavigate\(close\); \}\}/);
+  assert.match(settings, /<dialog\n\s*ref=\{discardDialogRef\}/);
+  assert.match(settings, /t\("models\.unsavedChanges"\)/);
+  assert.match(settings, /t\("models\.keepEditing"\)/);
+  assert.match(settings, /t\("models\.discard"\)/);
+});
+
+test("Escape consumes Models layers before closing Settings", () => {
+  assert.match(settings, /if \(modelsController\?\.handleBack\(\)\) return;/);
+  assert.match(settings, /if \(discardDialogOpen\) return;/);
+});
+
+test("Settings focuses the close button only on mount, not when the models draft becomes dirty", () => {
+  assert.match(settings, /closeButtonRef\.current\?\.focus\(\);\s*\}, \[\]\);/);
+  assert.doesNotMatch(settings, /closeButtonRef\.current\?\.focus\(\);\s*const onKeyDown/);
+});
+
+test("settings registers one combined back handler with AppShell", () => {
+  assert.match(settings, /onRegisterSettingsBack\(handleSettingsBack\)/);
+  assert.match(settings, /if \(modelsController\?\.handleBack\(\)\) return true;/);
+  assert.match(settings, /setPendingExit\(\(\) => close\)/);
+});
+
+test("discard restores the baseline before completing the pending navigation", () => {
+  assert.match(settings, /modelsController\?\.discard\(\);/);
+  assert.match(settings, /setModelsController\(null\);/);
+  assert.match(settings, /action\?\.\(\);/);
+});
+
+test("Settings category strip hides while mobile Models detail is open", () => {
+  assert.match(settings, /data-hidden-mobile=\{modelsController\?\.mobileDetailOpen \? "true" : undefined\}/);
 });
 
 test("settings lists archived projects and restores them through the project registry", () => {
