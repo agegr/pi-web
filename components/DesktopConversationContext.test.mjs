@@ -17,6 +17,7 @@ const model = {
   availableTokens: 969000,
   userMessages: 1,
   toolCalls: 2,
+  cacheHitRate: 98.1,
 };
 
 test("renders a compact session summary instead of cumulative token metrics", () => {
@@ -31,6 +32,9 @@ test("renders a compact session summary instead of cumulative token metrics", ()
   assert.doesNotMatch(html, /\$0\.0080/);
   assert.match(html, /1 turn/);
   assert.match(html, /2 tool calls/);
+  assert.match(html, /Avg cache hit rate/);
+  assert.match(html, /desktop-context-cache-rate/);
+  assert.match(html, /98\.1%/);
   assert.doesNotMatch(html, /Total tokens/);
   assert.doesNotMatch(html, /Cache Read/);
   assert.doesNotMatch(html, /Model/);

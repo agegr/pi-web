@@ -3895,8 +3895,10 @@ span.linenumber {
   background: var(--bg-panel);
 }
 .desktop-context-progress > span { display: block; width: var(--context-percent); height: 100%; border-radius: inherit; background: var(--context-tone); transition: width 180ms ease, background-color 180ms ease; }
-.desktop-context-activity { min-height: 32px; padding: 0 12px; display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: 10px; }
-.desktop-context-activity span + span { padding-left: 10px; border-left: 1px solid var(--border); }
+.desktop-context-activity { min-height: 32px; padding: 7px 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px; color: var(--text-muted); font-size: 10px; }
+.desktop-context-activity span + span:not(.desktop-context-cache-rate) { padding-left: 10px; border-left: 1px solid var(--border); }
+.desktop-context-cache-rate { width: 100%; display: flex; justify-content: space-between; color: var(--text-dim); }
+.desktop-context-cache-rate strong { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) { .desktop-context-progress > span { transition: none; } }
 
 /* DSCode wide-desktop task header */

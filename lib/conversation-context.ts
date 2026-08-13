@@ -7,6 +7,7 @@ export interface ConversationContextModel {
   availableTokens: number;
   userMessages: number;
   toolCalls: number;
+  cacheHitRate: number | null;
 }
 
 export function buildConversationContextModel({
@@ -20,6 +21,10 @@ export function buildConversationContextModel({
   const contextWindow = Math.max(0, ctx?.contextWindow ?? 0);
   const usedTokens = ctx?.tokens == null ? null : Math.max(0, ctx.tokens);
   const percent = ctx?.percent == null ? null : Math.min(100, Math.max(0, ctx.percent));
+  const cacheHitDenominator = stats.tokens.input + stats.tokens.cacheRead + stats.tokens.cacheWrite;
+  const cacheHitRate = stats.tokens.cacheRead + stats.tokens.cacheWrite > 0 && cacheHitDenominator > 0
+    ? Number((stats.tokens.cacheRead / cacheHitDenominator * 100).toFixed(1))
+    : null;
   return {
     percent,
     usedTokens,
@@ -27,6 +32,7 @@ export function buildConversationContextModel({
     availableTokens: Math.max(0, contextWindow - (usedTokens ?? 0)),
     userMessages: stats.userMessages,
     toolCalls: stats.toolCalls,
+    cacheHitRate,
   };
 }
 

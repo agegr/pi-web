@@ -41,6 +41,7 @@ export function DesktopConversationContext({ model, onOpenDetails }: Props) {
       <div className="desktop-context-activity">
         <span>{turns.toLocaleString(locale)} {t(turns === 1 ? "session.turn" : "session.turns")}</span>
         <span>{toolCalls.toLocaleString(locale)} {t("context.toolCalls")}</span>
+        {model.cacheHitRate !== null && <span className="desktop-context-cache-rate">{t("session.cacheHitRate")} <strong>{model.cacheHitRate.toFixed(1)}%</strong></span>}
       </div>
     </aside>
   );

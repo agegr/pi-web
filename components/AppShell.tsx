@@ -1458,6 +1458,14 @@ export function AppShell() {
         background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 24%, transparent), transparent);
         animation: session-info-light-wash 620ms ease-out both;
       }
+      .session-info-close:hover {
+        color: var(--text) !important;
+        background: var(--bg-hover) !important;
+      }
+      .session-info-close:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: -2px;
+      }
       @media (prefers-reduced-motion: reduce) {
         .session-info-popover,
         .session-info-popover::after {
@@ -1750,8 +1758,33 @@ export function AppShell() {
                   background: "var(--bg-panel)",
                   borderBottom: "1px solid var(--border)",
                   boxShadow: "0 10px 28px rgba(0,0,0,0.10)",
-                  padding: "12px 16px",
+                  padding: "12px 48px 12px 16px",
                 }}>
+                  <button
+                    type="button"
+                    className="session-info-close"
+                    aria-label={translate("i18n.close")}
+                    title={translate("i18n.close")}
+                    onClick={() => setActiveTopPanel(null)}
+                    style={{
+                      position: "absolute",
+                      top: 8,
+                      right: 10,
+                      zIndex: 1,
+                      width: 28,
+                      height: 28,
+                      display: "grid",
+                      placeItems: "center",
+                      padding: 0,
+                      border: 0,
+                      borderRadius: 5,
+                      color: "var(--text-muted)",
+                      background: "transparent",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <X size={14} aria-hidden="true" />
+                  </button>
                   {sessionStats ? (() => {
                     const formatDuration = (ms: number) => {
                       if (ms <= 0) return "0s";
