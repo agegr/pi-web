@@ -12,9 +12,10 @@ test("renders a Codex-style new-session home", () => {
   assert.match(source, /chat\.homeExplore/);
 });
 
-test("keeps process details collapsed even while a session is live", () => {
-  assert.match(source, /const \[expanded, setExpanded\] = useState\(defaultExpanded\)/);
-  assert.doesNotMatch(source, /<ProcessDetailsGroup[\s\S]*?\n\s+defaultExpanded(?:=|\s*\n)/);
-  assert.doesNotMatch(source, /defaultDetailsExpanded: true/);
-  assert.doesNotMatch(source, /<MessageView message=\{streamState\.streamingMessage as AgentMessage\} isStreaming[^>]*defaultDetailsExpanded/);
+test("process details use a compact result row and stay collapsed", () => {
+  assert.match(source, /className="chat-process-summary"/);
+  assert.match(source, /defaultExpanded = false/);
+  assert.match(source, /chat\.processCompleted/);
+  assert.match(source, /chat\.processErrors/);
+  assert.doesNotMatch(source, /chat\.processRunning/);
 });

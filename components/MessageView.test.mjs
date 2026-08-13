@@ -29,6 +29,18 @@ Review the supplied files.
 
 src/main.ts`;
 
+test("renders user prompts as right-aligned compact bubbles without role labels", () => {
+  const html = renderMessage({ role: "user", content: "build a game to play", timestamp: Date.now() });
+  assert.match(html, /class="chat-user-row"/);
+  assert.match(html, /class="chat-user-bubble"/);
+  assert.doesNotMatch(html, />USER</);
+});
+
+test("does not print an ASSISTANT role label", () => {
+  const html = renderMessage({ role: "assistant", content: [{ type: "text", text: "Done" }] });
+  assert.doesNotMatch(html, />ASSISTANT</);
+});
+
 test("renders a provider error when the assistant message has no content", () => {
   const html = renderMessage({
     role: "assistant",

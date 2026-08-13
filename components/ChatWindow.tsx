@@ -67,6 +67,7 @@ function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, 
 
 const CHAT_MINIMAP_WIDTH = 36;
 const CHAT_COLUMN_PADDING = 16;
+const DESKTOP_TRANSCRIPT_WIDTH = 760;
 
 const HOME_STARTERS = [
   { key: "chat.homeExplore" as const, prompt: "chat.homeExplorePrompt" as const, skill: "brainstorming", icon: Compass, color: "#38bdf8" },
@@ -214,15 +215,17 @@ function withAssistantBlocks(
   return next;
 }
 
-function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = false, children, t }: { messageCount: number; toolCallCount: number; defaultExpanded?: boolean; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
+function ProcessDetailsGroup({ messageCount, toolCallCount, hasError = false, defaultExpanded = false, children, t }: { messageCount: number; toolCallCount: number; hasError?: boolean; defaultExpanded?: boolean; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const parts = [t("chat.processDetails"), `${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`];
+  const status = hasError ? t("chat.processErrors") : t("chat.processCompleted");
+  const parts = [status, `${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`];
   if (toolCallCount > 0) parts.push(`${toolCallCount} ${t(toolCallCount === 1 ? "chat.toolCall" : "chat.toolCalls")}`);
 
   return (
     <div style={{ marginBottom: 10 }}>
       <button
         type="button"
+        className="chat-process-summary"
         aria-expanded={expanded}
         onClick={() => setExpanded((v) => !v)}
         style={{
@@ -738,7 +741,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
         </div>
         <div ref={scrollContainerRef} className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-width:none]">
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
-            <div ref={messageContentRef} style={{ width: "100%", minWidth: 0, maxWidth: 960, margin: "0 auto" }}>
+            <div ref={messageContentRef} style={{ width: "100%", minWidth: 0, maxWidth: DESKTOP_TRANSCRIPT_WIDTH, margin: "0 auto" }}>
             {(() => {
               let lastUserIdx = -1;
               for (let i = messages.length - 1; i >= 0; i--) {
@@ -869,6 +872,10 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
 
                 const processCount = visibleProcessIndices.length + (finalProcessMessage ? 1 : 0);
                 if (processCount > 0) {
+                  const processHasError = visibleProcessIndices.some((processIdx) => {
+                    const m = messages[processIdx];
+                    return m?.role === "assistant" && Boolean(getAssistantErrorMessage(m as AssistantMessage));
+                  }) || Boolean(finalProcessMessage && getAssistantErrorMessage(finalProcessMessage));
                   const processRefIdx = visibleProcessIndices
                     .map((processIdx) => visibleRefIndexByMessage.get(processIdx))
                     .find((value): value is number => typeof value === "number")
@@ -877,6 +884,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                     <ProcessDetailsGroup
                       messageCount={processCount}
                       t={t}
+                      hasError={processHasError}
                       toolCallCount={countToolCalls(messages, visibleProcessIndices) + countToolCallBlocks(finalSplit.processBlocks)}
                     >
                       {visibleProcessIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }))}

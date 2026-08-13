@@ -367,14 +367,11 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
 
   return (
     <div
-      style={{ marginBottom: 10, display: "flex", flexDirection: "column", alignItems: "stretch" }}
+      className="chat-user-row"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div style={{ fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 600, letterSpacing: "0.08em", color: "#3b82f6", marginBottom: 4 }}>
-        USER
-      </div>
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "100%" }}>
+      <div className="chat-user-bubble">
         <div
           style={{
             flex: 1,
@@ -440,9 +437,9 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
           </>
           )}
         </div>
-
       </div>
 
+      <div className="chat-user-actions">
       {/* Bottom row: action buttons + timestamp */}
       {(time || canFork || canNavigate || true) && (
         <div style={{
@@ -537,6 +534,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
           {time && <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{time}</span>}
         </div>
       )}
+      </div>
     </div>
   );
 }
@@ -712,7 +710,6 @@ function AssistantMessageView({
           gap: 8,
         }}
       >
-        <span style={{ fontWeight: 600, letterSpacing: "0.08em", color: "var(--text-muted)" }}>ASSISTANT</span>
         {message.provider && (
           <span style={{ letterSpacing: "0.02em" }}>{modelNames?.[`${message.provider}:${message.model}`] ?? modelNames?.[message.model] ?? message.model}</span>
         )}

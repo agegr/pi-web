@@ -244,6 +244,9 @@ export const enLocale: LocalePlugin = {
     "chat.runningCommand": "Running command...",
     "chat.thinking": "Thinking...",
     "chat.processDetails": "Process details",
+    "chat.processCompleted": "Processed",
+    "chat.processErrors": "Processed with errors",
+
     "chat.message": "message",
     "chat.messages": "messages",
     "chat.toolCall": "tool call",

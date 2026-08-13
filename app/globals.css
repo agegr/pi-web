@@ -3928,3 +3928,14 @@ span.linenumber {
 }
 .task-header-menu button:hover:not(:disabled) { background: var(--bg-hover); }
 .task-header-menu button:disabled { opacity: .4; cursor: default; }
+
+/* DSCode user bubbles */
+.chat-user-row { margin-bottom: 18px; display: flex; flex-direction: column; align-items: flex-end; }
+.chat-user-bubble { max-width: min(70%, 620px); padding: 10px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg); color: var(--text); }
+.chat-user-actions { max-width: min(70%, 620px); }
+@media (max-width: 640px) {
+  .chat-user-bubble, .chat-user-actions { max-width: 92%; }
+}
+
+/* DSCode process summary row */
+.chat-process-summary { border-bottom: 1px solid var(--border); }
