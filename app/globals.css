@@ -693,7 +693,6 @@ pre, code {
   cursor: pointer;
 }
 .codex-sidebar-new-task:hover { background: var(--bg-hover); }
-.codex-sidebar-new-task kbd { margin-left: auto; color: var(--text-dim); font: 10px var(--font-mono); }
 .codex-sidebar-section-heading {
   height: 31px;
   padding: 0 10px;

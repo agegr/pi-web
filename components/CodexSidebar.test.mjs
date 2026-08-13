@@ -24,6 +24,12 @@ test("sidebar header aligns refresh, add, and collapse controls", () => {
   assert.match(shell, /<CodexSidebar[\s\S]*?onToggleSidebar=\{handleSidebarToggle\}/);
 });
 
+test("new task keeps its shortcut accessible without a visible key hint", () => {
+  assert.match(sidebar, /aria-keyshortcuts="Control\+Alt\+N"/);
+  assert.match(sidebar, /title=\{`\$\{t\("sidebar\.newTask"\)\} \(Ctrl\+Alt\+N\)`\}/);
+  assert.doesNotMatch(sidebar, /<kbd>⌃⌥N<\/kbd>/);
+});
+
 test("project management exposes persistence-backed full actions", () => {
   assert.match(sidebar, /fetch\("\/api\/projects"/);
   assert.match(sidebar, /method: "PATCH"/);

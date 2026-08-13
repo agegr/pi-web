@@ -600,10 +600,15 @@ export function CodexSidebar({
         </div>
       </header>
 
-      <button type="button" className="codex-sidebar-new-task" onClick={createNewTask}>
+      <button
+        type="button"
+        className="codex-sidebar-new-task"
+        onClick={createNewTask}
+        title={`${t("sidebar.newTask")} (Ctrl+Alt+N)`}
+        aria-keyshortcuts="Control+Alt+N"
+      >
         <Plus size={15} strokeWidth={1.8} aria-hidden="true" />
         <span>{t("sidebar.newTask")}</span>
-        <kbd>⌃⌥N</kbd>
       </button>
 
       <div className="codex-sidebar-search-wrap">
