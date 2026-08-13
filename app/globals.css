@@ -352,6 +352,18 @@ button.extension-widget-trigger:focus-visible {
 html.keyboard-open .extension-status-shelf {
   display: none;
 }
+
+/* Codex send/attach: 28px glyph, 44px mobile hit slop that does not inflate the row. */
+.composer-icon-hit {
+  position: relative;
+}
+@media (max-width: 640px) {
+  .composer-icon-hit::after {
+    position: absolute;
+    inset: -8px;
+    content: "";
+  }
+}
 html.keyboard-open .goal-panel-body,
 html.keyboard-open .goal-panel-actions {
   display: none;

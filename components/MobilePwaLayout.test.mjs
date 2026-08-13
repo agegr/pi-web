@@ -48,6 +48,18 @@ test("prevents iOS focus zoom from widening the layout", () => {
   assert.match(cssSource, /@media \(max-width: 640px\)[\s\S]*?textarea,[\s\S]*?input,[\s\S]*?select \{\s*font-size: 16px !important;/);
 });
 
+test("gives the desktop composer more padding than the mobile row", () => {
+  assert.match(chatInputSource, /padding: isMobile \? "10px 12px 8px" : "14px 16px 10px"/);
+  assert.match(chatInputSource, /minHeight: isMobile \? 24 : 28/);
+  assert.match(chatInputSource, /className="composer-shell"/);
+});
+
+test("keeps composer send/attach at 28px with a mobile hit slop", () => {
+  assert.match(chatInputSource, /className="composer-icon-hit"/);
+  assert.match(chatInputSource, /width: 28, height: 28/);
+  assert.match(cssSource, /\.composer-icon-hit::after \{[\s\S]*?inset: -8px/);
+});
+
 test("hides the extension status shelf while the mobile keyboard is open", () => {
   assert.match(viewportHookSource, /classList\.add\("keyboard-open"\)/);
   assert.match(viewportHookSource, /classList\.remove\("keyboard-open"\)/);

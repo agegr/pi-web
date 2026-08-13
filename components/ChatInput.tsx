@@ -9,11 +9,12 @@ import {
   CornerUpLeft,
   Cpu,
   History,
-  Image,
   Lightbulb,
   ListEnd,
   LoaderCircle,
   Minimize2,
+  Play,
+  Plus,
   RotateCw,
   Square,
   Wrench,
@@ -1842,45 +1843,22 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             );
           })()}
           <div
+            className="composer-shell"
             style={{
               minWidth: 0,
               display: "flex",
-              gap: 10,
-              alignItems: "center",
+              flexDirection: "column",
+              gap: isMobile ? 8 : 10,
               background: "var(--bg)",
               border: `1px solid ${bashMode ? "var(--tool-bg)" : isStreaming && (onSteer || onFollowUp)
                 ? "rgba(234,179,8,0.4)"
-                : "color-mix(in srgb, var(--border) 90%, transparent)"}`,
-              borderRadius: 10,
-              padding: "10px 12px",
+                : "color-mix(in srgb, var(--border) 80%, transparent)"}`,
+              borderRadius: 20,
+              padding: isMobile ? "10px 12px 8px" : "14px 16px 10px",
+              boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
               transition: "border-color 0.15s, background 0.15s",
             } as React.CSSProperties}
           >
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            title={t("chat.attachImage")}
-            aria-label={t("chat.attachImage")}
-            style={{
-              flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-              width: isMobile ? 40 : 34, height: isMobile ? 40 : 34, padding: 0,
-              background: "none", border: "none",
-              borderRadius: 8,
-              color: attachedImages.length ? "var(--accent)" : "var(--text-dim)",
-              cursor: "pointer",
-              transition: "background 0.12s, color 0.12s",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = "var(--bg-hover)";
-              e.currentTarget.style.color = attachedImages.length ? "var(--accent)" : "var(--text)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "none";
-              e.currentTarget.style.color = attachedImages.length ? "var(--accent)" : "var(--text-dim)";
-            }}
-          >
-            <Image size={16} strokeWidth={1.8} aria-hidden="true" />
-          </button>
           <textarea
             ref={textareaRef}
             value={value}
@@ -1925,13 +1903,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               fontSize: 14,
               lineHeight: 1.6,
               fontFamily: "inherit",
-              minHeight: 24,
+              minHeight: isMobile ? 24 : 28,
               maxHeight: 200,
               overflow: "auto",
             }}
           />
 
-          {isStreaming ? (
+          {isStreaming && (
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
               {onSteer && (
                 <button
@@ -1978,31 +1956,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 </button>
               )}
             </div>
-          ) : (
-            <button
-              onClick={handleSend}
-              disabled={!value.trim() && !attachedImages.length}
-              style={{
-                flexShrink: 0,
-                alignSelf: "flex-end",
-                display: "flex", alignItems: "center", gap: 6,
-                width: isMobile ? 44 : 36, height: isMobile ? 44 : 36,
-                padding: 0,
-                background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
-                border: "none",
-                borderRadius: 9,
-                color: (value.trim() || attachedImages.length) ? "#fff" : "var(--text-dim)",
-                cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
-                transition: "background 0.15s",
-              }}
-              title={t("chat.send")}
-              aria-label={t("chat.send")}
-            >
-              <ArrowUp size={15} strokeWidth={2} aria-hidden="true" />
-            </button>
           )}
-          </div>
-        </div>
 
         {/* Bash mode status label */}
         {bashMode && (
@@ -2011,16 +1965,41 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           </div>
         )}
 
-        {/* Bottom bar: left | center (context) | right */}
+        {/* Toolbar: + | model | chips | send */}
         <div style={{
-          marginTop: 8,
           display: isMobile ? "grid" : "flex",
-          gridTemplateColumns: isMobile ? "minmax(0, 1fr) auto" : undefined,
+          gridTemplateColumns: isMobile ? "auto minmax(0, 1fr) auto" : undefined,
           alignItems: "center",
-          gap: 6,
+          gap: 4,
         }}>
+          <button
+            type="button"
+            className="composer-icon-hit"
+            onClick={() => fileInputRef.current?.click()}
+            title={t("chat.attachImage")}
+            aria-label={t("chat.attachImage")}
+            style={{
+              flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+              width: 28, height: 28, padding: 0,
+              background: "none", border: "none",
+              borderRadius: 999,
+              color: attachedImages.length ? "var(--text)" : "var(--text-dim)",
+              cursor: "pointer",
+              transition: "background 0.12s, color 0.12s",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "var(--bg-hover)";
+              e.currentTarget.style.color = "var(--text)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "none";
+              e.currentTarget.style.color = attachedImages.length ? "var(--text)" : "var(--text-dim)";
+            }}
+          >
+            <Plus size={16} strokeWidth={1.8} aria-hidden="true" />
+          </button>
 
-          {/* LEFT: model selector (idle) or steer/followup toggle (streaming) */}
+          {/* LEFT: model selector */}
           <div style={{ flex: isMobile ? "1 1 auto" : "0 0 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2 }}>
             {/* Model selector — visible always, disabled while the session or switch is busy */}
             {(modelOptions.length > 0 || currentName || modelError) && onModelChange && (
@@ -2039,14 +2018,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     style={{
                       display: "flex", alignItems: "center", gap: 6,
                       justifyContent: isMobile ? "flex-start" : undefined,
-                      padding: isMobile ? "8px 10px" : "6px 13px",
-                      height: isMobile ? 44 : 34,
+                      padding: isMobile ? "8px 10px" : "6px 10px",
+                      height: isMobile ? 44 : 32,
                       width: isMobile ? "100%" : undefined,
                       maxWidth: isMobile ? "100%" : 240,
                       overflow: "hidden",
                       background: modelDropdownOpen ? "var(--bg-hover)" : "none",
-                      border: isMobile ? "none" : "1px solid color-mix(in srgb, var(--border) 70%, transparent)",
-                      borderRadius: 8,
+                      border: "none",
+                      borderRadius: 999,
                       color: "var(--text-muted)",
                       cursor: isStreaming || modelSwitching ? "not-allowed" : "pointer",
                       fontSize: 12,
@@ -2267,12 +2246,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                    aria-label={t("chat.changeReasoningLabel")}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                    padding: isMobile ? "0 6px" : "7px 13px",
+                    padding: isMobile ? "0 6px" : "6px 10px",
                     width: isMobile ? "auto" : undefined,
-                    height: isMobile ? 44 : 34,
+                    height: isMobile ? 44 : 32,
                     background: thinkingDropdownOpen ? "var(--bg-hover)" : "none",
-                    border: isMobile ? "none" : "1px solid color-mix(in srgb, var(--border) 70%, transparent)",
-                    borderRadius: 8,
+                    border: "none",
+                    borderRadius: 999,
                     color: "var(--text-muted)",
                     cursor: isStreaming ? "not-allowed" : "pointer",
                     fontSize: 12,
@@ -2351,12 +2330,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                    aria-label={t("chat.changeToolPreset")}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                    padding: isMobile ? "0 6px" : "7px 13px",
+                    padding: isMobile ? "0 6px" : "6px 10px",
                     width: isMobile ? "auto" : undefined,
-                    height: isMobile ? 44 : 34,
+                    height: isMobile ? 44 : 32,
                     background: toolDropdownOpen ? "var(--bg-hover)" : "none",
-                    border: isMobile ? "none" : "1px solid color-mix(in srgb, var(--border) 70%, transparent)",
-                    borderRadius: 8,
+                    border: "none",
+                    borderRadius: 999,
                     color: "var(--text-muted)",
                     cursor: isStreaming ? "not-allowed" : "pointer",
                     fontSize: 12,
@@ -2431,12 +2410,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   disabled={isStreaming && !isCompacting}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                    padding: isMobile ? "0 6px" : "7px 13px",
+                    padding: isMobile ? "0 6px" : "6px 10px",
                     width: isMobile ? "auto" : undefined,
-                    height: isMobile ? 44 : 34,
+                    height: isMobile ? 44 : 32,
                     background: isCompacting ? "rgba(239,68,68,0.08)" : "none",
-                    border: isMobile ? "none" : "1px solid color-mix(in srgb, var(--border) 70%, transparent)",
-                    borderRadius: 8,
+                    border: "none",
+                    borderRadius: 999,
                     color: isCompacting ? "#ef4444" : "var(--text-muted)",
                     cursor: (isStreaming && !isCompacting) ? "not-allowed" : "pointer",
                     fontSize: 12, opacity: (isStreaming && !isCompacting) ? 0.5 : 1,
@@ -2527,7 +2506,31 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             )}
             </div>
           </div>
-
+          {!isStreaming && (
+            <button
+              className="composer-icon-hit"
+              onClick={handleSend}
+              disabled={!value.trim() && !attachedImages.length}
+              style={{
+                flexShrink: 0,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: 28, height: 28,
+                padding: 0,
+                background: (value.trim() || attachedImages.length) ? "var(--text)" : "var(--bg-panel)",
+                border: "none",
+                borderRadius: 999,
+                color: (value.trim() || attachedImages.length) ? "var(--bg)" : "var(--text-dim)",
+                cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
+                transition: "background 0.15s, color 0.15s",
+              }}
+              title={t("chat.send")}
+              aria-label={t("chat.send")}
+            >
+              <Play size={12} strokeWidth={2.2} fill="currentColor" aria-hidden="true" />
+            </button>
+          )}
+        </div>
+        </div>
         </div>
       </div>
     </div>
