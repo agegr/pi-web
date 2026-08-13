@@ -14,6 +14,7 @@ const {
   formatExtensionWidgetContent,
   getNextExpandedWidgetKey,
   getUpdatedExtensionWidgetKeys,
+  parseTodoWidget,
   snapshotExtensionWidgetContents,
 } = await jiti.import("./ExtensionWidgets.tsx");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
@@ -27,6 +28,76 @@ function renderWidgets(props) {
     ),
   );
 }
+
+test("parses rpiv todos into Codex task rows", () => {
+  assert.deepEqual(parseTodoWidget([
+    "● Todos (2/5)",
+    "├─ ✓ Create entity",
+    "├─ ◐ Build repository (building repository)",
+    "└─ ○ Add tests",
+    "",
+  ]), {
+    label: "Todos",
+    completed: 2,
+    total: 5,
+    items: [
+      { status: "completed", text: "Create entity" },
+      { status: "in_progress", text: "Build repository", detail: "building repository" },
+      { status: "pending", text: "Add tests" },
+    ],
+  });
+});
+
+test("renders rpiv todos with a dedicated Codex panel", () => {
+  const html = renderWidgets({
+    widgets: [{
+      key: "rpiv-todos",
+      lines: ["● Todos (1/2)", "├─ ✓ Done", "└─ ○ Next", ""],
+      placement: "aboveEditor",
+    }],
+    onRunCommand() {},
+  });
+
+  assert.match(html, /codex-todo-panel/);
+  assert.match(html, /codex-todo-count[^>]*>1\/2</);
+  assert.match(html, /data-status="completed"/);
+  assert.match(html, /data-status="pending"/);
+  assert.doesNotMatch(html, /rpiv-todos|<pre/);
+});
+
+test("renders a collapsed rpiv todo from its progress title", () => {
+  const html = renderWidgets({
+    widgets: [{ key: "rpiv-todos", title: "● Todos (1/3)", lines: [], placement: "aboveEditor" }],
+    onRunCommand() {},
+  });
+
+  assert.match(html, /codex-todo-panel/);
+  assert.match(html, /codex-todo-count[^>]*>1\/3</);
+  assert.match(html, /aria-label="Expand"/);
+  assert.doesNotMatch(html, /codex-todo-list/);
+});
+
+test("falls back to raw widget content when rpiv todo lines are unknown", () => {
+  const html = renderWidgets({
+    widgets: [{ key: "rpiv-todos", lines: ["unexpected format", "raw detail"], placement: "aboveEditor" }],
+  });
+
+  assert.match(html, /<pre/);
+  assert.match(html, /unexpected format/);
+});
+
+test("does not consume the generic expanded-widget slot", () => {
+  const html = renderWidgets({
+    widgets: [
+      { key: "rpiv-todos", lines: ["● Todos (0/1)", "└─ ○ Next"], placement: "aboveEditor" },
+      { key: "details", lines: ["one", "two"], placement: "aboveEditor" },
+    ],
+  });
+
+  assert.match(html, /codex-todo-panel/);
+  assert.match(html, /extension-widget-panel/);
+  assert.match(html, /one\ntwo/);
+});
 
 test("renders short extension widgets without a truncation marker", () => {
   const html = renderWidgets({
@@ -145,11 +216,11 @@ test("uses a compact key-only trigger with a placement icon", () => {
   assert.doesNotMatch(html, />ready</);
 });
 
-test("keeps the rpiv todo collapse command in the expanded panel", () => {
+test("keeps the rpiv todo collapse command in the dedicated panel", () => {
   const html = renderWidgets({
-    widgets: [{ key: "rpiv-todos", lines: ["one", "two"], placement: "aboveEditor" }],
+    widgets: [{ key: "rpiv-todos", lines: ["● Todos (0/2)", "├─ ○ one", "└─ ○ two"], placement: "aboveEditor" }],
     onRunCommand() {},
   });
 
-  assert.match(html, /<button[^>]*>Collapse<\/button>/);
+  assert.match(html, /aria-label="Collapse"/);
 });

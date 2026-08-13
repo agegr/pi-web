@@ -33,7 +33,8 @@ test("new task keeps its shortcut accessible without a visible key hint", () => 
 test("gives the sidebar search field enough breathing room", () => {
   assert.match(styles, /\.codex-sidebar-search-wrap\s*\{[\s\S]*?height:\s*34px;[\s\S]*?margin:\s*6px 10px 6px;[\s\S]*?flex-shrink:\s*0;/);
   assert.match(styles, /\.codex-sidebar-new-task\s*\{[\s\S]*?height:\s*34px;[\s\S]*?flex-shrink:\s*0;/);
-  assert.match(styles, /\.codex-sidebar-search-shortcut\s*\{[\s\S]*?height:\s*24px;/);
+  assert.doesNotMatch(styles, /\.codex-sidebar-search-shortcut/);
+  assert.doesNotMatch(sidebar, /<kbd>⌘K<\/kbd>/);
   assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?\.codex-sidebar-search-wrap\s*\{[\s\S]*?height:\s*40px;/);
 });
 

@@ -614,9 +614,6 @@ export function CodexSidebar({
       <div className="codex-sidebar-search-wrap">
         <Search size={14} aria-hidden="true" />
         <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={t("sidebar.searchProjects")} aria-label={t("sidebar.searchProjects")} />
-        <button type="button" className="codex-sidebar-search-shortcut" aria-label={t("sidebar.quickSwitcher")} title={t("sidebar.quickSwitcher")} onClick={(event) => openQuickSwitcher(event.currentTarget)}>
-          <kbd>⌘K</kbd>
-        </button>
       </div>
 
       <section className="codex-sidebar-section">
