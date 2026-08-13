@@ -2051,13 +2051,6 @@ export function AppShell() {
         onLocaleChange={setLocale}
         soundEnabled={soundEnabled}
         onSoundToggle={onSoundToggle}
-        projectTrust={projectTrust}
-        projectTrustBusy={projectTrustBusy}
-        projectTrustError={projectTrustError}
-        onTrustProject={() => {
-          setProjectTrustError(null);
-          setProjectTrustDialogOpen(true);
-        }}
         onClose={() => setSettingsOpen(false)}
         onRegisterSettingsBack={(handler) => { settingsBackHandlerRef.current = handler; }}
         onModelsChanged={() => setModelsRefreshKey((key) => key + 1)}

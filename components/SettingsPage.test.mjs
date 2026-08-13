@@ -16,7 +16,8 @@ test("settings embeds the model, skill, and plugin modules", () => {
   assert.match(settings, /<ModelsConfig onControllerChange=\{setModelsController\} \/>/);
   assert.match(settings, /<SkillsConfig cwd=\{cwd\} onControllerChange=\{setSkillsController\} \/>/);
   assert.match(settings, /onControllerChange=\{setPluginsController\}/);
-  assert.match(settings, /type SettingsSection = "general" \| "project" \| "archived" \| "models" \| "skills" \| "plugins"/);
+  assert.match(settings, /type SettingsSection = "general" \| "archived" \| "models" \| "skills" \| "plugins"/);
+  assert.doesNotMatch(settings, /id: "project"/);
 });
 
 test("settings guards every exit path behind one discard confirmation", () => {
@@ -76,12 +77,12 @@ test("settings lists archived projects and restores them through the project reg
   assert.match(settings, /onProjectsChanged\(\)/);
 });
 
-test("settings owns general preferences and project trust", () => {
+test("settings owns general preferences", () => {
   assert.match(settings, /useState<SettingsSection>\("general"\)/);
   assert.match(settings, /onThemeChange\(id\)/);
   assert.match(settings, /onLocaleChange\(event\.target\.value as Locale\)/);
   assert.match(settings, /role="switch" aria-checked=\{soundEnabled\}/);
-  assert.match(settings, /onClick=\{onTrustProject\}/);
+  assert.doesNotMatch(settings, /onTrustProject/);
   assert.doesNotMatch(settings, /<svg/);
 });
 

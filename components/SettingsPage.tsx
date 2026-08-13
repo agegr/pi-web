@@ -6,8 +6,6 @@ import {
   Archive,
   ArchiveRestore,
   Bell,
-  Bot,
-  Check,
   Cpu,
   FolderCog,
   Info,
@@ -16,7 +14,6 @@ import {
   Monitor,
   Moon,
   Plug,
-  ShieldCheck,
   SlidersHorizontal,
   Sun,
   Volume2,
@@ -25,7 +22,6 @@ import {
 import { useI18n } from "@/hooks/useI18n";
 import type { ThemePreference } from "@/hooks/useTheme";
 import type { Locale, LocalePlugin } from "@/lib/i18n/types";
-import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ProjectPreference } from "@/lib/project-registry";
 import { ModelsConfig } from "./ModelsConfig";
 import type { ModelsDraftController } from "./models-config/models-config-types";
@@ -33,7 +29,7 @@ import type { SettingsSectionController } from "./resource-settings/resource-set
 import { PluginsConfig } from "./PluginsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 
-type SettingsSection = "general" | "project" | "archived" | "models" | "skills" | "plugins";
+type SettingsSection = "general" | "archived" | "models" | "skills" | "plugins";
 
 interface Props {
   cwd: string | null;
@@ -45,10 +41,6 @@ interface Props {
   onLocaleChange: (locale: Locale) => void;
   soundEnabled: boolean;
   onSoundToggle: () => void;
-  projectTrust: ProjectTrustStatus | null;
-  projectTrustBusy: boolean;
-  projectTrustError: string | null;
-  onTrustProject: () => void;
   onClose: () => void;
   onModelsChanged: () => void;
   onSessionReloaded: () => void;
@@ -59,7 +51,6 @@ interface Props {
 function SectionIcon({ section }: { section: SettingsSection }) {
   const icons = {
     general: SlidersHorizontal,
-    project: FolderCog,
     archived: Archive,
     models: Cpu,
     skills: Layers3,
@@ -79,10 +70,6 @@ export function SettingsPage({
   onLocaleChange,
   soundEnabled,
   onSoundToggle,
-  projectTrust,
-  projectTrustBusy,
-  projectTrustError,
-  onTrustProject,
   onClose,
   onModelsChanged,
   onSessionReloaded,
@@ -218,7 +205,6 @@ export function SettingsPage({
 
   const sections: { id: SettingsSection; label: string; disabled: boolean }[] = [
     { id: "general", label: t("settings.general"), disabled: false },
-    { id: "project", label: t("settings.project"), disabled: false },
     { id: "archived", label: t("sidebar.archived"), disabled: false },
     { id: "models", label: t("common.models"), disabled: false },
     { id: "skills", label: t("common.skills"), disabled: !cwd },
@@ -263,25 +249,6 @@ export function SettingsPage({
         <section className="settings-form-section">
           <div className="settings-form-label"><Info size={16} aria-hidden="true" /><div><strong>{t("settings.about")}</strong><span>{t("settings.aboutVersion", { web: process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0", pi: process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0" })}</span></div></div>
         </section>
-      </div>
-    );
-  } else if (section === "project") {
-    content = !cwd ? (
-      <div className="settings-page-empty"><FolderCog size={20} aria-hidden="true" /><strong>{t("settings.projectRequired")}</strong><span>{t("settings.projectSettingsDescription")}</span></div>
-    ) : (
-      <div className="settings-form-page">
-        <div className="settings-form-heading"><FolderCog size={18} aria-hidden="true" /><div><h3>{t("settings.project")}</h3><p>{t("settings.projectDescription")}</p></div></div>
-        <section className="settings-form-section settings-project-path">
-          <div className="settings-form-label"><Bot size={16} aria-hidden="true" /><div><strong>{t("settings.activeProject")}</strong><span>{t("settings.activeProjectDescription")}</span></div></div>
-          <code title={cwd}>{cwd}</code>
-        </section>
-        <section className="settings-form-section">
-          <div className="settings-form-label"><ShieldCheck size={16} aria-hidden="true" /><div><strong>{t("settings.projectTrust")}</strong><span>{projectTrust?.requiresTrust ? (projectTrust.trusted ? t("settings.projectTrusted") : t("settings.projectRestricted")) : t("settings.projectTrustNotRequired")}</span></div></div>
-          {projectTrust?.requiresTrust && !projectTrust.trusted ? (
-            <button className="settings-primary-button" type="button" disabled={projectTrustBusy} onClick={onTrustProject}>{projectTrustBusy ? t("trust.trusting") : t("trust.trustProject")}</button>
-          ) : <span className="settings-status"><Check size={14} aria-hidden="true" />{t("settings.ready")}</span>}
-        </section>
-        {projectTrustError && <div className="settings-inline-error" role="alert">{projectTrustError}</div>}
       </div>
     );
   } else if (section === "archived") {
