@@ -61,6 +61,17 @@ test("preserves desktop session context menus and dirty-worktree force confirmat
   assert.match(sidebar, /removeWorktree\(path, true\)/);
 });
 
+test("session overflow menu portals, dismisses, and archives locally", () => {
+  assert.match(sidebar, /readArchivedSessionIds\(\)/);
+  assert.match(sidebar, /!archivedIds\.has\(session\.id\)/);
+  assert.match(sidebar, /sidebar\.archiveSession/);
+  assert.match(sidebar, /codex-project-menu-portal/);
+  assert.match(sidebar, /document\.addEventListener\("mousedown", onPointerDown\)/);
+  assert.match(sidebar, /document\.addEventListener\("keydown", onKeyDown, true\)/);
+  assert.match(settings, /sidebar\.restoreSession/);
+  assert.match(settings, /writeArchivedSessionIds\(next\)/);
+});
+
 test("searches sessions and exposes a Codex-style quick switcher", () => {
   assert.match(sidebar, /function sessionTitle\(session: SessionInfo\)/);
   assert.match(sidebar, /visibleSessions\.filter\(\(session\) =>/);

@@ -22,7 +22,10 @@ import {
 import { useI18n } from "@/hooks/useI18n";
 import type { ThemePreference } from "@/hooks/useTheme";
 import type { Locale, LocalePlugin } from "@/lib/i18n/types";
+import { readArchivedSessionIds, writeArchivedSessionIds } from "@/lib/archived-sessions";
+import { sidebarSessionTitle } from "@/lib/codex-sidebar-search";
 import type { ProjectPreference } from "@/lib/project-registry";
+import type { SessionInfo } from "@/lib/types";
 import { ModelsConfig } from "./ModelsConfig";
 import type { ModelsDraftController } from "./models-config/models-config-types";
 import type { SettingsSectionController } from "./resource-settings/resource-settings-types";
@@ -79,6 +82,8 @@ export function SettingsPage({
   const { t } = useI18n();
   const [section, setSection] = useState<SettingsSection>("general");
   const [projects, setProjects] = useState<ProjectPreference[]>([]);
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [archivedSessionIds, setArchivedSessionIds] = useState<Set<string>>(() => new Set());
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [restoringProjects, setRestoringProjects] = useState<Set<string>>(new Set());
@@ -163,10 +168,18 @@ export function SettingsPage({
     setProjectsLoading(true);
     if (clearError) setProjectsError(null);
     try {
-      const response = await fetch("/api/projects", { cache: "no-store" });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json() as { projects: ProjectPreference[] };
-      setProjects(data.projects);
+      const [projectsResponse, sessionsResponse] = await Promise.all([
+        fetch("/api/projects", { cache: "no-store" }),
+        fetch("/api/sessions", { cache: "no-store" }),
+      ]);
+      if (!projectsResponse.ok) throw new Error(`HTTP ${projectsResponse.status}`);
+      const projectData = await projectsResponse.json() as { projects: ProjectPreference[] };
+      setProjects(projectData.projects);
+      if (sessionsResponse.ok) {
+        const sessionData = await sessionsResponse.json() as { sessions: SessionInfo[] };
+        setSessions(sessionData.sessions);
+      }
+      setArchivedSessionIds(readArchivedSessionIds());
     } catch (cause) {
       setProjectsError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -202,6 +215,17 @@ export function SettingsPage({
       });
     }
   }, [loadProjects, onProjectsChanged, restoringProjects]);
+
+  const restoreSession = useCallback((id: string) => {
+    setArchivedSessionIds((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      writeArchivedSessionIds(next);
+      return next;
+    });
+    onProjectsChanged();
+  }, [onProjectsChanged]);
 
   const sections: { id: SettingsSection; label: string; disabled: boolean }[] = [
     { id: "general", label: t("settings.general"), disabled: false },
@@ -253,22 +277,44 @@ export function SettingsPage({
     );
   } else if (section === "archived") {
     const archivedProjects = projects.filter((project) => project.archived && !project.removed);
+    const archivedSessions = sessions.filter((session) => archivedSessionIds.has(session.id) && session.sessionRole !== "subagent");
+    const archivedEmpty = archivedProjects.length === 0 && archivedSessions.length === 0;
     content = (
       <div className="settings-form-page">
-        <div className="settings-form-heading"><Archive size={18} aria-hidden="true" /><div><h3>{t("sidebar.archivedProjects")}</h3><p>{t("settings.archivedProjectsDescription")}</p></div></div>
+        <div className="settings-form-heading"><Archive size={18} aria-hidden="true" /><div><h3>{t("sidebar.archived")}</h3><p>{t("settings.archivedEmptyDescription")}</p></div></div>
         {projectsLoading ? (
           <div className="settings-page-empty"><span>{t("sidebar.loading")}</span></div>
-        ) : projectsError && projects.length === 0 ? null : archivedProjects.length === 0 ? (
-          <div className="settings-page-empty"><Archive size={20} aria-hidden="true" /><strong>{t("sidebar.noArchivedProjects")}</strong><span>{t("settings.archivedProjectsEmptyDescription")}</span></div>
+        ) : archivedEmpty ? (
+          <div className="settings-page-empty"><Archive size={20} aria-hidden="true" /><strong>{t("sidebar.noArchivedProjects")}</strong><span>{t("settings.archivedEmptyDescription")}</span></div>
         ) : (
-          <div className="settings-archived-list">
-            {archivedProjects.map((project) => (
-              <div className="settings-archived-row" key={project.path}>
-                <div><strong>{project.name ?? project.path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? project.path}</strong><span title={project.path}>{project.path}</span></div>
-                <button type="button" disabled={restoringProjects.has(project.path)} onClick={() => void restoreProject(project.path)}><ArchiveRestore size={14} aria-hidden="true" />{t("sidebar.restoreProject")}</button>
-              </div>
-            ))}
-          </div>
+          <>
+            {archivedProjects.length > 0 && (
+              <>
+                <div className="settings-form-heading"><div><h3>{t("sidebar.archivedProjects")}</h3><p>{t("settings.archivedProjectsDescription")}</p></div></div>
+                <div className="settings-archived-list">
+                  {archivedProjects.map((project) => (
+                    <div className="settings-archived-row" key={project.path}>
+                      <div><strong>{project.name ?? project.path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? project.path}</strong><span title={project.path}>{project.path}</span></div>
+                      <button type="button" disabled={restoringProjects.has(project.path)} onClick={() => void restoreProject(project.path)}><ArchiveRestore size={14} aria-hidden="true" />{t("sidebar.restoreProject")}</button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            {archivedSessions.length > 0 && (
+              <>
+                <div className="settings-form-heading"><div><h3>{t("sidebar.archivedSessions")}</h3><p>{t("settings.archivedSessionsDescription")}</p></div></div>
+                <div className="settings-archived-list">
+                  {archivedSessions.map((session) => (
+                    <div className="settings-archived-row" key={session.id}>
+                      <div><strong>{sidebarSessionTitle(session)}</strong><span title={session.cwd}>{session.cwd}</span></div>
+                      <button type="button" onClick={() => restoreSession(session.id)}><ArchiveRestore size={14} aria-hidden="true" />{t("sidebar.restoreSession")}</button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </>
         )}
         {projectsError && <div className="settings-inline-error" role="alert">{projectsError}</div>}
       </div>

@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import { Archive, ChevronRight, Ellipsis, Folder, FolderPlus, LoaderCircle, MessageSquare, Pin, Plus, RefreshCw, Search, X } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
+import { readArchivedSessionIds, writeArchivedSessionIds } from "@/lib/archived-sessions";
 import { filterProjectSessions, matchesSidebarQuery, sidebarProjectName, sidebarSessionTitle } from "@/lib/codex-sidebar-search";
 import type { ProjectPreference } from "@/lib/project-registry";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
@@ -156,6 +157,7 @@ export function CodexSidebar({
   const [collapsed, setCollapsed] = useState<Set<string>>(() => readStringSet(COLLAPSED_STORAGE_KEY));
   const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
   const [unreadIds, setUnreadIds] = useState<Set<string>>(() => readStringSet(UNREAD_STORAGE_KEY));
+  const [archivedIds, setArchivedIds] = useState<Set<string>>(() => readArchivedSessionIds());
   const [menuProject, setMenuProject] = useState<{ path: string; left: number; top: number } | null>(null);
   const [renamingProject, setRenamingProject] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -201,6 +203,8 @@ export function CodexSidebar({
   useEffect(() => { if (explorerRefreshKey !== undefined) setExplorerKey((key) => key + 1); }, [explorerRefreshKey]);
   useEffect(() => { writeStringSet(COLLAPSED_STORAGE_KEY, collapsed); }, [collapsed]);
   useEffect(() => { writeStringSet(UNREAD_STORAGE_KEY, unreadIds); }, [unreadIds]);
+  useEffect(() => { writeArchivedSessionIds(archivedIds); }, [archivedIds]);
+  useEffect(() => { setArchivedIds(readArchivedSessionIds()); }, [refreshKey]);
 
   const subagentsByRoot = useMemo(() => {
     const grouped = new Map<string, SessionInfo[]>();
@@ -214,14 +218,14 @@ export function CodexSidebar({
   }, [sessions]);
 
   const visibleSessions = useMemo(() => sessions
-    .filter((session) => session.sessionRole !== "subagent")
+    .filter((session) => session.sessionRole !== "subagent" && !archivedIds.has(session.id))
     .map((session) => {
       const latestSubagent = subagentsByRoot.get(session.id)
         ?.reduce((latest, child) => child.modified > latest ? child.modified : latest, session.modified);
       return latestSubagent && latestSubagent !== session.modified
         ? { ...session, modified: latestSubagent }
         : session;
-    }), [sessions, subagentsByRoot]);
+    }), [archivedIds, sessions, subagentsByRoot]);
 
   const { roots: activeRootIds, unresolved: hasUnresolvedRunningIds } = useMemo(
     () => activeSessionRoots(sessions, runningIds, previousRunningRef.current),
@@ -721,6 +725,15 @@ export function CodexSidebar({
                       onSelect={() => selectSession(session)}
                       onChanged={() => void loadData(true)}
                       onDeleted={() => { onSessionDeleted?.(session.id); void loadData(true); }}
+                      onArchive={() => {
+                        setArchivedIds((current) => new Set(current).add(session.id));
+                        setUnreadIds((current) => {
+                          if (!current.has(session.id)) return current;
+                          const next = new Set(current);
+                          next.delete(session.id);
+                          return next;
+                        });
+                      }}
                     />
                   ))}
                 </div>
@@ -857,7 +870,7 @@ export function CodexSidebar({
   );
 }
 
-function SessionRow({ session, selected, running, runningSubagentCount, unread, onSelect, onChanged, onDeleted }: {
+function SessionRow({ session, selected, running, runningSubagentCount, unread, onSelect, onChanged, onDeleted, onArchive }: {
   session: SessionInfo;
   selected: boolean;
   running: boolean;
@@ -866,12 +879,35 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
   onSelect: () => void;
   onChanged: () => void;
   onDeleted: () => void;
+  onArchive: () => void;
 }) {
   const { t } = useI18n();
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [value, setValue] = useState("");
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLDivElement>(null);
   const title = sessionTitle(session);
+
+  useEffect(() => {
+    if (!menuPos) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (menuRef.current?.contains(target) || menuButtonRef.current?.contains(target)) return;
+      setMenuPos(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      setMenuPos(null);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [menuPos]);
 
   const commitRename = async () => {
     setRenaming(false);
@@ -886,7 +922,7 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
   };
 
   const remove = async () => {
-    setMenuOpen(false);
+    setMenuPos(null);
     if (!window.confirm(t("sidebar.deleteSession", { title }))) return;
     const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
     if (response.ok) onDeleted();
@@ -906,7 +942,12 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
     event.stopPropagation();
     // Long-press (mobile) / right-click (desktop): when no extension claims the
     // context menu, fall back to the built-in row menu.
-    if (!handled) setMenuOpen(true);
+    if (!handled) {
+      setMenuPos({
+        left: Math.max(8, Math.min(window.innerWidth - 180, event.clientX)),
+        top: Math.max(8, Math.min(window.innerHeight - 110, event.clientY)),
+      });
+    }
   };
 
   return (
@@ -953,15 +994,23 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
         )}
       </div>
       {!session.transient && (
-        <div className="codex-session-menu-wrap">
-          <IconButton label={t("sidebar.sessionActions")} onClick={() => setMenuOpen((open) => !open)}>
+        <div className="codex-session-menu-wrap" ref={menuButtonRef}>
+          <IconButton label={t("sidebar.sessionActions")} onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            setMenuPos((current) => current ? null : {
+              left: Math.max(8, Math.min(window.innerWidth - 180, rect.right - 172)),
+              top: Math.max(8, Math.min(window.innerHeight - 110, rect.bottom + 2)),
+            });
+          }}>
             <Ellipsis size={14} aria-hidden="true" />
           </IconButton>
-          {menuOpen && (
-            <div className="codex-project-menu" role="menu">
-              <button type="button" role="menuitem" onClick={() => { setValue(title); setRenaming(true); setMenuOpen(false); }}>{t("sidebar.rename")}</button>
+          {menuPos && createPortal(
+            <div ref={menuRef} className="codex-project-menu codex-project-menu-portal" role="menu" style={{ left: menuPos.left, top: menuPos.top }}>
+              <button type="button" role="menuitem" onClick={() => { setValue(title); setRenaming(true); setMenuPos(null); }}>{t("sidebar.rename")}</button>
+              <button type="button" role="menuitem" onClick={() => { setMenuPos(null); onArchive(); }}><Archive size={14} aria-hidden="true" />{t("sidebar.archiveSession")}</button>
               <button type="button" role="menuitem" className="danger" onClick={() => void remove()}>{t("sidebar.delete")}</button>
-            </div>
+            </div>,
+            document.body,
           )}
         </div>
       )}
