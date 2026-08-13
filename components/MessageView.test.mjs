@@ -170,6 +170,23 @@ test("renders user-message images as buttons that open a larger preview", () => 
   assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
 });
 
+test("expands a streaming write so the file contents stay visible", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "openai",
+    model: "qwen",
+    content: [{
+      type: "toolCall",
+      toolCallId: "call-1",
+      toolName: "write",
+      input: { path: "/tmp/a.md", content: "# Hello" },
+    }],
+  }, { isStreaming: true });
+
+  assert.match(html, />write</);
+  assert.match(html, /# Hello/);
+});
+
 test("renders custom-message images as buttons that open a larger preview", () => {
   const html = renderMessage({
     role: "custom",

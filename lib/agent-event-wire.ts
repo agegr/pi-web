@@ -10,6 +10,22 @@ export type ClientMessageUpdateEvent = Extract<
   { type: "message_update" }
 >;
 
+function toolIdentityFromPartial(partial: unknown, contentIndex: unknown): { id?: string; toolName?: string } {
+  if (!partial || typeof partial !== "object" || typeof contentIndex !== "number") return {};
+  const content = (partial as { content?: unknown }).content;
+  if (!Array.isArray(content)) return {};
+  const block = content[contentIndex];
+  if (!block || typeof block !== "object") return {};
+  const rec = block as Record<string, unknown>;
+  if (rec.type !== "toolCall") return {};
+  const id = typeof rec.id === "string" ? rec.id : typeof rec.toolCallId === "string" ? rec.toolCallId : undefined;
+  const toolName = typeof rec.name === "string" ? rec.name : typeof rec.toolName === "string" ? rec.toolName : undefined;
+  return {
+    ...(id ? { id } : {}),
+    ...(toolName ? { toolName } : {}),
+  };
+}
+
 const OMITTED_EVENT_TYPES = new Set([
   "turn_start",
   "turn_end",
@@ -37,8 +53,10 @@ export function toClientAgentEvent(
       } as ClientMessageUpdateEvent;
     }
 
-    const { partial: _partial, ...deltaEvent } = assistantMessageEvent;
-    void _partial;
+    const { partial, ...deltaEvent } = assistantMessageEvent as Record<string, unknown>;
+    if (deltaEvent.type === "toolcall_start" || deltaEvent.type === "toolcall_delta") {
+      Object.assign(deltaEvent, toolIdentityFromPartial(partial, deltaEvent.contentIndex));
+    }
     return {
       type: "message_update",
       assistantMessageEvent: deltaEvent,
