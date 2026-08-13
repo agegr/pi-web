@@ -413,7 +413,8 @@ html.keyboard-open .goal-panel-actions {
   flex-direction: column;
   gap: 6px;
   min-width: 0;
-  margin: 0 0 8px;
+  max-width: min(780px, 100%);
+  margin: 0 auto 8px;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 10px;

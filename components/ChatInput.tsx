@@ -1386,7 +1386,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           e.target.value = "";
         }}
       />
-      <div style={{ maxWidth: 820, margin: "0 auto" }}>
+      <div style={{ maxWidth: isMobile ? undefined : 780, margin: "0 auto" }}>
         <ModelErrorBanner error={modelError} />
         <ModelScopeWarningBanner warnings={modelScopeWarnings} />
         {/* Queued steering / follow-up messages (delivered by pi on upcoming turns) */}
@@ -1856,9 +1856,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               gap: isMobile ? 8 : 10,
               background: "var(--bg)",
               border: `1px solid ${bashMode ? "var(--tool-bg)" : "color-mix(in srgb, var(--border) 80%, transparent)"}`,
-              borderRadius: 20,
-              padding: isMobile ? "10px 12px 8px" : "14px 16px 10px",
-              boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
+              borderRadius: isMobile ? 20 : 12,
+              padding: isMobile ? "10px 12px 8px" : "12px 14px 9px",
+              boxShadow: isMobile
+                ? "0 2px 12px rgba(0,0,0,0.06)"
+                : "0 2px 8px rgba(0,0,0,0.05)",
               transition: "border-color 0.15s, background 0.15s",
             } as React.CSSProperties}
           >

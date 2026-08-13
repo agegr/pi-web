@@ -54,10 +54,12 @@ test("prevents iOS focus zoom from widening the layout", () => {
   assert.match(cssSource, /@media \(max-width: 640px\)[\s\S]*?textarea,[\s\S]*?input,[\s\S]*?select \{\s*font-size: 16px !important;/);
 });
 
-test("gives the desktop composer more padding than the mobile row", () => {
-  assert.match(chatInputSource, /padding: isMobile \? "10px 12px 8px" : "14px 16px 10px"/);
-  assert.match(chatInputSource, /minHeight: isMobile \? 24 : 28/);
+test("uses a restrained DSCode desktop composer without changing mobile sizing", () => {
   assert.match(chatInputSource, /className="composer-shell"/);
+  assert.match(chatInputSource, /borderRadius: isMobile \? 20 : 12/);
+  assert.match(chatInputSource, /boxShadow: isMobile[\s\S]*?0 2px 12px rgba\(0,0,0,0\.06\)[\s\S]*?: "0 2px 8px rgba\(0,0,0,0\.05\)"/);
+  assert.match(chatInputSource, /maxWidth: isMobile \? undefined : 780/);
+  assert.match(chatInputSource, /width: 28, height: 28/);
 });
 
 test("keeps the streaming composer in the idle capsule", () => {

@@ -754,7 +754,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
             pointerEvents: "none",
           }}
         >
-          <div style={{ maxWidth: 960, margin: "0 auto" }}>
+          <div style={{ maxWidth: 780, margin: "0 auto" }}>
             <NoticeShelf notices={notices} floating align="right" />
           </div>
         </div>
