@@ -30,6 +30,13 @@ test("new task keeps its shortcut accessible without a visible key hint", () => 
   assert.doesNotMatch(sidebar, /<kbd>⌃⌥N<\/kbd>/);
 });
 
+test("gives the sidebar search field enough breathing room", () => {
+  assert.match(styles, /\.codex-sidebar-search-wrap\s*\{[\s\S]*?height:\s*34px;[\s\S]*?margin:\s*6px 10px 6px;[\s\S]*?flex-shrink:\s*0;/);
+  assert.match(styles, /\.codex-sidebar-new-task\s*\{[\s\S]*?height:\s*34px;[\s\S]*?flex-shrink:\s*0;/);
+  assert.match(styles, /\.codex-sidebar-search-shortcut\s*\{[\s\S]*?height:\s*24px;/);
+  assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?\.codex-sidebar-search-wrap\s*\{[\s\S]*?height:\s*40px;/);
+});
+
 test("project management exposes persistence-backed full actions", () => {
   assert.match(sidebar, /fetch\("\/api\/projects"/);
   assert.match(sidebar, /method: "PATCH"/);

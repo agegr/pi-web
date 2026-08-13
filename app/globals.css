@@ -548,12 +548,13 @@ pre, code {
 }
 .codex-sidebar-icon-button:disabled { opacity: .4; cursor: default; }
 .codex-sidebar-search-wrap {
-  height: 30px;
-  margin: 0 10px 8px;
+  height: 34px;
+  margin: 6px 10px 6px;
   padding: 0 8px;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
+  flex-shrink: 0;
   color: var(--text-dim);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -574,7 +575,7 @@ pre, code {
 .codex-sidebar-search-wrap input { font-size: 12px; }
 .codex-sidebar-search-wrap input::placeholder { color: var(--text-muted); opacity: 1; }
 .codex-sidebar-search-shortcut {
-  height: 22px;
+  height: 24px;
   padding: 0;
   border: 0;
   color: var(--text-dim);
@@ -591,7 +592,7 @@ pre, code {
   background: var(--bg-panel);
   font-family: var(--font-mono);
   font-size: 10px;
-  line-height: 16px;
+  line-height: 18px;
 }
 .codex-quick-switcher {
   width: min(620px, calc(100vw - 32px));
@@ -684,6 +685,7 @@ pre, code {
   display: flex;
   align-items: center;
   gap: 9px;
+  flex-shrink: 0;
   border: 0;
   border-radius: 6px;
   color: var(--text);
