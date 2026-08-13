@@ -4,6 +4,13 @@ import test from "node:test";
 
 const source = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 
+test("renders a Codex-style new-session home", () => {
+  assert.match(source, /chat\.homeTitle/);
+  assert.match(source, /className="new-session-home/);
+  assert.match(source, /insertIfEmpty\(/);
+  assert.match(source, /chat\.homeExplore/);
+});
+
 test("keeps process details collapsed even while a session is live", () => {
   assert.match(source, /const \[expanded, setExpanded\] = useState\(defaultExpanded\)/);
   assert.doesNotMatch(source, /<ProcessDetailsGroup[\s\S]*?\n\s+defaultExpanded(?:=|\s*\n)/);

@@ -1,6 +1,6 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
-import { ArrowDown, ChevronRight, ExternalLink } from "lucide-react";
+import { ArrowDown, Bug, ChevronRight, Compass, ExternalLink, Folder, GitPullRequest, Sparkles } from "lucide-react";
 import { Fragment, cloneElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
@@ -67,6 +67,19 @@ function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, 
 
 const CHAT_MINIMAP_WIDTH = 36;
 const CHAT_COLUMN_PADDING = 16;
+
+const HOME_STARTERS = [
+  { key: "chat.homeExplore" as const, icon: Compass, color: "#38bdf8" },
+  { key: "chat.homeBuild" as const, icon: Sparkles, color: "#a78bfa" },
+  { key: "chat.homeReview" as const, icon: GitPullRequest, color: "#34d399" },
+  { key: "chat.homeFix" as const, icon: Bug, color: "#fb923c" },
+];
+
+function cwdBasename(cwd: string | null | undefined): string | null {
+  if (!cwd) return null;
+  const name = cwd.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
+  return name || cwd;
+}
 
 function NewSessionUpdateLink({
   label,
@@ -411,6 +424,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   }, [messages.length]);
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
+  const homeCwdLabel = cwdBasename(newSessionCwd ?? session?.cwd);
   const hasStreamingContent = Boolean(streamState.streamingMessage?.content.length);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
   const messageContentRef = useRef<HTMLDivElement | null>(null);
@@ -634,30 +648,62 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       )}
 
       {isEmptyNew ? (
-        <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8">
-          <div className="w-full max-w-[960px]">
-            <div
-              className="mb-3"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-                marginLeft: 16,
-                marginRight: 16,
-                fontFamily: "var(--font-mono)",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "baseline", gap: isMobile ? 7 : 10, minWidth: 0, flex: 1, lineHeight: 1.4, overflow: "hidden" }}>
-                <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: 0, color: "var(--text)", flexShrink: 0, whiteSpace: "nowrap" }}>π</span>
-                <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: 0, flexShrink: 0, whiteSpace: "nowrap" }}>Pi Web</span>
+        <div className="new-session-home flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8">
+            <div className="w-full max-w-[720px] text-center">
+              <div style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                width: 40, height: 40, marginBottom: 16,
+                borderRadius: 12, background: "var(--bg-panel)", color: "var(--text-dim)",
+                fontSize: 20, fontWeight: 700, fontFamily: "var(--font-mono)",
+              }}>π</div>
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
                 <NewSessionUpdateLink label={(version) => t("appUpdate.releaseNotes", { version })} />
               </div>
+              <h1 style={{
+                margin: 0, fontSize: isMobile ? 20 : 24, fontWeight: 500,
+                letterSpacing: "-0.02em", color: "var(--text)", lineHeight: 1.35,
+              }}>
+                {homeCwdLabel ? t("chat.homeTitle", { cwd: homeCwdLabel }) : t("chat.homeTitleGeneric")}
+              </h1>
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, minmax(0, 1fr))",
+                gap: 10,
+                marginTop: 20,
+                textAlign: "left",
+              }}>
+                {HOME_STARTERS.map(({ key, icon: Icon, color }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => chatInputRef?.current?.insertIfEmpty(t(key))}
+                    style={{
+                      display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 10,
+                      minHeight: 92, padding: "12px 14px",
+                      background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 14,
+                      color: "var(--text)", cursor: "pointer", fontSize: 13, lineHeight: 1.4, textAlign: "left",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "var(--bg)"; }}
+                  >
+                    <Icon size={16} strokeWidth={1.8} color={color} aria-hidden="true" />
+                    {t(key)}
+                  </button>
+                ))}
+              </div>
             </div>
-            {!isMobile && (
-              <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.8, margin: "0 16px 10px" }}>
-                <span style={{ color: "var(--text-dim)", marginRight: 6 }}>1.</span>{t("workspace.selectProject")}<br />
-                <span style={{ color: "var(--text-dim)", marginRight: 6 }}>2.</span>{t("workspace.addModels")}
+          </div>
+          <div className="relative mx-auto w-full max-w-[960px]">
+            {homeCwdLabel && (
+              <div style={{
+                display: "flex", alignItems: "center", gap: 6,
+                width: "100%", maxWidth: 820, margin: "0 auto -14px", padding: "8px 16px 22px",
+                borderRadius: "16px 16px 0 0", background: "var(--bg-panel)",
+                color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 12,
+              }}>
+                <Folder size={12} strokeWidth={1.8} aria-hidden="true" />
+                {homeCwdLabel}
               </div>
             )}
             <NoticeShelf notices={notices} align="right" />
