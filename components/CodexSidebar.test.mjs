@@ -17,9 +17,10 @@ test("AppShell renders the Codex project sidebar instead of the legacy sidebar",
   assert.doesNotMatch(shell, /<SessionSidebar/);
 });
 
-test("sidebar header aligns refresh, add, and collapse controls", () => {
+test("workspace toolbar groups search, project creation, and collapse controls", () => {
   assert.match(sidebar, /onToggleSidebar\?: \(\) => void/);
-  assert.match(sidebar, /codex-sidebar-header-actions[\s\S]*?sidebar\.refresh[\s\S]*?sidebar\.addProject[\s\S]*?sidebar\.hide/);
+  assert.match(sidebar, /codex-sidebar-workspace-actions[\s\S]*?sidebar\.searchProjects[\s\S]*?sidebar\.addProject[\s\S]*?sidebar\.hide/);
+  assert.doesNotMatch(sidebar, /sidebar\.refresh/);
   assert.match(styles, /\.codex-sidebar-icon-button\s*\{[\s\S]*?width:\s*28px;[\s\S]*?height:\s*28px;/);
   assert.match(shell, /<CodexSidebar[\s\S]*?onToggleSidebar=\{handleSidebarToggle\}/);
 });
@@ -30,9 +31,10 @@ test("new task keeps its shortcut accessible without a visible key hint", () => 
   assert.doesNotMatch(sidebar, /<kbd>⌃⌥N<\/kbd>/);
 });
 
-test("gives the sidebar search field enough breathing room", () => {
-  assert.match(styles, /\.codex-sidebar-search-wrap\s*\{[\s\S]*?height:\s*34px;[\s\S]*?margin:\s*6px 10px 6px;[\s\S]*?flex-shrink:\s*0;/);
-  assert.match(styles, /\.codex-sidebar-new-task\s*\{[\s\S]*?height:\s*34px;[\s\S]*?flex-shrink:\s*0;/);
+test("keeps the search field compact until requested", () => {
+  assert.match(styles, /\.codex-sidebar-search-wrap\s*\{[\s\S]*?height:\s*32px;[\s\S]*?margin:\s*0 10px 5px;[\s\S]*?flex-shrink:\s*0;/);
+  assert.match(styles, /\.codex-sidebar-new-task\s*\{[\s\S]*?height:\s*30px;[\s\S]*?background: var\(--bg-panel\);/);
+  assert.match(sidebar, /projectSearchOpen && \(/);
   assert.doesNotMatch(styles, /\.codex-sidebar-search-shortcut/);
   assert.doesNotMatch(sidebar, /<kbd>⌘K<\/kbd>/);
   assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?\.codex-sidebar-search-wrap\s*\{[\s\S]*?height:\s*40px;/);
@@ -68,6 +70,15 @@ test("settings footer is a gear with a label", () => {
   assert.match(shell, /<Settings size=\{14\}/);
   assert.match(shell, /codex-sidebar-footer-item-label"[^>]*>\{translate\("common\.settings"\)\}<\/span>/);
   assert.match(styles, /\.codex-sidebar-footer-item \{[\s\S]*?padding: 0 10px/);
+});
+
+test("sidebar header is a compact new-session and workspace toolbar", () => {
+  assert.match(sidebar, /className="codex-sidebar-new-task"/);
+  assert.match(sidebar, /className="codex-sidebar-workspace-toolbar"/);
+  assert.match(sidebar, /className="codex-sidebar-search-trigger"/);
+  assert.doesNotMatch(sidebar, /className="codex-sidebar-brand"/);
+  assert.doesNotMatch(sidebar, /<RefreshCw size=\{15\}/);
+  assert.match(styles, /\.codex-sidebar-new-task \{[\s\S]*?background: var\(--bg-panel\)/);
 });
 
 test("running projects expose a Codex-style activity spinner", () => {
