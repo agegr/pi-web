@@ -211,12 +211,6 @@ body {
   display: none;
 }
 
-.extension-status-shelf.has-widgets.has-status .extension-widget-triggers {
-  flex: 0 1 70%;
-  max-width: 70%;
-  border-right: 1px solid var(--border);
-}
-
 .extension-widget-trigger {
   position: relative;
   display: flex;
@@ -335,20 +329,6 @@ button.extension-widget-trigger:focus-visible {
   white-space: pre-wrap;
 }
 
-.extension-status-line {
-  display: flex;
-  flex: 1 1 0;
-  align-items: stretch;
-  min-width: 0;
-  height: 35px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
-}
-.extension-status-line::-webkit-scrollbar {
-  display: none;
-}
 html.keyboard-open .extension-status-shelf {
   display: none;
 }
@@ -497,28 +477,6 @@ html.keyboard-open .goal-panel-actions {
   outline: none;
 }
 
-/* VS Code-style status bar: one padded segment per extension, separated by
-   1px rules; hover highlights the segment and reveals its full text. */
-.extension-status-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex: 0 0 auto;
-  min-width: 0;
-  padding: 0 9px;
-  border-left: 1px solid var(--border);
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  white-space: nowrap;
-}
-.extension-status-item:first-child {
-  border-left: 0;
-}
-.extension-status-item:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-dim);
 }
@@ -987,17 +945,20 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
   border-top: 1px solid var(--border);
 }
 .codex-sidebar-footer-item {
-  width: 28px;
   height: 28px;
-  padding: 0;
+  padding: 0 10px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 5px;
   border: 0;
   border-radius: 999px;
   color: var(--text-muted);
   background: transparent;
   cursor: pointer;
+}
+.codex-sidebar-footer-item-label {
+  font-size: 12px;
+  line-height: 1;
 }
 .codex-sidebar-footer-item:hover:not(:disabled) { color: var(--text); background: var(--bg-hover); }
 .codex-sidebar-footer-item:disabled { opacity: .35; cursor: default; }
@@ -3506,8 +3467,8 @@ span.linenumber {
     height: 44px;
   }
   .codex-sidebar-footer-item {
-    width: 44px;
     height: 44px;
+    padding: 0 14px;
   }
   .codex-worktree-row {
     min-height: 44px;

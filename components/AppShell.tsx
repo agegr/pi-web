@@ -1026,6 +1026,7 @@ export function AppShell() {
       <div className="codex-sidebar-footer">
         <button className="codex-sidebar-footer-item" onClick={() => setSettingsOpen(true)} title={translate("common.settings")} aria-label={translate("common.settings")}>
           <Settings size={14} aria-hidden="true" />
+          <span className="codex-sidebar-footer-item-label">{translate("common.settings")}</span>
         </button>
       </div>
     </>

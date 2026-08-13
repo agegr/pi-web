@@ -49,11 +49,11 @@ test("keeps the file explorer out of the project sidebar", () => {
   assert.doesNotMatch(sidebar, /saveExplorerOpen/);
 });
 
-test("settings footer is an icon-only gear", () => {
+test("settings footer is a gear with a label", () => {
   assert.match(shell, /className="codex-sidebar-footer-item"/);
   assert.match(shell, /<Settings size=\{14\}/);
-  assert.doesNotMatch(shell, /codex-sidebar-footer-item[\s\S]*<span>\{translate\("common\.settings"\)\}<\/span>/);
-  assert.match(styles, /\.codex-sidebar-footer-item \{[\s\S]*?width: 28px/);
+  assert.match(shell, /codex-sidebar-footer-item-label"[^>]*>\{translate\("common\.settings"\)\}<\/span>/);
+  assert.match(styles, /\.codex-sidebar-footer-item \{[\s\S]*?padding: 0 10px/);
 });
 
 test("running projects expose a Codex-style activity spinner", () => {
