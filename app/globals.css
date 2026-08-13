@@ -3807,3 +3807,85 @@ span.linenumber {
   }
   .resource-settings-detail { height: 100%; padding: 16px; }
 }
+
+/* DSCode desktop conversation context card */
+.desktop-conversation-context {
+  width: 268px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  color: var(--text);
+  background: var(--bg);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .06);
+  overflow: hidden;
+}
+.desktop-context-heading {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  background: transparent;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.desktop-context-heading:hover { background: var(--bg-hover); }
+.desktop-context-capacity {
+  padding: 18px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.desktop-context-capacity > div:last-child { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.desktop-context-capacity > div:last-child > span { color: var(--text-dim); font-size: 10px; }
+.desktop-context-capacity > div:last-child strong { font-size: 13px; font-variant-numeric: tabular-nums; }
+.desktop-context-capacity > div:last-child small { color: var(--text-muted); font-size: 10px; }
+.desktop-context-ring {
+  --context-percent: 0%;
+  position: relative;
+  isolation: isolate;
+  width: 64px;
+  aspect-ratio: 1;
+  display: grid;
+  place-content: center;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent) var(--context-percent), var(--border) 0);
+  text-align: center;
+}
+.desktop-context-ring::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 6px;
+  border-radius: 50%;
+  background: var(--bg);
+}
+.desktop-context-ring strong { font-size: 14px; font-variant-numeric: tabular-nums; }
+.desktop-context-ring span { color: var(--text-dim); font-size: 9px; }
+.desktop-context-metrics { padding: 14px; border-bottom: 1px solid var(--border); }
+.desktop-context-metric-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-muted); font-size: 11px; }
+.desktop-context-metric-heading strong { color: var(--text); font-size: 12px; font-variant-numeric: tabular-nums; }
+.desktop-context-metric-grid { margin-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.desktop-context-metric { min-height: 46px; padding: 8px; border-radius: 8px; background: var(--bg-panel); display: flex; flex-direction: column; gap: 4px; }
+.desktop-context-metric span { color: var(--text-dim); font-size: 9px; }
+.desktop-context-metric strong { font-size: 12px; font-variant-numeric: tabular-nums; }
+.desktop-context-footer {
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+}
+.desktop-context-footer div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.desktop-context-footer span { color: var(--text-dim); font-size: 9px; }
+.desktop-context-footer strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 11px var(--font-mono);
+}
