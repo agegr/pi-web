@@ -54,6 +54,15 @@ test("gives the desktop composer more padding than the mobile row", () => {
   assert.match(chatInputSource, /className="composer-shell"/);
 });
 
+test("keeps the streaming composer in the idle capsule", () => {
+  assert.doesNotMatch(chatInputSource, /isStreaming && \(onSteer \|\| onFollowUp\)\s*\n?\s*\? "rgba\(234,179,8,0\.4\)"/);
+  assert.match(chatInputSource, /const \[queueMode, setQueueMode\] = useState<"steer" \| "followup">\("followup"\)/);
+  assert.match(chatInputSource, /className="composer-queue-toggle"/);
+  assert.match(chatInputSource, /isStreaming \?[\s\S]*onAbort[\s\S]*<Square/);
+  assert.doesNotMatch(chatInputSource, /background: "rgba\(239,68,68,0\.08\)"/);
+  assert.match(chatInputSource, /sendQueued\(activeQueueMode\)/);
+});
+
 test("keeps composer send/attach at 28px with a mobile hit slop", () => {
   assert.match(chatInputSource, /className="composer-icon-hit"/);
   assert.match(chatInputSource, /width: 28, height: 28/);

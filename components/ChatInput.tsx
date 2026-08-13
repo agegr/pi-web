@@ -10,7 +10,6 @@ import {
   Cpu,
   History,
   Lightbulb,
-  ListEnd,
   LoaderCircle,
   Minimize2,
   Play,
@@ -404,6 +403,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
+  const [queueMode, setQueueMode] = useState<"steer" | "followup">("followup");
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
   ));
@@ -796,8 +796,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const slashCommandCountLabel = filteredSlashCommands.length === 1
     ? t(slashQuery ? "chat.match" : "chat.command")
     : t(slashQuery ? "chat.matches" : "chat.commands", { count: filteredSlashCommands.length });
-  const hasInputText = Boolean(value.trim());
-  const canQueueStreamingMessage = hasInputText || attachedImages.length > 0;
 
   // ── @ file autocomplete ──────────────────────────────────────────────────
   // Recomputed from the text before the caret on every change/caret move.
@@ -999,6 +997,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
   }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock]);
 
+  const activeQueueMode = onSteer && onFollowUp
+    ? queueMode
+    : onSteer ? "steer"
+    : "followup";
+
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = displayedSlashCommands.length - 1;
     if (lastIndex < 0) return 0;
@@ -1157,14 +1160,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (sendShortcut) {
         e.preventDefault();
         if (isStreaming && (onSteer || onFollowUp)) {
-          // Default Enter sends as steer if available, else followup
-          sendQueued(onSteer ? "steer" : "followup");
+          sendQueued(activeQueueMode);
         } else {
           handleSend();
         }
       }
     },
-    [isMobile, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
+    [isMobile, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, activeQueueMode]
   );
 
   const handleInput = useCallback(() => {
@@ -1850,9 +1852,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               flexDirection: "column",
               gap: isMobile ? 8 : 10,
               background: "var(--bg)",
-              border: `1px solid ${bashMode ? "var(--tool-bg)" : isStreaming && (onSteer || onFollowUp)
-                ? "rgba(234,179,8,0.4)"
-                : "color-mix(in srgb, var(--border) 80%, transparent)"}`,
+              border: `1px solid ${bashMode ? "var(--tool-bg)" : "color-mix(in srgb, var(--border) 80%, transparent)"}`,
               borderRadius: 20,
               padding: isMobile ? "10px 12px 8px" : "14px 16px 10px",
               boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
@@ -1886,7 +1886,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             onPaste={handlePaste}
             placeholder={
               isStreaming && (onSteer || onFollowUp)
-                ? t("chat.steerPlaceholder")
+                ? t(activeQueueMode === "steer" ? "chat.steerNowPlaceholder" : "chat.followUpPlaceholder")
                 : isStreaming ? t("chat.agentPlaceholder")
                 : t("chat.messagePlaceholder")
             }
@@ -1909,54 +1909,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             }}
           />
 
-          {isStreaming && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
-              {onSteer && (
-                <button
-                  onClick={() => sendQueued("steer")}
-                  disabled={!canQueueStreamingMessage}
-                  title="Interrupt the current run and inject this message now"
-                  style={{
-                    display: "flex", alignItems: "center", gap: 5,
-                    padding: "7px 12px",
-                    minHeight: isMobile ? 44 : undefined,
-                    background: canQueueStreamingMessage ? "rgba(234,179,8,0.12)" : "none",
-                    border: "1px solid rgba(234,179,8,0.35)",
-                    borderRadius: 8,
-                    color: canQueueStreamingMessage ? "rgba(180,130,0,1)" : "var(--text-dim)",
-                    cursor: canQueueStreamingMessage ? "pointer" : "not-allowed",
-                    fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
-                    transition: "background 0.12s",
-                  }}
-                >
-                  <ArrowRight size={12} strokeWidth={1.8} aria-hidden="true" />
-                  {t("chat.steer")}
-                </button>
-              )}
-              {onFollowUp && (
-                <button
-                  onClick={() => sendQueued("followup")}
-                  disabled={!canQueueStreamingMessage}
-                  title="Queue this message after the agent finishes"
-                  style={{
-                    display: "flex", alignItems: "center", gap: 5,
-                    padding: "7px 12px",
-                    minHeight: isMobile ? 44 : undefined,
-                    background: canQueueStreamingMessage ? "rgba(129,140,248,0.12)" : "none",
-                    border: "1px solid rgba(129,140,248,0.35)",
-                    borderRadius: 8,
-                    color: canQueueStreamingMessage ? "rgba(99,102,241,1)" : "var(--text-dim)",
-                    cursor: canQueueStreamingMessage ? "pointer" : "not-allowed",
-                    fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
-                    transition: "background 0.12s",
-                  }}
-                >
-                  <ListEnd size={12} strokeWidth={1.8} aria-hidden="true" />
-                  {t("chat.followUp")}
-                </button>
-              )}
-            </div>
-          )}
 
         {/* Bash mode status label */}
         {bashMode && (
@@ -2171,7 +2123,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             position: "relative",
             marginLeft: isMobile ? 0 : "auto",
           }}>
-            {isMobile && (
+            {isMobile && !isStreaming && (
               <button
                 type="button"
                  title={controlsMenuOpen ? undefined : t("chat.moreControls")}
@@ -2442,30 +2394,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </div>
             )}
 
-            {isStreaming && (
-              <button
-                onClick={onAbort}
-                 title={t("chat.stopAgent")}
-                style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  padding: "8px 14px",
-                  height: isMobile ? 44 : 32,
-                  background: "rgba(239,68,68,0.08)",
-                  border: "1px solid rgba(239,68,68,0.3)",
-                  borderRadius: 8,
-                  color: "#ef4444",
-                  cursor: "pointer",
-                  fontSize: 12, fontWeight: 600,
-                  whiteSpace: "nowrap", letterSpacing: "-0.01em",
-                  transition: "background 0.12s",
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.16)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.08)"; }}
-              >
-                <Square size={10} fill="currentColor" aria-hidden="true" />
-                 {t("chat.stop")}
-              </button>
-            )}
 
             {isMobile && controlsMenuOpen && (
               <button
@@ -2505,8 +2433,77 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </button>
             )}
             </div>
-          </div>
-          {!isStreaming && (
+          {isStreaming && (onSteer || onFollowUp) && (
+            <div className="composer-queue-toggle" style={{ display: "flex", alignItems: "center", gap: 2, marginRight: 6 }}>
+              {onSteer && (
+                <button
+                  type="button"
+                  onClick={() => setQueueMode("steer")}
+                  aria-pressed={activeQueueMode === "steer"}
+                  title="Interrupt the current run and inject this message now"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    borderRadius: 999,
+                    padding: isMobile ? "8px 8px" : "6px 8px",
+                    color: activeQueueMode === "steer" ? "var(--text)" : "var(--text-dim)",
+                    cursor: "pointer",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                    fontWeight: activeQueueMode === "steer" ? 600 : 500,
+                  }}
+                >
+                  {t("chat.steer")}
+                </button>
+              )}
+              {onSteer && onFollowUp && (
+                <span style={{ color: "var(--text-dim)", fontSize: 12 }} aria-hidden="true">·</span>
+              )}
+              {onFollowUp && (
+                <button
+                  type="button"
+                  onClick={() => setQueueMode("followup")}
+                  aria-pressed={activeQueueMode === "followup"}
+                  title="Queue this message after the agent finishes"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    borderRadius: 999,
+                    padding: isMobile ? "8px 8px" : "6px 8px",
+                    color: activeQueueMode === "followup" ? "var(--text)" : "var(--text-dim)",
+                    cursor: "pointer",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                    fontWeight: activeQueueMode === "followup" ? 600 : 500,
+                  }}
+                >
+                  {t("chat.followUp")}
+                </button>
+              )}
+            </div>
+          )}
+          {isStreaming ? (
+            <button
+              className="composer-icon-hit"
+              onClick={onAbort}
+              title={t("chat.stopAgent")}
+              aria-label={t("chat.stop")}
+              style={{
+                flexShrink: 0,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: 28, height: 28,
+                padding: 0,
+                background: "var(--text)",
+                border: "none",
+                borderRadius: 999,
+                color: "var(--bg)",
+                cursor: "pointer",
+                transition: "background 0.15s, color 0.15s",
+              }}
+            >
+              <Square size={10} fill="currentColor" aria-hidden="true" />
+            </button>
+          ) : (
             <button
               className="composer-icon-hit"
               onClick={handleSend}
@@ -2529,6 +2526,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               <Play size={12} strokeWidth={2.2} fill="currentColor" aria-hidden="true" />
             </button>
           )}
+          </div>
         </div>
         </div>
         </div>

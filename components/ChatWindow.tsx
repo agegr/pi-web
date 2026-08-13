@@ -1,6 +1,6 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
-import { ChevronRight, ExternalLink } from "lucide-react";
+import { ArrowDown, ChevronRight, ExternalLink } from "lucide-react";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
@@ -265,13 +265,14 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     isAutoModelSelection,
     agentPhase,
     isNew,
+    isNearBottom,
     sessionIdRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, promptAnchorActive,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, scrollUserMsgToTop,
+    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, scrollToBottom, scrollUserMsgToTop,
   } = useAgentSession({
     session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
@@ -931,7 +932,26 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
             void runExtensionCommand("goal", editMode === "edit" ? `edit ${objective}` : objective);
           }}
         />
-        {chatInputElement}
+        <div className="relative">
+          {!isNearBottom && messages.length > 0 && (
+            <button
+              type="button"
+              className="jump-to-bottom"
+              onClick={() => scrollToBottom("smooth")}
+              title={t("chat.jumpToBottom")}
+              aria-label={t("chat.jumpToBottom")}
+            >
+              {sessionBusy ? (
+                <span className="jump-to-bottom-dots" aria-hidden="true">
+                  <i /><i /><i />
+                </span>
+              ) : (
+                <ArrowDown size={16} strokeWidth={2} aria-hidden="true" />
+              )}
+            </button>
+          )}
+          {chatInputElement}
+        </div>
         <ExtensionStatusBar statuses={visibleStatuses} widgets={visibleWidgets} onRunCommand={runExtensionCommand} />
       </div>
       </>

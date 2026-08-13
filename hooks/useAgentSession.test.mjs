@@ -342,7 +342,8 @@ test("keeps a newly sent user message at the top while its response starts", () 
 
   assert.match(streamUpdateSource, /!pendingScrollToUserRef\.current && isNearBottomRef\.current/);
   assert.match(source, /const \[promptAnchorActive, setPromptAnchorActive\] = useState\(false\)/);
-  assert.match(source, /pendingScrollToUserRef\.current = true;\s*setPromptAnchorActive\(true\)/);
+  assert.match(source, /pendingScrollToUserRef\.current = true/);
+  assert.doesNotMatch(source, /pendingScrollToUserRef\.current = true;\s*setPromptAnchorActive\(true\)/);
   assert.match(userScrollSource, /const targetTop = Math\.min\(Math\.max\(0, elAbsTop - 16\), maxScrollTop\)/);
   assert.match(userScrollSource, /cancelAnimationFrame\(liveFollowFrameRef\.current\)/);
   assert.match(userScrollSource, /isNearBottomRef\.current = true/);
@@ -394,6 +395,16 @@ test("uses the prompt anchor as the only trailing message spacer", () => {
   assert.match(chatWindowSource, /<div ref=\{promptAnchorSpacerRef\} aria-hidden="true" \/>[\s\S]*?<div ref=\{messagesEndRef\} \/>/);
   assert.doesNotMatch(chatWindowSource, /bottomComposer(?:Ref|Height|ScrollFrameRef)/);
   assert.doesNotMatch(chatWindowSource, /new ResizeObserver\(updateBottomComposerHeight\)/);
+});
+
+test("shows a jump-to-bottom control when the viewport is detached", () => {
+  assert.match(source, /const \[isNearBottom, setIsNearBottom\] = useState\(true\)/);
+  assert.match(source, /isNearBottomRef\.current = isAttached;\s*setIsNearBottom\(isAttached\)/);
+  assert.match(source, /isNearBottomRef\.current = true;\s*setIsNearBottom\(true\)/);
+  assert.match(source, /isNearBottom,/);
+  assert.match(chatWindowSource, /className="jump-to-bottom"/);
+  assert.match(chatWindowSource, /sessionBusy \?[\s\S]*jump-to-bottom-dots[\s\S]*<ArrowDown/);
+  assert.match(chatWindowSource, /onClick=\{\(\) => scrollToBottom\("smooth"\)\}/);
 });
 
 test("keeps a detached viewport in place when streaming completes", () => {

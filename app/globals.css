@@ -364,6 +364,45 @@ html.keyboard-open .extension-status-shelf {
     content: "";
   }
 }
+
+.jump-to-bottom {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  margin-bottom: 16px;
+  transform: translateX(-50%);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-muted);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+}
+.jump-to-bottom-dots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.jump-to-bottom-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: jump-dot 1s ease-in-out infinite;
+}
+.jump-to-bottom-dots i:nth-child(2) { animation-delay: 0.15s; }
+.jump-to-bottom-dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes jump-dot {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-2px); }
+}
 html.keyboard-open .goal-panel-body,
 html.keyboard-open .goal-panel-actions {
   display: none;

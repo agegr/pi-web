@@ -327,6 +327,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const lastUserMsgRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollToUserRef = useRef(false);
   const isNearBottomRef = useRef(true);
+  const [isNearBottom, setIsNearBottom] = useState(true);
   const previousScrollTopRef = useRef(0);
   const liveFollowFrameRef = useRef<number | null>(null);
   const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
@@ -377,6 +378,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const container = scrollContainerRef.current;
     messagesEndRef.current?.scrollIntoView({ behavior });
     if (container) previousScrollTopRef.current = container.scrollTop;
+    isNearBottomRef.current = true;
+    setIsNearBottom(true);
   }, []);
 
   const currentModel = currentModelOverride ?? data?.context.model ?? pendingModel ?? null;
@@ -1278,7 +1281,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setAgentPhase(isSlashCommandPrompt ? { kind: "running_command" } : { kind: "waiting_model" });
     dispatch({ type: "start" });
     pendingScrollToUserRef.current = true;
-    setPromptAnchorActive(true);
 
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
     let sentSessionId: string | null = null;
@@ -1738,6 +1740,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       liveFollowFrameRef.current = null;
     }
     isNearBottomRef.current = true;
+    setIsNearBottom(true);
     previousScrollTopRef.current = targetTop;
     container.scrollTo({ top: targetTop, behavior: "auto" });
   }, []);
@@ -1759,6 +1762,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           : CHAT_SCROLL_TAIL_TOLERANCE,
       );
       isNearBottomRef.current = isAttached;
+      setIsNearBottom(isAttached);
       previousScrollTopRef.current = scrollTop;
       if (!wasAttached && isAttached && isAgentRunning) {
         scrollToBottom("auto");
@@ -1913,6 +1917,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentPhase,
     isNew,
     promptAnchorActive,
+    isNearBottom,
     // Refs
     sessionIdRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
