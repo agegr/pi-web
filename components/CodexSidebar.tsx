@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { Archive, ChevronRight, Ellipsis, Folder, FolderPlus, LoaderCircle, MessageSquare, Pin, Plus, RefreshCw, Search, X } from "lucide-react";
+import { Archive, ArrowDown, ArrowUp, ChevronRight, Ellipsis, Folder, FolderPlus, LoaderCircle, MessageSquare, Pencil, Pin, PinOff, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import { readArchivedSessionIds, writeArchivedSessionIds } from "@/lib/archived-sessions";
@@ -770,12 +770,12 @@ export function CodexSidebar({
             role="menu"
             style={{ left: menuProject.left, top: menuProject.top }}
           >
-            <button type="button" role="menuitem" onClick={() => { updateProject(project.path, { pinned: !project.pinned }); setMenuProject(null); }}>{project.pinned ? t("sidebar.unpin") : t("sidebar.pin")}</button>
-            <button type="button" role="menuitem" onClick={() => { moveProject(project.path, -1); setMenuProject(null); }}>{t("sidebar.moveUp")}</button>
-            <button type="button" role="menuitem" onClick={() => { moveProject(project.path, 1); setMenuProject(null); }}>{t("sidebar.moveDown")}</button>
-            <button type="button" role="menuitem" onClick={() => { setRenameValue(project.name ?? projectName(project.path)); setRenamingProject(project.path); setMenuProject(null); }}>{t("sidebar.renameProject")}</button>
+            <button type="button" role="menuitem" onClick={() => { updateProject(project.path, { pinned: !project.pinned }); setMenuProject(null); }}>{project.pinned ? <PinOff size={14} aria-hidden="true" /> : <Pin size={14} aria-hidden="true" />}{project.pinned ? t("sidebar.unpin") : t("sidebar.pin")}</button>
+            <button type="button" role="menuitem" onClick={() => { moveProject(project.path, -1); setMenuProject(null); }}><ArrowUp size={14} aria-hidden="true" />{t("sidebar.moveUp")}</button>
+            <button type="button" role="menuitem" onClick={() => { moveProject(project.path, 1); setMenuProject(null); }}><ArrowDown size={14} aria-hidden="true" />{t("sidebar.moveDown")}</button>
+            <button type="button" role="menuitem" onClick={() => { setRenameValue(project.name ?? projectName(project.path)); setRenamingProject(project.path); setMenuProject(null); }}><Pencil size={14} aria-hidden="true" />{t("sidebar.renameProject")}</button>
             <button type="button" role="menuitem" onClick={() => { updateProject(project.path, { archived: true }); setMenuProject(null); }}><Archive size={14} aria-hidden="true" />{t("sidebar.archiveProject")}</button>
-            <button type="button" role="menuitem" className="danger" onClick={() => { updateProject(project.path, { removed: true }); setMenuProject(null); }}>{t("sidebar.removeProject")}</button>
+            <button type="button" role="menuitem" className="danger" onClick={() => { updateProject(project.path, { removed: true }); setMenuProject(null); }}><Trash2 size={14} aria-hidden="true" />{t("sidebar.removeProject")}</button>
           </div>
         );
       })(), document.body)}
@@ -981,9 +981,9 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
           </IconButton>
           {menuPos && createPortal(
             <div ref={menuRef} className="codex-project-menu codex-project-menu-portal" role="menu" style={{ left: menuPos.left, top: menuPos.top }}>
-              <button type="button" role="menuitem" onClick={() => { setValue(title); setRenaming(true); setMenuPos(null); }}>{t("sidebar.rename")}</button>
+              <button type="button" role="menuitem" onClick={() => { setValue(title); setRenaming(true); setMenuPos(null); }}><Pencil size={14} aria-hidden="true" />{t("sidebar.rename")}</button>
               <button type="button" role="menuitem" onClick={() => { setMenuPos(null); onArchive(); }}><Archive size={14} aria-hidden="true" />{t("sidebar.archiveSession")}</button>
-              <button type="button" role="menuitem" className="danger" onClick={() => void remove()}>{t("sidebar.delete")}</button>
+              <button type="button" role="menuitem" className="danger" onClick={() => void remove()}><Trash2 size={14} aria-hidden="true" />{t("sidebar.delete")}</button>
             </div>,
             document.body,
           )}
