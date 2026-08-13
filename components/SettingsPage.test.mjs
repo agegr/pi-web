@@ -14,8 +14,8 @@ test("AppShell exposes one unified settings entry", () => {
 
 test("settings embeds the model, skill, and plugin modules", () => {
   assert.match(settings, /<ModelsConfig onControllerChange=\{setModelsController\} \/>/);
-  assert.match(settings, /<SkillsConfig embedded/);
-  assert.match(settings, /<PluginsConfig\s+embedded/);
+  assert.match(settings, /<SkillsConfig cwd=\{cwd\} onControllerChange=\{setSkillsController\} \/>/);
+  assert.match(settings, /onControllerChange=\{setPluginsController\}/);
   assert.match(settings, /type SettingsSection = "general" \| "project" \| "archived" \| "models" \| "skills" \| "plugins"/);
 });
 
@@ -33,7 +33,7 @@ test("settings guards every exit path behind one discard confirmation", () => {
 });
 
 test("Escape consumes Models layers before closing Settings", () => {
-  assert.match(settings, /if \(modelsController\?\.handleBack\(\)\) return;/);
+  assert.match(settings, /if \(activeController\?\.handleBack\(\)\) return;/);
   assert.match(settings, /if \(discardDialogOpen\) return;/);
 });
 
@@ -44,7 +44,7 @@ test("Settings focuses the close button only on mount, not when the models draft
 
 test("settings registers one combined back handler with AppShell", () => {
   assert.match(settings, /onRegisterSettingsBack\(handleSettingsBack\)/);
-  assert.match(settings, /if \(modelsController\?\.handleBack\(\)\) return true;/);
+  assert.match(settings, /if \(activeController\?\.handleBack\(\)\) return true;/);
   assert.match(settings, /setPendingExit\(\(\) => close\)/);
 });
 
@@ -54,8 +54,15 @@ test("discard restores the baseline before completing the pending navigation", (
   assert.match(settings, /action\?\.\(\);/);
 });
 
-test("Settings category strip hides while mobile Models detail is open", () => {
-  assert.match(settings, /data-hidden-mobile=\{modelsController\?\.mobileDetailOpen \? "true" : undefined\}/);
+test("Settings category strip hides while a nested mobile detail is open", () => {
+  assert.match(settings, /data-hidden-mobile=\{activeController\?\.mobileDetailOpen \? "true" : undefined\}/);
+});
+
+test("active Skills or Plugins controller consumes back before Settings closes", () => {
+  assert.match(settings, /if \(activeController\?\.handleBack\(\)\) return/);
+  assert.match(settings, /section === "skills"/);
+  assert.match(settings, /setSkillsController/);
+  assert.match(settings, /setPluginsController/);
 });
 
 test("settings lists archived projects and restores them through the project registry", () => {

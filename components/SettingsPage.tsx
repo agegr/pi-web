@@ -29,6 +29,7 @@ import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ProjectPreference } from "@/lib/project-registry";
 import { ModelsConfig } from "./ModelsConfig";
 import type { ModelsDraftController } from "./models-config/models-config-types";
+import type { SettingsSectionController } from "./resource-settings/resource-settings-types";
 import { PluginsConfig } from "./PluginsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 
@@ -96,6 +97,8 @@ export function SettingsPage({
   const [restoringProjects, setRestoringProjects] = useState<Set<string>>(new Set());
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const [modelsController, setModelsController] = useState<ModelsDraftController | null>(null);
+  const [skillsController, setSkillsController] = useState<SettingsSectionController | null>(null);
+  const [pluginsController, setPluginsController] = useState<SettingsSectionController | null>(null);
   const [discardDialogOpen, setDiscardDialogOpen] = useState(false);
   const [pendingExit, setPendingExit] = useState<(() => void) | null>(null);
   const discardDialogRef = useRef<HTMLDialogElement>(null);
@@ -132,6 +135,14 @@ export function SettingsPage({
     action?.();
   }, [modelsController, pendingExit]);
 
+  const activeController = section === "models"
+    ? modelsController
+    : section === "skills"
+      ? skillsController
+      : section === "plugins"
+        ? pluginsController
+        : null;
+
   useEffect(() => {
     closeButtonRef.current?.focus();
   }, []);
@@ -140,24 +151,22 @@ export function SettingsPage({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (discardDialogOpen) return; // native <dialog> handles its own Escape
-      if (modelsController?.handleBack()) return; // Models consumed the key
+      if (activeController?.handleBack()) return;
       requestCloseOrNavigate(close);
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [close, discardDialogOpen, modelsController, requestCloseOrNavigate]);
+  }, [activeController, close, discardDialogOpen, requestCloseOrNavigate]);
 
-  // Android/browser back: Models layers first (picker, confirmation, detail),
-  // then the dirty-exit confirmation, and only then closing Settings.
   const handleSettingsBack = useCallback((): boolean => {
-    if (modelsController?.handleBack()) return true;
+    if (activeController?.handleBack()) return true;
     if (modelsController?.dirty) {
       setPendingExit(() => close);
       setDiscardDialogOpen(true);
       return true;
     }
     return false;
-  }, [close, modelsController]);
+  }, [activeController, close, modelsController]);
 
   useEffect(() => {
     onRegisterSettingsBack(handleSettingsBack);
@@ -308,15 +317,14 @@ export function SettingsPage({
       </div>
     );
   } else if (section === "skills") {
-    content = <SkillsConfig embedded cwd={cwd} onClose={close} />;
+    content = <SkillsConfig cwd={cwd} onControllerChange={setSkillsController} />;
   } else {
     content = (
       <PluginsConfig
-        embedded
         cwd={cwd}
         sessionId={sessionId}
-        onClose={close}
         onReloaded={onSessionReloaded}
+        onControllerChange={setPluginsController}
       />
     );
   }
@@ -338,7 +346,7 @@ export function SettingsPage({
           <nav
             className="settings-page-nav"
             aria-label={t("settings.categories")}
-            data-hidden-mobile={modelsController?.mobileDetailOpen ? "true" : undefined}
+            data-hidden-mobile={activeController?.mobileDetailOpen ? "true" : undefined}
           >
             {sections.map((item) => (
               <button
