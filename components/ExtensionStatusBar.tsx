@@ -29,8 +29,8 @@ export function ExtensionStatusBar({
 }) {
   if (statuses.length === 0 && widgets.length === 0) return null;
 
-  const statusLine = formatExtensionStatusLine(statuses);
-  const plainStatusLine = stripAnsi(statusLine);
+  const sortedStatuses = [...statuses].sort((a, b) => a.key.localeCompare(b.key));
+  const plainStatusLine = stripAnsi(formatExtensionStatusLine(statuses));
 
   return (
     <div
@@ -42,13 +42,17 @@ export function ExtensionStatusBar({
           role="status"
           className="extension-status-line"
           aria-label={plainStatusLine}
-          title={plainStatusLine}
         >
-          <span className="extension-status-text">
-            {parseAnsiLine(statusLine).map((segment, index) => (
-              <span key={index} style={segment.style}>{segment.text}</span>
-            ))}
-          </span>
+          {sortedStatuses.map(({ key, text }) => {
+            const itemText = sanitizeExtensionStatusText(text);
+            return (
+              <span key={key} className="extension-status-item" title={stripAnsi(itemText)}>
+                {parseAnsiLine(itemText).map((segment, index) => (
+                  <span key={index} style={segment.style}>{segment.text}</span>
+                ))}
+              </span>
+            );
+          })}
         </div>
       )}
     </div>

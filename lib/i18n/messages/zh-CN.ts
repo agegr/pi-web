@@ -24,6 +24,8 @@ export const zhCNLocale: LocalePlugin = {
     "settings.languageDescription": "选择界面使用的语言。",
     "settings.completionSound": "完成提示音",
     "settings.completionSoundDescription": "代理完成工作时播放提示音。",
+    "settings.about": "关于",
+    "settings.aboutVersion": "web v{web} · pi v{pi}",
     "settings.projectSettingsDescription": "选择项目后可查看其设置与安全状态。",
     "settings.activeProject": "当前项目",
     "settings.activeProjectDescription": "新任务与项目资源当前使用的项目。",

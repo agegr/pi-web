@@ -57,8 +57,8 @@ test("renders a single status line without identifier keys", () => {
   assert.match(html, /aria-label="ponytail memory"/);
   assert.match(html, /extension-status-shelf/);
   assert.match(html, /extension-status-line/);
-  assert.match(html, /extension-status-text/);
-  assert.match(html, />ponytail <\/span>/);
+  assert.match(html, /extension-status-item/);
+  assert.match(html, /title="ponytail"><span>ponytail<\/span>/);
   assert.match(html, />memory</);
   assert.doesNotMatch(html, /05-ponytail|20-memory/);
 });

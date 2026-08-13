@@ -26,7 +26,7 @@
   --border: #e0e0e0;
   --text: #1a1a1a;
   --text-muted: #6b7280;
-  --text-dim: #9ca3af;
+  --text-dim: #6b7280;
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
   --user-bg: #eff6ff;
@@ -43,7 +43,7 @@ html.dark {
   --border: #3a3a3a;
   --text: #e8e8e8;
   --text-muted: #9ca3af;
-  --text-dim: #6b7280;
+  --text-dim: #8f98a6;
   --accent: #60a5fa;
   --accent-hover: #93c5fd;
   --user-bg: #1e293b;
@@ -338,20 +338,34 @@ button.extension-widget-trigger:focus-visible {
 .extension-status-line {
   display: flex;
   flex: 1 1 0;
-  align-items: center;
+  align-items: stretch;
   min-width: 0;
   height: 35px;
-  padding: 0 12px;
+  overflow: hidden;
 }
 
-.extension-status-text {
+/* VS Code-style status bar: one padded segment per extension, separated by
+   1px rules; hover highlights the segment and reveals its full text. */
+.extension-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   min-width: 0;
-  overflow: hidden;
+  padding: 0 9px;
+  border-left: 1px solid var(--border);
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: 11px;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.extension-status-item:first-child {
+  border-left: 0;
+}
+.extension-status-item:hover {
+  background: var(--bg-hover);
+  color: var(--text);
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-dim);
@@ -1876,6 +1890,9 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
     overflow-y: hidden;
     border-right: 0;
     border-bottom: 1px solid var(--border);
+    /* "more tabs" hint: fade the right edge instead of clipping the last tab */
+    mask-image: linear-gradient(to right, black calc(100% - 28px), transparent);
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 28px), transparent);
   }
 
   .settings-page-nav button {
@@ -2372,5 +2389,39 @@ span.linenumber {
   input,
   select {
     font-size: 16px !important;
+  }
+  /* Primary touch targets: project/session rows in the drawer */
+  .codex-session-row,
+  .codex-session-main {
+    height: 40px;
+  }
+  .codex-project-row {
+    min-height: 44px;
+  }
+  /* Drag-to-close: vertical list scrolling stays native, horizontal gestures
+     go to the pointer handlers in AppShell. */
+  .sidebar-container {
+    touch-action: pan-y;
+  }
+  /* Dropdown menus anchor below the now-taller rows */
+  .codex-project-menu {
+    top: 44px;
+  }
+  /* Secondary touch targets: icon buttons, search, tool heading, footer */
+  .codex-sidebar-icon-button {
+    width: 40px;
+    height: 40px;
+  }
+  .codex-sidebar-search-wrap {
+    height: 40px;
+  }
+  .codex-sidebar-tool-heading {
+    height: 44px;
+  }
+  .codex-sidebar-footer-item {
+    height: 44px;
+  }
+  .codex-worktree-row {
+    min-height: 44px;
   }
 }

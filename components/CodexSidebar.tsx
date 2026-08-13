@@ -155,7 +155,7 @@ export function CodexSidebar({
   const [renamingProject, setRenamingProject] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [draggedProject, setDraggedProject] = useState<string | null>(null);
-  const [explorerOpen, setExplorerOpen] = useState(true);
+  const [explorerOpen, setExplorerOpen] = useState(false);
   const [explorerKey, setExplorerKey] = useState(0);
   const [worktrees, setWorktrees] = useState<WorktreeEntry[]>([]);
   const [worktreeProjectRoot, setWorktreeProjectRoot] = useState<string | null>(null);
@@ -535,6 +535,18 @@ export function CodexSidebar({
               onDragOver={(event: DragEvent) => event.preventDefault()}
               onDrop={() => reorderProject(project.path)}
               data-dragging={draggedProject === project.path}
+              onContextMenu={(event) => {
+                if (renamingProject === project.path) return;
+                event.preventDefault();
+                event.stopPropagation();
+                setMenuProject((current) => current?.path === project.path
+                  ? null
+                  : {
+                      path: project.path,
+                      left: Math.max(8, Math.min(window.innerWidth - 180, event.clientX)),
+                      top: Math.max(8, Math.min(window.innerHeight - 202, event.clientY)),
+                    });
+              }}
             >
               <div className="codex-project-row" data-selected={selected}>
                 <div
@@ -743,9 +755,11 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
       clientY: event.clientY,
       refresh: onChanged,
     });
-    if (!handled) return;
     event.preventDefault();
     event.stopPropagation();
+    // Long-press (mobile) / right-click (desktop): when no extension claims the
+    // context menu, fall back to the built-in row menu.
+    if (!handled) setMenuOpen(true);
   };
 
   return (

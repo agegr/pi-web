@@ -46,11 +46,13 @@ test("keeps the mobile action layer open after using an expanded action", () => 
   assert.match(source, /onClick=\{\(\) => toggleTopPanel\("session"\)\}/);
 });
 
-test("prioritizes context and cost when the mobile statistics area narrows", () => {
-  assert.match(source, /\.mobile-session-stats \{[\s\S]*?container-type: inline-size/);
-  assert.match(source, /@container \(max-width: 158px\)[\s\S]*?\.mobile-session-stat-io/);
-  assert.match(source, /@container \(max-width: 88px\)[\s\S]*?\.mobile-session-stat-cost/);
-  assert.match(source, /mobileContextText = percent !== null \? `\$\{percent\.toFixed\(0\)\}%` : null/);
+test("shows an icon-only session stats button on mobile so numbers don't crowd the top bar", () => {
+  assert.match(source, /\{mobile \? \(\n\s*<Info size=\{15\} strokeWidth=\{2\} aria-hidden="true" \/>/);
+  assert.match(source, /width: mobile \? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : undefined/);
+  assert.match(source, /flex: mobile \? "0 0 auto" : undefined/);
+  assert.doesNotMatch(source, /\.mobile-session-stats/);
+  assert.doesNotMatch(source, /@container \(max-width: 158px\)/);
+  assert.doesNotMatch(source, /mobileContextText/);
 });
 
 test("places trust warnings below the mobile toolbar and the file toggle in toolbar flow", () => {

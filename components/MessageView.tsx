@@ -367,7 +367,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
 
   return (
     <div
-      style={{ marginBottom: 16, display: "flex", flexDirection: "column", alignItems: "flex-end" }}
+      style={{ marginBottom: 10, display: "flex", flexDirection: "column", alignItems: "flex-end" }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -697,7 +697,7 @@ function AssistantMessageView({
 
   return (
     <div
-      style={{ marginBottom: 16 }}
+      style={{ marginBottom: 12 }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >

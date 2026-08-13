@@ -15,11 +15,11 @@ function getBrowserStorage(): StorageLike | null {
 }
 
 export function loadExplorerOpen(storage: StorageLike | null = getBrowserStorage()): boolean {
-  if (!storage) return true;
+  if (!storage) return false;
   try {
-    return storage.getItem(EXPLORER_OPEN_STORAGE_KEY) !== "false";
+    return storage.getItem(EXPLORER_OPEN_STORAGE_KEY) === "true";
   } catch {
-    return true;
+    return false;
   }
 }
 

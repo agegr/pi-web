@@ -13,6 +13,7 @@ import {
   Gauge,
   GitBranch,
   History,
+  Info,
   LoaderCircle,
   Menu,
   PanelLeft,
@@ -73,6 +74,8 @@ type AutoNameStatus =
   | { kind: "error"; message: string };
 
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
+// 44px touch target for mobile top-bar buttons (Android/iOS tap-target standard).
+const TOP_BAR_ICON_BUTTON_SIZE_MOBILE = 44;
 export function AppShell() {
   const navigate = useNavigate({ from: "/" });
   const search = useSearch({ from: "/" });
@@ -248,6 +251,38 @@ export function AppShell() {
 
   // Single active panel — only one dropdown open at a time
   const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | null>(null);
+  // Android back button/gesture: while a mobile overlay (drawer, file panel,
+  // settings, top panel, toolbar menu) is open, trap the history so back closes
+  // the topmost overlay instead of leaving the app. Each popstate closes one
+  // layer and re-arms the trap while any other layer stays open.
+  const mobileOverlaysRef = useRef({ sidebarOpen, mobileToolbarMoreOpen, rightPanelOpen, settingsOpen, activeTopPanel });
+  mobileOverlaysRef.current = { sidebarOpen, mobileToolbarMoreOpen, rightPanelOpen, settingsOpen, activeTopPanel };
+  useEffect(() => {
+    if (!isMobile) return;
+    const overlays = mobileOverlaysRef.current;
+    const anyOpen = () => overlays.settingsOpen || overlays.rightPanelOpen || overlays.activeTopPanel !== null
+      || overlays.mobileToolbarMoreOpen || overlays.sidebarOpen;
+    if (!anyOpen()) return;
+    if (!window.history.state?.piWebOverlay) window.history.pushState({ piWebOverlay: true }, "");
+    const onPop = () => {
+      // Close the topmost layer; the ref still holds pre-close values, so
+      // exclude the closed layer when checking whether to re-arm.
+      let closed: "settings" | "right" | "panel" | "more" | "sidebar" | null = null;
+      if (overlays.settingsOpen) { setSettingsOpen(false); closed = "settings"; }
+      else if (overlays.rightPanelOpen) { setRightPanelOpen(false); closed = "right"; }
+      else if (overlays.activeTopPanel !== null) { setActiveTopPanel(null); closed = "panel"; }
+      else if (overlays.mobileToolbarMoreOpen) { setMobileToolbarMoreOpen(false); closed = "more"; }
+      else if (overlays.sidebarOpen) { setSidebarOpen(false); closed = "sidebar"; }
+      const remaining = (closed !== "settings" && overlays.settingsOpen)
+        || (closed !== "right" && overlays.rightPanelOpen)
+        || (closed !== "panel" && overlays.activeTopPanel !== null)
+        || (closed !== "more" && overlays.mobileToolbarMoreOpen)
+        || (closed !== "sidebar" && overlays.sidebarOpen);
+      if (remaining) window.history.pushState({ piWebOverlay: true }, "");
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [isMobile, sidebarOpen, mobileToolbarMoreOpen, rightPanelOpen, settingsOpen, activeTopPanel]);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   const toggleTopPanel = useCallback((
@@ -272,6 +307,48 @@ export function AppShell() {
     }
     setSidebarOpen((open) => !open);
   }, [isMobile]);
+
+  // Mobile drawer drag-to-close: horizontal drag leftward closes the drawer.
+  // touch-action: pan-y on the container (globals.css) keeps vertical list
+  // scrolling native while horizontal gestures come to these handlers.
+  const drawerDragRef = useRef<{ pointerId: number; startX: number; startY: number; active: boolean; dx: number } | null>(null);
+  const [drawerDragOffset, setDrawerDragOffset] = useState<number | null>(null);
+  const suppressDrawerClickRef = useRef(false);
+  const handleDrawerPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isMobile || !sidebarOpen) return;
+    drawerDragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, active: false, dx: 0 };
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Synthetic events in tests cannot capture; handlers still work.
+    }
+  }, [isMobile, sidebarOpen]);
+  const handleDrawerPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = drawerDragRef.current;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (!drag.active) {
+      if (dx < -8 && Math.abs(dx) > Math.abs(dy)) drag.active = true;
+      else return;
+    }
+    drag.dx = Math.min(0, dx);
+    setDrawerDragOffset(drag.dx);
+  }, []);
+  const endDrawerDrag = useCallback(() => {
+    const drag = drawerDragRef.current;
+    if (!drag) return;
+    drawerDragRef.current = null;
+    const wasActive = drag.active;
+    const dx = drag.dx;
+    setDrawerDragOffset(null);
+    if (wasActive) {
+      suppressDrawerClickRef.current = true;
+      setTimeout(() => { suppressDrawerClickRef.current = false; }, 120);
+      const width = sidebarResizer.width || 280;
+      if (dx < -width * 0.4) setSidebarOpen(false);
+    }
+  }, [sidebarResizer.width]);
 
   const handleMobileToolbarMoreToggle = useCallback(() => {
     setSidebarOpen(false);
@@ -992,7 +1069,7 @@ export function AppShell() {
             alignItems: "center",
             justifyContent: "center",
             gap: 6,
-            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
+            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : undefined,
             height: "100%",
             padding: mobile ? 0 : "0 12px",
             background: "none",
@@ -1057,7 +1134,7 @@ export function AppShell() {
               aria-label={label}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
+                width: mobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : undefined,
                 height: "100%", padding: mobile ? 0 : "0 12px",
                 background: "none", border: "none",
                 borderTop: "2px solid transparent",
@@ -1133,7 +1210,7 @@ export function AppShell() {
           aria-pressed={activeTopPanel === "system"}
           style={{
             display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
+            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : undefined,
             height: "100%", padding: mobile ? 0 : "0 12px",
             background: activeTopPanel === "system" ? "var(--bg-selected)" : "none",
             border: "none",
@@ -1174,7 +1251,6 @@ export function AppShell() {
 
     let contextColor = "var(--text-muted)";
     let desktopContextText: string | null = null;
-    let mobileContextText: string | null = null;
     if (contextUsage?.contextWindow) {
       const percent = contextUsage.percent;
       if (percent !== null && percent > 90) contextColor = "#ef4444";
@@ -1182,7 +1258,6 @@ export function AppShell() {
       desktopContextText = percent !== null
         ? `${percent.toFixed(0)}% / ${formatCompact(contextUsage.contextWindow)}`
         : `? / ${formatCompact(contextUsage.contextWindow)}`;
-      mobileContextText = percent !== null ? `${percent.toFixed(0)}%` : null;
     }
 
     const tooltipParts: string[] = [];
@@ -1199,11 +1274,6 @@ export function AppShell() {
     }
     const tooltip = tooltipParts.join("  |  ");
     const covered = mobile && mobileToolbarMoreOpen;
-    const hasMobileValues = Boolean(
-      (tokens && (tokens.input > 0 || tokens.output > 0))
-      || costText
-      || mobileContextText,
-    );
 
     return (
       <button
@@ -1215,16 +1285,15 @@ export function AppShell() {
         aria-label={translate("session.title")}
         aria-pressed={activeTopPanel === "session"}
         aria-hidden={covered ? true : undefined}
-        className={mobile ? "mobile-session-stats" : undefined}
         data-mobile-toolbar-stats={mobile ? "true" : undefined}
         style={{
           marginLeft: mobile ? 0 : "auto",
-          display: "flex", alignItems: "center", justifyContent: "flex-end",
-          flex: mobile ? 1 : undefined,
+          display: "flex", alignItems: "center", justifyContent: mobile ? "center" : "flex-end",
+          flex: mobile ? "0 0 auto" : undefined,
+          width: mobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : undefined,
           minWidth: 0,
-          gap: mobile ? 7 : 10,
-          paddingLeft: mobile ? 6 : 12,
-          paddingRight: mobile ? 6 : 12,
+          gap: mobile ? 0 : 10,
+          padding: mobile ? 0 : "0 12px",
           height: "100%",
           overflow: "hidden",
           visibility: covered ? "hidden" : "visible",
@@ -1245,35 +1314,7 @@ export function AppShell() {
         }}
       >
         {mobile ? (
-          <>
-            {tokens && tokens.input > 0 && (
-              <span className="mobile-session-stat-io" style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
-                <ArrowUp size={10} strokeWidth={1.8} aria-hidden="true" />
-                {formatCompact(tokens.input)}
-              </span>
-            )}
-            {tokens && tokens.output > 0 && (
-              <span className="mobile-session-stat-io" style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
-                <ArrowDown size={10} strokeWidth={1.8} aria-hidden="true" />
-                {formatCompact(tokens.output)}
-              </span>
-            )}
-            {costText && (
-              <span className="mobile-session-stat-cost" style={{ color: "var(--text)", fontWeight: 500, flexShrink: 0 }}>
-                {costText}
-              </span>
-            )}
-            {mobileContextText && (
-              <span style={{ color: contextColor, flexShrink: 0 }}>
-                {mobileContextText}
-              </span>
-            )}
-            {!hasMobileValues && showChat && (
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", color: "var(--text-dim)" }}>
-                {translate("session.title")}
-              </span>
-            )}
-          </>
+          <Info size={15} strokeWidth={2} aria-hidden="true" />
         ) : (
           <>
             {tokens && tokens.input > 0 && (
@@ -1328,7 +1369,7 @@ export function AppShell() {
         style={{
           marginLeft: !mobile && !sessionStats && !contextUsage ? "auto" : 0,
           display: "flex", alignItems: "center", justifyContent: "center",
-          width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+          width: mobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : TOP_BAR_ICON_BUTTON_SIZE, height: mobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
           visibility: covered ? "hidden" : "visible",
           pointerEvents: covered ? "none" : "auto",
           background: rightPanelOpen ? "var(--bg-selected)" : "none",
@@ -1406,19 +1447,6 @@ export function AppShell() {
           animation: none;
         }
       }
-      .mobile-session-stats {
-        container-type: inline-size;
-      }
-      @container (max-width: 158px) {
-        .mobile-session-stat-io {
-          display: none !important;
-        }
-      }
-      @container (max-width: 88px) {
-        .mobile-session-stat-cost {
-          display: none !important;
-        }
-      }
       @media (max-width: 640px) {
         .sidebar-overlay-backdrop.sidebar-mobile-pending {
           opacity: 0 !important;
@@ -1459,6 +1487,16 @@ export function AppShell() {
         ref={sidebarResizer.panelRef}
         id="session-sidebar"
         className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${sidebarResizer.isResizing ? " sidebar-resizing" : ""}`}
+        onPointerDown={handleDrawerPointerDown}
+        onPointerMove={handleDrawerPointerMove}
+        onPointerUp={endDrawerDrag}
+        onPointerCancel={endDrawerDrag}
+        onClickCapture={(event) => {
+          if (suppressDrawerClickRef.current) {
+            event.stopPropagation();
+            event.preventDefault();
+          }
+        }}
         style={{
           "--sidebar-width": `${sidebarResizer.width}px`,
           background: "var(--bg-panel)",
@@ -1469,6 +1507,8 @@ export function AppShell() {
           paddingTop: "env(safe-area-inset-top)",
           paddingBottom: "env(safe-area-inset-bottom)",
           zIndex: 200,
+          transform: drawerDragOffset !== null ? `translateX(${drawerDragOffset}px)` : undefined,
+          transition: drawerDragOffset !== null ? "none" : undefined,
         } as React.CSSProperties}
       >
         {sidebarContent}
@@ -1487,14 +1527,14 @@ export function AppShell() {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Top bar with sidebar toggle */}
         <div ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
-        <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
+        <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: `calc(${isMobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : 36}px + env(safe-area-inset-top))`, paddingTop: "env(safe-area-inset-top)" }}>
           <button
             onClick={handleSidebarToggle}
              title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
              aria-label={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
             style={{
               display: "flex", alignItems: "center", justifyContent: "center",
-              width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+              width: isMobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : TOP_BAR_ICON_BUTTON_SIZE, height: isMobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
               background: "none", border: "none", borderRight: "1px solid var(--border)",
               color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
             }}
@@ -1532,7 +1572,7 @@ export function AppShell() {
                   position: "relative",
                   zIndex: mobileToolbarMoreOpen ? 21 : undefined,
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+                  width: TOP_BAR_ICON_BUTTON_SIZE_MOBILE, height: TOP_BAR_ICON_BUTTON_SIZE_MOBILE, padding: 0,
                   background: mobileToolbarMoreOpen ? "var(--bg-selected)" : "none",
                   border: "none", borderRight: "1px solid var(--border)",
                   color: mobileToolbarMoreOpen ? "var(--text)" : "var(--text-muted)",
@@ -1558,7 +1598,7 @@ export function AppShell() {
                     top: 0,
                     right: 0,
                     bottom: 0,
-                    left: TOP_BAR_ICON_BUTTON_SIZE,
+                    left: TOP_BAR_ICON_BUTTON_SIZE_MOBILE,
                     zIndex: 20,
                     display: "flex",
                     alignItems: "stretch",
@@ -1906,7 +1946,7 @@ export function AppShell() {
           display: "flex",
           alignItems: "center",
           flexShrink: 0,
-          height: "calc(36px + env(safe-area-inset-top))",
+          height: `calc(${isMobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : 36}px + env(safe-area-inset-top))`,
           paddingTop: "env(safe-area-inset-top)",
           background: "var(--bg-panel)",
           borderBottom: "1px solid var(--border)",
@@ -1928,7 +1968,7 @@ export function AppShell() {
             aria-label={translate("files.hidePanel")}
             style={{
               display: "flex", alignItems: "center", justifyContent: "center",
-              width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+              width: isMobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : TOP_BAR_ICON_BUTTON_SIZE, height: isMobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
               background: "var(--bg-selected)", border: "none", borderLeft: "1px solid var(--border)",
               color: "var(--text)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
             }}

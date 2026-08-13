@@ -205,7 +205,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   if (toolCallCount > 0) parts.push(`${toolCallCount} ${t(toolCallCount === 1 ? "chat.toolCall" : "chat.toolCalls")}`);
 
   return (
-    <div style={{ marginBottom: 14 }}>
+    <div style={{ marginBottom: 10 }}>
       <button
         type="button"
         aria-expanded={expanded}
@@ -624,7 +624,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
 
       {isEmptyNew ? (
         <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8">
-          <div className="w-full max-w-[820px]">
+          <div className="w-full max-w-[960px]">
             <div
               className="mb-3"
               style={{
@@ -642,15 +642,13 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: 0, flexShrink: 0, whiteSpace: "nowrap" }}>Pi Web</span>
                 <NewSessionUpdateLink label={(version) => t("appUpdate.releaseNotes", { version })} />
               </div>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  web <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
-                </span>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  pi <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
-                </span>
-              </div>
             </div>
+            {!isMobile && (
+              <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.8, margin: "0 16px 10px" }}>
+                <span style={{ color: "var(--text-dim)", marginRight: 6 }}>1.</span>{t("workspace.selectProject")}<br />
+                <span style={{ color: "var(--text-dim)", marginRight: 6 }}>2.</span>{t("workspace.addModels")}
+              </div>
+            )}
             <NoticeShelf notices={notices} align="right" />
             {chatInputElement}
             <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} onRunCommand={runExtensionCommand} />
@@ -670,13 +668,13 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
             pointerEvents: "none",
           }}
         >
-          <div style={{ maxWidth: 820, margin: "0 auto" }}>
+          <div style={{ maxWidth: 960, margin: "0 auto" }}>
             <NoticeShelf notices={notices} floating align="right" />
           </div>
         </div>
         <div ref={scrollContainerRef} className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-width:none]">
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
-            <div ref={messageContentRef} style={{ width: "100%", minWidth: 0, maxWidth: 820, margin: "0 auto" }}>
+            <div ref={messageContentRef} style={{ width: "100%", minWidth: 0, maxWidth: 960, margin: "0 auto" }}>
             {(() => {
               let lastUserIdx = -1;
               for (let i = messages.length - 1; i >= 0; i--) {

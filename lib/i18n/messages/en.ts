@@ -24,6 +24,8 @@ export const enLocale: LocalePlugin = {
     "settings.languageDescription": "Choose the language used by the interface.",
     "settings.completionSound": "Completion sound",
     "settings.completionSoundDescription": "Play a sound when an agent finishes working.",
+    "settings.about": "About",
+    "settings.aboutVersion": "web v{web} · pi v{pi}",
     "settings.projectSettingsDescription": "Select a project to view its settings and security status.",
     "settings.activeProject": "Active project",
     "settings.activeProjectDescription": "The project currently used by new tasks and project resources.",

@@ -32,6 +32,12 @@ test("project sorting supports drag and keyboard-accessible menu actions", () =>
   assert.match(sidebar, /event\.key !== "Enter" && event\.key !== " "/);
 });
 
+test("file explorer starts collapsed and remembers explicit toggles", () => {
+  assert.match(sidebar, /const \[explorerOpen, setExplorerOpen\] = useState\(false\)/);
+  assert.match(sidebar, /setExplorerOpen\(loadExplorerOpen\(\)\)/);
+  assert.match(sidebar, /saveExplorerOpen\(next\)/);
+});
+
 test("running projects expose a Codex-style activity spinner", () => {
   assert.match(sidebar, /new EventSource\("\/api\/agent\/running\/events"\)/);
   assert.match(sidebar, /const completed = \[\.\.\.previous\]\.filter\(\(id\) => !activeRootIds\.has\(id\)\)/);

@@ -10,6 +10,7 @@ import {
   Check,
   Cpu,
   FolderCog,
+  Info,
   Languages,
   Layers3,
   Monitor,
@@ -192,6 +193,9 @@ export function SettingsPage({
           <button className="settings-switch" type="button" role="switch" aria-checked={soundEnabled} onClick={onSoundToggle} title={t("settings.completionSound")}>
             <span /><Volume2 size={15} aria-hidden="true" />
           </button>
+        </section>
+        <section className="settings-form-section">
+          <div className="settings-form-label"><Info size={16} aria-hidden="true" /><div><strong>{t("settings.about")}</strong><span>{t("settings.aboutVersion", { web: process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0", pi: process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0" })}</span></div></div>
         </section>
       </div>
     );
