@@ -194,7 +194,7 @@ try {
   assert.equal(untrustedApi.status, 403);
   assert.deepEqual(JSON.parse(untrustedApi.body), { error: "Untrusted API request" });
 
-  // All 41 API routes with the identical safe probe matrix as standalone smoke.
+  // All 42 API routes with the identical safe probe matrix as standalone smoke.
   const routeSmoke = await smokeAllRoutes({ origin, authHeaders: {} });
   assert.ok(routeSmoke.results.length >= 41, "fewer than 41 route probes ran");
 

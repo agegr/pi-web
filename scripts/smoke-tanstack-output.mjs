@@ -113,7 +113,7 @@ try {
   assert.equal(icon.status, 200);
   assert.match(icon.headers.get("content-type") ?? "", /image\/png/);
 
-  // All 41 API routes with safe probes (see tanstack-route-smoke.mjs).
+  // All 42 API routes with safe probes (see tanstack-route-smoke.mjs).
   const routeSmoke = await smokeAllRoutes({ origin, authHeaders });
   assert.ok(routeSmoke.results.length >= 41, "fewer than 41 route probes ran");
 

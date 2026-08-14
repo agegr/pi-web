@@ -21,6 +21,7 @@ import { Route as ApiProjectTrustRouteImport } from './routes/api/project-trust'
 import { Route as ApiProjectsRouteImport } from './routes/api/projects'
 import { Route as ApiSessionsRouteImport } from './routes/api/sessions'
 import { Route as ApiSkillsRouteImport } from './routes/api/skills'
+import { Route as ApiUiLocaleRouteImport } from './routes/api/ui-locale'
 import { Route as ApiWorktreesRouteImport } from './routes/api/worktrees'
 import { Route as ApiAgentIdRouteImport } from './routes/api/agent/$id'
 import { Route as ApiAgentNewRouteImport } from './routes/api/agent/new'
@@ -110,6 +111,11 @@ const ApiSessionsRoute = ApiSessionsRouteImport.update({
 const ApiSkillsRoute = ApiSkillsRouteImport.update({
   id: '/api/skills',
   path: '/api/skills',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiUiLocaleRoute = ApiUiLocaleRouteImport.update({
+  id: '/api/ui-locale',
+  path: '/api/ui-locale',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiWorktreesRoute = ApiWorktreesRouteImport.update({
@@ -277,6 +283,7 @@ export interface FileRoutesByFullPath {
   '/api/projects': typeof ApiProjectsRoute
   '/api/sessions': typeof ApiSessionsRouteWithChildren
   '/api/skills': typeof ApiSkillsRouteWithChildren
+  '/api/ui-locale': typeof ApiUiLocaleRoute
   '/api/worktrees': typeof ApiWorktreesRoute
   '/api/agent/$id': typeof ApiAgentIdRouteWithChildren
   '/api/agent/new': typeof ApiAgentNewRoute
@@ -321,6 +328,7 @@ export interface FileRoutesByTo {
   '/api/projects': typeof ApiProjectsRoute
   '/api/sessions': typeof ApiSessionsRouteWithChildren
   '/api/skills': typeof ApiSkillsRouteWithChildren
+  '/api/ui-locale': typeof ApiUiLocaleRoute
   '/api/worktrees': typeof ApiWorktreesRoute
   '/api/agent/$id': typeof ApiAgentIdRouteWithChildren
   '/api/agent/new': typeof ApiAgentNewRoute
@@ -366,6 +374,7 @@ export interface FileRoutesById {
   '/api/projects': typeof ApiProjectsRoute
   '/api/sessions': typeof ApiSessionsRouteWithChildren
   '/api/skills': typeof ApiSkillsRouteWithChildren
+  '/api/ui-locale': typeof ApiUiLocaleRoute
   '/api/worktrees': typeof ApiWorktreesRoute
   '/api/agent/$id': typeof ApiAgentIdRouteWithChildren
   '/api/agent/new': typeof ApiAgentNewRoute
@@ -412,6 +421,7 @@ export interface FileRouteTypes {
     | '/api/projects'
     | '/api/sessions'
     | '/api/skills'
+    | '/api/ui-locale'
     | '/api/worktrees'
     | '/api/agent/$id'
     | '/api/agent/new'
@@ -456,6 +466,7 @@ export interface FileRouteTypes {
     | '/api/projects'
     | '/api/sessions'
     | '/api/skills'
+    | '/api/ui-locale'
     | '/api/worktrees'
     | '/api/agent/$id'
     | '/api/agent/new'
@@ -500,6 +511,7 @@ export interface FileRouteTypes {
     | '/api/projects'
     | '/api/sessions'
     | '/api/skills'
+    | '/api/ui-locale'
     | '/api/worktrees'
     | '/api/agent/$id'
     | '/api/agent/new'
@@ -545,6 +557,7 @@ export interface RootRouteChildren {
   ApiProjectsRoute: typeof ApiProjectsRoute
   ApiSessionsRoute: typeof ApiSessionsRouteWithChildren
   ApiSkillsRoute: typeof ApiSkillsRouteWithChildren
+  ApiUiLocaleRoute: typeof ApiUiLocaleRoute
   ApiWorktreesRoute: typeof ApiWorktreesRoute
   ApiAgentIdRoute: typeof ApiAgentIdRouteWithChildren
   ApiAgentNewRoute: typeof ApiAgentNewRoute
@@ -645,6 +658,13 @@ declare module '@tanstack/react-router' {
       path: '/api/skills'
       fullPath: '/api/skills'
       preLoaderRoute: typeof ApiSkillsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/ui-locale': {
+      id: '/api/ui-locale'
+      path: '/api/ui-locale'
+      fullPath: '/api/ui-locale'
+      preLoaderRoute: typeof ApiUiLocaleRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/worktrees': {
@@ -966,6 +986,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiProjectsRoute: ApiProjectsRoute,
   ApiSessionsRoute: ApiSessionsRouteWithChildren,
   ApiSkillsRoute: ApiSkillsRouteWithChildren,
+  ApiUiLocaleRoute: ApiUiLocaleRoute,
   ApiWorktreesRoute: ApiWorktreesRoute,
   ApiAgentIdRoute: ApiAgentIdRouteWithChildren,
   ApiAgentNewRoute: ApiAgentNewRoute,

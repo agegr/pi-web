@@ -48,12 +48,23 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   );
   const messages = useMemo(() => getMessages(), []);
 
+  const persistAgentLocale = useCallback((next: Locale) => {
+    void fetch("/api/ui-locale", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ locale: next }),
+    }).catch(() => {
+      // Agent-side locale is best-effort; the UI language still applies.
+    });
+  }, []);
+
   useEffect(() => {
     const next = readInitialLocale();
     setLocaleState(next);
     document.documentElement.lang = next;
+    persistAgentLocale(next);
     setHydrated(true);
-  }, []);
+  }, [persistAgentLocale]);
 
   const setLocale = useCallback((next: Locale) => {
     if (!getLocalePlugin(next)) return;
@@ -64,7 +75,8 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // 存储失败不影响当前页面内的语言切换。
     }
-  }, []);
+    persistAgentLocale(next);
+  }, [persistAgentLocale]);
 
   const t = useCallback((key: string, params?: TranslationParams) => translateMessage(locale, key, messages, params), [locale, messages]);
   const value = useMemo(() => ({ locale: hydrated ? locale : defaultLocale, setLocale, t, supportedLocales }), [hydrated, locale, setLocale, t, supportedLocales]);

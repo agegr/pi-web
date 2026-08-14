@@ -50,6 +50,7 @@ export const API_ROUTE_METHODS: Record<string, readonly string[]> = {
   "/api/skills": ["GET", "PATCH"],
   "/api/skills/search": ["POST"],
   "/api/skills/update": ["POST"],
+  "/api/ui-locale": ["GET", "PUT"],
   "/api/worktrees": ["DELETE", "GET", "POST"],
 };
 
