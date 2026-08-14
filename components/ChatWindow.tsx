@@ -1146,7 +1146,17 @@ function ExtensionDialog({
     >
       {request.method === "confirm" && <div className="codex-dialog-message">{request.message}</div>}
       {request.method === "select" && (
-        <div className="codex-dialog-options">
+        <div
+          className="codex-dialog-options"
+          onKeyDown={(e) => {
+            if (!/^[1-9]$/.test(e.key)) return;
+            const option = request.options[Number(e.key) - 1];
+            if (option !== undefined) {
+              e.preventDefault();
+              onRespond(request, { value: option });
+            }
+          }}
+        >
           {request.options.map((option, index) => (
             <button key={option} type="button" className="codex-dialog-option" onClick={() => onRespond(request, { value: option })}>
               <span className="codex-dialog-option-key">{index + 1}</span>
@@ -1164,7 +1174,6 @@ function ExtensionDialog({
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") submitValue();
-            if (e.key === "Escape") onRespond(request, { cancelled: true });
           }}
         />
       )}
@@ -1175,7 +1184,6 @@ function ExtensionDialog({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Escape") onRespond(request, { cancelled: true });
             if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submitValue();
           }}
         />

@@ -23,3 +23,14 @@ test("Mermaid viewer preserves zoom controls and Escape close", () => {
   assert.match(source, /setZoom\(\(value\) => Math\.min\(ZOOM_MAX/);
   assert.match(source, /event\.key !== "Escape"[\s\S]*?onClose\(\)/);
 });
+
+test("Mermaid zoom keeps the trigger mounted and restores focus on close", () => {
+  assert.match(source, /previewButtonRef = useRef<HTMLButtonElement>\(null\)/);
+  assert.match(source, /visibility: "hidden"/);
+  assert.match(source, /onClosed=\{\(\) => previewButtonRef\.current\?\.focus/);
+  assert.match(source, /onClosed\?\.\(\)/);
+});
+
+test("Mermaid zoom controls meet touch target size on coarse pointers", () => {
+  assert.match(styles, /@media \(pointer: coarse\)[\s\S]*?\.mermaid-zoom-stepper button,[\s\S]*?\.mermaid-zoom-icon-button[\s\S]*?width: 44px;[\s\S]*?height: 44px;/);
+});

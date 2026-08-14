@@ -1662,6 +1662,13 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
   cursor: pointer;
   touch-action: manipulation;
 }
+@media (pointer: coarse) {
+  .mermaid-zoom-stepper button,
+  .mermaid-zoom-icon-button {
+    width: 44px;
+    height: 44px;
+  }
+}
 .mermaid-zoom-stepper button {
   height: 22px;
 }

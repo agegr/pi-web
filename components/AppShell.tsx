@@ -304,6 +304,38 @@ export function AppShell() {
     return () => window.removeEventListener("popstate", onPop);
   }, [isMobile, sidebarOpen, mobileToolbarMoreOpen, rightPanelOpen, settingsOpen, activeTopPanel]);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const topPanelRef = useRef<HTMLDivElement | null>(null);
+  const topPanelReturnFocusRef = useRef<HTMLElement | null>(null);
+
+  const closeTopPanel = useCallback(() => {
+    setActiveTopPanel(null);
+    topPanelReturnFocusRef.current?.focus({ preventScroll: true });
+    topPanelReturnFocusRef.current = null;
+  }, []);
+
+  // Top panels are plain overlays: Escape and an outside pointer must dismiss
+  // them, and closing must return focus to the control that opened the panel.
+  useEffect(() => {
+    if (!activeTopPanel) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (topPanelRef.current?.contains(target)) return;
+      if (topBarRef.current?.contains(target)) return; // top-bar buttons toggle their own panels
+      closeTopPanel();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeTopPanel();
+    };
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [activeTopPanel, closeTopPanel]);
 
   const toggleTopPanel = useCallback((
     panel: "branches" | "system" | "session",
@@ -317,6 +349,7 @@ export function AppShell() {
   const openSessionStatsPanel = useCallback(() => {
     if (isMobile) setSidebarOpen(false);
     setMobileToolbarMoreOpen(false);
+    topPanelReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setActiveTopPanel("session");
   }, [isMobile]);
 
@@ -1458,6 +1491,10 @@ export function AppShell() {
         background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 24%, transparent), transparent);
         animation: session-info-light-wash 620ms ease-out both;
       }
+      .session-info-close {
+        width: 28px;
+        height: 28px;
+      }
       .session-info-close:hover {
         color: var(--text) !important;
         background: var(--bg-hover) !important;
@@ -1465,6 +1502,12 @@ export function AppShell() {
       .session-info-close:focus-visible {
         outline: 2px solid var(--accent);
         outline-offset: -2px;
+      }
+      @media (pointer: coarse) {
+        .session-info-close {
+          width: 44px;
+          height: 44px;
+        }
       }
       @media (prefers-reduced-motion: reduce) {
         .session-info-popover,
@@ -1715,7 +1758,7 @@ export function AppShell() {
         )}
           {/* Top panel dropdown — shared, only one active at a time */}
           {activeTopPanel && topPanelPos && (
-            <div style={{
+            <div ref={topPanelRef} style={{
               position: "fixed",
               top: topPanelPos.top,
               left: topPanelPos.left,
@@ -1765,14 +1808,12 @@ export function AppShell() {
                     className="session-info-close"
                     aria-label={translate("i18n.close")}
                     title={translate("i18n.close")}
-                    onClick={() => setActiveTopPanel(null)}
+                    onClick={() => closeTopPanel()}
                     style={{
                       position: "absolute",
                       top: 8,
                       right: 10,
                       zIndex: 1,
-                      width: 28,
-                      height: 28,
                       display: "grid",
                       placeItems: "center",
                       padding: 0,
@@ -1862,7 +1903,8 @@ export function AppShell() {
                       return (
                         <button
                           type="button"
-                           title={copied ? translate("session.copied") : translate(field === "file" ? "session.copyFile" : "session.copyId")}
+                          aria-label={copied ? translate("session.copied") : translate(field === "file" ? "session.copyFile" : "session.copyId")}
+                          title={copied ? translate("session.copied") : translate(field === "file" ? "session.copyFile" : "session.copyId")}
                           onClick={() => handleCopySessionField(field, value)}
                           style={{
                             alignSelf: "start",

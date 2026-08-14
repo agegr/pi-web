@@ -210,9 +210,10 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
             className="directory-picker-new-folder"
             onSubmit={(event) => void handleCreateFolder(event)}
             onKeyDown={(event) => {
-              if (event.key !== "Escape" || creatingFolder) return;
+              if (event.key !== "Escape") return;
               event.preventDefault();
               event.stopPropagation();
+              if (creatingFolder) return;
               setNewFolderOpen(false);
               setNewFolderName("");
               setLoadError(null);
@@ -287,7 +288,7 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
           ) : (
             <div style={{ padding: 8, color: "var(--text-dim)", fontSize: 11 }}>{t("directoryPicker.noSubdirectories")}</div>
           )}
-          {(loadError || error) && <div style={{ padding: "8px", color: "#dc2626", fontSize: 11 }}>{loadError ?? error}</div>}
+          {(loadError || error) && <div role="alert" style={{ padding: "8px", color: "#dc2626", fontSize: 11 }}>{loadError ?? error}</div>}
         </div>
     </DialogShell>,
     portalTarget,

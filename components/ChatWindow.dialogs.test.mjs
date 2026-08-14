@@ -23,11 +23,33 @@ test("input and editor keyboard contracts stay intact", () => {
   assert.match(source, /request\.method === "editor"[\s\S]*?\(e\.metaKey \|\| e\.ctrlKey\) && e\.key === "Enter"[\s\S]*?submitValue\(\)/);
 });
 
+test("input and editor Escape use the single dialog dismiss path", () => {
+  // Escape must not respond twice: the native dialog cancel would fire again
+  // after an inline onRespond. The DialogShell onClose is the only cancel path.
+  const inputBlock = source.slice(
+    source.indexOf('request.method === "input"'),
+    source.indexOf('request.method === "editor"'),
+  );
+  const editorBlock = source.slice(
+    source.indexOf('request.method === "editor"'),
+    source.indexOf("type ExtensionCustomRequest"),
+  );
+  assert.doesNotMatch(inputBlock, /e\.key === "Escape"[\s\S]*?onRespond/);
+  assert.doesNotMatch(editorBlock, /e\.key === "Escape"[\s\S]*?onRespond/);
+  assert.match(source, /onClose=\{\(\s*\) => onRespond\(request, \{ cancelled: true \}\)\}/);
+});
+
 test("select options are dense rows rather than cards", () => {
   assert.match(source, /className="codex-dialog-options"/);
   assert.match(source, /className="codex-dialog-option"/);
   assert.match(source, /className="codex-dialog-option-key"/);
   assert.match(styles, /\.codex-dialog-option\s*\{[\s\S]*?min-height:\s*36px;/);
+});
+
+test("select options answer the numbered key chips", () => {
+  assert.match(source, /className="codex-dialog-options"[\s\S]*?onKeyDown=\{\(e\) => \{[\s\S]*?\^\[1-9\]\$/);
+  assert.match(source, /request\.options\[Number\(e\.key\) - 1\]/);
+  assert.match(source, /onRespond\(request, \{ value: option \}\)/);
 });
 
 test("custom terminal UI uses the terminal shell and preserves Ctrl+C close", () => {

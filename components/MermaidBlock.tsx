@@ -29,6 +29,7 @@ export function MermaidBlock({ code, isStreaming, defaultPreview = false }: Merm
   const [showPreview, setShowPreview] = useState(defaultPreview);
   const [renderState, setRenderState] = useState<RenderState | null>(null);
   const [zoomOpen, setZoomOpen] = useState(false);
+  const previewButtonRef = useRef<HTMLButtonElement>(null);
   const currentKey = `${isDark ? "dark" : "light"}\n${code}`;
   const previewVisible = showPreview && !isStreaming;
 
@@ -91,17 +92,23 @@ export function MermaidBlock({ code, isStreaming, defaultPreview = false }: Merm
       <div className="mermaid-block mermaid-block-loading" aria-label={t("i18n.renderingMermaid")} />
     ) : (
       <>
-        {!zoomOpen && (
-          <button
-            type="button"
-            className="mermaid-block mermaid-preview-button"
-            title={t("i18n.openMermaidViewer")}
-            aria-label={t("i18n.openMermaidViewer")}
-            onClick={() => setZoomOpen(true)}
-            dangerouslySetInnerHTML={{ __html: renderState.svg }}
+        <button
+          ref={previewButtonRef}
+          type="button"
+          className="mermaid-block mermaid-preview-button"
+          style={zoomOpen ? { visibility: "hidden" } : undefined}
+          title={t("i18n.openMermaidViewer")}
+          aria-label={t("i18n.openMermaidViewer")}
+          onClick={() => setZoomOpen(true)}
+          dangerouslySetInnerHTML={{ __html: renderState.svg }}
+        />
+        {zoomOpen && (
+          <MermaidZoomDialog
+            svg={renderState.svg}
+            onClose={() => setZoomOpen(false)}
+            onClosed={() => previewButtonRef.current?.focus({ preventScroll: true })}
           />
         )}
-        {zoomOpen && <MermaidZoomDialog svg={renderState.svg} onClose={() => setZoomOpen(false)} />}
       </>
     );
 
@@ -116,7 +123,7 @@ export function MermaidBlock({ code, isStreaming, defaultPreview = false }: Merm
   );
 }
 
-function MermaidZoomDialog({ svg, onClose }: { svg: string; onClose: () => void }) {
+function MermaidZoomDialog({ svg, onClose, onClosed }: { svg: string; onClose: () => void; onClosed?: () => void }) {
   const { t } = useI18n();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [zoom, setZoom] = useState(1);
@@ -132,8 +139,9 @@ function MermaidZoomDialog({ svg, onClose }: { svg: string; onClose: () => void 
     return () => {
       document.body.style.overflow = previousOverflow;
       if (dialog.open) dialog.close();
+      onClosed?.();
     };
-  }, []);
+  }, [onClosed]);
 
   return (
     <dialog
