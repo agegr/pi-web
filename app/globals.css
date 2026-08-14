@@ -1415,3 +1415,95 @@ span.token.table {
     font-size: 16px !important;
   }
 }
+
+/* ---- PWA overlays (portals, last in <body>) ---- */
+
+.pwa-install-chip {
+  position: fixed;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  right: calc(16px + env(safe-area-inset-right));
+  z-index: 2147483646;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 0.18);
+  background: var(--bg-elevated, #1a1a1a);
+  color: var(--fg, #ffffff);
+  font: 500 13px/1.2 var(--font-noto-mono, system-ui, sans-serif);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.45);
+  cursor: pointer;
+  user-select: none;
+}
+.pwa-install-chip:hover {
+  background: var(--bg-elevated-hover, #262626);
+}
+
+.pwa-ios-hint {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483646;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(440px, calc(100vw - 24px));
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgb(255 255 255 / 0.16);
+  background: var(--bg-elevated, #1a1a1a);
+  color: var(--fg, #ffffff);
+  font: 13px/1.4 var(--font-noto-mono, system-ui, sans-serif);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.45);
+}
+.pwa-ios-hint__text {
+  margin: 0;
+}
+.pwa-ios-hint__dismiss {
+  border: 0;
+  background: transparent;
+  color: var(--accent, #93c5fd);
+  font: inherit;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.pwa-ios-hint__dismiss:hover {
+  background: rgb(255 255 255 / 0.08);
+}
+
+.pwa-update-toast {
+  position: fixed;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483646;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px 8px 16px;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 0.18);
+  background: var(--bg-elevated, #1a1a1a);
+  color: var(--fg, #ffffff);
+  font: 500 13px/1.2 var(--font-noto-mono, system-ui, sans-serif);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.45);
+}
+.pwa-update-toast__text {
+  white-space: nowrap;
+}
+.pwa-update-toast__reload {
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent, #3b82f6);
+  color: #ffffff;
+  font: inherit;
+  font-weight: 600;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.pwa-update-toast__reload:hover {
+  filter: brightness(1.1);
+}
