@@ -94,7 +94,7 @@ export async function smokeAllRoutes({ origin, authHeaders = {} }) {
       envSkip("/api/sessions/{id} reads", "no session exists on this host");
     }
 
-    // ---- 42 routes, every adapter URL accounted for.
+    // ---- 43 routes, every adapter URL accounted for.
     await probe("GET", "/api/sessions", [200]);
     await probe("POST", "/api/sessions", [405]);
     await probe("GET", `/api/sessions/${FAKE_ID}`, [404]);
@@ -119,6 +119,11 @@ export async function smokeAllRoutes({ origin, authHeaders = {} }) {
       body: "{}",
     });
     await probe("GET", `/api/agent/${FAKE_ID}/events`, [404], { expectAbort: true });
+    await probe("GET", `/api/agent/${FAKE_ID}/subagents`, [404]);
+    await probe("POST", `/api/agent/${FAKE_ID}/subagents`, [400], {
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ childSessionId: "nope", action: "interrupt" }),
+    });
     await probe("GET", `/api/agent/${FAKE_ID}/bash-output`, [200, 400]);
     await probe("POST", "/api/agent/new", [400], {
       headers: { "content-type": "application/json" },

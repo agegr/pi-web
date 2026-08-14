@@ -43,6 +43,7 @@ import { Route as ApiSkillsSearchRouteImport } from './routes/api/skills/search'
 import { Route as ApiSkillsUpdateRouteImport } from './routes/api/skills/update'
 import { Route as ApiAgentIdBashOutputRouteImport } from './routes/api/agent/$id/bash-output'
 import { Route as ApiAgentIdEventsRouteImport } from './routes/api/agent/$id/events'
+import { Route as ApiAgentIdSubagentsRouteImport } from './routes/api/agent/$id/subagents'
 import { Route as ApiAgentRunningEventsRouteImport } from './routes/api/agent/running/events'
 import { Route as ApiAuthApiKeyProviderRouteImport } from './routes/api/auth/api-key/$provider'
 import { Route as ApiAuthLoginProviderRouteImport } from './routes/api/auth/login/$provider'
@@ -223,6 +224,11 @@ const ApiAgentIdEventsRoute = ApiAgentIdEventsRouteImport.update({
   path: '/events',
   getParentRoute: () => ApiAgentIdRoute,
 } as any)
+const ApiAgentIdSubagentsRoute = ApiAgentIdSubagentsRouteImport.update({
+  id: '/subagents',
+  path: '/subagents',
+  getParentRoute: () => ApiAgentIdRoute,
+} as any)
 const ApiAgentRunningEventsRoute = ApiAgentRunningEventsRouteImport.update({
   id: '/events',
   path: '/events',
@@ -305,6 +311,7 @@ export interface FileRoutesByFullPath {
   '/api/skills/update': typeof ApiSkillsUpdateRoute
   '/api/agent/$id/bash-output': typeof ApiAgentIdBashOutputRoute
   '/api/agent/$id/events': typeof ApiAgentIdEventsRoute
+  '/api/agent/$id/subagents': typeof ApiAgentIdSubagentsRoute
   '/api/agent/running/events': typeof ApiAgentRunningEventsRoute
   '/api/auth/api-key/$provider': typeof ApiAuthApiKeyProviderRoute
   '/api/auth/login/$provider': typeof ApiAuthLoginProviderRoute
@@ -350,6 +357,7 @@ export interface FileRoutesByTo {
   '/api/skills/update': typeof ApiSkillsUpdateRoute
   '/api/agent/$id/bash-output': typeof ApiAgentIdBashOutputRoute
   '/api/agent/$id/events': typeof ApiAgentIdEventsRoute
+  '/api/agent/$id/subagents': typeof ApiAgentIdSubagentsRoute
   '/api/agent/running/events': typeof ApiAgentRunningEventsRoute
   '/api/auth/api-key/$provider': typeof ApiAuthApiKeyProviderRoute
   '/api/auth/login/$provider': typeof ApiAuthLoginProviderRoute
@@ -396,6 +404,7 @@ export interface FileRoutesById {
   '/api/skills/update': typeof ApiSkillsUpdateRoute
   '/api/agent/$id/bash-output': typeof ApiAgentIdBashOutputRoute
   '/api/agent/$id/events': typeof ApiAgentIdEventsRoute
+  '/api/agent/$id/subagents': typeof ApiAgentIdSubagentsRoute
   '/api/agent/running/events': typeof ApiAgentRunningEventsRoute
   '/api/auth/api-key/$provider': typeof ApiAuthApiKeyProviderRoute
   '/api/auth/login/$provider': typeof ApiAuthLoginProviderRoute
@@ -443,6 +452,7 @@ export interface FileRouteTypes {
     | '/api/skills/update'
     | '/api/agent/$id/bash-output'
     | '/api/agent/$id/events'
+    | '/api/agent/$id/subagents'
     | '/api/agent/running/events'
     | '/api/auth/api-key/$provider'
     | '/api/auth/login/$provider'
@@ -488,6 +498,7 @@ export interface FileRouteTypes {
     | '/api/skills/update'
     | '/api/agent/$id/bash-output'
     | '/api/agent/$id/events'
+    | '/api/agent/$id/subagents'
     | '/api/agent/running/events'
     | '/api/auth/api-key/$provider'
     | '/api/auth/login/$provider'
@@ -533,6 +544,7 @@ export interface FileRouteTypes {
     | '/api/skills/update'
     | '/api/agent/$id/bash-output'
     | '/api/agent/$id/events'
+    | '/api/agent/$id/subagents'
     | '/api/agent/running/events'
     | '/api/auth/api-key/$provider'
     | '/api/auth/login/$provider'
@@ -814,6 +826,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAgentIdEventsRouteImport
       parentRoute: typeof ApiAgentIdRoute
     }
+    '/api/agent/$id/subagents': {
+      id: '/api/agent/$id/subagents'
+      path: '/subagents'
+      fullPath: '/api/agent/$id/subagents'
+      preLoaderRoute: typeof ApiAgentIdSubagentsRouteImport
+      parentRoute: typeof ApiAgentIdRoute
+    }
     '/api/agent/running/events': {
       id: '/api/agent/running/events'
       path: '/events'
@@ -950,11 +969,13 @@ const ApiSkillsRouteWithChildren = ApiSkillsRoute._addFileChildren(
 interface ApiAgentIdRouteChildren {
   ApiAgentIdBashOutputRoute: typeof ApiAgentIdBashOutputRoute
   ApiAgentIdEventsRoute: typeof ApiAgentIdEventsRoute
+  ApiAgentIdSubagentsRoute: typeof ApiAgentIdSubagentsRoute
 }
 
 const ApiAgentIdRouteChildren: ApiAgentIdRouteChildren = {
   ApiAgentIdBashOutputRoute: ApiAgentIdBashOutputRoute,
   ApiAgentIdEventsRoute: ApiAgentIdEventsRoute,
+  ApiAgentIdSubagentsRoute: ApiAgentIdSubagentsRoute,
 }
 
 const ApiAgentIdRouteWithChildren = ApiAgentIdRoute._addFileChildren(
@@ -1007,11 +1028,15 @@ export const routeTree = rootRouteImport
   ._addFileTypes<FileRouteTypes>()
 
 import type { getRouter } from './router.tsx'
+
 import type { startInstance } from './start.ts'
+
 declare module '@tanstack/react-start' {
   interface Register {
     ssr: true
+
     router: Awaited<ReturnType<typeof getRouter>>
+
     config: Awaited<ReturnType<typeof startInstance.getOptions>>
   }
 }

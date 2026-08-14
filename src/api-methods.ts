@@ -12,6 +12,7 @@
 export const API_ROUTE_METHODS: Record<string, readonly string[]> = {
   "/api/agent/$id/bash-output": ["GET"],
   "/api/agent/$id/events": ["GET"],
+  "/api/agent/$id/subagents": ["GET", "POST"],
   "/api/agent/$id": ["GET", "POST"],
   "/api/agent/new": ["POST"],
   "/api/agent/running/events": ["GET"],

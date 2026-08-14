@@ -162,6 +162,8 @@ type CapabilityState =
   | { compatible: true }
   | { compatible: false; at: number };
 
+export type SubagentNegotiationReason = "not-installed" | "incompatible";
+
 /**
  * Minimal RPC v1 client over the parent session's extension event bus.
  *
@@ -176,6 +178,7 @@ export class SubagentRpcClient {
   private disposed = false;
   private readonly pending = new Map<string, PendingRequest>();
   private capability: CapabilityState | null = null;
+  private negotiationReason: SubagentNegotiationReason = "not-installed";
 
   constructor(private readonly capture: SubagentRpcCapture) {}
 
@@ -233,6 +236,11 @@ export class SubagentRpcClient {
     });
   }
 
+  /** Why the last failed negotiation was unavailable; "not-installed" by default. */
+  get lastNegotiationReason(): SubagentNegotiationReason {
+    return this.negotiationReason;
+  }
+
   /** Returns true only when ping advertises the runStatus v1 projection. */
   async negotiate(): Promise<boolean> {
     if (this.disposed) return false;
@@ -248,8 +256,11 @@ export class SubagentRpcClient {
         && isRecord(data.capabilities)
         && isRecord(data.capabilities.runStatus)
         && data.capabilities.runStatus.version === 1;
+      // Ping answered but runStatus v1 is absent: incompatible extension.
+      this.negotiationReason = "incompatible";
     } catch {
       // Extension absent or unresponsive: negative-cache so polling retries later.
+      this.negotiationReason = "not-installed";
     }
     this.capability = compatible
       ? { compatible: true }
