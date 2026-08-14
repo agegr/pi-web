@@ -148,6 +148,10 @@ export interface UseAgentSessionOptions {
   onSystemPromptChange?: (prompt: string | null) => void;
   onSessionStatsPanelOpen?: () => void;
   setToolPreset?: (preset: ToolPreset) => void;
+  /** Read-only history mode: never fetch the live agent state for this session. */
+  readOnlyHistory?: boolean;
+  /** Bumps reload the persisted session context without touching the runtime. */
+  historyRefreshGeneration?: number;
 }
 
 export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -1820,7 +1824,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     sessionHookMountedRef.current = true;
     if (session) {
       sessionIdRef.current = session.id;
-      loadSession(session.id, true, true).then((agentState) => {
+      loadSession(session.id, true, !opts.readOnlyHistory).then((agentState) => {
         if (agentState?.running) {
           loadTools(session.id);
           if (agentState.state?.isStreaming || agentState.state?.isPromptRunning) {
@@ -1872,6 +1876,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Read-only history mode: reload the persisted session context whenever the
+  // subagent tree snapshot advances. This path never fetches the live agent
+  // state, never connects child SSE, and never starts a child runtime.
+  const historyRefreshSeenRef = useRef(false);
+  useEffect(() => {
+    if (!opts.readOnlyHistory || !session?.id || opts.historyRefreshGeneration === undefined) return;
+    if (!historyRefreshSeenRef.current) {
+      // The mount load already fetched the initial context.
+      historyRefreshSeenRef.current = true;
+      return;
+    }
+    void loadSession(session.id, false, false);
+  }, [opts.readOnlyHistory, opts.historyRefreshGeneration, loadSession, session?.id]);
 
   useEffect(() => {
     onSystemPromptChange?.(systemPrompt);

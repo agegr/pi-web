@@ -54,6 +54,11 @@ interface Props {
   soundEnabled?: boolean;
   playDoneSound?: () => void;
   unlockAudio?: () => void;
+  /** Read-only subagent transcript mode: external composer, no child runtime. */
+  subagentMode?: {
+    transcriptRefreshGeneration: number;
+    composer: ReactNode;
+  };
 }
 
 function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, string | number>) => string): string | null {
@@ -263,7 +268,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, hasError = false, de
   );
 }
 
-export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, desktopAside, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, desktopAside, playDoneSound = () => {}, unlockAudio, subagentMode }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
 
@@ -298,6 +303,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   } = useAgentSession({
     session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
+    readOnlyHistory: Boolean(subagentMode),
+    historyRefreshGeneration: subagentMode?.transcriptRefreshGeneration,
   });
   const sessionBusy = agentRunning || bashRunning;
   const goalModel = resolveGoalPanelModel({
@@ -818,7 +825,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                     forking={forkingEntryId === entryIds[idx]}
                     onNavigate={sessionBusy ? undefined : handleNavigate}
                     prevAssistantEntryId={sessionBusy ? undefined : prevAssistantEntryId}
-                    onEditContent={handleEditContent}
+                    onEditContent={subagentMode === undefined ? handleEditContent : undefined}
                     showTimestamp={showTimestamp}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
@@ -1020,7 +1027,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               )}
             </button>
           )}
-          {chatInputElement}
+          {subagentMode !== undefined ? subagentMode.composer : chatInputElement}
         </div>
         <ExtensionStatusBar statuses={visibleStatuses} widgets={footerWidgets} />
         </div>

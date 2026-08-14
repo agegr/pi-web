@@ -15,7 +15,7 @@ test("renders recognized todos in the conversation tail instead of the footer sh
 test("keeps the plan inside the transcript and visually unframed", () => {
   const planIndex = chat.indexOf("<ConversationPlan");
   const messageEndIndex = chat.indexOf('<div ref={messagesEndRef}');
-  const composerIndex = chat.indexOf("{chatInputElement}", planIndex);
+  const composerIndex = chat.indexOf("subagentMode !== undefined ? subagentMode.composer : chatInputElement", planIndex);
 
   assert.ok(planIndex > 0 && planIndex < messageEndIndex);
   assert.ok(messageEndIndex < composerIndex);
