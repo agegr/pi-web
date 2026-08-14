@@ -111,7 +111,7 @@ test("subagent trigger opens a fixed overlay without moving the transcript", asy
   const workspace = page.locator(".app-center-column");
   const before = await workspace.boundingBox();
   await page.getByRole("button", { name: /Subagents/ }).click();
-  await expect(page.getByRole("tree")).toBeVisible();
+  await expect(page.locator('[data-subagent-popover="true"] [role="tree"]')).toBeVisible();
   const after = await workspace.boundingBox();
   expect(after).toEqual(before);
 });
@@ -119,7 +119,7 @@ test("subagent trigger opens a fixed overlay without moving the transcript", asy
 test("tree shows the nested child with task, state, activity, and elapsed time", async ({ page }) => {
   await openRootSession(page);
   await page.getByRole("button", { name: /Subagents/ }).click();
-  const tree = page.getByRole("tree");
+  const tree = page.locator('[data-subagent-popover="true"] [role="tree"]');
   await expect(tree).toContainText("subagent-worker-317e1ca0-1");
   await expect(tree).toContainText("subagent-reviewer-76fa6d64");
   await expect(tree).toContainText("Running");
@@ -129,12 +129,12 @@ test("tree shows the nested child with task, state, activity, and elapsed time",
 test("selecting the grandchild shows the full breadcrumb and highlights the tree row", async ({ page }) => {
   await openRootSession(page);
   await page.getByRole("button", { name: /Subagents/ }).click();
-  await page.getByRole("treeitem", { name: /subagent-reviewer-76fa6d64/ }).click();
+  await page.locator('[data-subagent-popover="true"]').getByRole("treeitem", { name: /subagent-reviewer-76fa6d64/ }).click();
   await expect(page.getByRole("navigation", { name: "Subagent breadcrumb" })).toContainText("Main e2e task");
   await expect(page.getByRole("navigation", { name: "Subagent breadcrumb" })).toContainText("subagent-worker-317e1ca0-1");
   await expect(page.getByRole("navigation", { name: "Subagent breadcrumb" })).toContainText("subagent-reviewer-76fa6d64");
   // The tree stays open on desktop and highlights the selected row.
-  await expect(page.locator('[aria-current="true"]')).toContainText("subagent-reviewer-76fa6d64");
+  await expect(page.locator('[data-subagent-popover="true"] [aria-current="true"]')).toContainText("subagent-reviewer-76fa6d64");
 });
 
 test("a selected child never hits its state, agent, or SSE endpoints", async ({ page }) => {
@@ -147,7 +147,7 @@ test("a selected child never hits its state, agent, or SSE endpoints", async ({ 
     }
   });
   await page.getByRole("button", { name: /Subagents/ }).click();
-  await page.getByRole("treeitem", { name: /subagent-worker-317e1ca0-1/ }).click();
+  await page.locator('[data-subagent-popover="true"]').getByRole("treeitem", { name: /subagent-worker-317e1ca0-1/ }).click();
   await expect(page.getByText("Implementing now.").first()).toBeVisible();
   await page.waitForTimeout(4_000); // cover the polling window
   expect(childRequests.filter((url) => url.endsWith("/state") || url.includes("/events"))).toEqual([]);
@@ -157,7 +157,7 @@ test("a selected child never hits its state, agent, or SSE endpoints", async ({ 
 test("appending to the child jsonl appears on the read-only transcript", async ({ page }) => {
   await openRootSession(page);
   await page.getByRole("button", { name: /Subagents/ }).click();
-  await page.getByRole("treeitem", { name: /subagent-worker-317e1ca0-1/ }).click();
+  await page.locator('[data-subagent-popover="true"]').getByRole("treeitem", { name: /subagent-worker-317e1ca0-1/ }).click();
   await expect(page.getByText("Implementing now.").first()).toBeVisible();
 
   const childFile = fixture.sessionFilePath(FAKE_CHILD_ID);
@@ -177,7 +177,7 @@ test("appending to the child jsonl appears on the read-only transcript", async (
 test("active composer steers through the root endpoint and preserves drafts on rejection", async ({ page }) => {
   await openRootSession(page);
   await page.getByRole("button", { name: /Subagents/ }).click();
-  await page.getByRole("treeitem", { name: /subagent-worker-317e1ca0-1/ }).click();
+  await page.locator('[data-subagent-popover="true"]').getByRole("treeitem", { name: /subagent-worker-317e1ca0-1/ }).click();
   const composer = page.getByRole("textbox", { name: /steering message/ });
   await composer.fill("keep going");
 
@@ -197,7 +197,7 @@ test("active composer steers through the root endpoint and preserves drafts on r
 test("stop sends interrupt to paused and resume returns to running", async ({ page }) => {
   await openRootSession(page);
   await page.getByRole("button", { name: /Subagents/ }).click();
-  await page.getByRole("treeitem", { name: /subagent-worker-317e1ca0-1/ }).click();
+  await page.locator('[data-subagent-popover="true"]').getByRole("treeitem", { name: /subagent-worker-317e1ca0-1/ }).click();
 
   await page.getByRole("button", { name: "Pause this subagent (resumable)" }).click();
   await expect.poll(() => fixture.readLog().some((entry) => entry.method === "interrupt")).toBe(true);
@@ -216,11 +216,11 @@ test("incompatible capability keeps historical browsing and disables controls", 
   await openRootSession(page);
   fixture.setState({ mode: "incompatible", entries: [] });
   await page.getByRole("button", { name: /Subagents/ }).click();
-  await expect(page.getByRole("tree")).toBeVisible();
-  await expect(page.getByRole("tree")).toContainText("subagent-worker-317e1ca0-1");
+  await expect(page.locator('[data-subagent-popover="true"] [role="tree"]')).toBeVisible();
+  await expect(page.locator('[data-subagent-popover="true"] [role="tree"]')).toContainText("subagent-worker-317e1ca0-1");
   // Durable-only nodes are inactive and read-only.
-  await expect(page.getByRole("tree")).toContainText("Inactive");
-  await page.getByRole("treeitem", { name: /subagent-worker-317e1ca0-1/ }).click();
+  await expect(page.locator('[data-subagent-popover="true"] [role="tree"]')).toContainText("Inactive");
+  await page.locator('[data-subagent-popover="true"]').getByRole("treeitem", { name: /subagent-worker-317e1ca0-1/ }).click();
   await expect(page.getByRole("textbox")).toHaveCount(0);
   await expect(page.getByText("Live controls are unavailable for this session.")).toBeVisible();
 });
@@ -229,9 +229,9 @@ test("escape closes the popover and returns focus to the trigger", async ({ page
   await openRootSession(page);
   const trigger = page.getByRole("button", { name: /Subagents/ });
   await trigger.click();
-  await expect(page.getByRole("tree")).toBeVisible();
+  await expect(page.locator('[data-subagent-popover="true"] [role="tree"]')).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("tree")).toHaveCount(0);
+  await expect(page.locator('[data-subagent-popover="true"] [role="tree"]')).toHaveCount(0);
   await expect(trigger).toBeFocused();
 });
 
@@ -239,13 +239,58 @@ test("desktop layout has no overlap or horizontal overflow", async ({ page }) =>
   await page.setViewportSize({ width: 1440, height: 900 });
   await openRootSession(page);
   await page.getByRole("button", { name: /Subagents/ }).click();
-  await expect(page.getByRole("tree")).toBeVisible();
+  await expect(page.locator('[data-subagent-popover="true"] [role="tree"]')).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
-  const treeBox = await page.getByRole("tree").boundingBox();
+  const treeBox = await page.locator('[data-subagent-popover="true"] [role="tree"]').boundingBox();
   expect(treeBox.x + treeBox.width).toBeLessThanOrEqual(1440);
   expect(treeBox.y).toBeGreaterThanOrEqual(0);
   await page.screenshot({ path: "tests/test-output/subagents-desktop.png", fullPage: true });
+});
+
+test("wide desktop shows the right-gutter subagent card below conversation context", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openRootSession(page);
+  const card = page.locator('[data-subagent-card="true"]');
+  await expect(card).toBeVisible();
+  await expect(card.locator('[role="tree"]')).toBeVisible();
+  await expect(card).toContainText("subagent-worker-317e1ca0-1");
+  await expect(page.locator(".desktop-conversation-context")).toBeVisible();
+  // Conversation context renders above the subagent card in the stack.
+  const contextBox = await page.locator(".desktop-conversation-context").boundingBox();
+  const cardBox = await card.boundingBox();
+  expect(contextBox.y + contextBox.height).toBeLessThanOrEqual(cardBox.y + 1);
+});
+
+test("card row navigates to the read-only child transcript without a child runtime", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  fixture.setState({ mode: "running", entries: liveEntries({ mode: "running" }) });
+  await openRootSession(page);
+  const childRequests = [];
+  page.on("request", (request) => {
+    const url = request.url();
+    if (url.includes(`/api/sessions/${FAKE_CHILD_ID}`) || url.includes(`/api/agent/${FAKE_CHILD_ID}`)) {
+      childRequests.push(url);
+    }
+  });
+  await page.locator('[data-subagent-card="true"] [data-subagent-card-row]').first().click();
+  await expect(page.getByRole("navigation", { name: "Subagent breadcrumb" })).toContainText("Main e2e task", { timeout: 30_000 });
+  // The transcript is lazy-windowed from the tail, so assert the mounted
+  // read-only composer instead of a specific early message (later tests append
+  // to the fixture jsonl).
+  await expect(page.getByRole("textbox", { name: /steering message/ })).toBeVisible({ timeout: 30_000 });
+  await page.waitForTimeout(4_000); // cover the polling window
+  expect(childRequests.filter((url) => url.endsWith("/state") || url.includes("/events"))).toEqual([]);
+  expect(childRequests.filter((url) => url.includes(`/api/agent/${FAKE_CHILD_ID}`))).toEqual([]);
+});
+
+test("mobile hides the right-gutter card and keeps the top entry", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openRootSession(page);
+  await expect(page.locator('[data-subagent-card="true"]')).not.toBeVisible();
+  await page.getByRole("button", { name: /More controls/ }).click();
+  await page.getByRole("button", { name: /Subagents/ }).click();
+  await expect(page.locator('[data-subagent-popover="true"] [role="tree"]')).toBeVisible();
 });
 
 test("mobile layout constrains the popover to the viewport", async ({ page }) => {
@@ -254,8 +299,8 @@ test("mobile layout constrains the popover to the viewport", async ({ page }) =>
   // The mobile toolbar holds the subagent action behind the More menu.
   await page.getByRole("button", { name: /More controls/ }).click();
   await page.getByRole("button", { name: /Subagents/ }).click();
-  await expect(page.getByRole("tree")).toBeVisible();
-  const treeBox = await page.getByRole("tree").boundingBox();
+  await expect(page.locator('[data-subagent-popover="true"] [role="tree"]')).toBeVisible();
+  const treeBox = await page.locator('[data-subagent-popover="true"] [role="tree"]').boundingBox();
   expect(treeBox.x).toBeGreaterThanOrEqual(0);
   expect(treeBox.x + treeBox.width).toBeLessThanOrEqual(390);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

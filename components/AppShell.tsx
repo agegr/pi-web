@@ -1932,7 +1932,7 @@ export function AppShell() {
               zIndex: 500,
             }}>
               {activeTopPanel === "subagents" && subagents.data ? (
-                <div style={{
+                <div data-subagent-popover="true" style={{
                   background: "var(--bg-panel)",
                   border: "1px solid var(--border)",
                   borderRadius: 8,

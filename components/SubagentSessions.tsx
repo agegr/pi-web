@@ -363,13 +363,14 @@ export function DesktopSubagentCard({
 }) {
   const { t } = useI18n();
   if (nodes.length === 0) return null;
+  const totalCount = countSubagentNodes(nodes);
   const activeCount = countActiveSubagentNodes(nodes);
   return (
     <section className="desktop-subagent-card" aria-label={t("subagents.title")} data-subagent-card="true">
       <div className="desktop-subagent-card-header">
         <Network size={14} strokeWidth={1.8} aria-hidden="true" />
         <span>
-          {nodes.length} {t("subagents.title").toLowerCase()}
+          {totalCount} {t("subagents.title").toLowerCase()}
         </span>
         {rpcAvailable && activeCount > 0 ? (
           <span className="desktop-subagent-card-live" aria-hidden="true" />

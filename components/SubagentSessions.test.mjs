@@ -171,7 +171,7 @@ test("desktop subagent card renders summary, stale state, and recursive rows", (
   }));
 
   assert.match(html, /aria-label="Subagents"/);
-  assert.match(html, /2 subagents/);
+  assert.match(html, /3 subagents/);
   assert.match(html, /1 running/);
   assert.match(html, /Live status is stale/);
   assert.match(html, /Review the current implementation/);
@@ -180,6 +180,23 @@ test("desktop subagent card renders summary, stale state, and recursive rows", (
   assert.match(html, /Check edge cases/);
   assert.match(html, /aria-current="true"/);
   assert.equal(countActiveSubagentNodes([child, finished]), 1);
+});
+
+test("desktop subagent card counts descendants in the header", () => {
+  // One top-level node with two nested children → total descendant count 3.
+  const top = node("top", "running", {
+    children: [
+      node("mid", "running", { children: [node("leaf", "complete")] }),
+    ],
+  });
+  const html = render(React.createElement(DesktopSubagentCard, {
+    nodes: [top],
+    selectedSessionId: null,
+    rpcAvailable: true,
+    stale: false,
+    callbacks,
+  }));
+  assert.match(html, /3 subagents/);
 });
 
 test("desktop subagent card omits itself without nodes", () => {
