@@ -36,9 +36,10 @@ if (!loopbackHostnames.has(hostname)) {
       `Warning: pi-web is listening on ${hostname} with Basic Auth over HTTP. Use HTTPS or a trusted VPN to protect the password in transit.`,
     );
   } else {
-    console.warn(
-      `Warning: pi-web is listening on ${hostname} without authentication. Only use this on a trusted network.`,
+    console.error(
+      `pi-web refuses to listen on ${hostname} without authentication. Set PI_WEB_PASSWORD or bind 127.0.0.1.`,
     );
+    process.exit(1);
   }
 }
 

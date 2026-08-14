@@ -4,7 +4,7 @@ import { join } from "path";
 import { completeSimple, type AssistantMessage } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
-import { normalizeProviderBaseUrl } from "@/lib/model-discovery";
+import { normalizeProviderBaseUrl, assertSafeDiscoveryTarget } from "@/lib/model-discovery";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +73,12 @@ export async function POST(req: Request) {
     const resolved = await modelRuntime.getAuth(model);
     if (!resolved?.auth.apiKey) {
       return Response.json({ ok: false, error: `No API key found for "${providerName}"` });
+    }
+
+    try {
+      assertSafeDiscoveryTarget(new URL(normalizeProviderBaseUrl(body.provider.baseUrl, body.provider.api)), resolved.auth);
+    } catch (error) {
+      return Response.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 400 });
     }
 
     const controller = new AbortController();

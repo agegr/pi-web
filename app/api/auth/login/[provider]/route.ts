@@ -1,5 +1,6 @@
 import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { randomBytes } from "node:crypto";
 import { invalidateModelsCache } from "@/lib/models-cache";
 
 export const dynamic = "force-dynamic";
@@ -71,7 +72,7 @@ export async function GET(
       let pendingManualRequest: { token: string; promise: Promise<string> } | undefined;
 
       const createClientInputRequest = () => {
-        const token = `${provider}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const token = `${provider}-${Date.now()}-${randomBytes(16).toString("hex")}`;
         activeTokens.add(token);
 
         const promise = new Promise<string>((resolve, reject) => {

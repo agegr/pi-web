@@ -1,5 +1,5 @@
 import { resolveModelDiscoveryAuth } from "@/lib/model-discovery-auth";
-import { buildModelsListUrl, parseDiscoveredModels } from "@/lib/model-discovery";
+import { assertSafeDiscoveryTarget, buildModelsListUrl, parseDiscoveredModels } from "@/lib/model-discovery";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +50,11 @@ export async function POST(req: Request) {
     }
 
     const auth = await resolveModelDiscoveryAuth(providerName, body.provider);
+    try {
+      assertSafeDiscoveryTarget(endpoint, auth);
+    } catch (error) {
+      return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    }
     if (typeof body.provider.apiKey === "string" && body.provider.apiKey.trim() && !auth.apiKey) {
       return Response.json({ error: `No API key found for "${providerName}"` }, { status: 400 });
     }

@@ -18,7 +18,6 @@ import {
   getImageMime,
 } from "@/lib/file-types";
 import { resolveDirentIsDirectory } from "@/lib/file-dirent";
-import { isFilePathReferencedBySession } from "@/lib/session-file-references";
 import { isApiRequestAllowed } from "@/lib/request-security";
 import {
   inspectUploadTargets,
@@ -425,15 +424,8 @@ export async function GET(
     if (!type) {
       return Response.json({ error: "Invalid file request type" }, { status: 400 });
     }
-    const sessionId = searchParams.get("sessionId");
-
     const allowedRoots = await getAllowedFileRoots();
-    const allowedByRoot = isFilePathAllowed(filePath, allowedRoots);
-    const allowedBySessionReference =
-      !allowedByRoot &&
-      type !== "list" &&
-      await isFilePathReferencedBySession(filePath, sessionId);
-    if (!allowedByRoot && !allowedBySessionReference) {
+    if (!isFilePathAllowed(filePath, allowedRoots)) {
       return Response.json({ error: "Access denied" }, { status: 403 });
     }
 
@@ -447,10 +439,7 @@ export async function GET(
     }
 
     const existingAuthorizationPath = stat ? filePath : path.dirname(filePath);
-    if (
-      !allowedBySessionReference
-      && !isExistingFilePathAllowed(existingAuthorizationPath, allowedRoots)
-    ) {
+    if (!isExistingFilePathAllowed(existingAuthorizationPath, allowedRoots)) {
       return Response.json({ error: "Access denied" }, { status: 403 });
     }
 
