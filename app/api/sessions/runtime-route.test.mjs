@@ -98,6 +98,20 @@ test("live detail and state routes work without a persisted JSONL file", async (
   });
 });
 
+test("delete of an unknown session still returns 404", async (t) => {
+  const previousRegistry = globalThis.__piSessions;
+  globalThis.__piSessions = new Map();
+  t.after(() => {
+    globalThis.__piSessions = previousRegistry;
+  });
+
+  const response = await deleteSession(
+    new Request("http://localhost/api/sessions/00000000-0000-0000-0000-000000000000", { method: "DELETE" }),
+    { params: Promise.resolve({ id: "00000000-0000-0000-0000-000000000000" }) },
+  );
+  assert.equal(response.status, 404);
+});
+
 test("delete shuts down a transient session that has no file yet", async (t) => {
   const previousRegistry = globalThis.__piSessions;
   const id = "transient-delete-test";

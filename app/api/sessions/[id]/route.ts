@@ -123,7 +123,11 @@ export async function DELETE(
     if (!filePath) {
       // Transient session that has not been persisted yet: stop the live
       // wrapper so it cannot outlive the delete or later flush a ghost file.
-      await getRpcSession(id)?.shutdown();
+      const rpc = getRpcSession(id);
+      if (!rpc?.isAlive()) {
+        return Response.json({ error: "Session not found" }, { status: 404 });
+      }
+      await rpc.shutdown();
       invalidateSessionPathCache(id);
       invalidateSessionListCache();
       return Response.json({ ok: true });
