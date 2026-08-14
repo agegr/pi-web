@@ -665,5 +665,6 @@ export const zhCNLocale: LocalePlugin = {
     "subagents.state.rejected": "已拒绝",
     "subagents.state.inactive": "无实时状态",
     "subagents.stale": "实时状态已过期 — 正在重试…",
+    "subagents.runningSummary": "{count} 个运行中",
   },
 };
