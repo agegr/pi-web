@@ -59,7 +59,7 @@ test("missing selected child recovers to the nearest surviving durable ancestor"
 test("the subagent popover anchors to its trigger and clamps to the viewport", async () => {
   const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
   assert.match(source, /subagentsAnchorRef\.current/);
-  assert.match(source, /Math\.min\(440, window\.innerWidth - 24\)/);
+  assert.match(source, /Math\.min\(360, window\.innerWidth - 24\)/);
   assert.match(source, /Math\.max\(8, Math\.min\(rect\.left, Math\.max\(8, window\.innerWidth - width - 8\)\)\)/);
   assert.match(source, /setActiveTopPanel\(\(current\) => current === "subagents" \? null : "subagents"\)/);
 });
@@ -75,6 +75,15 @@ test("new durable children bump the sidebar refresh key", async () => {
   const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
   assert.match(source, /knownDurableIdsRef/);
   assert.match(source, /setRefreshKey\(\(key\) => key \+ 1\)/);
+});
+
+test("subagent transcripts never expose fork, continue, or branch navigation to a child runtime", async () => {
+  const chat = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
+  assert.match(chat, /onFork=\{subagentMode !== undefined \|\| sessionBusy \|\| isNew/);
+  assert.match(chat, /onNavigate=\{subagentMode !== undefined \|\| sessionBusy \? undefined : handleNavigate\}/);
+  const shell = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
+  assert.match(shell, /childSelected \? null : \(/);
+  assert.doesNotMatch(shell, /childSelected[^]*navigate_tree/);
 });
 
 test("child ChatWindow gets read-only subagent mode with composer and no runtime", async () => {

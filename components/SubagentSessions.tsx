@@ -526,7 +526,7 @@ export function SubagentComposer({
           lineHeight: 1.4,
         }}
       />
-      {action === "steer" ? (
+      {action === "steer" && node.canInterrupt ? (
         <button
           type="button"
           disabled={busy}

@@ -664,5 +664,6 @@ export const enLocale: LocalePlugin = {
     "subagents.state.failed": "Failed",
     "subagents.state.rejected": "Rejected",
     "subagents.state.inactive": "Inactive",
+    "subagents.stale": "Live status is stale — retrying…",
   },
 };

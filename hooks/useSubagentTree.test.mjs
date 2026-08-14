@@ -94,7 +94,7 @@ test("control errors surface without optimistic lifecycle mutation", async () =>
 test("transcript refresh generation only bumps on successful snapshots plus the terminal transition", async () => {
   const source = await readFile(new URL("./useSubagentTree.ts", import.meta.url), "utf8");
   const successPath = source.slice(source.indexOf("if (!response.ok) throw new Error"), source.indexOf("setStale(false)"));
-  assert.match(successPath, /nextTranscriptGeneration\(previous, tree, current\)/);
+  assert.match(successPath, /nextTranscriptGeneration\(dataRef\.current, tree, current\)/);
   assert.match(successPath, /setTranscriptRefreshGeneration/);
   const errorPath = source.slice(source.indexOf("catch (refreshError)"), source.indexOf("finally {"));
   assert.doesNotMatch(errorPath, /setTranscriptRefreshGeneration/);

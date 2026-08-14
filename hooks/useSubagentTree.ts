@@ -108,10 +108,9 @@ export function useSubagentTree(input: {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const tree = await response.json() as SubagentTreeResponse;
         if (generation !== generationRef.current) return;
-        setData((previous) => {
-          setTranscriptRefreshGeneration((current) => nextTranscriptGeneration(previous, tree, current));
-          return tree;
-        });
+        // The generation bump must stay outside the state updater (pure updaters).
+        setTranscriptRefreshGeneration((current) => nextTranscriptGeneration(dataRef.current, tree, current));
+        setData(tree);
         setStale(false);
         setError(null);
       } catch (refreshError) {

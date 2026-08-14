@@ -821,9 +821,9 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                     cwd={messageCwd}
                     onOpenFile={onOpenFile}
                     entryId={entryIds[idx]}
-                    onFork={sessionBusy || isNew || (idx === 0 && msg.role === "user") ? undefined : handleFork}
+                    onFork={subagentMode !== undefined || sessionBusy || isNew || (idx === 0 && msg.role === "user") ? undefined : handleFork}
                     forking={forkingEntryId === entryIds[idx]}
-                    onNavigate={sessionBusy ? undefined : handleNavigate}
+                    onNavigate={subagentMode !== undefined || sessionBusy ? undefined : handleNavigate}
                     prevAssistantEntryId={sessionBusy ? undefined : prevAssistantEntryId}
                     onEditContent={subagentMode === undefined ? handleEditContent : undefined}
                     showTimestamp={showTimestamp}

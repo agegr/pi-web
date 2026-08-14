@@ -455,7 +455,7 @@ export function AppShell() {
     const update = () => {
       if (activeTopPanel === "subagents" && subagentsAnchorRef.current) {
         const rect = subagentsAnchorRef.current.getBoundingClientRect();
-        const width = isMobile ? Math.min(window.innerWidth - 16, 440) : Math.min(440, window.innerWidth - 24);
+        const width = isMobile ? Math.min(window.innerWidth - 16, 360) : Math.min(360, window.innerWidth - 24);
         const left = isMobile
           ? 8
           : Math.max(8, Math.min(rect.left, Math.max(8, window.innerWidth - width - 8)));
@@ -1383,17 +1383,21 @@ export function AppShell() {
             <GitBranch size={12} strokeWidth={2} style={{ color: branchTree.length > 0 ? "var(--accent)" : "var(--text-dim)" }} aria-hidden="true" />
           </button>
         ) : (
-          <BranchNavigator
-            tree={branchTree}
-            activeLeafId={branchActiveLeafId}
-            onLeafChange={handleBranchLeafChange}
-            inline
-            containerRef={topBarRef}
-            open={activeTopPanel === "branches"}
-            onToggle={() => toggleTopPanel("branches")}
-            hasSession
-            compact
-          />
+          <>
+            {childSelected ? null : (
+            <BranchNavigator
+              tree={branchTree}
+              activeLeafId={branchActiveLeafId}
+              onLeafChange={handleBranchLeafChange}
+              inline
+              containerRef={topBarRef}
+              open={activeTopPanel === "branches"}
+              onToggle={() => toggleTopPanel("branches")}
+              hasSession
+              compact
+            />
+            )}
+          </>
         )}
         <button
           ref={systemBtnRef}
@@ -1854,7 +1858,7 @@ export function AppShell() {
             </>
           )}
           {!isMobile && renderMainFileToggle(false)}
-          {isMobile && (
+          {isMobile && !childSelected && (
             <BranchNavigator
               tree={branchTree}
               activeLeafId={branchActiveLeafId}
@@ -1897,6 +1901,7 @@ export function AppShell() {
               }}
             />
             {renderProjectTrustWarning(false)}
+            {childSelected ? null : (
             <BranchNavigator
               tree={branchTree}
               activeLeafId={branchActiveLeafId}
@@ -1909,6 +1914,7 @@ export function AppShell() {
               hasSession={showChat}
               hideInlineButton
             />
+            )}
           </>
         )}
           {/* Top panel dropdown — shared, only one active at a time */}
@@ -1931,6 +1937,11 @@ export function AppShell() {
                   overflow: "hidden",
                   marginBottom: 8,
                 }}>
+                  {subagents.stale ? (
+                    <div style={{ padding: "4px 10px", color: "var(--text-dim)", fontSize: 11, borderBottom: "1px solid var(--border)", fontStyle: "italic" }}>
+                      {translate("subagents.stale")}
+                    </div>
+                  ) : null}
                   <SubagentTree
                     nodes={subagents.data.nodes}
                     selectedSessionId={childSelected && selectedSession ? selectedSession.id : null}

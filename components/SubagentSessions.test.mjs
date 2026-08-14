@@ -25,9 +25,9 @@ function node(sessionId, state, overrides = {}) {
     agent: "worker",
     task: sessionId === null ? "ghost" : `task ${sessionId}`,
     state,
-    canSteer: false,
-    canInterrupt: false,
-    canResume: false,
+    canSteer: state === "running" || state === "queued" || state === "needs_attention",
+    canInterrupt: state === "running" || state === "needs_attention",
+    canResume: state === "paused",
     children: [],
     ...overrides,
   };
