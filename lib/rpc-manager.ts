@@ -20,6 +20,7 @@ import type {
   SessionMessageEntry,
 } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
+import { createSubagentRpcCapture, SubagentRpcClient, type SubagentRpcCapture } from "./subagent-rpc";
 
 // ============================================================================
 // Types
@@ -178,8 +179,19 @@ export class AgentSessionWrapper {
   private onDestroyCallback: (() => void) | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private _alive = true;
+  private readonly subagentRpcClient: SubagentRpcClient;
 
-  constructor(public readonly inner: AgentSessionLike) {}
+  constructor(
+    public readonly inner: AgentSessionLike,
+    subagentRpcCapture?: SubagentRpcCapture,
+  ) {
+    this.subagentRpcClient = new SubagentRpcClient(subagentRpcCapture ?? { events: null });
+  }
+
+  async getSubagentRpcClient(): Promise<SubagentRpcClient> {
+    await this.waitUntilReady();
+    return this.subagentRpcClient;
+  }
 
   get sessionId(): string {
     return this.inner.sessionId;
@@ -720,6 +732,7 @@ export class AgentSessionWrapper {
 
       case "reload": {
         await this.waitForExtensionsBound();
+        this.subagentRpcClient.resetForReload();
         this.extensionStatuses.clear();
         this.resetExtensionWidgetsForReload();
         this.syncProjectTrust();
@@ -786,6 +799,7 @@ export class AgentSessionWrapper {
   destroy(): void {
     if (!this._alive) return;
     this._alive = false;
+    this.subagentRpcClient.dispose();
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this.inner.isBashRunning) this.inner.abortBash();
     this.unsubscribe?.();
@@ -1655,9 +1669,13 @@ export async function startRpcSession(
     // Gate untrusted project extensions so opening a repository does not run
     // its .pi/extensions code automatically (see lib/project-trust.ts, #236).
     const trustReloadOptions = projectTrustReloadOptions(sessionCwd, agentDir);
+    const subagentRpc = createSubagentRpcCapture();
     const services = await createAgentSessionServices({
       cwd: sessionCwd,
       agentDir,
+      resourceLoaderOptions: {
+        extensionFactories: [subagentRpc.extension],
+      },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
     const scope = await resolveVisibleModels(
@@ -1718,7 +1736,7 @@ export async function startRpcSession(
       throw error;
     }
 
-    const wrapper = new AgentSessionWrapper(inner);
+    const wrapper = new AgentSessionWrapper(inner, subagentRpc.capture);
     // When all tools are disabled, clear the system prompt entirely.
     // pi's buildSystemPrompt always produces a non-empty prompt even with no tools;
     // keep this forced after extension resource discovery and reloads as well.
