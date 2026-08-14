@@ -9,5 +9,8 @@ test("keeps access on the left and reasoning beside the model", () => {
   assert.match(source, /data-thinking-badge=\{thinkingLevel/);
   assert.match(source, /<Brain /);
   assert.match(source, /<Shield /);
+  assert.match(source, /composer-chip/);
+  assert.match(source, /chat\.compactContext/);
   assert.doesNotMatch(source, /MoreHorizontal/);
+  assert.doesNotMatch(source, /Change model/);
 });

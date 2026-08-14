@@ -29,6 +29,7 @@
   --text-dim: #6b7280;
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
+  --warning: #b45309;
   --user-bg: #eff6ff;
   --assistant-bg: #ffffff;
   --tool-bg: #f9fafb;
@@ -46,6 +47,7 @@ html.dark {
   --text-dim: #8f98a6;
   --accent: #60a5fa;
   --accent-hover: #93c5fd;
+  --warning: #f59e0b;
   --user-bg: #1e293b;
   --assistant-bg: #171717;
   --tool-bg: #202020;
@@ -511,6 +513,9 @@ button.extension-widget-trigger:focus-visible {
     animation: none;
     opacity: 0.12;
   }
+  .composer-chip {
+    transition: none;
+  }
 }
 
 .extension-widget-content {
@@ -532,11 +537,57 @@ html.keyboard-open .extension-status-shelf {
 .composer-icon-hit {
   position: relative;
 }
+.composer-icon-hit:focus-visible,
+.composer-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.composer-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px;
+  background: none;
+  border: none;
+  border-radius: 999px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: 12px inherit;
+  transition: background 0.15s ease-out, color 0.15s ease-out;
+}
+.composer-chip:hover,
+.composer-chip[aria-expanded="true"] {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.composer-chip.is-full-access {
+  color: var(--warning);
+}
+.composer-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.composer-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  z-index: 20;
+  min-width: 160px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.12);
+}
 @media (max-width: 640px) {
   .composer-icon-hit::after {
     position: absolute;
     inset: -8px;
     content: "";
+  }
+  .composer-chip {
+    height: 44px;
+    padding: 8px 10px;
   }
 }
 
