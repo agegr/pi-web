@@ -337,6 +337,8 @@ export const enLocale: LocalePlugin = {
     "chat.compact": "Compact",
     "chat.stopAgent": "Stop agent",
     "chat.stop": "Stop",
+    "chat.stopping": "Stopping…",
+    "chat.stopped": "Stopped",
     "chat.disableSound": "Disable completion sound",
     "chat.enableSound": "Enable completion sound",
     "chat.thinkingUseDefault": "Use pi default",

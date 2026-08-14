@@ -66,6 +66,7 @@ function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, 
   }
   if (phase?.kind === "waiting_model") return t("chat.waitingModel");
   if (phase?.kind === "running_command") return t("chat.runningCommand");
+  if (phase?.kind === "stopping") return t("chat.stopping");
   return null;
 }
 
@@ -946,7 +947,12 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} />
             )}
 
-            {agentRunning && !hasStreamingContent && agentPhase && (
+            {agentRunning && agentPhase?.kind === "stopping" && (
+              <div className="py-2 text-[13px] text-text-muted">
+                <span className="animate-[pulse_1.5s_infinite]">{t("chat.stopping")}</span>
+              </div>
+            )}
+            {agentRunning && !hasStreamingContent && agentPhase && agentPhase.kind !== "stopping" && (
               <div className="py-2 text-[13px] text-text-muted">
                 <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t)}</span>
               </div>

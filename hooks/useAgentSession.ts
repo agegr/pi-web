@@ -107,6 +107,7 @@ export type AgentPhase =
   | { kind: "waiting_model" }
   | { kind: "running_command" }
   | { kind: "running_tools"; tools: { id: string; name: string }[] }
+  | { kind: "stopping" }
   | null;
 
 export interface CompactResultInfo {
@@ -1411,11 +1412,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleAbort = useCallback(async () => {
     const sid = sessionIdRef.current;
     if (!sid) return;
+    setAgentPhase({ kind: "stopping" });
     if (bashRunningRef.current) {
       try {
         await sendAgentCommand(sid, { type: "abort_bash" });
       } catch (e) {
         console.error("Failed to abort bash:", e);
+        setAgentPhase({ kind: "running_command" });
       }
       return;
     }
@@ -1423,6 +1426,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       await sendAgentCommand(sid, { type: "abort" });
     } catch (e) {
       console.error("Failed to abort:", e);
+      setAgentPhase({ kind: "waiting_model" });
     }
   }, []);
 

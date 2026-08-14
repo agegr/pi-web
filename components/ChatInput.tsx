@@ -417,6 +417,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [atMenuOpen, setAtMenuOpen] = useState(false);
   const [atActiveIndex, setAtActiveIndex] = useState(0);
   const [historyMenuOpen, setHistoryMenuOpen] = useState(false);
+  const [aborting, setAborting] = useState(false);
   const [historyActiveIndex, setHistoryActiveIndex] = useState(0);
   const [fileIndex, setFileIndex] = useState<{ cwd: string; entries: FileIndexEntry[]; truncated: boolean } | null>(null);
   const [fileIndexLoading, setFileIndexLoading] = useState(false);
@@ -750,6 +751,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       attachedImagesRef.current.forEach(revokeImagePreview);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isStreaming) setAborting(false);
+  }, [isStreaming]);
 
   const handleSend = useCallback(async () => {
     const msg = value.trim();
@@ -2486,9 +2491,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           {isStreaming ? (
             <button
               className="composer-icon-hit"
-              onClick={onAbort}
-              title={t("chat.stopAgent")}
-              aria-label={t("chat.stop")}
+              onClick={() => {
+                if (aborting) return;
+                setAborting(true);
+                onAbort();
+              }}
+              disabled={aborting}
+              aria-busy={aborting}
+              title={aborting ? t("chat.stopping") : t("chat.stopAgent")}
+              aria-label={aborting ? t("chat.stopping") : t("chat.stop")}
               style={{
                 flexShrink: 0,
                 display: "flex", alignItems: "center", justifyContent: "center",
@@ -2498,8 +2509,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 border: "none",
                 borderRadius: 999,
                 color: "var(--bg)",
-                cursor: "pointer",
-                transition: "background 0.15s, color 0.15s",
+                cursor: aborting ? "wait" : "pointer",
+                opacity: aborting ? 0.55 : 1,
+                transition: "background 0.15s, color 0.15s, opacity 0.15s",
               }}
             >
               <Square size={10} fill="currentColor" aria-hidden="true" />

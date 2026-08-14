@@ -7,7 +7,7 @@ import { ImagePreview } from "./ImagePreview";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
-import { getAssistantErrorMessage, isEmptyThinkingBlock } from "@/lib/message-display";
+import { getAssistantAbortDetail, getAssistantErrorMessage, isAbortedAssistantMessage, isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
 import { isEditToolName } from "@/lib/tool-names";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
@@ -573,6 +573,8 @@ function AssistantMessageView({
     .filter(({ block }) => !isEmptyThinkingBlock(block, { isStreaming })), [message.content, isStreaming]);
   const blocks = useMemo(() => blockItems.map(({ block }) => block), [blockItems]);
   const providerError = getAssistantErrorMessage(message, { isStreaming });
+  const aborted = isAbortedAssistantMessage(message, { isStreaming });
+  const abortDetail = getAssistantAbortDetail(message, { isStreaming });
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const streamStartRef = useRef<number | null>(null);
@@ -690,7 +692,7 @@ function AssistantMessageView({
     return () => clearInterval(id);
   }, [isStreaming]);
 
-  if (blocks.length === 0 && !isStreaming && !providerError) return null;
+  if (blocks.length === 0 && !isStreaming && !providerError && !aborted) return null;
 
   return (
     <div
@@ -763,6 +765,25 @@ function AssistantMessageView({
           }}
         >
           Error: {providerError}
+        </div>
+      )}
+
+      {aborted && (
+        <div
+          role="status"
+          style={{
+            marginTop: blocks.length > 0 || providerError ? 8 : 0,
+            padding: "7px 10px",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            background: "var(--bg-panel)",
+            color: "var(--text-dim)",
+            fontFamily: "var(--font-mono)",
+            fontSize: 12,
+            lineHeight: 1.5,
+          }}
+        >
+          {abortDetail ?? t("chat.stopped")}
         </div>
       )}
 

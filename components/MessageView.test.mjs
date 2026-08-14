@@ -70,6 +70,33 @@ test("renders partial assistant content before the provider error", () => {
   assert.match(html, /Error: Connection closed/);
 });
 
+test("renders a stopped status for an empty aborted turn", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "openai",
+    model: "gpt-test",
+    content: [],
+    stopReason: "aborted",
+  });
+
+  assert.match(html, /role="status"/);
+  assert.match(html, /Stopped/);
+  assert.doesNotMatch(html, /Error:/);
+});
+
+test("keeps partial aborted content and a stopped status", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "openai",
+    model: "gpt-test",
+    content: [{ type: "text", text: "Halfway there" }],
+    stopReason: "aborted",
+  });
+
+  assert.match(html, /Halfway there/);
+  assert.match(html, /Stopped/);
+});
+
 test("formats tool string inputs without JSON escape characters", () => {
   const formatted = formatToolInput({
     command: 'printf "hello"\nnext line',

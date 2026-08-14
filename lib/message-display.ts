@@ -23,6 +23,23 @@ export function getAssistantErrorMessage(
   return message.errorMessage?.trim() || "Unknown provider error";
 }
 
+export function isAbortedAssistantMessage(
+  message: AssistantMessage,
+  options: DisplayOptions = {},
+): boolean {
+  return !options.isStreaming && message.stopReason === "aborted";
+}
+
+export function getAssistantAbortDetail(
+  message: AssistantMessage,
+  options: DisplayOptions = {},
+): string | null {
+  if (!isAbortedAssistantMessage(message, options)) return null;
+  const text = message.errorMessage?.trim();
+  if (!text || text === "Request was aborted" || text === "Operation aborted") return null;
+  return text;
+}
+
 function isFinalAnswerBlock(block: AssistantContentBlock): boolean {
   return block.type === "text" || block.type === "image";
 }
