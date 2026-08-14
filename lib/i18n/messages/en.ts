@@ -460,6 +460,7 @@ export const enLocale: LocalePlugin = {
     "i18n.newSessionTitle": "New session — creates an independent copy from here",
     "i18n.estimatedTokens": "Estimated token count while streaming",
     "i18n.noOutput": "(no output)",
+    "i18n.openImage": "Open image",
     "i18n.noSummary": "(no summary)",
     "i18n.conversationCompacted": "Conversation compacted",
     "i18n.compactionDescription": "The conversation history before this point was compacted into the following summary:",
