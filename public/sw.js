@@ -8,12 +8,30 @@ const PRECACHE_URLS = [
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/icons/apple-touch-icon.png",
+  "/icons/icon-512-maskable.png",
+  "/icons/shortcut-new.png",
+  "/screenshots/desktop-wide.png",
+  "/screenshots/mobile-narrow.png",
 ];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
+    // Wipe every pi-web-* cache (current included) before re-priming.
+    // Stale chunk entries from a previous install survive in the same-named
+    // cache and break module resolution when the underlying node_modules
+    // layout changes (e.g. pnpm → npm migration, or any rebuild where
+    // hashed chunk paths shift). Re-priming from scratch guarantees the
+    // cache only contains what the current PRECACHE_URLS points at.
     caches
-      .open(STATIC_CACHE)
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key.startsWith(`${CACHE_PREFIX}-`))
+            .map((key) => caches.delete(key)),
+        ),
+      )
+      .then(() => caches.open(STATIC_CACHE))
       .then((cache) => cache.addAll(PRECACHE_URLS))
       .then(() => self.skipWaiting()),
   );
@@ -116,3 +134,9 @@ async function cacheFirst(request) {
   }
   return response;
 }
+
+self.addEventListener("message", (event) => {
+  if (event && event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+});

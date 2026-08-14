@@ -9,6 +9,7 @@ globalThis.self = {
   },
   addEventListener: (type, listener) => listeners.set(type, listener),
   clients: null,
+  skipWaiting: () => {},
 };
 
 await import("./sw.js");
@@ -83,4 +84,24 @@ test("notification click opens a window and rejects cross-origin targets", async
   await event.pending;
 
   assert.deepEqual(opened, ["https://pi.test/"]);
+});
+
+test("message handler calls skipWaiting on { type: 'SKIP_WAITING' }", () => {
+  let skipped = false;
+  self.skipWaiting = () => { skipped = true; };
+  const handler = listeners.get("message");
+  assert.ok(handler, "message handler must be registered");
+  handler({ data: { type: "SKIP_WAITING" } });
+  assert.equal(skipped, true);
+});
+
+test("message handler ignores unrelated message types", () => {
+  let skipped = false;
+  self.skipWaiting = () => { skipped = true; };
+  const handler = listeners.get("message");
+  assert.ok(handler, "message handler must be registered");
+  handler({ data: { type: "OTHER" } });
+  handler({ data: null });
+  handler({});
+  assert.equal(skipped, false);
 });
