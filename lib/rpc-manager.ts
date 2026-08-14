@@ -167,6 +167,8 @@ export class AgentSessionWrapper {
   private extensionWidgetGenerations = new Map<string, number>();
   private extensionWidgetsResetting = false;
   private pendingPromptCount = 0;
+  private turnStartMs = 0;
+  private ttftMs = 0;
   private promptAdmissionTail: Promise<void> = Promise.resolve();
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
@@ -214,11 +216,34 @@ export class AgentSessionWrapper {
         invalidateSessionListCache();
       }
       if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
+      this.handleTtftEvent(event);
       this.emit(event);
       if (RUNNING_STATE_EVENT_TYPES.has(event.type)) notifyRunningChange();
     });
     this.resetIdleTimer();
     notifyRunningChange();
+  }
+
+  private recordTtft(): void {
+    if (this.ttftMs > 0 || this.turnStartMs <= 0) return;
+    this.ttftMs = Date.now() - this.turnStartMs;
+  }
+
+  private handleTtftEvent(event: AgentEvent): void {
+    if (event.type === "message_start") {
+      const message = event.message as { role?: string; content?: unknown[] } | undefined;
+      if (message?.role === "assistant" && (message.content?.length ?? 0) > 0) {
+        this.recordTtft();
+      }
+    } else if (event.type === "message_update") {
+      this.recordTtft();
+    } else if (event.type === "message_end") {
+      if (this.ttftMs <= 0) return;
+      const message = event.message as { role?: string; timeToFirstTokenMs?: number } | undefined;
+      if (message?.role === "assistant" && typeof message.timeToFirstTokenMs !== "number") {
+        message.timeToFirstTokenMs = this.ttftMs;
+      }
+    }
   }
 
   setForceEmptySystemPrompt(force: boolean): void {
@@ -445,6 +470,8 @@ export class AgentSessionWrapper {
           notifyRunningChange();
           let prompt: Promise<void>;
           try {
+            this.turnStartMs = Date.now();
+            this.ttftMs = 0;
             prompt = this.inner.prompt(command.message as string, {
               ...(promptImages?.length ? { images: promptImages } : {}),
               ...(streamingBehavior ? { streamingBehavior } : {}),
@@ -640,12 +667,16 @@ export class AgentSessionWrapper {
 
       case "steer": {
         const steerImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
+        this.turnStartMs = Date.now();
+        this.ttftMs = 0;
         await this.inner.steer(command.message as string, steerImages?.length ? steerImages : undefined);
         return null;
       }
 
       case "follow_up": {
         const followImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
+        this.turnStartMs = Date.now();
+        this.ttftMs = 0;
         await this.inner.followUp(command.message as string, followImages?.length ? followImages : undefined);
         return null;
       }

@@ -328,10 +328,18 @@ function entryToUiMessage(
       const message = options.deferToolResultImages
         ? omitToolResultBase64Images(normalizeToolCalls(entry.message))
         : normalizeToolCalls(entry.message);
-      if (!options.deferThinking || message.role !== "assistant") return message;
+      if (!options.deferThinking || message.role !== "assistant") {
+        if (message.role === "assistant") {
+          const endedAt = parseEntryTimestamp(entry.timestamp);
+          return endedAt != null ? { ...message, endedAt } : message;
+        }
+        return message;
+      }
+      const endedAt = parseEntryTimestamp(entry.timestamp);
+      const withEnd = endedAt != null ? { ...message, endedAt } : message;
       return {
-        ...message,
-        content: message.content.map((block) => (
+        ...withEnd,
+        content: withEnd.content.map((block) => (
           block.type === "thinking" && block.thinking.trim() !== ""
             ? { ...block, thinking: "", deferred: true }
             : block

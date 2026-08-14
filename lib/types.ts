@@ -63,6 +63,10 @@ export interface AssistantMessage {
   stopReason?: string;
   errorMessage?: string;
   timestamp?: number;
+  /** Time from the user's prompt to the first generated token, in milliseconds (persisted by the server). */
+  timeToFirstTokenMs?: number;
+  /** When the message finished generating and was persisted (entry timestamp); the message's own `timestamp` is when generation started. */
+  endedAt?: number;
   usage?: {
     input: number;
     output: number;

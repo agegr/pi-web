@@ -749,6 +749,20 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                   }
                 }
                 if (options.showTimestamp !== undefined) showTimestamp = options.showTimestamp;
+                let turnStartTimestamp: number | undefined;
+                let firstTokenMs: number | undefined;
+                let turnOutputTokens = 0;
+                if (msg.role === "assistant") {
+                  for (let j = idx - 1; j >= 0; j--) {
+                    const prev = messages[j];
+                    if (prev.role === "user") { turnStartTimestamp = prev.timestamp; break; }
+                    if (prev.role === "assistant") {
+                      turnOutputTokens += (prev as AssistantMessage).usage?.output ?? 0;
+                    }
+                  }
+                  turnOutputTokens += (msg as AssistantMessage).usage?.output ?? 0;
+                  firstTokenMs = msg.timeToFirstTokenMs;
+                }
                 const view = (
                   <MessageView
                     key={`${keyPrefix}-view-${idx}`}
@@ -765,6 +779,9 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                     onEditContent={handleEditContent}
                     showTimestamp={showTimestamp}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
+                    turnStartTimestamp={turnStartTimestamp}
+                    firstTokenMs={firstTokenMs}
+                    turnOutputTokens={turnOutputTokens}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
                     writtenFiles={options.writtenFiles}
                   />

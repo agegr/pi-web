@@ -190,6 +190,9 @@ interface Props {
   onEditContent?: (message: UserMessage) => void;
   showTimestamp?: boolean;
   prevTimestamp?: number;
+  turnStartTimestamp?: number;
+  firstTokenMs?: number;
+  turnOutputTokens?: number;
   sessionId?: string;
   /**
    * Files this turn wrote, derived by the caller from the whole turn's
@@ -211,6 +214,14 @@ function formatTime(ts?: number): string | null {
   if (isToday) return time;
   const date = d.toLocaleDateString([], { month: "short", day: "numeric", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
   return `${date} ${time}`;
+}
+
+function formatTurnDuration(seconds: number, t: (key: string, params?: Record<string, string | number>) => string): string {
+  const total = Math.max(1, seconds);
+  if (total < 60) return t("i18n.durationSecondsOnly", { seconds: String(total) });
+  const minutes = Math.floor(total / 60);
+  const secs = total % 60;
+  return t("i18n.durationMinSec", { minutes: String(minutes), seconds: String(secs).padStart(2, "0") });
 }
 
 export function replaceUserMessageText(message: UserMessage, text: string): UserMessage {
@@ -246,12 +257,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, writtenFiles }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, turnStartTimestamp, firstTokenMs, turnOutputTokens, sessionId, writtenFiles }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} writtenFiles={writtenFiles} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} turnStartTimestamp={turnStartTimestamp} firstTokenMs={firstTokenMs} turnOutputTokens={turnOutputTokens} sessionId={sessionId} entryId={entryId} writtenFiles={writtenFiles} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -575,6 +586,9 @@ function AssistantMessageView({
   onOpenFile,
   showTimestamp,
   prevTimestamp,
+  turnStartTimestamp,
+  firstTokenMs,
+  turnOutputTokens,
   sessionId,
   entryId,
   writtenFiles,
@@ -587,12 +601,37 @@ function AssistantMessageView({
   onOpenFile?: (filePath: string) => void;
   showTimestamp?: boolean;
   prevTimestamp?: number;
+  turnStartTimestamp?: number;
+  firstTokenMs?: number;
+  turnOutputTokens?: number;
   sessionId?: string;
   entryId?: string;
   writtenFiles?: WrittenFile[];
 }) {
   const { t } = useI18n();
-  const time = showTimestamp ? formatTime(message.timestamp) : null;
+  const endTime = message.endedAt ?? message.timestamp;
+  const time = showTimestamp ? formatTime(endTime) : null;
+  const turnDurationSec = time && endTime && turnStartTimestamp
+    ? Math.round((endTime - turnStartTimestamp) / 1000)
+    : undefined;
+  const outputTokens = turnOutputTokens ?? message.usage?.output ?? 0;
+  const summaryText = (() => {
+    if (!time || isStreaming) return null;
+    const parts: string[] = [time];
+    if (turnDurationSec !== undefined && turnDurationSec > 0) {
+      parts.push(t("i18n.turnDuration", { duration: formatTurnDuration(turnDurationSec, t) }));
+    }
+    if (firstTokenMs !== undefined && firstTokenMs > 0) {
+      const ttftSec = (firstTokenMs / 1000).toFixed(1).replace(/\.0$/, "");
+      parts.push(t("i18n.firstTokenTime", { seconds: ttftSec }));
+    }
+    if (turnDurationSec !== undefined && turnDurationSec > 0 && outputTokens > 0) {
+      const rate = outputTokens / turnDurationSec;
+      const tps = rate >= 10 ? String(Math.round(rate)) : rate.toFixed(1);
+      parts.push(t("i18n.tokPerSec", { tps }));
+    }
+    return parts.join(" · ");
+  })();
   const blockItems = useMemo(() => (message.content ?? [])
     .map((block, originalIndex) => ({ block, originalIndex }))
     .filter(({ block }) => !isEmptyThinkingBlock(block, { isStreaming })), [message.content, isStreaming]);
@@ -837,8 +876,8 @@ function AssistantMessageView({
              {copied ? t("i18n.copied") : t("i18n.copy")}
           </button>
         )}
-        {time && !isStreaming && (
-          <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>
+        {summaryText && (
+          <span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: "auto", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{summaryText}</span>
         )}
       </div>
     </div>
