@@ -13,8 +13,6 @@ const INCLUDED_FILES = [
   "bin",
   "README.md",
   "README.zh-CN.md",
-  "README.ja.md",
-  "README.ru.md",
   "LICENSE",
 ];
 
