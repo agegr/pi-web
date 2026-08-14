@@ -12,7 +12,7 @@ npx @agegr/pi-web@latest
 
 中文微信群：[GitHub Discussions](https://github.com/agegr/pi-web/discussions/271)。
 
-![Pi Web 桌面工作区：项目侧栏、带工具活动的对话、会话上下文](./docs/pi-web-workspace.png)
+![Pi Web 桌面工作区：项目侧栏、带工具活动的对话、右侧上下文卡片](./docs/pi-web-workspace.png)
 
 - **项目与会话** — 搜索、置顶、归档、重命名、导出或删除，都在侧栏完成。
 - **实时智能体** — 流式 thinking 与工具调用；其他项目里的任务结束也会提示。

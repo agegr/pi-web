@@ -10,7 +10,7 @@ npx @agegr/pi-web@latest
 
 Requires Node.js 22.19.0 or newer. Pi Web opens the browser when ready and listens only on `127.0.0.1` by default.
 
-![Pi Web desktop workspace: project sidebar, conversation with tool activity, and session context](./docs/pi-web-workspace.png)
+![Pi Web desktop workspace: project sidebar, conversation with tool activity, and context card](./docs/pi-web-workspace.png)
 
 - **Projects and sessions** — search, pin, archive, rename, export, or delete without leaving the sidebar.
 - **Live agent work** — streamed thinking and tool calls, plus completion feedback when a run finishes in another project.
