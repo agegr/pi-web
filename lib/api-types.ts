@@ -110,3 +110,52 @@ export interface PluginsResponse {
   diagnostics: PluginDiagnostic[];
   projectResourcesLoaded: boolean;
 }
+
+// ============================================================================
+// Subagent sessions
+// ============================================================================
+
+export type SubagentLifecycleState =
+  | "starting"
+  | "queued"
+  | "running"
+  | "needs_attention"
+  | "paused"
+  | "complete"
+  | "stopped"
+  | "failed"
+  | "rejected"
+  | "inactive";
+
+export interface SubagentTreeNode {
+  /** Durable session id; null for live-only runtime placeholders. */
+  sessionId: string | null;
+  /** Durable parent session id; the root session id for top-level nodes. */
+  parentSessionId: string;
+  runId: string;
+  index?: number;
+  agent: string;
+  task: string;
+  state: SubagentLifecycleState;
+  activity?: string;
+  startedAt?: number;
+  elapsedMs?: number;
+  canSteer: boolean;
+  canInterrupt: boolean;
+  canResume: boolean;
+  children: SubagentTreeNode[];
+}
+
+export interface SubagentTreeResponse {
+  rootSessionId: string;
+  rpcAvailable: boolean;
+  unavailableReason?: "not-installed" | "incompatible" | "offline";
+  nodes: SubagentTreeNode[];
+  polledAt: number;
+}
+
+export interface SubagentControlRequest {
+  childSessionId: string;
+  action: "steer" | "interrupt" | "resume";
+  message?: string;
+}
