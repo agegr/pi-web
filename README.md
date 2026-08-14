@@ -56,6 +56,10 @@ Basic Auth is not encryption. Do not put Pi Web on the public internet over plai
 - Project-local extensions stay restricted until the project is trusted.
 - Worktrees: [docs/worktrees.md](./docs/worktrees.md).
 
+## Tech stack
+
+React 19 + Vite + [TanStack Start](https://tanstack.com/start) (Router). The UI originally ran on Next.js App Router; routing, SSR, and the release pipeline now run on TanStack — see [docs/release.md](./docs/release.md) for the `pack:tanstack` gate.
+
 ## Development
 
 ```bash

@@ -58,6 +58,10 @@ Basic Auth 不加密传输。不要用明文 HTTP 把 Pi Web 放到公网。请�
 - 需要信任的项目扩展在明确授权前保持受限。
 - Worktree：[docs/worktrees.zh-CN.md](./docs/worktrees.zh-CN.md)。
 
+## 技术栈
+
+React 19 + Vite + [TanStack Start](https://tanstack.com/start)（Router）。界面原本基于 Next.js App Router；路由、SSR 与发布管线现已迁移到 TanStack —— 发布门禁 `pack:tanstack` 见 [docs/release.md](./docs/release.md)。
+
 ## 开发
 
 ```bash
