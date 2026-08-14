@@ -58,6 +58,61 @@ test("keeps the session event stream open through the idle grace window", () => 
   );
 });
 
+test("terminal SSE events are gated by the prompt generation captured at send", () => {
+  const refsSource = source.slice(
+    source.indexOf("const promptRunIdRef = useRef(0)"),
+    source.indexOf("const optimisticUserMessageKeyRef"),
+  );
+  const agentEndSource = source.slice(
+    source.indexOf('case "agent_end"'),
+    source.indexOf('case "agent_settled"'),
+  );
+  const agentSettledSource = source.slice(
+    source.indexOf('case "agent_settled"'),
+    source.indexOf('case "prompt_done"'),
+  );
+  const promptDoneSource = source.slice(
+    source.indexOf('case "prompt_done"'),
+    source.indexOf('case "prompt_error"'),
+  );
+  const sendSource = source.slice(
+    source.indexOf("  const handleSend = useCallback"),
+    source.indexOf("  const executeBash = useCallback"),
+  );
+
+  assert.match(refsSource, /lastPromptGenerationRef = useRef\(0\)/);
+  assert.match(sendSource, /promptGeneration/);
+  assert.match(sendSource, /lastPromptGenerationRef\.current = .*promptGeneration/);
+  // Late terminal events from a previous run must not settle the current one.
+  assert.match(agentEndSource, /acceptsPromptGeneration\(event\)/);
+  assert.match(agentSettledSource, /acceptsPromptGeneration\(event\)/);
+  assert.match(promptDoneSource, /acceptsPromptGeneration\(event\)/);
+  assert.match(
+    source.slice(source.indexOf("const handleAgentEvent = useCallback"), source.indexOf("const handleAgentEvent = useCallback") + 6_000),
+    /const acceptsPromptGeneration = \(/,
+  );
+});
+
+test("branch navigation awaits the server and reverts the leaf on failure", () => {
+  const navigateSource = source.slice(
+    source.indexOf("  const handleNavigate = useCallback"),
+    source.indexOf("  const handleLeafChange = useCallback"),
+  );
+  const leafSource = source.slice(
+    source.indexOf("  const handleLeafChange = useCallback"),
+    source.indexOf("  const handleModelChange = useCallback"),
+  );
+
+  assert.match(navigateSource, /await sendAgentCommand\(sid, \{ type: "navigate_tree", targetId: entryId \}\)/);
+  assert.match(navigateSource, /catch \(error\) \{[\s\S]*?return;?[\s\S]*?\}/);
+  assert.ok(
+    navigateSource.indexOf("setActiveLeafId(entryId)") > navigateSource.indexOf("navigate_tree"),
+    "leaf must switch only after the server accepted the navigation",
+  );
+  assert.match(leafSource, /await sendAgentCommand\(sid, \{ type: "navigate_tree", targetId: leafId \}\)/);
+  assert.match(leafSource, /setActiveLeafId\(/);
+});
+
 test("a rejected submission preserves a different run reported by the server", () => {
   const reconcileSource = source.slice(
     source.indexOf("  const reconcileAgentState = useCallback"),

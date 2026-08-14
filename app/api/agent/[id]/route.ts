@@ -1,5 +1,6 @@
 import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession } from "@/lib/rpc-manager";
+import { nextPromptGeneration } from "@/lib/prompt-generation";
 
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
@@ -19,6 +20,9 @@ export async function POST(
     if (existing?.isAlive()) {
       const result = await existing.send(body);
       promptAccepted = body.type === "prompt";
+      if (body.type === "prompt") {
+        return Response.json({ success: true, data: { promptGeneration: nextPromptGeneration(id) } });
+      }
       return Response.json({ success: true, data: result });
     }
 
@@ -35,6 +39,9 @@ export async function POST(
     const { session } = await startRpcSession(id, filePath, undefined);
     const result = await session.send(body);
     promptAccepted = body.type === "prompt";
+    if (body.type === "prompt") {
+      return Response.json({ success: true, data: { promptGeneration: nextPromptGeneration(id) } });
+    }
 
     return Response.json({ success: true, data: result });
   } catch (error) {

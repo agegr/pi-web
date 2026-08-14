@@ -86,7 +86,7 @@ lib/
 
 components/
   AppShell.tsx        layout + URL state + tab management
-  CodexSidebar.tsx    Codex-style project/session navigation + FileExplorer
+  CodexSidebar.tsx    Codex-style project/session navigation
   ChatWindow.tsx      chat composition + completion sound wrapper
   ChatInput.tsx       input bar + model/thinking/tools/compact controls
   MessageView.tsx     renders one message (user/assistant/toolCall/toolResult)
@@ -96,7 +96,7 @@ components/
   ModelsConfig.tsx    modal for editing models.json (opened from sidebar bottom)
   PluginsConfig.tsx   modal for installed package plugins
   SkillsConfig.tsx    modal for loaded/search/installable skills
-  FileExplorer.tsx    file tree inside sidebar
+  (FileExplorer.tsx removed — sidebar no longer mounts a file tree)
   FileIcons.tsx       file icon helpers
   FileViewer.tsx      file content in a tab
   TabBar.tsx          tab bar (Chat + open file tabs)
@@ -118,10 +118,8 @@ hooks/
 - `globalThis` survives Vite/TanStack hot reload; plain module-level Map does not
 - Idle timeout: 10 minutes. Concurrent `startRpcSession()` calls share a single start Promise (`globalThis.__piStartLocks`)
 
-### Fork must destroy the wrapper immediately
-`AgentSession.fork()` **mutates the wrapper's inner state in-place** — after fork, `inner.sessionId` is the *new* session's id. If the wrapper stays alive in the registry under the old id, the next request gets the already-forked state and subsequent forks produce a corrupt `parentSession` chain.
-
-**Fix**: `send("fork")` captures `newSessionId`, then calls `this.destroy()` before returning. The next request for the original session reloads a clean AgentSession from the original file.
+### Fork copies the file, then shuts the wrapper down
+`send("fork")` does **not** call `AgentSession.fork()` (it mutates `inner.sessionId` in place and poisons the `parentSession` chain). Instead it copies through `SessionManager.createBranchedSession()` / `newSession({ parentSession })`, captures the new session id, then calls `this.shutdown()` — which flushes any in-flight turn (`await inner.abort()`) before disposing. The next request for the original session reloads a clean AgentSession from the original file.
 
 ### Two kinds of branching — don't confuse them
 - **Fork** (Fork button on user message): creates a new independent `.jsonl` file. Shown as a child in the sidebar tree via `parentSession` header field.

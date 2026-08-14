@@ -88,12 +88,23 @@ export async function PATCH(
     if (typeof name !== "string") {
       return Response.json({ error: "name is required" }, { status: 400 });
     }
-    const filePath = await resolveSessionPath(id);
-    if (!filePath) {
-      return Response.json({ error: "Session not found" }, { status: 404 });
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      return Response.json({ error: "name is required" }, { status: 400 });
     }
-    const sm = SessionManager.open(filePath);
-    sm.appendSessionInfo(name.trim());
+    // A live wrapper owns the in-memory session tree; a file-level append would
+    // be invisible to it and could be dropped by its next compact/rewrite.
+    const rpc = getRpcSession(id);
+    if (rpc?.isAlive()) {
+      await rpc.send({ type: "set_session_name", name: trimmedName });
+    } else {
+      const filePath = await resolveSessionPath(id);
+      if (!filePath) {
+        return Response.json({ error: "Session not found" }, { status: 404 });
+      }
+      const sm = SessionManager.open(filePath);
+      sm.appendSessionInfo(trimmedName);
+    }
     invalidateSessionListCache();
     return Response.json({ ok: true });
   } catch (error) {
@@ -110,39 +121,55 @@ export async function DELETE(
   try {
     const filePath = await resolveSessionPath(id);
     if (!filePath) {
+      // Transient session that has not been persisted yet: stop the live
+      // wrapper so it cannot outlive the delete or later flush a ghost file.
+      await getRpcSession(id)?.shutdown();
+      invalidateSessionPathCache(id);
+      invalidateSessionListCache();
+      return Response.json({ ok: true });
+    }
+    // The path cache is an index, not an ownership record. Verify the header
+    // actually belongs to this id before unlinking or reparenting anything.
+    if (readSessionHeader(filePath)?.id !== id) {
       return Response.json({ error: "Session not found" }, { status: 404 });
     }
 
     // Read only the bounded header before deleting.
     const parentSessionPath = readSessionHeader(filePath)?.parentSession;
 
-    // Re-attach all direct children to this session's parent (cascade re-parent)
-    // Scan sibling files in the same directory
+    // Stop live child writers before rewriting their files, then re-attach
+    // them to this session's parent (cascade re-parent).
     const targetPathKey = sessionPathKey(filePath);
     const dir = dirname(filePath);
+    const childPaths: string[] = [];
     try {
       const files = readdirSync(dir).filter(
         (file) => file.endsWith(".jsonl") && sessionPathKey(join(dir, file)) !== targetPathKey,
       );
       for (const file of files) {
         const childPath = join(dir, file);
-        try {
-          const content = readFileSync(childPath, "utf8");
-          const lines = content.split("\n");
-          const header = JSON.parse(lines[0]) as { type?: string; parentSession?: string };
-          if (
-            header.type === "session" &&
-            header.parentSession &&
-            sessionPathKey(header.parentSession) === targetPathKey
-          ) {
-            // Rewrite header with new parentSession
-            header.parentSession = parentSessionPath;
-            lines[0] = JSON.stringify(header);
-            writeFileSync(childPath, lines.join("\n"));
-          }
-        } catch { /* skip malformed */ }
+        const header = readSessionHeader(childPath);
+        if (
+          header?.parentSession &&
+          sessionPathKey(header.parentSession) === targetPathKey
+        ) {
+          childPaths.push(childPath);
+          const childId = header.id || await resolveSessionIdByPath(childPath);
+          if (childId) await getRpcSession(childId)?.shutdown();
+        }
       }
     } catch { /* skip if dir unreadable */ }
+
+    for (const childPath of childPaths) {
+      try {
+        const content = readFileSync(childPath, "utf8");
+        const lines = content.split("\n");
+        const header = JSON.parse(lines[0]) as { type?: string; parentSession?: string };
+        header.parentSession = parentSessionPath;
+        lines[0] = JSON.stringify(header);
+        writeFileSync(childPath, lines.join("\n"));
+      } catch { /* skip malformed */ }
+    }
 
     await getRpcSession(id)?.shutdown();
     unlinkSync(filePath);

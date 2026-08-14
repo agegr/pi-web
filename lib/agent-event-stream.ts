@@ -3,6 +3,7 @@ import {
   toClientAgentEvent,
   type AgentEventLike,
 } from "./agent-event-wire";
+import { getPromptGeneration } from "./prompt-generation";
 
 export interface AgentEventStreamSession {
   readonly isStreaming: boolean;
@@ -62,7 +63,11 @@ export function createAgentEventStream(
       const forwardEvent = (event: AgentEventLike, snapshot: unknown) => {
         if (isEventIncludedInSnapshot(event, snapshot)) return;
         const clientEvent = toClientAgentEvent(event);
-        if (clientEvent) encode(clientEvent);
+        if (clientEvent) {
+          // Stamp the generation that was current when the event was emitted;
+          // the client drops terminal events older than its latest prompt.
+          encode({ ...clientEvent, promptGeneration: getPromptGeneration(sessionId) });
+        }
       };
 
       const publishSession = async () => {

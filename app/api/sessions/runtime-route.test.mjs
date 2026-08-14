@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { createJiti } from "jiti";
 
@@ -12,8 +15,9 @@ const jiti = createJiti(import.meta.url, {
   interopDefault: true,
   moduleCache: false,
 });
-const { GET: getSessionDetail } = await jiti.import("./[id]/route.ts");
+const { GET: getSessionDetail, DELETE: deleteSession } = await jiti.import("./[id]/route.ts");
 const { GET: getSessionState } = await jiti.import("./[id]/state/route.ts");
+const { cacheSessionPath } = await jiti.import("../../../lib/session-reader.ts");
 
 test("session listing merges live registry snapshots and honors force refresh", () => {
   assert.match(listRoute, /searchParams\.get\("force"\) === "1"/);
@@ -92,4 +96,117 @@ test("live detail and state routes work without a persisted JSONL file", async (
     running: true,
     state: { isStreaming: true },
   });
+});
+
+test("delete shuts down a transient session that has no file yet", async (t) => {
+  const previousRegistry = globalThis.__piSessions;
+  const id = "transient-delete-test";
+  const calls = [];
+  globalThis.__piSessions = new Map([
+    [id, { isAlive: () => true, shutdown: async () => { calls.push("shutdown"); } }],
+  ]);
+  t.after(() => {
+    globalThis.__piSessions = previousRegistry;
+  });
+
+  const response = await deleteSession(
+    new Request(`http://localhost/api/sessions/${id}`, { method: "DELETE" }),
+    { params: Promise.resolve({ id }) },
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(calls, ["shutdown"]);
+});
+
+test("delete refuses when the cached path does not belong to the requested id", async (t) => {
+  const previousRegistry = globalThis.__piSessions;
+  const dir = mkdtempSync(join(tmpdir(), "pi-web-session-mismatch-"));
+  const otherId = "some-other-session";
+  const path = join(dir, `${otherId}.jsonl`);
+  writeFileSync(path, `${JSON.stringify({
+    type: "session", version: 3, id: otherId, timestamp: "2026-08-14T00:00:00.000Z", cwd: dir,
+  })}\n`);
+  const requestedId = "requested-session";
+  cacheSessionPath(requestedId, path);
+  globalThis.__piSessions = new Map();
+  t.after(() => {
+    globalThis.__piSessions = previousRegistry;
+  });
+
+  const response = await deleteSession(
+    new Request(`http://localhost/api/sessions/${requestedId}`, { method: "DELETE" }),
+    { params: Promise.resolve({ id: requestedId }) },
+  );
+  assert.equal(response.status, 404);
+  assert.ok(existsSync(path), "mismatched file must not be unlinked");
+});
+
+test("rename goes through the live wrapper when one exists", async (t) => {
+  const previousRegistry = globalThis.__piSessions;
+  const dir = mkdtempSync(join(tmpdir(), "pi-web-session-rename-"));
+  const id = "rename-live-test";
+  const path = join(dir, `${id}.jsonl`);
+  writeFileSync(path, `${JSON.stringify({
+    type: "session", version: 3, id, timestamp: "2026-08-14T00:00:00.000Z", cwd: dir,
+  })}\n`);
+  cacheSessionPath(id, path);
+  const sent = [];
+  globalThis.__piSessions = new Map([
+    [id, { isAlive: () => true, send: async (command) => { sent.push(command); return null; } }],
+  ]);
+  t.after(() => {
+    globalThis.__piSessions = previousRegistry;
+  });
+
+  const { PATCH: patchSession } = await jiti.import("./[id]/route.ts");
+  const response = await patchSession(
+    new Request(`http://localhost/api/sessions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "new name" }),
+    }),
+    { params: Promise.resolve({ id }) },
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(sent, [{ type: "set_session_name", name: "new name" }]);
+  assert.doesNotMatch(readFileSync(path, "utf8"), /session_info/);
+});
+
+test("delete shuts down live child sessions before rewriting their files", async (t) => {
+  const previousRegistry = globalThis.__piSessions;
+  const dir = mkdtempSync(join(tmpdir(), "pi-web-session-delete-"));
+  const parentId = "parent-delete-test";
+  const childId = "child-delete-test";
+  const parentPath = join(dir, `${parentId}.jsonl`);
+  const childPath = join(dir, `${childId}.jsonl`);
+  writeFileSync(parentPath, `${JSON.stringify({
+    type: "session", version: 3, id: parentId, timestamp: "2026-08-14T00:00:00.000Z", cwd: dir,
+  })}\n`);
+  writeFileSync(childPath, `${JSON.stringify({
+    type: "session", version: 3, id: childId, timestamp: "2026-08-14T00:00:01.000Z", cwd: dir,
+    parentSession: parentPath,
+  })}\n${JSON.stringify({
+    type: "message", id: "m1", parentId: null, timestamp: "2026-08-14T00:00:02.000Z",
+    message: { role: "user", content: "keep me" },
+  })}\n`);
+  cacheSessionPath(parentId, parentPath);
+  cacheSessionPath(childId, childPath);
+
+  const order = [];
+  globalThis.__piSessions = new Map([
+    [childId, { isAlive: () => true, shutdown: async () => { order.push("child-shutdown"); } }],
+    [parentId, { isAlive: () => true, shutdown: async () => { order.push("parent-shutdown"); } }],
+  ]);
+  t.after(() => {
+    globalThis.__piSessions = previousRegistry;
+  });
+
+  const response = await deleteSession(
+    new Request(`http://localhost/api/sessions/${parentId}`, { method: "DELETE" }),
+    { params: Promise.resolve({ id: parentId }) },
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(order, ["child-shutdown", "parent-shutdown"]);
+  const childHeader = JSON.parse(readFileSync(childPath, "utf8").split("\n")[0]);
+  assert.equal(childHeader.parentSession, undefined);
+  assert.match(readFileSync(childPath, "utf8"), /keep me/);
 });

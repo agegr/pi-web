@@ -391,6 +391,15 @@ export class AgentSessionWrapper {
   }
 
   async send(command: Record<string, unknown>): Promise<unknown> {
+    if (this.shutdownPromise) {
+      // The wrapper is being torn down (idle timeout, delete, fork). Mutating
+      // commands would start work that the imminent dispose() would abort;
+      // refuse them so the caller falls back to a fresh wrapper.
+      const type = command.type as string;
+      if (type !== "get_state" && type !== "get_session_stats" && type !== "get_last_assistant_text") {
+        throw new Error("Session is shutting down");
+      }
+    }
     this.resetIdleTimer();
     const type = command.type as string;
     if (this.shouldWaitForExtensions(type)) await this.waitForExtensionsBound();
@@ -809,6 +818,18 @@ export class AgentSessionWrapper {
             "[pi-web] extension binding failed before session shutdown:",
             error instanceof Error ? error.message : error,
           );
+        }
+        // Flush any in-flight turn (including tool results) before disposing;
+        // dispose() aborts synchronously and would drop unpersisted output.
+        if (this.isRunning()) {
+          try {
+            await this.inner.abort();
+          } catch (error) {
+            console.error(
+              "[pi-web] failed to abort the running turn during shutdown:",
+              error instanceof Error ? error.message : error,
+            );
+          }
         }
         await this.inner.extensionRunner.emit?.({ type: "session_shutdown", reason: "quit" });
       } finally {
@@ -1664,27 +1685,37 @@ export async function startRpcSession(
       ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
     });
 
-    const persistedPreferences = await persistExplicitStartupPreferences(
-      services.settingsManager,
-      {
-        ...(initialModel ? { model: initialModel } : {}),
-        ...(thinkingLevel ? { thinkingLevel } : {}),
-      },
-      {
-        ...(inner.model
-          ? { model: { provider: inner.model.provider, modelId: inner.model.id } }
-          : {}),
-        thinkingLevel: inner.thinkingLevel,
-        supportsThinking: inner.supportsThinking(),
-      },
-    );
-    if (persistedPreferences.modelDefaultChanged) invalidateModelsCache();
+    // Startup after creation can still fail (preferences persist, tool
+    // activation). Dispose the fresh session instead of leaking it without a
+    // registry entry or idle timer.
+    try {
+      const persistedPreferences = await persistExplicitStartupPreferences(
+        services.settingsManager,
+        {
+          ...(initialModel ? { model: initialModel } : {}),
+          ...(thinkingLevel ? { thinkingLevel } : {}),
+        },
+        {
+          ...(inner.model
+            ? { model: { provider: inner.model.provider, modelId: inner.model.id } }
+            : {}),
+          thinkingLevel: inner.thinkingLevel,
+          supportsThinking: inner.supportsThinking(),
+        },
+      );
+      if (persistedPreferences.modelDefaultChanged) invalidateModelsCache();
 
-    // If specific tool names were requested (non-empty), set the active tools to the
-    // requested builtin coding tools PLUS all extension/package tools, so installed
-    // extensions stay usable in Pi Web just like in the `pi` CLI.
-    if (toolNames && toolNames.length > 0) {
-      inner.setActiveToolsByName(withExtensionTools(inner, toolNames));
+      // If specific tool names were requested (non-empty), set the active tools to the
+      // requested builtin coding tools PLUS all extension/package tools, so installed
+      // extensions stay usable in Pi Web just like in the `pi` CLI.
+      if (toolNames && toolNames.length > 0) {
+        inner.setActiveToolsByName(withExtensionTools(inner, toolNames));
+      }
+    } catch (error) {
+      try {
+        inner.dispose();
+      } catch { /* already disposed */ }
+      throw error;
     }
 
     const wrapper = new AgentSessionWrapper(inner);

@@ -338,6 +338,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const newSessionModelOverrideRef = useRef<SelectedModel | null>(null);
   const thinkingLevelOverrideRef = useRef<Exclude<ThinkingLevelOption, "auto"> | null>(null);
   const promptRunIdRef = useRef(0);
+  // Highest prompt generation seen on the SSE wire; terminal events stamped
+  // below this were emitted by a run that ended before a newer prompt started.
+  const lastPromptGenerationRef = useRef(0);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
   const modelSwitchPendingRef = useRef(false);
   const draftKeyAliasesRef = useRef(new Map<string, string>());
@@ -1029,6 +1032,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [agentRunning]);
 
   const handleAgentEvent = useCallback((event: AgentEvent) => {
+    // Drop terminal events stamped with a prompt generation older than the
+    // latest accepted prompt. A run finished while the tab was frozen can flush
+    // its prompt_done/agent_end after the next prompt already started; without
+    // the gate they would settle or overwrite the newer run.
+    const acceptsPromptGeneration = (candidate: AgentEvent): boolean => {
+      const generation = (candidate as { promptGeneration?: unknown }).promptGeneration;
+      if (typeof generation !== "number") return true; // unmarked replay/legacy events pass
+      if (generation < lastPromptGenerationRef.current) return false;
+      lastPromptGenerationRef.current = generation;
+      return true;
+    };
+
     switch (event.type) {
       case "connected": {
         dispatch({ type: "end" });
@@ -1053,7 +1068,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // One logical prompt can emit multiple agent_end events before retrying,
         // compacting, or continuing messages queued by extension handlers.
         // Keep the stream open until prompt_done/agent_settled and the idle grace.
-        if (!agentRunningRef.current) break;
+        if (!agentRunningRef.current || !acceptsPromptGeneration(event)) break;
         setAgentPhase(null);
         setRetryInfo(null);
         dispatch({ type: "end" });
@@ -1076,7 +1091,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "agent_settled": {
         const agentWasActive = sdkAgentActiveRef.current;
         sdkAgentActiveRef.current = false;
-        if (!agentWasActive || rpcPromptPendingRef.current) break;
+        if (!agentWasActive || rpcPromptPendingRef.current || !acceptsPromptGeneration(event)) break;
 
         const sid = sessionIdRef.current;
         const wasRunning = settleUiStage();
@@ -1090,6 +1105,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       case "prompt_done":
         {
+          if (!acceptsPromptGeneration(event)) break;
           const runId = promptRunIdRef.current;
           const promptWasPending = rpcPromptPendingRef.current;
           rpcPromptPendingRef.current = false;
@@ -1302,21 +1318,27 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
         await ensureEventsConnected(sid);
         promptRequestStarted = true;
-        await sendAgentCommand(sid, {
+        const promptResult = await sendAgentCommand<{ promptGeneration?: number } | null>(sid, {
           type: "prompt",
           message,
           ...(piImages?.length ? { images: piImages } : {}),
         });
+        if (typeof promptResult?.promptGeneration === "number") {
+          lastPromptGenerationRef.current = promptResult.promptGeneration;
+        }
         promoteNewSession(1, message);
       } else if (session) {
         sentSessionId = session.id;
         await ensureEventsConnected(session.id);
         promptRequestStarted = true;
-        await sendAgentCommand(session.id, {
+        const promptResult = await sendAgentCommand<{ promptGeneration?: number } | null>(session.id, {
           type: "prompt",
           message,
           ...(piImages?.length ? { images: piImages } : {}),
         });
+        if (typeof promptResult?.promptGeneration === "number") {
+          lastPromptGenerationRef.current = promptResult.promptGeneration;
+        }
       } else {
         throw new Error("No active session for the prompt");
       }
@@ -1429,21 +1451,32 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (bashRunningRef.current) return;
     const sid = sessionIdRef.current;
     if (!sid) return;
-    sendAgentCommand(sid, { type: "navigate_tree", targetId: entryId }).catch(() => {});
+    try {
+      await sendAgentCommand(sid, { type: "navigate_tree", targetId: entryId });
+    } catch (error) {
+      console.error("Branch switch failed:", error);
+      return;
+    }
     setActiveLeafId(entryId);
     await loadContext(sid, entryId);
   }, [loadContext]);
 
   const handleLeafChange = useCallback(async (leafId: string | null) => {
     if (bashRunningRef.current) return;
-    setActiveLeafId(leafId);
     const sid = sessionIdRef.current;
     if (!sid) return;
+    const previousLeafId = activeLeafId;
+    setActiveLeafId(leafId);
     await loadContext(sid, leafId);
     if (leafId) {
-      sendAgentCommand(sid, { type: "navigate_tree", targetId: leafId }).catch(() => {});
+      try {
+        await sendAgentCommand(sid, { type: "navigate_tree", targetId: leafId });
+      } catch (error) {
+        console.error("Branch switch failed:", error);
+        setActiveLeafId(previousLeafId);
+      }
     }
-  }, [loadContext]);
+  }, [activeLeafId, loadContext]);
 
   const handleModelChange = useCallback(async (provider: string, modelId: string) => {
     if (isNew) {
