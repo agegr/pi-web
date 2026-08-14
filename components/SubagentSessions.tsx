@@ -307,7 +307,62 @@ export function SubagentTree({
   );
 }
 
+
+/** Recursively counts every subagent node in the root tree. */
+export function countSubagentNodes(nodes: SubagentTreeNode[]): number {
+  let count = 0;
+  for (const node of nodes) {
+    count += 1 + countSubagentNodes(node.children);
+  }
+  return count;
+}
+
+/** Finds a node by its durable session id anywhere in the tree. */
+export function findSubagentNode(
+  nodes: SubagentTreeNode[],
+  sessionId: string,
+): SubagentTreeNode | null {
+  for (const node of nodes) {
+    if (node.sessionId === sessionId) return node;
+    const found = findSubagentNode(node.children, sessionId);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Ancestor chain from the root to the selected node, from the tree alone. */
+export function buildBreadcrumbItems(
+  nodes: SubagentTreeNode[],
+  selectedSessionId: string,
+  rootLabel: string,
+): BreadcrumbItem[] {
+  const selected = findSubagentNode(nodes, selectedSessionId);
+  if (!selected) return [];
+  const chain: BreadcrumbItem[] = [{ id: "", label: rootLabel }];
+  const byId = new Map<string, SubagentTreeNode>();
+  const collect = (list: SubagentTreeNode[]) => {
+    for (const node of list) {
+      byId.set(node.sessionId ?? "", node);
+      collect(node.children);
+    }
+  };
+  collect(nodes);
+  const path: SubagentTreeNode[] = [selected];
+  let cursor = selected.parentSessionId ? byId.get(selected.parentSessionId) : undefined;
+  while (cursor) {
+    path.unshift(cursor);
+    cursor = cursor.parentSessionId ? byId.get(cursor.parentSessionId) : undefined;
+  }
+  for (const node of path) {
+    if (node.sessionId !== null) {
+      chain.push({ id: node.sessionId, label: node.task });
+    }
+  }
+  return chain;
+}
+
 export interface BreadcrumbItem {
+
   id: string;
   label: string;
 }

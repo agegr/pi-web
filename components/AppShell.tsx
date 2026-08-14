@@ -26,6 +26,9 @@ import {
 } from "lucide-react";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { CodexSidebar } from "./CodexSidebar";
+import { useSubagentTree } from "@/hooks/useSubagentTree";
+import { SessionBreadcrumb, SubagentComposer, SubagentTree, buildBreadcrumbItems, countSubagentNodes, findSubagentNode } from "./SubagentSessions";
+import type { SubagentTreeNode } from "@/lib/api-types";
 import { ChatWindow } from "./ChatWindow";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
@@ -80,6 +83,7 @@ type AutoNameStatus =
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
 // 44px touch target for mobile top-bar buttons (Android/iOS tap-target standard).
 const TOP_BAR_ICON_BUTTON_SIZE_MOBILE = 44;
+
 export function AppShell() {
   const navigate = useNavigate({ from: "/" });
   const search = useSearch({ from: "/" });
@@ -261,7 +265,8 @@ export function AppShell() {
   }, []);
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | null>(null);
+  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | "subagents" | null>(null);
+  const subagentsAnchorRef = useRef<HTMLButtonElement | null>(null);
   // Android back button/gesture: while a mobile overlay (drawer, file panel,
   // settings, top panel, toolbar menu) is open, trap the history so back closes
   // the topmost overlay instead of leaving the app. Each popstate closes one
@@ -448,6 +453,15 @@ export function AppShell() {
   useEffect(() => {
     if (!activeTopPanel || !topBarRef.current) return;
     const update = () => {
+      if (activeTopPanel === "subagents" && subagentsAnchorRef.current) {
+        const rect = subagentsAnchorRef.current.getBoundingClientRect();
+        const width = isMobile ? Math.min(window.innerWidth - 16, 440) : Math.min(440, window.innerWidth - 24);
+        const left = isMobile
+          ? 8
+          : Math.max(8, Math.min(rect.left, Math.max(8, window.innerWidth - width - 8)));
+        setTopPanelPos({ top: rect.bottom + 6, left, width });
+        return;
+      }
       const topBarRect = topBarRef.current!.getBoundingClientRect();
       setTopPanelPos({ top: topBarRect.bottom, left: topBarRect.left, width: topBarRect.width });
     };
@@ -699,6 +713,98 @@ export function AppShell() {
       });
     }
   }, [activeCwd, invalidateWorkspaceRestore, navigate, isMobile, selectedSession]);
+
+  // ---- Subagent tree: root identity, polling, selection --------------------
+  const selectedRootId = selectedSession
+    ? selectedSession.rootSessionId ?? selectedSession.id
+    : null;
+  const childSelected = selectedSession?.sessionRole === "subagent";
+  const subagents = useSubagentTree({
+    rootId: selectedRootId,
+    treeOpen: activeTopPanel === "subagents",
+    childSelected,
+  });
+  const [rootSessionInfo, setRootSessionInfo] = useState<SessionInfo | null>(null);
+  useEffect(() => {
+    setRootSessionInfo(null);
+    if (!selectedRootId) return;
+    void fetch("/api/sessions", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() as Promise<{ sessions: SessionInfo[] }> : null))
+      .then((data) => {
+        const root = data?.sessions.find((session) => session.id === selectedRootId);
+        if (root) setRootSessionInfo(root);
+      })
+      .catch(() => {});
+  }, [selectedRootId]);
+
+  const resolveSessionById = useCallback(async (sessionId: string): Promise<SessionInfo | null> => {
+    const response = await fetch("/api/sessions", { cache: "no-store" });
+    if (!response.ok) return null;
+    const data = await response.json() as { sessions: SessionInfo[] };
+    return data.sessions.find((session) => session.id === sessionId) ?? null;
+  }, []);
+
+  const handleSubagentSelect = useCallback((node: SubagentTreeNode) => {
+    if (!node.sessionId) return;
+    void resolveSessionById(node.sessionId).then((session) => {
+      if (session) handleSelectSession(session);
+    });
+    if (isMobile) setActiveTopPanel(null);
+  }, [handleSelectSession, isMobile, resolveSessionById]);
+
+  const handleBreadcrumbSelect = useCallback((sessionId: string) => {
+    void resolveSessionById(sessionId).then((session) => {
+      if (session) handleSelectSession(session);
+    });
+  }, [handleSelectSession, resolveSessionById]);
+
+  // Keep the sidebar inventory fresh when a new durable child first appears.
+  const knownDurableIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!subagents.data) return;
+    let changed = false;
+    const visit = (nodes: SubagentTreeNode[]) => {
+      for (const node of nodes) {
+        if (node.sessionId && !knownDurableIdsRef.current.has(node.sessionId)) {
+          knownDurableIdsRef.current.add(node.sessionId);
+          changed = true;
+        }
+        visit(node.children);
+      }
+    };
+    visit(subagents.data.nodes);
+    if (changed) setRefreshKey((key) => key + 1);
+  }, [subagents.data]);
+
+  // When the selected child disappears from the tree, return to the nearest
+  // surviving durable ancestor (or the root).
+  const recoveredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!childSelected || !selectedSession || !subagents.data) return;
+    if (findSubagentNode(subagents.data.nodes, selectedSession.id)) {
+      recoveredRef.current = null;
+      return;
+    }
+    if (recoveredRef.current === selectedSession.id) return;
+    recoveredRef.current = selectedSession.id;
+    void (async () => {
+      const response = await fetch("/api/sessions", { cache: "no-store" });
+      if (!response.ok) return;
+      const sessions = (await response.json() as { sessions: SessionInfo[] }).sessions;
+      const root = sessions.find((session) => session.id === selectedRootId) ?? null;
+      let cursor = sessions.find((session) => session.id === selectedSession?.parentSessionId) ?? null;
+      while (cursor) {
+        if (findSubagentNode(subagents.data?.nodes ?? [], cursor.id)) {
+          handleSelectSession(cursor);
+          return;
+        }
+        if (cursor.id === selectedRootId) break;
+        cursor = sessions.find((session) => session.id === cursor?.parentSessionId) ?? null;
+      }
+      if (root) handleSelectSession(root);
+    })();
+  }, [childSelected, selectedSession, selectedRootId, subagents.data, handleSelectSession]);
+
 
   const handleNewSession = useCallback((sessionId: string, cwd: string) => {
     invalidateWorkspaceRestore();
@@ -1023,6 +1129,7 @@ export function AppShell() {
     || selectedSession?.firstMessage
     || activeCwdName
     || translate("i18n.newSession");
+  const subagentCount = subagents.data ? countSubagentNodes(subagents.data.nodes) : 0;
   const taskRunning = Boolean(selectedSession && runningSessionIds.has(selectedSession.id));
 
   useEffect(() => {
@@ -1039,7 +1146,7 @@ export function AppShell() {
   const sidebarContent = (
     <>
       <CodexSidebar
-        selectedSessionId={selectedSession?.id ?? null}
+        selectedSessionId={selectedRootId ?? selectedSession?.id ?? null}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
         initialSessionId={initialSessionId}
@@ -1740,6 +1847,15 @@ export function AppShell() {
               onOpenSystem={() => toggleTopPanel("system", true)}
               onToggleFiles={handleRightPanelToggle}
               filePanelOpen={rightPanelOpen}
+              subagentCount={subagentCount}
+              subagentsOpen={activeTopPanel === "subagents"}
+              subagentsLive={subagents.data?.rpcAvailable === true}
+              onOpenSubagents={(anchor) => {
+                topPanelReturnFocusRef.current = anchor;
+                subagentsAnchorRef.current = anchor;
+                if (isMobile) setSidebarOpen(false);
+                setActiveTopPanel((current) => current === "subagents" ? null : "subagents");
+              }}
             />
             {renderProjectTrustWarning(false)}
             <BranchNavigator
@@ -1767,6 +1883,27 @@ export function AppShell() {
               overflowY: "auto",
               zIndex: 500,
             }}>
+              {activeTopPanel === "subagents" && subagents.data ? (
+                <div style={{
+                  background: "var(--bg-panel)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  boxShadow: "0 12px 32px rgba(0,0,0,0.14)",
+                  overflow: "hidden",
+                  marginBottom: 8,
+                }}>
+                  <SubagentTree
+                    nodes={subagents.data.nodes}
+                    selectedSessionId={childSelected && selectedSession ? selectedSession.id : null}
+                    callbacks={{
+                      onSelect: handleSubagentSelect,
+                      onControl: async (action, childSessionId, message) => {
+                        await subagents.control(action, childSessionId, message);
+                      },
+                    }}
+                  />
+                </div>
+              ) : null}
               {activeTopPanel === "system" && (
                 <div style={{
                   background: "var(--bg-panel)",
@@ -1994,10 +2131,21 @@ export function AppShell() {
         {/* Chat content */}
         <div className="app-center-column" style={{ flex: 1, overflow: "hidden", position: "relative" }}>
           {showChat ? (
-            <ChatWindow
+            <>
+              {childSelected && selectedSession && subagents.data ? (
+                <SessionBreadcrumb
+                  items={buildBreadcrumbItems(
+                    subagents.data.nodes,
+                    selectedSession.id,
+                    rootSessionInfo?.name ?? rootSessionInfo?.firstMessage ?? selectedRootId ?? translate("i18n.newSession"),
+                  )}
+                  onSelect={handleBreadcrumbSelect}
+                />
+              ) : null}
+              <ChatWindow
               key={sessionKey}
               session={selectedSession}
-              sessionRunning={Boolean(selectedSession && runningSessionIds.has(selectedSession.id))}
+              sessionRunning={childSelected ? false : Boolean(selectedSession && runningSessionIds.has(selectedSession.id))}
               newSessionCwd={effectiveNewSessionCwd}
               newSessionDraftKey={newSessionDraftKey}
               onAgentEnd={handleAgentEnd}
@@ -2021,7 +2169,33 @@ export function AppShell() {
               soundEnabled={soundEnabled}
               playDoneSound={playDoneSound}
               unlockAudio={unlockAudio}
+              subagentMode={childSelected && selectedSession ? {
+                transcriptRefreshGeneration: subagents.transcriptRefreshGeneration,
+                composer: (() => {
+                  const selectedNode = findSubagentNode(subagents.data?.nodes ?? [], selectedSession.id);
+                  if (!selectedNode) {
+                    return (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "10px 16px", borderTop: "1px solid var(--border)", color: "var(--text-muted)", fontSize: 12 }}>
+                        {translate("subagents.readOnly")}
+                      </div>
+                    );
+                  }
+                  return (
+                    <SubagentComposer
+                      node={selectedNode}
+                      rpcAvailable={subagents.data?.rpcAvailable === true}
+                      onControl={async (action, message) => {
+                        await subagents.control(action, selectedSession.id, message);
+                      }}
+                      onInterrupt={async () => {
+                        await subagents.control("interrupt", selectedSession.id);
+                      }}
+                    />
+                  );
+                })(),
+              } : undefined}
             />
+            </>
           ) : initialCwdStatus === "validating" ? (
             <div
               role="status"
