@@ -129,7 +129,7 @@ export function useTheme() {
     };
 
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    const supportsVT = typeof document.startViewTransition === "function";
+    const supportsVT = typeof (document as Document & { startViewTransition?: unknown }).startViewTransition === "function";
 
     if (!supportsVT || reduceMotion) {
       apply();
@@ -143,7 +143,11 @@ export function useTheme() {
       Math.max(y, window.innerHeight - y),
     );
 
-    const transition = document.startViewTransition(apply);
+    const transition = (document as Document & { startViewTransition?: (cb: () => void) => { ready: Promise<void> } }).startViewTransition?.(apply);
+    if (!transition) {
+      apply();
+      return;
+    }
     transition.ready
       .then(() => {
         document.documentElement.animate(

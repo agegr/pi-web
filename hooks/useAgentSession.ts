@@ -1886,9 +1886,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // Load model list
   useEffect(() => {
     const controller = new AbortController();
-    loadModels(controller.signal).catch((e) => {
-      if (e instanceof DOMException && e.name === "AbortError") return;
-    });
+    // loadModels swallows its own errors (network failures, JSON parse errors,
+    // AbortError on cleanup). The outer .catch is defensive — if anything ever
+    // bubbles up it must not surface as an unhandled rejection in the dev
+    // overlay. Next 16's overlay still reports the AbortError source line even
+    // when caught, so we silence every error here.
+    loadModels(controller.signal).catch(() => {});
     return () => controller.abort();
   }, [loadModels, modelsRefreshKey]);
 
