@@ -377,6 +377,40 @@ test("POST success returns only the public DTO and never the raw rpc control res
   assert.doesNotMatch(JSON.stringify(body), /asyncDir|sessionFile|transcriptPath|capabilityToken|controlInbox|intercomTarget/);
 });
 
+test("POST returns the changed tree snapshot after control and never the raw rpc result", async () => {
+  const bridge = new FakeBridge();
+  bridge.statusReply = {
+    version: 1,
+    entries: [{ runId: "317e1ca0", index: 1, agent: "worker", state: "running", startedAt: 1000, updatedAt: 1100 }],
+    total: 1,
+    omitted: 0,
+  };
+  const { GET, POST } = createSubagentHandlers(makeDeps(bridge));
+  const params = Promise.resolve({ id: "root" });
+
+  const before = await json(await GET(new Request("http://x/"), { params }));
+  assert.equal(before.nodes[0].state, "running");
+
+  bridge.statusReply = {
+    version: 1,
+    entries: [{ runId: "317e1ca0", index: 1, agent: "worker", state: "paused", startedAt: 1000, updatedAt: 1200 }],
+    total: 1,
+    omitted: 0,
+  };
+  const response = await POST(new Request("http://x/", {
+    method: "POST",
+    body: JSON.stringify({ childSessionId: "child", action: "interrupt" }),
+  }), { params });
+  assert.equal(response.status, 200);
+  const body = await json(response);
+  assert.equal(body.success, true);
+  assert.equal(body.data.action, "interrupt");
+  assert.equal(body.data.childSessionId, "child");
+  assert.equal(body.data.tree.nodes[0].sessionId, "child");
+  assert.equal(body.data.tree.nodes[0].state, "paused");
+  assert.equal(body.data.control, undefined);
+});
+
 test("POST never exposes spawn, stop, retry, or bulk actions", async () => {
   const source = await (await import("node:fs/promises")).readFile(new URL("./route.ts", import.meta.url), "utf8");
   assert.doesNotMatch(source, /"spawn"/);

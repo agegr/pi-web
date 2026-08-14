@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SubagentLifecycleState, SubagentTreeNode, SubagentTreeResponse } from "@/lib/api-types";
+import type { SubagentLifecycleState, SubagentTreeNode, SubagentTreeResponse, SubagentControlResponse } from "@/lib/api-types";
 
 // ============================================================================
 // Root-scoped subagent tree polling and controls.
@@ -134,6 +134,17 @@ export function useSubagentTree(input: {
     hasActiveDescendant: hasActiveDescendant(data?.nodes),
   });
 
+  // Invalidate any in-flight request for a previous root and clear its visible
+  // state so stale responses can never publish for the newly selected root.
+  useEffect(() => {
+    generationRef.current += 1;
+    inFlightRef.current = null;
+    dataRef.current = null;
+    setData(null);
+    setStale(false);
+    setError(null);
+  }, [rootId]);
+
   // Immediate refresh on root change; a single interval while eligible.
   useEffect(() => {
     if (!rootId) return;
@@ -145,11 +156,15 @@ export function useSubagentTree(input: {
     return () => clearInterval(timer);
   }, [rootId, pollEligible, refresh]);
 
-  // Clear stale state for a different root.
-  useEffect(() => {
+  // The server's POST response carries the post-control tree; adopt it directly
+  // instead of issuing a second GET. Transcript generation advances exactly as
+  // a successful refresh would.
+  const adoptSnapshot = useCallback((tree: SubagentTreeResponse): void => {
+    setTranscriptRefreshGeneration((current) => nextTranscriptGeneration(dataRef.current, tree, current));
+    setData(tree);
     setStale(false);
     setError(null);
-  }, [rootId]);
+  }, []);
 
   const control = useCallback(async (
     action: "steer" | "interrupt" | "resume",
@@ -171,8 +186,13 @@ export function useSubagentTree(input: {
       throw new Error(body.error ?? `HTTP ${response.status}`);
     }
     // The server response is authoritative; never mutate lifecycle locally.
-    await refresh();
-  }, [rootId, refresh]);
+    const controlBody = body as SubagentControlResponse;
+    if (controlBody.data.tree) {
+      adoptSnapshot(controlBody.data.tree);
+    } else {
+      await refresh();
+    }
+  }, [rootId, refresh, adoptSnapshot]);
 
   return {
     data,
