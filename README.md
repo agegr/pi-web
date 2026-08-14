@@ -17,7 +17,7 @@ Requires Node.js 22.19.0 or newer. Pi Web opens the browser when the server is r
 - **Projects and sessions**: keep repositories directly visible, search and reorder projects, archive inactive work, and browse, resume, rename, export, or delete sessions while continuing to use pi-compatible directories and JSONL storage.
 - **Live agent activity**: see which projects are running, follow streamed thinking and tool calls, and receive completion feedback even when work finishes outside the active project.
 - **Session relationships**: keep primary, forked, and subagent sessions understandable; create an independent session from an earlier message or branch inside the current session.
-- **Files beside the conversation**: browse and upload files, inspect Git diffs, and preview source, Markdown, images, audio, PDFs, and DOCX files with automatic refresh.
+- **Files beside the conversation**: open linked files from messages and inspect Git diffs, with previews for source, Markdown, images, audio, PDFs, and DOCX files that refresh automatically.
 - **Git worktrees**: create, switch, and remove linked checkouts from the sidebar while sessions from the same repository stay grouped together.
 - **Focused controls**: inspect context and cost, choose models and reasoning levels, switch tool presets, compact context, navigate branches, and open local file links directly from Markdown.
 
