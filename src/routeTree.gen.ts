@@ -52,6 +52,7 @@ import { Route as ApiSessionsIdAutoNameRouteImport } from './routes/api/sessions
 import { Route as ApiSessionsIdContextRouteImport } from './routes/api/sessions/$id/context'
 import { Route as ApiSessionsIdExportRouteImport } from './routes/api/sessions/$id/export'
 import { Route as ApiSessionsIdStateRouteImport } from './routes/api/sessions/$id/state'
+import { Route as ApiSessionsIdTrajectoryRouteImport } from './routes/api/sessions/$id/trajectory'
 import { Route as ApiSessionsIdEntriesEntryIdThinkingRouteImport } from './routes/api/sessions/$id/entries/$entryId/thinking'
 
 const IndexRoute = IndexRouteImport.update({
@@ -269,6 +270,11 @@ const ApiSessionsIdStateRoute = ApiSessionsIdStateRouteImport.update({
   path: '/state',
   getParentRoute: () => ApiSessionsIdRoute,
 } as any)
+const ApiSessionsIdTrajectoryRoute = ApiSessionsIdTrajectoryRouteImport.update({
+  id: '/trajectory',
+  path: '/trajectory',
+  getParentRoute: () => ApiSessionsIdRoute,
+} as any)
 const ApiSessionsIdEntriesEntryIdThinkingRoute =
   ApiSessionsIdEntriesEntryIdThinkingRouteImport.update({
     id: '/entries/$entryId/thinking',
@@ -320,6 +326,7 @@ export interface FileRoutesByFullPath {
   '/api/sessions/$id/context': typeof ApiSessionsIdContextRoute
   '/api/sessions/$id/export': typeof ApiSessionsIdExportRoute
   '/api/sessions/$id/state': typeof ApiSessionsIdStateRoute
+  '/api/sessions/$id/trajectory': typeof ApiSessionsIdTrajectoryRoute
   '/api/sessions/$id/entries/$entryId/thinking': typeof ApiSessionsIdEntriesEntryIdThinkingRoute
 }
 export interface FileRoutesByTo {
@@ -366,6 +373,7 @@ export interface FileRoutesByTo {
   '/api/sessions/$id/context': typeof ApiSessionsIdContextRoute
   '/api/sessions/$id/export': typeof ApiSessionsIdExportRoute
   '/api/sessions/$id/state': typeof ApiSessionsIdStateRoute
+  '/api/sessions/$id/trajectory': typeof ApiSessionsIdTrajectoryRoute
   '/api/sessions/$id/entries/$entryId/thinking': typeof ApiSessionsIdEntriesEntryIdThinkingRoute
 }
 export interface FileRoutesById {
@@ -413,6 +421,7 @@ export interface FileRoutesById {
   '/api/sessions/$id/context': typeof ApiSessionsIdContextRoute
   '/api/sessions/$id/export': typeof ApiSessionsIdExportRoute
   '/api/sessions/$id/state': typeof ApiSessionsIdStateRoute
+  '/api/sessions/$id/trajectory': typeof ApiSessionsIdTrajectoryRoute
   '/api/sessions/$id/entries/$entryId/thinking': typeof ApiSessionsIdEntriesEntryIdThinkingRoute
 }
 export interface FileRouteTypes {
@@ -461,6 +470,7 @@ export interface FileRouteTypes {
     | '/api/sessions/$id/context'
     | '/api/sessions/$id/export'
     | '/api/sessions/$id/state'
+    | '/api/sessions/$id/trajectory'
     | '/api/sessions/$id/entries/$entryId/thinking'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -507,6 +517,7 @@ export interface FileRouteTypes {
     | '/api/sessions/$id/context'
     | '/api/sessions/$id/export'
     | '/api/sessions/$id/state'
+    | '/api/sessions/$id/trajectory'
     | '/api/sessions/$id/entries/$entryId/thinking'
   id:
     | '__root__'
@@ -553,6 +564,7 @@ export interface FileRouteTypes {
     | '/api/sessions/$id/context'
     | '/api/sessions/$id/export'
     | '/api/sessions/$id/state'
+    | '/api/sessions/$id/trajectory'
     | '/api/sessions/$id/entries/$entryId/thinking'
   fileRoutesById: FileRoutesById
 }
@@ -889,6 +901,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSessionsIdStateRouteImport
       parentRoute: typeof ApiSessionsIdRoute
     }
+    '/api/sessions/$id/trajectory': {
+      id: '/api/sessions/$id/trajectory'
+      path: '/trajectory'
+      fullPath: '/api/sessions/$id/trajectory'
+      preLoaderRoute: typeof ApiSessionsIdTrajectoryRouteImport
+      parentRoute: typeof ApiSessionsIdRoute
+    }
     '/api/sessions/$id/entries/$entryId/thinking': {
       id: '/api/sessions/$id/entries/$entryId/thinking'
       path: '/entries/$entryId/thinking'
@@ -920,6 +939,7 @@ interface ApiSessionsIdRouteChildren {
   ApiSessionsIdContextRoute: typeof ApiSessionsIdContextRoute
   ApiSessionsIdExportRoute: typeof ApiSessionsIdExportRoute
   ApiSessionsIdStateRoute: typeof ApiSessionsIdStateRoute
+  ApiSessionsIdTrajectoryRoute: typeof ApiSessionsIdTrajectoryRoute
   ApiSessionsIdEntriesEntryIdThinkingRoute: typeof ApiSessionsIdEntriesEntryIdThinkingRoute
 }
 
@@ -928,6 +948,7 @@ const ApiSessionsIdRouteChildren: ApiSessionsIdRouteChildren = {
   ApiSessionsIdContextRoute: ApiSessionsIdContextRoute,
   ApiSessionsIdExportRoute: ApiSessionsIdExportRoute,
   ApiSessionsIdStateRoute: ApiSessionsIdStateRoute,
+  ApiSessionsIdTrajectoryRoute: ApiSessionsIdTrajectoryRoute,
   ApiSessionsIdEntriesEntryIdThinkingRoute:
     ApiSessionsIdEntriesEntryIdThinkingRoute,
 }
