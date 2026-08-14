@@ -45,7 +45,7 @@ pi-web
 | 参数或环境变量 | 用途 | 默认值 |
 | --- | --- | --- |
 | `--port <端口>`、`-p <端口>` 或 `PORT` | 服务端口 | `30141` |
-| `--hostname <主机>`、`-H <主机>` 或 `PI_WEB_HOSTNAME` | 监听主机名 | `127.0.0.1` |
+| `--hostname <主机>`、`-H <主机>` 或 `PI_WEB_HOSTNAME` | 监听主机名（如 `127.0.0.1`、`0.0.0.0` 或你的 Tailscale 地址） | `127.0.0.1` |
 | `--no-open` 或 `PI_WEB_NO_OPEN=1` | 不自动打开浏览器 | 自动打开 |
 | `PI_WEB_ALLOWED_HOSTS` | 额外允许的代理或自定义主机名，多个值用逗号分隔，必须精确匹配 | 未设置 |
 | `PI_WEB_PASSWORD` | 启用 HTTP Basic Auth，用户名固定为 `pi` | 不启用认证 |
@@ -58,13 +58,33 @@ pi-web -p 8080 -H 0.0.0.0 --no-open
 
 ### 远程访问
 
-监听非回环地址会暴露一个可执行高权限操作的智能体。在可信局域网中使用时，请设置足够长的随机密码：
+监听非回环地址会暴露一个可执行高权限操作的智能体。在可信局域网中使用时，请设置任意密码（短 PIN 即可）：
 
 ```bash
-PI_WEB_PASSWORD='足够长的随机密码' pi-web --hostname 0.0.0.0
+PI_WEB_PASSWORD='你的密码' pi-web --hostname 0.0.0.0
 ```
 
 Basic Auth 不会加密传输中的密码。不要通过明文 HTTP 将 Pi Web 暴露到互联网；远程访问应使用可信反向代理提供 HTTPS，或通过可信 VPN。如果反向代理传递外部主机名，请把该名称精确加入 `PI_WEB_ALLOWED_HOSTS`。这个白名单不会改变 Pi Web 的监听地址。
+
+### 手机访问
+
+`http://127.0.0.1:30141` 只在运行 Pi Web 的电脑上有效——在手机上，`127.0.0.1` 指的是手机自己。请改用电脑的真实地址：
+
+**同一 Wi-Fi。** 监听局域网地址，然后在手机上打开 `http://<电脑局域网IP>:30141`：
+
+```bash
+PI_WEB_PASSWORD='你的密码' pi-web --hostname 0.0.0.0
+```
+
+**任意网络，通过 Tailscale。** 在电脑和手机上都安装 Tailscale 并加入同一个 tailnet，然后监听 tailnet 地址（用 `tailscale ip -4` 查询本机的 100.x 地址）：
+
+```bash
+PI_WEB_PASSWORD='你的密码' pi-web --hostname 100.x.x.x
+```
+
+在手机上打开 `http://<tailscale-ip>:30141`。Tailscale 客户端：[iOS](https://apps.apple.com/us/app/tailscale/id1470499037) · [Android](https://play.google.com/store/apps/details?id=com.tailscale.ipn)。想分享给别人，把对方邀请进同一个 tailnet，再把地址发给他即可。
+
+监听非回环地址时，务必设置 `PI_WEB_PASSWORD`。首次登录成功后，浏览器会保留一个 30 天的会话 cookie——cookie 过期、清空浏览器数据或换设备时才会再次询问密码。
 
 ### HTTP 代理
 

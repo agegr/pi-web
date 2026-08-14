@@ -43,7 +43,7 @@ For port and hostname, command-line options override the corresponding environme
 | Option or environment variable | Purpose | Default |
 | --- | --- | --- |
 | `--port <port>`, `-p <port>`, or `PORT` | Server port | `30141` |
-| `--hostname <host>`, `-H <host>`, or `PI_WEB_HOSTNAME` | Bind hostname | `127.0.0.1` |
+| `--hostname <host>`, `-H <host>`, or `PI_WEB_HOSTNAME` | Bind hostname (e.g. `127.0.0.1`, `0.0.0.0`, or your Tailscale IP) | `127.0.0.1` |
 | `--no-open` or `PI_WEB_NO_OPEN=1` | Do not open a browser automatically | Browser opens |
 | `PI_WEB_ALLOWED_HOSTS` | Additional exact proxy or custom hostnames, comma-separated | Unset |
 | `PI_WEB_PASSWORD` | Enable HTTP Basic Auth; the username is always `pi` | Authentication disabled |
@@ -56,13 +56,33 @@ pi-web -p 8080 -H 0.0.0.0 --no-open
 
 ### Remote Access
 
-Binding to a non-loopback address exposes an agent that can execute high-privilege actions. On a trusted LAN, require a long random password:
+Binding to a non-loopback address exposes an agent that can execute high-privilege actions. On a trusted LAN, set any password (a short PIN works):
 
 ```bash
-PI_WEB_PASSWORD='a-long-random-password' pi-web --hostname 0.0.0.0
+PI_WEB_PASSWORD='your-password-here' pi-web --hostname 0.0.0.0
 ```
 
 Basic Auth does not encrypt the password in transit. Do not expose Pi Web over plain HTTP to the internet; use HTTPS through a trusted reverse proxy or a trusted VPN. If a reverse proxy sends an external hostname, add that exact name to `PI_WEB_ALLOWED_HOSTS`. This allow-list does not change the address Pi Web binds to.
+
+### Mobile Access
+
+`http://127.0.0.1:30141` only works on the computer running Pi Web — on a phone, `127.0.0.1` means the phone itself. Use the computer's real address instead:
+
+**Same Wi-Fi.** Bind to the LAN and open `http://<computer-LAN-IP>:30141` on the phone:
+
+```bash
+PI_WEB_PASSWORD='your-password-here' pi-web --hostname 0.0.0.0
+```
+
+**Any network, via Tailscale.** Install Tailscale on both machines and join them to the same tailnet. Bind Pi Web to the tailnet address (find yours with `tailscale ip -4`):
+
+```bash
+PI_WEB_PASSWORD='your-password-here' pi-web --hostname 100.x.x.x
+```
+
+Open `http://<tailscale-ip>:30141` on the phone. Tailscale clients: [iOS](https://apps.apple.com/us/app/tailscale/id1470499037) · [Android](https://play.google.com/store/apps/details?id=com.tailscale.ipn). To share with someone else, invite them to the same tailnet and give them the address.
+
+Always set `PI_WEB_PASSWORD` when binding to a non-loopback address. After the first successful sign-in the browser keeps a 30-day session cookie, so the password is only asked again when the cookie expires, the browser data is cleared, or you switch devices.
 
 ### HTTP Proxy
 
