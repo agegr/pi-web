@@ -1173,6 +1173,14 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
   border-radius: 5px;
   color: var(--text-muted);
 }
+.codex-row-error {
+  margin: 2px 8px 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  color: #ef4444;
+  overflow-wrap: anywhere;
+}
 .codex-session-row:hover { color: var(--text); background: var(--bg-hover); }
 .codex-session-row[data-selected="true"] { color: var(--text); background: var(--bg-selected); }
 .codex-session-main {

@@ -59,6 +59,14 @@ test("project sorting supports drag and keyboard-accessible menu actions", () =>
   assert.match(sidebar, /event\.key !== "Enter" && event\.key !== " "/);
 });
 
+test("session delete skips the confirmation dialog and reports errors inline", () => {
+  assert.doesNotMatch(sidebar, /deleteConfirmationOpen/);
+  assert.match(sidebar, /setDeleteError\(null\); void remove\(\)/);
+  assert.match(sidebar, /className="codex-row-error"/);
+  assert.match(sidebar, /role="alert"/);
+  assert.match(styles, /\.codex-row-error \{[^}]*color: var\(--danger\)|#ef4444|rgba\(239,68,68/);
+});
+
 test("keeps the file explorer out of the project sidebar", () => {
   assert.doesNotMatch(sidebar, /<FileExplorer/);
   assert.doesNotMatch(sidebar, /files\.explorer/);

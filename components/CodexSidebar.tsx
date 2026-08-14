@@ -968,7 +968,6 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
   const { t } = useI18n();
   const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
-  const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [value, setValue] = useState("");
@@ -1017,7 +1016,6 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
     try {
       const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      setDeleteConfirmationOpen(false);
       onDeleted();
     } catch (cause) {
       setDeleteError(cause instanceof Error ? cause.message : String(cause));
@@ -1108,33 +1106,14 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
             <div ref={menuRef} className="codex-project-menu codex-project-menu-portal" role="menu" style={{ left: menuPos.left, top: menuPos.top }}>
               <button type="button" role="menuitem" onClick={() => { setValue(title); setRenaming(true); setMenuPos(null); }}><Pencil size={14} aria-hidden="true" />{t("sidebar.rename")}</button>
               <button type="button" role="menuitem" onClick={() => { setMenuPos(null); onArchive(); }}><Archive size={14} aria-hidden="true" />{t("sidebar.archiveSession")}</button>
-              <button type="button" role="menuitem" className="danger" onClick={() => { setMenuPos(null); setDeleteError(null); setDeleteConfirmationOpen(true); }}><Trash2 size={14} aria-hidden="true" />{t("sidebar.delete")}</button>
+              <button type="button" role="menuitem" className="danger" onClick={() => { setMenuPos(null); setDeleteError(null); void remove(); }}><Trash2 size={14} aria-hidden="true" />{t("sidebar.delete")}</button>
             </div>,
             document.body,
           )}
         </div>
       )}
     </div>
-    {deleteConfirmationOpen && (
-      <DialogShell
-        size="confirm"
-        title={t("sidebar.deleteSession", { title })}
-        ariaLabel={t("sidebar.cancel")}
-        onClose={() => setDeleteConfirmationOpen(false)}
-        dismissible={!deleting}
-        backdropDismissible={false}
-        returnFocusRef={menuButtonRef}
-        footer={(
-          <>
-            <button type="button" className="codex-dialog-button" onClick={() => setDeleteConfirmationOpen(false)} disabled={deleting}>{t("sidebar.cancel")}</button>
-            <button type="button" className="codex-dialog-button" data-variant="danger" onClick={() => void remove()} disabled={deleting}>{t("sidebar.delete")}</button>
-          </>
-        )}
-      >
-        <code className="codex-dialog-inset">{title}</code>
-        {deleteError && <div role="alert" className="codex-dialog-error">{deleteError}</div>}
-      </DialogShell>
-    )}
+    {deleteError && <div role="alert" className="codex-row-error">{deleteError}</div>}
     </>
   );
 }
