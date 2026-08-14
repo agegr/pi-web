@@ -131,11 +131,12 @@ test("tree shows the nested child with task, state, activity, and elapsed time",
 test("selecting the grandchild shows the full breadcrumb and highlights the tree row", async ({ page }) => {
   await openRootSession(page);
   await page.getByRole("button", { name: /Subagents/ }).click();
-  await page.getByRole("treeitem", { name: /Review the worker output/ }).click();
+  await page.getByRole("tree").getByRole("button", { name: /Review the worker output/ }).click();
   await expect(page.getByRole("navigation", { name: "Subagent breadcrumb" })).toContainText("Main e2e task");
   await expect(page.getByRole("navigation", { name: "Subagent breadcrumb" })).toContainText("Implement the fixture worker");
   await expect(page.getByRole("navigation", { name: "Subagent breadcrumb" })).toContainText("Review the worker output");
-  // The tree stays open on desktop and highlights the selected row.
+  // Selecting closes the panel; reopening shows the selected row highlighted.
+  await page.getByRole("button", { name: /Subagents/ }).click();
   await expect(page.locator('[aria-current="true"]')).toContainText("Review the worker output");
 });
 
@@ -149,7 +150,7 @@ test("a selected child never hits its state, agent, or SSE endpoints", async ({ 
     }
   });
   await page.getByRole("button", { name: /Subagents/ }).click();
-  await page.getByRole("treeitem", { name: /Implement the fixture worker/ }).click();
+  await page.getByRole("tree").getByRole("button", { name: /Implement the fixture worker/ }).click();
   await expect(page.getByText("Implementing now.").first()).toBeVisible();
   await page.waitForTimeout(4_000); // cover the polling window
   expect(childRequests.filter((url) => url.endsWith("/state") || url.includes("/events"))).toEqual([]);
@@ -159,7 +160,7 @@ test("a selected child never hits its state, agent, or SSE endpoints", async ({ 
 test("appending to the child jsonl appears on the read-only transcript", async ({ page }) => {
   await openRootSession(page);
   await page.getByRole("button", { name: /Subagents/ }).click();
-  await page.getByRole("treeitem", { name: /Implement the fixture worker/ }).click();
+  await page.getByRole("tree").getByRole("button", { name: /Implement the fixture worker/ }).click();
   await expect(page.getByText("Implementing now.").first()).toBeVisible();
 
   const childFile = fixture.sessionFilePath(FAKE_CHILD_ID);
@@ -179,7 +180,7 @@ test("appending to the child jsonl appears on the read-only transcript", async (
 test("active composer steers through the root endpoint and preserves drafts on rejection", async ({ page }) => {
   await openRootSession(page);
   await page.getByRole("button", { name: /Subagents/ }).click();
-  await page.getByRole("treeitem", { name: /Implement the fixture worker/ }).click();
+  await page.getByRole("tree").getByRole("button", { name: /Implement the fixture worker/ }).click();
   const composer = page.getByRole("textbox", { name: /steering message/ });
   await composer.fill("keep going");
 
@@ -202,7 +203,7 @@ test("mobile rejected control shows the bounded error without horizontal overflo
   // The mobile toolbar holds the subagent action behind the More menu.
   await page.getByRole("button", { name: /More controls/ }).click();
   await page.getByRole("button", { name: /Subagents/ }).click();
-  await page.getByRole("treeitem", { name: /Implement the fixture worker/ }).click();
+  await page.getByRole("tree").getByRole("button", { name: /Implement the fixture worker/ }).click();
   const composer = page.getByRole("textbox", { name: /steering message/ });
   await composer.fill("please keep going with a lot of detail about the fixture and its worker ".repeat(5));
   fixture.setState({ mode: "reject-steer", entries: liveEntries({ mode: "running" }) });
@@ -215,7 +216,7 @@ test("mobile rejected control shows the bounded error without horizontal overflo
 test("stop sends interrupt to paused and resume returns to running", async ({ page }) => {
   await openRootSession(page);
   await page.getByRole("button", { name: /Subagents/ }).click();
-  await page.getByRole("treeitem", { name: /Implement the fixture worker/ }).click();
+  await page.getByRole("tree").getByRole("button", { name: /Implement the fixture worker/ }).click();
 
   await page.getByRole("button", { name: "Pause this subagent (resumable)" }).click();
   await expect.poll(() => fixture.readLog().some((entry) => entry.method === "interrupt")).toBe(true);
@@ -238,7 +239,7 @@ test("incompatible capability keeps historical browsing and disables controls", 
   await expect(page.getByRole("tree")).toContainText("Implement the fixture worker");
   // Durable-only nodes are inactive and read-only.
   await expect(page.getByRole("tree")).toContainText("Inactive");
-  await page.getByRole("treeitem", { name: /Implement the fixture worker/ }).click();
+  await page.getByRole("tree").getByRole("button", { name: /Implement the fixture worker/ }).click();
   await expect(page.getByRole("textbox")).toHaveCount(0);
   await expect(page.getByText("Live controls are unavailable for this session.")).toBeVisible();
 });
