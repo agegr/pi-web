@@ -227,7 +227,6 @@ export function SubagentTree({
           const hasChildren = node.children.length > 0;
           const disabled = node.sessionId === null;
           const selected = node.sessionId !== null && node.sessionId === selectedSessionId;
-          const action = submitActionFor(node);
           const elapsed = node.elapsedMs !== undefined ? formatElapsed(node.elapsedMs) : "";
           const detail = [t(stateLabelKey(node.state)), activity(node), elapsed].filter(Boolean).join(" · ");
           const depth = depthById.get(id) ?? 0;
