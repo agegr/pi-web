@@ -14,7 +14,7 @@ test("root identity uses rootSessionId and falls back to the selected session", 
   const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
   assert.match(source, /const selectedRootId = selectedSession\s*\?\s*selectedSession\.rootSessionId \?\? selectedSession\.id\s*:\s*null/);
   assert.match(source, /const childSelected = selectedSession\?\.sessionRole === "subagent"/);
-  assert.match(source, /useSubagentTree\(\{\s*rootId: selectedRootId,\s*treeOpen: activeTopPanel === "subagents",\s*childSelected,\s*\}\)/);
+  assert.match(source, /useSubagentTree\(\{\s*rootId: selectedRootId,\s*treeOpen: activeTopPanel === "subagents" \|\| desktopSubagentCardVisible,\s*childSelected,\s*\}\)/);
 });
 
 test("sidebar stays on the root while a child transcript is shown", async () => {
@@ -54,6 +54,22 @@ test("missing selected child recovers to the nearest surviving durable ancestor"
   assert.match(source, /recoveredRef\.current === selectedSession\.id/);
   assert.match(source, /handleSelectSession\(root\)/);
   assert.match(source, /handleSelectSession\(cursor\)/);
+});
+
+test("wide desktop keeps subagent polling eligible for the right card", async () => {
+  const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
+  assert.match(source, /const desktopSubagentCardVisible = isWideDesktop;/);
+  assert.match(source, /treeOpen: activeTopPanel === "subagents" \|\| desktopSubagentCardVisible/);
+  assert.match(source, /desktop-workspace-context-stack/);
+  assert.match(source, /<DesktopSubagentCard/);
+  assert.match(source, /<DesktopConversationContext/);
+});
+
+test("desktop aside orders conversation context before subagents", async () => {
+  const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
+  const contextIndex = source.indexOf("<DesktopConversationContext");
+  const subagentIndex = source.indexOf("<DesktopSubagentCard");
+  assert.ok(contextIndex >= 0 && subagentIndex > contextIndex);
 });
 
 test("the subagent popover anchors to its trigger and clamps to the viewport", async () => {

@@ -10,6 +10,9 @@ const {
   SubagentTree,
   SessionBreadcrumb,
   SubagentComposer,
+  DesktopSubagentCard,
+  countSubagentNodes,
+  countActiveSubagentNodes,
   submitActionFor,
   formatElapsed,
   getVisibleNodes,
@@ -148,6 +151,45 @@ test("terminal, inactive, placeholder, and unavailable modes are read-only", () 
     onInterrupt: async () => {},
   }));
   assert.match(offlineHtml, /Live controls are unavailable/);
+});
+
+test("desktop subagent card renders summary, stale state, and recursive rows", () => {
+  const child = node("reviewer", "running", {
+    agent: "reviewer",
+    task: "Review the current implementation",
+    activity: "reading files",
+    elapsedMs: 83_000,
+    children: [node("analyst", "paused", { agent: "analyst", task: "Check edge cases" })],
+  });
+  const finished = node("finished", "complete", { agent: "worker", task: "Update tests" });
+  const html = render(React.createElement(DesktopSubagentCard, {
+    nodes: [child, finished],
+    selectedSessionId: "reviewer",
+    rpcAvailable: true,
+    stale: true,
+    callbacks,
+  }));
+
+  assert.match(html, /aria-label="Subagents"/);
+  assert.match(html, /2 subagents/);
+  assert.match(html, /1 running/);
+  assert.match(html, /Live status is stale/);
+  assert.match(html, /Review the current implementation/);
+  assert.match(html, /reading files/);
+  assert.match(html, /1m 23s/);
+  assert.match(html, /Check edge cases/);
+  assert.match(html, /aria-current="true"/);
+  assert.equal(countActiveSubagentNodes([child, finished]), 1);
+});
+
+test("desktop subagent card omits itself without nodes", () => {
+  assert.equal(render(React.createElement(DesktopSubagentCard, {
+    nodes: [],
+    selectedSessionId: null,
+    rpcAvailable: true,
+    stale: false,
+    callbacks,
+  })), "");
 });
 
 test("pure helpers: submit action, elapsed formatting, and visible node flattening", () => {
