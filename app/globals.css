@@ -533,6 +533,75 @@ html.keyboard-open .extension-status-shelf {
   display: none;
 }
 
+.compaction-feedback {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.compaction-feedback > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.compaction-feedback.is-success {
+  background: rgba(16,185,129,0.08);
+  border-color: rgba(16,185,129,0.24);
+  color: rgba(5,150,105,0.95);
+}
+.compaction-feedback.is-error {
+  background: rgba(239,68,68,0.07);
+  border-color: rgba(239,68,68,0.3);
+  color: #ef4444;
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+}
+.compaction-feedback-spinner {
+  flex-shrink: 0;
+  margin-top: 2px;
+  animation: spin 0.8s linear infinite;
+}
+.compaction-feedback-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  margin: -2px -4px -2px 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+.compaction-feedback-action:hover {
+  background: var(--bg-hover);
+}
+.compaction-feedback-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+@media (pointer: coarse) {
+  .compaction-feedback-action {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .compaction-feedback-spinner {
+    animation: none;
+  }
+}
+
 /* Codex send/attach: 28px glyph, 44px mobile hit slop that does not inflate the row. */
 .composer-icon-hit {
   position: relative;

@@ -472,3 +472,11 @@ test("keeps a detached viewport in place when streaming completes", () => {
   assert.doesNotMatch(scrollEffectSource, /\|\|/);
   assert.match(source, /addEventListener\("scroll", handleScrollPositionChange/);
 });
+
+test("keeps compact success visible for ten seconds and lets the composer dismiss errors", () => {
+  assert.match(source, /setTimeout\(\(\) => setCompactResult\(null\), 10_000\)/);
+  assert.match(source, /const handleClearCompactFeedback = useCallback/);
+  assert.match(source, /handleClearCompactFeedback,/);
+  assert.match(chatWindowSource, /onClearCompactFeedback=\{handleClearCompactFeedback\}/);
+  assert.match(chatInputSource, /onClearCompactFeedback\?: \(\) => void/);
+});

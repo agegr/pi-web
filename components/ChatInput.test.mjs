@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -284,6 +285,7 @@ test("renders compact errors above the input as a wrapping alert", () => {
         onSend() {},
         onAbort() {},
         onCompact() {},
+        onClearCompactFeedback() {},
         isStreaming: false,
         compactError: error,
       }),
@@ -291,8 +293,92 @@ test("renders compact errors above the input as a wrapping alert", () => {
   );
 
   assert.match(html, /role="alert"/);
+  assert.match(html, /compaction-feedback is-error/);
   assert.match(html, /Compaction failed: OpenAI API error/);
   assert.match(html, /&lt;html&gt;request forbidden&lt;\/html&gt;/);
-  assert.match(html, /white-space:pre-wrap/);
+  assert.match(html, /aria-label="Dismiss compaction error"/);
   assert.ok(html.indexOf('role="alert"') < html.indexOf("<textarea"));
+});
+
+test("shows a live compaction status row above the composer", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        onCompact() {},
+        onAbortCompaction() {},
+        isStreaming: false,
+        isCompacting: true,
+      }),
+    ),
+  );
+
+  assert.match(html, /role="status"/);
+  assert.match(html, /aria-live="polite"/);
+  assert.match(html, /Compacting context/);
+  assert.match(html, />Stop</);
+  assert.match(html, /compaction-feedback-spinner/);
+  assert.ok(html.indexOf('role="status"') < html.indexOf("<textarea"));
+});
+
+test("replaces the running row with compact before and after token counts", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        onCompact() {},
+        isStreaming: false,
+        compactResult: {
+          reason: "manual",
+          tokensBefore: 191000,
+          estimatedTokensAfter: 42000,
+        },
+      }),
+    ),
+  );
+
+  assert.match(html, /role="status"/);
+  assert.match(html, /Context compacted/);
+  assert.match(html, /191k -&gt; 42k · 149k freed/);
+  assert.doesNotMatch(html, /Compacting context/);
+});
+
+test("keeps the running compaction row instead of a stale result", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        onCompact() {},
+        isStreaming: false,
+        isCompacting: true,
+        compactResult: {
+          reason: "manual",
+          tokensBefore: 191000,
+          estimatedTokensAfter: 42000,
+        },
+        compactError: "Compaction failed",
+      }),
+    ),
+  );
+
+  assert.match(html, /Compacting context/);
+  assert.doesNotMatch(html, /Context compacted/);
+  assert.doesNotMatch(html, /role="alert"/);
+});
+
+test("keeps compaction actions coarse-pointer sized and still under reduced motion", async () => {
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /\.compaction-feedback\.is-error \{[^}]*white-space: pre-wrap/);
+  assert.match(css, /\.compaction-feedback-spinner \{[^}]*animation:/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.compaction-feedback-spinner \{[^}]*animation: none/);
+  assert.match(css, /@media \(pointer: coarse\) \{\s*\.compaction-feedback-action \{[^}]*min-height: 44px/);
 });

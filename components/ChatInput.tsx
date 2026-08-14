@@ -75,6 +75,7 @@ interface Props {
   modelSwitching?: boolean;
   onCompact?: () => void;
   onAbortCompaction?: () => void;
+  onClearCompactFeedback?: () => void;
   isCompacting?: boolean;
   compactError?: string | null;
   compactResult?: CompactResultInfo | null;
@@ -401,7 +402,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
-  onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
+  onCompact, onAbortCompaction, onClearCompactFeedback, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap: _thinkingLevelMap,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
@@ -1339,7 +1340,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     ? Math.max(0, compactResult.tokensBefore - compactResult.estimatedTokensAfter)
     : 0;
   const compactResultText = compactResult
-    ? `${compactResult.reason && compactResult.reason !== "manual" ? `${compactResult.reason[0].toUpperCase()}${compactResult.reason.slice(1)} ` : t("chat.compacted")} ${formatTokenCount(compactResult.tokensBefore)} -> ${formatTokenCount(compactResult.estimatedTokensAfter)} tokens (${t("chat.tokensSaved", { saved: formatTokenCount(compactSavedTokens) })})`
+    ? t("chat.tokensFreed", {
+        before: formatTokenCount(compactResult.tokensBefore),
+        after: formatTokenCount(compactResult.estimatedTokensAfter),
+        saved: formatTokenCount(compactSavedTokens),
+      })
     : null;
   const visibleThinkingLevels = THINKING_LEVELS.filter((lvl) => {
     if (!availableThinkingLevels) return true;
@@ -1475,35 +1480,36 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
              {t("chat.retrying", { attempt: retryInfo.attempt, max: retryInfo.maxAttempts })}{retryInfo.errorMessage && <span style={{ opacity: 0.7, marginLeft: 4 }}>— {retryInfo.errorMessage}</span>}
           </div>
         )}
-        {compactResultText && (
-          <div style={{
-            marginBottom: 8, padding: "5px 10px",
-            background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.24)",
-            borderRadius: 6, fontSize: 12, color: "rgba(5,150,105,0.95)",
-            display: "flex", alignItems: "center", gap: 6,
-          }}>
-            <Check size={11} strokeWidth={2} style={{ flexShrink: 0 }} aria-hidden="true" />
-            {compactResultText}
+        {isCompacting && (
+          <div className="compaction-feedback" role="status" aria-live="polite">
+            <LoaderCircle size={11} strokeWidth={2} className="compaction-feedback-spinner" aria-hidden="true" />
+            <span>{t("chat.compactingContext")}</span>
+            {onAbortCompaction && (
+              <button type="button" className="compaction-feedback-action" onClick={onAbortCompaction}>
+                {t("chat.stop")}
+              </button>
+            )}
           </div>
         )}
-        {compactError && (
-          <div
-            role="alert"
-            style={{
-              marginBottom: 8,
-              padding: "7px 10px",
-              background: "rgba(239,68,68,0.07)",
-              border: "1px solid rgba(239,68,68,0.3)",
-              borderRadius: 6,
-              color: "#ef4444",
-              fontFamily: "var(--font-mono)",
-              fontSize: 12,
-              lineHeight: 1.5,
-              whiteSpace: "pre-wrap",
-              overflowWrap: "anywhere",
-            }}
-          >
-            {compactError}
+        {!isCompacting && compactResultText && (
+          <div className="compaction-feedback is-success" role="status" aria-live="polite">
+            <Check size={11} strokeWidth={2} aria-hidden="true" />
+            <span>{t("chat.contextCompacted")} {compactResultText}</span>
+          </div>
+        )}
+        {!isCompacting && compactError && (
+          <div className="compaction-feedback is-error" role="alert">
+            <span>{compactError}</span>
+            {onClearCompactFeedback && (
+              <button
+                type="button"
+                className="compaction-feedback-action"
+                onClick={onClearCompactFeedback}
+                aria-label={t("chat.dismissCompaction")}
+              >
+                <X size={11} strokeWidth={2} aria-hidden="true" />
+              </button>
+            )}
           </div>
         )}
         {/* Image previews */}

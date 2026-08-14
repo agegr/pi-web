@@ -291,6 +291,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     lastUserMsgRef, promptAnchorActive,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
+    handleClearCompactFeedback,
     handleRecallQueue,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, scrollToBottom, scrollUserMsgToTop,
@@ -565,6 +566,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       modelSwitching={modelSwitching}
       onCompact={session || isNew ? handleCompact : undefined}
       onAbortCompaction={handleAbortCompaction}
+      onClearCompactFeedback={handleClearCompactFeedback}
       isCompacting={isCompacting}
       compactError={compactError}
       compactResult={compactResult}

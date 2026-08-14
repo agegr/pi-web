@@ -1708,6 +1708,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     await sendStreamingPrompt(message, "followUp", images);
   }, [sendStreamingPrompt]);
 
+  const handleClearCompactFeedback = useCallback(() => {
+    setCompactError(null);
+    setCompactResult(null);
+  }, []);
+
   const handleAbortCompaction = useCallback(async () => {
     const sid = sessionIdRef.current;
     if (!sid) return;
@@ -1917,7 +1922,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   useEffect(() => {
     if (!compactResult) return;
-    const t = setTimeout(() => setCompactResult(null), 6000);
+    const t = setTimeout(() => setCompactResult(null), 10_000);
     return () => clearTimeout(t);
   }, [compactResult]);
 
@@ -1961,6 +1966,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // Actions
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
+    handleClearCompactFeedback,
     handleRecallQueue,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
