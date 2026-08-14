@@ -45,6 +45,7 @@ export const API_ROUTE_METHODS: Record<string, readonly string[]> = {
   "/api/sessions/$id/export": ["GET"],
   "/api/sessions/$id": ["DELETE", "GET", "PATCH"],
   "/api/sessions/$id/state": ["GET"],
+  "/api/sessions/$id/trajectory": ["GET"],
   "/api/sessions": ["GET"],
   "/api/skills/check": ["POST"],
   "/api/skills/install": ["POST"],
