@@ -4,9 +4,10 @@ import test from "node:test";
 
 const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
 
-test("anchors the mobile reasoning menu to its left edge", () => {
-  assert.match(
-    source,
-    /thinkingDropdownOpen[\s\S]*?bottom: "calc\(100% \+ 6px\)"[\s\S]*?isMobile \? \{ left: 0 \} : \{ right: 0 \}/,
-  );
+test("keeps access on the left and reasoning beside the model", () => {
+  assert.match(source, /TOOL_PRESET_LABEL_KEYS/);
+  assert.match(source, /data-thinking-badge=\{thinkingLevel/);
+  assert.match(source, /<Brain /);
+  assert.match(source, /<Shield /);
+  assert.doesNotMatch(source, /MoreHorizontal/);
 });

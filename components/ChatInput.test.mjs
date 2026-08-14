@@ -8,7 +8,7 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canRestoreUserMessage, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canRestoreUserMessage, composerThinkingBadgeLevel, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages } = await jiti.import("./ChatInput.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("../lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
@@ -61,7 +61,10 @@ test("keeps the model selector visible when a model error leaves no options", ()
   assert.match(html, /title="No available models"/);
 });
 
-test("renders the read-only tool preset as the active selection", () => {
+test("lays out attach, access, model, and reasoning like the reference composer", () => {
+  assert.equal(composerThinkingBadgeLevel("auto"), null);
+  assert.equal(composerThinkingBadgeLevel("high"), "high");
+
   const html = renderToStaticMarkup(
     React.createElement(
       I18nProvider,
@@ -69,15 +72,24 @@ test("renders the read-only tool preset as the active selection", () => {
       React.createElement(ChatInput, {
         onSend() {},
         onAbort() {},
+        onModelChange() {},
+        onThinkingLevelChange() {},
         onToolPresetChange() {},
+        onCompact() {},
         isStreaming: false,
-        toolPreset: "read-only",
+        model: { provider: "xai", modelId: "grok-4.6" },
+        modelList: [{ provider: "xai", id: "grok-4.6", name: "grok-4.6" }],
+        thinkingLevel: "high",
+        toolPreset: "full",
       }),
     ),
   );
 
-  assert.match(html, /title="Change tool preset: read-only"/);
-  assert.match(html, />read-only<\/span>/);
+  assert.match(html, />Full access</);
+  assert.match(html, />grok-4\.6</);
+  assert.match(html, /data-thinking-badge="high"/);
+  assert.doesNotMatch(html, />Compact context</);
+  assert.doesNotMatch(html, /aria-label="More controls"/);
 });
 
 test("shows and locks the optimistic model while a switch is pending", () => {
