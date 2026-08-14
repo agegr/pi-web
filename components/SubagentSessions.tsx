@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { ChevronRight, CircleStop, Network, Send } from "lucide-react";
 import type { SubagentLifecycleState, SubagentTreeNode } from "@/lib/api-types";
 import { useI18n } from "@/hooks/useI18n";
@@ -118,6 +118,34 @@ export function getVisibleNodes(
   return visible;
 }
 
+/** ARIA metadata for one visible row, for tree semantics and parent navigation. */
+interface TreeRowMeta {
+  depth: number;
+  position: number; // 1-based index within its own sibling list
+  setSize: number; // sibling list length
+  parentId: string | null; // nodeId of the nearest visible ancestor, null at the root level
+}
+
+interface TreeRow {
+  node: SubagentTreeNode;
+  meta: TreeRowMeta;
+}
+
+/** Visible preorder rows with sibling-list metadata, honoring collapsed ids. */
+function buildTreeRows(nodes: SubagentTreeNode[], collapsed: ReadonlySet<string>): TreeRow[] {
+  const rows: TreeRow[] = [];
+  const visit = (list: SubagentTreeNode[], parentId: string | null, depth: number) => {
+    list.forEach((node, index) => {
+      rows.push({ node, meta: { depth, position: index + 1, setSize: list.length, parentId } });
+      if (node.children.length > 0 && !collapsed.has(nodeId(node))) {
+        visit(node.children, nodeId(node), depth + 1);
+      }
+    });
+  };
+  visit(nodes, null, 0);
+  return rows;
+}
+
 export function SubagentTree({
   nodes,
   selectedSessionId,
@@ -132,22 +160,17 @@ export function SubagentTree({
   const [focusIndex, setFocusIndex] = useState(0);
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
-  const visibleNodes = useMemo(() => getVisibleNodes(nodes, collapsed), [nodes, collapsed]);
-  const depthById = useMemo(() => {
-    const depths = new Map<string, number>();
-    const stack: Array<[SubagentTreeNode, number]> = nodes.map((node) => [node, 0]);
-    while (stack.length) {
-      const [current, depth] = stack.pop()!;
-      depths.set(nodeId(current), depth);
-      for (const child of current.children) stack.push([child, depth + 1]);
-    }
-    return depths;
-  }, [nodes]);
+  const visibleRows = useMemo(() => buildTreeRows(nodes, collapsed), [nodes, collapsed]);
+  const indexById = useMemo(() => {
+    const map = new Map<string, number>();
+    visibleRows.forEach((row, index) => map.set(nodeId(row.node), index));
+    return map;
+  }, [visibleRows]);
 
   // Keep the roving focus index inside the visible list.
   useEffect(() => {
-    setFocusIndex((current) => Math.min(current, Math.max(0, visibleNodes.length - 1)));
-  }, [visibleNodes.length]);
+    setFocusIndex((current) => Math.min(current, Math.max(0, visibleRows.length - 1)));
+  }, [visibleRows.length]);
   useEffect(() => {
     rowRefs.current[focusIndex]?.focus({ preventScroll: true });
   }, [focusIndex]);
@@ -162,10 +185,11 @@ export function SubagentTree({
   }, []);
 
   const handleKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
-    if (visibleNodes.length === 0) return;
+    if (visibleRows.length === 0) return;
     const index = focusIndex;
-    const current = visibleNodes[index];
-    if (!current) return;
+    const row = visibleRows[index];
+    if (!row) return;
+    const { node: current, meta } = row;
     const id = nodeId(current);
     const hasChildren = current.children.length > 0;
     const isCollapsed = collapsed.has(id);
@@ -173,7 +197,7 @@ export function SubagentTree({
     switch (event.key) {
       case "ArrowDown":
         event.preventDefault();
-        setFocusIndex(Math.min(index + 1, visibleNodes.length - 1));
+        setFocusIndex(Math.min(index + 1, visibleRows.length - 1));
         break;
       case "ArrowUp":
         event.preventDefault();
@@ -185,29 +209,158 @@ export function SubagentTree({
         break;
       case "End":
         event.preventDefault();
-        setFocusIndex(visibleNodes.length - 1);
+        setFocusIndex(visibleRows.length - 1);
         break;
       case "ArrowRight":
         event.preventDefault();
         if (hasChildren && isCollapsed) toggle(id);
-        else if (hasChildren && !isCollapsed && index + 1 < visibleNodes.length) setFocusIndex(index + 1);
+        else if (hasChildren && !isCollapsed && index + 1 < visibleRows.length) setFocusIndex(index + 1);
         break;
       case "ArrowLeft":
         event.preventDefault();
         if (hasChildren && !isCollapsed) toggle(id);
-        else if (index > 0) setFocusIndex(Math.max(0, index - 1));
+        else {
+          const parentIndex = meta.parentId ? indexById.get(meta.parentId) : undefined;
+          if (parentIndex !== undefined) setFocusIndex(parentIndex);
+        }
         break;
       case "Enter":
         event.preventDefault();
         if (current.sessionId !== null) callbacks.onSelect(current);
         break;
     }
-  }, [visibleNodes, focusIndex, collapsed, toggle, callbacks]);
+  }, [visibleRows, indexById, focusIndex, collapsed, toggle, callbacks]);
 
   const activity = (node: SubagentTreeNode): string => {
     if (node.activity) return node.activity;
     if (node.state === "running") return t("subagents.activity.running");
     return "";
+  };
+
+  // One treeitem row plus, when expanded, its nested sibling group.
+  const renderRow = (row: TreeRow, index: number, nested: ReactNode | null): ReactNode => {
+    const { node, meta } = row;
+    const id = nodeId(node);
+    const hasChildren = node.children.length > 0;
+    const isCollapsed = collapsed.has(id);
+    const disabled = node.sessionId === null;
+    const selected = node.sessionId !== null && node.sessionId === selectedSessionId;
+    const elapsed = node.elapsedMs !== undefined ? formatElapsed(node.elapsedMs) : "";
+    const detail = [t(stateLabelKey(node.state)), activity(node), elapsed].filter(Boolean).join(" · ");
+    return (
+      <div
+        key={id}
+        role="treeitem"
+        aria-level={meta.depth + 1}
+        aria-posinset={meta.position}
+        aria-setsize={meta.setSize}
+        aria-expanded={hasChildren ? !isCollapsed : undefined}
+        aria-selected={selected}
+        style={{ display: "flex", flexDirection: "column", minHeight: 36, paddingLeft: meta.depth * 14 }}
+      >
+        <div style={{ display: "flex", alignItems: "center", minHeight: 36 }}>
+          {hasChildren ? (
+            <button
+              type="button"
+              aria-label={isCollapsed ? t("subagents.expand") : t("subagents.collapse")}
+              onClick={(event) => { event.stopPropagation(); toggle(id); }}
+              tabIndex={-1}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 20,
+                height: 20,
+                flexShrink: 0,
+                padding: 0,
+                border: "none",
+                background: "transparent",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+              }}
+            >
+              <ChevronRight
+                size={12}
+                strokeWidth={1.8}
+                aria-hidden="true"
+                style={{ transform: isCollapsed ? "none" : "rotate(90deg)", transition: "transform 0.15s" }}
+              />
+            </button>
+          ) : (
+            <span style={{ width: 20, flexShrink: 0 }} />
+          )}
+          <button
+            ref={(element) => { rowRefs.current[index] = element; }}
+            type="button"
+            tabIndex={index === focusIndex ? 0 : -1}
+            disabled={disabled}
+            aria-current={selected ? "true" : undefined}
+            onClick={() => { if (!disabled) callbacks.onSelect(node); }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              flex: 1,
+              minWidth: 0,
+              minHeight: 36,
+              padding: "4px 8px",
+              border: "none",
+              borderRadius: 6,
+              background: selected ? "var(--bg-selected)" : "transparent",
+              color: disabled ? "var(--text-dim)" : "var(--text)",
+              cursor: disabled ? "not-allowed" : "pointer",
+              textAlign: "left",
+              fontSize: 12,
+              lineHeight: 1.35,
+            }}
+          >
+            <span style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
+              <span
+                style={{
+                  overflow: "hidden",
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  color: disabled ? "var(--text-dim)" : "var(--text)",
+                }}
+              >
+                {node.task}
+              </span>
+              {detail ? (
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-muted)", fontSize: 11 }}>
+                  {detail}
+                </span>
+              ) : null}
+            </span>
+          </button>
+        </div>
+        {nested ? (
+          <div role="group" key={`${id}-group`} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {nested}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
+  // Walks the flattened visible rows, grouping each expanded node's children.
+  const renderSiblingList = (rows: TreeRow[], start: number): { content: ReactNode[]; next: number } => {
+    const content: ReactNode[] = [];
+    let i = start;
+    while (i < rows.length) {
+      const { node } = rows[i];
+      const expanded = node.children.length > 0 && !collapsed.has(nodeId(node));
+      let nested: ReactNode = null;
+      let next = i + 1;
+      if (expanded) {
+        const group = renderSiblingList(rows, i + 1);
+        nested = group.content;
+        next = group.next;
+      }
+      content.push(renderRow(rows[i], i, nested));
+      i = next;
+    }
+    return { content, next: i };
   };
 
   return (
@@ -217,91 +370,12 @@ export function SubagentTree({
       onKeyDown={handleKeyDown}
       style={{ display: "flex", flexDirection: "column", gap: 2, padding: 4, overflowY: "auto" }}
     >
-      {visibleNodes.length === 0 ? (
+      {visibleRows.length === 0 ? (
         <div style={{ padding: "10px 8px", color: "var(--text-muted)", fontSize: 12, fontStyle: "italic" }}>
           {t("subagents.empty")}
         </div>
       ) : (
-        visibleNodes.map((node, index) => {
-          const id = nodeId(node);
-          const hasChildren = node.children.length > 0;
-          const disabled = node.sessionId === null;
-          const selected = node.sessionId !== null && node.sessionId === selectedSessionId;
-          const elapsed = node.elapsedMs !== undefined ? formatElapsed(node.elapsedMs) : "";
-          const detail = [t(stateLabelKey(node.state)), activity(node), elapsed].filter(Boolean).join(" · ");
-          const depth = depthById.get(id) ?? 0;
-          return (
-            <div
-              key={id}
-              role="treeitem"
-              aria-level={depth + 1}
-              aria-expanded={hasChildren ? !collapsed.has(id) : undefined}
-              aria-selected={selected}
-              style={{ display: "flex", alignItems: "center", minHeight: 36, paddingLeft: depth * 14 }}
-            >
-              <button
-                ref={(element) => { rowRefs.current[index] = element; }}
-                type="button"
-                tabIndex={index === focusIndex ? 0 : -1}
-                disabled={disabled}
-                aria-current={selected ? "true" : undefined}
-                onClick={() => { if (!disabled) callbacks.onSelect(node); }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  flex: 1,
-                  minWidth: 0,
-                  minHeight: 36,
-                  padding: "4px 8px",
-                  border: "none",
-                  borderRadius: 6,
-                  background: selected ? "var(--bg-selected)" : "transparent",
-                  color: disabled ? "var(--text-dim)" : "var(--text)",
-                  cursor: disabled ? "not-allowed" : "pointer",
-                  textAlign: "left",
-                  fontSize: 12,
-                  lineHeight: 1.35,
-                }}
-              >
-                {hasChildren ? (
-                  <span
-                    role="presentation"
-                    onClick={(event) => { event.stopPropagation(); toggle(id); }}
-                    style={{ display: "inline-flex", cursor: "pointer", color: "var(--text-muted)" }}
-                  >
-                    <ChevronRight
-                      size={12}
-                      strokeWidth={1.8}
-                      aria-hidden="true"
-                      style={{ transform: collapsed.has(id) ? "none" : "rotate(90deg)", transition: "transform 0.15s" }}
-                    />
-                  </span>
-                ) : (
-                  <span style={{ width: 12, flexShrink: 0 }} />
-                )}
-                <span style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
-                  <span
-                    style={{
-                      overflow: "hidden",
-                      display: "-webkit-box",
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: "vertical",
-                      color: disabled ? "var(--text-dim)" : "var(--text)",
-                    }}
-                  >
-                    {node.task}
-                  </span>
-                  {detail ? (
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-muted)", fontSize: 11 }}>
-                      {detail}
-                    </span>
-                  ) : null}
-                </span>
-              </button>
-            </div>
-          );
-        })
+        renderSiblingList(visibleRows, 0).content
       )}
     </div>
   );

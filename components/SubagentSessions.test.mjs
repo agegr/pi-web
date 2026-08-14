@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createJiti } from "jiti";
@@ -80,6 +81,30 @@ test("tree shows elapsed time when present and hides it otherwise", () => {
   const html = render(React.createElement(SubagentTree, { nodes: [active, plain], selectedSessionId: null, callbacks }));
   assert.match(html, /1m 23s/);
   assert.doesNotMatch(html, /0s/);
+});
+
+test("tree exposes semantic group nesting with positional ARIA and real disclosure buttons", () => {
+  const child = node("child", "running", {
+    children: [node("grand", "inactive", { children: [node("great", "complete")] })],
+  });
+  const other = node("other", "running");
+  const html = render(React.createElement(SubagentTree, { nodes: [child, other], selectedSessionId: null, callbacks }));
+  assert.match(html, /role="tree"/);
+  assert.match(html, /role="treeitem"/);
+  assert.match(html, /role="group"/);
+  assert.match(html, /aria-posinset="1"/);
+  assert.match(html, /aria-setsize="2"/);
+  // Every disclosure is a real labeled button; the fake presentation span is gone.
+  assert.match(html, /aria-label="Collapse"/);
+  assert.doesNotMatch(html, /role="presentation"/);
+});
+
+test("tree source: ArrowLeft uses ancestor navigation and disclosure is a real button", () => {
+  const source = readFileSync(new URL("./SubagentSessions.tsx", import.meta.url), "utf8");
+  assert.match(source, /case "ArrowLeft":[\s\S]*?parent/);
+  assert.doesNotMatch(source, /case "ArrowLeft":[\s\S]*?index - 1/);
+  assert.match(source, /aria-label=\{.*subagents\.(expand|collapse)/);
+  assert.doesNotMatch(source, /role="presentation"/);
 });
 
 test("breadcrumb root uses the real root session id", () => {

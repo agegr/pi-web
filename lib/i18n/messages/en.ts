@@ -651,6 +651,8 @@ export const enLocale: LocalePlugin = {
     "subagents.steer": "Steer",
     "subagents.resume": "Resume",
     "subagents.interrupt": "Pause this subagent (resumable)",
+    "subagents.expand": "Expand",
+    "subagents.collapse": "Collapse",
     "subagents.steerPlaceholder": "Send a steering message…",
     "subagents.resumePlaceholder": "Continue with a message…",
     "subagents.activity.running": "working",
