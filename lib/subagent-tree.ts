@@ -137,7 +137,7 @@ export function buildSubagentTree(input: {
       runId: session.subagentRunId ?? "",
       ...(session.subagentIndex !== undefined ? { index: session.subagentIndex } : {}),
       agent: session.subagentAgent ?? "subagent",
-      task: session.name || session.firstMessage || session.id,
+      task: entry?.label || session.firstMessage || session.name || session.id,
       state,
       ...(entry && activityFromRun(entry) ? { activity: activityFromRun(entry) } : {}),
       ...(entry?.startedAt !== undefined && state !== "inactive" ? { startedAt: entry.startedAt } : {}),

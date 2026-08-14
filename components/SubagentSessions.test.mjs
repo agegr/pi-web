@@ -76,6 +76,15 @@ test("tree renders disabled starting placeholders with their bounded task text",
   assert.match(html, /Starting/);
 });
 
+test("tree row shows the agent role on its own line above the bounded task", () => {
+  const child = node("child", "running", { agent: "worker", task: "Inspect RPC" });
+  const html = render(React.createElement(SubagentTree, { nodes: [child], selectedSessionId: null, callbacks }));
+  // The task text still appears; the agent is a separate uppercase role label, not inline with it.
+  assert.match(html, /Inspect RPC/);
+  assert.match(html, /text-transform:uppercase[^>]*>worker/);
+  assert.doesNotMatch(html, />worker[^<]*Inspect RPC/);
+});
+
 test("tree shows elapsed time when present and hides it otherwise", () => {
   const active = node("a", "running", { elapsedMs: 83_000 });
   const plain = node("b", "inactive");
@@ -98,6 +107,16 @@ test("tree exposes semantic group nesting with positional ARIA and real disclosu
   // Every disclosure is a real labeled button; the fake presentation span is gone.
   assert.match(html, /aria-label="Collapse"/);
   assert.doesNotMatch(html, /role="presentation"/);
+});
+
+test("composer source: error alert sits on its own line with shrink protection", () => {
+  const source = readFileSync(new URL("./SubagentSessions.tsx", import.meta.url), "utf8");
+  // The alert is no longer a 100%-basis child of the input row.
+  assert.doesNotMatch(source, /flex: "0 0 100%"/);
+  assert.match(source, /role="alert"[\s\S]*?overflowWrap: "anywhere"/);
+  // The composer wrapper, the input row, and the textarea all shrink instead of forcing overflow.
+  assert.match(source, /flexDirection: "column",\s*gap: 8,[\s\S]*?borderTop: "1px solid var\(--border\)",[\s\S]*?minWidth: 0/);
+  assert.match(source, /flex: "1 1 auto",\s*minWidth: 0,\s*minHeight: isMobile \? 44 : 34/);
 });
 
 test("tree source: ArrowLeft uses ancestor navigation and disclosure is a real button", () => {

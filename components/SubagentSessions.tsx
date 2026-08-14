@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, 
 import { ChevronRight, CircleStop, Network, Send } from "lucide-react";
 import type { SubagentLifecycleState, SubagentTreeNode } from "@/lib/api-types";
 import { useI18n } from "@/hooks/useI18n";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 // ============================================================================
 // Subagent header action, tree, breadcrumb, and composer.
@@ -355,9 +356,23 @@ export function SubagentTree({
               <span
                 style={{
                   overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  color: "var(--text-dim)",
+                  fontSize: 11,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                }}
+              >
+                {node.agent}
+              </span>
+              <span
+                style={{
+                  overflow: "hidden",
                   display: "-webkit-box",
                   WebkitLineClamp: 2,
                   WebkitBoxOrient: "vertical",
+                  overflowWrap: "anywhere",
                   color: disabled ? "var(--text-dim)" : "var(--text)",
                 }}
               >
@@ -545,6 +560,7 @@ export function SubagentComposer({
   onInterrupt(): Promise<void>;
 }) {
   const { t } = useI18n();
+  const isMobile = useIsMobile();
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -604,92 +620,101 @@ export function SubagentComposer({
     <div
       style={{
         display: "flex",
-        alignItems: "flex-end",
+        flexDirection: "column",
         gap: 8,
         padding: "10px 16px",
         borderTop: "1px solid var(--border)",
         background: "var(--bg-panel)",
+        minWidth: 0,
       }}
     >
-      <textarea
-        value={value}
-        disabled={busy}
-        rows={1}
-        placeholder={placeholder}
-        aria-label={placeholder}
-        onChange={(event) => setValue(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            void submit();
-          }
-        }}
-        style={{
-          flex: 1,
-          minHeight: 34,
-          maxHeight: 120,
-          resize: "none",
-          padding: "7px 10px",
-          border: "1px solid var(--border)",
-          borderRadius: 8,
-          background: "var(--bg)",
-          color: "var(--text)",
-          fontSize: 13,
-          lineHeight: 1.4,
-        }}
-      />
-      {action === "steer" && node.canInterrupt ? (
+      {error ? (
+        <div
+          role="alert"
+          style={{ color: "#dc2626", fontSize: 12, lineHeight: 1.4, overflowWrap: "anywhere", minWidth: 0 }}
+        >
+          {error}
+        </div>
+      ) : null}
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 8, minWidth: 0 }}>
+        <textarea
+          value={value}
+          disabled={busy}
+          rows={1}
+          placeholder={placeholder}
+          aria-label={placeholder}
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              void submit();
+            }
+          }}
+          style={{
+            flex: "1 1 auto",
+            minWidth: 0,
+            minHeight: isMobile ? 44 : 34,
+            maxHeight: 120,
+            resize: "none",
+            padding: "7px 10px",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            background: "var(--bg)",
+            color: "var(--text)",
+            fontSize: 13,
+            lineHeight: 1.4,
+          }}
+        />
+        {action === "steer" && node.canInterrupt ? (
+          <button
+            type="button"
+            disabled={busy}
+            aria-label={t("subagents.interrupt")}
+            title={t("subagents.interrupt")}
+            onClick={() => void interrupt()}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: isMobile ? 44 : 34,
+              height: isMobile ? 44 : 34,
+              flexShrink: 0,
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              background: "transparent",
+              color: "var(--text-muted)",
+              cursor: busy ? "wait" : "pointer",
+            }}
+          >
+            <CircleStop size={16} strokeWidth={1.8} aria-hidden="true" />
+          </button>
+        ) : null}
         <button
           type="button"
-          disabled={busy}
-          aria-label={t("subagents.interrupt")}
-          title={t("subagents.interrupt")}
-          onClick={() => void interrupt()}
+          disabled={busy || value.trim().length === 0}
+          aria-label={action === "resume" ? t("subagents.resume") : t("subagents.steer")}
+          onClick={() => void submit()}
           style={{
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            width: 34,
-            height: 34,
+            gap: 5,
+            minHeight: isMobile ? 44 : 34,
+            padding: "0 12px",
             flexShrink: 0,
-            border: "1px solid var(--border)",
+            border: "none",
             borderRadius: 8,
-            background: "transparent",
-            color: "var(--text-muted)",
-            cursor: busy ? "wait" : "pointer",
+            background: "var(--accent)",
+            color: "var(--bg)",
+            cursor: busy || value.trim().length === 0 ? "not-allowed" : "pointer",
+            opacity: busy || value.trim().length === 0 ? 0.55 : 1,
+            fontSize: 13,
           }}
         >
-          <CircleStop size={16} strokeWidth={1.8} aria-hidden="true" />
+          <Send size={13} strokeWidth={2} aria-hidden="true" />
+          {action === "resume" ? t("subagents.resume") : t("subagents.steer")}
         </button>
-      ) : null}
-      <button
-        type="button"
-        disabled={busy || value.trim().length === 0}
-        aria-label={action === "resume" ? t("subagents.resume") : t("subagents.steer")}
-        onClick={() => void submit()}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 5,
-          minHeight: 34,
-          padding: "0 12px",
-          flexShrink: 0,
-          border: "none",
-          borderRadius: 8,
-          background: "var(--accent)",
-          color: "var(--bg)",
-          cursor: busy || value.trim().length === 0 ? "not-allowed" : "pointer",
-          opacity: busy || value.trim().length === 0 ? 0.55 : 1,
-          fontSize: 13,
-        }}
-      >
-        <Send size={13} strokeWidth={2} aria-hidden="true" />
-        {action === "resume" ? t("subagents.resume") : t("subagents.steer")}
-      </button>
-      {error ? (
-        <div role="alert" style={{ color: "#dc2626", fontSize: 12, flex: "0 0 100%" }}>{error}</div>
-      ) : null}
+      </div>
     </div>
   );
 }
