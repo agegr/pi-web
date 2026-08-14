@@ -76,42 +76,51 @@ export function useSubagentTree(input: {
 
   const refresh = useCallback(async (): Promise<void> => {
     if (!rootId) return;
+    // Coalesce concurrent refreshes: one in-flight fetch serves all callers.
+    if (inFlightRef.current) return inFlightRef.current;
     const generation = ++generationRef.current;
     setLoading(true);
-    try {
-      const response = await fetch(`/api/agent/${encodeURIComponent(rootId)}/subagents`, {
-        cache: "no-store",
-      });
-      if (generation !== generationRef.current) return; // stale response
-      if (response.status === 504) {
-        const body = await response.json().catch(() => ({})) as { fallback?: SubagentTreeResponse };
-        const fallback = body.fallback ?? null;
-        setData((previous) => {
-          // Keep the last live snapshot; adopt the durable fallback only when
-          // there is nothing newer to preserve.
-          if (previous) return previous;
-          return fallback;
+    inFlightRef.current = (async () => {
+      try {
+        const response = await fetch(`/api/agent/${encodeURIComponent(rootId)}/subagents`, {
+          cache: "no-store",
         });
+        if (generation !== generationRef.current) return; // stale response
+        if (response.status === 504) {
+          const body = await response.json().catch(() => ({})) as { fallback?: SubagentTreeResponse };
+          const fallback = body.fallback ?? null;
+          setData((previous) => {
+            // Keep the last live snapshot; adopt the durable fallback only when
+            // there is nothing newer to preserve.
+            if (previous) return previous;
+            return fallback;
+          });
+          setStale(true);
+          setError("subagent status timeout");
+          return;
+        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const tree = await response.json() as SubagentTreeResponse;
+        if (generation !== generationRef.current) return;
+        setData((previous) => {
+          setTranscriptRefreshGeneration((current) => nextTranscriptGeneration(previous, tree, current));
+          return tree;
+        });
+        setStale(false);
+        setError(null);
+      } catch (refreshError) {
+        if (generation !== generationRef.current) return;
         setStale(true);
-        setError("subagent status timeout");
-        return;
+        setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
+      } finally {
+        if (generation === generationRef.current) setLoading(false);
       }
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const tree = await response.json() as SubagentTreeResponse;
-      if (generation !== generationRef.current) return;
-      setData((previous) => {
-        setTranscriptRefreshGeneration((current) => nextTranscriptGeneration(previous, tree, current));
-        return tree;
-      });
-      setStale(false);
-      setError(null);
-    } catch (refreshError) {
-      if (generation !== generationRef.current) return;
-      setStale(true);
-      setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
-    } finally {
-      if (generation === generationRef.current) setLoading(false);
-    }
+    })();
+    const pending = inFlightRef.current;
+    void pending.finally(() => {
+      if (inFlightRef.current === pending) inFlightRef.current = null;
+    });
+    return pending;
   }, [rootId]);
 
   const pollEligible = shouldPollSubagents({

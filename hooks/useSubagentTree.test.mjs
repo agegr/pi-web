@@ -51,6 +51,12 @@ test("poll interval is 1500ms and the hook wires a single interval guarded by th
   assert.match(source, /clearInterval\(timer\)/);
 });
 
+test("concurrent refreshes coalesce into one in-flight fetch", async () => {
+  const source = await readFile(new URL("./useSubagentTree.ts", import.meta.url), "utf8");
+  assert.match(source, /if \(inFlightRef\.current\) return inFlightRef\.current;/);
+  assert.match(source, /inFlightRef\.current = null/);
+});
+
 test("refresh uses a monotonic request generation and ignores stale responses", async () => {
   const source = await readFile(new URL("./useSubagentTree.ts", import.meta.url), "utf8");
   assert.match(source, /\+\+generationRef\.current/);
