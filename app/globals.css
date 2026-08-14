@@ -1122,6 +1122,14 @@ span.linenumber {
   font-style: normal !important;
 }
 
+/* Prism marks every token inside a markdown table with a `table` class, which
+   collides with Tailwind's `.table` utility (display: table) and stacks each
+   pipe and cell on its own line (#460). Tokens must always flow inline; this
+   rule is unlayered so it wins over the layered utility. */
+span.token.table {
+  display: inline;
+}
+
 @keyframes drop-zone-in {
   from { opacity: 0; transform: scale(0.97); }
   to   { opacity: 1; transform: scale(1); }
