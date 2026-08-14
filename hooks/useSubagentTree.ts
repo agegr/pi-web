@@ -32,17 +32,23 @@ export function hasActiveDescendant(nodes: SubagentTreeNode[] | undefined): bool
   return false;
 }
 
-/** One extra transcript refresh generation when active work settles. */
+/**
+ * Transcript refresh generation: every successful snapshot advances the
+ * generation; one extra generation fires when active work settles so the
+ * selected child transcript gets a final refresh.
+ */
 export function nextTranscriptGeneration(
   previous: SubagentTreeResponse | null,
   next: SubagentTreeResponse | null,
   current: number,
 ): number {
+  let nextGeneration = current + 1;
   const wasActive = previous ? hasActiveDescendant(previous.nodes) : false;
   // A missing snapshot is not evidence of settlement: only a real terminal
-  // tree triggers the final transcript refresh.
+  // tree triggers the extra final transcript refresh.
   const isActive = next ? hasActiveDescendant(next.nodes) : true;
-  return wasActive && !isActive ? current + 1 : current;
+  if (wasActive && !isActive) nextGeneration += 1;
+  return nextGeneration;
 }
 
 interface ControlErrorBody {

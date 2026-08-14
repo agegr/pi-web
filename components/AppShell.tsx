@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import {
+import { Network,
   ArrowDown,
   ArrowLeft,
   ArrowUp,
@@ -1254,6 +1254,45 @@ export function AppShell() {
         >
           <History size={13} strokeWidth={2} style={{ color: selectedSession ? "var(--text-muted)" : "var(--text-dim)", flexShrink: 0 }} aria-hidden="true" />
         </button>
+        {subagentCount > 0 ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              topPanelReturnFocusRef.current = event.currentTarget;
+              subagentsAnchorRef.current = event.currentTarget;
+              setSidebarOpen(false);
+              setActiveTopPanel((current) => current === "subagents" ? null : "subagents");
+            }}
+            aria-label={translate("subagents.open", { count: subagentCount })}
+            aria-pressed={activeTopPanel === "subagents"}
+            title={translate("subagents.title")}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 4,
+              width: mobile ? TOP_BAR_ICON_BUTTON_SIZE_MOBILE : TOP_BAR_ICON_BUTTON_SIZE,
+              height: "100%",
+              padding: 0,
+              background: activeTopPanel === "subagents" ? "var(--bg-selected)" : "none",
+              border: "none",
+              borderTop: "2px solid transparent",
+              borderRight: "1px solid var(--border)",
+              color: activeTopPanel === "subagents" ? "var(--text)" : "var(--text-muted)",
+              cursor: "pointer",
+              flexShrink: 0,
+              fontSize: 11,
+              whiteSpace: "nowrap",
+              transition: "color 0.1s, background 0.1s",
+            }}
+          >
+            <Network size={14} strokeWidth={1.8} aria-hidden="true" />
+            <span style={{ fontSize: 10 }}>{subagentCount}</span>
+            {subagents.data?.rpcAvailable === true ? (
+              <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)" }} />
+            ) : null}
+          </button>
+        ) : null}
         {(() => {
           // 上下文压缩后当前消息可能不再包含 user 消息，需同时参考会话文件的消息总数。
           const hasMessages = Boolean(

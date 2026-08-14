@@ -59,6 +59,7 @@
   "devDependencies": {
     "@eslint/js": "9.39.4",
     "@lobehub/icons": "^5.6.0",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4.2.2",
     "@tailwindcss/vite": "4.2.2",
     "@types/js-yaml": "^4.0.9",

@@ -41,3 +41,8 @@ yarn-error.log*
 next-env.d.ts
 .factory
 .superpowers/
+
+# Playwright test artifacts
+/test-results/
+/tests/test-output/
+/playwright-report/
