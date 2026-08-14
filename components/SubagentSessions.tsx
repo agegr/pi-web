@@ -228,8 +228,9 @@ export function SubagentTree({
           const disabled = node.sessionId === null;
           const selected = node.sessionId !== null && node.sessionId === selectedSessionId;
           const elapsed = node.elapsedMs !== undefined ? formatElapsed(node.elapsedMs) : "";
-          const detail = [t(stateLabelKey(node.state)), activity(node), elapsed].filter(Boolean).join(" · ");
+          const detail = [node.agent, t(stateLabelKey(node.state)), activity(node), elapsed].filter(Boolean).join(" · ");
           const depth = depthById.get(id) ?? 0;
+          const accessibleDetail = [node.task, t(stateLabelKey(node.state)), activity(node), elapsed].filter(Boolean).join(", ");
           return (
             <div
               key={id}
@@ -245,6 +246,8 @@ export function SubagentTree({
                 tabIndex={index === focusIndex ? 0 : -1}
                 disabled={disabled}
                 aria-current={selected ? "true" : undefined}
+                aria-label={accessibleDetail}
+                data-subagent-card-row="true"
                 onClick={() => { if (!disabled) callbacks.onSelect(node); }}
                 style={{
                   display: "flex",
@@ -264,6 +267,7 @@ export function SubagentTree({
                   lineHeight: 1.35,
                 }}
               >
+                <span aria-hidden="true" className="subagent-state-dot" data-subagent-state={node.state} />
                 {hasChildren ? (
                   <span
                     role="presentation"
@@ -317,6 +321,16 @@ export function countSubagentNodes(nodes: SubagentTreeNode[]): number {
   return count;
 }
 
+/** Recursively counts nodes in an active lifecycle state. */
+export function countActiveSubagentNodes(nodes: SubagentTreeNode[]): number {
+  let count = 0;
+  for (const node of nodes) {
+    if (ACTIVE_ROW_STATES.has(node.state)) count += 1;
+    count += countActiveSubagentNodes(node.children);
+  }
+  return count;
+}
+
 /** Finds a node by its durable session id anywhere in the tree. */
 export function findSubagentNode(
   nodes: SubagentTreeNode[],
@@ -328,6 +342,55 @@ export function findSubagentNode(
     if (found) return found;
   }
   return null;
+}
+
+/**
+ * Compact right-gutter card for the recursive subagent tree. Visibility and
+ * navigation only: controls stay in the child transcript composer.
+ */
+export function DesktopSubagentCard({
+  nodes,
+  selectedSessionId,
+  rpcAvailable,
+  stale,
+  callbacks,
+}: {
+  nodes: SubagentTreeNode[];
+  selectedSessionId: string | null;
+  rpcAvailable: boolean;
+  stale: boolean;
+  callbacks: SubagentTreeCallbacks;
+}) {
+  const { t } = useI18n();
+  if (nodes.length === 0) return null;
+  const totalCount = countSubagentNodes(nodes);
+  const activeCount = countActiveSubagentNodes(nodes);
+  return (
+    <section className="desktop-subagent-card" aria-label={t("subagents.title")} data-subagent-card="true">
+      <div className="desktop-subagent-card-header">
+        <Network size={14} strokeWidth={1.8} aria-hidden="true" />
+        <span>
+          {totalCount} {t("subagents.title").toLowerCase()}
+        </span>
+        {rpcAvailable && activeCount > 0 ? (
+          <span className="desktop-subagent-card-live" aria-hidden="true" />
+        ) : null}
+        {activeCount > 0 ? (
+          <span className="desktop-subagent-card-summary">
+            {t("subagents.runningSummary", { count: activeCount })}
+          </span>
+        ) : null}
+      </div>
+      {stale ? (
+        <div className="desktop-subagent-card-stale">{t("subagents.stale")}</div>
+      ) : null}
+      <SubagentTree
+        nodes={nodes}
+        selectedSessionId={selectedSessionId}
+        callbacks={callbacks}
+      />
+    </section>
+  );
 }
 
 /** Ancestor chain from the root to the selected node, from the tree alone. */

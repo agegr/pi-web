@@ -4207,6 +4207,55 @@ span.linenumber {
 .desktop-context-cache-rate strong { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) { .desktop-context-progress > span { transition: none; } }
 
+/* Compact desktop subagent card (right context gutter) */
+.desktop-workspace-context-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.desktop-subagent-card {
+  width: 268px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  background: var(--bg);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .06);
+}
+.desktop-subagent-card-header {
+  min-height: 38px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+}
+.desktop-subagent-card-header > span:first-of-type { min-width: 0; flex: 1; }
+.desktop-subagent-card-live {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.desktop-subagent-card-summary,
+.desktop-subagent-card-stale { color: var(--text-muted); font-size: 10px; font-weight: 400; }
+.desktop-subagent-card-stale { padding: 5px 12px; border-bottom: 1px solid var(--border); color: #b45309; }
+.desktop-subagent-card [role="tree"] { max-height: min(360px, 42vh); padding: 5px; }
+.desktop-subagent-card [role="treeitem"] > button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.subagent-state-dot { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--text-dim); }
+.subagent-state-dot[data-subagent-state="running"],
+.subagent-state-dot[data-subagent-state="queued"],
+.subagent-state-dot[data-subagent-state="starting"] { background: var(--accent); }
+.subagent-state-dot[data-subagent-state="needs_attention"],
+.subagent-state-dot[data-subagent-state="paused"] { background: #d97706; }
+.subagent-state-dot[data-subagent-state="failed"] { background: #dc2626; }
+@media (prefers-reduced-motion: reduce) {
+  .desktop-subagent-card [role="tree"] * { transition: none !important; }
+}
+
 /* DSCode wide-desktop task header */
 .task-header { height: 56px; display: flex; align-items: center; border-bottom: 1px solid var(--border); background: var(--bg); }
 .task-header-sidebar { width: 42px; height: 100%; display: grid; place-items: center; border: 0; border-right: 1px solid var(--border); color: var(--text-muted); background: transparent; cursor: pointer; }

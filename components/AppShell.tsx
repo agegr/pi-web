@@ -27,7 +27,7 @@ import { Network,
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { CodexSidebar } from "./CodexSidebar";
 import { useSubagentTree } from "@/hooks/useSubagentTree";
-import { SessionBreadcrumb, SubagentComposer, SubagentTree, buildBreadcrumbItems, countSubagentNodes, findSubagentNode } from "./SubagentSessions";
+import { SessionBreadcrumb, SubagentComposer, SubagentTree, DesktopSubagentCard, buildBreadcrumbItems, countSubagentNodes, findSubagentNode } from "./SubagentSessions";
 import type { SubagentTreeNode } from "@/lib/api-types";
 import { ChatWindow } from "./ChatWindow";
 import { FileViewer } from "./FileViewer";
@@ -719,9 +719,12 @@ export function AppShell() {
     ? selectedSession.rootSessionId ?? selectedSession.id
     : null;
   const childSelected = selectedSession?.sessionRole === "subagent";
+  // Wide desktop keeps the right-gutter card visible; polling must stay
+  // eligible so a newly started first child appears without opening the popover.
+  const desktopSubagentCardVisible = isWideDesktop;
   const subagents = useSubagentTree({
     rootId: selectedRootId,
-    treeOpen: activeTopPanel === "subagents",
+    treeOpen: activeTopPanel === "subagents" || desktopSubagentCardVisible,
     childSelected,
   });
   const [rootSessionInfo, setRootSessionInfo] = useState<SessionInfo | null>(null);
@@ -1929,7 +1932,7 @@ export function AppShell() {
               zIndex: 500,
             }}>
               {activeTopPanel === "subagents" && subagents.data ? (
-                <div style={{
+                <div data-subagent-popover="true" style={{
                   background: "var(--bg-panel)",
                   border: "1px solid var(--border)",
                   borderRadius: 8,
@@ -2210,11 +2213,29 @@ export function AppShell() {
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onContextUsageChange={handleContextUsageChange}
               onOpenFile={handleOpenLinkedFile}
-              desktopAside={conversationContextModel ? (
-                <DesktopConversationContext
-                  model={conversationContextModel}
-                  onOpenDetails={() => toggleTopPanel("session")}
-                />
+              desktopAside={conversationContextModel || subagentCount > 0 ? (
+                <div className="desktop-workspace-context-stack">
+                  {conversationContextModel ? (
+                    <DesktopConversationContext
+                      model={conversationContextModel}
+                      onOpenDetails={() => toggleTopPanel("session")}
+                    />
+                  ) : null}
+                  {subagents.data && subagentCount > 0 ? (
+                    <DesktopSubagentCard
+                      nodes={subagents.data.nodes}
+                      selectedSessionId={childSelected && selectedSession ? selectedSession.id : null}
+                      rpcAvailable={subagents.data.rpcAvailable}
+                      stale={subagents.stale}
+                      callbacks={{
+                        onSelect: handleSubagentSelect,
+                        onControl: async (action, childSessionId, message) => {
+                          await subagents.control(action, childSessionId, message);
+                        },
+                      }}
+                    />
+                  ) : null}
+                </div>
               ) : null}
               soundEnabled={soundEnabled}
               playDoneSound={playDoneSound}
