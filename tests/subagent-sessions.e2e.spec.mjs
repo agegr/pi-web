@@ -238,7 +238,7 @@ test("incompatible capability keeps historical browsing and disables controls", 
   await expect(page.getByRole("tree")).toContainText("Implement the fixture worker");
   // Durable-only nodes are inactive and read-only.
   await expect(page.getByRole("tree")).toContainText("Inactive");
-  await page.getByRole("treeitem", { name: /subagent-worker-317e1ca0-1/ }).click();
+  await page.getByRole("treeitem", { name: /Implement the fixture worker/ }).click();
   await expect(page.getByRole("textbox")).toHaveCount(0);
   await expect(page.getByText("Live controls are unavailable for this session.")).toBeVisible();
 });
