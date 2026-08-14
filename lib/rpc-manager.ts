@@ -21,6 +21,7 @@ import type {
 } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
 import { createSubagentRpcCapture, SubagentRpcClient, type SubagentRpcCapture } from "./subagent-rpc";
+import { createTrajectoryRuntime, type TrajectoryRuntime } from "./trajectory-runtime";
 
 // ============================================================================
 // Types
@@ -175,6 +176,7 @@ export class AgentSessionWrapper {
   private extensionBindingError: unknown = null;
   private forceEmptySystemPrompt = false;
   private unsubscribe: (() => void) | null = null;
+  private trajectoryRuntime: TrajectoryRuntime | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private onDestroyCallback: (() => void) | null = null;
   private shutdownPromise: Promise<void> | null = null;
@@ -221,8 +223,10 @@ export class AgentSessionWrapper {
     return this._alive && (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning);
   }
 
-  start(): void {
+  start(trajectoryRuntime?: TrajectoryRuntime): void {
+    this.trajectoryRuntime = trajectoryRuntime ?? null;
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
+      this.trajectoryRuntime?.handleAgentEvent(event);
       if (event.type === "agent_end") {
         invalidateSessionListCache();
       }
@@ -232,6 +236,11 @@ export class AgentSessionWrapper {
     });
     this.resetIdleTimer();
     notifyRunningChange();
+  }
+
+  /** Forward a sidecar version bump to browser listeners (non-blocking). */
+  emitTrajectoryVersion(version: number): void {
+    this.emit({ type: "trajectory_update", version });
   }
 
   setForceEmptySystemPrompt(force: boolean): void {
@@ -803,6 +812,9 @@ export class AgentSessionWrapper {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this.inner.isBashRunning) this.inner.abortBash();
     this.unsubscribe?.();
+    // Best-effort: a direct destroy cannot await, so the pending append queue
+    // is flushed in the background and an incomplete tail is tolerated.
+    void this.trajectoryRuntime?.close();
     for (const pending of this.pendingUiResponses.values()) pending.cancel();
     for (const id of Array.from(this.activeCustomUis.keys())) this.closeCustomUi(id, undefined);
     this.pendingUiResponses.clear();
@@ -847,6 +859,16 @@ export class AgentSessionWrapper {
         }
         await this.inner.extensionRunner.emit?.({ type: "session_shutdown", reason: "quit" });
       } finally {
+        if (this.trajectoryRuntime) {
+          try {
+            await this.trajectoryRuntime.close();
+          } catch (error) {
+            console.error(
+              "[pi-web] failed to close trajectory recording:",
+              error instanceof Error ? error.message : error,
+            );
+          }
+        }
         this.destroy();
       }
     })();
@@ -1743,7 +1765,28 @@ export async function startRpcSession(
     if (toolNames?.length === 0) {
       wrapper.setForceEmptySystemPrompt(true);
     }
-    wrapper.start();
+    // Trajectory sidecars exist only for sessions created by Pi Web in this
+    // call; resumed/old sessions never get one (no backfill).
+    if (!sessionFile && !hasExistingMessages) {
+      const trajectoryRuntime = createTrajectoryRuntime(inner, {
+        agentDir,
+        sessionId: inner.sessionId as string,
+        cwd: sessionCwd,
+        onVersion: (version) => wrapper.emitTrajectoryVersion(version),
+      });
+      try {
+        await trajectoryRuntime.recorder.start();
+      } catch (error) {
+        console.error(
+          "[pi-web] failed to start trajectory recording:",
+          error instanceof Error ? error.message : error,
+        );
+      }
+      trajectoryRuntime.installStreamWrapper();
+      wrapper.start(trajectoryRuntime);
+    } else {
+      wrapper.start();
+    }
 
     const realSessionId = inner.sessionId as string;
     const realSessionFile = inner.sessionFile as string | undefined;

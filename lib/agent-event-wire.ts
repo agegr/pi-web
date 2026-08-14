@@ -63,6 +63,8 @@ export function toClientAgentEvent(
     } as ClientMessageUpdateEvent;
   }
 
+  if (event.type === "trajectory_update") return event;
+
   if (event.type === "agent_end") return { type: "agent_end" };
   return event;
 }
