@@ -14,3 +14,17 @@ test("keeps access on the left and reasoning beside the model", () => {
   assert.doesNotMatch(source, /MoreHorizontal/);
   assert.doesNotMatch(source, /Change model/);
 });
+
+test("keeps the composer toolbar at three grid cells on mobile", () => {
+  // The mobile toolbar is a 3-column grid (attach | access+model | right).
+  // Access and model must share one grid cell, or the right group wraps to
+  // row two and crushes the access chip to zero width.
+  assert.match(source, /gridTemplateColumns: isMobile \? "auto minmax\(0, 1fr\) auto"/);
+  assert.match(source, /className="composer-middle"/);
+  const middle = source.indexOf('className="composer-middle"');
+  assert.ok(middle >= 0);
+  const moreMenu = source.indexOf("moreMenuRef", middle);
+  const modelDropdown = source.indexOf("dropdownRef", middle);
+  assert.ok(moreMenu > middle && moreMenu < middle + 3000, "access chip must live inside the middle cell");
+  assert.ok(modelDropdown > middle && modelDropdown < middle + 6000, "model selector must live inside the middle cell");
+});

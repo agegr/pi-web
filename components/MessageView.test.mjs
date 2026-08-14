@@ -246,3 +246,14 @@ test("renders custom-message images as buttons that open a larger preview", () =
   assert.match(html, /<button[^>]+aria-label="Preview image"[^>]*>/);
   assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
 });
+
+test("keeps the assistant usage line on a single row with ellipsis", () => {
+  const html = renderMessage({
+    role: "assistant",
+    content: [{ type: "text", text: "Done" }],
+    usage: { input: 3196, output: 314, cacheRead: 220288, cacheWrite: 0, cost: { total: 0 } },
+    timestamp: Date.now(),
+  });
+
+  assert.match(html, /font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0/);
+});

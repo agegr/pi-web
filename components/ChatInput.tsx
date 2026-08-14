@@ -1977,6 +1977,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             <Plus size={16} strokeWidth={1.8} aria-hidden="true" />
           </button>
 
+          {/* Middle cell: access preset + model share one grid cell on mobile so
+              the right group stays in column three instead of wrapping to row two. */}
+          <div className="composer-middle" style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0, flex: "1 1 auto" }}>
+
           {onToolPresetChange && (
             <div ref={moreMenuRef} style={{ position: "relative", flexShrink: 0 }}>
               <button
@@ -2195,6 +2199,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   })()}
                 </div>
             )}
+          </div>
           </div>
 
 

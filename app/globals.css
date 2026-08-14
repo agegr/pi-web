@@ -623,6 +623,7 @@ html.keyboard-open .extension-status-shelf {
   color: var(--text-muted);
   cursor: pointer;
   font: 12px inherit;
+  white-space: nowrap;
   transition: background 0.15s ease-out, color 0.15s ease-out;
 }
 .composer-chip:hover,

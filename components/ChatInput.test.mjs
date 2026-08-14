@@ -383,6 +383,11 @@ test("keeps compaction actions coarse-pointer sized and still under reduced moti
   assert.match(css, /@media \(pointer: coarse\) \{\s*\.compaction-feedback-action \{[^}]*min-height: 44px/);
 });
 
+test("keeps composer chip labels from wrapping", async () => {
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /\.composer-chip \{\s*display: flex;[^}]*white-space: nowrap/);
+});
+
 test("clears slash commands before waiting for a builtin handler", async () => {
   const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
   const start = source.indexOf("const handleSend = useCallback");
