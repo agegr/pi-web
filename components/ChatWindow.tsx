@@ -1,7 +1,7 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
+import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, TextContent, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
@@ -89,6 +89,8 @@ function NewSessionUpdateLink({
       })
       .catch(() => {
         // Update checks are best-effort and must not interrupt a new session.
+        // Catch every error (including AbortError on cleanup) so Next 16's dev
+        // overlay doesn't surface this as unhandledRejection.
       });
     return () => controller.abort();
   }, []);
@@ -157,7 +159,7 @@ function getUserInputText(message: AgentMessage): string | null {
     return text.length > 0 ? text : null;
   }
   const text = message.content
-    .filter((block) => block.type === "text")
+    .filter((block): block is TextContent => block.type === "text")
     .map((block) => block.text)
     .join("\n")
     .trim();
