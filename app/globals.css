@@ -4509,7 +4509,7 @@ span.linenumber {
 .trajectory-status-dot.is-aborted { background: #d39b53; }
 .trajectory-status-dot.is-error { background: #e05252; }
 .trajectory-empty-row { text-align: center; color: var(--text-dim) !important; padding: 14px 8px !important; }
-.trajectory-child-row td { background: var(--bg-panel); }
+.trajectory-child-wrapper-row td { background: var(--bg-panel); }
 .trajectory-child-cell { padding: 6px 10px 8px 30px !important; }
 .trajectory-child {
   border: 1px solid var(--border);

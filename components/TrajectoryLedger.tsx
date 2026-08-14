@@ -163,7 +163,7 @@ export function TrajectoryLedger({
                     </td>
                   </tr>
                   {child ? (
-                    <tr className="trajectory-child-row">
+                    <tr className="trajectory-child-wrapper-row">
                       <td colSpan={6} className="trajectory-child-cell"><ChildSummary response={child} /></td>
                     </tr>
                   ) : null}
