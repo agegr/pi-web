@@ -205,4 +205,3 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
   return createSubagentHandlers().POST(req, ctx);
 }
-
