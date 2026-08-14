@@ -2,7 +2,7 @@ import { attachSessionRelations } from "@/lib/session-relations";
 import { buildSubagentTree, findOwnedSubagent } from "@/lib/subagent-tree";
 import { getRpcSession, startRpcSession, type AgentSessionWrapper } from "@/lib/rpc-manager";
 import { listAllSessions, resolveSessionPath } from "@/lib/session-reader";
-import type { SubagentTreeResponse } from "@/lib/api-types";
+import type { SubagentTreeResponse, SubagentControlResponse } from "@/lib/api-types";
 import type { SessionInfo } from "@/lib/types";
 
 type SubagentTreeReason = NonNullable<SubagentTreeResponse["unavailableReason"]>;
@@ -167,7 +167,14 @@ export function createSubagentHandlers(deps: SubagentRouteDeps = defaultDeps) {
         } catch {
           // The control succeeded; a failed follow-up snapshot keeps last data.
         }
-        return Response.json({ success: true, data: { control: controlResult, ...(tree ? { tree } : {}) } });
+        return Response.json({
+          success: true,
+          data: {
+            action,
+            childSessionId: body.childSessionId,
+            ...(tree ? { tree } : {}),
+          },
+        } satisfies SubagentControlResponse);
       } catch (error) {
         const rpcError = rpcErrorOf(error);
         if (rpcError) {
@@ -198,4 +205,3 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
   return createSubagentHandlers().POST(req, ctx);
 }
-

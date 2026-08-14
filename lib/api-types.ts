@@ -160,6 +160,15 @@ export interface SubagentControlRequest {
   message?: string;
 }
 
+export interface SubagentControlResponse {
+  success: true;
+  data: {
+    action: SubagentControlRequest["action"];
+    childSessionId: string;
+    tree?: SubagentTreeResponse;
+  };
+}
+
 // ============================================================================
 // Trajectory
 // ============================================================================

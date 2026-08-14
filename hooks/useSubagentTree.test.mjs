@@ -82,6 +82,11 @@ test("control posts only action, childSessionId, and optional message", async ()
   assert.match(source, /JSON\.stringify\(\{\s*childSessionId,\s*action,\s*\.\.\.\(message !== undefined \? \{ message \} : \{\}\),\s*\}\)/);
   assert.doesNotMatch(source, /setData\(.*action/);
   assert.match(source, /await refresh\(\);\s*$/m);
+  assert.match(
+    source,
+    /(?:adoptSnapshot\([^)]*\.data\.tree\)|await refresh\(\));\s*\}/,
+    "the control path must end by adopting the POST tree or falling back to a refresh",
+  );
 });
 
 test("control errors surface without optimistic lifecycle mutation", async () => {
@@ -91,6 +96,13 @@ test("control errors surface without optimistic lifecycle mutation", async () =>
   assert.doesNotMatch(controlSource, /setData\(/);
 });
 
+test("control parses the response body and never reads the raw rpc control result", async () => {
+  const source = await readFile(new URL("./useSubagentTree.ts", import.meta.url), "utf8");
+  const controlSource = source.slice(source.indexOf("const control = useCallback"), source.indexOf("return {\n    data,"));
+  assert.match(controlSource, /response\.json\(\)/);
+  assert.doesNotMatch(controlSource, /data\.control/);
+});
+
 test("transcript refresh generation only bumps on successful snapshots plus the terminal transition", async () => {
   const source = await readFile(new URL("./useSubagentTree.ts", import.meta.url), "utf8");
   const successPath = source.slice(source.indexOf("if (!response.ok) throw new Error"), source.indexOf("setStale(false)"));
@@ -98,4 +110,53 @@ test("transcript refresh generation only bumps on successful snapshots plus the 
   assert.match(successPath, /setTranscriptRefreshGeneration/);
   const errorPath = source.slice(source.indexOf("catch (refreshError)"), source.indexOf("finally {"));
   assert.doesNotMatch(errorPath, /setTranscriptRefreshGeneration/);
+});
+
+test("a root change invalidates the previous root before the next refresh", async () => {
+  const source = await readFile(new URL("./useSubagentTree.ts", import.meta.url), "utf8");
+  const invalidate = source.indexOf("generationRef.current += 1;");
+  const immediateRefresh = source.indexOf("// Immediate refresh on root change");
+  assert.ok(invalidate !== -1, "a root-change effect must bump the generation");
+  assert.ok(
+    invalidate < immediateRefresh,
+    "root-change invalidation must be declared before the immediate-refresh effect",
+  );
+  const effectStart = source.lastIndexOf("useEffect(() => {", invalidate);
+  const effectEnd = source.indexOf("}, [rootId]);", invalidate) + "}, [rootId]);".length;
+  const effect = source.slice(effectStart, effectEnd);
+  assert.match(effect, /inFlightRef\.current = null;/);
+  assert.match(effect, /dataRef\.current = null;/);
+  assert.match(effect, /setData\(null\);/);
+  assert.match(effect, /setStale\(false\);/);
+  assert.match(effect, /setError\(null\);/);
+  assert.match(effect, /}, \[rootId\]\);/);
+});
+
+test("adoptSnapshot advances the transcript generation exactly like a successful refresh", async () => {
+  const source = await readFile(new URL("./useSubagentTree.ts", import.meta.url), "utf8");
+  const adoptSource = source.slice(source.indexOf("const adoptSnapshot"), source.indexOf("const control = useCallback"));
+  assert.match(adoptSource, /useCallback\(/);
+  assert.match(adoptSource, /nextTranscriptGeneration\(dataRef\.current, tree, current\)/);
+  assert.match(adoptSource, /setTranscriptRefreshGeneration/);
+  assert.match(adoptSource, /setData\(tree\)/);
+  assert.match(adoptSource, /setStale\(false\)/);
+  assert.match(adoptSource, /setError\(null\)/);
+});
+
+test("control adopts the POST tree snapshot and refreshes only when it is absent", async () => {
+  const source = await readFile(new URL("./useSubagentTree.ts", import.meta.url), "utf8");
+  const controlSource = source.slice(source.indexOf("const control = useCallback"), source.indexOf("return {\n    data,"));
+  assert.match(controlSource, /SubagentControlResponse/);
+  assert.match(controlSource, /\.data\.tree/);
+  assert.match(
+    controlSource,
+    /if \([^)]*\.data\.tree\) \{\s*adoptSnapshot\([^)]*\.data\.tree\);/,
+    "a tree-bearing response must be adopted without a follow-up GET",
+  );
+  assert.match(
+    controlSource,
+    /} else \{\s*await refresh\(\);/,
+    "refresh() must run only when the response carries no tree",
+  );
+  assert.doesNotMatch(controlSource, /setData\(/);
 });

@@ -2,6 +2,10 @@ import type { SessionInfo } from "./types";
 
 const SUBAGENT_SESSION_NAME = /^subagent-(.+)-((?:[0-9a-f]{8})|(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}))(?:-(\d+))?$/;
 
+export function isReservedSubagentSessionName(name: string | undefined): boolean {
+  return typeof name === "string" && SUBAGENT_SESSION_NAME.test(name);
+}
+
 export function attachSessionRelations(sessions: SessionInfo[]): SessionInfo[] {
   const byId = new Map(sessions.map((session) => [session.id, session]));
 
@@ -15,7 +19,7 @@ export function attachSessionRelations(sessions: SessionInfo[]): SessionInfo[] {
       visited.add(rootSessionId);
       const parent = byId.get(rootSessionId);
       if (!parent) break;
-      const parentIsSubagent = Boolean(parent.parentSessionId && parent.name?.match(SUBAGENT_SESSION_NAME));
+      const parentIsSubagent = Boolean(parent.parentSessionId && isReservedSubagentSessionName(parent.name));
       if (!parentIsSubagent) break;
       rootSessionId = parent.parentSessionId;
     }

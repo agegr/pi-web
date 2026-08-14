@@ -10,6 +10,7 @@ import {
   readSessionHeader,
 } from "@/lib/session-reader";
 import { sessionPathKey } from "@/lib/session-path";
+import { isReservedSubagentSessionName } from "@/lib/session-relations";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { projectTreeForResponse } from "@/lib/project-tree";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
@@ -95,15 +96,32 @@ export async function PATCH(
     // A live wrapper owns the in-memory session tree; a file-level append would
     // be invisible to it and could be dropped by its next compact/rewrite.
     const rpc = getRpcSession(id);
-    if (rpc?.isAlive()) {
-      await rpc.send({ type: "set_session_name", name: trimmedName });
+    const liveRpc = rpc?.isAlive() ? rpc : undefined;
+
+    // Resolve the current session name before applying the rename: a rename may
+    // not enter or leave the reserved subagent identity namespace.
+    let filePath: string | null = null;
+    let currentName: string | undefined;
+    if (liveRpc?.inner?.sessionManager) {
+      currentName = liveRpc.inner.sessionManager.getSessionName();
     } else {
-      const filePath = await resolveSessionPath(id);
-      if (!filePath) {
+      filePath = liveRpc ? liveRpc.sessionFile ?? await resolveSessionPath(id) : await resolveSessionPath(id);
+      if (!liveRpc && !filePath) {
         return Response.json({ error: "Session not found" }, { status: 404 });
       }
-      const sm = SessionManager.open(filePath);
-      sm.appendSessionInfo(trimmedName);
+      currentName = filePath ? SessionManager.open(filePath).getSessionName() : undefined;
+    }
+    const currentReserved = isReservedSubagentSessionName(currentName);
+    const nextReserved = isReservedSubagentSessionName(trimmedName);
+    if (currentReserved !== nextReserved) {
+      return Response.json({ error: "subagent session names are reserved" }, { status: 409 });
+    }
+
+    if (liveRpc) {
+      await liveRpc.send({ type: "set_session_name", name: trimmedName });
+    } else {
+      // filePath is resolved above whenever !liveRpc passes the 404 check.
+      SessionManager.open(filePath!).appendSessionInfo(trimmedName);
     }
     invalidateSessionListCache();
     return Response.json({ ok: true });

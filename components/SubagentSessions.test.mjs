@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createJiti } from "jiti";
@@ -16,6 +17,8 @@ const {
   submitActionFor,
   formatElapsed,
   getVisibleNodes,
+  buildBreadcrumbItems,
+  nextFocusableIndex,
 } = await jiti.import("./SubagentSessions.tsx");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
@@ -76,12 +79,98 @@ test("tree renders disabled starting placeholders with their bounded task text",
   assert.match(html, /Starting/);
 });
 
+test("tree row shows the agent role on its own line above the bounded task", () => {
+  const child = node("child", "running", { agent: "worker", task: "Inspect RPC" });
+  const html = render(React.createElement(SubagentTree, { nodes: [child], selectedSessionId: null, callbacks }));
+  // The task text still appears; the agent is a separate uppercase role label, not inline with it.
+  assert.match(html, /Inspect RPC/);
+  assert.match(html, /text-transform:uppercase[^>]*>worker/);
+  assert.doesNotMatch(html, />worker[^<]*Inspect RPC/);
+});
+
 test("tree shows elapsed time when present and hides it otherwise", () => {
   const active = node("a", "running", { elapsedMs: 83_000 });
   const plain = node("b", "inactive");
   const html = render(React.createElement(SubagentTree, { nodes: [active, plain], selectedSessionId: null, callbacks }));
   assert.match(html, /1m 23s/);
   assert.doesNotMatch(html, /0s/);
+});
+
+test("tree exposes semantic group nesting with positional ARIA and real disclosure buttons", () => {
+  const child = node("child", "running", {
+    children: [node("grand", "inactive", { children: [node("great", "complete")] })],
+  });
+  const other = node("other", "running");
+  const html = render(React.createElement(SubagentTree, { nodes: [child, other], selectedSessionId: null, callbacks }));
+  assert.match(html, /role="tree"/);
+  assert.match(html, /role="treeitem"/);
+  assert.match(html, /role="group"/);
+  assert.match(html, /aria-posinset="1"/);
+  assert.match(html, /aria-setsize="2"/);
+  // Every disclosure is a real labeled button; the fake presentation span is gone.
+  assert.match(html, /aria-label="Collapse"/);
+  assert.doesNotMatch(html, /role="presentation"/);
+});
+
+test("composer source: error alert sits on its own line with shrink protection", () => {
+  const source = readFileSync(new URL("./SubagentSessions.tsx", import.meta.url), "utf8");
+  // The alert is no longer a 100%-basis child of the input row.
+  assert.doesNotMatch(source, /flex: "0 0 100%"/);
+  assert.match(source, /role="alert"[\s\S]*?overflowWrap: "anywhere"/);
+  // The composer wrapper, the input row, and the textarea all shrink instead of forcing overflow.
+  assert.match(source, /flexDirection: "column",\s*gap: 8,[\s\S]*?borderTop: "1px solid var\(--border\)",[\s\S]*?minWidth: 0/);
+  assert.match(source, /flex: "1 1 auto",\s*minWidth: 0,\s*minHeight: isMobile \? 44 : 34/);
+});
+
+test("tree source: ArrowLeft uses ancestor navigation and disclosure is a real button", () => {
+  const source = readFileSync(new URL("./SubagentSessions.tsx", import.meta.url), "utf8");
+  assert.match(source, /case "ArrowLeft":[\s\S]*?parent/);
+  assert.doesNotMatch(source, /case "ArrowLeft":[\s\S]*?index - 1/);
+  assert.match(source, /aria-label=\{.*subagents\.(expand|collapse)/);
+  assert.doesNotMatch(source, /role="presentation"/);
+});
+
+test("tree source: roving focus skips disabled placeholder rows", () => {
+  const source = readFileSync(new URL("./SubagentSessions.tsx", import.meta.url), "utf8");
+  assert.match(source, /function nextFocusableIndex\(rows: TreeRow\[\], from: number, direction: 1 \| -1\)/);
+  assert.match(source, /target && !target\.disabled/);
+  assert.match(source, /nextFocusableIndex\(visibleRows, focusIndex, 1\)/);
+  // Movement keys resolve placeholder candidates direction-aware instead of
+  // swallowing keys when no forward focusable row exists.
+  assert.match(source, /case "ArrowUp":[\s\S]*?nextFocusableIndex\(visibleRows, [^)]*?, -1\)/);
+  assert.match(source, /case "ArrowDown":[\s\S]*?nextFocusableIndex\(visibleRows, [^)]*?, 1\)/);
+});
+
+test("nextFocusableIndex skips placeholders in both directions", () => {
+  const rows = [
+    { node: { sessionId: "a" } },
+    { node: { sessionId: null } },   // placeholder
+    { node: { sessionId: null } },   // placeholder
+    { node: { sessionId: "b" } },
+  ];
+  assert.equal(nextFocusableIndex(rows, 0, 1), 0);
+  assert.equal(nextFocusableIndex(rows, 1, 1), 3);
+  assert.equal(nextFocusableIndex(rows, 2, 1), 3);
+  // From a focusable row the row itself wins; backward skips both placeholders
+  // when starting on one (rows 1 and 2).
+  assert.equal(nextFocusableIndex(rows, 3, -1), 3);
+  assert.equal(nextFocusableIndex(rows, 1, -1), 0);
+  assert.equal(nextFocusableIndex(rows, 2, -1), 0);
+  assert.equal(nextFocusableIndex(rows, 3, 1), 3);
+  assert.equal(nextFocusableIndex([{ node: { sessionId: null } }], 0, 1), -1);
+});
+
+test("breadcrumb root uses the real root session id", () => {
+  const items = buildBreadcrumbItems(
+    [node("child", "running")],
+    "child",
+    "root-session-id",
+    "Main task",
+  );
+  assert.equal(items[0].id, "root-session-id");
+  assert.equal(items[0].label, "Main task");
+  assert.equal(items.length, 2);
+  assert.equal(items[1].id, "child");
 });
 
 test("breadcrumb renders root and every ancestor as buttons with the current as text", () => {

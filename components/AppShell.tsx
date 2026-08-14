@@ -26,7 +26,7 @@ import { Network,
 } from "lucide-react";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { CodexSidebar } from "./CodexSidebar";
-import { useSubagentTree } from "@/hooks/useSubagentTree";
+import { hasActiveDescendant, useSubagentTree } from "@/hooks/useSubagentTree";
 import { SessionBreadcrumb, SubagentComposer, SubagentTree, DesktopSubagentCard, buildBreadcrumbItems, countSubagentNodes, findSubagentNode } from "./SubagentSessions";
 import type { SubagentTreeNode } from "@/lib/api-types";
 import { ChatWindow } from "./ChatWindow";
@@ -763,14 +763,15 @@ export function AppShell() {
     void resolveSessionById(node.sessionId).then((session) => {
       if (session) handleSelectSession(session);
     });
-    if (isMobile) setActiveTopPanel(null);
-  }, [handleSelectSession, isMobile, resolveSessionById]);
+    closeTopPanel();
+  }, [handleSelectSession, resolveSessionById, closeTopPanel]);
 
   const handleBreadcrumbSelect = useCallback((sessionId: string) => {
     void resolveSessionById(sessionId).then((session) => {
       if (session) handleSelectSession(session);
     });
-  }, [handleSelectSession, resolveSessionById]);
+    closeTopPanel();
+  }, [handleSelectSession, resolveSessionById, closeTopPanel]);
 
   // Keep the sidebar inventory fresh when a new durable child first appears.
   const knownDurableIdsRef = useRef<Set<string>>(new Set());
@@ -1302,7 +1303,7 @@ export function AppShell() {
           >
             <Network size={14} strokeWidth={1.8} aria-hidden="true" />
             <span style={{ fontSize: 10 }}>{subagentCount}</span>
-            {subagents.data?.rpcAvailable === true ? (
+            {hasActiveDescendant(subagents.data?.nodes) ? (
               <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)" }} />
             ) : null}
           </button>
@@ -1906,7 +1907,7 @@ export function AppShell() {
               filePanelOpen={rightPanelOpen}
               subagentCount={subagentCount}
               subagentsOpen={activeTopPanel === "subagents"}
-              subagentsLive={subagents.data?.rpcAvailable === true}
+              subagentsLive={hasActiveDescendant(subagents.data?.nodes)}
               onOpenSubagents={(anchor) => {
                 topPanelReturnFocusRef.current = anchor;
                 subagentsAnchorRef.current = anchor;
@@ -2223,6 +2224,7 @@ export function AppShell() {
                   items={buildBreadcrumbItems(
                     subagents.data.nodes,
                     selectedSession.id,
+                    selectedRootId ?? "",
                     rootSessionInfo?.name ?? rootSessionInfo?.firstMessage ?? selectedRootId ?? translate("i18n.newSession"),
                   )}
                   onSelect={handleBreadcrumbSelect}

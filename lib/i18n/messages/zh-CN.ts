@@ -651,6 +651,8 @@ export const zhCNLocale: LocalePlugin = {
     "subagents.steer": "引导",
     "subagents.resume": "继续",
     "subagents.interrupt": "暂停该子代理（可恢复）",
+    "subagents.expand": "展开",
+    "subagents.collapse": "收起",
     "subagents.steerPlaceholder": "发送引导消息…",
     "subagents.resumePlaceholder": "输入消息以继续…",
     "subagents.activity.running": "运行中",
