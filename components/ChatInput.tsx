@@ -1869,7 +1869,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             );
           })()}
           <div
-            className="composer-shell"
+            className={`composer-shell${isStreaming ? " is-streaming" : ""}`}
             style={{
               minWidth: 0,
               display: "flex",
@@ -1982,7 +1982,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           <div className="composer-middle" style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0, flex: "1 1 auto" }}>
 
           {onToolPresetChange && (
-            <div ref={moreMenuRef} style={{ position: "relative", flexShrink: 0 }}>
+            <div
+              ref={moreMenuRef}
+              className="composer-access"
+              style={{ position: "relative", flex: isMobile && isStreaming ? "0 1 auto" : "0 0 auto", minWidth: 0 }}
+            >
               <button
                 type="button"
                 className={`composer-chip${(toolPreset ?? "default") === "full" ? " is-full-access" : ""}`}
@@ -1994,10 +1998,19 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 title={t("chat.changeToolPreset")}
                 aria-label={t("chat.changeToolPreset")}
                 aria-expanded={moreMenuOpen}
+                style={{
+                  minWidth: 0,
+                  width: "100%",
+                  maxWidth: "100%",
+                  boxSizing: "border-box",
+                  overflow: "hidden",
+                }}
               >
                 <Shield size={13} strokeWidth={2} aria-hidden="true" />
-                <span>{t(TOOL_PRESET_LABEL_KEYS[(Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? "default"))?.[0] ?? "default") as typeof TOOL_PRESETS[number]])}</span>
-                <ChevronDown size={12} strokeWidth={2} aria-hidden="true" style={{ opacity: 0.7 }} />
+                <span className="composer-access-label" style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {t(TOOL_PRESET_LABEL_KEYS[(Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? "default"))?.[0] ?? "default") as typeof TOOL_PRESETS[number]])}
+                </span>
+                <ChevronDown className="composer-access-chevron" size={12} strokeWidth={2} aria-hidden="true" style={{ opacity: 0.7 }} />
               </button>
               {moreMenuOpen && (
                 <div className="composer-menu" style={{ left: 0 }}>
@@ -2063,8 +2076,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           {!isMobile && <div style={{ flex: 1 }} />}
 
           {/* Model selector */}
-          <div style={{ flex: isMobile ? "1 1 auto" : "0 0 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2 }}>
-            {/* Model selector — visible always, disabled while the session or switch is busy */}
+          <div className="composer-model-selector" style={{ flex: isMobile ? "1 1 auto" : "0 0 auto", minWidth: 0, display: isMobile && isStreaming ? "none" : "flex", alignItems: "center", gap: 2 }}>
+            {/* Model selector is disabled during a run; mobile hides it then to preserve toolbar space. */}
             {(modelOptions.length > 0 || currentName || modelError) && onModelChange && (
                 <div ref={dropdownRef} style={{ position: "relative", flex: isMobile ? "1 1 auto" : undefined, minWidth: 0 }}>
                   <button
@@ -2216,7 +2229,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               <div ref={thinkingMenuRef} style={{ position: "relative" }}>
                 <button
                   type="button"
-                  className="composer-chip"
+                  className="composer-chip composer-thinking-chip"
                   onClick={() => {
                     setModelDropdownOpen(false);
                     setMoreMenuOpen(false);
@@ -2227,8 +2240,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   aria-expanded={thinkingMenuOpen}
                 >
                   <Brain size={13} strokeWidth={2} aria-hidden="true" />
-                  <span data-thinking-badge={thinkingLevel ?? "auto"}>{t(THINKING_SHORT_KEYS[(thinkingLevel ?? "auto") as typeof THINKING_LEVELS[number]])}</span>
-                  <ChevronDown size={12} strokeWidth={2} aria-hidden="true" style={{ opacity: 0.7 }} />
+                  <span className="composer-thinking-label" data-thinking-badge={thinkingLevel ?? "auto"}>{t(THINKING_SHORT_KEYS[(thinkingLevel ?? "auto") as typeof THINKING_LEVELS[number]])}</span>
+                  <ChevronDown className="composer-thinking-chevron" size={12} strokeWidth={2} aria-hidden="true" style={{ opacity: 0.7 }} />
                 </button>
                 {thinkingMenuOpen && (
                   <div className="composer-menu" style={{ right: 0, minWidth: 180 }}>
