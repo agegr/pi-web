@@ -15,6 +15,7 @@ const {
   formatElapsed,
   getVisibleNodes,
   buildBreadcrumbItems,
+  nextFocusableIndex,
 } = await jiti.import("./SubagentSessions.tsx");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
@@ -105,6 +106,36 @@ test("tree source: ArrowLeft uses ancestor navigation and disclosure is a real b
   assert.doesNotMatch(source, /case "ArrowLeft":[\s\S]*?index - 1/);
   assert.match(source, /aria-label=\{.*subagents\.(expand|collapse)/);
   assert.doesNotMatch(source, /role="presentation"/);
+});
+
+test("tree source: roving focus skips disabled placeholder rows", () => {
+  const source = readFileSync(new URL("./SubagentSessions.tsx", import.meta.url), "utf8");
+  assert.match(source, /function nextFocusableIndex\(rows: TreeRow\[\], from: number, direction: 1 \| -1\)/);
+  assert.match(source, /target && !target\.disabled/);
+  assert.match(source, /nextFocusableIndex\(visibleRows, focusIndex, 1\)/);
+  // Movement keys resolve placeholder candidates direction-aware instead of
+  // swallowing keys when no forward focusable row exists.
+  assert.match(source, /case "ArrowUp":[\s\S]*?nextFocusableIndex\(visibleRows, [^)]*?, -1\)/);
+  assert.match(source, /case "ArrowDown":[\s\S]*?nextFocusableIndex\(visibleRows, [^)]*?, 1\)/);
+});
+
+test("nextFocusableIndex skips placeholders in both directions", () => {
+  const rows = [
+    { node: { sessionId: "a" } },
+    { node: { sessionId: null } },   // placeholder
+    { node: { sessionId: null } },   // placeholder
+    { node: { sessionId: "b" } },
+  ];
+  assert.equal(nextFocusableIndex(rows, 0, 1), 0);
+  assert.equal(nextFocusableIndex(rows, 1, 1), 3);
+  assert.equal(nextFocusableIndex(rows, 2, 1), 3);
+  // From a focusable row the row itself wins; backward skips both placeholders
+  // when starting on one (rows 1 and 2).
+  assert.equal(nextFocusableIndex(rows, 3, -1), 3);
+  assert.equal(nextFocusableIndex(rows, 1, -1), 0);
+  assert.equal(nextFocusableIndex(rows, 2, -1), 0);
+  assert.equal(nextFocusableIndex(rows, 3, 1), 3);
+  assert.equal(nextFocusableIndex([{ node: { sessionId: null } }], 0, 1), -1);
 });
 
 test("breadcrumb root uses the real root session id", () => {

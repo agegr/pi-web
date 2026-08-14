@@ -146,6 +146,18 @@ function buildTreeRows(nodes: SubagentTreeNode[], collapsed: ReadonlySet<string>
   return rows;
 }
 
+// Rows whose selection button is disabled cannot receive focus; roving focus
+// must skip them so keyboard navigation never stalls on a placeholder.
+export function nextFocusableIndex(rows: TreeRow[], from: number, direction: 1 | -1): number {
+  const length = rows.length;
+  for (let offset = 0; offset < length; offset += 1) {
+    const index = from + direction * offset;
+    if (index < 0 || index >= length) return -1;
+    if (rows[index].node.sessionId !== null) return index;
+  }
+  return -1;
+}
+
 export function SubagentTree({
   nodes,
   selectedSessionId,
@@ -172,8 +184,17 @@ export function SubagentTree({
     setFocusIndex((current) => Math.min(current, Math.max(0, visibleRows.length - 1)));
   }, [visibleRows.length]);
   useEffect(() => {
-    rowRefs.current[focusIndex]?.focus({ preventScroll: true });
-  }, [focusIndex]);
+    const target = rowRefs.current[focusIndex];
+    if (target && !target.disabled) {
+      target.focus({ preventScroll: true });
+      return;
+    }
+    const forward = nextFocusableIndex(visibleRows, focusIndex, 1);
+    const fallback = forward !== -1 ? forward : nextFocusableIndex(visibleRows, focusIndex, -1);
+    if (fallback !== -1 && fallback !== focusIndex) {
+      setFocusIndex(fallback);
+    }
+  }, [visibleRows, focusIndex]);
 
   const toggle = useCallback((id: string) => {
     setCollapsed((previous) => {
@@ -195,22 +216,38 @@ export function SubagentTree({
     const isCollapsed = collapsed.has(id);
 
     switch (event.key) {
-      case "ArrowDown":
+      case "ArrowDown": {
         event.preventDefault();
-        setFocusIndex(Math.min(index + 1, visibleRows.length - 1));
+        const candidate = index + 1;
+        if (candidate >= visibleRows.length) break;
+        const next = visibleRows[candidate].node.sessionId === null
+          ? nextFocusableIndex(visibleRows, candidate, 1)
+          : candidate;
+        if (next !== -1) setFocusIndex(next);
         break;
-      case "ArrowUp":
+      }
+      case "ArrowUp": {
         event.preventDefault();
-        setFocusIndex(Math.max(index - 1, 0));
+        const candidate = index - 1;
+        if (candidate < 0) break;
+        const next = visibleRows[candidate].node.sessionId === null
+          ? nextFocusableIndex(visibleRows, candidate, -1)
+          : candidate;
+        if (next !== -1) setFocusIndex(next);
         break;
-      case "Home":
+      }
+      case "Home": {
         event.preventDefault();
-        setFocusIndex(0);
+        const next = nextFocusableIndex(visibleRows, 0, 1);
+        if (next !== -1) setFocusIndex(next);
         break;
-      case "End":
+      }
+      case "End": {
         event.preventDefault();
-        setFocusIndex(visibleRows.length - 1);
+        const next = nextFocusableIndex(visibleRows, visibleRows.length - 1, -1);
+        if (next !== -1) setFocusIndex(next);
         break;
+      }
       case "ArrowRight":
         event.preventDefault();
         if (hasChildren && isCollapsed) toggle(id);
