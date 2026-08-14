@@ -683,6 +683,30 @@ html.keyboard-open .extension-status-shelf {
     height: 44px;
     padding: 8px 10px;
   }
+  .composer-access .composer-chip {
+    padding-inline: 0;
+  }
+  .composer-shell.is-streaming .composer-access-chevron {
+    display: none;
+  }
+}
+@media (max-width: 360px) {
+  .composer-shell.is-streaming .composer-thinking-label {
+    display: none;
+  }
+  .composer-shell.is-streaming .composer-thinking-chevron {
+    display: none;
+  }
+  .composer-shell.is-streaming .composer-thinking-chip {
+    width: 44px;
+    flex: 0 0 44px;
+    justify-content: center;
+    padding-inline: 0;
+  }
+  .composer-queue-toggle button {
+    padding-inline: 4px !important;
+    font-size: 11px;
+  }
 }
 
 .jump-to-bottom {
