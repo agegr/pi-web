@@ -185,6 +185,69 @@ test("rename goes through the live wrapper when one exists", async (t) => {
   assert.doesNotMatch(readFileSync(path, "utf8"), /session_info/);
 });
 
+test("rename into the reserved subagent namespace is rejected with 409", async (t) => {
+  const previousRegistry = globalThis.__piSessions;
+  const id = "rename-into-reserved-test";
+  const sent = [];
+  globalThis.__piSessions = new Map([
+    [id, {
+      isAlive: () => true,
+      inner: { sessionManager: { getSessionName: () => "Main task" } },
+      send: async (command) => { sent.push(command); return null; },
+    }],
+  ]);
+  t.after(() => {
+    globalThis.__piSessions = previousRegistry;
+  });
+
+  const { PATCH: patchSession } = await jiti.import("./[id]/route.ts");
+  const response = await patchSession(
+    new Request(`http://localhost/api/sessions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "subagent-worker-317e1ca0-1" }),
+    }),
+    { params: Promise.resolve({ id }) },
+  );
+  assert.equal(response.status, 409);
+  assert.deepEqual(sent, []);
+});
+
+test("rename out of the reserved subagent namespace is rejected with 409", async (t) => {
+  const previousRegistry = globalThis.__piSessions;
+  const dir = mkdtempSync(join(tmpdir(), "pi-web-session-rename-reserved-"));
+  const id = "rename-out-of-reserved-test";
+  const path = join(dir, `${id}.jsonl`);
+  const original = [
+    JSON.stringify({
+      type: "session", version: 3, id, timestamp: "2026-08-14T00:00:00.000Z", cwd: dir,
+    }),
+    JSON.stringify({
+      type: "session_info", id: "si1", parentId: null, timestamp: "2026-08-14T00:00:00.000Z",
+      name: "subagent-worker-317e1ca0-1",
+    }),
+    "",
+  ].join("\n");
+  writeFileSync(path, original);
+  cacheSessionPath(id, path);
+  globalThis.__piSessions = new Map();
+  t.after(() => {
+    globalThis.__piSessions = previousRegistry;
+  });
+
+  const { PATCH: patchSession } = await jiti.import("./[id]/route.ts");
+  const response = await patchSession(
+    new Request(`http://localhost/api/sessions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "ordinary name" }),
+    }),
+    { params: Promise.resolve({ id }) },
+  );
+  assert.equal(response.status, 409);
+  assert.equal(readFileSync(path, "utf8"), original, "file must be untouched");
+});
+
 test("delete shuts down live child sessions before rewriting their files", async (t) => {
   const previousRegistry = globalThis.__piSessions;
   const dir = mkdtempSync(join(tmpdir(), "pi-web-session-delete-"));
