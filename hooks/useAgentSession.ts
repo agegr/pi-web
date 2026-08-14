@@ -152,6 +152,8 @@ export interface UseAgentSessionOptions {
   readOnlyHistory?: boolean;
   /** Bumps reload the persisted session context without touching the runtime. */
   historyRefreshGeneration?: number;
+  /** Forward trajectory sidecar version bumps from the existing SSE. */
+  onTrajectoryVersionChange?: (version: number) => void;
 }
 
 export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -1050,6 +1052,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
 
     switch (event.type) {
+      case "trajectory_update": {
+        if (typeof event.version === "number") {
+          opts.onTrajectoryVersionChange?.(event.version);
+        }
+        break;
+      }
       case "connected": {
         dispatch({ type: "end" });
         if (event.isStreaming === true) {
