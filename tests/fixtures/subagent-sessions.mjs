@@ -132,7 +132,7 @@ export function createSubagentFixture() {
 }
 
 /** Entry shapes the fake extension serves for the fixture sessions. */
-export function liveEntries({ mode, startedAt = Date.now() - 60_000, now = Date.now() }) {
+export function liveEntries({ mode, startedAt = Date.now() - 60_000 }) {
   const workerState = mode === "paused" ? "paused" : "running";
   return [
     {

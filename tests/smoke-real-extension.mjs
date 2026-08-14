@@ -4,7 +4,7 @@
 // symlinks the pi-subagents source worktree, then verifies the real bridge
 // advertises runStatus v1 and answers status with a bounded runs projection
 // that never leaks private handles.
-import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
