@@ -55,6 +55,7 @@ Activating the button opens a popover anchored below it:
 - Mobile: nearly full viewport width below the header, still overlays content.
 - Clicking outside or pressing `Escape` closes it and restores focus to the trigger.
 - The existing sidebar running-descendant count remains a compact indicator; the recursive tree does not move into the sidebar.
+- When a descendant is selected, this action still shows the root session's complete descendant tree and highlights the selected row. Sibling switching therefore remains one action away; the tree does not re-root to the selected child.
 
 ### Recursive Tree
 
@@ -227,7 +228,7 @@ Owns fetch, last-good snapshot, polling eligibility, and control calls for the s
 - a subagent session under the root is selected; or
 - the last snapshot contains an active descendant.
 
-The initial interval is 1.5 seconds. Concurrent refreshes are coalesced and stale responses are ignored with a monotonic request generation.
+The polling interval is 1.5 seconds. Concurrent refreshes are coalesced and stale responses are ignored with a monotonic request generation.
 
 ### Child Transcript Mode
 
@@ -268,7 +269,7 @@ Errors do not add permanent transcript messages.
 - RPC already enforces current-session ownership; Pi Web keeps that check and adds its own ancestry validation.
 - No endpoint returns filesystem artifact paths or arbitrary extension RPC access.
 - The bridge allowlists `ping`, `status`, `steer`, `interrupt`, and `resume`; it does not expose `spawn`, `stop`, or future methods automatically.
-- Messages are trimmed and bounded using the same request-size conventions as existing agent commands.
+- `steer` and `resume` accept only a non-empty trimmed `message` string; the server constructs the allowlisted RPC parameters and never forwards arbitrary client fields.
 - Active child JSONL remains single-writer; Pi Web reads it but never starts a competing child wrapper.
 
 ## Accessibility and Responsive Behavior
