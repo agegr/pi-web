@@ -14,6 +14,7 @@ Requires Node.js 22.19.0 or newer. Pi Web opens the browser when ready and liste
 
 - **Projects and sessions** — search, pin, archive, rename, export, or delete without leaving the sidebar.
 - **Live agent work** — streamed thinking and tool calls, plus completion feedback when a run finishes in another project.
+- **Subagent visualization** — a live, recursive tree of delegated subagent runs in the header, read-only child transcripts in the same workspace, and steer / pause-and-resume controls routed through the owning root session. Requires a `pi-subagents` build with the `runStatus` RPC capability; older builds keep full read-only history.
 - **Models and skills in the browser** — providers, OAuth, API keys, skills, and plugins share pi's local storage.
 - **Git worktrees** — create, switch, and remove linked checkouts while sessions from the same repo stay grouped.
 
