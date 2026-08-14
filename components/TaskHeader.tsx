@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ListFilter, PanelLeft, PanelRight } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
 import { formatRelativeTime } from "@/lib/i18n/format";
+import { SubagentHeaderAction } from "./SubagentSessions";
 
 interface Props {
   title: string;
@@ -17,6 +18,10 @@ interface Props {
   onOpenSystem(): void;
   onToggleFiles(): void;
   filePanelOpen: boolean;
+  subagentCount?: number;
+  subagentsOpen?: boolean;
+  subagentsLive?: boolean;
+  onOpenSubagents?: (anchor: HTMLButtonElement) => void;
 }
 
 export function TaskHeader({
@@ -33,6 +38,10 @@ export function TaskHeader({
   onOpenSystem,
   onToggleFiles,
   filePanelOpen,
+  subagentCount = 0,
+  subagentsOpen = false,
+  subagentsLive = false,
+  onOpenSubagents,
 }: Props) {
   const { t, locale } = useI18n();
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -68,6 +77,14 @@ export function TaskHeader({
         <span>{running ? t("task.running") : t("task.ready")}{modified ? ` · ${formatRelativeTime(modified, locale)}` : ""}</span>
       </div>
       <div className="task-header-actions">
+        {onOpenSubagents && subagentCount > 0 ? (
+          <SubagentHeaderAction
+            count={subagentCount}
+            open={subagentsOpen}
+            live={subagentsLive}
+            onOpen={onOpenSubagents}
+          />
+        ) : null}
         <div className="task-header-menu-wrap" ref={menuRef}>
           <button onClick={() => setActionsOpen((open) => !open)} aria-label={t("task.actions")} aria-expanded={actionsOpen}><ListFilter size={16} aria-hidden="true" /></button>
           {actionsOpen ? (
