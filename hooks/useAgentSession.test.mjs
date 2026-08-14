@@ -353,6 +353,40 @@ test("routes blocking extension requests through deduplicated browser attention 
   assert.match(appShellSource, /onAttentionNeeded=\{handleAttentionNeeded\}/);
 });
 
+test("drops stale Todo widgets at both run lifecycle boundaries", () => {
+  const clearSource = source.slice(
+    source.indexOf("  const clearConversationPlanWidget = useCallback"),
+    source.indexOf("  const settleUiStage = useCallback"),
+  );
+  const settleSource = source.slice(
+    source.indexOf("  const settleUiStage = useCallback"),
+    source.indexOf("  const notifyPromptStage = useCallback"),
+  );
+  const agentStartSource = source.slice(
+    source.indexOf('case "agent_start"'),
+    source.indexOf('case "agent_end"'),
+  );
+  const sendSource = source.slice(
+    source.indexOf("  const handleSend = useCallback"),
+    source.indexOf("  const executeBash = useCallback"),
+  );
+
+  const agentEndSource = source.slice(
+    source.indexOf('case "agent_end"'),
+    source.indexOf('case "agent_settled"'),
+  );
+
+  assert.match(clearSource, /widget\.key !== "rpiv-todos"/);
+  assert.match(source, /const agentLifecycleGenerationRef = useRef\(0\)/);
+  assert.match(settleSource, /clearConversationPlanWidget\(\)/);
+  assert.match(agentStartSource, /agentLifecycleGenerationRef\.current \+= 1[\s\S]*?clearConversationPlanWidget\(\)[\s\S]*?setAgentRunning\(true\)/);
+  assert.match(sendSource, /agentLifecycleGenerationRef\.current \+= 1[\s\S]*?clearConversationPlanWidget\(\)[\s\S]*?setAgentRunning\(true\)/);
+  assert.match(agentEndSource, /const finishingRunId = promptRunIdRef\.current/);
+  assert.match(agentEndSource, /const finishingLifecycleGeneration = agentLifecycleGenerationRef\.current/);
+  assert.match(agentEndSource, /agentLifecycleGenerationRef\.current !== finishingLifecycleGeneration/);
+  assert.match(agentEndSource, /promptRunIdRef\.current !== finishingRunId/);
+});
+
 test("keeps live following cancellable when the user scrolls away from the tail", () => {
   const streamUpdateSource = source.slice(
     source.indexOf('case "message_start"'),

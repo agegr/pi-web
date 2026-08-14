@@ -345,6 +345,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const newSessionModelOverrideRef = useRef<SelectedModel | null>(null);
   const thinkingLevelOverrideRef = useRef<Exclude<ThinkingLevelOption, "auto"> | null>(null);
   const promptRunIdRef = useRef(0);
+  const agentLifecycleGenerationRef = useRef(0);
   // Highest prompt generation seen on the SSE wire; terminal events stamped
   // below this were emitted by a run that ended before a newer prompt started.
   const lastPromptGenerationRef = useRef(0);
@@ -819,15 +820,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [addNotice, onAttentionNeeded, opts.chatInputRef]);
 
+  const clearConversationPlanWidget = useCallback(() => {
+    setExtensionWidgets((current) => {
+      const next = current.filter((widget) => widget.key !== "rpiv-todos");
+      return next.length === current.length ? current : next;
+    });
+  }, []);
+
   const settleUiStage = useCallback(() => {
     const wasRunning = agentRunningRef.current;
     agentRunningRef.current = false;
+    clearConversationPlanWidget();
     setAgentRunning(false);
     setAgentPhase(null);
     setRetryInfo(null);
     dispatch({ type: "end" });
     return wasRunning;
-  }, []);
+  }, [clearConversationPlanWidget]);
 
   const notifyPromptStage = useCallback((runId: number) => {
     if (notifiedPromptRunIdRef.current === runId) return false;
@@ -1071,13 +1080,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       case "agent_start":
         cancelEventStreamGrace();
+        agentLifecycleGenerationRef.current += 1;
+        clearConversationPlanWidget();
         sdkAgentActiveRef.current = true;
         agentRunningRef.current = true;
         setAgentRunning(true);
         setAgentPhase({ kind: "waiting_model" });
         dispatch({ type: "start" });
         break;
-      case "agent_end":
+      case "agent_end": {
         // One logical prompt can emit multiple agent_end events before retrying,
         // compacting, or continuing messages queued by extension handlers.
         // Keep the stream open until prompt_done/agent_settled and the idle grace.
@@ -1085,11 +1096,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setAgentPhase(null);
         setRetryInfo(null);
         dispatch({ type: "end" });
-        if (sessionIdRef.current) {
-          loadSession(sessionIdRef.current);
-          fetch(`/api/agent/${encodeURIComponent(sessionIdRef.current)}`)
+        const finishingRunId = promptRunIdRef.current;
+        const finishingLifecycleGeneration = agentLifecycleGenerationRef.current;
+        const sid = sessionIdRef.current;
+        if (sid) {
+          loadSession(sid);
+          fetch(`/api/agent/${encodeURIComponent(sid)}`)
             .then((r) => r.json())
             .then((d: { state?: AgentStateResponse }) => {
+              if (
+                sessionIdRef.current !== sid
+                || promptRunIdRef.current !== finishingRunId
+                || agentLifecycleGenerationRef.current !== finishingLifecycleGeneration
+              ) return;
               if (d.state?.contextUsage !== undefined) setContextUsage(d.state.contextUsage ?? null);
               if (d.state?.systemPrompt !== undefined) setSystemPrompt(d.state.systemPrompt ?? null);
               if (d.state?.extensionStatuses !== undefined) setExtensionStatuses(d.state.extensionStatuses ?? []);
@@ -1101,6 +1120,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             .catch(() => {});
         }
         break;
+      }
       case "agent_settled": {
         const agentWasActive = sdkAgentActiveRef.current;
         sdkAgentActiveRef.current = false;
@@ -1266,7 +1286,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
+  }, [addNotice, cancelEventStreamGrace, clearConversationPlanWidget, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -1305,6 +1325,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setMessages((prev) => [...prev, userMsg]);
     optimisticUserMessageKeyRef.current = userMessageKey(userMsg);
     promptRunIdRef.current = promptRunId;
+    agentLifecycleGenerationRef.current += 1;
+    clearConversationPlanWidget();
     agentRunningRef.current = true;
     setAgentRunning(true);
     setAgentPhase(isSlashCommandPrompt ? { kind: "running_command" } : { kind: "waiting_model" });
@@ -1391,7 +1413,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, clearConversationPlanWidget, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;

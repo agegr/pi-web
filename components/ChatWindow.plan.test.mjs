@@ -5,10 +5,12 @@ import test from "node:test";
 const chat = readFileSync(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 
-test("renders recognized todos in the conversation tail instead of the footer shelf", () => {
+test("hides recognized todos when the agent settles without returning them to the footer", () => {
   assert.match(chat, /const conversationPlanWidget = getConversationPlanWidget\(visibleWidgets\)/);
+  assert.match(chat, /const activeConversationPlanWidget = agentRunning \? conversationPlanWidget : undefined/);
   assert.match(chat, /const footerWidgets = conversationPlanWidget[\s\S]*?visibleWidgets\.filter/);
-  assert.match(chat, /<ConversationPlan[\s\S]*?widget=\{conversationPlanWidget\}/);
+  assert.match(chat, /<ConversationPlan[\s\S]*?widget=\{activeConversationPlanWidget\}/);
+  assert.match(chat, /activeConversationPlanWidget \? \(/);
   assert.match(chat, /<ExtensionStatusBar[^>]*widgets=\{footerWidgets\}/);
 });
 

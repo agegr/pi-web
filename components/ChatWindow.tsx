@@ -322,6 +322,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const visibleStatuses = filterGoalStatuses(extensionStatuses);
   const visibleWidgets = filterGoalWidgets(extensionWidgets);
   const conversationPlanWidget = getConversationPlanWidget(visibleWidgets);
+  const activeConversationPlanWidget = agentRunning ? conversationPlanWidget : undefined;
   const footerWidgets = conversationPlanWidget
     ? visibleWidgets.filter((widget) => widget !== conversationPlanWidget)
     : visibleWidgets;
@@ -1000,10 +1001,10 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               />
             )}
 
-            {conversationPlanWidget ? (
+            {activeConversationPlanWidget ? (
               <ConversationPlan
                 key={session?.id ?? "conversation-plan"}
-                widget={conversationPlanWidget}
+                widget={activeConversationPlanWidget}
                 onRequestItems={() => { void runExtensionCommand("todos-toggle"); }}
               />
             ) : null}
