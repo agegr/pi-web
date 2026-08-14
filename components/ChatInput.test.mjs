@@ -382,3 +382,16 @@ test("keeps compaction actions coarse-pointer sized and still under reduced moti
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.compaction-feedback-spinner \{[^}]*animation: none/);
   assert.match(css, /@media \(pointer: coarse\) \{\s*\.compaction-feedback-action \{[^}]*min-height: 44px/);
 });
+
+test("clears slash commands before waiting for a builtin handler", async () => {
+  const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  const start = source.indexOf("const handleSend = useCallback");
+  const end = source.indexOf("}, [value, attachedImages", start);
+  const handleSend = source.slice(start, end);
+  const clearAt = handleSend.indexOf("clearInput()");
+  const awaitAt = handleSend.indexOf("await onBuiltinCommand");
+  assert.ok(start >= 0 && end > start);
+  assert.ok(clearAt >= 0, "handleSend should clear the composer");
+  assert.ok(awaitAt >= 0, "handleSend should still wait for builtin commands");
+  assert.ok(clearAt < awaitAt, "/compact must leave the input before compaction finishes");
+});

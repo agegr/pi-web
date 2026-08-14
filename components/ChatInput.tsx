@@ -778,11 +778,17 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (isStreaming) return;
     onAudioUnlock?.();
     if (!attachedImages.length && msg.startsWith("/") && onBuiltinCommand) {
+      clearInput();
       const result = await onBuiltinCommand(msg);
       if (result.handled) {
-        if (!result.error) clearInput();
+        if (result.error && valueRef.current === "") {
+          valueRef.current = msg;
+          setValue(msg);
+        }
         return;
       }
+      onSend(msg);
+      return;
     }
     clearInput();
     onSend(msg, attachedImages.length ? attachedImages : undefined);
