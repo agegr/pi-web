@@ -30,16 +30,17 @@ test("destructive confirmations reject backdrop dismissal", () => {
   assert.match(sidebar, /size="confirm"[\s\S]*?backdropDismissible=\{false\}/);
 });
 
-test("async destructive actions stay visible and disabled while pending", () => {
-  assert.match(sidebar, /const \[deleting, setDeleting\] = useState\(false\)/);
-  assert.match(sidebar, /dismissible=\{!deleting\}/);
-  assert.match(sidebar, /disabled=\{deleting\}/);
-  assert.match(sidebar, /await removeWorktree\(path, true\)/);
+test("async destructive worktree removal stays visible and disabled while pending", () => {
+  assert.match(sidebar, /pendingConfirmation[\s\S]*?dismissible=\{!worktreeBusy\}/);
+  assert.match(sidebar, /disabled=\{worktreeBusy\}/);
+  assert.match(sidebar, /removeWorktree\(path, true\)/);
 });
 
-test("session deletion restores focus to its action button", () => {
-  assert.match(sidebar, /returnFocusRef=\{menuButtonRef\}/);
+test("session deletion is an immediate async row action with inline error", () => {
+  assert.match(sidebar, /const \[deleting, setDeleting\] = useState\(false\)/);
+  assert.match(sidebar, /const \[deleteError, setDeleteError\] = useState<string \| null>\(null\)/);
   assert.match(sidebar, /ref=\{menuButtonRef\}/);
+  assert.match(sidebar, /role="alert" className="codex-row-error"/);
 });
 
 test("destructive actions use the shared danger button", () => {

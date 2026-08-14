@@ -23,6 +23,17 @@ root.appendSessionInfo("Smoke root");
 root.appendMessage({ role: "user", content: "Smoke", timestamp: Date.now() });
 root.appendMessage({ role: "assistant", content: [{ type: "text", text: "Ok" }], timestamp: Date.now() });
 
+// Durable child subagent session: reserved subagent name pattern + a
+// parentSession header pointing at the root file, so the real route's
+// relation walk owns it under smoke-root with a run identity.
+const child = SessionManager.create(projectDir, sessionsDir, {
+  id: "smoke-child",
+  parentSession: root.getSessionFile(),
+});
+child.appendSessionInfo("subagent-worker-317e1ca0-1");
+child.appendMessage({ role: "user", content: "Child smoke", timestamp: Date.now() });
+child.appendMessage({ role: "assistant", content: [{ type: "text", text: "Ok" }], timestamp: Date.now() });
+
 const server = spawn(process.execPath, [
   "node_modules/vite/bin/vite.js", "dev",
   "--configLoader", "runner", "--config", "vite.tanstack.config.ts",
@@ -54,6 +65,25 @@ async function run(origin) {
     const serialized = JSON.stringify(body);
     for (const secret of ["asyncDir", "sessionFile", "transcriptPath", "capabilityToken", "controlInbox", "intercomTarget"]) {
       check(`no ${secret} leaked`, !serialized.includes(secret));
+    }
+    // POST control privacy: steer a durable child session the real bridge has
+    // no run for. The route must answer with an error-path envelope (or, if
+    // the extension somehow resolves it, a shaped success) and must never
+    // surface internal handles in either case.
+    const control = await fetch(`${origin}/api/agent/smoke-root/subagents`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ childSessionId: "smoke-child", action: "steer", message: "status?" }),
+    });
+    check("POST subagents control acceptable status", [200, 400, 409, 502].includes(control.status), `HTTP ${control.status}`);
+    const controlSerialized = await control.text();
+    for (const secret of ["asyncDir", "sessionFile", "transcriptPath", "capabilityToken", "controlInbox", "intercomTarget"]) {
+      check(`no ${secret} leaked in POST control`, !controlSerialized.includes(secret));
+    }
+    if (control.status === 200) {
+      const payload = JSON.parse(controlSerialized);
+      check("POST control success shape", payload?.data?.action === "steer" && payload?.data?.childSessionId === "smoke-child");
+      check("POST control success carries no control handle", payload?.data?.control === undefined);
     }
   } catch (error) {
     check("smoke completed", false, String(error));
