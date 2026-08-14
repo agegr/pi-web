@@ -115,6 +115,8 @@ export interface TrajectoryRecordView {
   turnId?: string;
   requestId?: string;
   stepId?: string;
+  /** Child session id for subagent_link records; visible even in summary mode. */
+  childSessionId?: string;
   summary: string;
   durationMs?: number;
   data?: Record<string, unknown>;

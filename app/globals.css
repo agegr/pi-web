@@ -4282,3 +4282,434 @@ span.linenumber {
     .desktop-workspace-context { width: 280px; flex-basis: 280px; padding-inline: 6px; }
   }
 }
+
+/* ============================================================================
+ * Trajectory view (Chat/Trajectory sibling tabs)
+ * ==========================================================================*/
+.trajectory-view {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.trajectory-summarybar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.trajectory-metric b {
+  display: block;
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.trajectory-metric span {
+  font-size: 9.5px;
+  color: var(--text-dim);
+}
+.trajectory-timeline {
+  padding: 6px 14px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.trajectory-timeline-empty {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.trajectory-timeline-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.trajectory-lane {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  height: 20px;
+}
+.trajectory-lane-label {
+  font-size: 9px;
+  color: var(--text-dim);
+  text-align: right;
+  user-select: none;
+}
+.trajectory-lane-track {
+  position: relative;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--bg-subtle);
+}
+.trajectory-span {
+  position: absolute;
+  top: 2px;
+  height: 8px;
+  border: 0;
+  border-radius: 2px;
+  padding: 0;
+  min-width: 3px;
+  background: var(--accent);
+  cursor: pointer;
+  opacity: 0.85;
+}
+.trajectory-span:hover { opacity: 1; }
+.trajectory-span.is-selected {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.trajectory-lane-tool .trajectory-span { background: #4fae85; }
+.trajectory-lane-subagent .trajectory-span { background: #d39b53; }
+.trajectory-lane-compaction .trajectory-span { background: #aa7bc0; }
+.trajectory-span-running { width: 4px; opacity: 0.55; }
+.trajectory-body {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
+  overflow: hidden;
+}
+.trajectory-ledger {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+}
+.trajectory-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.trajectory-search {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-dim);
+}
+.trajectory-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+}
+.trajectory-toolbar select {
+  height: 26px;
+  max-width: 110px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.trajectory-table-wrap {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+}
+.trajectory-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+.trajectory-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-panel);
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 600;
+}
+.trajectory-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 0;
+}
+.trajectory-table tbody tr { cursor: pointer; }
+.trajectory-table tbody tr:hover td { background: var(--bg-hover); }
+.trajectory-table tbody tr.is-selected td { background: var(--bg-selected); }
+.trajectory-seq,
+.trajectory-duration {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.trajectory-turn { color: var(--text-dim); font-size: 10.5px; }
+.trajectory-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--bg-subtle);
+  color: var(--text-dim);
+  font-size: 9.5px;
+  text-transform: capitalize;
+}
+.trajectory-summary-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.trajectory-expand {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.trajectory-expand:hover { background: var(--bg-hover); color: var(--text); }
+.trajectory-expand.is-expanded svg { transform: rotate(90deg); }
+.trajectory-status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+.trajectory-status-dot.is-running { background: var(--accent); }
+.trajectory-status-dot.is-complete { background: #4fae85; }
+.trajectory-status-dot.is-aborted { background: #d39b53; }
+.trajectory-status-dot.is-error { background: #e05252; }
+.trajectory-empty-row { text-align: center; color: var(--text-dim) !important; padding: 14px 8px !important; }
+.trajectory-child-row td { background: var(--bg-panel); }
+.trajectory-child-cell { padding: 6px 10px 8px 30px !important; }
+.trajectory-child {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 8px;
+  background: var(--bg);
+}
+.trajectory-child-stats {
+  display: flex;
+  gap: 14px;
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.trajectory-child-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.trajectory-child-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  min-width: 0;
+}
+.trajectory-child-kind {
+  flex: 0 0 auto;
+  font-size: 9px;
+  color: var(--text-dim);
+  text-transform: capitalize;
+}
+.trajectory-child-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trajectory-child-more { font-size: 10px; color: var(--text-dim); margin-top: 3px; }
+.trajectory-inspector {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg-panel);
+}
+.trajectory-inspector-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-align: center;
+  padding: 16px;
+}
+.trajectory-inspector-head {
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.trajectory-inspector-head small {
+  color: var(--text-dim);
+  font-size: 9.5px;
+  font-family: var(--font-mono);
+}
+.trajectory-inspector-head b {
+  display: block;
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.trajectory-inspector-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+.trajectory-inspector-tabs button {
+  padding: 7px 8px 6px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-dim);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.trajectory-inspector-tabs button:hover { color: var(--text); }
+.trajectory-inspector-tabs button.is-active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.trajectory-inspector-content { padding: 10px 12px; font-size: 11px; }
+.trajectory-detail-grid {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 3px 10px;
+}
+.trajectory-detail { display: contents; }
+.trajectory-detail span:first-child { color: var(--text-dim); }
+.trajectory-detail span:last-child {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+.trajectory-payload {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font: 10.5px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow: auto;
+}
+.trajectory-privacy-note {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+.trajectory-privacy-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.trajectory-btn {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+}
+.trajectory-btn:hover { background: var(--bg-hover); }
+.trajectory-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.trajectory-btn-primary:hover { background: var(--accent-hover); }
+.trajectory-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 24px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+.trajectory-composer { flex: 0 0 auto; }
+.trajectory-sheet {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: calc(var(--trajectory-composer-height, 52px) + 8px);
+  max-height: 55%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.18);
+  z-index: 20;
+}
+.trajectory-sheet-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.trajectory-sheet-close:hover { background: var(--bg-hover); color: var(--text); }
+@media (max-width: 640px) {
+  .trajectory-summarybar { gap: 14px; }
+  .trajectory-body { display: flex; flex-direction: column; }
+  .trajectory-body > .trajectory-inspector { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .trajectory-sheet { transition: none; }
+  .trajectory-expand.is-expanded svg { transition: none; }
+}

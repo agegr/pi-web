@@ -46,6 +46,9 @@ function toView(record: TrajectoryRecord, detailLevel: TrajectoryDetailLevel): T
   if (record.turnId) view.turnId = record.turnId;
   if (record.requestId) view.requestId = record.requestId;
   if (record.stepId) view.stepId = record.stepId;
+  if (record.kind === "subagent_link" && typeof data?.childSessionId === "string") {
+    view.childSessionId = data.childSessionId;
+  }
   if (detailLevel === "full" && data) view.data = fullPayload(data);
   return view;
 }
