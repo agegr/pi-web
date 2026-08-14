@@ -48,7 +48,7 @@ pi-web
 | `--hostname <主机>`、`-H <主机>` 或 `PI_WEB_HOSTNAME` | 监听主机名（如 `127.0.0.1`、`0.0.0.0` 或你的 Tailscale 地址） | `127.0.0.1` |
 | `--no-open` 或 `PI_WEB_NO_OPEN=1` | 不自动打开浏览器 | 自动打开 |
 | `PI_WEB_ALLOWED_HOSTS` | 额外允许的代理或自定义主机名，多个值用逗号分隔，必须精确匹配 | 未设置 |
-| `PI_WEB_PASSWORD` | 启用 HTTP Basic Auth，用户名固定为 `pi` | 不启用认证 |
+| `PI_WEB_PASSWORD` | 锁定 Basic Auth 密码（用户名固定为 `pi`）。未设置时，服务会在第一次网络请求时自动生成 6 位 PIN 并写入 `~/.pi-web/`，跨重启保留。 | 自动生成 6 位 PIN |
 
 例如：
 
@@ -58,33 +58,37 @@ pi-web -p 8080 -H 0.0.0.0 --no-open
 
 ### 远程访问
 
-监听非回环地址会暴露一个可执行高权限操作的智能体。在可信局域网中使用时，请设置任意密码（短 PIN 即可）：
+监听非回环地址会暴露一个可执行高权限操作的智能体。Basic Auth 不会加密传输中的密码——不要通过明文 HTTP 将 Pi Web 暴露到互联网；远程访问应使用可信反向代理提供 HTTPS，或通过可信 VPN。如果反向代理传递外部主机名，请把该名称精确加入 `PI_WEB_ALLOWED_HOSTS`。这个白名单不会改变 Pi Web 的监听地址。
+
+默认情况下**不设置密码**。第一次有网络请求到达 Pi Web 时，服务会自动生成一个 6 位 PIN 写入运行存储（跨重启保留）。在顶栏点击 **连接手机** 图标即可看到当前 PIN；弹窗里的二维码还内置了一次性配对令牌，手机扫码后直接进 Pi Web，无需输密码。
+
+若想使用自己的密码而非自动生成的，配置 `PI_WEB_PASSWORD` 环境变量即可：
 
 ```bash
 PI_WEB_PASSWORD='你的密码' pi-web --hostname 0.0.0.0
 ```
-
-Basic Auth 不会加密传输中的密码。不要通过明文 HTTP 将 Pi Web 暴露到互联网；远程访问应使用可信反向代理提供 HTTPS，或通过可信 VPN。如果反向代理传递外部主机名，请把该名称精确加入 `PI_WEB_ALLOWED_HOSTS`。这个白名单不会改变 Pi Web 的监听地址。
 
 ### 手机访问
 
 `http://127.0.0.1:30141` 只在运行 Pi Web 的电脑上有效——在手机上，`127.0.0.1` 指的是手机自己。请改用电脑的真实地址：
 
-**同一 Wi-Fi。** 监听局域网地址，然后在手机上打开 `http://<电脑局域网IP>:30141`：
+**同一 Wi-Fi。** 监听所有接口，然后在手机上打开 `http://<电脑局域网IP>:30141`：
 
 ```bash
-PI_WEB_PASSWORD='你的密码' pi-web --hostname 0.0.0.0
+pi-web --hostname 0.0.0.0
 ```
+
+顶栏 **连接手机** 弹窗的二维码编码了地址加一次性配对令牌，手机扫码直接进入桌面端会话，**无需输密码**。
 
 **任意网络，通过 Tailscale。** 在电脑和手机上都安装 Tailscale 并加入同一个 tailnet，然后监听 tailnet 地址（用 `tailscale ip -4` 查询本机的 100.x 地址）：
 
 ```bash
-PI_WEB_PASSWORD='你的密码' pi-web --hostname 100.x.x.x
+pi-web --hostname 100.x.x.x
 ```
 
-在手机上打开 `http://<tailscale-ip>:30141`。Tailscale 客户端：[iOS](https://apps.apple.com/us/app/tailscale/id1470499037) · [Android](https://play.google.com/store/apps/details?id=com.tailscale.ipn)。想分享给别人，把对方邀请进同一个 tailnet，再把地址发给他即可。
+当使用 `-H 0.0.0.0` 时，启动器会自动查询 Tailscale IP，二维码编码这个地址，手机直接能扫。Tailscale 客户端：[iOS](https://apps.apple.com/us/app/tailscale/id1470499037) · [Android](https://play.google.com/store/apps/details?id=com.tailscale.ipn)。想分享给别人，把对方邀请进同一个 tailnet，再把地址发给他即可。
 
-监听非回环地址时，务必设置 `PI_WEB_PASSWORD`。首次登录成功后，浏览器会保留一个 30 天的会话 cookie——cookie 过期、清空浏览器数据或换设备时才会再次询问密码。
+**手机端认证。** 只有手机直接填 URL（不通过扫码）访问时才会被要求输入 6 位 PIN。走二维码路径会跳过这一步——首次扫码时配对令牌会自动兑换成 30 天的会话 cookie。cookie 跨服务重启持续有效（因为签名密钥存放在 `~/.pi-web/session.key`），但当服务的 `PI_WEB_PASSWORD` 值变更时会失效。
 
 ### HTTP 代理
 
