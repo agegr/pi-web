@@ -159,3 +159,20 @@ export interface SubagentControlRequest {
   action: "steer" | "interrupt" | "resume";
   message?: string;
 }
+
+// ============================================================================
+// Trajectory
+// ============================================================================
+
+export type {
+  TrajectoryDetailLevel,
+  TrajectoryRecordKind,
+  TrajectoryStatus,
+  TrajectoryTokenStats,
+  TrajectoryStats,
+  TrajectoryTurn,
+  TrajectoryRequest,
+  TrajectoryRecordView,
+  TrajectoryResponse,
+  TrajectoryUnsupportedResponse,
+} from "./trajectory-types";
