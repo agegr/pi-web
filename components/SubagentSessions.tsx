@@ -334,11 +334,12 @@ export function findSubagentNode(
 export function buildBreadcrumbItems(
   nodes: SubagentTreeNode[],
   selectedSessionId: string,
+  rootSessionId: string,
   rootLabel: string,
 ): BreadcrumbItem[] {
   const selected = findSubagentNode(nodes, selectedSessionId);
   if (!selected) return [];
-  const chain: BreadcrumbItem[] = [{ id: "", label: rootLabel }];
+  const chain: BreadcrumbItem[] = [{ id: rootSessionId, label: rootLabel }];
   const byId = new Map<string, SubagentTreeNode>();
   const collect = (list: SubagentTreeNode[]) => {
     for (const node of list) {

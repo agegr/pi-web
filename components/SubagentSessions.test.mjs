@@ -13,6 +13,7 @@ const {
   submitActionFor,
   formatElapsed,
   getVisibleNodes,
+  buildBreadcrumbItems,
 } = await jiti.import("./SubagentSessions.tsx");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
@@ -79,6 +80,19 @@ test("tree shows elapsed time when present and hides it otherwise", () => {
   const html = render(React.createElement(SubagentTree, { nodes: [active, plain], selectedSessionId: null, callbacks }));
   assert.match(html, /1m 23s/);
   assert.doesNotMatch(html, /0s/);
+});
+
+test("breadcrumb root uses the real root session id", () => {
+  const items = buildBreadcrumbItems(
+    [node("child", "running")],
+    "child",
+    "root-session-id",
+    "Main task",
+  );
+  assert.equal(items[0].id, "root-session-id");
+  assert.equal(items[0].label, "Main task");
+  assert.equal(items.length, 2);
+  assert.equal(items[1].id, "child");
 });
 
 test("breadcrumb renders root and every ancestor as buttons with the current as text", () => {

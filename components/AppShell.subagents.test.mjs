@@ -35,17 +35,33 @@ test("tree node count and lookup helpers work recursively", () => {
 
 test("breadcrumb builds the root-to-selected chain from the tree", () => {
   const tree = [node("a", "A", [node("b", "B", [node("c", "C", [], "b")], "a")])];
-  const items = buildBreadcrumbItems(tree, "c", "Main task");
+  const items = buildBreadcrumbItems(tree, "c", "root-session", "Main task");
   assert.deepEqual(items.map((item) => item.label), ["Main task", "A", "B", "C"]);
-  assert.deepEqual(items.map((item) => item.id), ["", "a", "b", "c"]);
-  assert.deepEqual(buildBreadcrumbItems(tree, "missing", "Main task"), []);
+  assert.deepEqual(items.map((item) => item.id), ["root-session", "a", "b", "c"]);
+  assert.deepEqual(buildBreadcrumbItems(tree, "missing", "root-session", "Main task"), []);
 });
 
-test("tree and breadcrumb selection resolve durable sessions before switching", async () => {
+test("selecting a subagent or breadcrumb closes the top panel on desktop and mobile", async () => {
   const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
-  assert.match(source, /resolveSessionById/);
-  assert.match(source, /void resolveSessionById\(node\.sessionId\)\.then\(\(session\) => \{\s*if \(session\) handleSelectSession\(session\);/) ;
-  assert.match(source, /handleBreadcrumbSelect/);
+  // handleSubagentSelect closes the panel unconditionally, not only on mobile.
+  assert.match(source, /const handleSubagentSelect = useCallback\(\(node: SubagentTreeNode\) => \{\s*if \(!node\.sessionId\) return;\s*void resolveSessionById\(node\.sessionId\)\.then\(\(session\) => \{\s*if \(session\) handleSelectSession\(session\);/);
+  assert.doesNotMatch(source, /if \(isMobile\) setActiveTopPanel\(null\)/);
+  // handleBreadcrumbSelect also closes the panel after selecting a session.
+  assert.match(source, /const handleBreadcrumbSelect = useCallback\(\(sessionId: string\) => \{\s*void resolveSessionById\(sessionId\)\.then\(\(session\) => \{\s*if \(session\) handleSelectSession\(session\);/);
+  assert.match(source, /closeTopPanel\(\);\s*\}, \[handleSelectSession, resolveSessionById, closeTopPanel\]\)/);
+});
+
+test("the breadcrumb call site seeds the chain with the real root session id", async () => {
+  const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
+  assert.match(source, /items=\{buildBreadcrumbItems\(\s*subagents\.data\.nodes,\s*selectedSession\.id,\s*selectedRootId \?\? "",/);
+});
+
+test("header live markers derive from active descendants, not RPC availability", async () => {
+  const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
+  assert.match(source, /subagentsLive=\{hasActiveDescendant\(subagents\.data\?\.nodes\)\}/);
+  assert.match(source, /hasActiveDescendant\(subagents\.data\?\.nodes\) \? \(/);
+  assert.doesNotMatch(source, /subagentsLive=\{subagents\.data\?\.rpcAvailable === true\}/);
+  assert.doesNotMatch(source, /subagents\.data\?\.rpcAvailable === true \? \(/);
 });
 
 test("missing selected child recovers to the nearest surviving durable ancestor", async () => {
