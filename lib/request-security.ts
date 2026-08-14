@@ -27,7 +27,23 @@ function normalizeConfiguredHostname(value: string | undefined): string | null {
 }
 
 function isLoopbackHostname(hostname: string): boolean {
-  return hostname === "localhost" || hostname.endsWith(".localhost");
+  return hostname === "localhost"
+    || hostname.endsWith(".localhost")
+    || hostname === "127.0.0.1"
+    || hostname === "::1"
+    || hostname === "[::1]";
+}
+
+/**
+ * True iff the request reached the server through a loopback interface —
+ * i.e. it physically originated on the same machine. The proxy uses this
+ * to skip Basic Auth for the operator's own browser while still requiring
+ * a password from a phone reaching the server over the network.
+ */
+export function isLocalRequest(request: Request): boolean {
+  const host = request.headers.get("host");
+  const hostname = host ? hostnameFromAuthority(host) : null;
+  return hostname !== null && isLoopbackHostname(hostname);
 }
 
 function configuredHostnamesFromEnvironment(): string[] {

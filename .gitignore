@@ -38,5 +38,11 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+
+# pi-web runtime artifacts (written by bin/pi-web.js and the runtime modules)
+/.pi-web-hostname
+/.pi-web-runtime-password
+/.pi-web-pair-tokens.json
+/package.json.tmp
 next-env.d.ts
 .factory

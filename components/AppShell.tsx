@@ -12,6 +12,7 @@ import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
+import { PairDevice } from "./PairDevice";
 import { BranchNavigator } from "./BranchNavigator";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
@@ -97,6 +98,7 @@ export function AppShell() {
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [pluginsConfigOpen, setPluginsConfigOpen] = useState(false);
+  const [pairDeviceOpen, setPairDeviceOpen] = useState(false);
   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
   const [projectTrustBusy, setProjectTrustBusy] = useState(false);
@@ -980,6 +982,29 @@ export function AppShell() {
     </>
   );
 
+  const renderPairDeviceButton = (mobile: boolean) => (
+    <button
+      type="button"
+      onClick={() => setPairDeviceOpen(true)}
+      title={translate("pair.connectPhone")}
+      aria-label={translate("pair.connectPhone")}
+      style={{
+        display: "flex", alignItems: "center", justifyContent: "center",
+        width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+        background: "none", border: "none", borderRight: "1px solid var(--border)",
+        color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
+      }}
+      onMouseEnter={(event) => { event.currentTarget.style.color = "var(--text)"; }}
+      onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text-muted)"; }}
+      data-mobile-toolbar-action={mobile ? "pair" : undefined}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <rect x="6" y="2" width="12" height="20" rx="2" ry="2" />
+        <line x1="12" y1="18" x2="12" y2="18" />
+      </svg>
+    </button>
+  );
+
   const renderThemeButton = (mobile: boolean) => (
     <button
       type="button"
@@ -1340,6 +1365,7 @@ export function AppShell() {
           </svg>
           {!mobile && <span>{translate("system.label")}</span>}
         </button>
+        {mobile && renderPairDeviceButton(true)}
         {mobile && renderThemeButton(true)}
         {mobile && renderLanguageButton(true)}
       </div>
@@ -1782,6 +1808,7 @@ export function AppShell() {
           )}
           {!isMobile && (
             <>
+              {renderPairDeviceButton(false)}
               {renderThemeButton(false)}
               {renderLanguageButton(false)}
               {renderProjectTrustWarning(false)}
@@ -2259,6 +2286,7 @@ export function AppShell() {
         onReloaded={() => setSessionKey((k) => k + 1)}
       />
     )}
+    {pairDeviceOpen && <PairDevice onClose={() => setPairDeviceOpen(false)} />}
     </>
   );
 }
