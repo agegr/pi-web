@@ -91,6 +91,13 @@ test("control errors surface without optimistic lifecycle mutation", async () =>
   assert.doesNotMatch(controlSource, /setData\(/);
 });
 
+test("control parses the response body and never reads the raw rpc control result", async () => {
+  const source = await readFile(new URL("./useSubagentTree.ts", import.meta.url), "utf8");
+  const controlSource = source.slice(source.indexOf("const control = useCallback"), source.indexOf("return {\n    data,"));
+  assert.match(controlSource, /response\.json\(\)/);
+  assert.doesNotMatch(controlSource, /data\.control/);
+});
+
 test("transcript refresh generation only bumps on successful snapshots plus the terminal transition", async () => {
   const source = await readFile(new URL("./useSubagentTree.ts", import.meta.url), "utf8");
   const successPath = source.slice(source.indexOf("if (!response.ok) throw new Error"), source.indexOf("setStale(false)"));

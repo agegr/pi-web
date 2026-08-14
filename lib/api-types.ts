@@ -159,3 +159,12 @@ export interface SubagentControlRequest {
   action: "steer" | "interrupt" | "resume";
   message?: string;
 }
+
+export interface SubagentControlResponse {
+  success: true;
+  data: {
+    action: SubagentControlRequest["action"];
+    childSessionId: string;
+    tree?: SubagentTreeResponse;
+  };
+}

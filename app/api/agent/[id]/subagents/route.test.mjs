@@ -37,6 +37,7 @@ class FakeBridge {
     this.capabilities = { status: true, fleetStatus: { version: 1 }, runStatus: { version: 1 } };
     this.statusReply = null;
     this.controlError = null;
+    this.controlResult = null;
   }
 
   on(channel, handler) {
@@ -62,7 +63,7 @@ class FakeBridge {
     } else if (this.controlError) {
       reply({ version: 1, requestId: data.requestId, method: data.method, success: false, error: this.controlError });
     } else {
-      reply({ version: 1, requestId: data.requestId, method: data.method, success: true, data: { ok: true } });
+      reply({ version: 1, requestId: data.requestId, method: data.method, success: true, data: this.controlResult ?? { ok: true } });
     }
   }
 }
@@ -336,8 +337,44 @@ test("POST success returns the acknowledgement and a fresh tree when available",
   assert.equal(response.status, 200);
   const body = await json(response);
   assert.equal(body.success, true);
-  assert.equal(body.data.control.ok, true);
+  assert.equal(body.data.action, "interrupt");
+  assert.equal(body.data.childSessionId, "child");
+  assert.equal(body.data.control, undefined);
   assert.equal(body.data.tree.nodes[0].state, "paused");
+});
+
+test("POST success returns only the public DTO and never the raw rpc control result", async () => {
+  const bridge = new FakeBridge();
+  bridge.controlResult = {
+    ok: true,
+    details: {
+      asyncDir: "/tmp/private-async",
+      sessionFile: "/Users/kale/.pi/agent/sessions/private.jsonl",
+      transcriptPath: "/tmp/private-transcript.jsonl",
+      capabilityToken: "secret-token",
+      controlInbox: "/tmp/control-inbox",
+      intercomTarget: "private-target",
+    },
+  };
+  bridge.statusReply = {
+    version: 1,
+    entries: [{ runId: "317e1ca0", index: 1, agent: "worker", state: "paused", startedAt: 1000, updatedAt: 1100 }],
+    total: 1,
+    omitted: 0,
+  };
+  const { POST } = createSubagentHandlers(makeDeps(bridge));
+  const response = await POST(new Request("http://x/", {
+    method: "POST",
+    body: JSON.stringify({ childSessionId: "child", action: "interrupt" }),
+  }), { params: Promise.resolve({ id: "root" }) });
+  assert.equal(response.status, 200);
+  const body = await json(response);
+  assert.equal(body.success, true);
+  assert.equal(body.data.action, "interrupt");
+  assert.equal(body.data.childSessionId, "child");
+  assert.equal(body.data.tree?.rootSessionId, "root");
+  assert.equal(body.data.control, undefined);
+  assert.doesNotMatch(JSON.stringify(body), /asyncDir|sessionFile|transcriptPath|capabilityToken|controlInbox|intercomTarget/);
 });
 
 test("POST never exposes spawn, stop, retry, or bulk actions", async () => {
