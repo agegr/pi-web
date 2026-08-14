@@ -34,6 +34,7 @@ function renderPlan(props = {}) {
 
 test("parses rpiv todos into plan rows", () => {
   assert.deepEqual(parseTodoWidget(widget.lines), {
+    hasOpenItems: true,
     completed: 2,
     total: 3,
     items: [
@@ -65,6 +66,7 @@ test("preserves the plugin overflow summary", () => {
     "├─ ✓ Done",
     "└─ +3 more (3 pending)",
   ]), {
+    hasOpenItems: true,
     completed: 1,
     total: 4,
     items: [{ status: "completed", text: "Done" }],
@@ -97,7 +99,9 @@ test("renders a collapsed Codex-style update plan activity by default", () => {
   assert.match(html, /Update plan/);
   assert.match(html, /2\/3/);
   assert.match(html, /aria-expanded="false"/);
-  assert.doesNotMatch(html, /Inspect sidebar header/);
+  assert.match(html, /class="conversation-plan-items" data-expanded="false" aria-hidden="true"/);
+  assert.match(html, /class="conversation-plan-items-content" role="list"/);
+  assert.match(html, /Inspect sidebar header/);
   assert.doesNotMatch(html, /Todos|rpiv-todos/);
 });
 
@@ -105,6 +109,7 @@ test("renders plan rows only when expanded", () => {
   const html = renderPlan({ defaultExpanded: true });
 
   assert.match(html, /aria-expanded="true"/);
+  assert.match(html, /class="conversation-plan-items" data-expanded="true" aria-hidden="false"/);
   assert.match(html, /Inspect sidebar header/);
   assert.match(html, /Design sidebar hierarchy/);
   assert.match(html, /designing hierarchy/);
@@ -115,8 +120,42 @@ test("renders plan rows only when expanded", () => {
 
 test("parses a collapsed plugin widget from its title", () => {
   assert.deepEqual(parseTodoWidget([], "● Todos (1/3)"), {
+    hasOpenItems: true,
     completed: 1,
     total: 3,
     items: [],
   });
+});
+
+test("marks a completed title as inactive", () => {
+  assert.deepEqual(parseTodoWidget([], "○ Todos (3/3)"), {
+    hasOpenItems: false,
+    completed: 3,
+    total: 3,
+    items: [],
+  });
+});
+
+test("renders summary and row status without a frozen-looking loader", () => {
+  const active = renderPlan({ defaultExpanded: true });
+  const complete = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ConversationPlan, {
+        defaultExpanded: true,
+        widget: {
+          ...widget,
+          lines: ["○ Todos (1/1)", "└─ ✓ Finished"],
+        },
+      }),
+    ),
+  );
+
+  assert.match(active, /conversation-plan-mark" data-status="in_progress"/);
+  assert.match(active, /conversation-plan-spinner/);
+  assert.match(active, /conversation-plan-active-static/);
+  assert.match(active, /aria-label="Update plan: In progress, 2\/3"/);
+  assert.match(active, /aria-label="In progress: Design sidebar hierarchy, designing hierarchy"/);
+  assert.match(complete, /conversation-plan-mark" data-status="completed"/);
 });
