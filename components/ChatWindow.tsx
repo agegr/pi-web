@@ -10,6 +10,7 @@ import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-fi
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
+import { TrajectoryView } from "./TrajectoryView";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { ConversationPlan, getConversationPlanWidget } from "./ConversationPlan";
 import { GoalPanel } from "./GoalPanel";
@@ -59,6 +60,8 @@ interface Props {
     transcriptRefreshGeneration: number;
     composer: ReactNode;
   };
+  /** Sibling session view selected in AppShell; trajectory renders in-workspace. */
+  sessionView?: "chat" | "trajectory";
 }
 
 function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, string | number>) => string): string | null {
@@ -268,9 +271,10 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, hasError = false, de
   );
 }
 
-export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, desktopAside, playDoneSound = () => {}, unlockAudio, subagentMode }: Props) {
+export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, desktopAside, playDoneSound = () => {}, unlockAudio, subagentMode, sessionView }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
+  const [trajectoryVersion, setTrajectoryVersion] = useState(0);
 
   const playDoneSoundRef = useRef(playDoneSound);
   playDoneSoundRef.current = playDoneSound;
@@ -292,6 +296,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     agentPhase,
     isNew,
     isNearBottom,
+    activeLeafId,
     sessionIdRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, promptAnchorActive,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
@@ -305,6 +310,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
     readOnlyHistory: Boolean(subagentMode),
     historyRefreshGeneration: subagentMode?.transcriptRefreshGeneration,
+    onTrajectoryVersionChange: setTrajectoryVersion,
   });
   const sessionBusy = agentRunning || bashRunning;
   const goalModel = resolveGoalPanelModel({
@@ -742,6 +748,15 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       ) : (
       <div className="chat-workspace-body">
         <div className="chat-workspace-main">
+        {sessionView === "trajectory" && !subagentMode ? (
+          <TrajectoryView
+            sessionId={sessionIdRef.current ?? session?.id ?? ""}
+            leafId={activeLeafId}
+            trajectoryVersion={trajectoryVersion}
+            composer={chatInputElement}
+          />
+        ) : (
+        <>
       <div className="relative flex min-w-0 flex-1 overflow-hidden">
         <div
           style={{
@@ -1031,7 +1046,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
         </div>
         <ExtensionStatusBar statuses={visibleStatuses} widgets={footerWidgets} />
         </div>
-        </div>
         {desktopAside ? <div className="desktop-workspace-context">{desktopAside}</div> : null}
         {isMobile ? null : (
           <ChatMinimap
@@ -1042,6 +1056,9 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
             onRevealHistory={revealHistoryForMinimap}
           />
         )}
+        </>
+        )}
+      </div>
       </div>
       )}
     </div>
