@@ -25,8 +25,18 @@
   --bg-selected: #e8e8e8;
   --border: #e0e0e0;
   --text: #1a1a1a;
-  --text-muted: #6b7280;
+  --text-muted: #4b5563;
   --text-dim: #6b7280;
+  --text-chat: 0.9375rem;
+  --text-ui: 0.8125rem;
+  --text-title: 0.875rem;
+  --text-meta: 0.75rem;
+  --leading-prose: 1.55;
+  --leading-ui: 1.35;
+  --leading-title: 1.25;
+  --weight-regular: 400;
+  --weight-medium: 600;
+  --weight-semibold: 650;
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
   --warning: #b45309;
@@ -43,8 +53,8 @@ html.dark {
   --bg-selected: #2f2f2f;
   --border: #333333;
   --text: #e8e8e8;
-  --text-muted: #9ca3af;
-  --text-dim: #8f98a6;
+  --text-muted: #d1d5db;
+  --text-dim: #9ca3af;
   --accent: #60a5fa;
   --accent-hover: #93c5fd;
   --warning: #f59e0b;
@@ -246,8 +256,10 @@ html, body {
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 14px;
+  font-family: var(--font-ui);
+  font-size: 16px;
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-ui);
   overscroll-behavior: none;
 }
 
@@ -846,6 +858,7 @@ html.keyboard-open .goal-panel-actions {
 }
 
 :root {
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-noto-mono: "Noto Sans Mono Variable";
   --font-mono: var(--font-noto-mono), 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, 'PingFang SC', 'Microsoft YaHei', monospace;
 }
