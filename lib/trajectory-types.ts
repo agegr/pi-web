@@ -17,8 +17,7 @@ export type TrajectoryRecordKind =
   | "compaction_start"
   | "compaction_end"
   | "subagent_link"
-  | "error"
-  | "warning";
+  | "error";
 
 export type TrajectoryStatus = "running" | "complete" | "aborted" | "error";
 
@@ -40,7 +39,6 @@ export interface TrajectoryRecord {
   endTimestamp?: number;
   status?: TrajectoryStatus;
   leafId?: string | null;
-  entryId?: string | null;
   turnId?: string;
   requestId?: string;
   stepId?: string;
@@ -71,7 +69,6 @@ export interface TrajectoryStats {
   tools: number;
   turns: number;
   tokens: TrajectoryTokenStats;
-  cost: number;
   totalActiveMs: number;
   compactions: number;
   retries: number;
@@ -131,8 +128,6 @@ export interface TrajectoryResponse {
   requests: TrajectoryRequest[];
   records: TrajectoryRecordView[];
   warnings: string[];
-  hasOlderRecords: boolean;
-  nextCursor: number | null;
 }
 
 export interface TrajectoryUnsupportedResponse {

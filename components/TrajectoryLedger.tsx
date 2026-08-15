@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronRight, Search } from "lucide-react";
-import { Fragment, useMemo } from "react";
+import { Fragment, useMemo, useState } from "react";
 import type { TrajectoryRecordView, TrajectoryResponse } from "@/lib/api-types";
 import { formatDuration } from "./TrajectoryTimeline";
 
@@ -9,12 +9,6 @@ export interface TrajectoryLedgerProps {
   records: TrajectoryRecordView[];
   selectedId: string | null;
   onSelect: (id: string) => void;
-  query: string;
-  onQueryChange: (value: string) => void;
-  kind: string;
-  onKindChange: (value: string) => void;
-  status: string;
-  onStatusChange: (value: string) => void;
   onExpandSubagent: (record: TrajectoryRecordView) => void;
   childTrajectories: ReadonlyMap<string, TrajectoryResponse>;
 }
@@ -36,7 +30,7 @@ export function kindGroup(kind: string): string {
   if (kind.startsWith("compaction")) return "compaction";
   if (kind.startsWith("subagent")) return "subagent";
   if (kind.startsWith("turn")) return "turn";
-  if (kind === "error" || kind === "warning") return kind;
+  if (kind === "error") return kind;
   return "other";
 }
 
@@ -69,15 +63,12 @@ export function TrajectoryLedger({
   records,
   selectedId,
   onSelect,
-  query,
-  onQueryChange,
-  kind,
-  onKindChange,
-  status,
-  onStatusChange,
   onExpandSubagent,
   childTrajectories,
 }: TrajectoryLedgerProps) {
+  const [query, setQuery] = useState("");
+  const [kind, setKind] = useState("all");
+  const [status, setStatus] = useState("all");
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return records.filter((record) => {
@@ -97,17 +88,17 @@ export function TrajectoryLedger({
           <Search size={12} strokeWidth={2} aria-hidden="true" />
           <input
             value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
+            onChange={(event) => setQuery(event.target.value)}
             placeholder="Search events..."
             aria-label="Search trajectory events"
           />
         </div>
-        <select value={kind} onChange={(event) => onKindChange(event.target.value)} aria-label="Filter by type">
+        <select value={kind} onChange={(event) => setKind(event.target.value)} aria-label="Filter by type">
           {KIND_OPTIONS.map((option) => (
             <option key={option} value={option}>{option}</option>
           ))}
         </select>
-        <select value={status} onChange={(event) => onStatusChange(event.target.value)} aria-label="Filter by status">
+        <select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="Filter by status">
           {STATUS_OPTIONS.map((option) => (
             <option key={option} value={option}>{option}</option>
           ))}

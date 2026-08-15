@@ -1782,7 +1782,6 @@ export async function startRpcSession(
           error instanceof Error ? error.message : error,
         );
       }
-      trajectoryRuntime.installStreamWrapper();
       wrapper.start(trajectoryRuntime);
     } else {
       wrapper.start();

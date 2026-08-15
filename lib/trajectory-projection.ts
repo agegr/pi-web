@@ -10,7 +10,6 @@ import type {
   TrajectoryRequest,
   TrajectoryResponse,
   TrajectoryStats,
-  TrajectoryStatus,
   TrajectoryTokenStats,
   TrajectoryTurn,
 } from "./trajectory-types";
@@ -19,7 +18,6 @@ export interface ProjectionOptions {
   leafId: string | null;
   detailLevel: TrajectoryDetailLevel;
   branchEntryIds: ReadonlySet<string>;
-  cursor?: number;
 }
 
 const EMPTY_TOKENS: TrajectoryTokenStats = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
@@ -132,7 +130,6 @@ function buildStats(
     tools: count(records, "tool_start"),
     turns: turns.length,
     tokens: { ...EMPTY_TOKENS },
-    cost: 0,
     totalActiveMs: 0,
     compactions: count(records, "compaction_start"),
     retries: count(records, "retry_start"),
@@ -156,34 +153,13 @@ export function projectTrajectory(
   result: TrajectoryReadResult,
   options: ProjectionOptions,
 ): TrajectoryResponse {
-  const cursor = options.cursor ?? 0;
-  // Branch filtering and aggregate stats use the full branch record set;
-  // cursor only trims the returned record list.
-  const branchRecords = result.records.filter(
+  const records = result.records.filter(
     (r) => r.leafId == null || options.branchEntryIds.has(r.leafId),
   );
-  const records = branchRecords.filter((r) => r.sequence > cursor);
-
   const views = records.map((r) => toView(r, options.detailLevel));
-  const allRequests = buildRequests(branchRecords);
-  const allTurns = buildTurns(branchRecords);
-  const stats = buildStats(
-    branchRecords,
-    allRequests.map((e) => e.request),
-    allTurns.map((e) => e.turn),
-  );
-  const requestSequences = new Set(
-    records.filter((r) => r.kind === "request_start").map((r) => r.sequence),
-  );
-  const turnSequences = new Set(
-    records.filter((r) => r.kind === "turn_start").map((r) => r.sequence),
-  );
-  const requests = allRequests
-    .filter((e) => requestSequences.has(e.sequence))
-    .map((e) => e.request);
-  const turns = allTurns
-    .filter((e) => turnSequences.has(e.sequence))
-    .map((e) => e.turn);
+  const requests = buildRequests(records).map((entry) => entry.request);
+  const turns = buildTurns(records).map((entry) => entry.turn);
+  const stats = buildStats(records, requests, turns);
 
   return {
     schemaVersion: 1,
@@ -198,7 +174,5 @@ export function projectTrajectory(
     requests,
     records: views,
     warnings: [...result.warnings],
-    hasOlderRecords: cursor > 0,
-    nextCursor: null,
   };
 }

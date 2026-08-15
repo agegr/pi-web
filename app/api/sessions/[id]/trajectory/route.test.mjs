@@ -132,6 +132,14 @@ test("unknown session returns 404", async () => {
   assert.equal(response.status, 404);
 });
 
+test("unknown query parameters are ignored", async () => {
+  const response = await GET(request(`?leafId=${leafEntryId}&cursor=unused`), params(sessionId));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal("hasOlderRecords" in body, false);
+  assert.equal("nextCursor" in body, false);
+});
+
 test("route never starts a new rpc session", () => {
   assert.match(routeSource, /getRpcSession/);
   assert.doesNotMatch(routeSource, /startRpcSession/);

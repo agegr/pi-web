@@ -28,11 +28,21 @@ test("ledger renders search, filters and expandable subagent rows", () => {
   assert.match(ledger, /onExpandSubagent/);
 });
 
+test("ledger owns its search and filter state", () => {
+  assert.match(ledger, /useState\(""\)/);
+  assert.match(ledger, /useState\("all"\)/);
+});
+
 test("inspector renders summary-first details with explicit confirmation", () => {
   assert.match(inspector, /Load full details/);
   assert.match(inspector, /onConfirmFullDetails/);
   assert.match(inspector, /onCancelFullDetails/);
   assert.match(inspector, /onClose/);
+  assert.doesNotMatch(inspector, /"schema"/);
+});
+
+test("token totals use the native compact formatter", () => {
+  assert.match(view, /Intl\.NumberFormat/);
 });
 
 test("css contains desktop grid, mobile sheet and reduced motion rules", () => {

@@ -12,6 +12,11 @@ test("useTrajectory fetches summary by session id and leaf id", () => {
   assert.match(hookSource, /expandSubagent/);
 });
 
+test("useTrajectory keeps only remote trajectory state", () => {
+  assert.doesNotMatch(hookSource, /const \[query, setQuery\]/);
+  assert.doesNotMatch(hookSource, /const refresh/);
+});
+
 test("useTrajectory does not open a second SSE connection", () => {
   assert.doesNotMatch(hookSource, /new EventSource/);
   assert.doesNotMatch(hookSource, /events/);

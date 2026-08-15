@@ -3,7 +3,7 @@
 import { useMemo, type ReactNode } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useTrajectory } from "@/hooks/useTrajectory";
-import type { TrajectoryRecordView, TrajectoryResponse } from "@/lib/api-types";
+import type { TrajectoryRecordView } from "@/lib/api-types";
 import { TrajectoryInspector } from "./TrajectoryInspector";
 import { TrajectoryLedger } from "./TrajectoryLedger";
 import { TrajectoryTimeline, formatDuration } from "./TrajectoryTimeline";
@@ -25,15 +25,10 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function formatTokens(total: number): string {
-  if (total >= 1_000_000) return `${(total / 1_000_000).toFixed(1)}M`;
-  if (total >= 1000) return `${(total / 1000).toFixed(1)}k`;
-  return String(total);
-}
-
-function childIdFor(record: TrajectoryRecordView): string | undefined {
-  return record.childSessionId;
-}
+const tokenFormatter = new Intl.NumberFormat(undefined, {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
 
 export function TrajectoryView({ sessionId, leafId, trajectoryVersion, composer }: TrajectoryViewProps) {
   const mobile = useIsMobile();
@@ -44,13 +39,6 @@ export function TrajectoryView({ sessionId, leafId, trajectoryVersion, composer 
     error,
     selectedId,
     select,
-    query,
-    setQuery,
-    kind,
-    setKind,
-    status,
-    setStatus,
-    detailLevel,
     fullDetailsPending,
     requestFullDetails,
     confirmFullDetails,
@@ -65,9 +53,8 @@ export function TrajectoryView({ sessionId, leafId, trajectoryVersion, composer 
   );
 
   const handleExpandSubagent = (record: TrajectoryRecordView) => {
-    const childId = childIdFor(record);
-    if (!childId) return;
-    void expandSubagent(childId);
+    if (!record.childSessionId) return;
+    void expandSubagent(record.childSessionId);
   };
 
   let body: ReactNode;
@@ -86,7 +73,7 @@ export function TrajectoryView({ sessionId, leafId, trajectoryVersion, composer 
         <div className="trajectory-summarybar">
           <Metric label="Requests" value={stats.requests} />
           <Metric label="Tools" value={stats.tools} />
-          <Metric label="Tokens" value={formatTokens(stats.tokens.total)} />
+          <Metric label="Tokens" value={tokenFormatter.format(stats.tokens.total)} />
           <Metric label="Active" value={formatDuration(stats.totalActiveMs)} />
           <Metric label="Compactions" value={stats.compactions} />
           <Metric label="Retries" value={stats.retries} />
@@ -97,20 +84,14 @@ export function TrajectoryView({ sessionId, leafId, trajectoryVersion, composer 
             records={data.records}
             selectedId={selectedId}
             onSelect={select}
-            query={query}
-            onQueryChange={setQuery}
-            kind={kind}
-            onKindChange={setKind}
-            status={status}
-            onStatusChange={setStatus}
             onExpandSubagent={handleExpandSubagent}
-            childTrajectories={expandedChildren as ReadonlyMap<string, TrajectoryResponse>}
+            childTrajectories={expandedChildren}
           />
           {!mobile ? (
             <TrajectoryInspector
               mobile={false}
               record={selectedRecord}
-              fullDetailsAvailable={detailLevel === "summary"}
+              fullDetailsAvailable={data.detailLevel === "summary"}
               fullDetailsPending={fullDetailsPending}
               onRequestFullDetails={requestFullDetails}
               onConfirmFullDetails={() => void confirmFullDetails()}
@@ -123,7 +104,7 @@ export function TrajectoryView({ sessionId, leafId, trajectoryVersion, composer 
           <TrajectoryInspector
             mobile
             record={selectedRecord}
-            fullDetailsAvailable={detailLevel === "summary"}
+            fullDetailsAvailable={data.detailLevel === "summary"}
             fullDetailsPending={fullDetailsPending}
             onRequestFullDetails={requestFullDetails}
             onConfirmFullDetails={() => void confirmFullDetails()}

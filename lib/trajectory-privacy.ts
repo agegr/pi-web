@@ -23,24 +23,6 @@ function truncateString(value: string, state: { truncated: boolean }): string {
   return value.slice(0, TRAJECTORY_MAX_DETAIL_CHARS) + TRUNCATED_MARK;
 }
 
-/** Keep only non-sensitive keys from an object. */
-export function redactRequestContext(value: unknown): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  if (!isObject(value)) return out;
-  for (const [key, val] of Object.entries(value)) {
-    if (SENSITIVE_KEY_RE.test(key)) continue;
-    if (SESSION_LOG_PATH_KEY_RE.test(key) && typeof val === "string" && val.startsWith("/")) {
-      continue;
-    }
-    if (typeof val === "object" && val !== null) {
-      out[key] = redactRequestContext(val);
-    } else {
-      out[key] = val;
-    }
-  }
-  return out;
-}
-
 function sanitizeHeaders(value: unknown, state: { truncated: boolean }): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (!isObject(value)) return out;

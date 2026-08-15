@@ -21,10 +21,6 @@ export function useTrajectory({ sessionId, leafId, trajectoryVersion }: UseTraje
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [kind, setKind] = useState("all");
-  const [status, setStatus] = useState("all");
-  const [detailLevel, setDetailLevel] = useState<"summary" | "full">("summary");
   const [fullDetailsPending, setFullDetailsPending] = useState(false);
   const [expandedChildren, setExpandedChildren] = useState<ReadonlyMap<string, TrajectoryResponse>>(
     () => new Map(),
@@ -44,7 +40,6 @@ export function useTrajectory({ sessionId, leafId, trajectoryVersion }: UseTraje
       if (res.status === 409) {
         const body = await res.json() as TrajectoryUnsupportedResponse;
         setData(null);
-        setDetailLevel("summary");
         setError(
           body.session.reason === "no_sidecar"
             ? "Trajectory is not available for sessions created before this feature."
@@ -56,7 +51,6 @@ export function useTrajectory({ sessionId, leafId, trajectoryVersion }: UseTraje
       const body = await res.json() as TrajectoryResponse;
       if (seq !== requestSeqRef.current) return;
       setData(body);
-      setDetailLevel(level);
       setSelectedId((current) =>
         current && body.records.some((record) => record.id === current) ? current : null,
       );
@@ -92,10 +86,6 @@ export function useTrajectory({ sessionId, leafId, trajectoryVersion }: UseTraje
     setFullDetailsPending(false);
   }, []);
 
-  const refresh = useCallback(() => {
-    void fetchTrajectory(detailLevel);
-  }, [fetchTrajectory, detailLevel]);
-
   const expandSubagent = useCallback(async (childSessionId: string) => {
     if (!childSessionId) return;
     setExpandedChildren((previous) => {
@@ -126,19 +116,11 @@ export function useTrajectory({ sessionId, leafId, trajectoryVersion }: UseTraje
     error,
     selectedId,
     select: setSelectedId,
-    query,
-    setQuery,
-    kind,
-    setKind,
-    status,
-    setStatus,
-    detailLevel,
     fullDetailsPending,
     requestFullDetails,
     confirmFullDetails,
     cancelFullDetails,
     expandedChildren,
     expandSubagent,
-    refresh,
   };
 }

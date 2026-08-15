@@ -16,7 +16,7 @@ function unsupported(id: string, reason: "no_sidecar" | "missing_session"): Traj
   };
 }
 
-// GET /api/sessions/[id]/trajectory?leafId=&detailLevel=summary|full&cursor=
+// GET /api/sessions/[id]/trajectory?leafId=&detailLevel=summary|full
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -29,12 +29,6 @@ export async function GET(
     return Response.json({ error: "detailLevel must be summary or full" }, { status: 400 });
   }
   const detailLevel: TrajectoryDetailLevel = rawDetail === "full" ? "full" : "summary";
-
-  const rawCursor = searchParams.get("cursor");
-  if (rawCursor !== null && !/^\d+$/.test(rawCursor)) {
-    return Response.json({ error: "cursor must be a non-negative integer" }, { status: 400 });
-  }
-  const cursor = rawCursor !== null ? Number(rawCursor) : undefined;
 
   let sm: SessionManager;
   const rpc = getRpcSession(id);
@@ -67,7 +61,6 @@ export async function GET(
     leafId,
     detailLevel,
     branchEntryIds,
-    ...(cursor !== undefined ? { cursor } : {}),
   });
   return Response.json(body);
 }

@@ -3,7 +3,7 @@
 // and must never block the agent run.
 
 import { randomUUID } from "node:crypto";
-import { fullPayload, redactRequestContext, summarizePayload } from "./trajectory-privacy";
+import { fullPayload, summarizePayload } from "./trajectory-privacy";
 import { appendTrajectoryRecord, ensureTrajectoryStore } from "./trajectory-store";
 import type { TrajectoryRecord, TrajectoryStatus } from "./trajectory-types";
 
@@ -30,9 +30,8 @@ export class TrajectoryRecorder {
   private sequence = 0;
   private version = 0;
   private writeTail: Promise<void> = Promise.resolve();
-  private openRequests = new Map<string, string>();
-  private openTurns = new Map<string, string>();
-  private openTools = new Map<string, string>();
+  private openRequests = new Set<string>();
+  private openTurns = new Set<string>();
   private closed = false;
 
   constructor(options: TrajectoryRecorderOptions) {
@@ -91,7 +90,7 @@ export class TrajectoryRecorder {
           turnId,
           data: { summary: `Turn ${event.turnIndex}` },
         });
-        this.openTurns.set(turnId, record.id);
+        this.openTurns.add(turnId);
         this.write(record);
         break;
       }
@@ -118,14 +117,12 @@ export class TrajectoryRecorder {
             summary: `${toolName} ${String(summarizePayload(event.args).preview ?? "")}`.slice(0, 400),
           },
         });
-        this.openTools.set(toolCallId, record.id);
         this.write(record);
         break;
       }
       case "tool_execution_end": {
         const toolCallId = String(event.toolCallId ?? "");
         if (!toolCallId) return;
-        this.openTools.delete(toolCallId);
         const isError = event.isError === true;
         const toolName = typeof event.toolName === "string" ? event.toolName : "tool";
         this.write(this.nextRecord("tool_end", {
@@ -225,9 +222,9 @@ export class TrajectoryRecorder {
     const thinkingLevel = typeof optionsRec.thinkingLevel === "string"
       ? optionsRec.thinkingLevel
       : undefined;
-    const snapshot = fullPayload(redactRequestContext({
+    const snapshot = fullPayload({
       ...(contextRec.systemPrompt !== undefined ? { systemPrompt: contextRec.systemPrompt } : {}),
-    }));
+    });
     this.write(this.nextRecord("request_start", {
       requestId,
       data: {
@@ -238,7 +235,7 @@ export class TrajectoryRecorder {
         context: snapshot,
       },
     }));
-    this.openRequests.set(requestId, requestId);
+    this.openRequests.add(requestId);
     return requestId;
   }
 
@@ -314,7 +311,6 @@ export class TrajectoryRecorder {
     }
     this.openRequests.clear();
     this.openTurns.clear();
-    this.openTools.clear();
     await this.flush();
     this.closed = true;
   }

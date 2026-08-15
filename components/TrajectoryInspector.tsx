@@ -16,7 +16,7 @@ export interface TrajectoryInspectorProps {
   mobile: boolean;
 }
 
-type TabId = "overview" | "input" | "output" | "timing" | "usage" | "schema";
+type TabId = "overview" | "input" | "output" | "timing" | "usage";
 
 function Detail({ label, value }: { label: string; value: string }) {
   return (
@@ -47,13 +47,11 @@ function DetailGrid({ record }: { record: TrajectoryRecordView }) {
 }
 
 function Payload({ value }: { value: unknown }) {
-  let text: string;
-  try {
-    text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
-  } catch {
-    text = String(value);
-  }
-  return <pre className="trajectory-payload">{text}</pre>;
+  return (
+    <pre className="trajectory-payload">
+      {typeof value === "string" ? value : JSON.stringify(value, null, 2)}
+    </pre>
+  );
 }
 
 function tabPayload(record: TrajectoryRecordView, tab: TabId): unknown {
@@ -65,8 +63,6 @@ function tabPayload(record: TrajectoryRecordView, tab: TabId): unknown {
       return data.output ?? data.result ?? null;
     case "usage":
       return data.usage ?? null;
-    case "schema":
-      return data.schema ?? null;
     default:
       return null;
   }
@@ -84,17 +80,6 @@ export function TrajectoryInspector({
 }: TrajectoryInspectorProps) {
   const [tab, setTab] = useState<TabId>("overview");
 
-  const tabs: Array<{ id: TabId; label: string; available: boolean }> = [
-    { id: "overview", label: "Overview", available: true },
-    { id: "input", label: "Input", available: tabPayload(record ?? ({} as TrajectoryRecordView), "input") !== null },
-    { id: "output", label: "Output", available: tabPayload(record ?? ({} as TrajectoryRecordView), "output") !== null },
-    { id: "timing", label: "Timing", available: true },
-    { id: "usage", label: "Usage", available: tabPayload(record ?? ({} as TrajectoryRecordView), "usage") !== null },
-    { id: "schema", label: "Schema", available: tabPayload(record ?? ({} as TrajectoryRecordView), "schema") !== null },
-  ];
-  const visibleTabs = tabs.filter((item) => item.available);
-  const activeTab = visibleTabs.some((item) => item.id === tab) ? tab : "overview";
-
   if (!record) {
     if (mobile) return null;
     return (
@@ -103,6 +88,16 @@ export function TrajectoryInspector({
       </aside>
     );
   }
+
+  const tabs: Array<{ id: TabId; label: string; available: boolean }> = [
+    { id: "overview", label: "Overview", available: true },
+    { id: "input", label: "Input", available: tabPayload(record, "input") !== null },
+    { id: "output", label: "Output", available: tabPayload(record, "output") !== null },
+    { id: "timing", label: "Timing", available: true },
+    { id: "usage", label: "Usage", available: tabPayload(record, "usage") !== null },
+  ];
+  const visibleTabs = tabs.filter((item) => item.available);
+  const activeTab = visibleTabs.some((item) => item.id === tab) ? tab : "overview";
 
   const data = record.data ?? {};
   const showConfirmation = fullDetailsAvailable && data.input === undefined && data.output === undefined;
