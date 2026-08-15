@@ -4508,15 +4508,24 @@ span.linenumber {
   box-shadow: 0 2px 8px rgba(0, 0, 0, .06);
 }
 .desktop-subagent-card-header {
+  width: 100%;
   min-height: 38px;
   padding: 0 12px;
   display: flex;
   align-items: center;
   gap: 7px;
+  border: 0;
   border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
   font-size: var(--text-ui);
   font-weight: var(--weight-medium);
+  text-align: left;
+  cursor: pointer;
 }
+.desktop-subagent-card-header:hover { background: var(--bg-hover); }
+.desktop-subagent-card.is-collapsed .desktop-subagent-card-header { border-bottom: 0; }
 .desktop-subagent-card-header > span:first-of-type { min-width: 0; flex: 1; }
 .desktop-subagent-card-live {
   width: 7px;

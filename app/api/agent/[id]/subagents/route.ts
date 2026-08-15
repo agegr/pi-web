@@ -32,7 +32,11 @@ export interface SubagentRouteDeps {
 }
 
 const defaultDeps: SubagentRouteDeps = {
-  listSessions: () => listAllSessions({ force: true }),
+  // The cached session list (30s TTL) is fresh enough for durable tree nodes;
+  // forcing a full re-scan on every poll made 1.5s polling rebuild the whole
+  // session index (including nested discovery) per tick. Live children still
+  // appear instantly as RPC placeholders.
+  listSessions: () => listAllSessions(),
   getWrapper: (id) => getRpcSession(id),
   startWrapper: async (id, filePath) => startRpcSession(id, filePath, undefined),
   resolveSessionPath: async (id) => resolveSessionPath(id),

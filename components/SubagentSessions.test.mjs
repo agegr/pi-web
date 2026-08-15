@@ -316,6 +316,14 @@ test("desktop subagent card renders summary, stale state, and recursive rows", (
   assert.equal(countActiveSubagentNodes([child, finished]), 1);
 });
 
+test("desktop card source: folds to its header when the task settles", () => {
+  const source = readFileSync(new URL("./SubagentSessions.tsx", import.meta.url), "utf8");
+  // Settled tree → card collapses to the header; the header is a real toggle button.
+  assert.match(source, /if \(settled\) setCollapsed\(true\);/);
+  assert.match(source, /aria-expanded=\{!collapsed\}/);
+  assert.match(source, /!collapsed \? \(\s*<SubagentTree/);
+});
+
 test("desktop subagent card counts descendants in the header", () => {
   // One top-level node with two nested children → total descendant count 3.
   const top = node("top", "running", {
@@ -363,6 +371,15 @@ test("running summary localizes in both locales", async () => {
   const messages = { en: getLocalePlugin("en").messages, "zh-CN": getLocalePlugin("zh-CN").messages };
   assert.equal(translateMessage("en", "subagents.runningSummary", messages, { count: 1 }), "1 running");
   assert.equal(translateMessage("zh-CN", "subagents.runningSummary", messages, { count: 1 }), "1 个运行中");
+});
+
+test("tree source: finished trees auto-collapse into a compact summary", () => {
+  const source = readFileSync(new URL("./SubagentSessions.tsx", import.meta.url), "utf8");
+  // Settling the whole tree folds every branch with children; live trees stay as-is.
+  assert.match(source, /if \(hasLiveNode\(nodes\)\) return;[\s\S]*?setCollapsed/);
+  assert.match(source, /node\.children\.length > 0[\s\S]*?next\.add\(nodeId\(node\)\)/);
+  // The live check covers the full subtree, not just the root level.
+  assert.match(source, /hasLiveNode\(node\.children\)/);
 });
 
 test("pure helpers: submit action, elapsed formatting, and visible node flattening", () => {

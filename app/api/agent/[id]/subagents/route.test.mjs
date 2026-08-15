@@ -228,7 +228,7 @@ test("GET compatible status returns the exact nested contract", async () => {
   assert.ok(body.polledAt > 0);
 });
 
-test("GET lists sessions with force so new child jsonl appears during polling", async () => {
+test("GET lists sessions through the dep so durable nodes are found", async () => {
   const calls = [];
   const deps = makeDeps(new FakeBridge());
   deps.listSessions = async () => { calls.push("list"); return sessionsFixture(); };

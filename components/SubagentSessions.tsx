@@ -45,6 +45,8 @@ export function SubagentHeaderAction({
         alignItems: "center",
         gap: 5,
         padding: "0 8px",
+        width: "auto", // beat .task-header-actions > button { width: 32px }
+        flexShrink: 0,
         minHeight: 30,
         border: "1px solid var(--border)",
         borderRadius: 6,
@@ -78,6 +80,15 @@ export const ACTIVE_ROW_STATES: ReadonlySet<SubagentLifecycleState> = new Set([
   "running",
   "needs_attention",
 ]);
+
+/** True when any node in the tree is still live (starting/queued/running/needs_attention). */
+function hasLiveNode(nodes: SubagentTreeNode[]): boolean {
+  for (const node of nodes) {
+    if (ACTIVE_ROW_STATES.has(node.state)) return true;
+    if (hasLiveNode(node.children)) return true;
+  }
+  return false;
+}
 
 /** Which composer action applies to a node, if any. */
 export function submitActionFor(node: SubagentTreeNode): "steer" | "resume" | null {
@@ -233,6 +244,27 @@ export function SubagentTree({
       return next;
     });
   }, []);
+
+  // When the whole tree settles (no live subagent remains — the task ended),
+  // fold every branch so the finished hierarchy reads as a compact summary.
+  // A settled snapshot is static (polling stops), so a later manual expand
+  // survives until the next snapshot arrives.
+  useEffect(() => {
+    if (hasLiveNode(nodes)) return;
+    setCollapsed((previous) => {
+      const next = new Set(previous);
+      const fold = (list: SubagentTreeNode[]) => {
+        for (const node of list) {
+          if (node.children.length > 0) {
+            next.add(nodeId(node));
+            fold(node.children);
+          }
+        }
+      };
+      fold(nodes);
+      return next.size === previous.size ? previous : next;
+    });
+  }, [nodes]);
 
   const handleKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     if (visibleRows.length === 0) return;
@@ -463,12 +495,30 @@ export function DesktopSubagentCard({
   callbacks: SubagentTreeCallbacks;
 }) {
   const { t } = useI18n();
+  const [collapsed, setCollapsed] = useState(false);
   if (nodes.length === 0) return null;
   const totalCount = countSubagentNodes(nodes);
   const activeCount = countActiveSubagentNodes(nodes);
+
+  // When the whole task settles, fold the card to its header so the finished
+  // hierarchy stops occupying the gutter. A manual toggle still works.
+  const settled = activeCount === 0;
+  useEffect(() => {
+    if (settled) setCollapsed(true);
+  }, [settled]);
+
   return (
-    <section className="desktop-subagent-card" aria-label={t("subagents.title")} data-subagent-card="true">
-      <div className="desktop-subagent-card-header">
+    <section
+      className={collapsed ? "desktop-subagent-card is-collapsed" : "desktop-subagent-card"}
+      aria-label={t("subagents.title")}
+      data-subagent-card="true"
+    >
+      <button
+        type="button"
+        className="desktop-subagent-card-header"
+        aria-expanded={!collapsed}
+        onClick={() => setCollapsed((value) => !value)}
+      >
         <Network size={14} strokeWidth={1.8} aria-hidden="true" />
         <span>
           {totalCount} {t("subagents.title").toLowerCase()}
@@ -481,15 +531,27 @@ export function DesktopSubagentCard({
             {t("subagents.runningSummary", { count: activeCount })}
           </span>
         ) : null}
-      </div>
-      {stale ? (
+        <ChevronRight
+          size={13}
+          strokeWidth={1.8}
+          aria-hidden="true"
+          style={{
+            flexShrink: 0,
+            color: "var(--text-muted)",
+            transform: collapsed ? "none" : "rotate(90deg)",
+          }}
+        />
+      </button>
+      {!collapsed && stale ? (
         <div className="desktop-subagent-card-stale">{t("subagents.stale")}</div>
       ) : null}
-      <SubagentTree
-        nodes={nodes}
-        selectedSessionId={selectedSessionId}
-        callbacks={callbacks}
-      />
+      {!collapsed ? (
+        <SubagentTree
+          nodes={nodes}
+          selectedSessionId={selectedSessionId}
+          callbacks={callbacks}
+        />
+      ) : null}
     </section>
   );
 }
