@@ -63,7 +63,7 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
               borderRight: "1px solid var(--border)",
               background: isActive ? "var(--bg)" : "var(--bg-panel)",
               cursor: "pointer",
-              fontSize: 12,
+              fontSize: "var(--text-ui)",
               color: isActive ? "var(--text)" : "var(--text-muted)",
               whiteSpace: "nowrap",
               maxWidth: 180,

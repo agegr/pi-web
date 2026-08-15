@@ -138,7 +138,7 @@ function GitStatusBadge({ status, t }: { status: GitFileStatus; t: Translate }) 
         justifyContent: "center",
         color: GIT_STATUS_COLORS[status.status],
         fontFamily: "var(--font-mono)",
-        fontSize: 11,
+        fontSize: "var(--text-meta)",
         fontWeight: 600,
       }}
     >
@@ -307,7 +307,7 @@ function TreeNode({
         </span>
         <span
           style={{
-            fontSize: 12,
+            fontSize: "var(--text-ui)",
             color: "var(--text)",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -372,7 +372,7 @@ function TreeNode({
               borderRadius: 4,
               color: "var(--accent)",
               cursor: "pointer",
-              fontSize: 11,
+              fontSize: "var(--text-meta)",
               fontWeight: 600,
               whiteSpace: "nowrap",
             }}
@@ -403,7 +403,7 @@ function TreeNode({
               borderRadius: 4,
               color: "var(--text-muted)",
               cursor: "pointer",
-              fontSize: 11,
+              fontSize: "var(--text-meta)",
               fontWeight: 600,
               whiteSpace: "nowrap",
               textDecoration: "none",
@@ -433,7 +433,7 @@ function TreeNode({
             />
           ))}
           {children.length === 0 && loaded && (
-            <div style={{ paddingLeft: 8 + (depth + 1) * 14, fontSize: 11, color: "var(--text-dim)", height: 22, display: "flex", alignItems: "center" }}>
+            <div style={{ paddingLeft: 8 + (depth + 1) * 14, fontSize: "var(--text-meta)", color: "var(--text-dim)", height: 22, display: "flex", alignItems: "center" }}>
               empty
             </div>
           )}
@@ -486,7 +486,7 @@ function ChangeRow({
       </span>
       <span
         style={{
-          fontSize: 12,
+          fontSize: "var(--text-ui)",
           color: "var(--text)",
           overflow: "hidden",
           textOverflow: "ellipsis",
@@ -725,7 +725,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
               ) : (
                 <Upload size={13} aria-hidden="true" />
               )}
-              {uploadPhase === "uploading" && <span style={{ fontSize: 10 }}>{uploadProgress}%</span>}
+              {uploadPhase === "uploading" && <span style={{ fontSize: "var(--text-meta)" }}>{uploadProgress}%</span>}
             </div>
             {uploadPhase === "uploading" && (
               <div style={{ height: 3, marginTop: 4, overflow: "hidden", borderRadius: 2, background: "var(--border)" }}>
@@ -737,22 +737,22 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
 
         {pendingConflict && (
           <div role="alert" style={{ padding: 7, border: "1px solid color-mix(in srgb, #f59e0b 55%, var(--border))", borderRadius: 4, background: "color-mix(in srgb, #f59e0b 9%, var(--bg-panel))" }}>
-            <div style={{ fontSize: 11, color: "var(--text)", lineHeight: 1.35, overflowWrap: "anywhere" }}>
+            <div style={{ fontSize: "var(--text-meta)", color: "var(--text)", lineHeight: "var(--leading-ui)", overflowWrap: "anywhere" }}>
               {t("files.conflictSummary", { count: pendingConflict.conflicts.length, countSuffix: pendingConflict.conflicts.length === 1 ? "" : "s", files: pendingConflict.conflicts.join(", ") })}
             </div>
             {pendingConflict.nonReplaceable.length > 0 && (
-              <div style={{ marginTop: 3, fontSize: 10, color: "#f59e0b", lineHeight: 1.35, overflowWrap: "anywhere" }}>
+              <div style={{ marginTop: 3, fontSize: "var(--text-meta)", color: "#f59e0b", lineHeight: "var(--leading-ui)", overflowWrap: "anywhere" }}>
                 {t("files.cannotReplace", { files: pendingConflict.nonReplaceable.join(", ") })}
               </div>
             )}
             <div style={{ display: "flex", gap: 5, marginTop: 7 }}>
-              <button type="button" onClick={() => void performUpload(pendingConflict.files, "overwrite")} style={{ height: 22, padding: "0 7px", border: "1px solid #ef4444", borderRadius: 4, background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: 10 }}>
+              <button type="button" onClick={() => void performUpload(pendingConflict.files, "overwrite")} style={{ height: 22, padding: "0 7px", border: "1px solid #ef4444", borderRadius: 4, background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: "var(--text-meta)" }}>
                 {t("files.replace")}
               </button>
-              <button type="button" onClick={() => void performUpload(pendingConflict.files, "skip")} style={{ height: 22, padding: "0 7px", border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-panel)", color: "var(--text)", cursor: "pointer", fontSize: 10 }}>
+              <button type="button" onClick={() => void performUpload(pendingConflict.files, "skip")} style={{ height: 22, padding: "0 7px", border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-panel)", color: "var(--text)", cursor: "pointer", fontSize: "var(--text-meta)" }}>
                 {t("files.skipExisting")}
               </button>
-              <button type="button" onClick={() => setPendingConflict(null)} style={{ height: 22, padding: "0 7px", border: "none", borderRadius: 4, background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: 10 }}>
+              <button type="button" onClick={() => setPendingConflict(null)} style={{ height: 22, padding: "0 7px", border: "none", borderRadius: 4, background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: "var(--text-meta)" }}>
                 {t("files.cancel")}
               </button>
             </div>
@@ -760,7 +760,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         )}
 
         {uploadError && (
-          <div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 11, lineHeight: 1.35, color: "#f87171" }}>
+          <div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: "var(--text-meta)", lineHeight: "var(--leading-ui)", color: "#f87171" }}>
             <span style={{ minWidth: 0, flex: 1, overflowWrap: "anywhere" }}>{uploadError}</span>
             <DismissButton onClick={() => setUploadError(null)} title={t("files.dismissError")} />
           </div>
@@ -768,7 +768,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
 
         {uploadSummary && (
           <div aria-live="polite">
-            <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 22, fontSize: 11 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 22, fontSize: "var(--text-meta)" }}>
               <div style={{ minWidth: 0, flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
                 {uploadSummary.uploaded.length > 0 && (
                   <span title={`${uploadSummary.uploaded.length} uploaded`} aria-label={`${uploadSummary.uploaded.length} uploaded`} style={{ display: "flex", alignItems: "center", gap: 3, color: "#22c55e" }}>
@@ -795,7 +795,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                   onClick={addUploadedFilesToChat}
                   title={uploadSummary.uploaded.length === 1 ? t("files.addUploadedFile") : t("files.addAllUploadedFiles")}
                   aria-label={uploadSummary.uploaded.length === 1 ? t("files.addUploadedFile") : t("files.addAllUploadedFiles")}
-                  style={{ height: 22, padding: "0 7px", display: "flex", alignItems: "center", justifyContent: "center", gap: 4, flexShrink: 0, border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-panel)", color: "var(--accent)", cursor: "pointer", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}
+                  style={{ height: 22, padding: "0 7px", display: "flex", alignItems: "center", justifyContent: "center", gap: 4, flexShrink: 0, border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-panel)", color: "var(--accent)", cursor: "pointer", fontSize: "var(--text-meta)", fontWeight: 600, whiteSpace: "nowrap" }}
                 >
                   <MentionIcon />
                   {t("files.mention")}
@@ -804,7 +804,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
               <DismissButton onClick={() => setUploadSummary(null)} title={t("files.dismissUploadResults")} />
             </div>
             {uploadSummary.errors.map((item) => (
-              <div key={item.name} title={item.error} style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 3, minWidth: 0, fontSize: 10, color: "#f87171" }}>
+              <div key={item.name} title={item.error} style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 3, minWidth: 0, fontSize: "var(--text-meta)", color: "#f87171" }}>
                 <AlertCircle size={11} style={{ flexShrink: 0 }} aria-hidden="true" />
                 <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</span>
               </div>
@@ -822,7 +822,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
               additions: gitLineStats.additions,
               deletions: gitLineStats.deletions,
             })}
-            style={{ display: "flex", alignItems: "center", gap: 6, height: 24, padding: "0 10px", fontSize: 12 }}
+            style={{ display: "flex", alignItems: "center", gap: 6, height: 24, padding: "0 10px", fontSize: "var(--text-meta)" }}
           >
             <span style={{ color: "var(--text-dim)" }}>
               {t("files.changedCount", { count: gitFiles.length })}
@@ -839,9 +839,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       {(changesCollapsed || gitFiles.length === 0) && (
         <div style={{ padding: "2px 4px" }}>
           {loading ? (
-            <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>Loading files...</div>
+            <div style={{ padding: "8px 12px", fontSize: "var(--text-meta)", color: "var(--text-dim)" }}>Loading files...</div>
           ) : error ? (
-            <div style={{ padding: "8px 12px", fontSize: 11, color: "#f87171" }}>{error}</div>
+            <div style={{ padding: "8px 12px", fontSize: "var(--text-meta)", color: "#f87171" }}>{error}</div>
           ) : (
             roots.map((node) => (
               <TreeNode
@@ -862,7 +862,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
             ))
           )}
           {!loading && !error && roots.length === 0 && (
-            <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>
+            <div style={{ padding: "8px 12px", fontSize: "var(--text-meta)", color: "var(--text-dim)" }}>
               {t("files.noFiles")}
             </div>
           )}

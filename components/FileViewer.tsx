@@ -64,8 +64,8 @@ const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
 
 const FILE_CODE_STYLE: CSSProperties = {
   fontFamily: "var(--font-mono)",
-  fontSize: 13,
-  lineHeight: 1.6,
+  fontSize: "var(--text-ui)",
+  lineHeight: "20.8px",
 };
 
 const FILE_LINE_NUMBER_STYLE: CSSProperties = {
@@ -77,7 +77,7 @@ const FILE_LINE_NUMBER_STYLE: CSSProperties = {
   background: "var(--bg-panel)",
   borderRight: "1px solid var(--border)",
   fontFamily: "var(--font-mono)",
-  fontSize: 11,
+  fontSize: "var(--text-meta)",
   fontStyle: "normal",
   fontVariantNumeric: "tabular-nums",
   lineHeight: "20.8px",
@@ -286,7 +286,7 @@ function DiffView({ patch }: { patch: string }) {
   const hasChanges = diff.some((l) => l.type !== "unchanged");
   if (!hasChanges) {
     return (
-      <div style={{ padding: "12px 16px", fontSize: 12, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+      <div style={{ padding: "12px 16px", fontSize: "var(--text-meta)", color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
         {t("i18n.noChanges")}
       </div>
     );
@@ -340,7 +340,7 @@ function DiffView({ patch }: { patch: string }) {
                 padding: "2px 16px",
                 color: "var(--text-dim)",
                 background: "var(--bg-panel)",
-                fontSize: 11,
+                fontSize: "var(--text-meta)",
                 borderTop: "1px solid var(--border)",
                 borderBottom: "1px solid var(--border)",
               }}
@@ -508,7 +508,7 @@ function ImageViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
           gap: 12,
           padding: "4px 16px",
           borderBottom: "1px solid var(--border)",
-          fontSize: 11,
+          fontSize: "var(--text-meta)",
           color: "var(--text-dim)",
           background: "var(--bg)",
           flexShrink: 0,
@@ -554,7 +554,7 @@ function ImageViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
         }}
       >
         {error ? (
-          <div style={{ color: "#f87171", fontSize: 13 }}>{error}</div>
+          <div style={{ color: "#f87171", fontSize: "var(--text-ui)" }}>{error}</div>
         ) : (
           <img
             src={src}
@@ -677,7 +677,7 @@ function AudioViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
           gap: 12,
           padding: "4px 16px",
           borderBottom: "1px solid var(--border)",
-          fontSize: 11,
+          fontSize: "var(--text-meta)",
           color: "var(--text-dim)",
           background: "var(--bg)",
           flexShrink: 0,
@@ -719,7 +719,7 @@ function AudioViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
       >
         <div style={{ width: "min(680px, 100%)" }}>
           {error && (
-            <div style={{ color: "#f87171", fontSize: 13, marginBottom: 12, textAlign: "center" }}>
+            <div style={{ color: "#f87171", fontSize: "var(--text-ui)", marginBottom: 12, textAlign: "center" }}>
               {error}
             </div>
           )}
@@ -862,7 +862,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }:
           gap: 12,
           padding: "4px 16px",
           borderBottom: "1px solid var(--border)",
-          fontSize: 11,
+          fontSize: "var(--text-meta)",
           color: "var(--text-dim)",
           background: "var(--bg)",
           flexShrink: 0,
@@ -893,7 +893,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }:
       </div>
       <div style={{ flex: 1, minHeight: 0, background: "var(--bg-panel)" }}>
         {error ? (
-          <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, color: "#f87171", fontSize: 13, textAlign: "center" }}>
+          <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, color: "#f87171", fontSize: "var(--text-ui)", textAlign: "center" }}>
             {error}
           </div>
         ) : (
@@ -1258,7 +1258,7 @@ function TextFileViewer({
 
   if (loading || (requestedInitialDisplayMode === "diff" && gitDiffLoading && !data)) {
     return (
-      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 13 }}>
+      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: "var(--text-ui)" }}>
         {t("i18n.loading")}
       </div>
     );
@@ -1266,7 +1266,7 @@ function TextFileViewer({
 
   if (error && !isDeletedDiff) {
     return (
-      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#f87171", fontSize: 13 }}>
+      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#f87171", fontSize: "var(--text-ui)" }}>
         {error}
       </div>
     );
@@ -1303,7 +1303,7 @@ function TextFileViewer({
           gap: 8,
           padding: "5px 12px",
           borderBottom: "1px solid var(--border)",
-          fontSize: 11,
+          fontSize: "var(--text-meta)",
           color: "var(--text-dim)",
           background: "var(--bg)",
           flexShrink: 0,

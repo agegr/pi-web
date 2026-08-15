@@ -45,9 +45,9 @@
   padding: 0;
   color: var(--text-dim);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-meta);
   font-variant-numeric: tabular-nums;
-  line-height: 18px;
+  line-height: var(--leading-ui);
   text-align: center;
 }
 
@@ -64,7 +64,7 @@
   display: block;
   width: calc(100% + 34px);
   min-height: 32px;
-  max-height: 86px;
+  max-height: 107px;
   margin: 0 0 0 -34px;
   padding: 7px 10px 7px 40px;
   border: 0;
@@ -72,10 +72,10 @@
   background: transparent;
   color: var(--text);
   font-family: inherit;
-  font-size: 14px;
+  font-size: var(--text-chat);
   font-weight: 500;
   letter-spacing: 0;
-  line-height: 18px;
+  line-height: var(--leading-prose);
   text-align: left;
   cursor: pointer;
   overflow: hidden;
@@ -119,8 +119,8 @@
   background: transparent;
   color: var(--text-dim);
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--text-meta);
+  font-weight: var(--weight-medium);
   letter-spacing: 0;
   line-height: 26px;
   text-align: center;
@@ -181,8 +181,9 @@
   padding-top: 7px;
   padding-bottom: 7px;
   color: var(--text);
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--text-title);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-title);
 }
 
 .heading[data-level="2"] {
@@ -191,21 +192,24 @@
   padding-bottom: 5px;
   padding-left: 50px;
   color: color-mix(in srgb, var(--text) 88%, var(--text-muted));
-  font-size: 12px;
+  font-size: var(--text-ui);
   font-weight: 500;
+  line-height: var(--leading-ui);
 }
 
 .heading[data-level="3"] {
   padding-left: 60px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--text-meta);
   font-weight: 400;
+  line-height: var(--leading-ui);
 }
 
 .paragraph {
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: var(--text-chat);
   font-weight: 400;
+  line-height: var(--leading-prose);
 }
 
 .assistant:has(.heading[data-level="1"]:first-child) .assistantJump {
