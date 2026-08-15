@@ -306,6 +306,7 @@ export const enLocale: LocalePlugin = {
     "chat.send": "Send",
     "chat.homeTitle": "What should we do in {cwd}?",
     "chat.homeTitleGeneric": "What should we do?",
+    "chat.workingIn": "Working in {cwd}",
     "chat.homeExplore": "Explore and understand the code",
     "chat.homeBuild": "Build a new feature, app, or tool",
     "chat.homeReview": "Review the code and suggest changes",

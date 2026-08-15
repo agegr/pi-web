@@ -662,6 +662,22 @@ html.keyboard-open .extension-status-shelf {
   cursor: not-allowed;
   opacity: 0.5;
 }
+.composer-workspace-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1;
+}
+.composer-workspace-hint-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .composer-menu {
   position: absolute;
   bottom: calc(100% + 6px);

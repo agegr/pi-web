@@ -1,6 +1,6 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
-import { ArrowDown, Bug, ChevronRight, Compass, ExternalLink, Folder, GitPullRequest, Sparkles } from "lucide-react";
+import { ArrowDown, Bug, ChevronRight, Compass, ExternalLink, GitPullRequest, Sparkles } from "lucide-react";
 import { Fragment, cloneElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
@@ -601,6 +601,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       onAudioUnlock={unlockAudio}
       draftKey={session?.id ?? newSessionDraftKey ?? undefined}
       cwd={session?.cwd ?? newSessionCwd}
+      workspaceHint={isEmptyNew ? homeCwdLabel : null}
     />
   );
 
@@ -723,17 +724,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
             </div>
           </div>
           <div className="relative mx-auto w-full max-w-[960px]">
-            {homeCwdLabel && (
-              <div style={{
-                display: "flex", alignItems: "center", gap: 6,
-                width: "100%", maxWidth: 820, margin: "0 auto -14px", padding: "8px 16px 22px",
-                borderRadius: "16px 16px 0 0", background: "var(--bg-panel)",
-                color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 12,
-              }}>
-                <Folder size={12} strokeWidth={1.8} aria-hidden="true" />
-                {homeCwdLabel}
-              </div>
-            )}
             <NoticeShelf notices={notices} align="right" />
             <GoalPanel
               model={goalModel}

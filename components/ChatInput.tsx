@@ -10,6 +10,7 @@ import {
   ChevronDown,
   CornerUpLeft,
   Cpu,
+  Folder,
   History,
   LoaderCircle,
   Minimize2,
@@ -97,6 +98,8 @@ interface Props {
   draftKey?: string;
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
+  /** Basename shown inside the composer on the empty new-session home. */
+  workspaceHint?: string | null;
 }
 
 export interface ChatInputHandle {
@@ -411,6 +414,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
+  workspaceHint,
 }: Props, ref) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
@@ -1885,6 +1889,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               transition: "border-color 0.15s, background 0.15s",
             } as React.CSSProperties}
           >
+          {workspaceHint ? (
+            <div
+              className="composer-workspace-hint"
+              title={cwd ?? workspaceHint}
+              aria-label={t("chat.workingIn", { cwd: workspaceHint })}
+            >
+              <Folder size={12} strokeWidth={1.8} aria-hidden="true" />
+              <span className="composer-workspace-hint-label">{workspaceHint}</span>
+            </div>
+          ) : null}
           <textarea
             ref={textareaRef}
             value={value}

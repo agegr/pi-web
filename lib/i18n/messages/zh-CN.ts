@@ -306,6 +306,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.send": "发送",
     "chat.homeTitle": "我们应该在{cwd}中做些什么？",
     "chat.homeTitleGeneric": "我们应该做什么？",
+    "chat.workingIn": "工作目录：{cwd}",
     "chat.homeExplore": "探索并理解代码",
     "chat.homeBuild": "构建新功能、应用或工具",
     "chat.homeReview": "审查代码并提出修改建议",
