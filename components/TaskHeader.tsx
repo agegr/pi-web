@@ -22,6 +22,41 @@ interface Props {
   subagentsOpen?: boolean;
   subagentsLive?: boolean;
   onOpenSubagents?: (anchor: HTMLButtonElement) => void;
+  sessionView?: "chat" | "trajectory";
+  onSessionViewChange?: (view: "chat" | "trajectory") => void;
+  showSessionView?: boolean;
+}
+
+export function SessionViewSwitch({
+  value,
+  onChange,
+}: {
+  value: "chat" | "trajectory";
+  onChange: (view: "chat" | "trajectory") => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="session-view-switch" role="tablist" aria-label={t("session.view")}>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={value === "chat"}
+        className={value === "chat" ? "is-active" : ""}
+        onClick={() => onChange("chat")}
+      >
+        {t("session.viewChat")}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={value === "trajectory"}
+        className={value === "trajectory" ? "is-active" : ""}
+        onClick={() => onChange("trajectory")}
+      >
+        {t("session.viewTrajectory")}
+      </button>
+    </div>
+  );
 }
 
 export function TaskHeader({
@@ -42,6 +77,9 @@ export function TaskHeader({
   subagentsOpen = false,
   subagentsLive = false,
   onOpenSubagents,
+  sessionView = "chat",
+  onSessionViewChange,
+  showSessionView = false,
 }: Props) {
   const { t, locale } = useI18n();
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -76,6 +114,9 @@ export function TaskHeader({
         <strong>{title}</strong>
         <span>{running ? t("task.running") : t("task.ready")}{modified ? ` · ${formatRelativeTime(modified, locale)}` : ""}</span>
       </div>
+      {showSessionView && onSessionViewChange ? (
+        <SessionViewSwitch value={sessionView} onChange={onSessionViewChange} />
+      ) : null}
       <div className="task-header-actions">
         {onOpenSubagents && subagentCount > 0 ? (
           <SubagentHeaderAction

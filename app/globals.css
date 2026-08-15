@@ -4763,31 +4763,35 @@ span.linenumber {
   .trajectory-expand.is-expanded svg { transition: none; }
 }
 
-/* Chat / Trajectory sibling view tabs */
-.session-view-tabs {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
+/* Compact Chat / Trajectory switch inside the task header */
+.session-view-switch {
+  display: inline-flex;
   flex: 0 0 auto;
+  align-items: center;
+  margin: 0 10px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
 }
-.session-view-tabs button {
-  min-width: 84px;
-  padding: 8px 12px 7px;
+.session-view-switch button {
+  min-width: 48px;
+  height: 26px;
+  padding: 0 10px;
   border: 0;
-  border-bottom: 2px solid transparent;
-  background: none;
+  border-radius: 6px;
+  background: transparent;
   color: var(--text-dim);
   font-size: 12px;
+  line-height: 26px;
   cursor: pointer;
 }
-.session-view-tabs button:hover { color: var(--text); }
-.session-view-tabs button.is-active {
+.session-view-switch button:hover { color: var(--text); }
+.session-view-switch button.is-active {
+  background: var(--bg);
   color: var(--text);
-  border-bottom-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--border);
 }
-@media (max-width: 640px) {
-  .session-view-tabs button { min-height: 44px; }
+@media (pointer: coarse) {
+  .session-view-switch button { min-height: 32px; height: 32px; line-height: 32px; }
 }

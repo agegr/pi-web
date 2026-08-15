@@ -36,7 +36,7 @@ import { openFileTab, saveFileViewerState } from "./file-tab-state";
 import { SettingsPage } from "./SettingsPage";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { BranchNavigator } from "./BranchNavigator";
-import { TaskHeader } from "./TaskHeader";
+import { SessionViewSwitch, TaskHeader } from "./TaskHeader";
 import { DesktopConversationContext } from "./DesktopConversationContext";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
@@ -1800,6 +1800,9 @@ export function AppShell() {
               {selectedSession.name || selectedSession.firstMessage || translate("i18n.newSession")}
             </div>
           )}
+          {showChat && !childSelected ? (
+            <SessionViewSwitch value={sessionView} onChange={setSessionView} />
+          ) : null}
           {isMobile && (
             <div
               ref={mobileToolbarRef}
@@ -1914,6 +1917,9 @@ export function AppShell() {
                 if (isMobile) setSidebarOpen(false);
                 setActiveTopPanel((current) => current === "subagents" ? null : "subagents");
               }}
+              showSessionView={showChat && !childSelected}
+              sessionView={sessionView}
+              onSessionViewChange={setSessionView}
             />
             {renderProjectTrustWarning(false)}
             {childSelected ? null : (
@@ -2192,29 +2198,6 @@ export function AppShell() {
 
         {isMobile && renderProjectTrustWarning(true)}
         </div>
-
-        {showChat && !childSelected ? (
-          <div className="session-view-tabs" role="tablist" aria-label="Session view">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={sessionView === "chat"}
-              className={sessionView === "chat" ? "is-active" : ""}
-              onClick={() => setSessionView("chat")}
-            >
-              Chat
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={sessionView === "trajectory"}
-              className={sessionView === "trajectory" ? "is-active" : ""}
-              onClick={() => setSessionView("trajectory")}
-            >
-              Trajectory
-            </button>
-          </div>
-        ) : null}
 
         {/* Chat content */}
         <div className="app-center-column" style={{ flex: 1, overflow: "hidden", position: "relative" }}>

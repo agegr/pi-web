@@ -53,3 +53,29 @@ test("shows the sidebar restore button only while the sidebar is closed", () => 
 
   assert.match(html, /aria-label="Toggle sidebar"/);
 });
+
+test("renders localized session view switch when asked", () => {
+  const html = renderToStaticMarkup(React.createElement(I18nProvider, null,
+    React.createElement(TaskHeader, {
+      title: "build a game to play",
+      running: false,
+      sidebarOpen: true,
+      onToggleSidebar() {},
+      onViewHistory() {},
+      historyDisabled: false,
+      onAutoName() {},
+      autoNameDisabled: false,
+      onOpenBranches() {},
+      onOpenSystem() {},
+      onToggleFiles() {},
+      filePanelOpen: false,
+      showSessionView: true,
+      sessionView: "trajectory",
+      onSessionViewChange() {},
+    }),
+  ));
+  assert.match(html, /aria-label="Session view"/);
+  assert.match(html, /Chat/);
+  assert.match(html, /Trajectory/);
+  assert.match(html, /aria-selected="true"/);
+});
