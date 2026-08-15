@@ -75,7 +75,7 @@
   font-size: var(--text-chat);
   font-weight: 500;
   letter-spacing: 0;
-  line-height: var(--leading-prose);
+  line-height: 18px;
   text-align: left;
   cursor: pointer;
   overflow: hidden;
