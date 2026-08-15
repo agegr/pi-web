@@ -65,7 +65,7 @@ const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
 const FILE_CODE_STYLE: CSSProperties = {
   fontFamily: "var(--font-mono)",
   fontSize: "var(--text-ui)",
-  lineHeight: "var(--leading-prose)",
+  lineHeight: "20.8px",
 };
 
 const FILE_LINE_NUMBER_STYLE: CSSProperties = {
@@ -80,7 +80,7 @@ const FILE_LINE_NUMBER_STYLE: CSSProperties = {
   fontSize: "var(--text-meta)",
   fontStyle: "normal",
   fontVariantNumeric: "tabular-nums",
-  lineHeight: "var(--leading-prose)",
+  lineHeight: "20.8px",
   userSelect: "none",
   flexShrink: 0,
   verticalAlign: "top",
