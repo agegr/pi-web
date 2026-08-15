@@ -1,6 +1,7 @@
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { isIP } from "node:net";
+import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import { domainToASCII } from "node:url";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -270,15 +271,55 @@ export function verifyStoredPassword(password: string): boolean {
   }
 }
 
-function bindHostname(): string {
-  return process.env.PI_WEB_HOSTNAME?.trim() || "127.0.0.1";
+function configuredBindHostname(): string {
+  return process.env.PI_WEB_HOSTNAME?.trim() || process.env.NITRO_HOST?.trim() || "127.0.0.1";
 }
 
-function bindPort(): string {
+function configuredBindPort(): string {
   return process.env.NITRO_PORT?.trim() || process.env.PORT?.trim() || "30141";
 }
 
-export function readRemoteAccessSnapshot(): RemoteAccessSnapshot {
+function isUnspecifiedBindHost(hostname: string): boolean {
+  return hostname === "0.0.0.0" || hostname === "::" || hostname === "[::]";
+}
+
+function firstLanIPv4(): string | undefined {
+  for (const entries of Object.values(networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      const family = entry.family === 4 ? "IPv4" : entry.family;
+      if (family !== "IPv4" || entry.internal) continue;
+      if (entry.address.startsWith("169.254.")) continue;
+      return entry.address;
+    }
+  }
+}
+
+function authorityFromRequest(request?: Request): { hostname: string; port: string } | undefined {
+  const host = request?.headers.get("host")?.trim();
+  if (!host) return undefined;
+  try {
+    const url = new URL(`http://${host}`);
+    if (!url.hostname || isUnspecifiedBindHost(url.hostname)) return undefined;
+    return { hostname: url.hostname, port: url.port };
+  } catch {
+    return undefined;
+  }
+}
+
+function advertiseBind(request?: Request): { bindHostname: string; bindPort: string } {
+  const configuredHost = configuredBindHostname();
+  const configuredPort = configuredBindPort();
+  if (!isUnspecifiedBindHost(configuredHost)) {
+    return { bindHostname: configuredHost, bindPort: configuredPort };
+  }
+  const fromRequest = authorityFromRequest(request);
+  return {
+    bindHostname: fromRequest?.hostname || firstLanIPv4() || "127.0.0.1",
+    bindPort: fromRequest?.port || configuredPort,
+  };
+}
+
+export function readRemoteAccessSnapshot(request?: Request): RemoteAccessSnapshot {
   const path = getRemoteAccessConfigPath();
   const cache = readFileCache(path);
   const envAllowedHosts = parseEnvAllowedHosts();
@@ -292,8 +333,7 @@ export function readRemoteAccessSnapshot(): RemoteAccessSnapshot {
   return {
     schemaVersion: REMOTE_ACCESS_SCHEMA_VERSION,
     configPath: path,
-    bindHostname: bindHostname(),
-    bindPort: bindPort(),
+    ...advertiseBind(request),
     allowedHosts: cache.kind === "ok" ? cache.allowedHosts : [],
     envAllowedHosts,
     passwordConfigured: Boolean(passwordSource),
@@ -319,6 +359,7 @@ export function writeRemoteAccessConfig(input: {
   allowedHosts: unknown;
   password?: string | null;
   loopbackRequest: boolean;
+  request?: Request;
 }): RemoteAccessWriteResult {
   const hosts = normalizeHostList(input.allowedHosts);
   if (!Array.isArray(hosts)) {
@@ -382,5 +423,5 @@ export function writeRemoteAccessConfig(input: {
   if (nextHash) serialized.passwordHash = nextHash;
   writePrivateFileAtomicSync(path, `${JSON.stringify(serialized, null, 2)}\n`);
   invalidateRemoteAccessCache();
-  return { ok: true, snapshot: readRemoteAccessSnapshot() };
+  return { ok: true, snapshot: readRemoteAccessSnapshot(input.request) };
 }

@@ -43,7 +43,7 @@ export const zhCNLocale: LocalePlugin = {
     "remote.description": "为已有反向代理绑定精确主机名并设置密码。Pi Web 仍然只监听本机回环地址。",
     "remote.warning": "把域名暴露出去等于把能在本机跑工具的智能体暴露出去。请在反向代理上终止 HTTPS。不要用明文 HTTP 把 Pi Web 放到公网。",
     "remote.listen": "监听地址",
-    "remote.listenDescription": "反向代理应转发到这个回环地址。此处不可修改。",
+    "remote.listenDescription": "反向代理应转发到这个地址。此处不可修改。",
     "remote.hosts": "允许的主机名",
     "remote.hostsDescription": "填写反向代理会放进 Host 头的精确域名，例如 pi.example.com。不要填 URL、端口或通配符。",
     "remote.hostPlaceholder": "pi.example.com",

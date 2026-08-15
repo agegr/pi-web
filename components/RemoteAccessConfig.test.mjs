@@ -17,5 +17,7 @@ test("remote access settings keep listen address read-only and warn about public
   assert.match(source, /remote\.warning/);
   assert.match(source, /bindHostname/);
   assert.match(source, /settings-readonly-value/);
+  assert.match(source, /http:\/\/\$\{snapshot\.bindHostname\}:\$\{snapshot\.bindPort\}/);
   assert.doesNotMatch(source, /0\.0\.0\.0/);
+  assert.doesNotMatch(source, /http:\/\/127\.0\.0\.1:\$\{snapshot\.bindPort\}/);
 });

@@ -11,7 +11,7 @@ export async function GET(req: Request) {
   if (!isApiRequestAllowed(req)) {
     return Response.json({ error: "Untrusted API request" }, { status: 403 });
   }
-  return Response.json(readRemoteAccessSnapshot());
+  return Response.json(readRemoteAccessSnapshot(req));
 }
 
 export async function PUT(req: Request) {
@@ -41,6 +41,7 @@ export async function PUT(req: Request) {
       allowedHosts: body.allowedHosts,
       password,
       loopbackRequest: isLoopbackApiRequest(req),
+      request: req,
     });
     if (!result.ok) {
       return Response.json({ error: result.error, code: result.code }, { status: result.status });

@@ -43,7 +43,7 @@ export const enLocale: LocalePlugin = {
     "remote.description": "Trust a reverse-proxy hostname and require a password. Pi Web keeps listening on loopback.",
     "remote.warning": "A public hostname exposes an agent that can run tools on this machine. Terminate HTTPS on the reverse proxy. Do not put Pi Web on the public internet over plain HTTP.",
     "remote.listen": "Listen address",
-    "remote.listenDescription": "The reverse proxy should forward to this loopback address. It is not editable here.",
+    "remote.listenDescription": "The reverse proxy should forward to this address. It is not editable here.",
     "remote.hosts": "Allowed hostnames",
     "remote.hostsDescription": "Exact DNS names the reverse proxy will send in the Host header, such as pi.example.com. No URLs, ports, or wildcards.",
     "remote.hostPlaceholder": "pi.example.com",

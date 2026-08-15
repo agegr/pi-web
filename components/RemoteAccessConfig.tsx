@@ -348,7 +348,7 @@ export function RemoteAccessConfig({ onControllerChange }: Props) {
           {t("remote.reload")}
         </button>
       </div>
-      <p className="settings-help">{t("remote.help", { address: `http://127.0.0.1:${snapshot.bindPort}` })}</p>
+      <p className="settings-help">{t("remote.help", { address: `http://${snapshot.bindHostname}:${snapshot.bindPort}` })}</p>
     </div>
   );
 }
