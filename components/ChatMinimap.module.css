@@ -64,7 +64,7 @@
   display: block;
   width: calc(100% + 34px);
   min-height: 32px;
-  max-height: 86px;
+  max-height: 107px;
   margin: 0 0 0 -34px;
   padding: 7px 10px 7px 40px;
   border: 0;
@@ -75,7 +75,7 @@
   font-size: var(--text-chat);
   font-weight: 500;
   letter-spacing: 0;
-  line-height: 18px;
+  line-height: var(--leading-prose);
   text-align: left;
   cursor: pointer;
   overflow: hidden;
