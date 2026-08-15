@@ -46,3 +46,9 @@ yarn-error.log*
 /package.json.tmp
 next-env.d.ts
 .factory
+
+# Local security audit output. These contain raw findings (vulnerability
+# descriptions, affected file paths, sometimes exploit snippets) that
+# would expose the project's open attack surface if pushed to a public
+# repo. Always keep them out of version control.
+.codex-security-artifacts/
