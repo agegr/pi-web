@@ -12,6 +12,13 @@ test("useTrajectory fetches summary by session id and leaf id", () => {
   assert.match(hookSource, /expandSubagent/);
 });
 
+test("useTrajectory reports locale-neutral error codes", () => {
+  assert.match(hookSource, /"no_sidecar"/);
+  assert.match(hookSource, /"unavailable"/);
+  assert.match(hookSource, /"load_failed"/);
+  assert.doesNotMatch(hookSource, /Trajectory is not available/);
+});
+
 test("useTrajectory keeps only remote trajectory state", () => {
   assert.doesNotMatch(hookSource, /const \[query, setQuery\]/);
   assert.doesNotMatch(hookSource, /const refresh/);
@@ -20,6 +27,12 @@ test("useTrajectory keeps only remote trajectory state", () => {
 test("useTrajectory does not open a second SSE connection", () => {
   assert.doesNotMatch(hookSource, /new EventSource/);
   assert.doesNotMatch(hookSource, /events/);
+});
+
+test("expandSubagent toggles collapse and keeps child errors off the parent view", () => {
+  assert.match(hookSource, /next\.delete\(childSessionId\)/);
+  assert.doesNotMatch(hookSource, /setError\(`Failed to load child trajectory/);
+  assert.doesNotMatch(hookSource, /void \(async \(\) => \{/);
 });
 
 test("useAgentSession exposes trajectory version changes", () => {

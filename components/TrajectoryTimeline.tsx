@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { useI18n } from "@/hooks/useI18n";
 import type { TrajectoryRecordView } from "@/lib/api-types";
 
 export interface TrajectoryTimelineProps {
@@ -18,26 +19,23 @@ export function formatDuration(ms: number | undefined): string {
 
 type LaneKind = "model" | "tool" | "subagent" | "compaction";
 const LANE_KINDS: LaneKind[] = ["model", "tool", "subagent", "compaction"];
-const LANE_LABELS: Record<LaneKind, string> = {
-  model: "Model",
-  tool: "Tools",
-  subagent: "Subagents",
-  compaction: "Compaction",
+const LANE_LABEL_KEYS: Record<LaneKind, string> = {
+  model: "trajectory.lane.model",
+  tool: "trajectory.lane.tool",
+  subagent: "trajectory.lane.subagent",
+  compaction: "trajectory.lane.compaction",
 };
 
 function laneOf(record: TrajectoryRecordView): LaneKind | null {
   switch (record.kind) {
     case "request_start":
     case "request_first_token":
-    case "request_end":
       return "model";
     case "tool_start":
-    case "tool_end":
       return "tool";
     case "subagent_link":
       return "subagent";
     case "compaction_start":
-    case "compaction_end":
       return "compaction";
     default:
       return null;
@@ -45,6 +43,7 @@ function laneOf(record: TrajectoryRecordView): LaneKind | null {
 }
 
 export function TrajectoryTimeline({ records, selectedId, onSelect }: TrajectoryTimelineProps) {
+  const { t } = useI18n();
   const segments = useMemo(() => {
     const usable = records
       .map((record) => ({ record, lane: laneOf(record) }))
@@ -67,7 +66,7 @@ export function TrajectoryTimeline({ records, selectedId, onSelect }: Trajectory
   }, [records]);
 
   if (!segments) {
-    return <div className="trajectory-timeline trajectory-timeline-empty">Timing overview</div>;
+    return <div className="trajectory-timeline trajectory-timeline-empty">{t("trajectory.timeline.title")}</div>;
   }
 
   const { min, max, byLane } = segments;
@@ -78,13 +77,13 @@ export function TrajectoryTimeline({ records, selectedId, onSelect }: Trajectory
   return (
     <div className="trajectory-timeline">
       <div className="trajectory-timeline-head">
-        <span>Timing overview</span>
-        <span className="trajectory-timeline-hint">Click a span to inspect</span>
+        <span>{t("trajectory.timeline.title")}</span>
+        <span className="trajectory-timeline-hint">{t("trajectory.timeline.hint")}</span>
       </div>
       <div className="trajectory-timeline-lanes">
         {LANE_KINDS.map((lane) => (
           <div className={`trajectory-lane trajectory-lane-${lane}`} key={lane}>
-            <span className="trajectory-lane-label">{LANE_LABELS[lane]}</span>
+            <span className="trajectory-lane-label">{t(LANE_LABEL_KEYS[lane])}</span>
             <div className="trajectory-lane-track">
               {(byLane.get(lane) ?? []).map((record) => {
                 const selected = record.id === selectedId;
@@ -96,8 +95,8 @@ export function TrajectoryTimeline({ records, selectedId, onSelect }: Trajectory
                       type="button"
                       className={`trajectory-span trajectory-span-running${selected ? " is-selected" : ""}`}
                       style={{ left: left(record.timestamp) }}
-                      aria-label={`${record.summary} (running)`}
-                      title={`${record.summary} (running)`}
+                      aria-label={`${record.summary} (${t("trajectory.spanRunning")})`}
+                      title={`${record.summary} (${t("trajectory.spanRunning")})`}
                       onClick={() => onSelect(record.id)}
                     />
                   );

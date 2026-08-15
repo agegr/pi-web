@@ -4513,6 +4513,7 @@ span.linenumber {
 }
 .trajectory-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 11.5px;
 }
@@ -4528,6 +4529,11 @@ span.linenumber {
   font-size: 10px;
   font-weight: 600;
 }
+.trajectory-col-seq { width: 2.5rem; }
+.trajectory-col-turn { width: 4.75rem; }
+.trajectory-col-type { width: 5.5rem; }
+.trajectory-col-time { width: 4.25rem; }
+.trajectory-col-status { width: 1.75rem; }
 .trajectory-table td {
   padding: 4px 8px;
   border-bottom: 1px solid var(--border);
@@ -4535,7 +4541,6 @@ span.linenumber {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 0;
 }
 .trajectory-table tbody tr { cursor: pointer; }
 .trajectory-table tbody tr:hover td { background: var(--bg-hover); }
@@ -4563,6 +4568,13 @@ span.linenumber {
   align-items: center;
   gap: 4px;
   min-width: 0;
+  max-width: 100%;
+}
+.trajectory-summary-cell > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .trajectory-expand {
   flex: 0 0 auto;

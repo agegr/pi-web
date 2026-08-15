@@ -32,6 +32,8 @@ export class TrajectoryRecorder {
   private writeTail: Promise<void> = Promise.resolve();
   private openRequests = new Set<string>();
   private openTurns = new Set<string>();
+  private turnCounter = 0;
+  private currentTurnId: string | null = null;
   private closed = false;
 
   constructor(options: TrajectoryRecorderOptions) {
@@ -60,6 +62,7 @@ export class TrajectoryRecorder {
       kind,
       timestamp: this.now(),
       leafId: this.getLeafId(),
+      ...(this.currentTurnId ? { turnId: this.currentTurnId } : {}),
       ...extra,
     };
   }
@@ -84,25 +87,31 @@ export class TrajectoryRecorder {
   onAgentEvent(event: { type: string; [key: string]: unknown }): void {
     switch (event.type) {
       case "turn_start": {
-        if (typeof event.turnIndex !== "number") return;
-        const turnId = `turn-${event.turnIndex}`;
-        const record = this.nextRecord("turn_start", {
-          turnId,
-          data: { summary: `Turn ${event.turnIndex}` },
-        });
+        // AgentSession.subscribe forwards the core AgentEvent `{ type: "turn_start" }`.
+        // `turnIndex` exists only on the extension-runner event, so we count locally.
+        const index = typeof event.turnIndex === "number" ? event.turnIndex : this.turnCounter;
+        this.turnCounter = Math.max(this.turnCounter, index + 1);
+        const turnId = `turn-${index}`;
+        this.currentTurnId = turnId;
         this.openTurns.add(turnId);
-        this.write(record);
+        this.write(this.nextRecord("turn_start", {
+          turnId,
+          data: { summary: `Turn ${index}` },
+        }));
         break;
       }
       case "turn_end": {
-        if (typeof event.turnIndex !== "number") return;
-        const turnId = `turn-${event.turnIndex}`;
+        const turnId = typeof event.turnIndex === "number"
+          ? `turn-${event.turnIndex}`
+          : this.currentTurnId;
+        if (!turnId) return;
         this.openTurns.delete(turnId);
+        if (this.currentTurnId === turnId) this.currentTurnId = null;
         this.write(this.nextRecord("turn_end", {
           turnId,
           status: "complete",
           endTimestamp: this.now(),
-          data: { summary: `Turn ${event.turnIndex} complete` },
+          data: { summary: `Turn ${turnId.slice("turn-".length)} complete` },
         }));
         break;
       }
@@ -207,6 +216,7 @@ export class TrajectoryRecorder {
           }));
         }
         this.openTurns.clear();
+        this.currentTurnId = null;
         break;
       }
     }
@@ -311,6 +321,7 @@ export class TrajectoryRecorder {
     }
     this.openRequests.clear();
     this.openTurns.clear();
+    this.currentTurnId = null;
     await this.flush();
     this.closed = true;
   }

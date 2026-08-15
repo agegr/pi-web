@@ -2,6 +2,7 @@
 
 import { ChevronRight, Search } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
+import { useI18n } from "@/hooks/useI18n";
 import type { TrajectoryRecordView, TrajectoryResponse } from "@/lib/api-types";
 import { formatDuration } from "./TrajectoryTimeline";
 
@@ -35,25 +36,26 @@ export function kindGroup(kind: string): string {
 }
 
 function ChildSummary({ response }: { response: TrajectoryResponse }) {
+  const { t } = useI18n();
   const stats = response.stats;
   return (
     <div className="trajectory-child">
       <div className="trajectory-child-stats">
-        <span>{stats.requests} requests</span>
-        <span>{stats.tools} tools</span>
-        <span>{stats.tokens.total.toLocaleString()} tokens</span>
-        <span>{formatDuration(stats.totalActiveMs)} active</span>
+        <span>{t("trajectory.childRequests", { count: stats.requests })}</span>
+        <span>{t("trajectory.childTools", { count: stats.tools })}</span>
+        <span>{t("trajectory.childTokens", { count: stats.tokens.total.toLocaleString() })}</span>
+        <span>{t("trajectory.childActive", { duration: formatDuration(stats.totalActiveMs) })}</span>
       </div>
       <div className="trajectory-child-rows">
         {response.records.slice(0, 12).map((record) => (
           <div key={record.id} className="trajectory-child-row">
             <span className={`trajectory-status-dot ${STATUS_CLASS[record.status] ?? ""}`} />
-            <span className="trajectory-child-kind">{kindGroup(record.kind)}</span>
+            <span className="trajectory-child-kind">{t(`trajectory.kind.${kindGroup(record.kind)}`)}</span>
             <span className="trajectory-child-text" title={record.summary}>{record.summary}</span>
             <span className="trajectory-duration">{formatDuration(record.durationMs)}</span>
           </div>
         ))}
-        {response.records.length > 12 ? <div className="trajectory-child-more">+{response.records.length - 12} more records</div> : null}
+        {response.records.length > 12 ? <div className="trajectory-child-more">{t("trajectory.childMore", { count: response.records.length - 12 })}</div> : null}
       </div>
     </div>
   );
@@ -66,6 +68,7 @@ export function TrajectoryLedger({
   onExpandSubagent,
   childTrajectories,
 }: TrajectoryLedgerProps) {
+  const { t } = useI18n();
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState("all");
   const [status, setStatus] = useState("all");
@@ -89,31 +92,39 @@ export function TrajectoryLedger({
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search events..."
-            aria-label="Search trajectory events"
+            placeholder={t("trajectory.searchPlaceholder")}
+            aria-label={t("trajectory.searchLabel")}
           />
         </div>
-        <select value={kind} onChange={(event) => setKind(event.target.value)} aria-label="Filter by type">
+        <select value={kind} onChange={(event) => setKind(event.target.value)} aria-label={t("trajectory.filterType")}>
           {KIND_OPTIONS.map((option) => (
-            <option key={option} value={option}>{option}</option>
+            <option key={option} value={option}>{t(`trajectory.kind.${option}`)}</option>
           ))}
         </select>
-        <select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="Filter by status">
+        <select value={status} onChange={(event) => setStatus(event.target.value)} aria-label={t("trajectory.filterStatus")}>
           {STATUS_OPTIONS.map((option) => (
-            <option key={option} value={option}>{option}</option>
+            <option key={option} value={option}>{t(`trajectory.status.${option}`)}</option>
           ))}
         </select>
       </div>
       <div className="trajectory-table-wrap">
         <table className="trajectory-table">
+          <colgroup>
+            <col className="trajectory-col-seq" />
+            <col className="trajectory-col-turn" />
+            <col className="trajectory-col-type" />
+            <col className="trajectory-col-event" />
+            <col className="trajectory-col-time" />
+            <col className="trajectory-col-status" />
+          </colgroup>
           <thead>
             <tr>
-              <th>#</th>
-              <th>Turn</th>
-              <th>Type</th>
-              <th>Event</th>
-              <th>Time</th>
-              <th aria-label="Status" />
+              <th>{t("trajectory.col.seq")}</th>
+              <th>{t("trajectory.col.turn")}</th>
+              <th>{t("trajectory.col.type")}</th>
+              <th>{t("trajectory.col.event")}</th>
+              <th>{t("trajectory.col.time")}</th>
+              <th aria-label={t("trajectory.col.status")} />
             </tr>
           </thead>
           <tbody>
@@ -128,29 +139,31 @@ export function TrajectoryLedger({
                   >
                     <td className="trajectory-seq">{record.sequence}</td>
                     <td className="trajectory-turn">{record.turnId ?? "—"}</td>
-                    <td><span className={`trajectory-pill trajectory-pill-${kindGroup(record.kind)}`}>{kindGroup(record.kind)}</span></td>
-                    <td className="trajectory-summary-cell">
-                      {record.kind === "subagent_link" && childId ? (
-                        <button
-                          type="button"
-                          className={`trajectory-expand${child ? " is-expanded" : ""}`}
-                          aria-label={child ? "Collapse subagent trajectory" : "Expand subagent trajectory"}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onExpandSubagent(record);
-                          }}
-                        >
-                          <ChevronRight size={12} strokeWidth={2} aria-hidden="true" />
-                        </button>
-                      ) : null}
-                      <span title={record.summary}>{record.summary}</span>
+                    <td><span className={`trajectory-pill trajectory-pill-${kindGroup(record.kind)}`}>{t(`trajectory.kind.${kindGroup(record.kind)}`)}</span></td>
+                    <td>
+                      <div className="trajectory-summary-cell">
+                        {record.kind === "subagent_link" && childId ? (
+                          <button
+                            type="button"
+                            className={`trajectory-expand${child ? " is-expanded" : ""}`}
+                            aria-label={child ? t("trajectory.collapse") : t("trajectory.expand")}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onExpandSubagent(record);
+                            }}
+                          >
+                            <ChevronRight size={12} strokeWidth={2} aria-hidden="true" />
+                          </button>
+                        ) : null}
+                        <span title={record.summary}>{record.summary}</span>
+                      </div>
                     </td>
                     <td className="trajectory-duration">
                       {formatDuration(record.durationMs)}
                       {record.status === "running" ? "…" : ""}
                     </td>
                     <td>
-                      <span className={`trajectory-status-dot ${STATUS_CLASS[record.status] ?? ""}`} aria-label={record.status} title={record.status} />
+                      <span className={`trajectory-status-dot ${STATUS_CLASS[record.status] ?? ""}`} aria-label={t(`trajectory.status.${record.status}`)} title={t(`trajectory.status.${record.status}`)} />
                     </td>
                   </tr>
                   {child ? (
@@ -162,7 +175,7 @@ export function TrajectoryLedger({
               );
             })}
             {filtered.length === 0 ? (
-              <tr><td colSpan={6} className="trajectory-empty-row">No events match the current filters.</td></tr>
+              <tr><td colSpan={6} className="trajectory-empty-row">{t("trajectory.noMatches")}</td></tr>
             ) : null}
           </tbody>
         </table>

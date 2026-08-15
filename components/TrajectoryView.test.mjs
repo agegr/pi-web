@@ -16,16 +16,34 @@ test("TrajectoryView composes timeline, ledger, inspector and composer", () => {
 });
 
 test("timeline renders a timing overview with selectable spans", () => {
-  assert.match(timeline, /Timing overview/);
+  assert.match(timeline, /trajectory\.timeline\.title/);
   assert.match(timeline, /onSelect/);
   assert.match(timeline, /trajectory-span/);
 });
 
 test("ledger renders search, filters and expandable subagent rows", () => {
-  assert.match(ledger, /Search events/);
+  assert.match(ledger, /trajectory\.searchPlaceholder/);
   assert.match(ledger, /kind/);
   assert.match(ledger, /status/);
   assert.match(ledger, /onExpandSubagent/);
+});
+
+test("trajectory chrome is translated and measures the live composer height", () => {
+  assert.match(view, /useI18n/);
+  assert.match(view, /--trajectory-composer-height/);
+  assert.match(view, /ResizeObserver/);
+  assert.match(timeline, /useI18n/);
+  assert.match(ledger, /useI18n/);
+  assert.match(inspector, /useI18n/);
+});
+
+test("event cell stays a table-cell so max-width:0 does not clip the label", () => {
+  // Putting display:flex on the Event <td> made `max-width: 0` shrink the cell
+  // to its padding and hide the event name behind a blank column.
+  assert.doesNotMatch(ledger, /<td className="trajectory-summary-cell"/);
+  assert.match(ledger, /className="trajectory-summary-cell"/);
+  assert.match(css, /\.trajectory-table \{[\s\S]*?table-layout: fixed/);
+  assert.doesNotMatch(css, /\.trajectory-table td \{[\s\S]*?max-width: 0/);
 });
 
 test("ledger owns its search and filter state", () => {
@@ -34,7 +52,7 @@ test("ledger owns its search and filter state", () => {
 });
 
 test("inspector renders summary-first details with explicit confirmation", () => {
-  assert.match(inspector, /Load full details/);
+  assert.match(inspector, /trajectory\.loadDetails/);
   assert.match(inspector, /onConfirmFullDetails/);
   assert.match(inspector, /onCancelFullDetails/);
   assert.match(inspector, /onClose/);
