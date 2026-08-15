@@ -68,10 +68,11 @@ class FakeBridge {
   }
 }
 
-function makeDeps(bridge, { live = true, startFails = false, noFile = false, list = sessionsFixture() } = {}) {
+function makeDeps(bridge, { live = true, startFails = false, noFile = false, running = false, list = sessionsFixture() } = {}) {
   let alive = live;
   const wrapper = {
     isAlive: () => alive,
+    isRunning: () => alive && running,
     getSubagentRpcClient: async () => new SubagentRpcClient({ events: bridge }),
   };
   return {
@@ -181,10 +182,23 @@ test("GET status timeout after negotiation returns 504 with durable fallback", a
   assert.equal(response.status, 504);
   const body = await json(response);
   assert.equal(body.error, "subagent status timeout");
+  assert.equal(body.busy, undefined);
   assert.equal(body.fallback.rootSessionId, "root");
   assert.equal(body.fallback.nodes.length, 1);
   assert.equal(body.fallback.nodes[0].sessionId, "child");
   assert.equal(body.fallback.nodes[0].children.length, 1);
+});
+
+test("GET status timeout while the parent is running marks the 504 as busy", async () => {
+  const bridge = new FakeBridge();
+  bridge.statusReply = "timeout";
+  const { GET } = createSubagentHandlers(makeDeps(bridge, { running: true }));
+  const response = await GET(new Request("http://x/"), { params: Promise.resolve({ id: "root" }) });
+  assert.equal(response.status, 504);
+  const body = await json(response);
+  assert.equal(body.error, "subagent status timeout");
+  assert.equal(body.busy, true);
+  assert.equal(body.fallback.rootSessionId, "root");
 });
 
 test("GET compatible status returns the exact nested contract", async () => {

@@ -93,16 +93,21 @@ export function useSubagentTree(input: {
         });
         if (generation !== generationRef.current) return; // stale response
         if (response.status === 504) {
-          const body = await response.json().catch(() => ({})) as { fallback?: SubagentTreeResponse };
+          const body = await response.json().catch(() => ({})) as {
+            fallback?: SubagentTreeResponse;
+            busy?: boolean;
+          };
           const fallback = body.fallback ?? null;
+          const busy = body.busy === true;
           setData((previous) => {
             // Keep the last live snapshot; adopt the durable fallback only when
             // there is nothing newer to preserve.
             if (previous) return previous;
             return fallback;
           });
-          setStale(true);
-          setError("subagent status timeout");
+          // A busy parent often misses the 3s RPC window; keep polling quietly.
+          setStale(!busy);
+          setError(busy ? null : "subagent status timeout");
           return;
         }
         if (!response.ok) throw new Error(`HTTP ${response.status}`);

@@ -1,7 +1,7 @@
 import type { SubagentRpcRunEntry, SubagentRpcRunStatus } from "./subagent-rpc";
 import type { SubagentLifecycleState, SubagentTreeNode, SubagentTreeResponse } from "./api-types";
 import type { SessionInfo } from "./types";
-import { attachSessionRelations } from "./session-relations";
+import { attachSessionRelations, isReservedSubagentSessionName } from "./session-relations";
 
 // ============================================================================
 // Durable/live merge for the root-scoped subagent tree.
@@ -51,6 +51,30 @@ function activityFromRun(entry: SubagentRpcRunEntry): string | undefined {
 
 function addressOf(runId: string, index?: number): string {
   return `${runId}:${index ?? ""}`;
+}
+
+function sameMessage(left: string | undefined, right: string | undefined): boolean {
+  const a = left?.trim();
+  const b = right?.trim();
+  return Boolean(a) && a === b;
+}
+
+/** Forked children clone the parent's first user prompt; that is not their task. */
+function durableTask(
+  session: SessionInfo,
+  liveLabel: string | undefined,
+  rootFirstMessage: string | undefined,
+  parentFirstMessage: string | undefined,
+): string {
+  if (liveLabel) return liveLabel;
+  const first = session.firstMessage?.trim();
+  if (first && first !== "(no messages)"
+    && !sameMessage(first, rootFirstMessage)
+    && !sameMessage(first, parentFirstMessage)) {
+    return session.firstMessage;
+  }
+  if (session.name && !isReservedSubagentSessionName(session.name)) return session.name;
+  return "";
 }
 
 function liveByAddress(runs: SubagentRpcRunStatus | null): Map<string, SubagentRpcRunEntry> {
@@ -123,6 +147,8 @@ export function buildSubagentTree(input: {
   const childrenOf = new Map<string, SubagentTreeNode[]>();
   const nodesBySessionId = new Map<string, SubagentTreeNode>();
   const directChildren: SubagentTreeNode[] = [];
+  const relatedById = new Map(related.map((session) => [session.id, session]));
+  const rootFirstMessage = relatedById.get(rootId)?.firstMessage;
 
   const makeDurableNode = (durable: DurableNode): SubagentTreeNode => {
     const session = durable.session;
@@ -131,13 +157,14 @@ export function buildSubagentTree(input: {
       : undefined;
     const state: SubagentLifecycleState = entry ? lifecycleFromRun(entry) : "inactive";
     const controls = controlsFor(state);
+    const parentFirstMessage = relatedById.get(durable.parentSessionId)?.firstMessage;
     const node: SubagentTreeNode = {
       sessionId: session.id,
       parentSessionId: durable.parentSessionId,
       runId: session.subagentRunId ?? "",
       ...(session.subagentIndex !== undefined ? { index: session.subagentIndex } : {}),
       agent: session.subagentAgent ?? "subagent",
-      task: entry?.label || session.firstMessage || session.name || session.id,
+      task: durableTask(session, entry?.label, rootFirstMessage, parentFirstMessage),
       state,
       ...(entry && activityFromRun(entry) ? { activity: activityFromRun(entry) } : {}),
       ...(entry?.startedAt !== undefined && state !== "inactive" ? { startedAt: entry.startedAt } : {}),

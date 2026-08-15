@@ -334,7 +334,7 @@ export function SubagentTree({
             <span aria-hidden="true" className="subagent-state-dot" data-subagent-state={node.state} />
             <span className="subagent-tree-copy">
               <span className="subagent-tree-agent">{node.agent}</span>
-              <span className="subagent-tree-task">{node.task}</span>
+              {node.task ? <span className="subagent-tree-task">{node.task}</span> : null}
               {detail ? <span className="subagent-tree-detail">{detail}</span> : null}
             </span>
           </button>
@@ -518,7 +518,7 @@ export function buildBreadcrumbItems(
   }
   for (const node of path) {
     if (node.sessionId !== null) {
-      chain.push({ id: node.sessionId, label: node.task });
+      chain.push({ id: node.sessionId, label: node.task || node.agent });
     }
   }
   return chain;

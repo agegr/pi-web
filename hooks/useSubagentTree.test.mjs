@@ -74,7 +74,9 @@ test("a 504 keeps the last live snapshot and adopts the durable fallback only on
   assert.match(source, /if \(response\.status === 504\)/);
   assert.match(source, /if \(previous\) return previous;/);
   assert.match(source, /return fallback;/);
-  assert.match(source, /setStale\(true\)/);
+  assert.match(source, /const busy = body\.busy === true;/);
+  assert.match(source, /setStale\(!busy\)/);
+  assert.match(source, /setError\(busy \? null : "subagent status timeout"\)/);
 });
 
 test("control posts only action, childSessionId, and optional message", async () => {

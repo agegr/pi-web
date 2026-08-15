@@ -89,6 +89,13 @@ test("tree row shows the agent role on its own line above the bounded task", () 
   assert.doesNotMatch(html, />worker[^<]*Inspect RPC/);
 });
 
+test("tree row omits the task line when the durable task is empty", () => {
+  const child = node("child", "inactive", { agent: "worker", task: "" });
+  const html = render(React.createElement(SubagentTree, { nodes: [child], selectedSessionId: null, callbacks }));
+  assert.match(html, /subagent-tree-agent[^>]*>worker/);
+  assert.doesNotMatch(html, /subagent-tree-task/);
+});
+
 test("tree rows stack agent, task, and status instead of overlapping in 36px", () => {
   const source = readFileSync(new URL("./SubagentSessions.tsx", import.meta.url), "utf8");
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
@@ -181,6 +188,16 @@ test("breadcrumb root uses the real root session id", () => {
   assert.equal(items[0].label, "Main task");
   assert.equal(items.length, 2);
   assert.equal(items[1].id, "child");
+});
+
+test("breadcrumb falls back to the agent role when the durable task is empty", () => {
+  const items = buildBreadcrumbItems(
+    [node("child", "inactive", { agent: "worker", task: "" })],
+    "child",
+    "root-session-id",
+    "Main task",
+  );
+  assert.equal(items[1].label, "worker");
 });
 
 test("breadcrumb renders root and every ancestor as buttons with the current as text", () => {

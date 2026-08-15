@@ -101,7 +101,11 @@ export function createSubagentHandlers(deps: SubagentRouteDeps = defaultDeps) {
       } catch (error) {
         const rpcError = rpcErrorOf(error);
         if (rpcError?.stage === "status" && rpcError.code === "timeout") {
-          return Response.json({ error: "subagent status timeout", fallback: fallback }, { status: 504 });
+          return Response.json({
+            error: "subagent status timeout",
+            fallback,
+            ...(wrapper.isRunning() ? { busy: true } : {}),
+          }, { status: 504 });
         }
         return Response.json(fallback);
       }
