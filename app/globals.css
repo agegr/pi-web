@@ -894,7 +894,7 @@ pre, code {
 }
 .codex-sidebar button,
 .codex-sidebar input {
-  font: inherit;
+  font-family: inherit;
   letter-spacing: 0;
 }
 .codex-sidebar button:focus-visible,

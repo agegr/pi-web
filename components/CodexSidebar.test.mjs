@@ -151,6 +151,13 @@ test("recent session rows preserve activity, selection, and session management",
   assert.match(sidebar, /aria-expanded=\{recentOpen\}/);
 });
 
+test("sidebar buttons inherit family only so Recent matches Projects type", () => {
+  assert.match(styles, /\.codex-sidebar button,\s*\n\.codex-sidebar input \{\s*\n  font-family: inherit;/);
+  assert.doesNotMatch(styles, /\.codex-sidebar button,\s*\n\.codex-sidebar input \{[^}]*font:\s*inherit/);
+  assert.match(styles, /\.codex-sidebar-workspace-title \{[\s\S]*?font-size: var\(--text-meta\)/);
+  assert.match(styles, /\.codex-sidebar-tool-heading \{[\s\S]*?font-size: var\(--text-meta\)/);
+});
+
 test("sidebar recomposition preserves worktree switching and creation", () => {
   assert.match(sidebar, /className="codex-worktree-block"/);
   assert.match(sidebar, /\/api\/worktrees/);
