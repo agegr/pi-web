@@ -4,7 +4,6 @@ import { basename, dirname, join, resolve } from "path";
 import { promisify } from "util";
 import { allowFileRoot } from "./allowed-roots";
 import { samePath, toNativePath } from "./paths";
-import { projectIdentityKey } from "./project-identity";
 
 const execFileAsync = promisify(execFile);
 
@@ -85,17 +84,14 @@ function inferRemovedWorktree(cwd: string): ProjectInfo | null {
 
 export async function resolveProject(cwd: string): Promise<ProjectInfo> {
   const cache = getProjectCache();
-  // Equivalent Windows spellings must share the same resolution/cache entry;
-  // otherwise separate session scans can pick different projectRoot strings.
-  const cacheKey = projectIdentityKey(cwd);
-  const cached = cache.get(cacheKey);
+  const cached = cache.get(cwd);
   if (cached && cached.expiresAt > Date.now()) return cached.info;
 
   let info: ProjectInfo;
   try {
     if (!existsSync(cwd)) {
       info = inferRemovedWorktree(cwd) ?? { projectRoot: cwd, branch: null, isWorktree: false, isTopLevel: false };
-      cache.set(cacheKey, { info, expiresAt: Date.now() + PROJECT_CACHE_TTL_MS });
+      cache.set(cwd, { info, expiresAt: Date.now() + PROJECT_CACHE_TTL_MS });
       return info;
     }
     const out = await git(cwd, [
@@ -127,7 +123,7 @@ export async function resolveProject(cwd: string): Promise<ProjectInfo> {
     info = { projectRoot: cwd, branch: null, isWorktree: false, isTopLevel: false };
   }
 
-  cache.set(cacheKey, { info, expiresAt: Date.now() + PROJECT_CACHE_TTL_MS });
+  cache.set(cwd, { info, expiresAt: Date.now() + PROJECT_CACHE_TTL_MS });
   return info;
 }
 

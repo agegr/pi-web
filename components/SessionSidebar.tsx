@@ -5,7 +5,7 @@ import type { SessionInfo } from "@/lib/types";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
-import { getLegacyProjectKeys, getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
+import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
@@ -92,7 +92,6 @@ interface Props {
     cwd: string | null,
     projectRoot?: string | null,
     projectKey?: string | null,
-    legacyProjectKeys?: readonly string[],
   ) => void;
   onOpenFile?: (filePath: string, fileName: string, options?: { sourceSessionId?: string | null; modeHint?: "diff" }) => void;
   explorerRefreshKey?: number;
@@ -129,7 +128,6 @@ interface WorktreeState {
 interface ProjectSelection {
   root: string;
   key: string;
-  legacyKeys: string[];
 }
 
 interface ValidatedProject {
@@ -605,8 +603,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const projectSelection = useCallback((root: string, key: string): ProjectSelection => ({
     root,
     key,
-    legacyKeys: getLegacyProjectKeys(allSessions, key, root),
-  }), [allSessions]);
+  }), []);
 
   /** Resolve both display root and stable identity from server-provided data. */
   const projectFor = useCallback((cwd: string | null): ProjectSelection | null => {
@@ -645,7 +642,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       selectedCwd,
       project?.root ?? null,
       project?.key ?? null,
-      project?.legacyKeys ?? [],
     );
   }, [selectedCwd, onCwdChange, projectFor]);
 

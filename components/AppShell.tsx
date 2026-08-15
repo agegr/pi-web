@@ -33,7 +33,6 @@ import {
   getLastOpenSession,
   setLastOpenSession,
   workspaceKeyOf,
-  type WorkspaceMemoryIdentity,
 } from "@/lib/workspace-memory";
 import {
   getDefaultRightPanelWidth,
@@ -389,7 +388,6 @@ export function AppShell() {
   const initialSessionId = initialNavigation.sessionId;
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
   const activeProjectKeyRef = useRef<string | null>(null);
-  const activeProjectLegacyKeysRef = useRef<readonly string[]>([]);
   // True once the initial ?session= URL param has been resolved (or confirmed absent)
   const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !initialSessionId);
   // Suppresses sessionKey bump in handleCwdChange during the initial URL restore
@@ -410,11 +408,7 @@ export function AppShell() {
     const projectKey = selectedSession.projectKey
       ?? activeProjectKeyRef.current
       ?? workspaceKeyOf(selectedSession);
-    const rawProjectKey = selectedSession.projectRoot ?? selectedSession.cwd;
-    const legacyKeys = projectKey === activeProjectKeyRef.current
-      ? [...activeProjectLegacyKeysRef.current, rawProjectKey]
-      : [rawProjectKey];
-    setLastOpenSession({ key: projectKey, legacyKeys }, selectedSession.id);
+    setLastOpenSession(projectKey, selectedSession.id);
   }, [selectedSession]);
 
   useEffect(() => {
@@ -459,9 +453,9 @@ export function AppShell() {
   // from handleCwdChange once the outgoing context has been reset. The session
   // is looked up against the live list so a deleted or drifted session falls
   // back to the default welcome page instead of erroring.
-  const restoreWorkspaceContext = useCallback((project: WorkspaceMemoryIdentity) => {
+  const restoreWorkspaceContext = useCallback((projectKey: string) => {
     const token = ++workspaceRestoreTokenRef.current;
-    const lastOpenSessionId = getLastOpenSession(project);
+    const lastOpenSessionId = getLastOpenSession(projectKey);
     if (!lastOpenSessionId) return;
     void fetch("/api/sessions")
       .then((r) => (r.ok ? (r.json() as Promise<{ sessions: SessionInfo[] }>) : null))
@@ -472,12 +466,12 @@ export function AppShell() {
           // The list loaded but the remembered session is gone — forget it.
           // When the list itself failed (d === null) keep the memory so a
           // later switch retries the restore.
-          if (d) clearLastOpen(project);
+          if (d) clearLastOpen(projectKey);
           return;
         }
-        if (workspaceKeyOf(s) !== project.key) {
+        if (workspaceKeyOf(s) !== projectKey) {
           // Defensive: the remembered session drifted out of this workspace.
-          clearLastOpen(project);
+          clearLastOpen(projectKey);
           return;
         }
         // Selecting the session must remount the chat with the session
@@ -499,7 +493,6 @@ export function AppShell() {
     cwd: string | null,
     projectRoot?: string | null,
     projectKey?: string | null,
-    legacyProjectKeys?: readonly string[],
   ) => {
     invalidateWorkspaceRestore();
     const currentFreshCwd = newSessionCwd ?? activeCwd;
@@ -507,14 +500,9 @@ export function AppShell() {
     // Skip if cwd is null (initial mount).
     if (!cwd) return;
     const newProject = projectKey ?? projectRoot ?? cwd;
-    const newProjectMemory = {
-      key: newProject,
-      legacyKeys: legacyProjectKeys?.length ? legacyProjectKeys : [projectRoot ?? cwd],
-    } satisfies WorkspaceMemoryIdentity;
     const currentProject = activeProjectKeyRef.current
       ?? (selectedSession ? workspaceKeyOf(selectedSession) : null);
     activeProjectKeyRef.current = newProject;
-    activeProjectLegacyKeysRef.current = newProjectMemory.legacyKeys ?? [];
 
     // Keep the project identity in sync during the initial URL restore without
     // remounting the just-created or restored chat.
@@ -560,7 +548,7 @@ export function AppShell() {
       setRightPanelOpen(false);
       // Restore the workspace we switched to: its last open session, or keep
       // the default welcome page when none is remembered.
-      restoreWorkspaceContext(newProjectMemory);
+      restoreWorkspaceContext(newProject);
     }
     router.replace("/", { scroll: false });
   }, [activeCwd, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);

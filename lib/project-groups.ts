@@ -8,22 +8,6 @@ export interface RecentProject {
   root: string;
 }
 
-/** Raw project keys used before projectKey existed, limited to this identity. */
-export function getLegacyProjectKeys(
-  sessions: readonly SessionInfo[],
-  projectKey: string,
-  fallbackRoot?: string,
-): string[] {
-  const keys = new Set<string>();
-  if (fallbackRoot) keys.add(fallbackRoot);
-  for (const session of sessions) {
-    if (workspaceKeyOf(session) !== projectKey) continue;
-    if (session.projectRoot) keys.add(session.projectRoot);
-    if (session.cwd) keys.add(session.cwd);
-  }
-  return [...keys];
-}
-
 /** Projects sorted by most recent activity and deduplicated by stable key. */
 export function getRecentProjects(sessions: readonly SessionInfo[]): RecentProject[] {
   const latestByProject = new Map<string, { root: string; modified: string }>();
