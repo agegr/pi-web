@@ -1,0 +1,35 @@
+# pi-web — local Docker Compose (not upstream; local addition)
+#
+#   docker compose up -d --build     # build + start
+#   docker compose logs -f           # watch logs
+#   docker compose down              # stop
+#
+# Then open http://127.0.0.1:30141
+
+services:
+  pi-web:
+    build: .
+    image: tigerai/pi-web:local
+    container_name: pi-web
+    ports:
+      - "30141:30141"
+    environment:
+      # Required: container must bind all interfaces or port mapping fails.
+      # The app still only answers requests from the docker-proxy bridge.
+      PI_WEB_HOSTNAME: "0.0.0.0"
+      # No auto browser-open (headless container).
+      PI_WEB_NO_OPEN: "1"
+      # Uncomment and set a LONG random password if you ever expose this
+      # beyond your own machine (LAN, tunnel, ...). Never reuse a real password.
+      # PI_WEB_PASSWORD: "replace-with-long-random-password"
+      # If fronting with a reverse proxy / Cloudflare Tunnel, add the exact
+      # public hostname(s) here, comma-separated:
+      # PI_WEB_ALLOWED_HOSTS: "pi.example.com"
+    volumes:
+      # pi config, sessions, auth (shared with the TUI pi on this machine)
+      - 'C:/Users/yesin/.pi/agent:/home/node/.pi/agent'
+      # The project(s) the agent should work on. Change to whatever you want
+      # pi to operate on; add more mounts as needed.
+      - 'C:/Tools/@@@@@@Antigravity/TigerAI-Methodology:/workspace'
+    working_dir: /workspace
+    restart: unless-stopped
