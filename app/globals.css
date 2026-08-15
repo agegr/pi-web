@@ -2478,6 +2478,206 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
   line-height: var(--leading-prose);
 }
 
+.settings-inline-success {
+  padding: 12px 0;
+  color: #15803d;
+  font-size: var(--text-meta);
+  line-height: var(--leading-prose);
+}
+
+html.dark .settings-inline-success { color: #4ade80; }
+
+.settings-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 16px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: var(--text-meta);
+  line-height: var(--leading-prose);
+}
+
+.settings-callout[data-kind="warning"] {
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
+  background: color-mix(in srgb, var(--warning) 10%, var(--bg));
+}
+
+.settings-callout p,
+.settings-help {
+  margin: 0;
+}
+
+.settings-help {
+  padding: 12px 0 8px;
+  color: var(--text-muted);
+  font-size: var(--text-meta);
+  line-height: var(--leading-prose);
+}
+
+.settings-readonly-value {
+  max-width: 52%;
+  padding: 7px 9px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-form-section-stack {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-host-editor,
+.settings-password-stack {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-host-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-host-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: var(--text-meta);
+}
+
+.settings-host-chip[data-env="true"] {
+  color: var(--text-muted);
+}
+
+.settings-host-chip em {
+  font-style: normal;
+  color: var(--text-dim);
+}
+
+.settings-host-chip button {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.settings-host-chip button:hover { background: var(--bg-hover); }
+
+.settings-host-add {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.settings-host-add input,
+.settings-password-stack input {
+  min-height: 36px;
+  flex: 1;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-ui);
+}
+
+.settings-host-add button,
+.settings-secondary-button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-ui);
+  cursor: pointer;
+}
+
+.settings-host-add button:hover,
+.settings-secondary-button:hover { background: var(--bg-hover); }
+.settings-host-add button:disabled,
+.settings-secondary-button:disabled { cursor: wait; opacity: .6; }
+
+.settings-password-stack label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: var(--text-meta);
+}
+
+.settings-password-status {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-meta);
+}
+
+.settings-text-action {
+  align-self: flex-start;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-meta);
+  cursor: pointer;
+}
+
+.settings-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 16px 0 0;
+}
+
+.settings-form-actions .settings-primary-button,
+.settings-form-actions .settings-secondary-button {
+  min-height: 36px;
+}
+
+.settings-host-add input:focus-visible,
+.settings-password-stack input:focus-visible,
+.settings-host-add button:focus-visible,
+.settings-secondary-button:focus-visible,
+.settings-text-action:focus-visible,
+.settings-host-chip button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .settings-archived-list {
   display: flex;
   flex-direction: column;
@@ -2615,6 +2815,23 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
     align-items: stretch;
     flex-direction: column;
     gap: 12px;
+  }
+
+  .settings-readonly-value,
+  .settings-host-add {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .settings-host-add {
+    flex-direction: column;
+  }
+
+  .settings-host-add button,
+  .settings-form-actions .settings-primary-button,
+  .settings-form-actions .settings-secondary-button {
+    min-height: 44px;
+    width: 100%;
   }
 
   .settings-archived-row {

@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import { readRemoteAccessAllowedHosts } from "./remote-access-config";
 
 function normalizeHostname(value: string): string {
   const unbracketed = value.startsWith("[") && value.endsWith("]")
@@ -37,18 +38,16 @@ function configuredHostnamesFromEnvironment(): string[] {
   ].filter((value): value is string => Boolean(value?.trim()));
 }
 
-function canonicalOrigin(value: string): string | null {
-  try {
-    return new URL(value).origin;
-  } catch {
-    return null;
-  }
+function configuredHostnames(): string[] {
+  return [
+    ...configuredHostnamesFromEnvironment(),
+    ...readRemoteAccessAllowedHosts(),
+  ];
 }
 
-function getRequestOrigin(request: Request): string | null {
-  const requestUrl = new URL(request.url);
+function requestHostname(request: Request): string | null {
   const host = request.headers.get("host");
-  return host ? canonicalOrigin(`${requestUrl.protocol}//${host}`) : null;
+  return host ? hostnameFromAuthority(host) : null;
 }
 
 function isUserInitiatedSessionExportNavigation(request: Request): boolean {
@@ -68,6 +67,12 @@ function isUserInitiatedSessionExportNavigation(request: Request): boolean {
   }
 }
 
+export function isLoopbackApiRequest(request: Request): boolean {
+  const hostname = requestHostname(request);
+  if (!hostname) return false;
+  return isLoopbackHostname(hostname) || hostname === "127.0.0.1" || hostname === "::1";
+}
+
 /**
  * Only trust local names, IP literals, or the hostname explicitly selected by
  * the operator. IP literals preserve LAN access but cannot be DNS-rebound
@@ -75,15 +80,14 @@ function isUserInitiatedSessionExportNavigation(request: Request): boolean {
  */
 export function isApiRequestHostAllowed(
   request: Request,
-  configuredHostnames = configuredHostnamesFromEnvironment(),
+  configured = configuredHostnames(),
 ): boolean {
-  const host = request.headers.get("host");
-  const hostname = host ? hostnameFromAuthority(host) : null;
+  const hostname = requestHostname(request);
   if (!hostname) return false;
   if (isLoopbackHostname(hostname) || isIP(hostname)) return true;
 
-  return configuredHostnames.some(
-    (configured) => normalizeConfiguredHostname(configured) === hostname,
+  return configured.some(
+    (value) => normalizeConfiguredHostname(value) === hostname,
   );
 }
 
@@ -94,8 +98,13 @@ export function isApiRequestOriginAllowed(request: Request): boolean {
   if (fetchSite === "cross-site") return false;
   if (!origin) return true;
 
-  const requestOrigin = getRequestOrigin(request);
-  return requestOrigin !== null && canonicalOrigin(origin) === requestOrigin;
+  const host = request.headers.get("host");
+  if (!host) return false;
+  try {
+    return normalizeHostname(new URL(origin).host) === normalizeHostname(host);
+  } catch {
+    return false;
+  }
 }
 
 export function shouldCheckApiRequestOrigin(request: Request): boolean {
@@ -104,9 +113,9 @@ export function shouldCheckApiRequestOrigin(request: Request): boolean {
 
 export function isApiRequestAllowed(
   request: Request,
-  configuredHostnames = configuredHostnamesFromEnvironment(),
+  configured = configuredHostnames(),
 ): boolean {
-  if (!isApiRequestHostAllowed(request, configuredHostnames)) return false;
+  if (!isApiRequestHostAllowed(request, configured)) return false;
   if (isUserInitiatedSessionExportNavigation(request)) return true;
   return !shouldCheckApiRequestOrigin(request) || isApiRequestOriginAllowed(request);
 }

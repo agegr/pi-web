@@ -94,7 +94,7 @@ export async function smokeAllRoutes({ origin, authHeaders = {} }) {
       envSkip("/api/sessions/{id} reads", "no session exists on this host");
     }
 
-    // ---- 43 routes, every adapter URL accounted for.
+    // ---- every adapter URL accounted for.
     await probe("GET", "/api/sessions", [200]);
     await probe("POST", "/api/sessions", [405]);
     await probe("GET", `/api/sessions/${FAKE_ID}`, [404]);
@@ -209,6 +209,8 @@ export async function smokeAllRoutes({ origin, authHeaders = {} }) {
       headers: { "content-type": "application/json" },
       body: "{}",
     });
+    await probe("GET", "/api/remote-access", [200]);
+    envSkip("PUT /api/remote-access", "write operation; covered by unit tests only");
     await probe("GET", `/api/skills?cwd=${encodeURIComponent(fixtureDir)}`, [200, 400]);
     await probe("PATCH", "/api/skills", [400], {
       headers: { "content-type": "application/json" },

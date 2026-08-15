@@ -33,13 +33,15 @@ pi-web
 
 ## Remote access
 
+Open **Settings → Remote access** at [http://127.0.0.1:30141](http://127.0.0.1:30141) first. Add the public hostname your reverse proxy will send in the `Host` header and set a password (at least 12 characters). Keep Pi Web on loopback and terminate HTTPS on the proxy. Preserve `Host` and disable response buffering so the event stream stays live.
+
 Binding a non-loopback address exposes an agent that can run tools on your machine. Pi Web **refuses** `--hostname 0.0.0.0` unless `PI_WEB_PASSWORD` is set. Username is always `pi`.
 
 ```bash
 PI_WEB_PASSWORD='a-long-random-password' pi-web --hostname 0.0.0.0
 ```
 
-Basic Auth is not encryption. Do not put Pi Web on the public internet over plain HTTP. Use HTTPS behind a trusted proxy or a VPN. Extra hostnames go in `PI_WEB_ALLOWED_HOSTS`.
+Basic Auth is not encryption. Do not put Pi Web on the public internet over plain HTTP. Use HTTPS behind a trusted proxy or a VPN. `PI_WEB_PASSWORD` overrides a password saved in Settings. Extra hostnames in `PI_WEB_ALLOWED_HOSTS` are merged with the Settings list.
 
 | Option | Purpose | Default |
 | --- | --- | --- |

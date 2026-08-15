@@ -23,10 +23,9 @@ export function getRequestSecurityRejection(request: Request): Response | undefi
       : new Response("Untrusted request", { status: 403 });
   }
 
-  const password = process.env.PI_WEB_PASSWORD;
   if (
-    isWebPasswordEnabled(password)
-    && !isValidBasicAuthorization(request.headers.get("authorization"), password)
+    isWebPasswordEnabled()
+    && !isValidBasicAuthorization(request.headers.get("authorization"))
   ) {
     return new Response("Authentication required", {
       status: 401,

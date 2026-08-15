@@ -7,7 +7,7 @@ import {
   ArchiveRestore,
   Bell,
   Cpu,
-  FolderCog,
+  GlobeLock,
   Info,
   Languages,
   Layers3,
@@ -33,9 +33,10 @@ import type { SettingsSectionController } from "./resource-settings/resource-set
 import { PluginsConfig } from "./PluginsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { VisionToolkitConfig, type VisionDraftController } from "./VisionToolkitConfig";
+import { RemoteAccessConfig, type RemoteDraftController } from "./RemoteAccessConfig";
 import { DialogShell } from "./DialogShell";
 
-type SettingsSection = "general" | "archived" | "models" | "skills" | "plugins" | "vision";
+type SettingsSection = "general" | "remote" | "archived" | "models" | "skills" | "plugins" | "vision";
 
 interface Props {
   cwd: string | null;
@@ -57,6 +58,7 @@ interface Props {
 function SectionIcon({ section }: { section: SettingsSection }) {
   const icons = {
     general: SlidersHorizontal,
+    remote: GlobeLock,
     archived: Archive,
     models: Cpu,
     skills: Layers3,
@@ -96,6 +98,7 @@ export function SettingsPage({
   const [skillsController, setSkillsController] = useState<SettingsSectionController | null>(null);
   const [pluginsController, setPluginsController] = useState<SettingsSectionController | null>(null);
   const [visionController, setVisionController] = useState<VisionDraftController | null>(null);
+  const [remoteController, setRemoteController] = useState<RemoteDraftController | null>(null);
   const [discardDialogOpen, setDiscardDialogOpen] = useState(false);
   const [pendingExit, setPendingExit] = useState<(() => void) | null>(null);
 
@@ -107,13 +110,13 @@ export function SettingsPage({
   // One exit-request path: every Settings close/navigation action goes through
   // here so unsaved custom model drafts are never lost silently.
   const requestCloseOrNavigate = useCallback((action: () => void) => {
-    if (modelsController?.dirty || visionController?.dirty) {
+    if (modelsController?.dirty || visionController?.dirty || remoteController?.dirty) {
       setPendingExit(() => action);
       setDiscardDialogOpen(true);
     } else {
       action();
     }
-  }, [modelsController, visionController]);
+  }, [modelsController, remoteController, visionController]);
 
   const handleDiscardConfirm = useCallback(() => {
     const action = pendingExit;
@@ -121,10 +124,12 @@ export function SettingsPage({
     setPendingExit(null);
     setModelsController(null);
     setVisionController(null);
+    setRemoteController(null);
     modelsController?.discard();
     visionController?.discard();
+    remoteController?.discard();
     action?.();
-  }, [modelsController, pendingExit, visionController]);
+  }, [modelsController, pendingExit, remoteController, visionController]);
 
   const activeController = section === "models"
     ? modelsController
@@ -134,7 +139,9 @@ export function SettingsPage({
         ? pluginsController
         : section === "vision"
           ? visionController
-          : null;
+          : section === "remote"
+            ? remoteController
+            : null;
 
   useEffect(() => {
     closeButtonRef.current?.focus();
@@ -153,13 +160,13 @@ export function SettingsPage({
 
   const handleSettingsBack = useCallback((): boolean => {
     if (activeController?.handleBack()) return true;
-    if (modelsController?.dirty || visionController?.dirty) {
+    if (modelsController?.dirty || visionController?.dirty || remoteController?.dirty) {
       setPendingExit(() => close);
       setDiscardDialogOpen(true);
       return true;
     }
     return false;
-  }, [activeController, close, modelsController, visionController]);
+  }, [activeController, close, modelsController, remoteController, visionController]);
 
   useEffect(() => {
     onRegisterSettingsBack(handleSettingsBack);
@@ -230,6 +237,7 @@ export function SettingsPage({
 
   const sections: { id: SettingsSection; label: string; disabled: boolean }[] = [
     { id: "general", label: t("settings.general"), disabled: false },
+    { id: "remote", label: t("remote.nav"), disabled: false },
     { id: "archived", label: t("sidebar.archived"), disabled: false },
     { id: "models", label: t("common.models"), disabled: false },
     { id: "skills", label: t("common.skills"), disabled: !cwd },
@@ -323,6 +331,8 @@ export function SettingsPage({
     );
   } else if (section === "models") {
     content = <ModelsConfig onControllerChange={setModelsController} />;
+  } else if (section === "remote") {
+    content = <RemoteAccessConfig onControllerChange={setRemoteController} />;
   } else if (section === "vision") {
     content = <VisionToolkitConfig onControllerChange={setVisionController} />;
   } else if (!cwd) {

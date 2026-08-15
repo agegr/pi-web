@@ -19,6 +19,7 @@ import { Route as ApiModelsConfigRouteImport } from './routes/api/models-config'
 import { Route as ApiPluginsRouteImport } from './routes/api/plugins'
 import { Route as ApiProjectTrustRouteImport } from './routes/api/project-trust'
 import { Route as ApiProjectsRouteImport } from './routes/api/projects'
+import { Route as ApiRemoteAccessRouteImport } from './routes/api/remote-access'
 import { Route as ApiSessionsRouteImport } from './routes/api/sessions'
 import { Route as ApiSkillsRouteImport } from './routes/api/skills'
 import { Route as ApiUiLocaleRouteImport } from './routes/api/ui-locale'
@@ -106,6 +107,11 @@ const ApiProjectTrustRoute = ApiProjectTrustRouteImport.update({
 const ApiProjectsRoute = ApiProjectsRouteImport.update({
   id: '/api/projects',
   path: '/api/projects',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiRemoteAccessRoute = ApiRemoteAccessRouteImport.update({
+  id: '/api/remote-access',
+  path: '/api/remote-access',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiSessionsRoute = ApiSessionsRouteImport.update({
@@ -311,6 +317,7 @@ export interface FileRoutesByFullPath {
   '/api/plugins': typeof ApiPluginsRoute
   '/api/project-trust': typeof ApiProjectTrustRoute
   '/api/projects': typeof ApiProjectsRoute
+  '/api/remote-access': typeof ApiRemoteAccessRoute
   '/api/sessions': typeof ApiSessionsRouteWithChildren
   '/api/skills': typeof ApiSkillsRouteWithChildren
   '/api/ui-locale': typeof ApiUiLocaleRoute
@@ -361,6 +368,7 @@ export interface FileRoutesByTo {
   '/api/plugins': typeof ApiPluginsRoute
   '/api/project-trust': typeof ApiProjectTrustRoute
   '/api/projects': typeof ApiProjectsRoute
+  '/api/remote-access': typeof ApiRemoteAccessRoute
   '/api/sessions': typeof ApiSessionsRouteWithChildren
   '/api/skills': typeof ApiSkillsRouteWithChildren
   '/api/ui-locale': typeof ApiUiLocaleRoute
@@ -412,6 +420,7 @@ export interface FileRoutesById {
   '/api/plugins': typeof ApiPluginsRoute
   '/api/project-trust': typeof ApiProjectTrustRoute
   '/api/projects': typeof ApiProjectsRoute
+  '/api/remote-access': typeof ApiRemoteAccessRoute
   '/api/sessions': typeof ApiSessionsRouteWithChildren
   '/api/skills': typeof ApiSkillsRouteWithChildren
   '/api/ui-locale': typeof ApiUiLocaleRoute
@@ -464,6 +473,7 @@ export interface FileRouteTypes {
     | '/api/plugins'
     | '/api/project-trust'
     | '/api/projects'
+    | '/api/remote-access'
     | '/api/sessions'
     | '/api/skills'
     | '/api/ui-locale'
@@ -514,6 +524,7 @@ export interface FileRouteTypes {
     | '/api/plugins'
     | '/api/project-trust'
     | '/api/projects'
+    | '/api/remote-access'
     | '/api/sessions'
     | '/api/skills'
     | '/api/ui-locale'
@@ -564,6 +575,7 @@ export interface FileRouteTypes {
     | '/api/plugins'
     | '/api/project-trust'
     | '/api/projects'
+    | '/api/remote-access'
     | '/api/sessions'
     | '/api/skills'
     | '/api/ui-locale'
@@ -615,6 +627,7 @@ export interface RootRouteChildren {
   ApiPluginsRoute: typeof ApiPluginsRoute
   ApiProjectTrustRoute: typeof ApiProjectTrustRoute
   ApiProjectsRoute: typeof ApiProjectsRoute
+  ApiRemoteAccessRoute: typeof ApiRemoteAccessRoute
   ApiSessionsRoute: typeof ApiSessionsRouteWithChildren
   ApiSkillsRoute: typeof ApiSkillsRouteWithChildren
   ApiUiLocaleRoute: typeof ApiUiLocaleRoute
@@ -705,6 +718,13 @@ declare module '@tanstack/react-router' {
       path: '/api/projects'
       fullPath: '/api/projects'
       preLoaderRoute: typeof ApiProjectsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/remote-access': {
+      id: '/api/remote-access'
+      path: '/api/remote-access'
+      fullPath: '/api/remote-access'
+      preLoaderRoute: typeof ApiRemoteAccessRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/sessions': {
@@ -1097,6 +1117,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPluginsRoute: ApiPluginsRoute,
   ApiProjectTrustRoute: ApiProjectTrustRoute,
   ApiProjectsRoute: ApiProjectsRoute,
+  ApiRemoteAccessRoute: ApiRemoteAccessRoute,
   ApiSessionsRoute: ApiSessionsRouteWithChildren,
   ApiSkillsRoute: ApiSkillsRouteWithChildren,
   ApiUiLocaleRoute: ApiUiLocaleRoute,

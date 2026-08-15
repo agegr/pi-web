@@ -35,13 +35,15 @@ pi-web
 
 ## 远程访问
 
+先在本机打开 [http://127.0.0.1:30141](http://127.0.0.1:30141)，到**设置 → 远程访问**填写反向代理会放进 `Host` 头的域名，并设置至少 12 位密码。Pi Web 继续只听回环地址，HTTPS 由反代终止。请保留 `Host`，并关闭响应缓冲，以免事件流被卡住。
+
 监听非回环地址等于把能在本机跑工具的智能体暴露出去。未设置 `PI_WEB_PASSWORD` 时，Pi Web **拒绝** `--hostname 0.0.0.0`。用户名固定为 `pi`。
 
 ```bash
 PI_WEB_PASSWORD='足够长的随机密码' pi-web --hostname 0.0.0.0
 ```
 
-Basic Auth 不加密传输。不要用明文 HTTP 把 Pi Web 放到公网。请走可信反向代理的 HTTPS，或 VPN。额外主机名写进 `PI_WEB_ALLOWED_HOSTS`。
+Basic Auth 不加密传输。不要用明文 HTTP 把 Pi Web 放到公网。请走可信反向代理的 HTTPS，或 VPN。`PI_WEB_PASSWORD` 会覆盖设置里保存的密码。`PI_WEB_ALLOWED_HOSTS` 里的额外主机名会与设置列表合并。
 
 | 选项 | 用途 | 默认 |
 | --- | --- | --- |
