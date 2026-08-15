@@ -1,0 +1,210 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { dueBucket, formatDue, type DueBucket } from "@/extension/robin/dates";
+import type { Todo } from "@/extension/robin/store";
+import { mutate, usePolledResource } from "./usePolledResource";
+
+interface TodosResponse {
+  todos: Todo[];
+  /** Local calendar date resolved on the server, where `due` was written. */
+  today: string;
+}
+
+const SECTIONS: { bucket: DueBucket; label: string }[] = [
+  { bucket: "overdue", label: "Overdue" },
+  { bucket: "today", label: "Today" },
+  { bucket: "tomorrow", label: "Tomorrow" },
+  { bucket: "upcoming", label: "Later" },
+  { bucket: "none", label: "Someday" },
+];
+
+const BUCKET_COLOR: Partial<Record<DueBucket, string>> = {
+  overdue: "var(--accent)",
+};
+
+export function TodoPanel() {
+  const { data, error, loading, refresh } = usePolledResource<TodosResponse>("/api/robin/todos");
+  const [title, setTitle] = useState("");
+  const [due, setDue] = useState("");
+  const [showDone, setShowDone] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const today = data?.today ?? "";
+  const todos = useMemo(() => data?.todos ?? [], [data]);
+  const open = useMemo(() => todos.filter((todo) => !todo.done), [todos]);
+  const done = useMemo(() => todos.filter((todo) => todo.done), [todos]);
+
+  const sections = useMemo(
+    () =>
+      SECTIONS.map((section) => ({
+        ...section,
+        items: open
+          .filter((todo) => dueBucket(todo.due, today) === section.bucket)
+          .sort((a, b) => (a.due ?? "").localeCompare(b.due ?? "")),
+      })).filter((section) => section.items.length > 0),
+    [open, today],
+  );
+
+  async function run(action: () => Promise<void>) {
+    try {
+      setActionError(null);
+      await action();
+      await refresh();
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  const addTodo = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!title.trim()) return;
+    void run(async () => {
+      await mutate("/api/robin/todos", "POST", { title, ...(due ? { due } : {}) });
+      setTitle("");
+      setDue("");
+    });
+  };
+
+  return (
+    <section
+      className="flex flex-col gap-3 rounded-lg p-4"
+      style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}
+    >
+      <header className="flex items-baseline justify-between">
+        <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Todos</h2>
+        <span className="text-xs" style={{ color: "var(--text-dim)" }}>
+          {loading ? "loading…" : `${open.length} open`}
+        </span>
+      </header>
+
+      <form onSubmit={addTodo} className="flex flex-wrap gap-2">
+        <input
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="Add a task…"
+          className="min-w-0 flex-1 rounded px-2 py-1 text-sm outline-none"
+          style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
+        />
+        <input
+          type="date"
+          value={due}
+          onChange={(event) => setDue(event.target.value)}
+          className="rounded px-2 py-1 text-sm outline-none"
+          style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+        />
+        <button
+          type="submit"
+          disabled={!title.trim()}
+          className="rounded px-3 py-1 text-sm disabled:opacity-40"
+          style={{ background: "var(--accent)", color: "#fff" }}
+        >
+          Add
+        </button>
+      </form>
+
+      {(error || actionError) && (
+        <p className="text-xs" style={{ color: "var(--accent)" }}>{actionError ?? error}</p>
+      )}
+
+      {!loading && open.length === 0 && (
+        <p className="py-2 text-sm" style={{ color: "var(--text-dim)" }}>
+          Nothing open. Ask pi to add something, or use the field above.
+        </p>
+      )}
+
+      {sections.map((section) => (
+        <div key={section.bucket} className="flex flex-col gap-1">
+          <h3
+            className="text-xs font-medium uppercase tracking-wide"
+            style={{ color: BUCKET_COLOR[section.bucket] ?? "var(--text-dim)" }}
+          >
+            {section.label}
+          </h3>
+          {section.items.map((todo) => (
+            <TodoRow
+              key={todo.id}
+              todo={todo}
+              today={today}
+              onToggle={() => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, done: !todo.done }))}
+              onDelete={() => void run(() => mutate("/api/robin/todos", "DELETE", { id: todo.id }))}
+            />
+          ))}
+        </div>
+      ))}
+
+      {done.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <button
+            type="button"
+            onClick={() => setShowDone((value) => !value)}
+            className="self-start text-xs"
+            style={{ color: "var(--text-dim)" }}
+          >
+            {showDone ? "▾" : "▸"} {done.length} completed
+          </button>
+          {showDone && done.map((todo) => (
+            <TodoRow
+              key={todo.id}
+              todo={todo}
+              today={today}
+              onToggle={() => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, done: false }))}
+              onDelete={() => void run(() => mutate("/api/robin/todos", "DELETE", { id: todo.id }))}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TodoRow({
+  todo,
+  today,
+  onToggle,
+  onDelete,
+}: {
+  todo: Todo;
+  today: string;
+  onToggle: () => void;
+  onDelete: () => void;
+}) {
+  const overdue = !todo.done && dueBucket(todo.due, today) === "overdue";
+  return (
+    <div
+      className="group flex items-center gap-2 rounded px-2 py-1"
+      style={{ background: "var(--bg-subtle)" }}
+    >
+      <input
+        type="checkbox"
+        checked={todo.done}
+        onChange={onToggle}
+        aria-label={todo.done ? `Reopen ${todo.title}` : `Complete ${todo.title}`}
+        className="shrink-0 cursor-pointer"
+      />
+      <span
+        className="min-w-0 flex-1 truncate text-sm"
+        style={{
+          color: todo.done ? "var(--text-dim)" : "var(--text)",
+          textDecoration: todo.done ? "line-through" : "none",
+        }}
+      >
+        {todo.title}
+      </span>
+      {todo.due && !todo.done && (
+        <span className="shrink-0 text-xs" style={{ color: overdue ? "var(--accent)" : "var(--text-dim)" }}>
+          {formatDue(todo.due, today)}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={onDelete}
+        aria-label={`Delete ${todo.title}`}
+        className="shrink-0 px-1 text-xs opacity-0 transition-opacity group-hover:opacity-100"
+        style={{ color: "var(--text-dim)" }}
+      >
+        ✕
+      </button>
+    </div>
+  );
+}

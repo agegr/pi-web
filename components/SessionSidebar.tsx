@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
@@ -951,6 +952,38 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <PiWebTitle />
           <div style={{ display: "flex", gap: 6 }}>
+            <Link
+              href="/dashboard"
+              title={t("sidebar.dashboard")}
+              aria-label={t("sidebar.dashboard")}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: "var(--bg-hover)",
+                border: "1px solid var(--border)",
+                color: "var(--text-muted)",
+                width: 32, height: 32,
+                borderRadius: 7,
+                flexShrink: 0,
+                transition: "background 0.12s, color 0.12s, border-color 0.12s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "var(--bg-selected)";
+                e.currentTarget.style.color = "var(--accent)";
+                e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "var(--bg-hover)";
+                e.currentTarget.style.color = "var(--text-muted)";
+                e.currentTarget.style.borderColor = "var(--border)";
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="7" height="9" rx="1" />
+                <rect x="14" y="3" width="7" height="5" rx="1" />
+                <rect x="14" y="12" width="7" height="9" rx="1" />
+                <rect x="3" y="16" width="7" height="5" rx="1" />
+              </svg>
+            </Link>
             <button
               onClick={handleNewSession}
               disabled={!selectedCwd}

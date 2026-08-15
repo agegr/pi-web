@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "pi-web",
+      "runtimeExecutable": "node_modules/.bin/next",
+      "runtimeArgs": ["dev", "-H", "127.0.0.1"],
+      "port": 30142,
+      "autoPort": true
+    }
+  ]
+}

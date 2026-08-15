@@ -6,6 +6,10 @@
       "esnext"
     ],
     "allowJs": true,
+    // extension/robin is imported by jiti (pi), webpack (Next), and Node's ESM
+    // test runner. Node ESM requires the explicit .ts extension, so allow it
+    // here; safe because noEmit is set.
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,

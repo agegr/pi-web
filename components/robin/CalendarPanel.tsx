@@ -1,0 +1,302 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import {
+  addDays,
+  addMonths,
+  monthGrid,
+  parseLocalDate,
+  startOfWeek,
+  weekDays,
+} from "@/extension/robin/dates";
+import { eventsInRange, type DashboardEvent } from "@/extension/robin/events";
+import { AgendaView, MonthView, type CalendarView } from "./CalendarViews";
+import { WeekGrid } from "./WeekGrid";
+import { GoogleConnect } from "./GoogleConnect";
+import { mutate, usePolledResource } from "./usePolledResource";
+
+interface EventsResponse {
+  events: DashboardEvent[];
+  /** Local calendar date resolved on the server, where events were written. */
+  today: string;
+  google?: { connected: boolean; error?: string };
+}
+
+const AGENDA_DAYS = 7;
+const VIEW_STORAGE_KEY = "robin-calendar-view";
+const VIEWS: { id: CalendarView; label: string }[] = [
+  { id: "agenda", label: "Agenda" },
+  { id: "week", label: "Week" },
+  { id: "month", label: "Month" },
+];
+
+function readStoredView(): CalendarView {
+  try {
+    const stored = localStorage.getItem(VIEW_STORAGE_KEY);
+    if (stored === "agenda" || stored === "week" || stored === "month") return stored;
+  } catch {
+    // Private mode or blocked storage: the default is fine.
+  }
+  return "week";
+}
+
+export function CalendarPanel() {
+  const { data, error, refresh } = usePolledResource<EventsResponse>("/api/robin/events");
+  // Resolved in an effect so server and client render the same first pass.
+  const [view, setView] = useState<CalendarView>("week");
+  const [anchor, setAnchor] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [title, setTitle] = useState("");
+  const [date, setDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  useEffect(() => setView(readStoredView()), []);
+
+  const today = data?.today ?? "";
+  // The anchor follows today until the user navigates away from it.
+  const activeAnchor = anchor ?? today;
+
+  const chooseView = (next: CalendarView) => {
+    setView(next);
+    try {
+      localStorage.setItem(VIEW_STORAGE_KEY, next);
+    } catch {
+      // Not worth surfacing; the view still changes for this session.
+    }
+  };
+
+  const range = useMemo(() => {
+    if (!activeAnchor) return null;
+    if (view === "agenda") return { from: today, to: addDays(today, AGENDA_DAYS - 1) };
+    if (view === "week") {
+      const days = weekDays(activeAnchor);
+      return { from: days[0] as string, to: days[6] as string };
+    }
+    const grid = monthGrid(activeAnchor);
+    return { from: grid[0] as string, to: grid[grid.length - 1] as string };
+  }, [view, activeAnchor, today]);
+
+  const visible = useMemo(
+    () => (range ? eventsInRange(data?.events ?? [], range.from, range.to) : []),
+    [data, range],
+  );
+
+  const heading = useMemo(() => {
+    if (!activeAnchor || !range) return "";
+    if (view === "agenda") return `Next ${AGENDA_DAYS} days`;
+    if (view === "month") {
+      return parseLocalDate(activeAnchor).toLocaleDateString(undefined, {
+        month: "long",
+        year: "numeric",
+      });
+    }
+    const from = parseLocalDate(range.from);
+    const to = parseLocalDate(range.to);
+    const format = (value: Date, withYear: boolean) =>
+      value.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        ...(withYear ? { year: "numeric" } : {}),
+      });
+    return `${format(from, false)} – ${format(to, true)}`;
+  }, [view, activeAnchor, range]);
+
+  async function run(action: () => Promise<void>) {
+    try {
+      setActionError(null);
+      await action();
+      await refresh();
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  const step = (direction: -1 | 1) => {
+    if (!activeAnchor) return;
+    setAnchor(view === "month"
+      ? addMonths(activeAnchor, direction)
+      : addDays(startOfWeek(activeAnchor), direction * 7));
+  };
+
+  const addEvent = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!title.trim() || !date) return;
+    void run(async () => {
+      await mutate("/api/robin/events", "POST", {
+        title,
+        date,
+        ...(endDate ? { endDate } : {}),
+        ...(start ? { start } : {}),
+        ...(end ? { end } : {}),
+      });
+      setTitle("");
+      setEndDate("");
+      setStart("");
+      setEnd("");
+      setAdding(false);
+    });
+  };
+
+  const deleteEvent = (event: DashboardEvent) =>
+    void run(() => mutate("/api/robin/events", "DELETE", { id: event.id }));
+
+  const navigable = view !== "agenda";
+  const offToday = navigable && activeAnchor !== "" && anchor !== null;
+
+  return (
+    <section
+      className="flex flex-col gap-3 rounded-lg p-4"
+      style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}
+    >
+      <header className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Calendar</h2>
+          <span className="text-xs" style={{ color: "var(--text-dim)" }}>{heading}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          {navigable && (
+            <>
+              <button
+                type="button"
+                onClick={() => step(-1)}
+                aria-label="Previous"
+                className="rounded px-2 py-0.5 text-xs"
+                style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                onClick={() => setAnchor(null)}
+                disabled={!offToday}
+                className="rounded px-2 py-0.5 text-xs disabled:opacity-40"
+                style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                onClick={() => step(1)}
+                aria-label="Next"
+                className="rounded px-2 py-0.5 text-xs"
+                style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}
+              >
+                ›
+              </button>
+            </>
+          )}
+          <div className="ml-1 flex rounded" style={{ border: "1px solid var(--border)" }}>
+            {VIEWS.map(({ id, label }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => chooseView(id)}
+                className="px-2 py-0.5 text-xs"
+                style={{
+                  background: view === id ? "var(--bg-selected)" : "transparent",
+                  color: view === id ? "var(--text)" : "var(--text-dim)",
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setAdding((value) => !value);
+              if (!date) setDate(today);
+            }}
+            className="ml-1 text-xs"
+            style={{ color: "var(--text-dim)" }}
+          >
+            {adding ? "cancel" : "+ add"}
+          </button>
+        </div>
+      </header>
+
+      {adding && (
+        <form onSubmit={addEvent} className="flex flex-col gap-2">
+          <input
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="Event…"
+            autoFocus
+            className="rounded px-2 py-1 text-sm outline-none"
+            style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
+          />
+          <div className="flex flex-wrap gap-2">
+            <input
+              type="date"
+              value={date}
+              onChange={(event) => setDate(event.target.value)}
+              className="rounded px-2 py-1 text-sm outline-none"
+              style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+            />
+            {/* Inclusive last day; blank means the event is a single day. */}
+            <input
+              type="date"
+              value={endDate}
+              min={date || undefined}
+              onChange={(event) => setEndDate(event.target.value)}
+              title="Last day (inclusive) — leave blank for a single-day event"
+              className="rounded px-2 py-1 text-sm outline-none"
+              style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+            />
+            {/* Blank start means an all-day event. */}
+            <input
+              type="time"
+              value={start}
+              onChange={(event) => setStart(event.target.value)}
+              className="rounded px-2 py-1 text-sm outline-none"
+              style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+            />
+            <input
+              type="time"
+              value={end}
+              onChange={(event) => setEnd(event.target.value)}
+              disabled={!start}
+              className="rounded px-2 py-1 text-sm outline-none disabled:opacity-40"
+              style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+            />
+            <button
+              type="submit"
+              disabled={!title.trim() || !date}
+              className="rounded px-3 py-1 text-sm disabled:opacity-40"
+              style={{ background: "var(--accent)", color: "#fff" }}
+            >
+              Save
+            </button>
+          </div>
+        </form>
+      )}
+
+      {(error || actionError) && (
+        <p className="text-xs" style={{ color: "var(--accent)" }}>{actionError ?? error}</p>
+      )}
+
+      {today && view === "agenda" && (
+        <AgendaView events={visible} today={today} onDelete={deleteEvent} />
+      )}
+      {today && view === "week" && (
+        <WeekGrid events={visible} today={today} anchor={activeAnchor} onDelete={deleteEvent} />
+      )}
+      {today && view === "month" && (
+        <MonthView
+          events={visible}
+          today={today}
+          anchor={activeAnchor}
+          onSelectDay={(day) => {
+            setAnchor(day);
+            chooseView("week");
+          }}
+        />
+      )}
+
+      <GoogleConnect status={data?.google} onChanged={refresh} />
+    </section>
+  );
+}
