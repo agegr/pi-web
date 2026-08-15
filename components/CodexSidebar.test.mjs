@@ -77,7 +77,7 @@ test("settings footer is a gear with a label", () => {
   assert.match(shell, /className="codex-sidebar-footer-item"/);
   assert.match(shell, /<Settings size=\{14\}/);
   assert.match(shell, /codex-sidebar-footer-item-label"[^>]*>\{translate\("common\.settings"\)\}<\/span>/);
-  assert.match(styles, /\.codex-sidebar-footer-item \{[\s\S]*?padding: 0 10px/);
+  assert.match(styles, /\.codex-sidebar-footer-item \{[\s\S]*?width: 100%/);
 });
 
 test("sidebar header restores restrained branding above the compact workspace toolbar", () => {

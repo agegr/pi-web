@@ -1319,20 +1319,21 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
 .codex-worktree-create { height: 28px; display: flex; align-items: center; padding-left: 7px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); }
 .codex-worktree-create input { font-size: 11px; }
 .codex-sidebar-footer {
-  padding: 6px 8px 8px;
+  padding: 0;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   flex-shrink: 0;
   border-top: 1px solid var(--border);
 }
 .codex-sidebar-footer-item {
-  height: 28px;
-  padding: 0 10px;
+  width: 100%;
+  height: 40px;
+  padding: 0 16px;
   display: flex;
   align-items: center;
   gap: 5px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 0;
   color: var(--text-muted);
   background: transparent;
   cursor: pointer;
@@ -3868,8 +3869,8 @@ span.linenumber {
     height: 44px;
   }
   .codex-sidebar-footer-item {
-    height: 44px;
-    padding: 0 14px;
+    height: 48px;
+    padding: 0 16px;
   }
   .codex-worktree-row {
     min-height: 44px;
