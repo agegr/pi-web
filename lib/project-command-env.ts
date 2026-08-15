@@ -11,8 +11,6 @@ import { join } from "node:path";
 const HOST_EXTENSION_NAME = "pi-web-project-command-environment";
 const HOST_EXTENSION_PATH = `<inline:${HOST_EXTENSION_NAME}>`;
 
-type CommandEnvironment = Record<string, string | undefined>;
-
 type ProjectShellSettings = {
   getShellCommandPrefix(): string | undefined;
   getShellPath(): string | undefined;
@@ -20,7 +18,7 @@ type ProjectShellSettings = {
 
 type ProjectCommandBashOperationsOptions = {
   agentBinDir?: string;
-  baseEnvironment?: CommandEnvironment;
+  baseEnvironment?: NodeJS.ProcessEnv;
   localOperations?: BashOperations;
   platform?: NodeJS.Platform;
   shellPath?: string;
@@ -34,39 +32,31 @@ function isHostRuntimeVariable(name: string, platform: NodeJS.Platform): boolean
 }
 
 export function sanitizeProjectCommandEnvironment(
-  baseEnvironment: CommandEnvironment,
+  baseEnvironment: NodeJS.ProcessEnv,
   platform: NodeJS.Platform = process.platform,
-): CommandEnvironment {
-  const environment: CommandEnvironment = {};
-  for (const [name, value] of Object.entries(baseEnvironment)) {
-    if (!isHostRuntimeVariable(name, platform)) {
-      environment[name] = value;
-    }
+): NodeJS.ProcessEnv {
+  const environment = { ...baseEnvironment };
+  for (const name of Object.keys(environment)) {
+    if (isHostRuntimeVariable(name, platform)) delete environment[name];
   }
   return environment;
 }
 
 function withAgentBinDirectory(
-  environment: CommandEnvironment,
+  environment: NodeJS.ProcessEnv,
   agentBinDir: string,
   platform: NodeJS.Platform,
-): CommandEnvironment {
+): NodeJS.ProcessEnv {
   const pathKey = platform === "win32"
     ? Object.keys(environment).find((name) => name.toUpperCase() === "PATH") ?? "PATH"
     : "PATH";
   const pathDelimiter = platform === "win32" ? ";" : ":";
   const currentPath = environment[pathKey] ?? "";
   const pathEntries = currentPath.split(pathDelimiter).filter(Boolean);
-  if (pathEntries.includes(agentBinDir)) return environment;
-
-  return {
-    ...environment,
-    [pathKey]: [agentBinDir, currentPath].filter(Boolean).join(pathDelimiter),
-  };
-}
-
-function toProcessEnvironment(environment: CommandEnvironment): NodeJS.ProcessEnv {
-  return environment as NodeJS.ProcessEnv;
+  if (!pathEntries.includes(agentBinDir)) {
+    environment[pathKey] = [agentBinDir, currentPath].filter(Boolean).join(pathDelimiter);
+  }
+  return environment;
 }
 
 export function createProjectCommandBashOperations(
@@ -88,7 +78,7 @@ export function createProjectCommandBashOperations(
       );
       return localOperations.exec(command, cwd, {
         ...executionOptions,
-        env: toProcessEnvironment(environment),
+        env: environment,
       });
     },
   };
@@ -108,10 +98,8 @@ export function createProjectCommandBashExtension(options: {
         execute(toolCallId, params, signal, onUpdate, context) {
           const executionDefinition = createBashToolDefinition(options.cwd, {
             commandPrefix: options.settings.getShellCommandPrefix(),
-            shellPath: options.settings.getShellPath(),
-            spawnHook: (spawnContext) => ({
-              ...spawnContext,
-              env: toProcessEnvironment(sanitizeProjectCommandEnvironment(spawnContext.env)),
+            operations: createProjectCommandBashOperations({
+              shellPath: options.settings.getShellPath(),
             }),
           });
           return executionDefinition.execute(toolCallId, params, signal, onUpdate, context);
