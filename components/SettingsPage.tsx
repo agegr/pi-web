@@ -14,6 +14,7 @@ import {
   Monitor,
   Moon,
   Plug,
+  ScanEye,
   SlidersHorizontal,
   Sun,
   Volume2,
@@ -31,9 +32,10 @@ import type { ModelsDraftController } from "./models-config/models-config-types"
 import type { SettingsSectionController } from "./resource-settings/resource-settings-types";
 import { PluginsConfig } from "./PluginsConfig";
 import { SkillsConfig } from "./SkillsConfig";
+import { VisionToolkitConfig, type VisionDraftController } from "./VisionToolkitConfig";
 import { DialogShell } from "./DialogShell";
 
-type SettingsSection = "general" | "archived" | "models" | "skills" | "plugins";
+type SettingsSection = "general" | "archived" | "models" | "skills" | "plugins" | "vision";
 
 interface Props {
   cwd: string | null;
@@ -59,6 +61,7 @@ function SectionIcon({ section }: { section: SettingsSection }) {
     models: Cpu,
     skills: Layers3,
     plugins: Plug,
+    vision: ScanEye,
   };
   const Icon = icons[section];
   return <Icon size={16} strokeWidth={1.8} aria-hidden="true" />;
@@ -92,6 +95,7 @@ export function SettingsPage({
   const [modelsController, setModelsController] = useState<ModelsDraftController | null>(null);
   const [skillsController, setSkillsController] = useState<SettingsSectionController | null>(null);
   const [pluginsController, setPluginsController] = useState<SettingsSectionController | null>(null);
+  const [visionController, setVisionController] = useState<VisionDraftController | null>(null);
   const [discardDialogOpen, setDiscardDialogOpen] = useState(false);
   const [pendingExit, setPendingExit] = useState<(() => void) | null>(null);
 
@@ -103,22 +107,24 @@ export function SettingsPage({
   // One exit-request path: every Settings close/navigation action goes through
   // here so unsaved custom model drafts are never lost silently.
   const requestCloseOrNavigate = useCallback((action: () => void) => {
-    if (modelsController?.dirty) {
+    if (modelsController?.dirty || visionController?.dirty) {
       setPendingExit(() => action);
       setDiscardDialogOpen(true);
     } else {
       action();
     }
-  }, [modelsController]);
+  }, [modelsController, visionController]);
 
   const handleDiscardConfirm = useCallback(() => {
     const action = pendingExit;
     setDiscardDialogOpen(false);
     setPendingExit(null);
     setModelsController(null);
+    setVisionController(null);
     modelsController?.discard();
+    visionController?.discard();
     action?.();
-  }, [modelsController, pendingExit]);
+  }, [modelsController, pendingExit, visionController]);
 
   const activeController = section === "models"
     ? modelsController
@@ -126,7 +132,9 @@ export function SettingsPage({
       ? skillsController
       : section === "plugins"
         ? pluginsController
-        : null;
+        : section === "vision"
+          ? visionController
+          : null;
 
   useEffect(() => {
     closeButtonRef.current?.focus();
@@ -145,13 +153,13 @@ export function SettingsPage({
 
   const handleSettingsBack = useCallback((): boolean => {
     if (activeController?.handleBack()) return true;
-    if (modelsController?.dirty) {
+    if (modelsController?.dirty || visionController?.dirty) {
       setPendingExit(() => close);
       setDiscardDialogOpen(true);
       return true;
     }
     return false;
-  }, [activeController, close, modelsController]);
+  }, [activeController, close, modelsController, visionController]);
 
   useEffect(() => {
     onRegisterSettingsBack(handleSettingsBack);
@@ -226,6 +234,7 @@ export function SettingsPage({
     { id: "models", label: t("common.models"), disabled: false },
     { id: "skills", label: t("common.skills"), disabled: !cwd },
     { id: "plugins", label: t("common.plugins"), disabled: !cwd },
+    { id: "vision", label: t("vision.nav"), disabled: false },
   ];
 
   let content: ReactNode;
@@ -314,6 +323,8 @@ export function SettingsPage({
     );
   } else if (section === "models") {
     content = <ModelsConfig onControllerChange={setModelsController} />;
+  } else if (section === "vision") {
+    content = <VisionToolkitConfig onControllerChange={setVisionController} />;
   } else if (!cwd) {
     content = (
       <div className="settings-page-empty">
@@ -346,7 +357,27 @@ export function SettingsPage({
       <div className="settings-page-shell">
         <header className="settings-page-header">
           <h2 id="settings-page-title">{t("common.settings")}</h2>
-          <button ref={closeButtonRef} type="button" onClick={() => requestCloseOrNavigate(close)} aria-label={t("i18n.close")} title={t("i18n.close")}><X size={17} aria-hidden="true" /></button>
+          <div className="settings-page-header-actions">
+            {section === "vision" && (
+              <button
+                type="button"
+                className="settings-page-header-text"
+                onClick={() => visionController?.reveal()}
+              >
+                {t("vision.openConfig")}
+              </button>
+            )}
+            <button
+              ref={closeButtonRef}
+              type="button"
+              className="settings-page-header-close"
+              onClick={() => requestCloseOrNavigate(close)}
+              aria-label={t("i18n.close")}
+              title={t("i18n.close")}
+            >
+              <X size={17} aria-hidden="true" />
+            </button>
+          </div>
         </header>
         <div className="settings-page-layout">
           <nav
