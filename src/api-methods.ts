@@ -53,6 +53,9 @@ export const API_ROUTE_METHODS: Record<string, readonly string[]> = {
   "/api/skills/search": ["POST"],
   "/api/skills/update": ["POST"],
   "/api/ui-locale": ["GET", "PUT"],
+  "/api/vision-toolkit": ["GET", "PUT"],
+  "/api/vision-toolkit/health": ["POST"],
+  "/api/vision-toolkit/reveal": ["POST"],
   "/api/worktrees": ["DELETE", "GET", "POST"],
 };
 

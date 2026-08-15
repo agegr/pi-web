@@ -22,6 +22,7 @@ import { Route as ApiProjectsRouteImport } from './routes/api/projects'
 import { Route as ApiSessionsRouteImport } from './routes/api/sessions'
 import { Route as ApiSkillsRouteImport } from './routes/api/skills'
 import { Route as ApiUiLocaleRouteImport } from './routes/api/ui-locale'
+import { Route as ApiVisionToolkitRouteImport } from './routes/api/vision-toolkit'
 import { Route as ApiWorktreesRouteImport } from './routes/api/worktrees'
 import { Route as ApiAgentIdRouteImport } from './routes/api/agent/$id'
 import { Route as ApiAgentNewRouteImport } from './routes/api/agent/new'
@@ -41,6 +42,8 @@ import { Route as ApiSkillsCheckRouteImport } from './routes/api/skills/check'
 import { Route as ApiSkillsInstallRouteImport } from './routes/api/skills/install'
 import { Route as ApiSkillsSearchRouteImport } from './routes/api/skills/search'
 import { Route as ApiSkillsUpdateRouteImport } from './routes/api/skills/update'
+import { Route as ApiVisionToolkitHealthRouteImport } from './routes/api/vision-toolkit/health'
+import { Route as ApiVisionToolkitRevealRouteImport } from './routes/api/vision-toolkit/reveal'
 import { Route as ApiAgentIdBashOutputRouteImport } from './routes/api/agent/$id/bash-output'
 import { Route as ApiAgentIdEventsRouteImport } from './routes/api/agent/$id/events'
 import { Route as ApiAgentIdSubagentsRouteImport } from './routes/api/agent/$id/subagents'
@@ -118,6 +121,11 @@ const ApiSkillsRoute = ApiSkillsRouteImport.update({
 const ApiUiLocaleRoute = ApiUiLocaleRouteImport.update({
   id: '/api/ui-locale',
   path: '/api/ui-locale',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiVisionToolkitRoute = ApiVisionToolkitRouteImport.update({
+  id: '/api/vision-toolkit',
+  path: '/api/vision-toolkit',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiWorktreesRoute = ApiWorktreesRouteImport.update({
@@ -215,6 +223,16 @@ const ApiSkillsUpdateRoute = ApiSkillsUpdateRouteImport.update({
   path: '/update',
   getParentRoute: () => ApiSkillsRoute,
 } as any)
+const ApiVisionToolkitHealthRoute = ApiVisionToolkitHealthRouteImport.update({
+  id: '/health',
+  path: '/health',
+  getParentRoute: () => ApiVisionToolkitRoute,
+} as any)
+const ApiVisionToolkitRevealRoute = ApiVisionToolkitRevealRouteImport.update({
+  id: '/reveal',
+  path: '/reveal',
+  getParentRoute: () => ApiVisionToolkitRoute,
+} as any)
 const ApiAgentIdBashOutputRoute = ApiAgentIdBashOutputRouteImport.update({
   id: '/bash-output',
   path: '/bash-output',
@@ -296,6 +314,7 @@ export interface FileRoutesByFullPath {
   '/api/sessions': typeof ApiSessionsRouteWithChildren
   '/api/skills': typeof ApiSkillsRouteWithChildren
   '/api/ui-locale': typeof ApiUiLocaleRoute
+  '/api/vision-toolkit': typeof ApiVisionToolkitRouteWithChildren
   '/api/worktrees': typeof ApiWorktreesRoute
   '/api/agent/$id': typeof ApiAgentIdRouteWithChildren
   '/api/agent/new': typeof ApiAgentNewRoute
@@ -315,6 +334,8 @@ export interface FileRoutesByFullPath {
   '/api/skills/install': typeof ApiSkillsInstallRoute
   '/api/skills/search': typeof ApiSkillsSearchRoute
   '/api/skills/update': typeof ApiSkillsUpdateRoute
+  '/api/vision-toolkit/health': typeof ApiVisionToolkitHealthRoute
+  '/api/vision-toolkit/reveal': typeof ApiVisionToolkitRevealRoute
   '/api/agent/$id/bash-output': typeof ApiAgentIdBashOutputRoute
   '/api/agent/$id/events': typeof ApiAgentIdEventsRoute
   '/api/agent/$id/subagents': typeof ApiAgentIdSubagentsRoute
@@ -343,6 +364,7 @@ export interface FileRoutesByTo {
   '/api/sessions': typeof ApiSessionsRouteWithChildren
   '/api/skills': typeof ApiSkillsRouteWithChildren
   '/api/ui-locale': typeof ApiUiLocaleRoute
+  '/api/vision-toolkit': typeof ApiVisionToolkitRouteWithChildren
   '/api/worktrees': typeof ApiWorktreesRoute
   '/api/agent/$id': typeof ApiAgentIdRouteWithChildren
   '/api/agent/new': typeof ApiAgentNewRoute
@@ -362,6 +384,8 @@ export interface FileRoutesByTo {
   '/api/skills/install': typeof ApiSkillsInstallRoute
   '/api/skills/search': typeof ApiSkillsSearchRoute
   '/api/skills/update': typeof ApiSkillsUpdateRoute
+  '/api/vision-toolkit/health': typeof ApiVisionToolkitHealthRoute
+  '/api/vision-toolkit/reveal': typeof ApiVisionToolkitRevealRoute
   '/api/agent/$id/bash-output': typeof ApiAgentIdBashOutputRoute
   '/api/agent/$id/events': typeof ApiAgentIdEventsRoute
   '/api/agent/$id/subagents': typeof ApiAgentIdSubagentsRoute
@@ -391,6 +415,7 @@ export interface FileRoutesById {
   '/api/sessions': typeof ApiSessionsRouteWithChildren
   '/api/skills': typeof ApiSkillsRouteWithChildren
   '/api/ui-locale': typeof ApiUiLocaleRoute
+  '/api/vision-toolkit': typeof ApiVisionToolkitRouteWithChildren
   '/api/worktrees': typeof ApiWorktreesRoute
   '/api/agent/$id': typeof ApiAgentIdRouteWithChildren
   '/api/agent/new': typeof ApiAgentNewRoute
@@ -410,6 +435,8 @@ export interface FileRoutesById {
   '/api/skills/install': typeof ApiSkillsInstallRoute
   '/api/skills/search': typeof ApiSkillsSearchRoute
   '/api/skills/update': typeof ApiSkillsUpdateRoute
+  '/api/vision-toolkit/health': typeof ApiVisionToolkitHealthRoute
+  '/api/vision-toolkit/reveal': typeof ApiVisionToolkitRevealRoute
   '/api/agent/$id/bash-output': typeof ApiAgentIdBashOutputRoute
   '/api/agent/$id/events': typeof ApiAgentIdEventsRoute
   '/api/agent/$id/subagents': typeof ApiAgentIdSubagentsRoute
@@ -440,6 +467,7 @@ export interface FileRouteTypes {
     | '/api/sessions'
     | '/api/skills'
     | '/api/ui-locale'
+    | '/api/vision-toolkit'
     | '/api/worktrees'
     | '/api/agent/$id'
     | '/api/agent/new'
@@ -459,6 +487,8 @@ export interface FileRouteTypes {
     | '/api/skills/install'
     | '/api/skills/search'
     | '/api/skills/update'
+    | '/api/vision-toolkit/health'
+    | '/api/vision-toolkit/reveal'
     | '/api/agent/$id/bash-output'
     | '/api/agent/$id/events'
     | '/api/agent/$id/subagents'
@@ -487,6 +517,7 @@ export interface FileRouteTypes {
     | '/api/sessions'
     | '/api/skills'
     | '/api/ui-locale'
+    | '/api/vision-toolkit'
     | '/api/worktrees'
     | '/api/agent/$id'
     | '/api/agent/new'
@@ -506,6 +537,8 @@ export interface FileRouteTypes {
     | '/api/skills/install'
     | '/api/skills/search'
     | '/api/skills/update'
+    | '/api/vision-toolkit/health'
+    | '/api/vision-toolkit/reveal'
     | '/api/agent/$id/bash-output'
     | '/api/agent/$id/events'
     | '/api/agent/$id/subagents'
@@ -534,6 +567,7 @@ export interface FileRouteTypes {
     | '/api/sessions'
     | '/api/skills'
     | '/api/ui-locale'
+    | '/api/vision-toolkit'
     | '/api/worktrees'
     | '/api/agent/$id'
     | '/api/agent/new'
@@ -553,6 +587,8 @@ export interface FileRouteTypes {
     | '/api/skills/install'
     | '/api/skills/search'
     | '/api/skills/update'
+    | '/api/vision-toolkit/health'
+    | '/api/vision-toolkit/reveal'
     | '/api/agent/$id/bash-output'
     | '/api/agent/$id/events'
     | '/api/agent/$id/subagents'
@@ -582,6 +618,7 @@ export interface RootRouteChildren {
   ApiSessionsRoute: typeof ApiSessionsRouteWithChildren
   ApiSkillsRoute: typeof ApiSkillsRouteWithChildren
   ApiUiLocaleRoute: typeof ApiUiLocaleRoute
+  ApiVisionToolkitRoute: typeof ApiVisionToolkitRouteWithChildren
   ApiWorktreesRoute: typeof ApiWorktreesRoute
   ApiAgentIdRoute: typeof ApiAgentIdRouteWithChildren
   ApiAgentNewRoute: typeof ApiAgentNewRoute
@@ -689,6 +726,13 @@ declare module '@tanstack/react-router' {
       path: '/api/ui-locale'
       fullPath: '/api/ui-locale'
       preLoaderRoute: typeof ApiUiLocaleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/vision-toolkit': {
+      id: '/api/vision-toolkit'
+      path: '/api/vision-toolkit'
+      fullPath: '/api/vision-toolkit'
+      preLoaderRoute: typeof ApiVisionToolkitRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/worktrees': {
@@ -823,6 +867,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/skills/update'
       preLoaderRoute: typeof ApiSkillsUpdateRouteImport
       parentRoute: typeof ApiSkillsRoute
+    }
+    '/api/vision-toolkit/health': {
+      id: '/api/vision-toolkit/health'
+      path: '/health'
+      fullPath: '/api/vision-toolkit/health'
+      preLoaderRoute: typeof ApiVisionToolkitHealthRouteImport
+      parentRoute: typeof ApiVisionToolkitRoute
+    }
+    '/api/vision-toolkit/reveal': {
+      id: '/api/vision-toolkit/reveal'
+      path: '/reveal'
+      fullPath: '/api/vision-toolkit/reveal'
+      preLoaderRoute: typeof ApiVisionToolkitRevealRouteImport
+      parentRoute: typeof ApiVisionToolkitRoute
     }
     '/api/agent/$id/bash-output': {
       id: '/api/agent/$id/bash-output'
@@ -987,6 +1045,19 @@ const ApiSkillsRouteWithChildren = ApiSkillsRoute._addFileChildren(
   ApiSkillsRouteChildren,
 )
 
+interface ApiVisionToolkitRouteChildren {
+  ApiVisionToolkitHealthRoute: typeof ApiVisionToolkitHealthRoute
+  ApiVisionToolkitRevealRoute: typeof ApiVisionToolkitRevealRoute
+}
+
+const ApiVisionToolkitRouteChildren: ApiVisionToolkitRouteChildren = {
+  ApiVisionToolkitHealthRoute: ApiVisionToolkitHealthRoute,
+  ApiVisionToolkitRevealRoute: ApiVisionToolkitRevealRoute,
+}
+
+const ApiVisionToolkitRouteWithChildren =
+  ApiVisionToolkitRoute._addFileChildren(ApiVisionToolkitRouteChildren)
+
 interface ApiAgentIdRouteChildren {
   ApiAgentIdBashOutputRoute: typeof ApiAgentIdBashOutputRoute
   ApiAgentIdEventsRoute: typeof ApiAgentIdEventsRoute
@@ -1029,6 +1100,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiSessionsRoute: ApiSessionsRouteWithChildren,
   ApiSkillsRoute: ApiSkillsRouteWithChildren,
   ApiUiLocaleRoute: ApiUiLocaleRoute,
+  ApiVisionToolkitRoute: ApiVisionToolkitRouteWithChildren,
   ApiWorktreesRoute: ApiWorktreesRoute,
   ApiAgentIdRoute: ApiAgentIdRouteWithChildren,
   ApiAgentNewRoute: ApiAgentNewRoute,
@@ -1049,11 +1121,15 @@ export const routeTree = rootRouteImport
   ._addFileTypes<FileRouteTypes>()
 
 import type { getRouter } from './router.tsx'
+
 import type { startInstance } from './start.ts'
+
 declare module '@tanstack/react-start' {
   interface Register {
     ssr: true
+
     router: Awaited<ReturnType<typeof getRouter>>
+
     config: Awaited<ReturnType<typeof startInstance.getOptions>>
   }
 }

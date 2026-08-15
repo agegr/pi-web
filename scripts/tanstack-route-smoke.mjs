@@ -235,6 +235,13 @@ export async function smokeAllRoutes({ origin, authHeaders = {} }) {
       headers: { "content-type": "application/json" },
       body: "{}",
     });
+    await probe("GET", "/api/vision-toolkit", [200]);
+    envSkip("PUT /api/vision-toolkit", "write operation; covered by unit tests only");
+    await probe("POST", "/api/vision-toolkit/health", [200], {
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ testConnection: false }),
+    });
+    envSkip("POST /api/vision-toolkit/reveal", "opens OS file manager; covered by unit tests only");
     await probe("GET", `/api/worktrees?cwd=${encodeURIComponent(gitDir)}`, [200]);
     await probe("POST", "/api/worktrees", [400], {
       headers: { "content-type": "application/json" },
