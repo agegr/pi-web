@@ -48,7 +48,7 @@ export function SubagentHeaderAction({
         background: open ? "var(--bg-selected)" : "transparent",
         color: open ? "var(--text)" : "var(--text-muted)",
         cursor: "pointer",
-        fontSize: 12,
+        fontSize: "var(--text-ui)",
         whiteSpace: "nowrap",
       }}
     >
@@ -351,8 +351,8 @@ export function SubagentTree({
               color: disabled ? "var(--text-dim)" : "var(--text)",
               cursor: disabled ? "not-allowed" : "pointer",
               textAlign: "left",
-              fontSize: 12,
-              lineHeight: 1.35,
+              fontSize: "var(--text-ui)",
+              lineHeight: "var(--leading-ui)",
             }}
           >
             <span aria-hidden="true" className="subagent-state-dot" data-subagent-state={node.state} />
@@ -363,7 +363,7 @@ export function SubagentTree({
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
                   color: "var(--text-dim)",
-                  fontSize: 11,
+                  fontSize: "var(--text-meta)",
                   textTransform: "uppercase",
                   letterSpacing: "0.04em",
                 }}
@@ -383,7 +383,7 @@ export function SubagentTree({
                 {node.task}
               </span>
               {detail ? (
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-muted)", fontSize: 11 }}>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-muted)", fontSize: "var(--text-meta)" }}>
                   {detail}
                 </span>
               ) : null}
@@ -427,7 +427,7 @@ export function SubagentTree({
       style={{ display: "flex", flexDirection: "column", gap: 2, padding: 4, overflowY: "auto" }}
     >
       {visibleRows.length === 0 ? (
-        <div style={{ padding: "10px 8px", color: "var(--text-muted)", fontSize: 12, fontStyle: "italic" }}>
+        <div style={{ padding: "10px 8px", color: "var(--text-muted)", fontSize: "var(--text-meta)", fontStyle: "italic" }}>
           {t("subagents.empty")}
         </div>
       ) : (
@@ -576,7 +576,7 @@ export function SessionBreadcrumb({
         padding: "6px 16px",
         borderBottom: "1px solid var(--border)",
         background: "var(--bg-panel)",
-        fontSize: 12,
+        fontSize: "var(--text-ui)",
         color: "var(--text-muted)",
       }}
     >
@@ -598,7 +598,7 @@ export function SessionBreadcrumb({
                 background: "transparent",
                 color: "var(--accent)",
                 cursor: "pointer",
-                fontSize: 12,
+                fontSize: "var(--text-ui)",
                 padding: "2px 2px",
               }}
             >
@@ -669,7 +669,7 @@ export function SubagentComposer({
           padding: "10px 16px",
           borderTop: "1px solid var(--border)",
           color: "var(--text-muted)",
-          fontSize: 12,
+          fontSize: "var(--text-meta)",
         }}
       >
         {t("subagents.readOnly")}
@@ -694,7 +694,7 @@ export function SubagentComposer({
       {error ? (
         <div
           role="alert"
-          style={{ color: "#dc2626", fontSize: 12, lineHeight: 1.4, overflowWrap: "anywhere", minWidth: 0 }}
+          style={{ color: "#dc2626", fontSize: "var(--text-meta)", lineHeight: "var(--leading-ui)", overflowWrap: "anywhere", minWidth: 0 }}
         >
           {error}
         </div>
@@ -724,8 +724,8 @@ export function SubagentComposer({
             borderRadius: 8,
             background: "var(--bg)",
             color: "var(--text)",
-            fontSize: 13,
-            lineHeight: 1.4,
+            fontSize: "var(--text-ui)",
+            lineHeight: "var(--leading-ui)",
           }}
         />
         {action === "steer" && node.canInterrupt ? (
@@ -771,7 +771,7 @@ export function SubagentComposer({
             color: "var(--bg)",
             cursor: busy || value.trim().length === 0 ? "not-allowed" : "pointer",
             opacity: busy || value.trim().length === 0 ? 0.55 : 1,
-            fontSize: 13,
+            fontSize: "var(--text-ui)",
           }}
         >
           <Send size={13} strokeWidth={2} aria-hidden="true" />

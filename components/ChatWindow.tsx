@@ -143,9 +143,9 @@ function NewSessionUpdateLink({
         background: "transparent",
         borderRadius: 5,
         color: "var(--accent)",
-        fontSize: 12,
+        fontSize: "var(--text-ui)",
         fontWeight: 600,
-        lineHeight: 1.2,
+        lineHeight: "var(--leading-ui)",
         textDecoration: "none",
         transition: "background 0.12s",
         whiteSpace: "nowrap",
@@ -252,7 +252,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, hasError = false, de
           background: "transparent",
           color: "var(--text-muted)",
           cursor: "pointer",
-          fontSize: 12,
+          fontSize: "var(--text-ui)",
           textAlign: "left",
         }}
         title={expanded ? t("chat.collapseProcess") : t("chat.expandProcess")}
@@ -683,14 +683,14 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
                 width: 40, height: 40, marginBottom: 16,
                 borderRadius: 12, background: "var(--bg-panel)", color: "var(--text-dim)",
-                fontSize: 20, fontWeight: 700, fontFamily: "var(--font-mono)",
+                fontSize: "1.25em", fontWeight: 700, fontFamily: "var(--font-mono)",
               }}>π</div>
               <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
                 <NewSessionUpdateLink label={(version) => t("appUpdate.releaseNotes", { version })} />
               </div>
               <h1 style={{
-                margin: 0, fontSize: isMobile ? 20 : 24, fontWeight: 500,
-                letterSpacing: "-0.02em", color: "var(--text)", lineHeight: 1.35,
+                margin: 0, fontSize: "var(--text-title)", fontWeight: 500,
+                letterSpacing: "-0.02em", color: "var(--text)", lineHeight: "var(--leading-title)",
               }}>
                 {homeCwdLabel ? t("chat.homeTitle", { cwd: homeCwdLabel }) : t("chat.homeTitleGeneric")}
               </h1>
@@ -710,7 +710,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                       display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 10,
                       minHeight: 92, padding: "12px 14px",
                       background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 14,
-                      color: "var(--text)", cursor: "pointer", fontSize: 13, lineHeight: 1.4, textAlign: "left",
+                      color: "var(--text)", cursor: "pointer", fontSize: "var(--text-ui)", lineHeight: "var(--leading-ui)", textAlign: "left",
                     }}
                     onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = "var(--bg)"; }}
@@ -728,7 +728,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 display: "flex", alignItems: "center", gap: 6,
                 width: "100%", maxWidth: 820, margin: "0 auto -14px", padding: "8px 16px 22px",
                 borderRadius: "16px 16px 0 0", background: "var(--bg-panel)",
-                color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 12,
+                color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: "var(--text-meta)",
               }}>
                 <Folder size={12} strokeWidth={1.8} aria-hidden="true" />
                 {homeCwdLabel}
@@ -1107,8 +1107,8 @@ function NoticeShelf({ notices, floating = false, align = "left" }: { notices: N
               boxShadow: floating
                 ? "0 1px 2px rgba(15,23,42,0.05), 0 10px 28px -14px rgba(15,23,42,0.24)"
                 : "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
-              fontSize: 18,
-              lineHeight: 1.45,
+              fontSize: "var(--text-chat)",
+              lineHeight: "var(--leading-prose)",
               transformOrigin: "top center",
               animation: notice.exiting
                 ? "notice-shelf-out 0.18s ease-in forwards"

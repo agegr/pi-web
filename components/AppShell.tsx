@@ -1211,8 +1211,8 @@ export function AppShell() {
           color: "#d97706",
           cursor: "pointer",
           flexShrink: 0,
-          fontSize: 11,
-          lineHeight: 1.35,
+          fontSize: "var(--text-meta)",
+          lineHeight: "var(--leading-ui)",
           textAlign: "left",
         }}
         data-mobile-trust-banner={mobileBanner ? "true" : undefined}
@@ -1252,7 +1252,7 @@ export function AppShell() {
             cursor: selectedSession ? "pointer" : "not-allowed",
             opacity: selectedSession ? 1 : 0.45,
             flexShrink: 0,
-            fontSize: 11,
+            fontSize: "var(--text-meta)",
             whiteSpace: "nowrap",
             transition: "color 0.1s, background 0.1s, opacity 0.1s",
           }}
@@ -1296,13 +1296,13 @@ export function AppShell() {
               color: activeTopPanel === "subagents" ? "var(--text)" : "var(--text-muted)",
               cursor: "pointer",
               flexShrink: 0,
-              fontSize: 11,
+              fontSize: "var(--text-meta)",
               whiteSpace: "nowrap",
               transition: "color 0.1s, background 0.1s",
             }}
           >
             <Network size={14} strokeWidth={1.8} aria-hidden="true" />
-            <span style={{ fontSize: 10 }}>{subagentCount}</span>
+            <span style={{ fontSize: "var(--text-meta)" }}>{subagentCount}</span>
             {hasActiveDescendant(subagents.data?.nodes) ? (
               <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)" }} />
             ) : null}
@@ -1352,7 +1352,7 @@ export function AppShell() {
                 color: isError ? "#dc2626" : isSuccess ? "var(--accent)" : disabled ? "var(--text-dim)" : "var(--text-muted)",
                 cursor: disabled ? "not-allowed" : "pointer",
                 opacity: disabled && autoNameStatus.kind !== "naming" ? 0.45 : 1,
-                flexShrink: 0, fontSize: 11, whiteSpace: "nowrap",
+                flexShrink: 0, fontSize: "var(--text-meta)", whiteSpace: "nowrap",
                 transition: "color 0.1s, background 0.1s, opacity 0.1s",
               }}
               onMouseEnter={(event) => {
@@ -1433,7 +1433,7 @@ export function AppShell() {
             cursor: mobile && !showChat ? "not-allowed" : "pointer",
             color: activeTopPanel === "system" ? "var(--text)" : "var(--text-muted)",
             opacity: mobile && !showChat ? 0.45 : 1,
-            fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
+            fontSize: "var(--text-meta)", whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
           }}
           onMouseEnter={(event) => {
             if (mobile && !showChat) return;
@@ -1515,7 +1515,7 @@ export function AppShell() {
           background: activeTopPanel === "session" ? "var(--bg-selected)" : "none",
           border: mobile ? "none" : `1px solid ${activeTopPanel === "session" ? "color-mix(in srgb, var(--accent) 45%, transparent)" : "color-mix(in srgb, var(--border) 60%, transparent)"}`,
           borderRadius: 7,
-          fontSize: 11, color: "var(--text-muted)",
+          fontSize: "var(--text-meta)", color: "var(--text-muted)",
           fontFamily: "var(--font-mono)",
           whiteSpace: "nowrap", cursor: showChat ? "pointer" : "default",
           fontVariantNumeric: "tabular-nums",
@@ -1793,7 +1793,7 @@ export function AppShell() {
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
                 color: "var(--text-muted)",
-                fontSize: 12,
+                fontSize: "var(--text-meta)",
                 fontFamily: "var(--font-mono)",
               }}
             >
@@ -1959,7 +1959,7 @@ export function AppShell() {
                   marginBottom: 8,
                 }}>
                   {subagents.stale ? (
-                    <div style={{ padding: "4px 10px", color: "var(--text-dim)", fontSize: 11, borderBottom: "1px solid var(--border)", fontStyle: "italic" }}>
+                    <div style={{ padding: "4px 10px", color: "var(--text-dim)", fontSize: "var(--text-meta)", borderBottom: "1px solid var(--border)", fontStyle: "italic" }}>
                       {translate("subagents.stale")}
                     </div>
                   ) : null}
@@ -1986,19 +1986,19 @@ export function AppShell() {
                       overflowY: "auto",
                       padding: "12px 16px",
                       color: "var(--text-muted)",
-                      fontSize: 12,
-                      lineHeight: 1.6,
+                      fontSize: "var(--text-meta)",
+                      lineHeight: "var(--leading-prose)",
                       whiteSpace: "pre-wrap",
                       fontFamily: "var(--font-mono)",
                     }}>
                       {systemPrompt}
                     </div>
                   ) : systemPrompt === "" ? (
-                    <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
+                    <div style={{ padding: "10px 16px", fontSize: "var(--text-meta)", color: "var(--text-muted)", fontStyle: "italic" }}>
                        {translate("system.empty")}
                     </div>
                   ) : (
-                    <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
+                    <div style={{ padding: "10px 16px", fontSize: "var(--text-meta)", color: "var(--text-muted)", fontStyle: "italic" }}>
                        {translate("system.load")}
                     </div>
                   )}
@@ -2083,7 +2083,7 @@ export function AppShell() {
                       compact = false,
                     ) => (
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>{title}</div>
+                          <div style={{ fontSize: "var(--text-meta)", fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>{title}</div>
                           <div style={{
                             display: "grid",
                             gridTemplateColumns: compact ? "max-content max-content" : "auto minmax(0, 1fr)",
@@ -2151,7 +2151,7 @@ export function AppShell() {
                     };
                     const sessionInfoSection = (
                       <div style={{ minWidth: 0 }}>
-                         <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>{translate("session.infoSection")}</div>
+                         <div style={{ fontSize: "var(--text-meta)", fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>{translate("session.infoSection")}</div>
                         <div style={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", columnGap: 12, rowGap: 8, alignItems: "start" }}>
                           {sessionRows.map((row) => (
                             <div key={`session-info:${row.label}`} style={{ display: "contents" }}>
@@ -2177,8 +2177,8 @@ export function AppShell() {
                           ? "1fr"
                           : "minmax(360px, 1.7fr) minmax(140px, 0.55fr) minmax(190px, 0.75fr)",
                         gap: isMobile ? 16 : 24,
-                        fontSize: 12,
-                        lineHeight: 1.5,
+                        fontSize: "var(--text-meta)",
+                        lineHeight: "var(--leading-prose)",
                         fontFamily: "var(--font-mono)",
                       }}>
                         {sessionInfoSection}
@@ -2187,7 +2187,7 @@ export function AppShell() {
                       </div>
                     );
                   })() : (
-                    <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
+                    <div style={{ fontSize: "var(--text-meta)", color: "var(--text-muted)", fontStyle: "italic" }}>
                        {translate("session.load")}
                     </div>
                   )}
@@ -2266,7 +2266,7 @@ export function AppShell() {
                   const selectedNode = findSubagentNode(subagents.data?.nodes ?? [], selectedSession.id);
                   if (!selectedNode) {
                     return (
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "10px 16px", borderTop: "1px solid var(--border)", color: "var(--text-muted)", fontSize: 12 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "10px 16px", borderTop: "1px solid var(--border)", color: "var(--text-muted)", fontSize: "var(--text-meta)" }}>
                         {translate("subagents.readOnly")}
                       </div>
                     );
@@ -2292,8 +2292,8 @@ export function AppShell() {
               role="status"
               style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: 24, color: "var(--text-muted)", textAlign: "center" }}
             >
-               <div style={{ fontSize: 14, color: "var(--text)" }}>{translate("workspace.opening")}</div>
-              <div style={{ maxWidth: "min(720px, 100%)", overflowWrap: "anywhere", fontFamily: "var(--font-mono)", fontSize: 12 }}>
+               <div style={{ fontSize: "var(--text-title)", color: "var(--text)" }}>{translate("workspace.opening")}</div>
+              <div style={{ maxWidth: "min(720px, 100%)", overflowWrap: "anywhere", fontFamily: "var(--font-mono)", fontSize: "var(--text-meta)" }}>
                 {initialNavigation.requestedCwd}
               </div>
             </div>
@@ -2302,23 +2302,23 @@ export function AppShell() {
               role="alert"
               style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: 24, color: "var(--text-muted)", textAlign: "center" }}
             >
-               <div style={{ fontSize: 14, color: "#dc2626" }}>{translate("workspace.unable")}</div>
-              <div style={{ maxWidth: "min(720px, 100%)", overflowWrap: "anywhere", fontFamily: "var(--font-mono)", fontSize: 12 }}>
+               <div style={{ fontSize: "var(--text-title)", color: "#dc2626" }}>{translate("workspace.unable")}</div>
+              <div style={{ maxWidth: "min(720px, 100%)", overflowWrap: "anywhere", fontFamily: "var(--font-mono)", fontSize: "var(--text-meta)" }}>
                 {initialNavigation.requestedCwd}
               </div>
-              <div style={{ maxWidth: 720, fontSize: 12 }}>{initialCwdError}</div>
+              <div style={{ maxWidth: 720, fontSize: "var(--text-meta)" }}>{initialCwdError}</div>
             </div>
           ) : showPlaceholder ? (
             activeCwd ? (
-              <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 15 }}>
+              <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: "var(--text-title)" }}>
                  {translate("workspace.selectSession")}
               </div>
             ) : (
               <div style={{ position: "absolute", top: 12, left: 12, display: "flex", alignItems: "flex-start", gap: 8, userSelect: "none", pointerEvents: "none" }}>
                 <ArrowLeft size={44} strokeWidth={1.5} aria-hidden="true" style={{ color: "var(--accent)", opacity: 0.7, flexShrink: 0 }} />
                 <div>
-                   <div style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>{translate("workspace.getStarted")}</div>
-                  <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.8 }}>
+                   <div style={{ fontSize: "var(--text-title)", fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>{translate("workspace.getStarted")}</div>
+                  <div style={{ fontSize: "var(--text-meta)", color: "var(--text-muted)", lineHeight: "var(--leading-prose)" }}>
                      <span style={{ color: "var(--text-dim)", marginRight: 6 }}>1.</span>{translate("workspace.selectProject")}<br />
                      <span style={{ color: "var(--text-dim)", marginRight: 6 }}>2.</span>{translate("workspace.addModels")}
                   </div>
@@ -2421,7 +2421,7 @@ export function AppShell() {
               )}
             />
           ) : (
-            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
+            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: "var(--text-meta)" }}>
                {translate("files.noneOpen")}
             </div>
           )}

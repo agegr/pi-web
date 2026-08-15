@@ -177,7 +177,7 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
               setPathInput(event.target.value);
               setLoadError(null);
             }}
-            style={{ minWidth: 0, flex: 1, height: 36, padding: "0 10px", border: "1px solid var(--border)", borderRadius: 6, outline: "none", background: "var(--bg-panel)", color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: 12 }}
+            style={{ minWidth: 0, flex: 1, height: 36, padding: "0 10px", border: "1px solid var(--border)", borderRadius: 6, outline: "none", background: "var(--bg-panel)", color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: "var(--text-ui)" }}
           />
           <button
             className="directory-picker-action"
@@ -237,7 +237,7 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
                 setNewFolderName(event.target.value);
                 setLoadError(null);
               }}
-              style={{ minWidth: 0, flex: 1, height: 34, padding: "0 10px", border: "1px solid var(--border)", borderRadius: 6, outline: "none", background: "var(--bg)", color: "var(--text)", fontSize: 13 }}
+              style={{ minWidth: 0, flex: 1, height: 34, padding: "0 10px", border: "1px solid var(--border)", borderRadius: 6, outline: "none", background: "var(--bg)", color: "var(--text)", fontSize: "var(--text-ui)" }}
             />
             <button className="directory-picker-action" type="button" disabled={creatingFolder} onClick={() => { setNewFolderOpen(false); setNewFolderName(""); setLoadError(null); }} style={{ height: 34, padding: "0 11px", border: "1px solid var(--border)", borderRadius: 6, background: "none", color: "var(--text-muted)", cursor: creatingFolder ? "default" : "pointer" }}>
               {t("i18n.cancel")}
@@ -250,7 +250,7 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
 
         <div className="directory-picker-list" style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "8px 10px" }}>
           {loading ? (
-            <div style={{ padding: 8, color: "var(--text-dim)", fontSize: 11 }}>{t("directoryPicker.loadingDirectories")}</div>
+            <div style={{ padding: 8, color: "var(--text-dim)", fontSize: "var(--text-meta)" }}>{t("directoryPicker.loadingDirectories")}</div>
           ) : drives !== null ? (
             <>
               {drives.length > 0 ? (
@@ -261,14 +261,14 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
                     type="button"
                     onClick={() => void navigateTo(drive.path)}
                     title={drive.path}
-                    style={{ width: "100%", minHeight: 34, display: "flex", alignItems: "center", gap: 7, padding: "6px 8px", border: 0, borderRadius: 5, background: "none", color: "var(--text-muted)", cursor: "pointer", textAlign: "left", fontFamily: "var(--font-mono)", fontSize: 11 }}
+                    style={{ width: "100%", minHeight: 34, display: "flex", alignItems: "center", gap: 7, padding: "6px 8px", border: 0, borderRadius: 5, background: "none", color: "var(--text-muted)", cursor: "pointer", textAlign: "left", fontFamily: "var(--font-mono)", fontSize: "var(--text-meta)" }}
                   >
                     <DriveIcon />
                     <span>{drive.name}</span>
                   </button>
                 ))
               ) : (
-                <div style={{ padding: 8, color: "var(--text-dim)", fontSize: 11 }}>{t("directoryPicker.noDrives")}</div>
+                <div style={{ padding: 8, color: "var(--text-dim)", fontSize: "var(--text-meta)" }}>{t("directoryPicker.noDrives")}</div>
               )}
             </>
           ) : directories.length > 0 ? (
@@ -279,16 +279,16 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
                 type="button"
                 onClick={() => void navigateTo(entry.path)}
                 title={entry.path}
-                style={{ width: "100%", minHeight: 30, display: "flex", alignItems: "center", gap: 7, padding: "5px 8px", border: 0, borderRadius: 5, background: "none", color: "var(--text-muted)", cursor: "pointer", textAlign: "left", fontFamily: "var(--font-mono)", fontSize: 11 }}
+                style={{ width: "100%", minHeight: 30, display: "flex", alignItems: "center", gap: 7, padding: "5px 8px", border: 0, borderRadius: 5, background: "none", color: "var(--text-muted)", cursor: "pointer", textAlign: "left", fontFamily: "var(--font-mono)", fontSize: "var(--text-meta)" }}
               >
                 <FolderIcon />
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.name}</span>
               </button>
             ))
           ) : (
-            <div style={{ padding: 8, color: "var(--text-dim)", fontSize: 11 }}>{t("directoryPicker.noSubdirectories")}</div>
+            <div style={{ padding: 8, color: "var(--text-dim)", fontSize: "var(--text-meta)" }}>{t("directoryPicker.noSubdirectories")}</div>
           )}
-          {(loadError || error) && <div role="alert" style={{ padding: "8px", color: "#dc2626", fontSize: 11 }}>{loadError ?? error}</div>}
+          {(loadError || error) && <div role="alert" style={{ padding: "8px", color: "#dc2626", fontSize: "var(--text-meta)" }}>{loadError ?? error}</div>}
         </div>
     </DialogShell>,
     portalTarget,
