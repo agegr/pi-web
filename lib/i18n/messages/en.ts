@@ -706,7 +706,7 @@ export const enLocale: LocalePlugin = {
     "vision.saveBeforeTesting": "Save service changes before testing the connection.",
     "vision.notTested": "Not tested",
     "vision.advanced": "Advanced settings",
-    "vision.advancedHint": "Output language, User-Agent, and protocol-specific compatibility options. Usually left unchanged.",
+    "vision.advancedHint": "Output language for online vision results. Usually left unchanged.",
     "vision.language": "Output language",
     "vision.userAgent": "User-Agent",
     "vision.anthropicThinking": "Anthropic thinking",

@@ -4904,6 +4904,9 @@ span.linenumber {
   color: #15803d;
 }
 
+html.dark .vision-settings-alert[data-kind="error"] { color: #f87171; }
+html.dark .vision-settings-alert[data-kind="success"] { color: #4ade80; }
+
 .vision-settings-card {
   display: grid;
   gap: 12px;
@@ -4947,6 +4950,9 @@ span.linenumber {
   background: color-mix(in srgb, #16a34a 12%, var(--bg));
   color: #15803d;
 }
+
+html.dark .vision-settings-badge { color: #f87171; }
+html.dark .vision-settings-badge[data-ok="true"] { color: #4ade80; }
 
 .vision-settings-grid {
   display: grid;
@@ -5088,6 +5094,21 @@ span.linenumber {
 
 .vision-settings-advanced > summary::-webkit-details-marker {
   display: none;
+}
+
+.vision-settings-advanced > summary::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 0.45em;
+  height: 0.45em;
+  border-right: 1.5px solid var(--text-muted);
+  border-bottom: 1.5px solid var(--text-muted);
+  transform: rotate(45deg);
+  transition: transform 0.15s ease;
+}
+
+.vision-settings-advanced[open] > summary::after {
+  transform: translateY(2px) rotate(225deg);
 }
 
 .vision-settings-advanced > summary > span {

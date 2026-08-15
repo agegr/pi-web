@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { assertSafeDiscoveryTarget } from "./model-discovery";
 import type { VisionToolkitSnapshot } from "./vision-toolkit-config";
 import { readStoredVisionApiKey } from "./vision-toolkit-config";
 
@@ -25,6 +26,7 @@ export type VisionHealthOptions = {
   readStoredApiKey?: () => string | undefined;
 };
 
+const CONNECTION_TIMEOUT_MS = 20_000;
 const VISION_CLIS = ["glance", "ground", "detect", "trace", "crop"] as const;
 const PYTHON_COMMANDS = ["python3", "python"];
 const CHROME_COMMANDS = [
@@ -82,6 +84,19 @@ function defaultRunCommand(command: string, args: string[]): VisionHealthCommand
       stderr: String(err.stderr ?? err.message ?? error),
     };
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function parseVisionHealthRequest(
+  body: unknown,
+): { ok: true; testConnection: boolean } | { ok: false; error: string } {
+  if (!isRecord(body) || typeof body.testConnection !== "boolean") {
+    return { ok: false, error: "Body must be { testConnection: boolean }" };
+  }
+  return { ok: true, testConnection: body.testConnection };
 }
 
 function redact(text: string, secret?: string): string {
@@ -203,16 +218,36 @@ async function checkService(
   }
 
   try {
+    assertSafeDiscoveryTarget(new URL(endpoint), { apiKey: secret });
+  } catch (error) {
+    return {
+      check: {
+        status: "error",
+        detail: error instanceof Error ? error.message : String(error),
+      },
+      tested: false,
+    };
+  }
+
+  try {
     const response = await fetchImpl(endpoint, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${secret}`,
         Accept: "application/json",
-        "User-Agent": snapshot.settings.userAgent || "pi-web-vision-toolkit",
+        "User-Agent": "pi-web-vision-toolkit",
       },
+      signal: AbortSignal.timeout(CONNECTION_TIMEOUT_MS),
     });
     return { check: classifyHttp(response.status, endpoint), tested: true };
   } catch (error) {
+    const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+    if (timedOut) {
+      return {
+        check: { status: "error", detail: `Service connection test timed out at ${endpoint}.` },
+        tested: true,
+      };
+    }
     const message = redact(error instanceof Error ? error.message : String(error), secret);
     return {
       check: {

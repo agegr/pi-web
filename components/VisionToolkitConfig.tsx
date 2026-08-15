@@ -18,9 +18,6 @@ interface VisionToolkitSettings {
   baseUrl: string;
   model: string;
   language: "zh" | "en" | "";
-  userAgent: string;
-  anthropicThinking: "omit" | "disabled" | "adaptive";
-  reasoningEffort: string;
 }
 
 interface VisionToolkitSnapshot {
@@ -93,9 +90,6 @@ function draftsMatch(draft: Draft, settings: VisionToolkitSettings, apiKey: stri
     && draft.baseUrl === settings.baseUrl
     && draft.model === settings.model
     && draft.language === settings.language
-    && draft.userAgent === settings.userAgent
-    && draft.anthropicThinking === settings.anthropicThinking
-    && draft.reasoningEffort === settings.reasoningEffort
     && apiKey.length === 0;
 }
 
@@ -174,7 +168,11 @@ export function VisionToolkitConfig({ onControllerChange }: Props) {
     setMessage(null);
     void (async () => {
       try {
-        const response = await fetch("/api/vision-toolkit/reveal", { method: "POST" });
+        const response = await fetch("/api/vision-toolkit/reveal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
         if (response.status === 404) {
           setError(await readApiError(response));
           return;
@@ -232,9 +230,6 @@ export function VisionToolkitConfig({ onControllerChange }: Props) {
           baseUrl: draft.baseUrl,
           model: draft.model,
           language: draft.language,
-          userAgent: draft.userAgent,
-          anthropicThinking: draft.anthropicThinking,
-          reasoningEffort: draft.reasoningEffort,
         };
         if (draft.apiKey.length > 0) body.apiKey = draft.apiKey;
         const response = await fetch("/api/vision-toolkit", {
@@ -317,7 +312,7 @@ export function VisionToolkitConfig({ onControllerChange }: Props) {
       <div className="vision-settings-banner">{t("vision.externalNotice")}</div>
       {fieldError && <div className="vision-settings-alert" data-kind="error" role="alert">{fieldError}</div>}
       {error && <div className="vision-settings-alert" data-kind="error" role="alert">{error}</div>}
-      {message && <div className="vision-settings-alert" data-kind="success">{message}</div>}
+      {message && <div className="vision-settings-alert" data-kind="success" role="status">{message}</div>}
 
       <section className="vision-settings-card">
         <div className="vision-settings-card-title">
@@ -438,41 +433,6 @@ export function VisionToolkitConfig({ onControllerChange }: Props) {
               <option value="en">English</option>
             </select>
           </label>
-          <label className="vision-settings-field">
-            <span>{t("vision.userAgent")}</span>
-            <input
-              value={draft.userAgent}
-              disabled={busy || !snapshot.writable}
-              autoComplete="off"
-              onChange={(event) => update("userAgent", event.target.value)}
-            />
-          </label>
-          {draft.protocol === "anthropic" && (
-            <label className="vision-settings-field">
-              <span>{t("vision.anthropicThinking")}</span>
-              <select
-                value={draft.anthropicThinking}
-                disabled={busy || !snapshot.writable}
-                onChange={(event) => update("anthropicThinking", event.target.value as Draft["anthropicThinking"])}
-              >
-                <option value="omit">omit</option>
-                <option value="disabled">disabled</option>
-                <option value="adaptive">adaptive</option>
-              </select>
-              <small>{t("vision.anthropicThinkingHint")}</small>
-            </label>
-          )}
-          {draft.protocol === "responses" && (
-            <label className="vision-settings-field">
-              <span>{t("vision.reasoningEffort")}</span>
-              <input
-                value={draft.reasoningEffort}
-                disabled={busy || !snapshot.writable}
-                autoComplete="off"
-                onChange={(event) => update("reasoningEffort", event.target.value)}
-              />
-            </label>
-          )}
         </div>
       </details>
 

@@ -11,7 +11,6 @@ import {
 export const dynamic = "force-dynamic";
 
 const PROTOCOLS = new Set<VisionProtocol>(["chat_completions", "responses", "anthropic"]);
-const THINKING = new Set(["omit", "disabled", "adaptive"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -34,11 +33,6 @@ function parseSettings(body: unknown): { settings: VisionToolkitSettings; apiKey
   if (body.language !== "zh" && body.language !== "en" && body.language !== "") {
     return { error: "language must be zh, en, or empty" };
   }
-  if (typeof body.userAgent !== "string") return { error: "userAgent must be a string" };
-  if (!THINKING.has(body.anthropicThinking as string)) {
-    return { error: "anthropicThinking must be omit, disabled, or adaptive" };
-  }
-  if (typeof body.reasoningEffort !== "string") return { error: "reasoningEffort must be a string" };
 
   let apiKey: string | undefined;
   if (body.apiKey !== undefined) {
@@ -54,9 +48,6 @@ function parseSettings(body: unknown): { settings: VisionToolkitSettings; apiKey
       baseUrl: body.baseUrl,
       model: body.model,
       language: body.language,
-      userAgent: body.userAgent,
-      anthropicThinking: body.anthropicThinking as VisionToolkitSettings["anthropicThinking"],
-      reasoningEffort: body.reasoningEffort,
     },
     apiKey,
   };

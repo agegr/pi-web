@@ -706,7 +706,7 @@ export const zhCNLocale: LocalePlugin = {
     "vision.saveBeforeTesting": "修改服务配置后，请先保存，再测试连接。",
     "vision.notTested": "尚未检查",
     "vision.advanced": "高级设置",
-    "vision.advancedHint": "结果语言、User-Agent 和协议兼容参数。一般无需修改。",
+    "vision.advancedHint": "在线视觉结果的语言。一般无需修改。",
     "vision.language": "结果语言",
     "vision.userAgent": "User-Agent",
     "vision.anthropicThinking": "Anthropic thinking",

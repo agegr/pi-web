@@ -10,9 +10,6 @@ export type VisionToolkitSettings = {
   baseUrl: string;
   model: string;
   language: "zh" | "en" | "";
-  userAgent: string;
-  anthropicThinking: "omit" | "disabled" | "adaptive";
-  reasoningEffort: string;
 };
 
 export type VisionToolkitSnapshot = {
@@ -28,19 +25,13 @@ export type VisionToolkitSnapshot = {
 };
 
 const PROTOCOLS = new Set<VisionProtocol>(["chat_completions", "responses", "anthropic"]);
-const THINKING = new Set(["omit", "disabled", "adaptive"]);
 const KNOWN_KEYS = [
   "VISION_API_PROTOCOL",
   "VISION_BASE_URL",
   "VISION_MODEL",
   "VISION_API_KEY",
   "LANG",
-  "VISION_USER_AGENT",
-  "VISION_ANTHROPIC_THINKING",
-  "VISION_REASONING_EFFORT",
 ] as const;
-
-const DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
 type KnownKey = (typeof KNOWN_KEYS)[number];
 
@@ -106,20 +97,12 @@ function asLanguage(value: string | undefined): "zh" | "en" | "" {
   return normalized === "zh" || normalized === "en" ? normalized : "";
 }
 
-function asThinking(value: string | undefined): "omit" | "disabled" | "adaptive" {
-  const normalized = value?.trim().toLowerCase() ?? "";
-  return THINKING.has(normalized) ? normalized as "omit" | "disabled" | "adaptive" : "omit";
-}
-
 function settingsFromMap(values: Map<string, string>): VisionToolkitSettings {
   return {
     protocol: asProtocol(values.get("VISION_API_PROTOCOL")),
     baseUrl: values.get("VISION_BASE_URL")?.trim() ?? "",
     model: values.get("VISION_MODEL")?.trim() ?? "",
     language: asLanguage(values.get("LANG")),
-    userAgent: values.get("VISION_USER_AGENT")?.trim() || DEFAULT_USER_AGENT,
-    anthropicThinking: asThinking(values.get("VISION_ANTHROPIC_THINKING")),
-    reasoningEffort: values.get("VISION_REASONING_EFFORT")?.trim() ?? "",
   };
 }
 
@@ -198,21 +181,19 @@ export function readVisionToolkitSnapshot(): VisionToolkitSnapshot {
   };
 }
 
-function valuesForWrite(settings: VisionToolkitSettings, storedKey: string, apiKey?: string): Record<KnownKey, string> {
+function valuesForWrite(settings: VisionToolkitSettings, storedKey: string, apiKey?: string): Partial<Record<KnownKey, string>> {
   const nextKey = apiKey && apiKey.length > 0 ? apiKey.trim() : storedKey;
-  return {
+  const next: Partial<Record<KnownKey, string>> = {
     VISION_API_PROTOCOL: settings.protocol,
     VISION_BASE_URL: settings.baseUrl.trim(),
     VISION_MODEL: settings.model.trim(),
-    VISION_API_KEY: nextKey,
     LANG: settings.language,
-    VISION_USER_AGENT: settings.userAgent.trim(),
-    VISION_ANTHROPIC_THINKING: settings.anthropicThinking,
-    VISION_REASONING_EFFORT: settings.reasoningEffort.trim(),
   };
+  if (nextKey) next.VISION_API_KEY = nextKey;
+  return next;
 }
 
-function serializeEnvFile(existing: string | undefined, next: Record<KnownKey, string>): string {
+function serializeEnvFile(existing: string | undefined, next: Partial<Record<KnownKey, string>>): string {
   const known = new Set<string>(KNOWN_KEYS);
   const seen = new Set<KnownKey>();
   const lines = existing === undefined || existing.length === 0
@@ -223,16 +204,19 @@ function serializeEnvFile(existing: string | undefined, next: Record<KnownKey, s
     lines.pop();
   }
 
-  const rewritten = lines.map((line) => {
+  const rewritten = lines.flatMap((line) => {
     const assignment = parseAssignment(line);
-    if (!assignment || !known.has(assignment.key)) return line;
+    if (!assignment || !known.has(assignment.key)) return [line];
     const key = assignment.key as KnownKey;
     seen.add(key);
-    return `${key}=${next[key]}`;
+    if (!Object.hasOwn(next, key) || next[key] === undefined) return [];
+    return [`${key}=${next[key]}`];
   });
 
   for (const key of KNOWN_KEYS) {
-    if (!seen.has(key)) rewritten.push(`${key}=${next[key]}`);
+    if (!seen.has(key) && Object.hasOwn(next, key) && next[key] !== undefined) {
+      rewritten.push(`${key}=${next[key]}`);
+    }
   }
 
   return `${rewritten.join("\n")}\n`;
