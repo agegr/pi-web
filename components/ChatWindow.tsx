@@ -13,6 +13,9 @@ import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { TrajectoryView } from "./TrajectoryView";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { ConversationPlan, getConversationPlanWidget } from "./ConversationPlan";
+import { filterSubagentWidgets, isPiSubagentWidgetKey } from "./ExtensionWidgets";
+import { DesktopSubagentWidgetCard } from "./SubagentSessions";
+import { useIsWideDesktop } from "@/hooks/useIsWideDesktop";
 import { GoalPanel } from "./GoalPanel";
 import { DialogShell } from "./DialogShell";
 import { filterGoalStatuses, filterGoalWidgets, resolveGoalPanelModel } from "@/lib/goal-panel";
@@ -62,6 +65,8 @@ interface Props {
   };
   /** Sibling session view selected in AppShell; trajectory renders in-workspace. */
   sessionView?: "chat" | "trajectory";
+  /** True when AppShell already mounted the RPC tree card in desktopAside. */
+  subagentTreeVisible?: boolean;
 }
 
 function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, string | number>) => string): string | null {
@@ -271,9 +276,10 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, hasError = false, de
   );
 }
 
-export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, desktopAside, playDoneSound = () => {}, unlockAudio, subagentMode, sessionView }: Props) {
+export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, desktopAside, playDoneSound = () => {}, unlockAudio, subagentMode, sessionView, subagentTreeVisible = false }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
+  const isWideDesktop = useIsWideDesktop();
   const [trajectoryVersion, setTrajectoryVersion] = useState(0);
 
   const playDoneSoundRef = useRef(playDoneSound);
@@ -323,9 +329,13 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const visibleWidgets = filterGoalWidgets(extensionWidgets);
   const conversationPlanWidget = getConversationPlanWidget(visibleWidgets);
   const activeConversationPlanWidget = agentRunning ? conversationPlanWidget : undefined;
-  const footerWidgets = conversationPlanWidget
+  const subagentWidgets = visibleWidgets.filter((widget) => isPiSubagentWidgetKey(widget.key));
+  const planFooterWidgets = conversationPlanWidget
     ? visibleWidgets.filter((widget) => widget !== conversationPlanWidget)
     : visibleWidgets;
+  const footerWidgets = isWideDesktop
+    ? filterSubagentWidgets(planFooterWidgets)
+    : planFooterWidgets;
 
   useEffect(() => {
     if (!extensionDialog || soundedExtensionDialogIdRef.current === extensionDialog.id) return;
@@ -1049,7 +1059,14 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
         </>
         )}
         </div>
-        {desktopAside ? <div className="desktop-workspace-context">{desktopAside}</div> : null}
+        {desktopAside || subagentWidgets.length > 0 ? (
+          <div className="desktop-workspace-context">
+            {desktopAside}
+            {!subagentTreeVisible && subagentWidgets.length > 0 ? (
+              <DesktopSubagentWidgetCard widgets={subagentWidgets} />
+            ) : null}
+          </div>
+        ) : null}
       </div>
       )}
     </div>

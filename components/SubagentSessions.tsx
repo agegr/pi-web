@@ -2,8 +2,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { ChevronRight, CircleStop, Network, Send } from "lucide-react";
 import type { SubagentLifecycleState, SubagentTreeNode } from "@/lib/api-types";
+import type { ExtensionWidgetItem } from "@/lib/types";
+import { stripAnsi } from "@/lib/ansi";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { formatExtensionWidgetContent } from "./ExtensionWidgets";
 
 // ============================================================================
 // Subagent header action, tree, breadcrumb, and composer.
@@ -290,108 +293,54 @@ export function SubagentTree({
       <div
         key={id}
         role="treeitem"
+        className="subagent-tree-item"
         aria-level={meta.depth + 1}
         aria-posinset={meta.position}
         aria-setsize={meta.setSize}
         aria-expanded={hasChildren ? !isCollapsed : undefined}
         aria-selected={selected}
-        style={{ display: "flex", flexDirection: "column", minHeight: 36, paddingLeft: meta.depth * 14 }}
+        style={{ paddingLeft: meta.depth * 14 }}
       >
-        <div style={{ display: "flex", alignItems: "center", minHeight: 36 }}>
+        <div className="subagent-tree-item-row">
           {hasChildren ? (
             <button
               type="button"
+              className="subagent-tree-disclosure"
               aria-label={isCollapsed ? t("subagents.expand") : t("subagents.collapse")}
               onClick={(event) => { event.stopPropagation(); toggle(id); }}
               tabIndex={-1}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 20,
-                height: 20,
-                flexShrink: 0,
-                padding: 0,
-                border: "none",
-                background: "transparent",
-                color: "var(--text-muted)",
-                cursor: "pointer",
-              }}
             >
               <ChevronRight
                 size={12}
                 strokeWidth={1.8}
                 aria-hidden="true"
-                style={{ transform: isCollapsed ? "none" : "rotate(90deg)", transition: "transform 0.15s" }}
+                style={{ transform: isCollapsed ? "none" : "rotate(90deg)" }}
               />
             </button>
           ) : (
-            <span style={{ width: 20, flexShrink: 0 }} />
+            <span className="subagent-tree-disclosure" aria-hidden="true" />
           )}
           <button
             ref={(element) => { rowRefs.current[index] = element; }}
             type="button"
+            className="subagent-tree-row"
             tabIndex={index === focusIndex ? 0 : -1}
             disabled={disabled}
             aria-current={selected ? "true" : undefined}
             aria-label={accessibleDetail}
             data-subagent-card-row="true"
             onClick={() => { if (!disabled) callbacks.onSelect(node); }}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              flex: 1,
-              minWidth: 0,
-              minHeight: 36,
-              padding: "4px 8px",
-              border: "none",
-              borderRadius: 6,
-              background: selected ? "var(--bg-selected)" : "transparent",
-              color: disabled ? "var(--text-dim)" : "var(--text)",
-              cursor: disabled ? "not-allowed" : "pointer",
-              textAlign: "left",
-              fontSize: "var(--text-ui)",
-              lineHeight: "var(--leading-ui)",
-            }}
           >
             <span aria-hidden="true" className="subagent-state-dot" data-subagent-state={node.state} />
-            <span style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
-              <span
-                style={{
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                  color: "var(--text-dim)",
-                  fontSize: "var(--text-meta)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.04em",
-                }}
-              >
-                {node.agent}
-              </span>
-              <span
-                style={{
-                  overflow: "hidden",
-                  display: "-webkit-box",
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: "vertical",
-                  overflowWrap: "anywhere",
-                  color: disabled ? "var(--text-dim)" : "var(--text)",
-                }}
-              >
-                {node.task}
-              </span>
-              {detail ? (
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-muted)", fontSize: "var(--text-meta)" }}>
-                  {detail}
-                </span>
-              ) : null}
+            <span className="subagent-tree-copy">
+              <span className="subagent-tree-agent">{node.agent}</span>
+              <span className="subagent-tree-task">{node.task}</span>
+              {detail ? <span className="subagent-tree-detail">{detail}</span> : null}
             </span>
           </button>
         </div>
         {nested ? (
-          <div role="group" key={`${id}-group`} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <div role="group" key={`${id}-group`} className="subagent-tree-group">
             {nested}
           </div>
         ) : null}
@@ -424,7 +373,7 @@ export function SubagentTree({
       role="tree"
       aria-label={t("subagents.title")}
       onKeyDown={handleKeyDown}
-      style={{ display: "flex", flexDirection: "column", gap: 2, padding: 4, overflowY: "auto" }}
+      style={{ display: "flex", flexDirection: "column", gap: 2, padding: 4, overflowX: "hidden", overflowY: "auto" }}
     >
       {visibleRows.length === 0 ? (
         <div style={{ padding: "10px 8px", color: "var(--text-muted)", fontSize: "var(--text-meta)", fontStyle: "italic" }}>
@@ -515,6 +464,30 @@ export function DesktopSubagentCard({
         selectedSessionId={selectedSessionId}
         callbacks={callbacks}
       />
+    </section>
+  );
+}
+
+/** Right-gutter fallback when live TUI widgets exist but the RPC tree is empty. */
+export function DesktopSubagentWidgetCard({ widgets }: { widgets: ExtensionWidgetItem[] }) {
+  const { t } = useI18n();
+  if (widgets.length === 0) return null;
+  return (
+    <section
+      className="desktop-subagent-card"
+      aria-label={t("subagents.title")}
+      data-subagent-card="true"
+      data-subagent-widget-card="true"
+    >
+      <div className="desktop-subagent-card-header">
+        <Network size={14} strokeWidth={1.8} aria-hidden="true" />
+        <span>{t("subagents.title")}</span>
+      </div>
+      {widgets.map((widget) => (
+        <pre key={widget.key} className="desktop-subagent-widget-content">
+          {stripAnsi(formatExtensionWidgetContent(widget.lines))}
+        </pre>
+      ))}
     </section>
   );
 }

@@ -12,6 +12,7 @@ const {
   SessionBreadcrumb,
   SubagentComposer,
   DesktopSubagentCard,
+  DesktopSubagentWidgetCard,
   countSubagentNodes,
   countActiveSubagentNodes,
   submitActionFor,
@@ -84,8 +85,17 @@ test("tree row shows the agent role on its own line above the bounded task", () 
   const html = render(React.createElement(SubagentTree, { nodes: [child], selectedSessionId: null, callbacks }));
   // The task text still appears; the agent is a separate uppercase role label, not inline with it.
   assert.match(html, /Inspect RPC/);
-  assert.match(html, /text-transform:uppercase[^>]*>worker/);
+  assert.match(html, /subagent-tree-agent[^>]*>worker/);
   assert.doesNotMatch(html, />worker[^<]*Inspect RPC/);
+});
+
+test("tree rows stack agent, task, and status instead of overlapping in 36px", () => {
+  const source = readFileSync(new URL("./SubagentSessions.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(source, /className="subagent-tree-copy"/);
+  assert.doesNotMatch(source, /minHeight: 36/);
+  assert.match(css, /\.subagent-tree-copy \{[\s\S]*?flex-direction:\s*column;[\s\S]*?gap:\s*2px;/);
+  assert.match(css, /\.subagent-tree-row \{[\s\S]*?align-items:\s*flex-start;/);
 });
 
 test("tree shows elapsed time when present and hides it otherwise", () => {
@@ -296,6 +306,20 @@ test("desktop subagent card omits itself without nodes", () => {
     stale: false,
     callbacks,
   })), "");
+});
+
+test("desktop widget card relocates pi-subagents TUI output into the right gutter", () => {
+  const html = render(React.createElement(DesktopSubagentWidgetCard, {
+    widgets: [
+      { key: "subagent-async", lines: ["\u001b[32mworker\u001b[0m reviewing"], placement: "aboveEditor" },
+      { key: "subagent-fleet-status", lines: ["fleet 2"], placement: "belowEditor" },
+    ],
+  }));
+  assert.match(html, /data-subagent-widget-card="true"/);
+  assert.match(html, /aria-label="Subagents"/);
+  assert.match(html, /worker reviewing/);
+  assert.match(html, /fleet 2/);
+  assert.doesNotMatch(html, /\u001b\[32m/);
 });
 
 test("running summary localizes in both locales", async () => {

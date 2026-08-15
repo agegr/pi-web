@@ -7,6 +7,20 @@ import type { ExtensionWidgetItem } from "@/lib/types";
 export const DEFAULT_EXPANDED_WIDGET_LINES = 3;
 export const WIDGET_UPDATE_IDLE_MS = 1100;
 
+/** TUI widgets from pi-subagents; the web tree/card replaces them. */
+export const PI_SUBAGENT_WIDGET_KEYS = new Set([
+  "subagent-async",
+  "subagent-fleet-status",
+]);
+
+export function isPiSubagentWidgetKey(key: string): boolean {
+  return PI_SUBAGENT_WIDGET_KEYS.has(key);
+}
+
+export function filterSubagentWidgets<T extends { key: string }>(widgets: T[]): T[] {
+  return widgets.filter((widget) => !isPiSubagentWidgetKey(widget.key));
+}
+
 export function formatExtensionWidgetContent(lines: string[]): string {
   return lines.join("\n");
 }

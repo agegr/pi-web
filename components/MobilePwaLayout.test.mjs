@@ -83,4 +83,5 @@ test("hides the extension status shelf while the mobile keyboard is open", () =>
   assert.match(viewportHookSource, /classList\.remove\("keyboard-open"\)/);
   assert.match(cssSource, /html\.keyboard-open \.extension-status-shelf \{[\s\S]*?display:\s*none/);
   assert.match(cssSource, /\.extension-widget-triggers \{[\s\S]*?overflow-x:\s*auto/);
+  assert.match(cssSource, /\.extension-widget-triggers::-webkit-scrollbar-corner \{[\s\S]*?display:\s*none/);
 });

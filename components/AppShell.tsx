@@ -2232,6 +2232,7 @@ export function AppShell() {
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onContextUsageChange={handleContextUsageChange}
               onOpenFile={handleOpenLinkedFile}
+              subagentTreeVisible={subagentCount > 0}
               desktopAside={conversationContextModel || subagentCount > 0 ? (
                 <div className="desktop-workspace-context-stack">
                   {conversationContextModel ? (

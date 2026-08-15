@@ -11,9 +11,11 @@ const jiti = createJiti(import.meta.url, {
 const {
   DEFAULT_EXPANDED_WIDGET_LINES,
   ExtensionWidgets,
+  filterSubagentWidgets,
   formatExtensionWidgetContent,
   getNextExpandedWidgetKey,
   getUpdatedExtensionWidgetKeys,
+  isPiSubagentWidgetKey,
   snapshotExtensionWidgetContents,
 } = await jiti.import("./ExtensionWidgets.tsx");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
@@ -152,4 +154,20 @@ test("keeps generic widgets independent from conversation plans", () => {
 
   assert.match(html, /extension-widget-panel/);
   assert.match(html, /one\ntwo/);
+});
+
+test("identifies the pi-subagents TUI widgets that the web tree replaces", () => {
+  assert.equal(isPiSubagentWidgetKey("subagent-async"), true);
+  assert.equal(isPiSubagentWidgetKey("subagent-fleet-status"), true);
+  assert.equal(isPiSubagentWidgetKey("web-activity"), false);
+  assert.equal(isPiSubagentWidgetKey("details"), false);
+});
+
+test("drops pi-subagents TUI widgets while keeping other footer widgets", () => {
+  const widgets = [
+    { key: "subagent-async", lines: ["worker"], placement: "aboveEditor" },
+    { key: "web-activity", lines: ["fetch"], placement: "belowEditor" },
+    { key: "subagent-fleet-status", lines: ["fleet"], placement: "belowEditor" },
+  ];
+  assert.deepEqual(filterSubagentWidgets(widgets).map((widget) => widget.key), ["web-activity"]);
 });

@@ -8,7 +8,11 @@ const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8")
 test("hides recognized todos when the agent settles without returning them to the footer", () => {
   assert.match(chat, /const conversationPlanWidget = getConversationPlanWidget\(visibleWidgets\)/);
   assert.match(chat, /const activeConversationPlanWidget = agentRunning \? conversationPlanWidget : undefined/);
-  assert.match(chat, /const footerWidgets = conversationPlanWidget[\s\S]*?visibleWidgets\.filter/);
+  assert.match(chat, /filterSubagentWidgets\(planFooterWidgets\)/);
+  assert.match(chat, /visibleWidgets\.filter/);
+  assert.match(chat, /subagentTreeVisible/);
+  assert.match(chat, /DesktopSubagentWidgetCard/);
+  assert.match(chat, /isPiSubagentWidgetKey/);
   assert.match(chat, /<ConversationPlan[\s\S]*?widget=\{activeConversationPlanWidget\}/);
   assert.match(chat, /activeConversationPlanWidget \? \(/);
   assert.match(chat, /<ExtensionStatusBar[^>]*widgets=\{footerWidgets\}/);
