@@ -2267,7 +2267,7 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
 .settings-form-heading h3 {
   margin: 0;
   color: var(--text);
-  font-size: 16px;
+  font-size: var(--text-title);
   font-weight: var(--weight-semibold);
   letter-spacing: 0;
 }
@@ -4527,7 +4527,7 @@ span.linenumber {
 .trajectory-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--text-ui);
+  font-size: var(--text-meta);
 }
 .trajectory-table th {
   position: sticky;
@@ -4673,7 +4673,7 @@ span.linenumber {
 .trajectory-inspector-head b {
   display: block;
   margin-top: 3px;
-  font-size: var(--text-title);
+  font-size: var(--text-ui);
   color: var(--text);
   overflow-wrap: anywhere;
 }
