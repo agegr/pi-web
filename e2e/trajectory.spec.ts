@@ -17,6 +17,8 @@ test("desktop: trajectory view renders timeline, ledger and inspector", async ({
   await expect(page.getByText("Requests")).toBeVisible();
   await expect(page.getByText(/request gpt-5\.6-sol/).first()).toBeVisible();
   await expect(page.getByText("read · AGENTS.md")).toBeVisible();
+  const eventBox = await page.locator(".trajectory-summary-cell").first().boundingBox();
+  expect(eventBox?.width ?? 0).toBeGreaterThan(80);
 
   // Selecting a record opens the inspector with summary-first confirmation.
   await page.getByText(/request gpt-5\.6-sol/).first().click();

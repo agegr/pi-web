@@ -10,6 +10,9 @@ test("renders a Codex-style new-session home", () => {
   assert.match(source, /handleSend\(`\/skill:\$\{skill\}/);
   assert.match(source, /skill: "requesting-code-review"/);
   assert.match(source, /chat\.homeExplore/);
+  assert.match(source, /workspaceHint=\{isEmptyNew \? homeCwdLabel : null\}/);
+  assert.doesNotMatch(source, /maxWidth: 820/);
+  assert.doesNotMatch(source, /margin: "0 auto -14px"/);
 });
 
 test("process details use a compact result row and stay collapsed", () => {

@@ -26,6 +26,8 @@ export function useTrajectory({ sessionId, leafId, trajectoryVersion }: UseTraje
     () => new Map(),
   );
   const requestSeqRef = useRef(0);
+  const expandedChildrenRef = useRef(expandedChildren);
+  expandedChildrenRef.current = expandedChildren;
 
   const fetchTrajectory = useCallback(async (level: "summary" | "full") => {
     if (!sessionId) return;
@@ -40,11 +42,7 @@ export function useTrajectory({ sessionId, leafId, trajectoryVersion }: UseTraje
       if (res.status === 409) {
         const body = await res.json() as TrajectoryUnsupportedResponse;
         setData(null);
-        setError(
-          body.session.reason === "no_sidecar"
-            ? "Trajectory is not available for sessions created before this feature."
-            : "Trajectory is not available for this session.",
-        );
+        setError(body.session.reason === "no_sidecar" ? "no_sidecar" : "unavailable");
         return;
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -56,7 +54,7 @@ export function useTrajectory({ sessionId, leafId, trajectoryVersion }: UseTraje
       );
     } catch (e) {
       if (seq === requestSeqRef.current) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError("load_failed");
       }
     } finally {
       if (seq === requestSeqRef.current) setLoading(false);
@@ -88,26 +86,28 @@ export function useTrajectory({ sessionId, leafId, trajectoryVersion }: UseTraje
 
   const expandSubagent = useCallback(async (childSessionId: string) => {
     if (!childSessionId) return;
-    setExpandedChildren((previous) => {
-      if (previous.has(childSessionId)) return previous;
-      void (async () => {
-        try {
-          const res = await fetch(
-            `/api/sessions/${encodeURIComponent(childSessionId)}/trajectory?detailLevel=summary`,
-          );
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const body = await res.json() as TrajectoryResponse;
-          setExpandedChildren((current) => {
-            const next = new Map(current);
-            next.set(childSessionId, body);
-            return next;
-          });
-        } catch (e) {
-          setError(`Failed to load child trajectory: ${e instanceof Error ? e.message : String(e)}`);
-        }
-      })();
-      return previous;
-    });
+    if (expandedChildrenRef.current.has(childSessionId)) {
+      setExpandedChildren((previous) => {
+        const next = new Map(previous);
+        next.delete(childSessionId);
+        return next;
+      });
+      return;
+    }
+    try {
+      const res = await fetch(
+        `/api/sessions/${encodeURIComponent(childSessionId)}/trajectory?detailLevel=summary`,
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = await res.json() as TrajectoryResponse;
+      setExpandedChildren((current) => {
+        const next = new Map(current);
+        next.set(childSessionId, body);
+        return next;
+      });
+    } catch {
+      // Leave the row collapsed. Child fetch failures must not replace the parent ledger.
+    }
   }, []);
 
   return {

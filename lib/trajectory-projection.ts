@@ -26,6 +26,67 @@ function count(records: TrajectoryRecord[], kind: TrajectoryRecord["kind"]): num
   return records.filter((r) => r.kind === kind).length;
 }
 
+function inferMissingTurnIds(records: TrajectoryRecord[]): TrajectoryRecord[] {
+  if (records.some((record) => record.kind === "turn_start" && record.turnId)) return records;
+  let n = 0;
+  let current: string | undefined;
+  return records.map((record) => {
+    if (record.kind === "request_start") current = `turn-${n++}`;
+    if (!current || record.turnId) return record;
+    return { ...record, turnId: current };
+  });
+}
+
+function applySpan(start: TrajectoryRecordView, end: TrajectoryRecordView): void {
+  const duration = end.timestamp - start.timestamp;
+  if (duration < 0) return;
+  start.endTimestamp = end.timestamp;
+  start.durationMs = duration;
+  start.status = end.status;
+  end.durationMs = duration;
+  end.endTimestamp = end.timestamp;
+}
+
+function pairByKey(
+  views: TrajectoryRecordView[],
+  startKind: TrajectoryRecordView["kind"],
+  endKind: TrajectoryRecordView["kind"],
+  key: "requestId" | "stepId" | "turnId",
+): void {
+  const starts = new Map<string, TrajectoryRecordView>();
+  for (const view of views) {
+    const id = view[key];
+    if (view.kind === startKind && id) starts.set(id, view);
+  }
+  for (const view of views) {
+    const id = view[key];
+    if (view.kind !== endKind || !id) continue;
+    const start = starts.get(id);
+    if (start) applySpan(start, view);
+  }
+}
+
+function pairSequential(
+  views: TrajectoryRecordView[],
+  startKind: TrajectoryRecordView["kind"],
+  endKind: TrajectoryRecordView["kind"],
+): void {
+  const open: TrajectoryRecordView[] = [];
+  for (const view of views) {
+    if (view.kind === startKind) open.push(view);
+    else if (view.kind === endKind && open.length > 0) applySpan(open.pop()!, view);
+  }
+}
+
+function applyPairedTiming(views: TrajectoryRecordView[]): TrajectoryRecordView[] {
+  pairByKey(views, "request_start", "request_end", "requestId");
+  pairByKey(views, "tool_start", "tool_end", "stepId");
+  pairByKey(views, "turn_start", "turn_end", "turnId");
+  pairSequential(views, "retry_start", "retry_end");
+  pairSequential(views, "compaction_start", "compaction_end");
+  return views;
+}
+
 function toView(record: TrajectoryRecord, detailLevel: TrajectoryDetailLevel): TrajectoryRecordView {
   const data = record.data;
   const summary = typeof data?.summary === "string" ? data.summary : record.kind;
@@ -110,14 +171,44 @@ function buildTurns(
       if (typeof start.data?.summary === "string") turn.summary = start.data.summary;
       return { sequence: start.sequence, turn };
     });
-  const byId = new Map(turns.map((t) => [t.turn.id, t.turn]));
-  for (const r of records) {
-    const turn = r.turnId ? byId.get(r.turnId) : undefined;
-    if (!turn) continue;
-    if (r.kind === "request_start") turn.requestCount += 1;
-    if (r.kind === "tool_start") turn.toolCount += 1;
-  }
+  countTurnMembers(records, turns.map((entry) => entry.turn));
   return turns;
+}
+
+function synthesizeTurns(
+  records: TrajectoryRecord[],
+): Array<{ sequence: number; turn: TrajectoryTurn }> {
+  const first = new Map<string, TrajectoryRecord>();
+  const last = new Map<string, TrajectoryRecord>();
+  for (const record of records) {
+    if (!record.turnId) continue;
+    if (!first.has(record.turnId)) first.set(record.turnId, record);
+    last.set(record.turnId, record);
+  }
+  const turns = [...first.entries()].map(([id, start]) => {
+    const end = last.get(id);
+    const turn: TrajectoryTurn = {
+      id,
+      startTimestamp: start.timestamp,
+      status: end?.status ?? "running",
+      requestCount: 0,
+      toolCount: 0,
+    };
+    if (end && end !== start) turn.endTimestamp = end.timestamp;
+    return { sequence: start.sequence, turn };
+  });
+  countTurnMembers(records, turns.map((entry) => entry.turn));
+  return turns;
+}
+
+function countTurnMembers(records: TrajectoryRecord[], turns: TrajectoryTurn[]): void {
+  const byId = new Map(turns.map((turn) => [turn.id, turn]));
+  for (const record of records) {
+    const turn = record.turnId ? byId.get(record.turnId) : undefined;
+    if (!turn) continue;
+    if (record.kind === "request_start") turn.requestCount += 1;
+    if (record.kind === "tool_start") turn.toolCount += 1;
+  }
 }
 
 function buildStats(
@@ -153,12 +244,13 @@ export function projectTrajectory(
   result: TrajectoryReadResult,
   options: ProjectionOptions,
 ): TrajectoryResponse {
-  const records = result.records.filter(
-    (r) => r.leafId == null || options.branchEntryIds.has(r.leafId),
+  const records = inferMissingTurnIds(
+    result.records.filter((r) => r.leafId == null || options.branchEntryIds.has(r.leafId)),
   );
-  const views = records.map((r) => toView(r, options.detailLevel));
+  const views = applyPairedTiming(records.map((r) => toView(r, options.detailLevel)));
   const requests = buildRequests(records).map((entry) => entry.request);
-  const turns = buildTurns(records).map((entry) => entry.turn);
+  const fromStarts = buildTurns(records);
+  const turns = (fromStarts.length > 0 ? fromStarts : synthesizeTurns(records)).map((entry) => entry.turn);
   const stats = buildStats(records, requests, turns);
 
   return {

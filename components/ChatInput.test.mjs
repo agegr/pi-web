@@ -76,6 +76,42 @@ test("keeps the model selector visible when a model error leaves no options", ()
   assert.match(html, /title="No available models"/);
 });
 
+test("shows the workspace hint inside the composer on the new-session home", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        onModelChange() {},
+        isStreaming: false,
+        cwd: "/Users/kale/pi-cwd-20260807",
+        workspaceHint: "pi-cwd-20260807",
+      }),
+    ),
+  );
+
+  assert.match(html, /class="composer-workspace-hint"/);
+  assert.match(html, /pi-cwd-20260807/);
+  assert.match(html, /Working in pi-cwd-20260807/);
+  assert.doesNotMatch(
+    renderToStaticMarkup(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(ChatInput, {
+          onSend() {},
+          onAbort() {},
+          onModelChange() {},
+          isStreaming: false,
+        }),
+      ),
+    ),
+    /composer-workspace-hint/,
+  );
+});
+
 test("lays out attach, access, model, and reasoning like the reference composer", () => {
   assert.equal(composerThinkingBadgeLevel("auto"), null);
   assert.equal(composerThinkingBadgeLevel("high"), "high");

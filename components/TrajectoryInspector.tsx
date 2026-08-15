@@ -2,6 +2,7 @@
 
 import { X } from "lucide-react";
 import { useState } from "react";
+import { useI18n } from "@/hooks/useI18n";
 import type { TrajectoryRecordView } from "@/lib/api-types";
 import { formatDuration } from "./TrajectoryTimeline";
 
@@ -28,20 +29,21 @@ function Detail({ label, value }: { label: string; value: string }) {
 }
 
 function DetailGrid({ record }: { record: TrajectoryRecordView }) {
+  const { t } = useI18n();
   return (
     <div className="trajectory-detail-grid">
-      <Detail label="Kind" value={record.kind} />
-      <Detail label="Status" value={record.status} />
-      <Detail label="Started" value={new Date(record.timestamp).toLocaleTimeString()} />
+      <Detail label={t("trajectory.field.kind")} value={record.kind} />
+      <Detail label={t("trajectory.field.status")} value={record.status} />
+      <Detail label={t("trajectory.field.started")} value={new Date(record.timestamp).toLocaleTimeString()} />
       {record.endTimestamp !== undefined
-        ? <Detail label="Ended" value={new Date(record.endTimestamp).toLocaleTimeString()} />
+        ? <Detail label={t("trajectory.field.ended")} value={new Date(record.endTimestamp).toLocaleTimeString()} />
         : null}
-      <Detail label="Duration" value={record.durationMs !== undefined ? formatDuration(record.durationMs) : "—"} />
-      {record.turnId ? <Detail label="Turn" value={record.turnId} /> : null}
-      {record.requestId ? <Detail label="Request" value={record.requestId} /> : null}
-      {record.stepId ? <Detail label="Step" value={record.stepId} /> : null}
-      {record.childSessionId ? <Detail label="Child session" value={record.childSessionId} /> : null}
-      <Detail label="Summary" value={record.summary} />
+      <Detail label={t("trajectory.field.duration")} value={record.durationMs !== undefined ? formatDuration(record.durationMs) : "—"} />
+      {record.turnId ? <Detail label={t("trajectory.field.turn")} value={record.turnId} /> : null}
+      {record.requestId ? <Detail label={t("trajectory.field.request")} value={record.requestId} /> : null}
+      {record.stepId ? <Detail label={t("trajectory.field.step")} value={record.stepId} /> : null}
+      {record.childSessionId ? <Detail label={t("trajectory.field.childSession")} value={record.childSessionId} /> : null}
+      <Detail label={t("trajectory.field.summary")} value={record.summary} />
     </div>
   );
 }
@@ -78,23 +80,24 @@ export function TrajectoryInspector({
   onClose,
   mobile,
 }: TrajectoryInspectorProps) {
+  const { t } = useI18n();
   const [tab, setTab] = useState<TabId>("overview");
 
   if (!record) {
     if (mobile) return null;
     return (
       <aside className="trajectory-inspector trajectory-inspector-empty">
-        Select a record to inspect
+        {t("trajectory.inspectEmpty")}
       </aside>
     );
   }
 
   const tabs: Array<{ id: TabId; label: string; available: boolean }> = [
-    { id: "overview", label: "Overview", available: true },
-    { id: "input", label: "Input", available: tabPayload(record, "input") !== null },
-    { id: "output", label: "Output", available: tabPayload(record, "output") !== null },
-    { id: "timing", label: "Timing", available: true },
-    { id: "usage", label: "Usage", available: tabPayload(record, "usage") !== null },
+    { id: "overview", label: t("trajectory.tab.overview"), available: true },
+    { id: "input", label: t("trajectory.tab.input"), available: tabPayload(record, "input") !== null },
+    { id: "output", label: t("trajectory.tab.output"), available: tabPayload(record, "output") !== null },
+    { id: "timing", label: t("trajectory.tab.timing"), available: true },
+    { id: "usage", label: t("trajectory.tab.usage"), available: tabPayload(record, "usage") !== null },
   ];
   const visibleTabs = tabs.filter((item) => item.available);
   const activeTab = visibleTabs.some((item) => item.id === tab) ? tab : "overview";
@@ -126,11 +129,11 @@ export function TrajectoryInspector({
         {activeTab === "overview" ? <DetailGrid record={record} /> : null}
         {activeTab === "timing" ? (
           <div className="trajectory-detail-grid">
-            <Detail label="Started" value={new Date(record.timestamp).toLocaleTimeString()} />
+            <Detail label={t("trajectory.field.started")} value={new Date(record.timestamp).toLocaleTimeString()} />
             {record.endTimestamp !== undefined
-              ? <Detail label="Ended" value={new Date(record.endTimestamp).toLocaleTimeString()} />
+              ? <Detail label={t("trajectory.field.ended")} value={new Date(record.endTimestamp).toLocaleTimeString()} />
               : null}
-            <Detail label="Duration" value={record.durationMs !== undefined ? formatDuration(record.durationMs) : "running"} />
+            <Detail label={t("trajectory.field.duration")} value={record.durationMs !== undefined ? formatDuration(record.durationMs) : t("trajectory.durationRunning")} />
           </div>
         ) : null}
         {activeTab !== "overview" && activeTab !== "timing" ? <Payload value={tabPayload(record, activeTab)} /> : null}
@@ -138,24 +141,22 @@ export function TrajectoryInspector({
         {showConfirmation ? (
           fullDetailsPending ? (
             <div className="trajectory-privacy-note">
-              Full input and output for this record is stored locally in the session
-              trajectory sidecar. It may contain file paths, tool arguments and
-              command output.
+              {t("trajectory.privacyPending")}
               <div className="trajectory-privacy-actions">
                 <button type="button" className="trajectory-btn trajectory-btn-primary" onClick={onConfirmFullDetails}>
-                  Confirm and load
+                  {t("trajectory.confirmLoad")}
                 </button>
                 <button type="button" className="trajectory-btn" onClick={onCancelFullDetails}>
-                  Cancel
+                  {t("trajectory.cancel")}
                 </button>
               </div>
             </div>
           ) : (
             <div className="trajectory-privacy-note">
-              Inputs and outputs are hidden in summary mode.
+              {t("trajectory.privacySummary")}
               <div className="trajectory-privacy-actions">
                 <button type="button" className="trajectory-btn" onClick={onRequestFullDetails}>
-                  Load full details
+                  {t("trajectory.loadDetails")}
                 </button>
               </div>
             </div>
@@ -167,8 +168,8 @@ export function TrajectoryInspector({
 
   if (mobile) {
     return (
-      <div className="trajectory-sheet" role="dialog" aria-label={`Record ${record.kind}`}>
-        <button type="button" className="trajectory-sheet-close" aria-label="Close inspector" onClick={onClose}>
+      <div className="trajectory-sheet" role="dialog" aria-label={t("trajectory.recordLabel", { kind: record.kind })}>
+        <button type="button" className="trajectory-sheet-close" aria-label={t("trajectory.closeInspector")} onClick={onClose}>
           <X size={14} strokeWidth={2} aria-hidden="true" />
         </button>
         {content}
