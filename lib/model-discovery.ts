@@ -30,8 +30,25 @@ function isPrivateIpv6(address: string): boolean {
   return mapped ? isPrivateIpv4(mapped[1]) : false;
 }
 
+function normalizeDiscoveryHostname(hostname: string): string {
+  return hostname.toLowerCase().replace(/\.$/, "").replace(/^\[|\]$/g, "");
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = normalizeDiscoveryHostname(hostname);
+  if (normalized === "localhost" || normalized.endsWith(".localhost")) return true;
+  const ipKind = isIP(normalized);
+  if (ipKind === 4) return normalized.split(".").map(Number)[0] === 127;
+  if (ipKind === 6) {
+    if (normalized === "::1") return true;
+    const mapped = /^::ffff:(.+)$/.exec(normalized);
+    return mapped ? isLoopbackHostname(mapped[1]) : false;
+  }
+  return false;
+}
+
 function isPrivateHostname(hostname: string): boolean {
-  const normalized = hostname.toLowerCase().replace(/\.$/, "").replace(/^\[|\]$/g, "");
+  const normalized = normalizeDiscoveryHostname(hostname);
   if (normalized === "localhost" || normalized.endsWith(".localhost")) return true;
   if (normalized === "" || normalized.includes("%")) return true;
   const ipKind = isIP(normalized);
@@ -48,8 +65,9 @@ export interface DiscoveryTargetAuth {
 /**
  * Guards discovery/test fetches against credential-forwarding SSRF.
  * Scheme is restricted to http(s); stored credentials are never forwarded to
- * loopback, link-local, or private destinations (local models like Ollama stay
- * usable because they attach no credentials).
+ * link-local or private destinations. Loopback (localhost, 127.0.0.0/8, ::1)
+ * is allowed with credentials so local OpenAI-compatible proxies work. LAN
+ * models without credentials (e.g. Ollama on 192.168.x) stay usable.
  */
 export function assertSafeDiscoveryTarget(target: URL, auth: DiscoveryTargetAuth): void {
   if (target.protocol !== "http:" && target.protocol !== "https:") {
@@ -57,8 +75,8 @@ export function assertSafeDiscoveryTarget(target: URL, auth: DiscoveryTargetAuth
   }
   const hasCredentials = Boolean(auth.apiKey)
     || Object.values(auth.headers ?? {}).some((value) => typeof value === "string" && value.length > 0);
-  if (hasCredentials && isPrivateHostname(target.hostname)) {
-    throw new Error("Base URL must not target a loopback, link-local, or private address when credentials are attached");
+  if (hasCredentials && isPrivateHostname(target.hostname) && !isLoopbackHostname(target.hostname)) {
+    throw new Error("Base URL must not target a link-local or private address when credentials are attached");
   }
 }
 
