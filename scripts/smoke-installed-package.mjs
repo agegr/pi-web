@@ -65,6 +65,11 @@ const serverCommand = process.platform === "win32"
 const serverArgs = process.platform === "win32"
   ? ["/c", installedBin, "--no-open", "-H", "127.0.0.1", "-p", String(port)]
   : [installedBin, "--no-open", "-H", "127.0.0.1", "-p", String(port)];
+
+const password = process.env.PI_WEB_PASSWORD;
+const authHeaders = password
+  ? { authorization: `Basic ${Buffer.from(`pi:${password}`).toString("base64")}` }
+  : {};
 const server = spawn(serverCommand, serverArgs, {
   cwd: projectDir,
   stdio: ["ignore", "pipe", "pipe"],
@@ -84,10 +89,10 @@ let serverLogs = "";
 server.stdout.on("data", (chunk) => { serverLogs += chunk; });
 server.stderr.on("data", (chunk) => { serverLogs += chunk; });
 
-async function waitFor(url) {
+async function waitFor(url, init) {
   for (let attempt = 0; attempt < 80; attempt += 1) {
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, init);
       if (response.status < 500) return response;
     } catch {}
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -164,13 +169,13 @@ function rawRequest(host, pathname) {
 }
 
 try {
-  const root = await waitFor(`${origin}/`);
+  const root = await waitFor(`${origin}/`, password ? { headers: authHeaders } : {});
   assert.equal(root.status, 200);
   const rootHtml = await root.text();
   assert.match(rootHtml, /Pi Web/);
   assert.match(rootHtml, /codex-sidebar/, "installed root must render the real AppShell");
 
-  const sessions = await fetch(`${origin}/api/sessions`);
+  const sessions = await fetch(`${origin}/api/sessions`, password ? { headers: authHeaders } : {});
   assert.equal(sessions.status, 200);
   assert.equal(sessions.headers.get("cache-control"), "no-store");
   const sessionsBody = await sessions.json();
@@ -194,8 +199,19 @@ try {
   assert.equal(untrustedApi.status, 403);
   assert.deepEqual(JSON.parse(untrustedApi.body), { error: "Untrusted API request" });
 
+  if (password) {
+    const unauthenticated = await fetch(`${origin}/`);
+    assert.equal(unauthenticated.status, 401);
+    assert.equal(unauthenticated.headers.get("cache-control"), "no-store");
+    assert.equal(
+      unauthenticated.headers.get("www-authenticate"),
+      'Basic realm="Pi Web", charset="UTF-8"',
+    );
+    assert.equal(await unauthenticated.text(), "Authentication required");
+  }
+
   // All 42 API routes with the identical safe probe matrix as standalone smoke.
-  const routeSmoke = await smokeAllRoutes({ origin, authHeaders: {} });
+  const routeSmoke = await smokeAllRoutes({ origin, authHeaders });
   assert.ok(routeSmoke.results.length >= 41, "fewer than 41 route probes ran");
 
   console.log(JSON.stringify({
