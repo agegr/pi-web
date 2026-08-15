@@ -117,8 +117,9 @@ const CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"
 // Extensions require a complete Theme, while the web UI applies its own styling.
 class PlainTextTheme extends Theme {
   constructor() {
+    // ponytail: Theme 0.84.2 falls back searchMatchText→text; add keys if ctor grows
     super(
-      { thinkingXhigh: "" } as ConstructorParameters<typeof Theme>[0],
+      { thinkingXhigh: "", text: "" } as ConstructorParameters<typeof Theme>[0],
       { selectedBg: "" } as ConstructorParameters<typeof Theme>[1],
       "truecolor",
     );
@@ -182,12 +183,25 @@ export class AgentSessionWrapper {
   private shutdownPromise: Promise<void> | null = null;
   private _alive = true;
   private readonly subagentRpcClient: SubagentRpcClient;
+  private liveSubagentSessionIds: string[] = [];
 
   constructor(
     public readonly inner: AgentSessionLike,
     subagentRpcCapture?: SubagentRpcCapture,
   ) {
     this.subagentRpcClient = new SubagentRpcClient(subagentRpcCapture ?? { events: null });
+  }
+
+  getLiveSubagentSessionIds(): string[] {
+    return this.liveSubagentSessionIds;
+  }
+
+  setLiveSubagentSessionIds(ids: string[]): boolean {
+    const next = [...new Set(ids)].sort();
+    const previous = this.liveSubagentSessionIds;
+    if (previous.length === next.length && previous.every((id, index) => id === next[index])) return false;
+    this.liveSubagentSessionIds = next;
+    return true;
   }
 
   async getSubagentRpcClient(): Promise<SubagentRpcClient> {
@@ -1587,6 +1601,7 @@ export function getRunningRpcSessionIds(): string[] {
   const ids = new Set<string>();
   for (const [sessionId, session] of getRegistry()) {
     if (session.isRunning()) ids.add(session.sessionId || sessionId);
+    for (const childId of session.getLiveSubagentSessionIds()) ids.add(childId);
   }
   return [...ids];
 }

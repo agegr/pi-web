@@ -24,13 +24,14 @@ export function attachSessionRelations(sessions: SessionInfo[]): SessionInfo[] {
       rootSessionId = parent.parentSessionId;
     }
 
+    const encodedIndex = match[3] ? Number(match[3]) : undefined;
     return {
       ...session,
       sessionRole: "subagent",
       ...(rootSessionId && byId.has(rootSessionId) ? { rootSessionId } : {}),
       subagentAgent: match[1],
       subagentRunId: match[2],
-      ...(match[3] ? { subagentIndex: Number(match[3]) } : {}),
+      ...(encodedIndex !== undefined && encodedIndex > 0 ? { subagentIndex: encodedIndex - 1 } : {}),
     };
   });
 }

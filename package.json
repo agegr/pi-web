@@ -41,10 +41,10 @@
     "release": "node scripts/release-tanstack.mjs"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.84.1",
-    "@earendil-works/pi-ai": "0.84.1",
-    "@earendil-works/pi-coding-agent": "0.84.1",
-    "@earendil-works/pi-tui": "0.84.1",
+    "@earendil-works/pi-agent-core": "0.84.2",
+    "@earendil-works/pi-ai": "0.84.2",
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@earendil-works/pi-tui": "0.84.2",
     "@fontsource-variable/noto-sans-mono": "5.3.0",
     "@tanstack/react-router": "1.170.25",
     "@tanstack/react-start": "1.168.42",

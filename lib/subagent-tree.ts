@@ -71,10 +71,16 @@ function durableTask(
   if (first && first !== "(no messages)"
     && !sameMessage(first, rootFirstMessage)
     && !sameMessage(first, parentFirstMessage)) {
-    return session.firstMessage;
+    return firstLineOf(first);
   }
   if (session.name && !isReservedSubagentSessionName(session.name)) return session.name;
   return "";
+}
+
+/** The real task is the first line of the task prompt; the rest is generated boilerplate. */
+function firstLineOf(message: string): string {
+  const newline = message.indexOf("\n");
+  return newline === -1 ? message : message.slice(0, newline);
 }
 
 function liveByAddress(runs: SubagentRpcRunStatus | null): Map<string, SubagentRpcRunEntry> {
@@ -311,6 +317,31 @@ export function buildSubagentTree(input: {
     nodes: allTopLevel,
     polledAt,
   };
+}
+
+const LIVE_SIDEBAR_STATES = new Set<SubagentLifecycleState>([
+  "starting",
+  "queued",
+  "running",
+  "needs_attention",
+]);
+
+/** Durable child session ids whose live run is still active. */
+export function collectLiveSubagentSessionIds(
+  sessions: SessionInfo[],
+  runs: SubagentRpcRunStatus | null,
+): string[] {
+  if (!runs) return [];
+  const related = attachSessionRelations(sessions);
+  const live = liveByAddress(runs);
+  const ids: string[] = [];
+  for (const session of related) {
+    if (session.sessionRole !== "subagent" || !session.subagentRunId) continue;
+    const entry = live.get(addressOf(session.subagentRunId, session.subagentIndex));
+    if (!entry) continue;
+    if (LIVE_SIDEBAR_STATES.has(lifecycleFromRun(entry))) ids.push(session.id);
+  }
+  return ids;
 }
 
 /** Resolves a child session owned by `rootId`, or null. */

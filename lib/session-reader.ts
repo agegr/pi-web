@@ -4,8 +4,8 @@ import {
   buildSessionContext as piBuildSessionContext,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import { closeSync, openSync, readSync } from "fs";
-import { normalize as normalizePath } from "path";
+import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from "fs";
+import { dirname, join, normalize as normalizePath } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
 import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } from "@earendil-works/pi-coding-agent";
 import { extractGoalFromEntries } from "./goal-panel";
@@ -48,7 +48,7 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
   const pathToId = new Map<string, string>();
   for (const s of piSessions) pathToId.set(sessionPathKey(s.path), s.id);
 
-  const sessions = piSessions.map((s) => {
+  const sessions: SessionInfo[] = piSessions.map((s) => {
     cacheSessionPath(s.id, s.path);
     return {
       path: s.path,
@@ -63,7 +63,137 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
       transient: false,
     };
   });
+  const seenIds = new Set(sessions.map((session) => session.id));
+  for (const nested of discoverNestedSessions(sessions)) {
+    if (seenIds.has(nested.id)) continue;
+    seenIds.add(nested.id);
+    cacheSessionPath(nested.id, nested.path);
+    sessions.push(nested);
+  }
   return attachSessionProjectInfo(sessions);
+}
+
+const NESTED_SESSION_MAX_DEPTH = 6;
+const NESTED_SESSION_MAX_FILES = 200;
+
+function collectNestedJsonl(rootDir: string): string[] {
+  const files: string[] = [];
+  const stack: Array<{ dir: string; depth: number }> = [{ dir: rootDir, depth: 0 }];
+  while (stack.length > 0 && files.length < NESTED_SESSION_MAX_FILES) {
+    const current = stack.pop();
+    if (!current || current.depth > NESTED_SESSION_MAX_DEPTH) continue;
+    let entries;
+    try {
+      entries = readdirSync(current.dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const path = join(current.dir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push({ dir: path, depth: current.depth + 1 });
+      } else if (entry.isFile() && entry.name.endsWith(".jsonl") && files.length < NESTED_SESSION_MAX_FILES) {
+        files.push(path);
+      }
+    }
+  }
+  return files;
+}
+
+function inferParentSessionPath(filePath: string): string | undefined {
+  let dir = dirname(filePath);
+  for (let i = 0; i < NESTED_SESSION_MAX_DEPTH + 2; i += 1) {
+    const candidate = `${dir}.jsonl`;
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
+}
+
+function nestedSessionInfo(filePath: string): SessionInfo | null {
+  const header = readSessionHeader(filePath);
+  if (!header?.id) return null;
+  let entries: SessionEntry[];
+  try {
+    entries = getSessionEntries(filePath);
+  } catch {
+    return null;
+  }
+  let name: string | undefined;
+  let messageCount = 0;
+  let firstMessage = "";
+  let modified = typeof header.timestamp === "string" ? header.timestamp : undefined;
+  for (const entry of entries) {
+    if (entry.type === "session_info" && typeof entry.name === "string") {
+      const trimmed = entry.name.trim();
+      name = trimmed || undefined;
+    }
+    if (entry.type !== "message") continue;
+    messageCount += 1;
+    if (typeof entry.timestamp === "string") modified = entry.timestamp;
+    if (firstMessage || entry.message?.role !== "user") continue;
+    const content = entry.message.content;
+    if (typeof content === "string" && content.trim()) firstMessage = content.trim();
+    else if (Array.isArray(content)) {
+      const text = content
+        .filter((block): block is { type: "text"; text: string } => Boolean(block) && block.type === "text" && typeof block.text === "string")
+        .map((block) => block.text)
+        .join(" ")
+        .trim();
+      if (text) firstMessage = text;
+    }
+  }
+  if (!modified) {
+    try {
+      modified = statSync(filePath).mtime.toISOString();
+    } catch {
+      modified = new Date().toISOString();
+    }
+  }
+  return {
+    path: normalizePath(filePath),
+    id: header.id,
+    cwd: typeof header.cwd === "string" ? header.cwd : "",
+    ...(name ? { name } : {}),
+    created: typeof header.timestamp === "string" ? header.timestamp : modified,
+    modified,
+    messageCount,
+    firstMessage: firstMessage || "(no messages)",
+    transient: false,
+  };
+}
+
+/** Finds child JSONL files stored under `{parentStem}/.../session.jsonl`. */
+export function discoverNestedSessions(parents: Array<Pick<SessionInfo, "id" | "path">>): SessionInfo[] {
+  const pathToId = new Map(parents.map((parent) => [sessionPathKey(parent.path), parent.id]));
+  const found: SessionInfo[] = [];
+  for (const parent of parents) {
+    const nestedDir = parent.path.replace(/\.jsonl$/i, "");
+    if (!existsSync(nestedDir)) continue;
+    try {
+      if (!statSync(nestedDir).isDirectory()) continue;
+    } catch {
+      continue;
+    }
+    for (const filePath of collectNestedJsonl(nestedDir)) {
+      if (pathToId.has(sessionPathKey(filePath))) continue;
+      const info = nestedSessionInfo(filePath);
+      if (!info || pathToId.has(sessionPathKey(info.path))) continue;
+      pathToId.set(sessionPathKey(info.path), info.id);
+      found.push(info);
+    }
+  }
+  for (const info of found) {
+    const header = readSessionHeader(info.path);
+    const parentPath = (typeof header?.parentSession === "string" && header.parentSession)
+      ? header.parentSession
+      : inferParentSessionPath(info.path);
+    const parentId = parentPath ? pathToId.get(sessionPathKey(parentPath)) : undefined;
+    if (parentId && parentId !== info.id) info.parentSessionId = parentId;
+  }
+  return found;
 }
 
 export async function listAllSessions(options: { force?: boolean } = {}): Promise<SessionInfo[]> {

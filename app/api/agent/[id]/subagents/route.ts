@@ -1,6 +1,6 @@
 import { attachSessionRelations } from "@/lib/session-relations";
-import { buildSubagentTree, findOwnedSubagent } from "@/lib/subagent-tree";
-import { getRpcSession, startRpcSession, type AgentSessionWrapper } from "@/lib/rpc-manager";
+import { buildSubagentTree, collectLiveSubagentSessionIds, findOwnedSubagent } from "@/lib/subagent-tree";
+import { getRpcSession, notifyRunningChange, startRpcSession, type AgentSessionWrapper } from "@/lib/rpc-manager";
 import { listAllSessions, resolveSessionPath } from "@/lib/session-reader";
 import type { SubagentTreeResponse, SubagentControlResponse } from "@/lib/api-types";
 import type { SessionInfo } from "@/lib/types";
@@ -61,6 +61,13 @@ function durableTree(rootId: string, sessions: SessionInfo[], reason: SubagentTr
   });
 }
 
+function rememberLiveChildren(wrapper: AgentSessionWrapper, sessions: SessionInfo[], runs: Parameters<typeof collectLiveSubagentSessionIds>[1]): void {
+  if (typeof wrapper.setLiveSubagentSessionIds !== "function") return;
+  if (wrapper.setLiveSubagentSessionIds(collectLiveSubagentSessionIds(sessions, runs))) {
+    notifyRunningChange();
+  }
+}
+
 export function createSubagentHandlers(deps: SubagentRouteDeps = defaultDeps) {
   async function GET(
     _req: Request,
@@ -88,6 +95,7 @@ export function createSubagentHandlers(deps: SubagentRouteDeps = defaultDeps) {
       try {
         const runs = await client.getRunStatus();
         if (runs) {
+          rememberLiveChildren(wrapper, sessions, runs);
           return Response.json(buildSubagentTree({
             rootId,
             sessions,
@@ -96,6 +104,7 @@ export function createSubagentHandlers(deps: SubagentRouteDeps = defaultDeps) {
             polledAt: Date.now(),
           }));
         }
+        rememberLiveChildren(wrapper, sessions, null);
         const reason = client.lastNegotiationReason === "incompatible" ? "incompatible" : "not-installed";
         return Response.json(durableTree(rootId, sessions, reason));
       } catch (error) {
@@ -166,6 +175,7 @@ export function createSubagentHandlers(deps: SubagentRouteDeps = defaultDeps) {
         try {
           const runs = await client.getRunStatus();
           if (runs) {
+            rememberLiveChildren(wrapper, sessions, runs);
             tree = buildSubagentTree({ rootId, sessions, runs, rpcAvailable: true, polledAt: Date.now() });
           }
         } catch {

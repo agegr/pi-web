@@ -206,8 +206,8 @@ test("GET compatible status returns the exact nested contract", async () => {
   bridge.statusReply = {
     version: 1,
     entries: [
-      { runId: "317e1ca0", index: 1, agent: "worker", state: "running", currentTool: "bash", startedAt: 1000, updatedAt: 1100 },
-      { runId: "76fa6d64-6031-4824-8a88-1282c22d9afa", index: 2, agent: "reviewer", state: "running", startedAt: 1050, updatedAt: 1090 },
+      { runId: "317e1ca0", index: 0, agent: "worker", state: "running", currentTool: "bash", startedAt: 1000, updatedAt: 1100 },
+      { runId: "76fa6d64-6031-4824-8a88-1282c22d9afa", index: 1, agent: "reviewer", state: "running", startedAt: 1050, updatedAt: 1090 },
     ],
     total: 2,
     omitted: 0,
@@ -287,7 +287,7 @@ test("POST derives runId/index server-side and ignores browser target fields", a
   assert.equal(response.status, 200);
 
   const steer = bridge.requestLog.find((entry) => entry.data.method === "steer");
-  assert.deepEqual(steer.data.params, { runId: "317e1ca0", index: 1, message: "keep going" });
+  assert.deepEqual(steer.data.params, { runId: "317e1ca0", index: 0, message: "keep going" });
 });
 
 test("POST routes controls through the root wrapper only", async () => {
@@ -308,7 +308,7 @@ test("POST routes controls through the root wrapper only", async () => {
   assert.equal(response.status, 200);
   assert.equal(started, 1);
   const resume = bridge.requestLog.find((entry) => entry.data.method === "resume");
-  assert.deepEqual(resume.data.params, { runId: "76fa6d64-6031-4824-8a88-1282c22d9afa", index: 2, message: "go on" });
+  assert.deepEqual(resume.data.params, { runId: "76fa6d64-6031-4824-8a88-1282c22d9afa", index: 1, message: "go on" });
 });
 
 test("POST offline root returns 409", async () => {
@@ -339,7 +339,7 @@ test("POST success returns the acknowledgement and a fresh tree when available",
   const bridge = new FakeBridge();
   bridge.statusReply = {
     version: 1,
-    entries: [{ runId: "317e1ca0", index: 1, agent: "worker", state: "paused", startedAt: 1000, updatedAt: 1100 }],
+    entries: [{ runId: "317e1ca0", index: 0, agent: "worker", state: "paused", startedAt: 1000, updatedAt: 1100 }],
     total: 1,
     omitted: 0,
   };
@@ -372,7 +372,7 @@ test("POST success returns only the public DTO and never the raw rpc control res
   };
   bridge.statusReply = {
     version: 1,
-    entries: [{ runId: "317e1ca0", index: 1, agent: "worker", state: "paused", startedAt: 1000, updatedAt: 1100 }],
+    entries: [{ runId: "317e1ca0", index: 0, agent: "worker", state: "paused", startedAt: 1000, updatedAt: 1100 }],
     total: 1,
     omitted: 0,
   };
@@ -395,7 +395,7 @@ test("POST returns the changed tree snapshot after control and never the raw rpc
   const bridge = new FakeBridge();
   bridge.statusReply = {
     version: 1,
-    entries: [{ runId: "317e1ca0", index: 1, agent: "worker", state: "running", startedAt: 1000, updatedAt: 1100 }],
+    entries: [{ runId: "317e1ca0", index: 0, agent: "worker", state: "running", startedAt: 1000, updatedAt: 1100 }],
     total: 1,
     omitted: 0,
   };
@@ -407,7 +407,7 @@ test("POST returns the changed tree snapshot after control and never the raw rpc
 
   bridge.statusReply = {
     version: 1,
-    entries: [{ runId: "317e1ca0", index: 1, agent: "worker", state: "paused", startedAt: 1000, updatedAt: 1200 }],
+    entries: [{ runId: "317e1ca0", index: 0, agent: "worker", state: "paused", startedAt: 1000, updatedAt: 1200 }],
     total: 1,
     omitted: 0,
   };
