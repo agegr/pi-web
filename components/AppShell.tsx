@@ -1966,6 +1966,7 @@ export function AppShell() {
                   <SubagentTree
                     nodes={subagents.data.nodes}
                     selectedSessionId={childSelected && selectedSession ? selectedSession.id : null}
+                    initialFocus
                     callbacks={{
                       onSelect: handleSubagentSelect,
                       onControl: async (action, childSessionId, message) => {

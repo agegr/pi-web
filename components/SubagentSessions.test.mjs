@@ -158,6 +158,24 @@ test("tree source: roving focus skips disabled placeholder rows", () => {
   assert.match(source, /case "ArrowDown":[\s\S]*?nextFocusableIndex\(visibleRows, [^)]*?, 1\)/);
 });
 
+test("tree source: focus restore is guarded so refreshes never steal the composer cursor", () => {
+  const source = readFileSync(new URL("./SubagentSessions.tsx", import.meta.url), "utf8");
+  // Roving-focus restore only runs while the tree itself holds focus; a
+  // background data refresh must not yank the cursor out of the composer.
+  assert.match(source, /containerRef\.current\?\.ownerDocument\.activeElement/);
+  assert.match(source, /!containerRef\.current\.contains\(active\)/);
+  // The passive desktop card never auto-focuses on mount; only the popover
+  // opts in via initialFocus.
+  assert.match(source, /initialFocus = false/);
+  assert.match(source, /focusedOnceRef\.current \|\| visibleRows\.length === 0/);
+  assert.match(source, /if \(!initialFocus \|\| focusedOnceRef\.current/);
+});
+
+test("tree source: clicking a row keeps the roving index in sync", () => {
+  const source = readFileSync(new URL("./SubagentSessions.tsx", import.meta.url), "utf8");
+  assert.match(source, /onClick=\{\(\) => \{ if \(!disabled\) \{ setFocusIndex\(index\); callbacks\.onSelect\(node\); \} \}\}/);
+});
+
 test("nextFocusableIndex skips placeholders in both directions", () => {
   const rows = [
     { node: { sessionId: "a" } },

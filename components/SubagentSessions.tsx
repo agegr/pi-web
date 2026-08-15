@@ -166,15 +166,19 @@ export function SubagentTree({
   nodes,
   selectedSessionId,
   callbacks,
+  initialFocus = false,
 }: {
   nodes: SubagentTreeNode[];
   selectedSessionId: string | null;
   callbacks: SubagentTreeCallbacks;
+  /** Focus the first row on open (top-panel popover). The passive desktop card stays off. */
+  initialFocus?: boolean;
 }) {
   const { t } = useI18n();
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [focusIndex, setFocusIndex] = useState(0);
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   const visibleRows = useMemo(() => buildTreeRows(nodes, collapsed), [nodes, collapsed]);
   const indexById = useMemo(() => {
@@ -187,7 +191,28 @@ export function SubagentTree({
   useEffect(() => {
     setFocusIndex((current) => Math.min(current, Math.max(0, visibleRows.length - 1)));
   }, [visibleRows.length]);
+
+  // Focus the first focusable row once when the tree opens as an interactive
+  // panel. The desktop card is passive: it must never steal focus from the
+  // composer, so it never auto-focuses (and the guard below keeps refreshes
+  // from yanking focus either). The initial jump is explicit because the
+  // restore guard only fires while focus is already inside the tree.
+  const focusedOnceRef = useRef(false);
   useEffect(() => {
+    if (!initialFocus || focusedOnceRef.current || visibleRows.length === 0) return;
+    focusedOnceRef.current = true;
+    const first = nextFocusableIndex(visibleRows, 0, 1);
+    if (first === -1) return;
+    setFocusIndex(first);
+    rowRefs.current[first]?.focus({ preventScroll: true });
+  }, [initialFocus, visibleRows]);
+
+  useEffect(() => {
+    // Restore roving focus only while the tree itself already holds focus
+    // (keyboard navigation). A background data refresh must never move the
+    // user's cursor out of the composer or any other control.
+    const active = containerRef.current?.ownerDocument.activeElement ?? null;
+    if (active && containerRef.current && !containerRef.current.contains(active)) return;
     const target = rowRefs.current[focusIndex];
     if (target && !target.disabled) {
       target.focus({ preventScroll: true });
@@ -329,7 +354,7 @@ export function SubagentTree({
             aria-current={selected ? "true" : undefined}
             aria-label={accessibleDetail}
             data-subagent-card-row="true"
-            onClick={() => { if (!disabled) callbacks.onSelect(node); }}
+            onClick={() => { if (!disabled) { setFocusIndex(index); callbacks.onSelect(node); } }}
           >
             <span aria-hidden="true" className="subagent-state-dot" data-subagent-state={node.state} />
             <span className="subagent-tree-copy">
@@ -370,6 +395,7 @@ export function SubagentTree({
 
   return (
     <div
+      ref={containerRef}
       role="tree"
       aria-label={t("subagents.title")}
       onKeyDown={handleKeyDown}
