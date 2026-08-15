@@ -14,6 +14,14 @@ test("desktop workspace exposes a transcript and a bounded context gutter", () =
   assert.match(css, /@media \(min-width: 1280px\)[\s\S]*?@container chat-center \(min-width: 1000px\)[\s\S]*?\.desktop-workspace-context/);
 });
 
+test("context gutter is a sibling of the chat column, not stacked under the composer", () => {
+  const main = chat.indexOf('className="chat-workspace-main"');
+  const aside = chat.indexOf("{desktopAside ? <div className=\"desktop-workspace-context\">");
+  const trajectory = chat.indexOf('sessionView === "trajectory"');
+  assert.ok(main >= 0 && trajectory > main && aside > trajectory);
+  assert.match(chat, /\)\}\s*<\/div>\s*\{desktopAside \? <div className="desktop-workspace-context">/);
+});
+
 test("context card is absent until the center column has enough real width", () => {
   assert.match(css, /\.app-center-column \{[\s\S]*?container-name: chat-center/);
   assert.match(css, /\.desktop-workspace-context \{[\s\S]*?display: none/);

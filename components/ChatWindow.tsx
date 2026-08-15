@@ -1047,7 +1047,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
         </div>
         <ExtensionStatusBar statuses={visibleStatuses} widgets={footerWidgets} />
         </div>
-        {desktopAside ? <div className="desktop-workspace-context">{desktopAside}</div> : null}
         {isMobile ? null : (
           <ChatMinimap
             messages={messages}
@@ -1059,7 +1058,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
         )}
         </>
         )}
-      </div>
+        </div>
+        {desktopAside ? <div className="desktop-workspace-context">{desktopAside}</div> : null}
       </div>
       )}
     </div>
