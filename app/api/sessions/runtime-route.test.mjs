@@ -18,7 +18,12 @@ const { GET: getSessionState } = await jiti.import("./[id]/state/route.ts");
 test("session listing merges live registry snapshots and honors force refresh", () => {
   assert.match(listRoute, /searchParams\.get\("force"\) === "1"/);
   assert.match(listRoute, /listAllSessions\(\{ force \}\)/);
-  assert.match(listRoute, /attachSessionProjectInfo\(getRpcSessionInfos\(\)\)/);
+  // git enrichment no longer blocks the response: it runs in the background
+  // while the request ships with projectRoot stamps from the synchronous cache
+  assert.match(listRoute, /getRpcSessionInfos\(\)/);
+  assert.doesNotMatch(listRoute, /attachSessionProjectInfo\(getRpcSessionInfos\(\)\)/);
+  assert.match(listRoute, /applyCachedProjectInfo/);
+  assert.match(listRoute, /scheduleProjectEnrichment/);
   assert.match(listRoute, /mergeSessionLists\(persistedSessions, runtimeSessions\)/);
   assert.match(listRoute, /"Cache-Control": "no-store"/);
 });

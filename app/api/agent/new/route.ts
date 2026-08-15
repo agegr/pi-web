@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { existsSync } from "fs";
+import { homedir } from "os";
 import { randomUUID } from "crypto";
-import { allowFileRoot } from "@/lib/file-access";
+import { allowFileRoot, getAllowedFileRoots } from "@/lib/file-access";
+import { isApiRequestAllowed } from "@/lib/request-security";
+import { isPathWithinRoots } from "@/lib/path-security";
 import { invalidateSessionListCache } from "@/lib/session-reader";
 import { startRpcSession } from "@/lib/rpc-manager";
 
@@ -23,6 +26,9 @@ export async function POST(req: Request) {
   let commandType: string | undefined;
   let promptAccepted = false;
   try {
+    if (!isApiRequestAllowed(req)) {
+      return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+    }
     const body = await req.json() as { cwd?: string; [key: string]: unknown };
     const { cwd, ...command } = body;
     commandType = typeof command.type === "string" ? command.type : undefined;
@@ -42,6 +48,22 @@ export async function POST(req: Request) {
           ? { code: "prompt_rejected", accepted: false }
           : {}),
       }, { status: 400 });
+    }
+
+    // cwd policy: must be inside the operator's home directory, or inside a
+    // directory that is already on the file-access allow-list (e.g. a
+    // previously-validated project root). This blocks arbitrary caller-supplied
+    // absolute paths such as "/" or "C:\\\\" from being silently added to the
+    // allow-list.
+    const allowedRoots = await getAllowedFileRoots();
+    const home = homedir();
+    if (!isPathWithinRoots(cwd, allowedRoots) && !cwd.startsWith(home)) {
+      return NextResponse.json({
+        error: "cwd is not under $HOME or an already-allow-listed root; call /api/cwd/validate first",
+        ...(commandType === "prompt"
+          ? { code: "prompt_rejected", accepted: false }
+          : {}),
+      }, { status: 403 });
     }
 
     // Use a one-time key so startRpcSession's lock doesn't conflict with real session ids

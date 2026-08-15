@@ -4,15 +4,26 @@ import {
   buildSessionContext as piBuildSessionContext,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import { closeSync, openSync, readSync } from "fs";
-import { normalize as normalizePath } from "path";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, unlinkSync } from "fs";
+import { dirname, join, normalize as normalizePath } from "path";
+import { writePrivateFileAtomicSync } from "./atomic-file";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
 import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } from "@earendil-works/pi-coding-agent";
 import { normalizeToolCalls } from "./normalize";
 import { sessionPathKey } from "./session-path";
-import { resolveProject, type ProjectInfo } from "./worktree";
+import { getCachedProjectInfo, resolveProject, type ProjectInfo } from "./worktree";
 
 export { getAgentDir };
+
+/**
+ * Path to the SDK's sessions directory. Computed inline (instead of imported)
+ * because `getSessionsDir` is not re-exported from the package's main entry
+ * point — the SDK keeps it private to `dist/core/`. Mirrors the SDK's own
+ * `getSessionsDir()` in `dist/config.js` so we agree on the location.
+ */
+function getSessionsDir(): string {
+  return join(getAgentDir(), "sessions");
+}
 
 export async function attachSessionProjectInfo(sessions: SessionInfo[]): Promise<SessionInfo[]> {
   const uniqueCwds = [...new Set(sessions.map((s) => s.cwd).filter(Boolean))];
@@ -29,6 +40,45 @@ export async function attachSessionProjectInfo(sessions: SessionInfo[]): Promise
       ...(project?.isWorktree && project.branch ? { worktreeBranch: project.branch } : {}),
     };
   });
+}
+
+/**
+ * Synchronous, cache-only variant of `attachSessionProjectInfo` for callers
+ * that cannot block on git (the hot /api/sessions path, stale-while-revalidate
+ * refreshes, etc.). Reads from the same `__piProjectCache` that `resolveProject`
+ * populates, so the result matches what `attachSessionProjectInfo` would have
+ * returned once enrichment has run at least once for that cwd.
+ *
+ * Cwd-less sessions keep `projectRoot = ""` to match the async path's behaviour.
+ */
+export function applyCachedProjectInfo(session: SessionInfo): SessionInfo {
+  const project = session.cwd ? getCachedProjectInfo(session.cwd) : null;
+  const projectRoot = project?.projectRoot || session.cwd || "";
+  const worktreeBranch = project?.isWorktree && project.branch ? project.branch : undefined;
+  if (session.projectRoot === projectRoot && session.worktreeBranch === worktreeBranch) return session;
+  return { ...session, projectRoot, worktreeBranch };
+}
+
+/**
+ * Fire-and-forget enrichment: resolves project info for every unique cwd
+ * in `sessions` and lets `__piProjectCache` (60s TTL) fill in. Designed to
+ * be called from the request hot path *after* the response has been sent,
+ * so the UI sees the cached values immediately and the next refresh gets
+ * the freshly-computed worktree groupings.
+ *
+ * Returns the in-flight promise for tests that want to await completion.
+ * Errors are swallowed — git failures should not propagate to the caller
+ * and are no-ops for the cache (the miss path already falls back to cwd).
+ */
+export function scheduleProjectEnrichment(sessions: SessionInfo[]): Promise<void> {
+  const uniqueCwds = [...new Set(sessions.map((s) => s.cwd).filter(Boolean))];
+  if (uniqueCwds.length === 0) return Promise.resolve();
+  // Skip cwds whose cache entry is already fresh — those won't trigger a
+  // git call inside resolveProject anyway, but skipping here also avoids
+  // walking the list to find that out for callers that schedule repeatedly.
+  return Promise.all(
+    uniqueCwds.map((cwd) => resolveProject(cwd).catch(() => undefined)),
+  ).then(() => undefined);
 }
 
 export function mergeSessionLists(
@@ -69,8 +119,8 @@ export async function listAllSessions(options: { force?: boolean } = {}): Promis
   if (options.force) invalidateSessionListCache();
   const generation = globalThis.__piSessionListGeneration ?? 0;
 
-  // Return cached result if still fresh (avoids re-scanning session files
-  // and re-spawning git processes on every page load).
+  // In-memory cache (cheapest). Survives within one process; wiped on
+  // restart, hot reload, or invalidate().
   if (globalThis.__piSessionListCache && Date.now() - globalThis.__piSessionListCache.ts < SESSION_LIST_CACHE_TTL_MS) {
     return globalThis.__piSessionListCache.data;
   }
@@ -81,6 +131,19 @@ export async function listAllSessions(options: { force?: boolean } = {}): Promis
     return globalThis.__piSessionListPromise;
   }
 
+  // Disk cache: survives process restarts so cold boots don't pay the full
+  // JSONL scan + git tax. Skipped on `force` and when the cached directory
+  // mtime predates the on-disk sessions directory (a file was added/removed/
+  // rewritten since we wrote the cache).
+  if (!options.force) {
+    const diskCache = loadListCacheFromDisk();
+    const currentDirMtime = getSessionsDirMtime();
+    if (diskCache && currentDirMtime > 0 && diskCache.sessionsDirMtimeMs >= currentDirMtime) {
+      globalThis.__piSessionListCache = { data: diskCache.sessions, ts: Date.now() };
+      return diskCache.sessions;
+    }
+  }
+
   const loadPromise = loadAllSessions().then((data) => {
     // If a mutation invalidated this scan, make this caller join (or start) a
     // scan for the current generation. Returning the stale result here made a
@@ -89,6 +152,14 @@ export async function listAllSessions(options: { force?: boolean } = {}): Promis
       return listAllSessions();
     }
     globalThis.__piSessionListCache = { data, ts: Date.now() };
+    // Persist to disk for next cold boot. Errors are swallowed — disk write
+    // failures should not break the response. Wrapped in queueMicrotask so
+    // the response is not delayed by the I/O.
+    queueMicrotask(() => {
+      writeListCacheToDisk(data).catch((error) => {
+        console.warn("pi-web: failed to persist session list cache:", error);
+      });
+    });
     return data;
   });
   const trackedPromise = loadPromise.finally(() => {
@@ -117,9 +188,137 @@ declare global {
 
 const SESSION_LIST_CACHE_TTL_MS = 30_000;
 
+const LIST_CACHE_FILENAME = ".pi-web-list-cache.json";
+const LIST_CACHE_SCHEMA_VERSION = 1;
+
+function getListCachePath(): string {
+  return join(getAgentDir(), LIST_CACHE_FILENAME);
+}
+
+interface ListCacheFile {
+  schemaVersion: number;
+  savedAt: number;
+  sessionsDirMtimeMs: number;
+  sessions: SessionInfo[];
+}
+
+/** mtime (ms) of the sessions directory, or 0 if it does not exist. */
+function getSessionsDirMtime(): number {
+  try {
+    return statSync(getSessionsDir()).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Read the disk-cached session list. Returns null on any failure (missing
+ * file, corrupt JSON, schema mismatch) so the caller can transparently fall
+ * back to a fresh scan. The cache is treated as advisory — never trust it
+ * over a mtime check.
+ */
+function loadListCacheFromDisk(): ListCacheFile | null {
+  try {
+    const raw = readFileSync(getListCachePath(), "utf8");
+    const parsed = JSON.parse(raw) as Partial<ListCacheFile>;
+    if (!parsed || parsed.schemaVersion !== LIST_CACHE_SCHEMA_VERSION) return null;
+    if (!Array.isArray(parsed.sessions)) return null;
+    if (typeof parsed.sessionsDirMtimeMs !== "number") return null;
+    return {
+      schemaVersion: LIST_CACHE_SCHEMA_VERSION,
+      savedAt: typeof parsed.savedAt === "number" ? parsed.savedAt : 0,
+      sessionsDirMtimeMs: parsed.sessionsDirMtimeMs,
+      sessions: parsed.sessions as SessionInfo[],
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function writeListCacheToDisk(sessions: SessionInfo[]): Promise<void> {
+  const cachePath = getListCachePath();
+  // Safeguard: an empty scan result must NEVER clobber a non-empty cache.
+  // Two layers of protection:
+  //   1. Don't overwrite an existing non-empty cache with empty data — the
+  //      SDK occasionally returns [] during transient FS hiccups
+  //      (junction races under `with-clean-home.js`, antivirus stalls,
+  //      concurrent readdirs on Windows). Catching this here keeps the
+  //      user's real session list alive across cold boots.
+  //   2. Don't create a fresh empty cache if the sessions dir actually
+  //      contains JSONL files — a first-time write of `[]` over real data
+  //      would persist "no sessions" through every subsequent cold boot.
+  //      This is the case the user hit when the instrumentation prewarm
+  //      raced the dev-mode junction setup.
+  if (sessions.length === 0) {
+    const existing = loadListCacheFromDisk();
+    if (existing && existing.sessions.length > 0) {
+      console.warn(
+        "pi-web: refusing to overwrite non-empty session list cache with empty result; keeping existing cache",
+      );
+      return;
+    }
+    if (!existing) {
+      const jsonlCount = countJsonlSessions();
+      if (jsonlCount > 0) {
+        console.warn(
+          `pi-web: scan returned empty but found ${jsonlCount} JSONL files in sessions dir; skipping cache write to avoid data loss`,
+        );
+        return;
+      }
+    }
+  }
+  const file: ListCacheFile = {
+    schemaVersion: LIST_CACHE_SCHEMA_VERSION,
+    savedAt: Date.now(),
+    sessionsDirMtimeMs: getSessionsDirMtime(),
+    sessions,
+  };
+  // writePrivateFileAtomicSync throws on failure (e.g. EACCES). Surface as
+  // a rejected promise so the queueMicrotask caller logs and moves on.
+  try {
+    mkdirSync(dirname(cachePath), { recursive: true });
+    writePrivateFileAtomicSync(cachePath, JSON.stringify(file));
+  } catch (error) {
+    throw error instanceof Error ? error : new Error(String(error));
+  }
+}
+
+/**
+ * Count `.jsonl` files under the sessions dir (top-level + one level deep,
+ * matching the SDK's listing depth). Returns 0 if the dir is unreadable.
+ * Cheap synchronous scan used only by the empty-write safeguard, which
+ * is already a rare error path.
+ */
+function countJsonlSessions(): number {
+  try {
+    const sessionsDir = getSessionsDir();
+    let count = 0;
+    const topEntries = readdirSync(sessionsDir, { withFileTypes: true });
+    for (const entry of topEntries) {
+      if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+        count += 1;
+      } else if (entry.isDirectory()) {
+        for (const inner of readdirSync(join(sessionsDir, entry.name))) {
+          if (inner.endsWith(".jsonl")) count += 1;
+        }
+      }
+    }
+    return count;
+  } catch {
+    return 0;
+  }
+}
+
 export function invalidateSessionListCache(): void {
   globalThis.__piSessionListGeneration = (globalThis.__piSessionListGeneration ?? 0) + 1;
   globalThis.__piSessionListCache = undefined;
+  // Delete the disk cache so the next read falls through to a fresh scan.
+  // Failures here are non-fatal (file may already be absent).
+  try {
+    unlinkSync(getListCachePath());
+  } catch {
+    /* expected: file may not exist */
+  }
 }
 
 function getPathCache(): Map<string, string> {
@@ -134,11 +333,21 @@ function getPathToIdCache(): Map<string, string> {
 
 export async function resolveSessionPath(sessionId: string): Promise<string | null> {
   const cached = getPathCache().get(sessionId);
-  if (cached) return cached;
+  // Verify the cached path actually points at an existing file. The disk
+  // cache stores paths that were valid in a prior process / dev server's
+  // cleanHome (see scripts/with-clean-home.js); under `pnpm dev` the
+  // cleanHome is regenerated each start, so cached paths may dangle. A
+  // stale `existsSync` check is cheap and prevents opening a missing file.
+  if (cached && existsSync(cached)) return cached;
 
-  // Cache miss: scan all sessions to populate cache, then retry
-  await listAllSessions();
-  return getPathCache().get(sessionId) ?? null;
+  // Cache miss or stale path: do a fresh scan so `cacheSessionPath` can
+  // repopulate the in-memory path cache with the CURRENT process's paths.
+  // `force: true` bypasses the in-memory + disk list caches so the scan
+  // actually runs (otherwise we'd just return the same stale data).
+  await listAllSessions({ force: true });
+  const refreshed = getPathCache().get(sessionId);
+  if (refreshed && existsSync(refreshed)) return refreshed;
+  return null;
 }
 
 export async function resolveSessionIdByPath(filePath: string): Promise<string | undefined> {

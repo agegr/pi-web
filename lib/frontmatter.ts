@@ -1,4 +1,9 @@
-import { load as parseYaml } from "js-yaml";
+import { load as parseYaml, CORE_SCHEMA } from "js-yaml";
+
+// js-yaml v5 CORE_SCHEMA excludes unsafe tags (!!js/function, !!js/regexp,
+// !!js/undefined). Pass it explicitly so a future downgrade or schema
+// injection cannot silently re-enable them.
+const YAML_SAFE_SCHEMA = CORE_SCHEMA;
 
 const FRONTMATTER_OPEN_RE = /^(?:\uFEFF)?---[ \t]*(?:\r\n|\n|\r)/;
 
@@ -36,7 +41,7 @@ export function parseFrontmatter(markdown: string): FrontmatterResult {
   if (!block) return { data: null, rest: markdown };
 
   try {
-    const parsed = parseYaml(block.yaml);
+    const parsed = parseYaml(block.yaml, { schema: YAML_SAFE_SCHEMA });
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       return { data: parsed as Record<string, unknown>, rest: block.rest };
     }

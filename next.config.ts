@@ -47,6 +47,12 @@ const WINDOWS_PROFILE_SYMLINKS = [
 ];
 
 const nextConfig: NextConfig = {
+  // Disable the bottom-right dev indicators: they show the dev server's
+  // "build/hmr" status, plus an error counter for uncaught errors. Even
+  // when downstream code catches everything (e.g. AbortError on cleanup),
+  // Next 16's overlay still surfaces the source line which is noisy for
+  // a chat client that intentionally aborts fetches on route changes.
+  devIndicators: false,
   outputFileTracingRoot: configDir,
   outputFileTracingExcludes: {
     "**/*": WINDOWS_PROFILE_SYMLINKS.map((name) => `**/${name}/**`),

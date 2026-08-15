@@ -3,9 +3,60 @@ import { existsSync, mkdirSync, realpathSync } from "fs";
 import { basename, dirname, join, resolve } from "path";
 import { promisify } from "util";
 import { allowFileRoot } from "./allowed-roots";
+import { getAllowedFileRoots } from "./file-access";
+import { isPathWithinRoots } from "./path-security";
 import { samePath, toNativePath } from "./paths";
 
 const execFileAsync = promisify(execFile);
+
+// ============================================================================
+// Concurrency limiter for git-process fan-out.
+//
+// Spawning many `git rev-parse` processes in parallel overwhelms Windows
+// (process creation + antivirus scan dominates wall-clock). A small bounded
+// queue keeps total concurrency predictable and avoids the "all 20 git
+// processes block on the same AV hook" stall. 8 was picked empirically —
+// high enough that the slowest cwd does not stretch a 4-cwd batch into a
+// serial pipeline, low enough to stay under typical per-process IO caps.
+// ============================================================================
+
+class Semaphore {
+  private available: number;
+  private readonly waiters: Array<() => void> = [];
+
+  constructor(private readonly capacity: number) {
+    this.available = capacity;
+  }
+
+  async acquire(): Promise<void> {
+    if (this.available > 0) {
+      this.available -= 1;
+      return;
+    }
+    await new Promise<void>((resolve) => this.waiters.push(resolve));
+  }
+
+  release(): void {
+    const next = this.waiters.shift();
+    if (next) next();
+    else this.available += 1;
+  }
+
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    await this.acquire();
+    try {
+      return await fn();
+    } finally {
+      this.release();
+    }
+  }
+}
+
+// Single shared limit for every git() call in this process. Sized for
+// Windows where spawning too many git processes at once hits AV / process
+// creation limits. Hot reload safe via module identity — Next.js will load
+// a fresh copy and a fresh semaphore per worker.
+const gitConcurrencyLimit = new Semaphore(8);
 
 // ============================================================================
 // Project resolution: cwd → { projectRoot, branch }
@@ -47,6 +98,20 @@ function getProjectCache(): Map<string, { info: ProjectInfo; expiresAt: number }
 
 export function invalidateProjectCache(): void {
   globalThis.__piProjectCache?.clear();
+}
+
+/**
+ * Synchronous cache lookup used by the hot /api/sessions path. Returns the
+ * cached ProjectInfo if `resolveProject` (async, may spawn git) populated it
+ * within the last PROJECT_CACHE_TTL_MS, otherwise a "cwd as its own project"
+ * fallback so the response can ship without blocking on git. Callers that
+ * need fresh project info should pair this with `scheduleProjectEnrichment`.
+ */
+export function getCachedProjectInfo(cwd: string): ProjectInfo {
+  if (!cwd) return { projectRoot: "", branch: null, isWorktree: false, isTopLevel: false };
+  const cached = getProjectCache().get(cwd);
+  if (cached && cached.expiresAt > Date.now()) return cached.info;
+  return { projectRoot: cwd, branch: null, isWorktree: false, isTopLevel: false };
 }
 
 async function git(cwd: string, args: string[]): Promise<string> {
@@ -94,11 +159,11 @@ export async function resolveProject(cwd: string): Promise<ProjectInfo> {
       cache.set(cwd, { info, expiresAt: Date.now() + PROJECT_CACHE_TTL_MS });
       return info;
     }
-    const out = await git(cwd, [
+    const out = await gitConcurrencyLimit.run(() => git(cwd, [
       "rev-parse", "--path-format=absolute",
       "--git-common-dir", "--git-dir", "--show-toplevel",
       "--abbrev-ref", "HEAD",
-    ]);
+    ]));
     const [commonDirRaw, gitDirRaw, toplevelRaw, ref] = out.split("\n").map((l) => l.trim());
     // Only the first three lines are paths — `ref` is a branch name and must
     // keep its forward slashes (`feature/foo`).
@@ -212,6 +277,23 @@ export async function addWorktree(cwd: string, branch: string): Promise<{ path: 
     branchExists = true;
   } catch {
     branchExists = false;
+  }
+
+  // Refuse to follow a malicious .git pointer (gitdir: /attacker/repo/.git).
+  // We only allow the new worktree to be added to the allow-list when the
+  // resolved repoRoot is the cwd itself, or a directory that is already on
+  // the file-access allow-list. Otherwise the worktree would expose an
+  // attacker-controlled tree.
+  const realCwd = realPathOrSelf(cwd);
+  const realRepoRoot = realPathOrSelf(repoRoot);
+  const allowedRoots = await getAllowedFileRoots();
+  if (!samePath(realRepoRoot, realCwd) && !isPathWithinRoots(realRepoRoot, allowedRoots)) {
+    // Tear down the directory we created so we do not leak an un-rooted tree.
+    try {
+      const { rmSync } = await import("node:fs");
+      rmSync(worktreePath, { recursive: true, force: true });
+    } catch { /* best effort */ }
+    throw new Error(`Refusing to addWorktree: resolved repoRoot (${repoRoot}) is neither the cwd nor an allow-listed ancestor`);
   }
 
   try {

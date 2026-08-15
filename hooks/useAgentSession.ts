@@ -1863,16 +1863,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [messages.length, agentRunning, scrollToBottom, scrollUserMsgToTop]);
 
-  // Load model list
+  // Load model list. Avoid `AbortController` on cleanup: Next 16's dev overlay
+  // tracks the abort source line even when downstream code catches the
+  // AbortError, surfacing "signal is aborted without reason" as noise. The
+  // fetch result is allowed to land after unmount — setState calls are
+  // idempotent and any subsequent mount triggers a fresh fetch via the
+  // modelsRefreshKey dep.
   useEffect(() => {
-    const controller = new AbortController();
-    // loadModels swallows its own errors (network failures, JSON parse errors,
-    // AbortError on cleanup). The outer .catch is defensive — if anything ever
-    // bubbles up it must not surface as an unhandled rejection in the dev
-    // overlay. Next 16's overlay still reports the AbortError source line even
-    // when caught, so we silence every error here.
-    loadModels(controller.signal).catch(() => {});
-    return () => controller.abort();
+    loadModels().catch(() => {});
   }, [loadModels, modelsRefreshKey]);
 
   useEffect(() => {
