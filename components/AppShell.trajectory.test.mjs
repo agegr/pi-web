@@ -13,6 +13,10 @@ test("AppShell renders Chat and Trajectory sibling view tabs", () => {
   assert.match(appShell, /setSessionView\("chat"\)/);
 });
 
+test("view tabs sit outside the scrollable center column", () => {
+  assert.ok(appShell.indexOf("session-view-tabs") < appShell.indexOf('className="app-center-column"'));
+});
+
 test("ChatWindow owns session state and renders TrajectoryView in the workspace", () => {
   assert.match(chatWindow, /sessionView/);
   assert.match(chatWindow, /TrajectoryView/);

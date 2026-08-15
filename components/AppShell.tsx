@@ -2193,30 +2193,31 @@ export function AppShell() {
         {isMobile && renderProjectTrustWarning(true)}
         </div>
 
+        {showChat && !childSelected ? (
+          <div className="session-view-tabs" role="tablist" aria-label="Session view">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={sessionView === "chat"}
+              className={sessionView === "chat" ? "is-active" : ""}
+              onClick={() => setSessionView("chat")}
+            >
+              Chat
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={sessionView === "trajectory"}
+              className={sessionView === "trajectory" ? "is-active" : ""}
+              onClick={() => setSessionView("trajectory")}
+            >
+              Trajectory
+            </button>
+          </div>
+        ) : null}
+
         {/* Chat content */}
         <div className="app-center-column" style={{ flex: 1, overflow: "hidden", position: "relative" }}>
-          {showChat && !childSelected ? (
-            <div className="session-view-tabs" role="tablist" aria-label="Session view">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={sessionView === "chat"}
-                className={sessionView === "chat" ? "is-active" : ""}
-                onClick={() => setSessionView("chat")}
-              >
-                Chat
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={sessionView === "trajectory"}
-                className={sessionView === "trajectory" ? "is-active" : ""}
-                onClick={() => setSessionView("trajectory")}
-              >
-                Trajectory
-              </button>
-            </div>
-          ) : null}
           {showChat ? (
             <>
               {childSelected && selectedSession && subagents.data ? (
