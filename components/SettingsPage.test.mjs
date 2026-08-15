@@ -22,8 +22,8 @@ test("settings embeds the model, skill, plugin, vision, and remote modules", () 
   assert.doesNotMatch(settings, /id: "project"/);
 });
 
-test("remote access sits after general and does not require a project", () => {
-  assert.match(settings, /id: "general"[\s\S]*id: "remote"/);
+test("remote access sits after vision and does not require a project", () => {
+  assert.match(settings, /id: "vision", label: t\("vision\.nav"\), disabled: false \},\s*\{ id: "remote", label: t\("remote\.nav"\), disabled: false \}/);
   assert.match(settings, /id: "remote", label: t\("remote\.nav"\), disabled: false/);
   assert.match(settings, /GlobeLock/);
   assert.match(settings, /section === "remote"/);

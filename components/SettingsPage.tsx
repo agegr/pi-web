@@ -237,12 +237,12 @@ export function SettingsPage({
 
   const sections: { id: SettingsSection; label: string; disabled: boolean }[] = [
     { id: "general", label: t("settings.general"), disabled: false },
-    { id: "remote", label: t("remote.nav"), disabled: false },
     { id: "archived", label: t("sidebar.archived"), disabled: false },
     { id: "models", label: t("common.models"), disabled: false },
     { id: "skills", label: t("common.skills"), disabled: !cwd },
     { id: "plugins", label: t("common.plugins"), disabled: !cwd },
     { id: "vision", label: t("vision.nav"), disabled: false },
+    { id: "remote", label: t("remote.nav"), disabled: false },
   ];
 
   let content: ReactNode;
