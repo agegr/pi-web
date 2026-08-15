@@ -64,6 +64,7 @@ function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, 
   return null;
 }
 
+const CHAT_MINIMAP_WIDTH = 36;
 const CHAT_COLUMN_PADDING = 16;
 
 function NewSessionUpdateLink({
@@ -646,7 +647,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
           position: "absolute",
           top: 12,
           left: 0,
-          right: 0,
+          right: isMobile ? 0 : CHAT_MINIMAP_WIDTH,
           zIndex: 40,
           display: "flex",
           justifyContent: "center",
