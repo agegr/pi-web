@@ -43,6 +43,8 @@ export interface ToolCallContent {
   toolCallId: string;
   toolName: string;
   input: Record<string, unknown>;
+  /** Client-only buffer for streamed tool input. Never persisted to session files. */
+  rawInput?: string;
 }
 
 export type AssistantContentBlock = TextContent | ImageContent | ThinkingContent | ToolCallContent;
