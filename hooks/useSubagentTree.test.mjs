@@ -31,18 +31,16 @@ test("active descendants are starting, queued, running, or needs_attention only"
   assert.equal(hasActiveDescendant(undefined), false);
 });
 
-test("terminal discovery increments one final transcript refresh generation", () => {
-  const previous = { nodes: [node("running")] };
-  const settled = { nodes: [node("complete")] };
-  // Every successful snapshot advances the generation...
-  assert.equal(nextTranscriptGeneration(previous, previous, 3), 4);
-  // ...and settlement adds one more final refresh.
-  assert.equal(nextTranscriptGeneration(previous, settled, 3), 5);
-  assert.equal(nextTranscriptGeneration(null, settled, 3), 4);
-  assert.equal(nextTranscriptGeneration(previous, null, 3), 4);
-  // Multiple active children settling at once still adds a single extra.
-  const multiActive = { nodes: [node("running", [node("queued")])] };
-  assert.equal(nextTranscriptGeneration(multiActive, settled, 5), 7);
+test("transcript refreshes only while active and once when work settles", () => {
+  const running = { nodes: [node("running")] };
+  const complete = { nodes: [node("complete")] };
+
+  assert.equal(nextTranscriptGeneration(null, running, 3), 4);
+  assert.equal(nextTranscriptGeneration(running, running, 3), 4);
+  assert.equal(nextTranscriptGeneration(running, complete, 3), 4);
+  assert.equal(nextTranscriptGeneration(complete, complete, 3), 3);
+  assert.equal(nextTranscriptGeneration(null, complete, 3), 3);
+  assert.equal(nextTranscriptGeneration(running, null, 3), 3);
 });
 
 test("poll interval is 1500ms and the hook wires a single interval guarded by the policy", async () => {
@@ -105,7 +103,7 @@ test("control parses the response body and never reads the raw rpc control resul
   assert.doesNotMatch(controlSource, /data\.control/);
 });
 
-test("transcript refresh generation only bumps on successful snapshots plus the terminal transition", async () => {
+test("transcript refresh generation only bumps on active snapshots plus the terminal transition", async () => {
   const source = await readFile(new URL("./useSubagentTree.ts", import.meta.url), "utf8");
   const successPath = source.slice(source.indexOf("if (!response.ok) throw new Error"), source.indexOf("setStale(false)"));
   assert.match(successPath, /nextTranscriptGeneration\(dataRef\.current, tree, current\)/);
