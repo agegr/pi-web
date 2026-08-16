@@ -305,7 +305,9 @@ test("desktop subagent card renders summary, stale state, and recursive rows", (
   }));
 
   assert.match(html, /aria-label="Subagents"/);
-  assert.match(html, /3 subagents/);
+  // The card title carries no duplicated total; the header badge owns the count.
+  assert.match(html, /Subagents/);
+  assert.doesNotMatch(html, /3 subagents/);
   assert.match(html, /1 running/);
   assert.match(html, /Live status is stale/);
   assert.match(html, /Review the current implementation/);
@@ -324,8 +326,9 @@ test("desktop card source: folds to its header when the task settles", () => {
   assert.match(source, /!collapsed \? \(\s*<SubagentTree/);
 });
 
-test("desktop subagent card counts descendants in the header", () => {
-  // One top-level node with two nested children → total descendant count 3.
+test("desktop subagent card keeps the total count out of the title", () => {
+  // One top-level node with two nested children; the header badge shows the
+  // total, so the card must not restate it (3 subagents would be a duplicate).
   const top = node("top", "running", {
     children: [
       node("mid", "running", { children: [node("leaf", "complete")] }),
@@ -338,7 +341,9 @@ test("desktop subagent card counts descendants in the header", () => {
     stale: false,
     callbacks,
   }));
-  assert.match(html, /3 subagents/);
+  assert.match(html, />Subagents<\/span>/);
+  assert.doesNotMatch(html, /3 subagents/);
+  assert.doesNotMatch(html, /countSubagentNodes/);
 });
 
 test("desktop subagent card omits itself without nodes", () => {

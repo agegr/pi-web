@@ -488,7 +488,6 @@ export function DesktopSubagentCard({
 }) {
   const { t } = useI18n();
   const [collapsed, setCollapsed] = useState(false);
-  const totalCount = countSubagentNodes(nodes);
   const activeCount = countActiveSubagentNodes(nodes);
 
   // When the whole task settles, fold the card to its header so the finished
@@ -513,9 +512,7 @@ export function DesktopSubagentCard({
         onClick={() => setCollapsed((value) => !value)}
       >
         <Network size={14} strokeWidth={1.8} aria-hidden="true" />
-        <span>
-          {totalCount} {t("subagents.title").toLowerCase()}
-        </span>
+        <span>{t("subagents.title")}</span>
         {rpcAvailable && activeCount > 0 ? (
           <span className="desktop-subagent-card-live" aria-hidden="true" />
         ) : null}
