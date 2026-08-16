@@ -1,9 +1,11 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { MOBILE_MAX_WIDTH } from "@/lib/panel-layout";
 
-// Mobile breakpoint shared with app/globals.css (max-width: 640px).
-const MOBILE_QUERY = "(max-width: 640px)";
+// lib/panel-layout.ts is the source of truth for this breakpoint; the media
+// queries in app/globals.css mirror the same number.
+const MOBILE_QUERY = `(max-width: ${MOBILE_MAX_WIDTH}px)`;
 
 function subscribe(cb: () => void): () => void {
   if (typeof window === "undefined" || !window.matchMedia) return () => {};

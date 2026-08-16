@@ -1,3 +1,12 @@
+/**
+ * Breakpoints. This module is the source of truth; the `--breakpoint-*` entries
+ * in app/globals.css and the media queries at the bottom of that file mirror
+ * these numbers, and useIsMobile reads MOBILE_MAX_WIDTH directly.
+ *
+ *   <= 640   mobile      sidebar and file panel are full-screen overlays
+ *   641-959  desktop     sidebar is inline, file panel overlays the chat
+ *   >= 960   split       sidebar and file panel both share the row
+ */
 export const MOBILE_MAX_WIDTH = 640;
 export const SPLIT_PANEL_MIN_WIDTH = 960;
 

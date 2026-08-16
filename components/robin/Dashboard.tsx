@@ -42,7 +42,7 @@ export function Dashboard() {
     // overflow:hidden for the chat shell. This page is a document, so it
     // supplies its own scroll container rather than changing that shared rule.
     <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
-      <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 sm:p-6">
+      <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 desktop:p-6">
       <header className="flex items-baseline justify-between gap-4">
         <div>
           <h1 className="text-lg font-semibold" style={{ color: "var(--text)" }}>{t("sidebar.dashboard")}</h1>
@@ -70,7 +70,9 @@ export function Dashboard() {
       {/* Full width: the week and month grids need the whole page to stay legible. */}
       <CalendarPanel />
 
-      <div className="grid gap-4 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] md:items-start">
+      {/* Splits at the same width the chat shell splits at, so the two views
+          do not disagree about what counts as a wide screen. */}
+      <div className="grid gap-4 split:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] split:items-start">
         <TodoPanel />
         <LinksPanel />
       </div>

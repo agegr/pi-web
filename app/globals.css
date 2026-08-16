@@ -1,5 +1,28 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   Design tokens.
+
+   Every token is declared twice on purpose. The bare name (`--text-muted`,
+   `--danger`, `--card-radius`) holds the value in `:root`, and is what plain
+   CSS and inline `style` props reference; light/dark switching happens there.
+   The `@theme` block then aliases it into the matching Tailwind namespace so
+   the same token is also reachable as a utility (`text-text-muted`,
+   `bg-danger/10`, `rounded-card`).
+
+   The indirection is load-bearing: Tailwind drops any `@theme` variable no
+   utility happens to reference, so a token declared only in `@theme` is not
+   guaranteed to exist at runtime and `var()` on it would silently fall back to
+   nothing. Declaring the value in `:root` keeps it real either way.
+
+   Adding a token means touching `:root`, the `@theme` alias, and — if it
+   differs between themes — `html.dark`.
+
+   Breakpoints are the one exception: a media query needs a literal, so they
+   cannot be indirected. They are consumed only as Tailwind variants
+   (`desktop:`, `split:`); hand-written CSS writes the media query out.
+--------------------------------------------------------------------------- */
+
 @theme {
   --color-bg: var(--bg);
   --color-bg-panel: var(--bg-panel);
@@ -11,11 +34,34 @@
   --color-text-dim: var(--text-dim);
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
+  --color-on-accent: var(--on-accent);
   --color-user-bg: var(--user-bg);
   --color-assistant-bg: var(--assistant-bg);
   --color-tool-bg: var(--tool-bg);
   --color-bg-subtle: var(--bg-subtle);
-  --font-mono-font: var(--font-mono);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+
+  /* Semantic names rather than t-shirt sizes, so these do not silently
+     redefine Tailwind's own --radius-sm/md/lg. */
+  --radius-control: var(--control-radius);
+  --radius-card: var(--card-radius);
+  --radius-panel: var(--panel-radius);
+  --radius-pill: var(--pill-radius);
+
+  --shadow-popover: var(--popover-shadow);
+  --shadow-drawer: var(--drawer-shadow);
+  --shadow-overlay: var(--overlay-shadow);
+
+  /* Tailwind's sm/md/lg/xl defaults are cleared so the app has exactly one
+     breakpoint vocabulary. These mirror lib/panel-layout.ts (the JS source of
+     truth) and the media queries at the bottom of this file. */
+  --breakpoint-*: initial;
+  --breakpoint-desktop: 641px;
+  --breakpoint-split: 960px;
+
+  --font-mono: var(--font-noto-mono), 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, 'PingFang SC', 'Microsoft YaHei', monospace;
 }
 
 :root {
@@ -29,10 +75,34 @@
   --text-dim: #9ca3af;
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
+  --on-accent: #ffffff;
   --user-bg: #eff6ff;
   --assistant-bg: #ffffff;
   --tool-bg: #f9fafb;
   --bg-subtle: rgba(0,0,0,0.03);
+  --danger: #dc2626;
+  --success: #16a34a;
+  --warning: #d97706;
+
+  --control-radius: 5px;
+  --card-radius: 7px;
+  --panel-radius: 9px;
+  --pill-radius: 999px;
+
+  --popover-shadow: 0 10px 28px rgb(0 0 0 / 0.10);
+  --drawer-shadow: 4px 0 20px rgb(0 0 0 / 0.15);
+  --overlay-shadow: 0 20px 60px rgb(0 0 0 / 0.40);
+
+  /* Stacking order. Previously hand-picked per call site, which is how values
+     like 95 and 199 ended up in the tree. */
+  --z-raised: 1;
+  --z-sticky: 100;
+  --z-resize-handle: 220;
+  --z-backdrop: 240;
+  --z-drawer: 250;
+  --z-popover: 500;
+  --z-modal: 1000;
+  --z-toast: 1100;
 }
 
 html.dark {
@@ -46,10 +116,32 @@ html.dark {
   --text-dim: #6b7280;
   --accent: #60a5fa;
   --accent-hover: #93c5fd;
+  --on-accent: #0b1220;
   --user-bg: #1e293b;
   --assistant-bg: #1a1a1a;
   --tool-bg: #1f2937;
   --bg-subtle: rgba(255,255,255,0.04);
+  --danger: #f87171;
+  --success: #4ade80;
+  --warning: #f59e0b;
+
+  /* Shadows need more weight to read against the dark surfaces. */
+  --popover-shadow: 0 10px 28px rgb(0 0 0 / 0.45);
+  --drawer-shadow: 4px 0 20px rgb(0 0 0 / 0.45);
+  --overlay-shadow: 0 20px 60px rgb(0 0 0 / 0.65);
+}
+
+/* Tailwind v4 leaves every border at `currentColor`. In this app a border is
+   always the border token, so restore that default — otherwise `border-t` has
+   to be paired with an inline borderColor at every call site. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-border);
+  }
 }
 
 .catppuccin-file-icon {
@@ -329,10 +421,6 @@ button.extension-widget-trigger:focus-visible {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-dim);
-}
-
-:root {
-  --font-mono: var(--font-noto-mono), 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, 'PingFang SC', 'Microsoft YaHei', monospace;
 }
 
 pre, code {
