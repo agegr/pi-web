@@ -325,6 +325,7 @@ export function SubagentTree({
             aria-current={selected ? "true" : undefined}
             aria-label={accessibleDetail}
             data-subagent-card-row="true"
+            data-subagent-session-id={node.sessionId ?? undefined}
             onClick={() => { if (!disabled) { setFocusIndex(index); callbacks.onSelect(node); } }}
           >
             <span aria-hidden="true" className="subagent-state-dot" data-subagent-state={node.state} />

@@ -1272,6 +1272,7 @@ export function AppShell() {
         {subagentCount > 0 ? (
           <button
             type="button"
+            data-subagent-panel-toggle="true"
             onClick={(event) => {
               topPanelReturnFocusRef.current = event.currentTarget;
               subagentsAnchorRef.current = event.currentTarget;

@@ -388,3 +388,9 @@ test("pure helpers: submit action, elapsed formatting, and visible node flatteni
   assert.deepEqual(getVisibleNodes([child], new Set()).map((n) => n.sessionId), ["child", "grand"]);
   assert.deepEqual(getVisibleNodes([child], new Set(["child"])).map((n) => n.sessionId), ["child"]);
 });
+
+test("subagent rows expose a stable session selector for browser probes", () => {
+  const source = readFileSync(new URL("./SubagentSessions.tsx", import.meta.url), "utf8");
+  assert.match(source, /data-subagent-session-id=\{node\.sessionId \?\? undefined\}/);
+  assert.match(source, /data-subagent-card-row="true"[\s\S]*?data-subagent-session-id=\{node\.sessionId \?\? undefined\}/);
+});
