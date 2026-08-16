@@ -55,6 +55,12 @@ environment:
 - `/workspace` 是 read-write：容器內的寫入會直接改 host 檔案
 - 跑不信任的 repo / 無人監督任務：把 `~/.pi/agent` 換成最小化的（只放必要 key）、專案用 read-only 或 copy-in/copy-out
 
+## 進階：讓 agent 控制 host（權限與繞過）
+
+agent 需要執行 host 指令 / 讀 host 檔案（例如遠端維護部署機）時，見
+`docs/docker-host-bridge.md`：path bridge（容器內 symlink）+ ssh2 bridge
+（pure-JS，不掛 docker.sock、密碼走環境變數），含 rebuild 復原 checklist。
+
 ## 排錯
 
 | 症狀 | 處理 |
