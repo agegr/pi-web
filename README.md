@@ -57,6 +57,11 @@ To update, stop the running process with `Ctrl+C` and run the same install comma
 > > - If a secret has been typed in chat, rotate the secret immediately and treat the session file as compromised.
 > > - Session files are shared between pi-web and the pi TUI; treat them as sensitive data.
 >
+> > ⚠️ **Container Privilege Boundary**
+> > Container `root` ≠ host `root`. The pi agent inside the container can only access its own filesystem and the volumes explicitly mounted from the host (typically `~/.pi/agent` and `/workspace`). Any operation targeting the host itself (e.g., fixing the wrt host, managing Docker, editing files outside the mounts) must be done via an SSH bridge back to the host, as documented in `docs/docker-host-bridge.md`.
+> >
+> > Running the container with `user: "0"` does **not** make it host root; it only makes files created inside the mounted volumes owned by `root:root`. After that, switching back to `user: node` will cause "Permission denied" on those files. Prefer running as an unprivileged user and use the SSH bridge skill for host operations.
+>
 > **Quick Checklist for Cloudflare + Docker**:
 > 1. Set `PI_WEB_HOSTNAME: "0.0.0.0"` in container environment.
 > 2. Set `PI_WEB_NO_OPEN: "1"`.
