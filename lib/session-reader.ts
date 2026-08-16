@@ -357,7 +357,7 @@ export function getSessionEntries(filePath: string): SessionEntry[] {
 export function buildSessionContext(
   entries: SessionEntry[],
   leafId?: string | null,
-  options: { deferThinking?: boolean; deferToolResultImages?: boolean } = {},
+  options: { deferThinking?: boolean; deferToolResultImages?: boolean; deferToolResults?: boolean } = {},
 ): SessionContext {
   const byId = new Map<string, SessionEntry>();
   for (const e of entries) byId.set(e.id, e);
@@ -420,6 +420,24 @@ function base64ImageInfo(block: unknown): { bytes: number; mime?: string } | nul
   return { bytes: Math.max(0, Math.floor(data.length * 3 / 4) - padding), mime };
 }
 
+const DEFERRED_TOOL_RESULT_CHARS = 20_000;
+
+function deferToolResultContent(message: AgentMessage): AgentMessage {
+  if (message.role !== "toolResult") return message;
+  const contentLength = JSON.stringify({
+    content: message.content,
+    details: message.details,
+  }).length;
+  if (contentLength <= DEFERRED_TOOL_RESULT_CHARS) return message;
+  return {
+    ...message,
+    content: [],
+    details: undefined,
+    deferred: true,
+    contentLength,
+  };
+}
+
 function omitToolResultBase64Images(message: AgentMessage): AgentMessage {
   if (message.role !== "toolResult") return message;
 
@@ -448,7 +466,7 @@ function omitToolResultBase64Images(message: AgentMessage): AgentMessage {
 // Returns null for entries that do not map to chat history (metadata, non-message types).
 function entryToUiMessage(
   entry: SessionEntry,
-  options: { deferThinking?: boolean; deferToolResultImages?: boolean },
+  options: { deferThinking?: boolean; deferToolResultImages?: boolean; deferToolResults?: boolean },
 ): AgentMessage | null {
   // Supported message roles: user, assistant, toolResult, bashExecution.
   // bashExecution messages enter the case "message" branch (entry.type === "message").
@@ -457,9 +475,12 @@ function entryToUiMessage(
   // normalizeToolCalls is a secondary guard (returns non-assistant messages as-is).
   switch (entry.type) {
     case "message": {
-      const message = options.deferToolResultImages
+      const normalized = options.deferToolResultImages
         ? omitToolResultBase64Images(normalizeToolCalls(entry.message))
         : normalizeToolCalls(entry.message);
+      const message = options.deferToolResults
+        ? deferToolResultContent(normalized)
+        : normalized;
       if (!options.deferThinking || message.role !== "assistant") return message;
       return {
         ...message,

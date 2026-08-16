@@ -86,6 +86,9 @@ export interface ToolResultMessage {
   isError?: boolean;
   details?: unknown;
   timestamp?: number;
+  entryId?: string;
+  deferred?: boolean;
+  contentLength?: number;
 }
 
 export interface CustomMessage {
