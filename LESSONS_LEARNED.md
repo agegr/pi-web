@@ -101,3 +101,15 @@ This matrix documents technical pitfalls, root causes, fixes, and universal guid
   2. If a secret was already typed, rotate it immediately and treat the affected session file as compromised.
   3. Consider restricting filesystem permissions on `~/.pi/agent/sessions/` (e.g., 700) and limiting who can access the host volume.
 - **Lesson / Rule**: Treat pi session files as sensitive data. Secrets must never be entered via chat; always load them from protected environment sources.
+
+---
+
+## 11. Container root ≠ Host root, and Running as root Has Ownership Costs
+
+- **Symptom**: After setting `user: "0"` in `docker-compose.yml`, the agent can write to mounted volumes, but newly created files are owned by `root:root`. Switching back to `user: node` later results in "Permission denied" on those files. Some tasks that seem like "fix host" cannot be done from inside the container at all.
+- **Root Cause**: Container root is namespaced to the container. It only has full privileges over the container's filesystem and the volumes explicitly mounted from the host. It does **not** grant host-wide root access. Running as root inside the container changes ownership of files inside mounted volumes to root, which breaks the default node user.
+- **Fix**:
+  1. Understand the boundary: container can only touch its own filesystem + mounted volumes (`~/.pi/agent`, `/workspace` → `/home/wrt/TigerAI/AG/SystemRepair`). Anything outside those mounts requires an SSH bridge back to the host.
+  2. Avoid long-term `user: "0"`. Use it only temporarily for specific writes, then revert to node.
+  3. For host-wide operations (e.g., fixing the wrt host itself, managing Docker, editing files outside the mounts), use the SSH bridge skill to execute commands as the host user (with sudo when explicitly approved).
+- **Lesson / Rule**: Container root is not host root. Never assume container privileges extend to the host. Prefer SSH bridge for host operations and keep the container running as an unprivileged user to avoid ownership drift.

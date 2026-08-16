@@ -238,6 +238,19 @@ HOST_SSH_PASS='...' HOST_SUDO_PASS='...' node run-host.js --sudo 'whoami'   # �
 2. `sshbridge` 若在 `/workspace` → 自動活著，免處理
 3. pi session：`~/.pi/agent` 有掛載 → session 與設定活著，可直接接續
 
+## 權限邊界：容器 root ≠ host root
+
+> **關鍵事實**
+> - 容器內的 `root` **不是** host 的 root。容器最多只能碰到：容器自己的檔案系統 + compose 裡掛進來的 volume（本機：`~/.pi/agent`、` /workspace` → `/home/wrt/TigerAI/AG/SystemRepair`）。
+> - 若目標是修 **host 本機**（這台 wrt 主機、專案 SystemRepair），很多操作必須在 host 上執行。容器內做不到——除非走 ssh bridge（解法 B/B+）回到 host。
+> - `user: "0"` 讓容器內的 pi 以 root 執行，並**不會**讓容器變成 host root；它只會讓掛載目錄內的檔案被 root 擁有/修改。
+
+### root 運行的代價
+
+- agent 以 root 執行後，掛載目錄（`/workspace`、 `~/.pi/agent`）內新建的檔案/目錄 owner 都是 `root:root`。
+- 之後改回 `user: node` 跑，agent 就**寫不進**那些 root 擁有的檔案，導致「權限錯誤」的假象。
+- 建議：只在需要寫入 host 擁有者的檔案時才臨時用 root；長期以 node 執行，必要時用 ssh bridge 以 host 帳號操作。
+
 ## 安全紀律
 
 - 密碼只走環境變數，不落檔、不入 git
