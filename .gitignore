@@ -40,3 +40,5 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .factory
+# pi-web operator env (holds password + public hostnames)
+.pi-web.env

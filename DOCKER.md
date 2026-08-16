@@ -7,7 +7,10 @@
 
 ```powershell
 cd C:\Tools\@@@@@@Antigravity\TigerAI-Methodology\04_RnD\10_PiWeb
+copy .pi-web.env.example .pi-web.env    # 必填：密碼 + 公開域名（見「遠端存取」）
 docker compose up -d --build     # 首次會 build 映像
+# 缺 .pi-web.env 時 compose 會明確報錯（env file not found）——刻意如此，
+# 不會帶著「無密碼/無域名」的不安全預設悄悄跑起來
 # 瀏覽器開 http://127.0.0.1:30141
 ```
 
@@ -37,14 +40,17 @@ docker compose pull && docker compose up -d --build   # 更新 pi-web
 
 ## 遠端存取（可選）
 
-本機用不用動。要給 LAN／外面連：
+本機用不用動。要給 LAN／外面連：改 `.pi-web.env`（不用動 compose）：
 
-```yaml
-environment:
-  PI_WEB_PASSWORD: "node -e 產生的長隨機密碼"
-  # 走 Cloudflare Tunnel 時：
-  # PI_WEB_ALLOWED_HOSTS: "pi.你的域名.com"
+```ini
+PI_WEB_PASSWORD=node -e 產生的長隨機密碼
+# 走 Cloudflare Tunnel／反向代理時必填：精確的公開域名（逗號分隔可多個）
+# 沒填時該域名的請求會被 403 擋掉——tunnel 通了也「打不進來」
+PI_WEB_ALLOWED_HOSTS=pi.你的域名.com
 ```
+
+改完 `docker compose up -d` 套用。⚠️ **env 變更要 recreate 容器才生效**——
+只改檔案不重啟 = 容器還在用舊值（用 `docker exec pi-web env | grep PI_WEB` 確認）。
 
 ⚠️ 紀律：長隨機密碼、不要重用、只走 TLS（VPN／Cloudflare Tunnel）、能加 Cloudflare Access 就加（補 MFA + 稽核）。pi-web 的 Basic Auth 沒有 rate limit / MFA。
 
