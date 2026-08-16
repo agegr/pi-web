@@ -11,6 +11,8 @@ const jiti = createJiti(import.meta.url, {
 const { MessageView, formatToolInput, replaceUserMessageText } = await jiti.import("./MessageView.tsx");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
+const source = await import("node:fs").then((fs) => fs.readFileSync(new URL("./MessageView.tsx", import.meta.url), "utf8"));
+
 function renderMessage(message, props = {}) {
   return renderToStaticMarkup(
     React.createElement(
@@ -39,6 +41,13 @@ test("renders user prompts as right-aligned compact bubbles without role labels"
 test("does not print an ASSISTANT role label", () => {
   const html = renderMessage({ role: "assistant", content: [{ type: "text", text: "Done" }] });
   assert.doesNotMatch(html, />ASSISTANT</);
+});
+
+test("token speed pill stays on one line while the model row can wrap", () => {
+  // The t/s pill must never break internally (149.3 / t/s); the model row
+  // wraps the whole ↓tokens + pill cluster instead on narrow screens.
+  assert.match(source, /whiteSpace: "nowrap"/);
+  assert.match(source, /flexWrap: "wrap"/);
 });
 
 test("renders a provider error when the assistant message has no content", () => {

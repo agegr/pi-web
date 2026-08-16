@@ -709,6 +709,8 @@ function AssistantMessageView({
           marginBottom: 4,
           display: "flex",
           alignItems: "center",
+          flexWrap: "wrap",
+          rowGap: 4,
           gap: 8,
         }}
       >
@@ -729,7 +731,7 @@ function AssistantMessageView({
                   {tps !== null && (() => {
                     const bg = tps >= 50 ? "#53b3cb" : tps >= 30 ? "#9bc53d" : tps >= 15 ? "#f9c22e" : "#e01a4f";
                     return (
-                      <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, background: bg, color: "#fff", fontSize: "var(--text-meta)", fontWeight: 400 }}>
+                      <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, background: bg, color: "#fff", fontSize: "var(--text-meta)", fontWeight: 400, whiteSpace: "nowrap" }}>
                         {tps.toFixed(1)} t/s
                       </span>
                     );
