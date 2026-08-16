@@ -62,3 +62,21 @@ This matrix documents technical pitfalls, root causes, fixes, and universal guid
   2. Register a `@reboot` cron job: `@reboot sleep 30 && /path/to/connect-cloudflared.sh`
   3. Always run `./connect-cloudflared.sh` after `docker compose up -d`.
 - **Lesson / Rule**: Any `docker network connect` between containers managed by different lifecycle systems (standalone container vs. compose project) must be re-applied after every restart. Automate it.
+
+---
+
+## 7. Fresh Container Working Directory Access Gating (`Access denied` on `/api/models`)
+
+- **Symptom**: `GET /api/models?cwd=/workspace` returns `403 Access denied` on fresh Docker deployments when no session files exist yet.
+- **Root Cause**: `getAllowedFileRoots()` in `lib/file-access.ts` derived allowed roots strictly from existing session `.jsonl` files and explicit user selections. On a fresh container start without pre-existing session files, `process.cwd()` (`/workspace`) was missing from the allowed roots set.
+- **Fix**: Included `process.cwd()` in `getAllowedFileRoots()` by default so the process working directory is automatically authorized.
+- **Lesson / Rule**: Always authorize the application's runtime working directory (`process.cwd()`) in security file-access boundaries to ensure fresh deployments without pre-existing sessions can query models and load project metadata immediately.
+
+---
+
+## 8. Custom OpenAI-Compatible Provider Setup (`n8n-qwen` / `Qwen3.8-27B`)
+
+- **Symptom**: Custom OpenAI API gateway models (`openai-completions` API type) not showing up or failing during inference.
+- **Root Cause**: Models missing from `~/.pi/agent/models.json` or misconfigured max tokens/reasoning parameters.
+- **Fix**: Registered `n8n-qwen` provider with `api: "openai-completions"`, `baseUrl: "http://192.168.1.86:30003/gw/v1"`, and `reasoning: true` under `~/.pi/agent/models.json`.
+- **Lesson / Rule**: Ensure custom OpenAI-compatible gateways match Pi's `models.json` schema and account for reasoning tokens emitted during inference.
