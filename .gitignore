@@ -46,3 +46,6 @@ next-env.d.ts
 /test-results/
 /tests/test-output/
 /playwright-report/
+
+# production build output (never commit; built outside the repo)
+.output/
