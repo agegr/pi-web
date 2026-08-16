@@ -91,3 +91,9 @@ test("service worker treats TanStack /_build assets as static and drops Next mar
   assert.match(swSource, /startsWith\("\/_build\/"\)/);
   assert.doesNotMatch(swSource, /_next\/static/);
 });
+
+test("runtime cache recognizes emitted production assets", () => {
+  const swSource = await readFile(new URL("./sw.js", import.meta.url), "utf8");
+  assert.match(swSource, /url\.pathname\.startsWith\("\/assets\/"\)/);
+  assert.doesNotMatch(swSource, /url\.pathname\.startsWith\("\/_build\/"\)/);
+});

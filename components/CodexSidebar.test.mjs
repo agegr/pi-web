@@ -215,3 +215,9 @@ test("initial running ids establish a baseline without a second inventory reques
   assert.match(sidebar, /if \(previous === null\) \{[\s\S]*?previousRunningRef\.current = activeRootIds;[\s\S]*?return;/);
   assert.match(sidebar, /if \(previous === null\) \{[\s\S]*?previousRawRunningRef\.current = runningIds;[\s\S]*?return;/);
 });
+
+test("settings stays outside the initial AppShell module graph", () => {
+  assert.doesNotMatch(shell, /import \{ SettingsPage \} from "\.\/SettingsPage"/);
+  assert.match(shell, /lazy\(\(\) => import\("\.\/SettingsPage"\)/);
+  assert.match(shell, /settingsOpen && \([\s\S]*?<Suspense/);
+});

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
+import { lazy, Suspense, useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { Network,
   ArrowDown,
@@ -33,7 +33,9 @@ import { ChatWindow } from "./ChatWindow";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState } from "./file-tab-state";
-import { SettingsPage } from "./SettingsPage";
+const SettingsPage = lazy(() => import("./SettingsPage").then((module) => ({
+  default: module.SettingsPage,
+})));
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { BranchNavigator } from "./BranchNavigator";
 import { SessionViewSwitch, TaskHeader } from "./TaskHeader";
@@ -2423,7 +2425,8 @@ export function AppShell() {
       </div>
     </div>
     {settingsOpen && (
-      <SettingsPage
+      <Suspense fallback={null}>
+        <SettingsPage
         cwd={projectTrustCwd}
         sessionId={selectedSession?.id ?? null}
         themePreference={preference}
@@ -2438,7 +2441,8 @@ export function AppShell() {
         onModelsChanged={() => setModelsRefreshKey((key) => key + 1)}
         onSessionReloaded={() => setSessionKey((key) => key + 1)}
         onProjectsChanged={() => setRefreshKey((key) => key + 1)}
-      />
+        />
+      </Suspense>
     )}
     {projectTrustDialogOpen && projectTrustCwd && (
       <ProjectTrustDialog

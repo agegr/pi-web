@@ -55,7 +55,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   const isStaticAsset =
-    url.pathname.startsWith("/_build/") ||
+    url.pathname.startsWith("/assets/") ||
     PRECACHE_URLS.includes(url.pathname);
 
   if (isStaticAsset) {
