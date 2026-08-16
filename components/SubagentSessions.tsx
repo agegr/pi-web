@@ -496,7 +496,6 @@ export function DesktopSubagentCard({
 }) {
   const { t } = useI18n();
   const [collapsed, setCollapsed] = useState(false);
-  if (nodes.length === 0) return null;
   const totalCount = countSubagentNodes(nodes);
   const activeCount = countActiveSubagentNodes(nodes);
 
@@ -506,6 +505,8 @@ export function DesktopSubagentCard({
   useEffect(() => {
     if (settled) setCollapsed(true);
   }, [settled]);
+
+  if (nodes.length === 0) return null;
 
   return (
     <section
