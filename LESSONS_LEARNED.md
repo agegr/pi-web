@@ -89,3 +89,15 @@ This matrix documents technical pitfalls, root causes, fixes, and universal guid
 - **Root Cause**: Each user-defined docker bridge network gets its own subnet. The host's address as seen from inside a container is always the network gateway (`.1` of the container's subnet), but that address changes per network.
 - **Fix**: Discover the gateway at setup time: decode the `gw` field of the default route in `cat /proc/net/route` (little-endian hex, e.g. `01001CAC` → `172.28.0.1`), or take the container's own IP and set the host part to `.1`.
 - **Lesson / Rule**: Never hardcode the bridge gateway as the only source of truth. Make it a parameter (env var / CLI flag) and document the discovery method next to it.
+
+---
+
+## 10. Secrets Typed in Chat Are Persisted in Pi Session Files
+
+- **Symptom**: Host SSH passwords, sudo passwords, or API keys typed into a pi session appear in the session JSONL file and are therefore readable by anyone with filesystem access to `~/.pi/agent/sessions/`.
+- **Root Cause**: Pi sessions are plain JSONL files (typically mode 644) mounted into the container. The agent records every user message verbatim, including secrets.
+- **Fix**:
+  1. Never type secrets in chat. Use environment variables or a local `.env` file (mode 600) loaded by a pi skill (see `docs/docker-host-bridge.md` Solution B+).
+  2. If a secret was already typed, rotate it immediately and treat the affected session file as compromised.
+  3. Consider restricting filesystem permissions on `~/.pi/agent/sessions/` (e.g., 700) and limiting who can access the host volume.
+- **Lesson / Rule**: Treat pi session files as sensitive data. Secrets must never be entered via chat; always load them from protected environment sources.

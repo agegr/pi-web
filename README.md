@@ -49,6 +49,14 @@ To update, stop the running process with `Ctrl+C` and run the same install comma
 > - 📜 **[docs/dev.log.md](./docs/dev.log.md)** — Development history & resolved pitfalls
 > - 💡 **[LESSONS_LEARNED.md](./LESSONS_LEARNED.md)** — Key technical lessons learned
 >
+> > 🔒 **Security Note: Secrets in Pi Sessions**
+> > Pi sessions are stored as JSONL files under `~/.pi/agent/sessions/...`. These files are typically world-readable (644) on the host and are mounted into the container. **Any password or secret typed in chat will be persisted verbatim in the session file**, and therefore in the container's filesystem and any backups.
+> >
+> > - Never type host credentials (SSH passwords, sudo passwords, API keys) directly in chat.
+> > - Use environment variables or a local `.env` file (mode 600) that is loaded by a pi skill, as documented in `docs/docker-host-bridge.md` (Solution B+).
+> > - If a secret has been typed in chat, rotate the secret immediately and treat the session file as compromised.
+> > - Session files are shared between pi-web and the pi TUI; treat them as sensitive data.
+>
 > **Quick Checklist for Cloudflare + Docker**:
 > 1. Set `PI_WEB_HOSTNAME: "0.0.0.0"` in container environment.
 > 2. Set `PI_WEB_NO_OPEN: "1"`.
