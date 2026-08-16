@@ -270,3 +270,31 @@ test("keeps the assistant usage line on a single row with ellipsis", () => {
 
   assert.match(html, /font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0/);
 });
+
+test("collapsed deferred tool result omits its body and keeps the header", () => {
+  const block = {
+    type: "toolCall",
+    toolCallId: "call-deferred-1",
+    toolName: "read",
+    input: { path: "/tmp/x" },
+  };
+  const deferredResult = {
+    role: "toolResult",
+    toolCallId: "call-deferred-1",
+    content: [],
+    deferred: true,
+    contentLength: 50_000,
+    entryId: "tr-deferred-1",
+  };
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [block],
+  }, { toolResults: new Map([["call-deferred-1", deferredResult]]) });
+
+  assert.match(html, /data-tool-call-id="call-deferred-1"/);
+  assert.match(html, /read/);
+  // Collapsed by default: no loading text, no result body.
+  assert.doesNotMatch(html, /Loading tool result/);
+});

@@ -79,6 +79,35 @@ function estimateUpdatedTokens(previous: TokenEstimateCacheEntry | undefined, te
 }
 
 const MAX_THINKING_CACHE_ENTRIES = 100;
+const MAX_TOOL_RESULT_CACHE_ENTRIES = 100;
+const toolResultCache = new Map<string, Promise<ToolResultMessage>>();
+
+function loadToolResult(sessionId: string, entryId: string): Promise<ToolResultMessage> {
+  const key = `${sessionId}:${entryId}`;
+  const cached = toolResultCache.get(key);
+  if (cached) return cached;
+
+  const request = fetch(
+    `/api/sessions/${encodeURIComponent(sessionId)}/entries/${encodeURIComponent(entryId)}/tool-result`,
+  ).then(async (response) => {
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json() as { result?: ToolResultMessage };
+    if (!data.result || data.result.role !== "toolResult") {
+      throw new Error("Invalid tool result response");
+    }
+    return data.result;
+  }).catch((error) => {
+    toolResultCache.delete(key);
+    throw error;
+  });
+
+  toolResultCache.set(key, request);
+  if (toolResultCache.size > MAX_TOOL_RESULT_CACHE_ENTRIES) {
+    const oldestKey = toolResultCache.keys().next().value;
+    if (oldestKey) toolResultCache.delete(oldestKey);
+  }
+  return request;
+}
 const thinkingContentCache = new Map<string, Promise<string>>();
 
 // Messages larger than this skip markdown rendering entirely. react-markdown +
@@ -848,7 +877,7 @@ function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCal
     const tc = block as ToolCallContent;
     const result = toolResults?.get(tc.toolCallId);
     const duration = toolCallDurations?.get(tc.toolCallId);
-    return <ToolCallBlock block={tc} result={result} duration={duration} defaultExpanded={defaultDetailsExpanded} isStreaming={isStreaming} />;
+    return <ToolCallBlock block={tc} result={result} duration={duration} defaultExpanded={defaultDetailsExpanded} isStreaming={isStreaming} sessionId={sessionId} />;
   }
   return null;
 }
@@ -941,21 +970,53 @@ export function getToolCallInputText(block: ToolCallContent): string {
   return block.rawInput ?? JSON.stringify(block.input, null, 2);
 }
 
-function ToolCallBlock({ block, result, duration, defaultExpanded, isStreaming }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; defaultExpanded: boolean; isStreaming?: boolean }) {
+function ToolCallBlock({ block, result, duration, defaultExpanded, isStreaming, sessionId }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; defaultExpanded: boolean; isStreaming?: boolean; sessionId?: string }) {
   const { t } = useI18n();
   const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
+  const [loadedResult, setLoadedResult] = useState<ToolResultMessage | null>(null);
+  const [resultLoading, setResultLoading] = useState(false);
+  const [resultError, setResultError] = useState<string | null>(null);
+  const resultRequestRef = useRef<string | null>(null);
   const expanded = userExpanded ?? defaultExpanded;
+  const effectiveResult = loadedResult ?? result;
   const inputStr = getToolCallInputText(block);
   const isStreamingInput = block.rawInput !== undefined;
   const isEditTool = isEditToolName(block.toolName);
-  const resultDiff = result && !result.isError ? getResultDiff(result) : null;
+  const resultDiff = effectiveResult && !effectiveResult.isError ? getResultDiff(effectiveResult) : null;
+
+  useEffect(() => {
+    if (!expanded || !result?.deferred || loadedResult) return;
+    if (!sessionId || !result.entryId) {
+      setResultError(t("i18n.toolResultUnavailable"));
+      return;
+    }
+    const key = `${sessionId}:${result.entryId}`;
+    if (resultRequestRef.current === key) return;
+    resultRequestRef.current = key;
+    setResultLoading(true);
+    setResultError(null);
+    void loadToolResult(sessionId, result.entryId).then(
+      (value) => {
+        if (resultRequestRef.current !== key) return;
+        resultRequestRef.current = null;
+        setResultLoading(false);
+        setLoadedResult(value);
+      },
+      () => {
+        if (resultRequestRef.current !== key) return;
+        resultRequestRef.current = null;
+        setResultLoading(false);
+        setResultError(t("i18n.toolResultUnavailable"));
+      },
+    );
+  }, [expanded, loadedResult, result?.deferred, result?.entryId, sessionId, t]);
 
   // Result display
-  const resultText = result
-    ? result.content.filter((b): b is { type: "text"; text: string } => b.type === "text").map((b) => b.text).join("\n")
+  const resultText = effectiveResult
+    ? effectiveResult.content.filter((b): b is { type: "text"; text: string } => b.type === "text").map((b) => b.text).join("\n")
     : null;
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
-  const isError = result?.isError ?? false;
+  const isError = effectiveResult?.isError ?? false;
 
   return (
     <div
@@ -969,7 +1030,12 @@ function ToolCallBlock({ block, result, duration, defaultExpanded, isStreaming }
     >
       {/* ── Tool call header ── */}
       <button
-        onClick={() => setUserExpanded(!expanded)}
+        data-tool-call-id={block.toolCallId}
+        onClick={() => {
+          const nextExpanded = !expanded;
+          setUserExpanded(nextExpanded);
+          if (!nextExpanded) setResultError(null);
+        }}
         style={{
           display: "flex",
           alignItems: "center",
@@ -1029,7 +1095,15 @@ function ToolCallBlock({ block, result, duration, defaultExpanded, isStreaming }
       )}
 
       {/* ── Paired result — only shown when expanded ── */}
-      {expanded && result && (
+      {expanded && (resultLoading ? (
+        <div style={{ padding: "8px 10px", color: "var(--text-muted)", fontSize: "var(--text-meta)", background: "var(--bg-panel)", borderTop: "1px solid var(--border)" }}>
+          {t("i18n.loadingToolResult")}
+        </div>
+      ) : resultError ? (
+        <div style={{ padding: "8px 10px", color: "#f87171", fontSize: "var(--text-meta)", background: "var(--bg-panel)", borderTop: "1px solid var(--border)" }} role="alert">
+          {resultError}
+        </div>
+      ) : effectiveResult && (
         resultDiff ? (
           <PairedDiffResult
             diff={resultDiff}
@@ -1041,7 +1115,7 @@ function ToolCallBlock({ block, result, duration, defaultExpanded, isStreaming }
             isError={isError}
           />
         )
-      )}
+      ))}
     </div>
   );
 }
