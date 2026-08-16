@@ -80,3 +80,12 @@ This matrix documents technical pitfalls, root causes, fixes, and universal guid
 - **Root Cause**: Models missing from `~/.pi/agent/models.json` or misconfigured max tokens/reasoning parameters.
 - **Fix**: Registered `n8n-qwen` provider with `api: "openai-completions"`, `baseUrl: "http://192.168.1.86:30003/gw/v1"`, and `reasoning: true` under `~/.pi/agent/models.json`.
 - **Lesson / Rule**: Ensure custom OpenAI-compatible gateways match Pi's `models.json` schema and account for reasoning tokens emitted during inference.
+
+---
+
+## 9. Docker Bridge Gateway IP Is Not Fixed Across Networks
+
+- **Symptom**: An in-container SSH bridge to the host using a previously working gateway IP (e.g. `172.21.0.1`) fails after redeployment onto a different docker network.
+- **Root Cause**: Each user-defined docker bridge network gets its own subnet. The host's address as seen from inside a container is always the network gateway (`.1` of the container's subnet), but that address changes per network.
+- **Fix**: Discover the gateway at setup time: decode the `gw` field of the default route in `cat /proc/net/route` (little-endian hex, e.g. `01001CAC` → `172.28.0.1`), or take the container's own IP and set the host part to `.1`.
+- **Lesson / Rule**: Never hardcode the bridge gateway as the only source of truth. Make it a parameter (env var / CLI flag) and document the discovery method next to it.

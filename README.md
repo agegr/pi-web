@@ -41,6 +41,7 @@ To update, stop the running process with `Ctrl+C` and run the same install comma
 > ⚠️ **IMPORTANT: Docker & Cloudflare Tunnel Deployment**
 > If you are deploying `pi-web` inside **Docker** behind **Cloudflare Tunnel** or a reverse proxy, you **MUST READ**:
 > - 📖 **[DOCKER.md](./DOCKER.md)** — Docker architecture & volume setup
+> - 🖥️ **[docs/docker-host-bridge.md](./docs/docker-host-bridge.md)** — Running host commands from the container (ssh2 bridge / pi skill, no docker.sock mount)
 > - 🛠️ **[INSTALL_GUIDE.md](./INSTALL_GUIDE.md)** — Step-by-step Docker & Cloudflare setup guide
 > - ⚡ **[STARTUP.md](./STARTUP.md)** — Quick start & container maintenance commands
 > - 👤 **[USER_GUIDE.md](./USER_GUIDE.md)** — Access credentials & workspace overview

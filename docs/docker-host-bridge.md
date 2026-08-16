@@ -33,7 +33,7 @@ sudo docker exec -u root pi-web sh -c \
    RUN mkdir -p /home/wrt && ln -sfn /workspace /home/wrt/TigerAI
    ```
 
-## 解法 B：ssh2 bridge — 容器內執行 host 指令（解牆 #2、#3，推薦）
+## 解法 B：ssh2 bridge — 容器內執行 host 指令（解牆 #2、#3）
 
 容器有 Node 但沒有 ssh 二進位。裝 pure-JS 的 `ssh2`（無 native 編譯，alpine 直接可用）：
 
@@ -97,6 +97,120 @@ PI_HOST_SSH_HOST=<host LAN IP> PI_HOST_SSH_USER=<user> PI_HOST_SSH_PASS=<pass> \
   不用一直走 ssh（這配合上面的 `& disown` 是標準組合：下達 → 脫管 → 讀 log）
 - host 有 ssh key 時更乾淨：`ssh2` 改傳 `privateKey` 選項，連密碼都不用
 
+### 解法 B+（推薦）：pi skill 版 — 其他 AI 一進環境就自動發現
+
+> 上面的 B（`exec.js` + `/workspace/sshbridge`）是通用做法，但每次要「先知道去讀這頁文件」。
+> 如果容器跑的是 **pi agent**（如 pi-web），推薦把 bridge 放成 pi skill：
+> `~/.pi/agent/skills/host-ssh/`。`~/.pi/agent` 是掛載卷（rebuild 存活），pi 會**自動發現**
+> skills——下次任何 AI 進這個環境，skill 清單裡直接看得到，不需要繞路。
+
+#### 當時的 4 步（瓶頸 → 打通）
+
+1. **瓶頸**：容器零權限——無 sudo、`/sys` 唯讀、沒 ssh/curl 二進位、`apk add` 要 root 裝不了
+   → 系統 ssh 客戶端的路走不通。
+2. **node 路線（關鍵決定）**：容器有 node → 用純 JS `ssh2` 當 SSH 客戶端，完全不需要
+   ssh 二進位。（fallback：host 上其他服務的 node_modules 深處可能內含 ssh2，可複製過來，離線也能用。）
+3. **建立 skill 目錄** `~/.pi/agent/skills/host-ssh/`：`run-host.js`（SSH 腳本）+
+   `package.json` + `npm install ssh2` + `SKILL.md`（主機資訊、用法、規則）。
+4. **sudo 打通（`--sudo` 的祕訣）**：`printf '%s\n' '<pass>' | sudo -S -p '' bash -c '<cmd>'`
+   ——把密碼 pipe 進 `sudo -S` 的 stdin，免互動輸入。
+
+#### 安裝（約 5 分鐘）
+
+```bash
+mkdir -p ~/.pi/agent/skills/host-ssh && cd ~/.pi/agent/skills/host-ssh
+# 把下面的 run-host.js 與 SKILL.md 寫入，然後：
+npm install ssh2
+```
+
+#### run-host.js（密碼一律走環境變數，不寫進檔案）
+
+```js
+#!/usr/bin/env node
+// host-ssh: run a command on the Docker host via ssh2 (pure JS, no ssh binary needed).
+// Passwords come ONLY from environment variables — never hardcode, never commit.
+//
+// Usage:
+//   HOST_SSH_PASS='<pass>' node run-host.js '<cmd>'                    # as host user
+//   HOST_SSH_PASS='<pass>' HOST_SUDO_PASS='<pass>' node run-host.js --sudo '<cmd>'
+//   HOST_SSH_HOST=<ip> ...   # override host (default: bridge gateway, see SKILL.md)
+
+const { Client } = require('ssh2');
+
+const args = process.argv.slice(2);
+let sudo = false;
+let host = process.env.HOST_SSH_HOST || '172.28.0.1'; // docker bridge gateway
+let user = process.env.HOST_SSH_USER || 'wrt';
+const password = process.env.HOST_SSH_PASS;
+const sudoPassword = process.env.HOST_SUDO_PASS;
+const cmdParts = [];
+
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === '--sudo') sudo = true;
+  else if (args[i] === '--host') host = args[++i];
+  else cmdParts.push(args[i]);
+}
+const cmd = cmdParts.join(' ');
+if (!cmd) { console.error('Usage: HOST_SSH_PASS=<pass> node run-host.js [--sudo] [--host <ip>] <command>'); process.exit(2); }
+if (!password) { console.error('missing env HOST_SSH_PASS'); process.exit(2); }
+if (sudo && !sudoPassword) { console.error('missing env HOST_SUDO_PASS'); process.exit(2); }
+
+// 密碼 pipe 進 sudo -S，免互動；單引號正確轉義
+const sq = (s) => s.replace(/'/g, "'\\''");
+const remote = sudo
+  ? `printf '%s\n' '${sq(sudoPassword)}' | sudo -S -p '' bash -c '${sq(cmd)}'`
+  : cmd;
+
+const conn = new Client();
+const timeout = setTimeout(() => { console.error('timeout after 120s'); conn.end(); process.exit(124); }, 120000);
+
+conn.on('ready', () => {
+  conn.exec(remote, (e, stream) => {
+    if (e) { clearTimeout(timeout); console.error('exec error:', e.message); process.exit(1); }
+    stream.on('data', (d) => process.stdout.write(d));
+    stream.stderr.on('data', (d) => process.stderr.write(d));
+    stream.on('close', (code) => { clearTimeout(timeout); conn.end(); process.exit(code == null ? 0 : code); });
+    stream.on('error', (err) => { clearTimeout(timeout); console.error('stream error:', err.message); conn.end(); process.exit(1); });
+  });
+}).on('error', (e) => { clearTimeout(timeout); console.error('ssh error:', e.message); process.exit(1); });
+
+conn.connect({ host, port: 22, username: user, password, readyTimeout: 15000 });
+```
+
+#### SKILL.md（範本；密碼欄位只寫來源，不寫值）
+
+```markdown
+# host-ssh
+
+容器內以純 JS（ssh2）SSH 到 Docker host 執行指令。不需 ssh 二進位、不需 root。
+
+| 項目 | 值 |
+|------|-----|
+| Host | bridge gateway（發現方法見下） |
+| User | `<host 使用者>` |
+| 密碼 | **只走環境變數** `HOST_SSH_PASS` / `HOST_SUDO_PASS`，不寫進任何檔案 |
+
+**bridge gateway 發現方法（不可硬編碼）**：`cat /proc/net/route` 的 gw 欄是 little-endian
+hex（如 `01001CAC` → `172.28.0.1`）；或容器 IP 同網段 + `.1`。
+
+用法：`HOST_SSH_PASS='<pass>' node run-host.js [--sudo] '<指令>'`
+
+規則：1) `--sudo` 先問使用者 2) 刪除/修改 host 的東西絕對先問 3) 預設只做唯讀查詢
+```
+
+#### 驗證
+
+```bash
+HOST_SSH_PASS='...' node run-host.js 'whoami && hostname'                    # → host 使用者 + 主機名
+HOST_SSH_PASS='...' HOST_SUDO_PASS='...' node run-host.js --sudo 'whoami'   # → root
+```
+
+#### 與解法 B（exec.js）的差異
+
+- `--sudo` flag（B 用 `SUDO: ` 前綴）、`--host` flag、120s 逾時、sudo 指令單引號轉義
+- 放 pi skills → **自動發現**；exec.js 需要每個 AI 先被指引去讀這頁
+- 長工作脫管模式（`setsid nohup ... & disown` + log 寫掛載目錄再 tail）兩版都適用
+
 ## 為什麼不直接掛 docker.sock
 
 | | 掛 docker.sock | ssh bridge |
@@ -114,6 +228,7 @@ PI_HOST_SSH_HOST=<host LAN IP> PI_HOST_SSH_USER=<user> PI_HOST_SSH_PASS=<pass> \
 | 腳本放容器 `/tmp` | rebuild 後消失 | 持久物放 `/workspace`（掛載卷） |
 | `docker logs --since <epoch 數字>` | 無輸出 | 用 `--tail N` 或 RFC3339 時間戳 |
 | 用 sed 貪婪 `.*` 抓 log 數字 | 吃掉前導數字（如 `1094` 變 `94`） | 改用 `grep -oE '[0-9]+(\.[0-9]+)?'` |
+| bridge gateway IP 不固定 | 舊的 `172.21.0.1` 連不上、ssh 失敗 | 同一台 host 在不同 docker network 下子網不同（實測出現過 172.21.0.1 / 172.28.0.1）；用 `cat /proc/net/route`（gw 欄 little-endian hex）或容器 IP 同網段 + `.1` 找現值 |
 
 ## Rebuild 後復原 checklist
 
