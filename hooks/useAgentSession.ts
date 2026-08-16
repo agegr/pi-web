@@ -30,6 +30,7 @@ import {
   streamReducer,
   type ClientAssistantMessageEvent,
 } from "@/lib/streaming-message";
+import { createTextDeltaBatcher } from "@/lib/text-delta-batcher";
 
 export interface SessionData {
   sessionId: string;
@@ -337,6 +338,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [isNearBottom, setIsNearBottom] = useState(true);
   const previousScrollTopRef = useRef(0);
   const liveFollowFrameRef = useRef<number | null>(null);
+  const textDeltaBatcherRef = useRef<ReturnType<typeof createTextDeltaBatcher> | null>(null);
+  if (!textDeltaBatcherRef.current) {
+    textDeltaBatcherRef.current = createTextDeltaBatcher(
+      (callback) => requestAnimationFrame(callback),
+      (id) => cancelAnimationFrame(id),
+      (event) => dispatch({ type: "delta", event }),
+    );
+  }
+  const textDeltaBatcher = textDeltaBatcherRef.current;
   const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -491,6 +501,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const d = await res.json() as SessionData;
       if (sessionIdRef.current !== sid) return null;
       const persistedMessages = d.context.messages;
+      textDeltaBatcher.flush();
       setData(d);
       setActiveLeafId(d.leafId);
       setMessages(persistedMessages);
@@ -533,7 +544,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (showLoading && !messagesLoaded) setLoading(false);
     }
-  }, []);
+  // textDeltaBatcher is a stable ref-owned instance; it must be a dependency
+  // so the flush inside loadSession always sees the current instance.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [textDeltaBatcher]);
 
   const loadContext = useCallback(async (sid: string, leafId: string | null) => {
     try {
@@ -1093,6 +1107,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // compacting, or continuing messages queued by extension handlers.
         // Keep the stream open until prompt_done/agent_settled and the idle grace.
         if (!agentRunningRef.current || !acceptsPromptGeneration(event)) break;
+        textDeltaBatcher.flush();
         setAgentPhase(null);
         setRetryInfo(null);
         dispatch({ type: "end" });
@@ -1184,7 +1199,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         } else {
           const delta = event.assistantMessageEvent as ClientAssistantMessageEvent | undefined;
           if (delta) {
-            dispatch({ type: "delta", event: delta });
+            if (delta.type === "text_delta") {
+              textDeltaBatcher.push(delta);
+            } else {
+              textDeltaBatcher.flush();
+              dispatch({ type: "delta", event: delta });
+            }
             if (delta.type !== "toolcall_start" && delta.type !== "toolcall_delta") {
               setAgentPhase(null);
             }
@@ -1207,6 +1227,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // loadSession already loaded this message from the session file —
         // appending it again would duplicate it.
         if (!agentRunningRef.current) break;
+        textDeltaBatcher.flush();
         const completed = event.message as AgentMessage | undefined;
         if (completed && completed.role === "user") {
           // Delivered steering/follow-up messages surface here as user
@@ -1775,6 +1796,54 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [opts.chatInputRef, addNotice]);
 
+  const applyQueueResult = useCallback((result: QueuedMessages | null) => {
+    if (result) setQueuedMessages(normalizeQueuedMessages(result));
+  }, []);
+
+  const handleQueueRemoveItem = useCallback(async (kind: "steering" | "followUp", text: string) => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    try {
+      applyQueueResult(await sendAgentCommand<QueuedMessages>(sid, { type: "queue_remove", kind, text }));
+    } catch (e) {
+      console.error("Failed to remove queued message:", e);
+      addNotice({ type: "error", message: "Failed to remove queued message" });
+    }
+  }, [applyQueueResult, addNotice]);
+
+  const handleQueueEditItem = useCallback(async (kind: "steering" | "followUp", text: string, replacement: string) => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    try {
+      applyQueueResult(await sendAgentCommand<QueuedMessages>(sid, { type: "queue_edit", kind, text, replacement }));
+    } catch (e) {
+      console.error("Failed to edit queued message:", e);
+      addNotice({ type: "error", message: "Failed to edit queued message" });
+    }
+  }, [applyQueueResult, addNotice]);
+
+  const handleQueueSteerItem = useCallback(async (kind: "steering" | "followUp", text: string) => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    try {
+      applyQueueResult(await sendAgentCommand<QueuedMessages>(sid, { type: "queue_steer_item", kind, text }));
+    } catch (e) {
+      console.error("Failed to steer queued message:", e);
+      addNotice({ type: "error", message: "Failed to interject queued message" });
+    }
+  }, [applyQueueResult, addNotice]);
+
+  const handleSteerAllQueued = useCallback(async () => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    try {
+      applyQueueResult(await sendAgentCommand<QueuedMessages>(sid, { type: "queue_steer_all" }));
+    } catch (e) {
+      console.error("Failed to interject all queued messages:", e);
+      addNotice({ type: "error", message: "Failed to interject queued messages" });
+    }
+  }, [applyQueueResult, addNotice]);
+
   const handleThinkingLevelChange = useCallback(async (level: ThinkingLevelOption) => {
     setThinkingLevel(level);
     if (isNew && !sessionIdRef.current) {
@@ -1900,6 +1969,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         cancelAnimationFrame(liveFollowFrameRef.current);
         liveFollowFrameRef.current = null;
       }
+      textDeltaBatcher.dispose();
       bashRecoveryIdRef.current += 1;
       cancelEventStreamGrace();
       closeEvents();
@@ -2016,6 +2086,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleClearCompactFeedback,
     handleRecallQueue,
+    handleQueueRemoveItem, handleQueueEditItem, handleQueueSteerItem, handleSteerAllQueued,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
     scrollToBottom, scrollUserMsgToTop,

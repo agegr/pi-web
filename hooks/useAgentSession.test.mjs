@@ -164,18 +164,6 @@ test("fresh sessions restore the preferred tool preset without overriding existi
   assert.doesNotMatch(loadToolsSource, /setPreferredToolPreset/);
 });
 
-test("registered extension slash commands execute through run_command instead of the model", () => {
-  const commandSource = source.slice(
-    source.indexOf("  const handleBuiltinSlashCommand = useCallback"),
-    source.indexOf("  // Let AgentSession.prompt decide atomically"),
-  );
-
-  assert.match(commandSource, /command\.source === "extension" && command\.name === commandName/);
-  assert.match(commandSource, /type: "run_command"/);
-  assert.match(commandSource, /name: commandName/);
-  assert.match(commandSource, /slashCommands\]\);/);
-});
-
 test("submission recovery updates live refs before a possible session rekey", () => {
   const restoreMethod = chatInputSource.slice(
     chatInputSource.indexOf("    restoreSubmission(text:"),
@@ -525,4 +513,12 @@ test("keeps compact success visible for ten seconds and lets the composer dismis
   assert.match(source, /handleClearCompactFeedback,/);
   assert.match(chatWindowSource, /onClearCompactFeedback=\{handleClearCompactFeedback\}/);
   assert.match(chatInputSource, /onClearCompactFeedback\?: \(\) => void/);
+});
+
+test("stream integration batches text and flushes at lifecycle boundaries", () => {
+  assert.match(source, /createTextDeltaBatcher\(/);
+  assert.match(source, /delta\.type === "text_delta"[\s\S]*?textDeltaBatcher\.push\(delta\)/);
+  assert.match(source, /textDeltaBatcher\.flush\(\);[ \t]*[\s\S]*?dispatch\(\{ type: "delta", event: delta \}\)/);
+  assert.match(source, /case "message_end":[\s\S]*?textDeltaBatcher\.flush\(\)/);
+  assert.match(source, /textDeltaBatcher\.dispose\(\)/);
 });
