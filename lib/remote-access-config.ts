@@ -286,7 +286,7 @@ function isUnspecifiedBindHost(hostname: string): boolean {
 function firstLanIPv4(): string | undefined {
   for (const entries of Object.values(networkInterfaces())) {
     for (const entry of entries ?? []) {
-      const family = entry.family === 4 ? "IPv4" : entry.family;
+      const family = entry.family;
       if (family !== "IPv4" || entry.internal) continue;
       if (entry.address.startsWith("169.254.")) continue;
       return entry.address;

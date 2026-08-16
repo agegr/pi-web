@@ -22,6 +22,7 @@ import type {
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
 import { createSubagentRpcCapture, SubagentRpcClient, type SubagentRpcCapture } from "./subagent-rpc";
 import { createTrajectoryRuntime, type TrajectoryRuntime } from "./trajectory-runtime";
+import { createReasoningRouterExtension } from "./reasoning-router";
 
 // ============================================================================
 // Types
@@ -1707,11 +1708,12 @@ export async function startRpcSession(
     // its .pi/extensions code automatically (see lib/project-trust.ts, #236).
     const trustReloadOptions = projectTrustReloadOptions(sessionCwd, agentDir);
     const subagentRpc = createSubagentRpcCapture();
+    const reasoningRouter = createReasoningRouterExtension();
     const services = await createAgentSessionServices({
       cwd: sessionCwd,
       agentDir,
       resourceLoaderOptions: {
-        extensionFactories: [subagentRpc.extension],
+        extensionFactories: [subagentRpc.extension, reasoningRouter],
       },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });

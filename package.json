@@ -38,6 +38,7 @@
     "start:tanstack": "node scripts/start-tanstack-output.mjs",
     "lint": "eslint .",
     "test": "node --experimental-strip-types --test \"app/**/*.test.mjs\" \"components/**/*.test.mjs\" \"hooks/**/*.test.mjs\" \"lib/**/*.test.mjs\" \"public/**/*.test.mjs\"",
+    "router:ab": "node scripts/router-ab.mjs",
     "release": "node scripts/release-tanstack.mjs"
   },
   "dependencies": {
