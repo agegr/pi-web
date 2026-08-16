@@ -8,7 +8,7 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { MessageView, formatToolInput, replaceUserMessageText } = await jiti.import("./MessageView.tsx");
+const { MessageView, getToolCallInputText, replaceUserMessageText } = await jiti.import("./MessageView.tsx");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
 const source = await import("node:fs").then((fs) => fs.readFileSync(new URL("./MessageView.tsx", import.meta.url), "utf8"));
@@ -106,22 +106,25 @@ test("keeps partial aborted content and a stopped status", () => {
   assert.match(html, /Stopped/);
 });
 
-test("formats tool string inputs without JSON escape characters", () => {
-  const formatted = formatToolInput({
-    command: 'printf "hello"\nnext line',
-    options: { force: true, label: 'say "yes"' },
-    paths: ["a", "b"],
-  });
+test("keeps streamed tool input out of collapsed markup while counting it", () => {
+  const block = {
+    type: "toolCall",
+    toolCallId: "call-write-1",
+    toolName: "write",
+    input: {},
+    rawInput: '{"path":"/tmp/file","content":"secret-stream-fragment',
+  };
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [block],
+  }, { isStreaming: true });
 
-  assert.equal(formatted, `command: printf "hello"
-next line
-options:
-  force: true
-  label: say "yes"
-paths:
-  - a
-  - b`);
-  assert.doesNotMatch(formatted, /\\n|\\"/);
+  assert.match(html, /write/);
+  assert.match(html, /Generating parameters/);
+  assert.doesNotMatch(html, /secret-stream-fragment/);
+  assert.equal(getToolCallInputText(block), block.rawInput);
 });
 
 test("renders thinking content through the shared Markdown renderer", async () => {
@@ -163,7 +166,8 @@ test("expands thinking and tool inputs for a live message", () => {
 
   assert.match(html, /<h2>Plan<\/h2>/);
   assert.match(html, /<li>inspect<\/li>/);
-  assert.match(html, /command: printf &quot;hello&quot;\nnext line/);
+  // Expanded input now renders pretty JSON (rawInput approach).
+  assert.match(html, /&quot;command&quot;: &quot;printf \\&quot;hello\\&quot;\\nnext line&quot;/);
 });
 
 test("keeps streaming thinking and tool inputs collapsed by default", () => {

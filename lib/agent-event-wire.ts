@@ -5,26 +5,23 @@ export interface AgentEventLike {
   [key: string]: unknown;
 }
 
-export type ClientMessageUpdateEvent = Extract<
+type JsonMessageUpdateEvent = Extract<
   JsonAgentSessionEvent,
   { type: "message_update" }
 >;
 
-function toolIdentityFromPartial(partial: unknown, contentIndex: unknown): { id?: string; toolName?: string } {
-  if (!partial || typeof partial !== "object" || typeof contentIndex !== "number") return {};
-  const content = (partial as { content?: unknown }).content;
-  if (!Array.isArray(content)) return {};
-  const block = content[contentIndex];
-  if (!block || typeof block !== "object") return {};
-  const rec = block as Record<string, unknown>;
-  if (rec.type !== "toolCall") return {};
-  const id = typeof rec.id === "string" ? rec.id : typeof rec.toolCallId === "string" ? rec.toolCallId : undefined;
-  const toolName = typeof rec.name === "string" ? rec.name : typeof rec.toolName === "string" ? rec.toolName : undefined;
-  return {
-    ...(id ? { id } : {}),
-    ...(toolName ? { toolName } : {}),
-  };
-}
+type JsonAssistantMessageEvent = JsonMessageUpdateEvent["assistantMessageEvent"];
+type JsonToolCallStartEvent = Extract<JsonAssistantMessageEvent, { type: "toolcall_start" }>;
+type JsonToolCallDeltaEvent = Extract<JsonAssistantMessageEvent, { type: "toolcall_delta" }>;
+
+export type ClientAssistantMessageEvent =
+  | Exclude<JsonAssistantMessageEvent, { type: "toolcall_start" | "toolcall_delta" }>
+  | (JsonToolCallStartEvent & { id?: string; toolName?: string })
+  | (JsonToolCallDeltaEvent & { id?: string; toolName?: string });
+
+export type ClientMessageUpdateEvent = Omit<JsonMessageUpdateEvent, "assistantMessageEvent"> & {
+  assistantMessageEvent: ClientAssistantMessageEvent;
+};
 
 const OMITTED_EVENT_TYPES = new Set([
   "turn_start",
@@ -32,11 +29,39 @@ const OMITTED_EVENT_TYPES = new Set([
   "tool_execution_update",
 ]);
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function toolCallMetadata(
+  event: Record<string, unknown>,
+): { id: string; toolName: string } | null {
+  if (
+    (event.type !== "toolcall_start" && event.type !== "toolcall_delta")
+    || !isObject(event.partial)
+  ) return null;
+  const content = event.partial.content;
+  const contentIndex = event.contentIndex;
+  if (!Array.isArray(content) || typeof contentIndex !== "number") return null;
+
+  const block = content[contentIndex];
+  if (!isObject(block) || block.type !== "toolCall") return null;
+  const id = typeof block.id === "string"
+    ? block.id
+    : (typeof block.toolCallId === "string" ? block.toolCallId : null);
+  const toolName = typeof block.name === "string"
+    ? block.name
+    : (typeof block.toolName === "string" ? block.toolName : null);
+  return id !== null && toolName !== null ? { id, toolName } : null;
+}
+
 /** Apply pi-web's event filters plus Pi 0.84's message_update projection. */
 export function toClientAgentEvent(
   event: AgentEventLike,
 ): AgentEventLike | ClientMessageUpdateEvent | null {
   if (OMITTED_EVENT_TYPES.has(event.type)) return null;
+
+  if (event.type === "trajectory_update") return event;
 
   if (event.type === "message_update") {
     const assistantMessageEvent = event.assistantMessageEvent;
@@ -53,17 +78,14 @@ export function toClientAgentEvent(
       } as ClientMessageUpdateEvent;
     }
 
-    const { partial, ...deltaEvent } = assistantMessageEvent as Record<string, unknown>;
-    if (deltaEvent.type === "toolcall_start" || deltaEvent.type === "toolcall_delta") {
-      Object.assign(deltaEvent, toolIdentityFromPartial(partial, deltaEvent.contentIndex));
-    }
+    const metadata = toolCallMetadata(assistantMessageEvent as Record<string, unknown>);
+    const { partial: _partial, ...deltaEvent } = assistantMessageEvent;
+    void _partial;
     return {
       type: "message_update",
-      assistantMessageEvent: deltaEvent,
+      assistantMessageEvent: metadata ? { ...deltaEvent, ...metadata } : deltaEvent,
     } as ClientMessageUpdateEvent;
   }
-
-  if (event.type === "trajectory_update") return event;
 
   if (event.type === "agent_end") return { type: "agent_end" };
   return event;

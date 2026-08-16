@@ -47,7 +47,7 @@ interface TokenEstimateCacheEntry {
 function getTokenEstimateText(block: AssistantContentBlock): string | null {
   if (block.type === "text") return block.text;
   if (block.type === "thinking") return block.thinking;
-  if (block.type === "toolCall") return JSON.stringify(block.input ?? {}) ?? "";
+  if (block.type === "toolCall") return block.rawInput ?? JSON.stringify(block.input ?? {}) ?? "";
   return null;
 }
 
@@ -937,35 +937,16 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, isStre
 }
 
 
-function formatToolValue(value: unknown, depth: number): string {
-  if (typeof value === "string") return value;
-  if (Array.isArray(value)) {
-    if (value.length === 0) return "[]";
-    return value.map((item) => {
-      const formatted = formatToolValue(item, depth + 1);
-      return `${"  ".repeat(depth)}- ${formatted}`;
-    }).join("\n");
-  }
-  if (value && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>);
-    if (entries.length === 0) return "{}";
-    return entries.map(([key, item]) => {
-      const formatted = formatToolValue(item, depth + 1);
-      const nested = Array.isArray(item) || (item !== null && typeof item === "object");
-      return `${"  ".repeat(depth)}${key}:${nested ? `\n${formatted}` : ` ${formatted}`}`;
-    }).join("\n");
-  }
-  return String(value);
-}
-
-export function formatToolInput(input: Record<string, unknown>): string {
-  return formatToolValue(input, 0);
+export function getToolCallInputText(block: ToolCallContent): string {
+  return block.rawInput ?? JSON.stringify(block.input, null, 2);
 }
 
 function ToolCallBlock({ block, result, duration, defaultExpanded, isStreaming }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; defaultExpanded: boolean; isStreaming?: boolean }) {
+  const { t } = useI18n();
   const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
   const expanded = userExpanded ?? defaultExpanded;
-  const inputStr = formatToolInput(block.input);
+  const inputStr = getToolCallInputText(block);
+  const isStreamingInput = block.rawInput !== undefined;
   const isEditTool = isEditToolName(block.toolName);
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
 
@@ -1019,7 +1000,7 @@ function ToolCallBlock({ block, result, duration, defaultExpanded, isStreaming }
           {block.toolName}
         </span>
         <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: "var(--text-meta)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-          {getToolPreview(block)}
+          {isStreamingInput ? t("chat.generatingToolInput") : getToolPreview(block)}
         </span>
         {duration !== undefined && (
           <span style={{ fontSize: "var(--text-meta)", color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
@@ -1028,7 +1009,7 @@ function ToolCallBlock({ block, result, duration, defaultExpanded, isStreaming }
       </button>
 
       {/* ── Expanded: input args ── */}
-      {expanded && !isEditTool && (
+      {expanded && (isStreamingInput || !isEditTool) && (
         <pre
           style={{
             margin: 0,

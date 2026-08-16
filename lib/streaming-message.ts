@@ -1,18 +1,16 @@
-import type { ClientMessageUpdateEvent } from "./agent-event-wire";
-import { normalizeToolCalls } from "./normalize";
+import type { ClientAssistantMessageEvent } from "./agent-event-wire";
+import { normalizeStreamingToolCalls } from "./normalize";
 import type {
   AgentMessage,
   AssistantContentBlock,
   AssistantMessage,
 } from "./types";
 
-export type ClientAssistantMessageEvent =
-  ClientMessageUpdateEvent["assistantMessageEvent"];
+export type { ClientAssistantMessageEvent } from "./agent-event-wire";
 
 export interface StreamingState {
   isStreaming: boolean;
   streamingMessage: AssistantMessage | null;
-  toolArgsJson: Record<number, string>;
 }
 
 export type StreamAction =
@@ -24,59 +22,7 @@ export type StreamAction =
 export const INITIAL_STREAMING_STATE: StreamingState = {
   isStreaming: false,
   streamingMessage: null,
-  toolArgsJson: {},
 };
-
-function closePartialJson(json: string): string {
-  const source = json.trim();
-  if (!source) return "{}";
-  let inString = false;
-  let escape = false;
-  const stack: string[] = [];
-  for (const char of source) {
-    if (inString) {
-      if (escape) escape = false;
-      else if (char === "\\") escape = true;
-      else if (char === '"') inString = false;
-      continue;
-    }
-    if (char === '"') inString = true;
-    else if (char === "{") stack.push("}");
-    else if (char === "[") stack.push("]");
-    else if (char === "}" || char === "]") stack.pop();
-  }
-  let suffix = "";
-  if (escape) suffix += "\\";
-  if (inString) suffix += '"';
-  suffix += stack.reverse().join("");
-  return source + suffix;
-}
-
-function parsePartialToolArgs(json: string): Record<string, unknown> {
-  try {
-    const value = JSON.parse(closePartialJson(json));
-    return value && typeof value === "object" && !Array.isArray(value)
-      ? value as Record<string, unknown>
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-function toolCallBlock(
-  current: AssistantContentBlock | undefined,
-  id?: string,
-  toolName?: string,
-  input?: Record<string, unknown>,
-): AssistantContentBlock {
-  const existing = current?.type === "toolCall" ? current : undefined;
-  return {
-    type: "toolCall",
-    toolCallId: id || existing?.toolCallId || "",
-    toolName: toolName || existing?.toolName || "",
-    input: input ?? existing?.input ?? {},
-  };
-}
 
 function updateContentBlock(
   state: StreamingState,
@@ -91,7 +37,6 @@ function updateContentBlock(
   if (!nextBlock) return state;
   content[contentIndex] = nextBlock;
   return {
-    ...state,
     isStreaming: true,
     streamingMessage: { ...message, content },
   };
@@ -135,29 +80,35 @@ function applyDelta(
         thinking: event.content,
       }));
     case "toolcall_start":
-      return updateContentBlock(state, event.contentIndex, (current) => toolCallBlock(
-        current,
-        "id" in event && typeof event.id === "string" ? event.id : undefined,
-        "toolName" in event && typeof event.toolName === "string" ? event.toolName : undefined,
+      return updateContentBlock(state, event.contentIndex, (current) => {
+        if (current?.type === "toolCall") {
+          return {
+            ...current,
+            toolCallId: event.id ?? current.toolCallId,
+            toolName: event.toolName ?? current.toolName,
+            rawInput: current.rawInput ?? "",
+          };
+        }
+        if (typeof event.toolName !== "string") return null;
+        return {
+          type: "toolCall",
+          toolCallId: event.id ?? "",
+          toolName: event.toolName,
+          input: {},
+          rawInput: "",
+        };
+      });
+    case "toolcall_delta":
+      return updateContentBlock(state, event.contentIndex, (current) => (
+        current?.type === "toolCall"
+          ? {
+            ...current,
+            toolCallId: event.id || current.toolCallId,
+            toolName: event.toolName || current.toolName,
+            rawInput: (current.rawInput ?? "") + event.delta,
+          }
+          : null
       ));
-    case "toolcall_delta": {
-      if (!state.streamingMessage || !Number.isInteger(event.contentIndex) || event.contentIndex < 0) {
-        return state;
-      }
-      const raw = (state.toolArgsJson[event.contentIndex] ?? "") + event.delta;
-      const id = "id" in event && typeof event.id === "string" ? event.id : undefined;
-      const toolName = "toolName" in event && typeof event.toolName === "string" ? event.toolName : undefined;
-      const next = updateContentBlock(state, event.contentIndex, (current) => toolCallBlock(
-        current,
-        id,
-        toolName,
-        parsePartialToolArgs(raw),
-      ));
-      return {
-        ...next,
-        toolArgsJson: { ...state.toolArgsJson, [event.contentIndex]: raw },
-      };
-    }
     case "toolcall_end":
       return updateContentBlock(state, event.contentIndex, () => ({
         type: "toolCall",
@@ -176,11 +127,11 @@ export function streamReducer(
 ): StreamingState {
   switch (action.type) {
     case "start":
-      return { isStreaming: true, streamingMessage: null, toolArgsJson: {} };
+      return { isStreaming: true, streamingMessage: null };
     case "snapshot": {
-      const message = normalizeToolCalls(action.message);
+      const message = normalizeStreamingToolCalls(action.message);
       return message.role === "assistant"
-        ? { isStreaming: true, streamingMessage: message, toolArgsJson: {} }
+        ? { isStreaming: true, streamingMessage: message }
         : state;
     }
     case "delta":
