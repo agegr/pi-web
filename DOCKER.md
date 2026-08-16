@@ -78,5 +78,6 @@ environment:
 - ⚡ [STARTUP.md](./STARTUP.md) — 快速啟動與維護指令
 - 👤 [USER_GUIDE.md](./USER_GUIDE.md) — 使用者登入與帳密說明
 - 📐 [docs/SDD-docker-cloudflare-setup.md](./docs/SDD-docker-cloudflare-setup.md) — 系統設計與問題取捨
+- ✅ [docs/DOCKER_CLOUDFLARE_CHECKLIST.md](./docs/DOCKER_CLOUDFLARE_CHECKLIST.md) — 其他機器無法從 Cloudflare 連入時的逐項核對清單
 - 📜 [docs/dev.log.md](./docs/dev.log.md) — 開發歷史與踩坑記錄
 - 💡 [LESSONS_LEARNED.md](./LESSONS_LEARNED.md) — 跨專案經驗與教訓
