@@ -24,9 +24,16 @@
 - **Choice**: Write `PI_WEB_PASSWORD: "your_complex_password_here"`.
 - **Rationale**: Docker Compose treats single `$` in environment strings as variable interpolation (e.g. `$kX2`). Escaping to `$$` instructs Compose to output a literal `$` into container environment variables.
 
+### Decision 5: Cloudflare Tunnel Origin URL — Container DNS vs Host IP
+- **Choice**: Set Cloudflare Dashboard origin URL to `http://pi-web:30141` (Docker container DNS) instead of `http://<host-LAN-IP>:30141`.
+- **Rationale**: When `cloudflared` runs inside a Docker container, it cannot reliably reach host-published ports via the host's LAN IP or Docker bridge gateway (`172.17.0.1`) due to **hairpin NAT** failures. This is host-specific — some machines allow it, others silently drop the packets (`i/o timeout`). Using Docker's embedded DNS on a shared user-defined network (`pi-web_default`) provides direct container-to-container routing with no hairpin NAT dependency.
+- **Trade-off**: Requires `cloudflared` to be connected to the same Docker network as `pi-web`. Since `cloudflared` is typically a standalone container (not in the same compose file), the network connection must be re-applied after container restarts (see `connect-cloudflared.sh` and `@reboot` cron job).
+
 ---
 
 ## 3. Known Limitations
 
 - Basic Auth in `pi-web` does not enforce rate-limiting or MFA.
 - HTTPS encryption must be terminated at Cloudflare / Edge proxy before forwarding to localhost HTTP port `30141`.
+- Docker hairpin NAT behavior varies across hosts. Always verify container-to-host connectivity before assuming `http://<host-IP>:<port>` works from inside a container.
+- The `docker network connect` linking `cloudflared` to `pi-web_default` is a runtime operation that does not persist across container restarts. An automated reconnection mechanism (cron job or startup script) is required.

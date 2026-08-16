@@ -2,7 +2,7 @@
 
 ## Accessing the Web UI
 
-1. Open your browser and navigate to `https://pi01.xxx.com` (or `http://127.0.0.1:30141` locally).
+1. Open your browser and navigate to `https://pi06.n8n.tw` (or `http://192.168.1.61:30141` locally).
 2. When prompted for authentication:
    - **Username**: `pi` *(The username is fixed by upstream pi-web authentication)*
    - **Password**: `your_complex_password_here`

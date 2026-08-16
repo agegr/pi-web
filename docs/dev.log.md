@@ -4,6 +4,19 @@ This document records the installation process, issues encountered, and resoluti
 
 ---
 
+## [2026-08-16 14:28] - pi06: Cloudflare Tunnel Fixed via Container DNS
+- **Symptom**: `https://pi06.n8n.tw/` timed out. `cloudflared` logs showed `dial tcp 192.168.1.61:30141: i/o timeout` and `dial tcp 172.17.0.1:30141: i/o timeout`.
+- **Root Cause**: Docker hairpin NAT failure — `cloudflared` container on `bridge` network cannot reach host-published ports via host LAN IP or docker0 gateway on this specific host.
+- **Fix**: Connected `cloudflared` to `pi-web_default` network (`docker network connect pi-web_default beautiful_ardinghelli`), then changed Cloudflare Dashboard origin URL to `http://pi-web:30141` (Docker embedded DNS).
+- **Persistence**: Created `connect-cloudflared.sh` (idempotent reconnection script) + `@reboot` cron job.
+- **Result**: `https://pi06.n8n.tw/` now returns HTTP 401 (Basic Auth prompt) correctly.
+
+## [2026-08-16 14:00] - pi06: Hairpin NAT Diagnosis
+- Tested from bridge-network container: `http://192.168.1.61:30141` → timeout, `http://172.17.0.1:30141` → timeout, `http://172.17.0.5:30141` (pi-web bridge IP) → 401 OK, `http://pi-web:30141` (on shared network) → 200 OK.
+- Confirmed this is host-specific: pi08 (`192.168.1.62`) works fine with host LAN IP; pi06 does not.
+
+---
+
 ## [2026-08-16 12:40] - Successful Verification
 - Tested HTTP Basic Auth with domain `pi01.xxx.com` using username `pi` and password `your_complex_password_here`.
 - Verified HTTP 200 OK response.

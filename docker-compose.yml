@@ -1,10 +1,14 @@
-# pi-web — Docker Compose
+# pi-web — local Docker Compose (not upstream; local addition)
 #
-#   1. docker compose up -d --build          # 首次 build + 啟動
-#   2. docker compose logs -f                # 看 log
-#   3. docker compose down                   # 停止
+#   docker compose up -d --build     # build + start
+#   docker compose logs -f           # watch logs
+#   docker compose down              # stop
 #
-# 然後開 http://127.0.0.1:30141 或 https://pi01.xxx.com
+# Then open http://192.168.1.61:30141 or https://pi06.n8n.tw
+#
+# IMPORTANT: After docker compose up, run the post-start script to connect
+# cloudflared to this network so it can reach http://pi-web:30141:
+#   ./connect-cloudflared.sh
 
 services:
   pi-web:
@@ -18,14 +22,14 @@ services:
       PI_WEB_HOSTNAME: "0.0.0.0"
       # No auto browser-open (headless container)
       PI_WEB_NO_OPEN: "1"
-      # Allowed reverse proxy host (Cloudflare Tunnel)
-      PI_WEB_ALLOWED_HOSTS: "pi01.xxx.com"
+      # Allowed reverse proxy host
+      PI_WEB_ALLOWED_HOSTS: "pi06.n8n.tw"
       # Secure complex password for authentication ($ escaped as $$ for Compose)
-      PI_WEB_PASSWORD: "your_complex_password_here"
+      PI_WEB_PASSWORD: "pW9$$kX2#mV7!zL4@qN8&jR5*tC1%yB3^uK9"
     volumes:
       # pi config, sessions, auth (shared with host)
       - '${HOME}/.pi/agent:/home/node/.pi/agent'
       # The project directory for pi agent to operate on
-      - '/home/wrt/AG/SystemRepair:/workspace'
+      - '/home/wrt/AG/hermes:/workspace'
     working_dir: /workspace
     restart: unless-stopped
