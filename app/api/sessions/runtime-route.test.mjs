@@ -287,3 +287,21 @@ test("delete shuts down live child sessions before rewriting their files", async
   assert.equal(childHeader.parentSession, undefined);
   assert.match(readFileSync(childPath, "utf8"), /keep me/);
 });
+
+test("session listing caps firstMessage without mutating the source", async () => {
+  const { compactSessionForList } = await jiti.import("./route.ts");
+  const source = {
+    id: "long",
+    path: "/tmp/long.jsonl",
+    cwd: "/tmp",
+    created: "2026-01-01T00:00:00.000Z",
+    modified: "2026-01-01T00:00:00.000Z",
+    messageCount: 1,
+    firstMessage: "x".repeat(2_000),
+  };
+
+  const compact = compactSessionForList(source);
+  assert.equal(compact.firstMessage.length, 512);
+  assert.equal(source.firstMessage.length, 2_000);
+  assert.equal(compactSessionForList({ ...source, firstMessage: "short" }).firstMessage, "short");
+});
