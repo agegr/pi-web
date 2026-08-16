@@ -43,6 +43,33 @@ await cdp.send("Network.emulateNetworkConditions", {
   uploadThroughput: 625_000,
 });
 
+// CDP network events are unbuffered, unlike the 250-entry resource timing
+// buffer that Vite's per-module requests exhaust in dev mode. Track every
+// request here and derive session-list concurrency from it.
+const networkRequests = [];
+const networkPending = new Map();
+cdp.on("Network.responseReceived", (event) => {
+  const url = event.response?.url;
+  if (!url || !url.startsWith(baseUrl)) return;
+  const requestId = event.requestId;
+  const now = performance.now();
+  networkPending.set(requestId, {
+    name: url,
+    startTime: now,
+    status: event.response.status,
+    encodedBodySize: 0,
+    duration: 0,
+  });
+});
+cdp.on("Network.loadingFinished", (event) => {
+  const pending = networkPending.get(event.requestId);
+  if (!pending) return;
+  networkPending.delete(event.requestId);
+  pending.encodedBodySize = event.encodedDataLength ?? 0;
+  pending.duration = performance.now() - pending.startTime;
+  networkRequests.push(pending);
+});
+
 const targetId = mode === "child" ? childSessionId : sessionId;
 const targetPath = `/api/sessions/${encodeURIComponent(targetId)}`;
 const firstHistoryResponse = mode === "child"
@@ -123,11 +150,17 @@ const staticEncodedBytes = (navigationResource?.encodedBodySize ?? 0)
   + initialResources
     .filter(({ name }) => new URL(name).pathname.startsWith("/assets/"))
     .reduce((total, resource) => total + resource.encodedBodySize, 0);
-const idleSessionRequests = browserMetrics.idleResources.filter(({ name }) => (
-  name.includes("/api/sessions/") && !name.includes("/state")
-));
-const sessionListRequests = [...initialResources, ...browserMetrics.idleResources]
-  .filter(({ name }) => new URL(name).pathname === "/api/sessions");
+
+// Derive request accounting from CDP network events (unbounded), split at the
+// readiness timestamp. Resource timing remains only for static-byte sizing.
+const initialNetworkRequests = networkRequests.filter((request) => request.startTime <= readyAt);
+const idleNetworkRequests = networkRequests.filter((request) => request.startTime > readyAt);
+const sessionListRequests = networkRequests
+  .filter(({ name }) => new URL(name).pathname === "/api/sessions")
+  .map(({ name, startTime, duration, status }) => ({ name, startTime, duration, status }));
+const idleSessionRequests = idleNetworkRequests
+  .filter(({ name }) => name.includes("/api/sessions/") && !name.includes("/state"))
+  .map(({ name }) => ({ name }));
 const sessionListEvents = sessionListRequests
   .flatMap(({ startTime, duration }) => [
     { at: startTime, delta: 1 },
@@ -146,6 +179,7 @@ console.log(JSON.stringify({
   navigationResource,
   staticEncodedBytes,
   initialResources,
+  initialNetworkRequests: initialNetworkRequests.map(({ name, startTime }) => ({ name, startTime })),
   sessionListRequests,
   maxConcurrentSessionListRequests,
   idleSessionRequests,
