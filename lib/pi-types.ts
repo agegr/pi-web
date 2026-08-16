@@ -7,6 +7,7 @@ import type {
   Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage as PiAgentMessage } from "@earendil-works/pi-agent-core";
+import type { SelectOptionsLike } from "./types";
 
 export interface ContextUsage {
   percent: number | null;
@@ -81,6 +82,12 @@ interface ExtensionRunnerLike {
 type DialogOptionsLike = {
   signal?: AbortSignal;
   timeout?: number;
+  /** Allow multiple selection (select only). */
+  multiSelect?: boolean;
+  /** Allow "Other" freeform input (select only, default true). */
+  allowFreeform?: boolean;
+  /** Context shown below the title (select only). */
+  context?: string;
 };
 
 type WidgetOptionsLike = {
@@ -88,7 +95,7 @@ type WidgetOptionsLike = {
 };
 
 export interface ExtensionUiContextLike {
-  select(title: string, options: string[], opts?: DialogOptionsLike): Promise<string | undefined>;
+  select(title: string, options: SelectOptionsLike, opts?: DialogOptionsLike): Promise<string | string[] | undefined>;
   confirm(title: string, message: string, opts?: DialogOptionsLike): Promise<boolean>;
   input(title: string, placeholder?: string, opts?: DialogOptionsLike): Promise<string | undefined>;
   editor(title: string, prefill?: string, opts?: DialogOptionsLike): Promise<string | undefined>;

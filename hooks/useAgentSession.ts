@@ -704,7 +704,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const respondToExtensionUi = useCallback(async (
     request: ExtensionUiDialogRequest,
-    response: { value: string } | { confirmed: boolean } | { cancelled: true },
+    response: { value: string | string[] } | { confirmed: boolean } | { cancelled: true },
   ) => {
     const sid = sessionIdRef.current;
     setExtensionDialog((current) => current?.id === request.id ? null : current);
@@ -756,6 +756,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "input":
       case "editor":
         setExtensionDialog(request);
+        // The prompt card is inline at the bottom of the message stream: scroll it into view when it appears (small mobile screens make this necessary)
+        requestAnimationFrame(() => scrollToBottom("auto"));
         break;
       case "notify": {
         addNotice({
@@ -798,7 +800,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         });
         break;
     }
-  }, [addNotice, onAttentionNeeded, opts.chatInputRef]);
+  }, [addNotice, onAttentionNeeded, opts.chatInputRef, scrollToBottom]);
 
   const settleUiStage = useCallback(() => {
     const wasRunning = agentRunningRef.current;

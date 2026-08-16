@@ -111,13 +111,32 @@ export interface BashExecutionMessage {
 
 export type AgentMessage = UserMessage | AssistantMessage | ToolResultMessage | CustomMessage | BashExecutionMessage;
 
+/** Structured option: provides richer display info (description) than a plain string. */
+export interface SelectOptionLike {
+  label: string;
+  description?: string;
+}
+
+/**
+ * Option list: accepts plain strings (backwards compatible) or structured objects.
+ * The server (rpc-manager) passes them through as-is; the UI renders both shapes.
+ */
+export type SelectOptionsLike = string[] | SelectOptionLike[];
+
 export type ExtensionUiRequest =
   | {
       type: "extension_ui_request";
       id: string;
       method: "select";
       title: string;
-      options: string[];
+      /** Options: plain strings or structured {label, description}. */
+      options: SelectOptionsLike;
+      /** Allow multiple selection (Codex-style checkboxes). Default single-select. */
+      multiSelect?: boolean;
+      /** Allow a custom answer ("Other" freeform input). Default true. */
+      allowFreeform?: boolean;
+      /** Optional context/background shown below the title. */
+      context?: string;
       timeout?: number;
       expiresAt?: number;
     }
@@ -196,7 +215,7 @@ export type BlockingExtensionUiRequest = Extract<
 >;
 
 export type ExtensionUiResponse =
-  | { type: "extension_ui_response"; id: string; value: string }
+  | { type: "extension_ui_response"; id: string; value: string | string[] }
   | { type: "extension_ui_response"; id: string; confirmed: boolean }
   | { type: "extension_ui_response"; id: string; cancelled: true };
 

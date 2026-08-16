@@ -12,6 +12,10 @@ import {
   createProjectCommandBashOperations,
   preferUserBashExtension,
 } from "./project-command-env";
+import {
+  createAskUserExtension,
+  preferHostAskExtension,
+} from "./ask-user-extension";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
@@ -120,8 +124,8 @@ const CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"
 class PlainTextTheme extends Theme {
   constructor() {
     super(
-      { thinkingXhigh: "", searchMatchText: "" } as ConstructorParameters<typeof Theme>[0],
-      { selectedBg: "" } as ConstructorParameters<typeof Theme>[1],
+      { thinkingXhigh: "", searchMatchText: "" } as unknown as ConstructorParameters<typeof Theme>[0],
+      { selectedBg: "" } as unknown as ConstructorParameters<typeof Theme>[1],
       "truecolor",
     );
   }
@@ -1205,7 +1209,15 @@ export class AgentSessionWrapper {
   private createExtensionUiContext(): ExtensionUiContextLike {
     return {
       select: (title, options, opts) => this.requestExtensionUi(
-        { method: "select", title, options, ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
+        {
+          method: "select",
+          title,
+          options,
+          ...(opts?.multiSelect ? { multiSelect: true } : {}),
+          ...(opts?.allowFreeform !== undefined ? { allowFreeform: opts.allowFreeform } : {}),
+          ...(opts?.context ? { context: opts.context } : {}),
+          ...(opts?.timeout ? { timeout: opts.timeout } : {}),
+        },
         undefined,
         (response) => "value" in response ? response.value : undefined,
         opts?.timeout,
@@ -1221,14 +1233,14 @@ export class AgentSessionWrapper {
       input: (title, placeholder, opts) => this.requestExtensionUi(
         { method: "input", title, ...(placeholder !== undefined ? { placeholder } : {}), ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
         undefined,
-        (response) => "value" in response ? response.value : undefined,
+        (response) => "value" in response ? (response.value as string) : undefined,
         opts?.timeout,
         opts?.signal,
       ),
       editor: (title, prefill, opts) => this.requestExtensionUi(
         { method: "editor", title, ...(prefill !== undefined ? { prefill } : {}), ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
         undefined,
-        (response) => "value" in response ? response.value : undefined,
+        (response) => "value" in response ? (response.value as string) : undefined,
         opts?.timeout,
         opts?.signal,
       ),
@@ -1621,8 +1633,10 @@ export async function startRpcSession(
             cwd: sessionCwd,
             settings: settingsManager,
           }),
+          createAskUserExtension(),
         ],
-        extensionsOverride: preferUserBashExtension,
+        extensionsOverride: (result) =>
+          preferHostAskExtension(preferUserBashExtension(result)),
       },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
