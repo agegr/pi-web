@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { ListFilter, PanelLeft, PanelRight } from "lucide-react";
 import { useI18n } from "@/hooks/useI18n";
 import { formatRelativeTime } from "@/lib/i18n/format";
-import { SubagentHeaderAction } from "./SubagentSessions";
 
 interface Props {
   title: string;
@@ -18,10 +17,6 @@ interface Props {
   onOpenSystem(): void;
   onToggleFiles(): void;
   filePanelOpen: boolean;
-  subagentCount?: number;
-  subagentsOpen?: boolean;
-  subagentsLive?: boolean;
-  onOpenSubagents?: (anchor: HTMLButtonElement) => void;
   sessionView?: "chat" | "trajectory";
   onSessionViewChange?: (view: "chat" | "trajectory") => void;
   showSessionView?: boolean;
@@ -73,10 +68,6 @@ export function TaskHeader({
   onOpenSystem,
   onToggleFiles,
   filePanelOpen,
-  subagentCount = 0,
-  subagentsOpen = false,
-  subagentsLive = false,
-  onOpenSubagents,
   sessionView = "chat",
   onSessionViewChange,
   showSessionView = false,
@@ -118,14 +109,6 @@ export function TaskHeader({
         <SessionViewSwitch value={sessionView} onChange={onSessionViewChange} />
       ) : null}
       <div className="task-header-actions">
-        {onOpenSubagents && subagentCount > 0 ? (
-          <SubagentHeaderAction
-            count={subagentCount}
-            open={subagentsOpen}
-            live={subagentsLive}
-            onOpen={onOpenSubagents}
-          />
-        ) : null}
         <div className="task-header-menu-wrap" ref={menuRef}>
           <button onClick={() => setActionsOpen((open) => !open)} aria-label={t("task.actions")} aria-expanded={actionsOpen}><ListFilter size={16} aria-hidden="true" /></button>
           {actionsOpen ? (

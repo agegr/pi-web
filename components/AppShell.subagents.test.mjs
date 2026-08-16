@@ -56,11 +56,12 @@ test("the breadcrumb call site seeds the chain with the real root session id", a
   assert.match(source, /items=\{buildBreadcrumbItems\(\s*subagents\.data\.nodes,\s*selectedSession\.id,\s*selectedRootId \?\? "",/);
 });
 
-test("header live markers derive from active descendants, not RPC availability", async () => {
+test("live markers derive from active descendants, not RPC availability", async () => {
   const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
-  assert.match(source, /subagentsLive=\{hasActiveDescendant\(subagents\.data\?\.nodes\)\}/);
+  // Wide desktop has no header badge (the card owns the count); the compact
+  // top bar's subagent button still derives its live dot from active descendants.
+  assert.doesNotMatch(source, /subagentsLive=\{hasActiveDescendant\(subagents\.data\?\.nodes\)\}/);
   assert.match(source, /hasActiveDescendant\(subagents\.data\?\.nodes\) \? \(/);
-  assert.doesNotMatch(source, /subagentsLive=\{subagents\.data\?\.rpcAvailable === true\}/);
   assert.doesNotMatch(source, /subagents\.data\?\.rpcAvailable === true \? \(/);
 });
 

@@ -10,7 +10,7 @@ import { hasActiveDescendant } from "@/hooks/useSubagentTree";
 import { formatExtensionWidgetContent } from "./ExtensionWidgets";
 
 // ============================================================================
-// Subagent header action, tree, breadcrumb, and composer.
+// Subagent tree, breadcrumb, and composer.
 //
 // The popover shell (positioning, backdrop, focus return) lives in AppShell;
 // these components render content only. The tree is complete for the root even
@@ -20,59 +20,6 @@ import { formatExtensionWidgetContent } from "./ExtensionWidgets";
 export interface SubagentTreeCallbacks {
   onSelect(node: SubagentTreeNode): void;
   onControl(action: "steer" | "interrupt" | "resume", childSessionId: string, message?: string): Promise<void>;
-}
-
-export function SubagentHeaderAction({
-  count,
-  open,
-  live,
-  onOpen,
-}: {
-  count: number;
-  open: boolean;
-  live: boolean;
-  onOpen(anchor: HTMLButtonElement): void;
-}) {
-  const { t } = useI18n();
-  return (
-    <button
-      type="button"
-      aria-label={t("subagents.open", { count })}
-      aria-pressed={open}
-      title={t("subagents.title")}
-      onClick={(event) => onOpen(event.currentTarget)}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 5,
-        padding: "0 8px",
-        width: "auto", // beat .task-header-actions > button { width: 32px }
-        flexShrink: 0,
-        minHeight: 30,
-        border: "1px solid var(--border)",
-        borderRadius: 6,
-        background: open ? "var(--bg-selected)" : "transparent",
-        color: open ? "var(--text)" : "var(--text-muted)",
-        cursor: "pointer",
-        fontSize: "var(--text-ui)",
-        whiteSpace: "nowrap",
-      }}
-    >
-      <Network size={14} strokeWidth={1.8} aria-hidden="true" />
-      <span>{count}</span>
-      {live ? (
-        <span
-          aria-hidden="true"
-          style={{
-            width: 7,
-            height: 7,
-            borderRadius: "50%",
-            background: "var(--accent)",
-          }}
-        />
-      ) : null}
-    </button>
-  );
 }
 
 export const ACTIVE_ROW_STATES: ReadonlySet<SubagentLifecycleState> = new Set([
@@ -488,6 +435,7 @@ export function DesktopSubagentCard({
 }) {
   const { t } = useI18n();
   const [collapsed, setCollapsed] = useState(false);
+  const totalCount = countSubagentNodes(nodes);
   const activeCount = countActiveSubagentNodes(nodes);
 
   // When the whole task settles, fold the card to its header so the finished
@@ -512,7 +460,9 @@ export function DesktopSubagentCard({
         onClick={() => setCollapsed((value) => !value)}
       >
         <Network size={14} strokeWidth={1.8} aria-hidden="true" />
-        <span>{t("subagents.title")}</span>
+        <span>
+          {totalCount} {t("subagents.title")}
+        </span>
         {rpcAvailable && activeCount > 0 ? (
           <span className="desktop-subagent-card-live" aria-hidden="true" />
         ) : null}

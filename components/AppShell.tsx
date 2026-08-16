@@ -1908,15 +1908,6 @@ export function AppShell() {
               onOpenSystem={() => toggleTopPanel("system", true)}
               onToggleFiles={handleRightPanelToggle}
               filePanelOpen={rightPanelOpen}
-              subagentCount={subagentCount}
-              subagentsOpen={activeTopPanel === "subagents"}
-              subagentsLive={hasActiveDescendant(subagents.data?.nodes)}
-              onOpenSubagents={(anchor) => {
-                topPanelReturnFocusRef.current = anchor;
-                subagentsAnchorRef.current = anchor;
-                if (isMobile) setSidebarOpen(false);
-                setActiveTopPanel((current) => current === "subagents" ? null : "subagents");
-              }}
               showSessionView={showChat && !childSelected}
               sessionView={sessionView}
               onSessionViewChange={setSessionView}

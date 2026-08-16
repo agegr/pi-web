@@ -7,7 +7,6 @@ import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconfigPaths: true });
 const {
-  SubagentHeaderAction,
   SubagentTree,
   SessionBreadcrumb,
   SubagentComposer,
@@ -46,18 +45,6 @@ function render(element) {
 
 const noop = () => {};
 const callbacks = { onSelect: noop, onControl: async () => {} };
-
-test("header action exposes accessible name, count, live marker, and pressed state", () => {
-  const html = render(React.createElement(SubagentHeaderAction, { count: 3, open: true, live: true, onOpen: noop }));
-  assert.match(html, /aria-label="Subagents \(3\)"/);
-  assert.match(html, /aria-pressed="true"/);
-  assert.match(html, />3<\/span>/);
-  assert.match(html, /border-radius:50%/);
-
-  const idleHtml = render(React.createElement(SubagentHeaderAction, { count: 0, open: false, live: false, onOpen: noop }));
-  assert.match(idleHtml, /aria-pressed="false"/);
-  assert.doesNotMatch(idleHtml, /border-radius:50%/);
-});
 
 test("tree renders complete nested nodes with selected row marked", () => {
   const child = node("child", "running", { children: [node("grand", "inactive")] });
@@ -305,9 +292,8 @@ test("desktop subagent card renders summary, stale state, and recursive rows", (
   }));
 
   assert.match(html, /aria-label="Subagents"/);
-  // The card title carries no duplicated total; the header badge owns the count.
-  assert.match(html, /Subagents/);
-  assert.doesNotMatch(html, /3 subagents/);
+  // The card owns the count on wide desktop; the header badge is gone.
+  assert.match(html, /3 Subagents/);
   assert.match(html, /1 running/);
   assert.match(html, /Live status is stale/);
   assert.match(html, /Review the current implementation/);
@@ -326,9 +312,9 @@ test("desktop card source: folds to its header when the task settles", () => {
   assert.match(source, /!collapsed \? \(\s*<SubagentTree/);
 });
 
-test("desktop subagent card keeps the total count out of the title", () => {
-  // One top-level node with two nested children; the header badge shows the
-  // total, so the card must not restate it (3 subagents would be a duplicate).
+test("desktop subagent card shows the total count in its title", () => {
+  // One top-level node with two nested children; the count lives here now that
+  // the header badge is gone on wide desktop.
   const top = node("top", "running", {
     children: [
       node("mid", "running", { children: [node("leaf", "complete")] }),
@@ -341,9 +327,7 @@ test("desktop subagent card keeps the total count out of the title", () => {
     stale: false,
     callbacks,
   }));
-  assert.match(html, />Subagents<\/span>/);
-  assert.doesNotMatch(html, /3 subagents/);
-  assert.doesNotMatch(html, /countSubagentNodes/);
+  assert.match(html, />3 Subagents<\/span>/);
 });
 
 test("desktop subagent card omits itself without nodes", () => {
