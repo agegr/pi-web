@@ -78,6 +78,7 @@ export default defineConfig(({ command }) => {
       nitro({
         preset: "node-server",
         output: { dir: outputDir },
+        compressPublicAssets: true,
         traceDeps: EXTERNAL_PACKAGES,
         exportConditions: ["node", "import", "production", "default"],
         routeRules: {
