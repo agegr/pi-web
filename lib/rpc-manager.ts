@@ -339,7 +339,10 @@ export class AgentSessionWrapper {
   }
 
   private shouldWaitForExtensions(type: string): boolean {
-    return type === "prompt" || type === "steer" || type === "follow_up" || type === "get_commands";
+    return type === "prompt" || type === "steer" || type === "follow_up"
+      || type === "get_commands"
+      || type === "queue_remove" || type === "queue_edit"
+      || type === "queue_steer_item" || type === "queue_steer_all";
   }
 
   private async withFinalRunningNotification<T>(operation: () => Promise<T>): Promise<T> {
@@ -350,6 +353,119 @@ export class AgentSessionWrapper {
       notifyRunningChange();
     }
   }
+
+  private snapshotQueue(): { steering: string[]; followUp: string[] } {
+    return {
+      steering: [...this.inner.getSteeringMessages()],
+      followUp: [...this.inner.getFollowUpMessages()],
+    };
+  }
+
+  /**
+   * Re-queue every item through pi's queue APIs, best effort. Used to restore
+   * the queue after a failed mutation and to re-add the items that survive one.
+   * Order is preserved per kind; steering is re-queued before follow-ups so
+   * the loop keeps draining steering first.
+   */
+  private async requeueAll(steering: string[], followUp: string[]): Promise<void> {
+    for (const text of steering) await this.inner.steer(text);
+    for (const text of followUp) await this.inner.followUp(text);
+  }
+
+  /**
+   * Single-item queue mutation. pi exposes no per-item dequeue, so the queue
+   * is rebuilt: clear everything, deliver/edit the targeted item, re-queue the
+   * rest. A target that already left the queue (the agent loop claimed it
+   * mid-flight) converges silently — the snapshot just gets rebuilt as-is.
+   * A failed rebuild restores the original items before rethrowing.
+   *
+   * `steer` delivers the target through prompt(streamingBehavior: "steer")
+   * first so it enters the running turn before the surviving items.
+   */
+  private async mutateQueue(
+    kind: "steering" | "followUp",
+    targetText: string,
+    op: "remove" | "edit" | "steer",
+    replacement?: string,
+  ): Promise<{ steering: string[]; followUp: string[] }> {
+    let trimmedReplacement = "";
+    if (op === "edit") {
+      if (typeof replacement !== "string") {
+        throw new Error("Missing replacement text for queue edit");
+      }
+      trimmedReplacement = replacement.trim();
+      if (!trimmedReplacement) {
+        throw new Error("Replacement text cannot be empty");
+      }
+    }
+
+    const { steering, followUp } = this.inner.clearQueue();
+    const targetList = kind === "steering" ? steering : followUp;
+    const targetIndex = targetList.indexOf(targetText);
+    const target = targetIndex === -1 ? null : targetList[targetIndex];
+    const survivors: string[] = [];
+    for (let i = 0; i < targetList.length; i += 1) {
+      if (i !== targetIndex) survivors.push(targetList[i]);
+    }
+    const otherList = kind === "steering" ? followUp : steering;
+
+    try {
+      if (op === "steer" && target !== null) {
+        await this.inner.prompt(target, { streamingBehavior: "steer", source: "rpc" });
+      } else if (op === "edit" && target !== null) {
+        const queueEdited = kind === "steering"
+          ? () => this.inner.steer(trimmedReplacement)
+          : () => this.inner.followUp(trimmedReplacement);
+        await queueEdited();
+      }
+      await this.requeueAll(
+        kind === "steering" ? survivors : otherList,
+        kind === "followUp" ? survivors : otherList,
+      );
+    } catch (error) {
+      try {
+        await this.requeueAll(steering, followUp);
+      } catch {
+        // The restore itself failed; the original queue is irrecoverable.
+      }
+      throw error;
+    }
+    return this.snapshotQueue();
+  }
+
+  /**
+   * Queue-wide interject (empty-draft Cmd/Ctrl+Enter): steer every still-pending
+   * queued message into the current run, FIFO per kind, mirroring the dock's
+   * per-row steer operation. A failure mid-way re-queues the items that were
+   * not yet delivered; the already-delivered ones keep their message_start path.
+   */
+  private async steerAllQueued(): Promise<{ steering: string[]; followUp: string[] }> {
+    const { steering, followUp } = this.inner.clearQueue();
+    const delivered: string[] = [];
+    try {
+      for (const text of steering) {
+        await this.inner.prompt(text, { streamingBehavior: "steer", source: "rpc" });
+        delivered.push(text);
+      }
+      for (const text of followUp) {
+        await this.inner.prompt(text, { streamingBehavior: "steer", source: "rpc" });
+        delivered.push(text);
+      }
+    } catch (error) {
+      const remaining = {
+        steering: steering.filter((text) => !delivered.includes(text)),
+        followUp: followUp.filter((text) => !delivered.includes(text)),
+      };
+      try {
+        await this.requeueAll(remaining.steering, remaining.followUp);
+      } catch {
+        // The restore itself failed; already-steered items stay delivered.
+      }
+      throw error;
+    }
+    return this.snapshotQueue();
+  }
+
 
   private applyForcedEmptySystemPrompt(): void {
     if (this.forceEmptySystemPrompt && this.inner.agent.state) {
@@ -678,6 +794,20 @@ export class AgentSessionWrapper {
         // Full clear only: pi has no single-item dequeue, and clear+requeue
         // races against the agent loop pulling messages mid-flight.
         return this.inner.clearQueue();
+      }
+
+      case "queue_remove":
+      case "queue_edit":
+      case "queue_steer_item": {
+        const kind = command.kind as "steering" | "followUp";
+        const text = command.text as string;
+        const replacement = command.replacement as string | undefined;
+        const op = type === "queue_remove" ? "remove" : type === "queue_edit" ? "edit" : "steer";
+        return this.mutateQueue(kind, text, op, replacement);
+      }
+
+      case "queue_steer_all": {
+        return this.steerAllQueued();
       }
 
       case "steer": {

@@ -736,10 +736,6 @@ html.keyboard-open .extension-status-shelf {
     justify-content: center;
     padding-inline: 0;
   }
-  .composer-queue-toggle button {
-    padding-inline: 4px !important;
-    font-size: var(--text-meta);
-  }
 }
 
 .jump-to-bottom {

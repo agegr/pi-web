@@ -424,13 +424,27 @@ test("keeps composer chip labels from wrapping", async () => {
   assert.match(css, /\.composer-chip \{\s*display: flex;[^}]*white-space: nowrap/);
 });
 
-test("streaming composer offers send beside stop when text is present", async () => {
+test("streaming composer follows DSH: stop only on desktop, queue-send beside stop on mobile", async () => {
   const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
-  // While streaming, a send button must appear alongside stop when the input
-  // has content (mobile has no Enter-to-send, only Ctrl/Cmd+Enter).
-  assert.match(source, /\(value\.trim\(\) \|\| attachedImages\.length\) && \(onSteer \|\| onFollowUp\)/);
-  assert.match(source, /onClick=\{?\(\) => sendQueued\(activeQueueMode\)/);
+  // Desktop busy state has no send button — Enter queues, Cmd/Ctrl+Enter
+  // interjects (插话). Mobile keeps a queue-send button beside stop because
+  // touch keyboards have no Cmd/Ctrl chord; the button always queues.
+  assert.match(source, /\{isMobile && \(value\.trim\(\) \|\| attachedImages\.length\) && \(onSteer \|\| onFollowUp\)/);
+  assert.match(source, /onClick=\{?\(\) => sendQueued\(false\)/);
   assert.match(source, /isStreaming \? \(\s*<div style=\{\{ display: "flex", alignItems: "center", gap: 8/);
+});
+
+test("busy Enter queues, Cmd/Ctrl+Enter interjects, empty-draft chord flushes the queue", async () => {
+  const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  const start = source.indexOf("const sendQueued = useCallback");
+  const end = source.indexOf("}, [value, attachedImages, onPromptWithStreamingBehavior", start);
+  const sendQueued = source.slice(start, end);
+  // "/" drafts always interject — pi executes extension commands immediately.
+  assert.match(sendQueued, /onPromptWithStreamingBehavior\(msg, "steer", images\)/);
+  assert.match(sendQueued, /const steer = accelerated \|\| !onFollowUp;/);
+  assert.match(source, /const canSteerQueue = isStreaming/);
+  assert.match(source, /if \(accelerated && canSteerQueue\) \{\s*\n\s*onSteerAllQueued\?\.\(\)/);
+  assert.match(source, /sendQueued\(accelerated\)/);
 });
 
 test("clears slash commands before waiting for a builtin handler", async () => {

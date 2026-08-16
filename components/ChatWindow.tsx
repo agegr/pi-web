@@ -308,7 +308,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleClearCompactFeedback,
-    handleRecallQueue,
+    handleQueueRemoveItem, handleQueueEditItem, handleQueueSteerItem, handleSteerAllQueued,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, scrollToBottom, scrollUserMsgToTop,
   } = useAgentSession({
@@ -436,13 +436,13 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   // here used to defeat MessageView's memo() on each streamed chunk.
   const toolResultsMap = useMemo(() => {
     const map = new Map<string, ToolResultMessage>();
-    for (const msg of messages) {
+    messages.forEach((msg, index) => {
       if (msg.role === "toolResult") {
-        map.set((msg as ToolResultMessage).toolCallId, msg as ToolResultMessage);
+        map.set((msg as ToolResultMessage).toolCallId, { ...(msg as ToolResultMessage), entryId: entryIds[index] });
       }
-    }
+    });
     return map;
-  }, [messages]);
+  }, [entryIds, messages]);
   const inputHistory = useMemo(() => {
     const seen = new Set<string>();
     const history: string[] = [];
@@ -579,6 +579,10 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       onSteer={agentRunning ? handleSteer : undefined}
       onFollowUp={agentRunning ? handleFollowUp : undefined}
       onPromptWithStreamingBehavior={agentRunning ? handlePromptWithStreamingBehavior : undefined}
+      onSteerAllQueued={session ? handleSteerAllQueued : undefined}
+      onQueueRemoveItem={session ? handleQueueRemoveItem : undefined}
+      onQueueEditItem={session ? handleQueueEditItem : undefined}
+      onQueueSteerItem={session ? handleQueueSteerItem : undefined}
       isStreaming={sessionBusy}
       model={displayModelValue}
       isAutoModelSelection={isAutoModelSelection}
@@ -603,7 +607,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       retryInfo={retryInfo}
       queuedMessages={queuedMessages}
       inputHistory={inputHistory}
-      onRecallQueue={handleRecallQueue}
       slashCommands={slashCommands}
       slashCommandsLoading={slashCommandsLoading}
       onLoadSlashCommands={loadSlashCommands}

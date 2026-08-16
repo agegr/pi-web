@@ -56,5 +56,4 @@ test("lets the mobile access chip shrink before it can overlap the streaming con
   assert.match(css, /\.composer-shell\.is-streaming \.composer-access-chevron \{\s*display: none;/);
   assert.match(css, /@media \(max-width: 360px\) \{[\s\S]*?\.composer-shell\.is-streaming \.composer-thinking-label \{[\s\S]*?display: none;/);
   assert.match(css, /\.composer-shell\.is-streaming \.composer-thinking-chip \{[\s\S]*?width: 44px;[\s\S]*?flex: 0 0 44px;/);
-  assert.match(css, /\.composer-queue-toggle button \{[\s\S]*?padding-inline: 4px !important;/);
 });

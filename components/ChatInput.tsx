@@ -8,16 +8,19 @@ import {
   Brain,
   Check,
   ChevronDown,
-  CornerUpLeft,
+  ChevronUp,
   Cpu,
   Folder,
   History,
+  List,
   LoaderCircle,
   Minimize2,
+  Pencil,
   Plus,
   Shield,
   RotateCw,
   Square,
+  Trash2,
   X,
 } from "lucide-react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
@@ -64,6 +67,14 @@ interface Props {
   onSteer?: (message: string, images?: AttachedImage[]) => void;
   onFollowUp?: (message: string, images?: AttachedImage[]) => void;
   onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", images?: AttachedImage[]) => void;
+  /** Empty-draft Cmd/Ctrl+Enter: steer every queued message into the running turn (DSH 插话). */
+  onSteerAllQueued?: () => void;
+  /** Remove one queued message by kind + text. */
+  onQueueRemoveItem?: (kind: "steering" | "followUp", text: string) => void;
+  /** Replace one queued message by kind + text. */
+  onQueueEditItem?: (kind: "steering" | "followUp", text: string, replacement: string) => void;
+  /** Deliver one queued message into the running turn now. */
+  onQueueSteerItem?: (kind: "steering" | "followUp", text: string) => void;
   isStreaming: boolean;
   model?: { provider: string; modelId: string } | null;
   isAutoModelSelection?: boolean;
@@ -89,7 +100,6 @@ interface Props {
   retryInfo?: { attempt: number; maxAttempts: number; errorMessage?: string } | null;
   queuedMessages?: QueuedMessages | null;
   inputHistory?: string[];
-  onRecallQueue?: () => void;
   slashCommands?: SlashCommandInfo[];
   slashCommandsLoading?: boolean;
   onLoadSlashCommands?: () => Promise<SlashCommandInfo[]> | SlashCommandInfo[];
@@ -335,34 +345,266 @@ const roundComposerButton: React.CSSProperties = {
   transition: "background 0.15s, color 0.15s, opacity 0.15s",
 };
 
-function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: string }) {
+export type QueueItemKind = "steering" | "followUp";
+
+interface QueueDockItem {
+  key: string;
+  kind: QueueItemKind;
+  text: string;
+}
+
+/**
+ * DSH-style queue strip above the composer: one queued message renders as a
+ * single row; several collapse into a count header. Rows offer per-item
+ * edit / remove / steer-now (插话发送) actions while the agent is running.
+ */
+function QueueDock({
+  items,
+  running,
+  editing,
+  editingText,
+  busyKey,
+  collapsed,
+  onToggle,
+  onStartEdit,
+  onEditTextChange,
+  onSaveEdit,
+  onCancelEdit,
+  onRemove,
+  onSteer,
+  t,
+}: {
+  items: QueueDockItem[];
+  running: boolean;
+  editing: QueueDockItem | null;
+  editingText: string;
+  busyKey: string | null;
+  collapsed: boolean;
+  onToggle: () => void;
+  onStartEdit: (item: QueueDockItem) => void;
+  onEditTextChange: (text: string) => void;
+  onSaveEdit: () => void;
+  onCancelEdit: () => void;
+  onRemove: (item: QueueDockItem) => void;
+  onSteer: (item: QueueDockItem) => void;
+  t: (key: string, params?: Record<string, string | number>) => string;
+}) {
+  if (items.length === 0) return null;
+  const interactionActive = editing !== null || busyKey !== null;
+  const expanded = !collapsed || interactionActive;
+  const listVisible = items.length === 1 || expanded;
+  const editingRow = editing?.key ?? null;
+
+  const actionStyle = (disabled: boolean): React.CSSProperties => ({
+    width: 28, height: 28, flexShrink: 0,
+    display: "grid", placeItems: "center",
+    padding: 0,
+    background: "none",
+    border: "none",
+    borderRadius: 999,
+    color: "var(--text-dim)",
+    cursor: disabled ? "default" : "pointer",
+    opacity: disabled ? 0.45 : 1,
+  });
+
+  const runAction = (item: QueueDockItem, action: (item: QueueDockItem) => void) => {
+    if (interactionActive) return;
+    action(item);
+  };
+
   return (
     <div
-      title={text}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "3px 10px",
-        fontSize: "var(--text-meta)",
-        color: "var(--text-muted)",
-        minWidth: 0,
-      }}
+      data-queue-dock=""
+      style={{ width: "100%", marginBottom: -7 }}
     >
-      <span
+      <div
         style={{
-          flexShrink: 0,
-          fontSize: "var(--text-meta)",
-          fontFamily: "var(--font-mono)",
-          padding: "1px 7px",
-          borderRadius: 999,
-          border: `1px solid ${kind === "steer" ? "color-mix(in srgb, var(--accent) 45%, transparent)" : "var(--border)"}`,
-          color: kind === "steer" ? "var(--accent)" : "var(--text-dim)",
+          position: "relative",
+          width: "100%",
+          boxSizing: "border-box",
+          background: "var(--bg-panel)",
+          borderRadius: "12px 12px 0 0",
+          border: "1px solid var(--border)",
+          borderBottom: "none",
+          padding: "2px 0",
+          overflow: "hidden",
         }}
       >
-        {kind}
-      </span>
-      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{text}</span>
+        {items.length > 1 && (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            disabled={interactionActive}
+            onClick={onToggle}
+            style={{
+              boxSizing: "border-box",
+              width: "100%",
+              height: 36,
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "4px 12px",
+              background: "none",
+              border: "none",
+              borderRadius: 8,
+              color: "var(--text)",
+              cursor: interactionActive ? "default" : "pointer",
+              textAlign: "left",
+            }}
+          >
+            <span style={{ flexShrink: 0, display: "grid", placeItems: "center", color: "var(--text-dim)" }}>
+              <List size={14} strokeWidth={1.8} aria-hidden="true" />
+            </span>
+            <span style={{ minWidth: 0, flex: "1 1 auto", fontSize: "var(--text-ui)", fontWeight: 500, lineHeight: "24px" }}>
+              {t("chat.queueCount", { n: items.length })}
+            </span>
+            <span style={{ flexShrink: 0, display: "grid", placeItems: "center", color: "var(--text-dim)" }}>
+              {expanded
+                ? <ChevronUp size={14} strokeWidth={1.8} aria-hidden="true" />
+                : <ChevronDown size={14} strokeWidth={1.8} aria-hidden="true" />}
+            </span>
+          </button>
+        )}
+        <ul
+          hidden={!listVisible}
+          style={{
+            maxHeight: 180,
+            margin: 0,
+            padding: 0,
+            listStyle: "none",
+            overflowY: "auto",
+          }}
+        >
+          {listVisible && items.map((item, index) => (
+            <li
+              key={item.key}
+              style={{
+                boxSizing: "border-box",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                width: "100%",
+                height: 36,
+                padding: "4px 5px 4px 12px",
+                borderRadius: 8,
+                ...(index > 0 ? { boxShadow: "inset 0 1px 0 var(--border)" } : null),
+              }}
+            >
+              {items.length === 1 && (
+                <span style={{ flexShrink: 0, display: "grid", placeItems: "center", color: "var(--text-dim)" }}>
+                  <List size={14} strokeWidth={1.8} aria-hidden="true" />
+                </span>
+              )}
+              {editingRow === item.key ? (
+                <input
+                  autoFocus
+                  aria-label={t("chat.queueEdit")}
+                  value={editingText}
+                  onChange={(e) => onEditTextChange(e.currentTarget.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      onCancelEdit();
+                      return;
+                    }
+                    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      onSaveEdit();
+                    }
+                  }}
+                  style={{
+                    minWidth: 0,
+                    flex: "1 1 auto",
+                    boxSizing: "border-box",
+                    height: 28,
+                    padding: "0 8px",
+                    border: "1px solid var(--border)",
+                    borderRadius: 6,
+                    outline: "none",
+                    background: "var(--bg)",
+                    color: "var(--text)",
+                    fontSize: "var(--text-ui)",
+                    fontFamily: "inherit",
+                  }}
+                />
+              ) : (
+                <span
+                  title={item.text}
+                  style={{
+                    minWidth: 0,
+                    flex: "1 1 auto",
+                    color: "var(--text-muted)",
+                    fontSize: "var(--text-ui)",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    wordBreak: "break-word",
+                    overflow: "hidden",
+                  }}
+                >
+                  {item.text}
+                </span>
+              )}
+              <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 6 }}>
+                {editingRow === item.key ? (
+                  <>
+                    <button
+                      type="button"
+                      aria-label={t("chat.queueSave")}
+                      disabled={busyKey !== null || editingText.trim() === ""}
+                      onClick={onSaveEdit}
+                      style={actionStyle(busyKey !== null || editingText.trim() === "")}
+                    >
+                      <Check size={14} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={t("chat.queueCancelEdit")}
+                      disabled={busyKey !== null}
+                      onClick={onCancelEdit}
+                      style={actionStyle(busyKey !== null)}
+                    >
+                      <X size={14} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      aria-label={t("chat.queueEdit")}
+                      title={t("chat.queueEdit")}
+                      disabled={interactionActive}
+                      onClick={() => runAction(item, onStartEdit)}
+                      style={actionStyle(interactionActive)}
+                    >
+                      <Pencil size={13} strokeWidth={1.8} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={t("chat.queueRemove")}
+                      title={t("chat.queueRemove")}
+                      disabled={interactionActive}
+                      onClick={() => runAction(item, onRemove)}
+                      style={actionStyle(interactionActive)}
+                    >
+                      <Trash2 size={13} strokeWidth={1.8} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={t("chat.queueSteer")}
+                      title={running ? t("chat.queueSteer") : t("chat.queueSteerUnavailable")}
+                      disabled={interactionActive || !running}
+                      onClick={() => runAction(item, onSteer)}
+                      style={actionStyle(interactionActive || !running)}
+                    >
+                      <ArrowUp size={13} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                  </>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
@@ -420,7 +662,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
   onCompact, onAbortCompaction, onClearCompactFeedback, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap: _thinkingLevelMap,
-  retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
+  retryInfo, queuedMessages, inputHistory = [],
+  onSteerAllQueued, onQueueRemoveItem, onQueueEditItem, onQueueSteerItem,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
   onAudioUnlock,
@@ -437,7 +680,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [modelFilter, setModelFilter] = useState("");
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [thinkingMenuOpen, setThinkingMenuOpen] = useState(false);
-  const [queueMode, setQueueMode] = useState<"steer" | "followup">("followup");
+  const [queueDockCollapsed, setQueueDockCollapsed] = useState(true);
+  const [queueEditing, setQueueEditing] = useState<QueueDockItem | null>(null);
+  const [queueEditingText, setQueueEditingText] = useState("");
+  const [queueBusyKey, setQueueBusyKey] = useState<string | null>(null);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
   ));
@@ -1023,28 +1269,85 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     });
   }, []);
 
-  const sendQueued = useCallback((mode: "steer" | "followup") => {
+  /**
+   * Busy-state delivery, resolved like DSH: plain Enter queues the draft
+   * (follow-up), Cmd/Ctrl+Enter interjects it (steer). "/" drafts always
+   * interject — pi executes extension commands immediately and cannot queue them.
+   */
+  const sendQueued = useCallback((accelerated: boolean) => {
     const msg = value.trim();
     if (!msg && !attachedImages.length) return;
     onAudioUnlock?.();
-    const streamingBehavior = mode === "steer" ? "steer" : "followUp";
+    const images = attachedImages.length ? attachedImages : undefined;
     if (msg.startsWith("/") && onPromptWithStreamingBehavior) {
       clearInput();
-      onPromptWithStreamingBehavior(msg, streamingBehavior, attachedImages.length ? attachedImages : undefined);
+      onPromptWithStreamingBehavior(msg, "steer", images);
       return;
     }
-    clearInput();
-    if (mode === "steer" && onSteer) {
-      onSteer(msg, attachedImages.length ? attachedImages : undefined);
-    } else if (mode === "followup" && onFollowUp) {
-      onFollowUp(msg, attachedImages.length ? attachedImages : undefined);
+    const steer = accelerated || !onFollowUp;
+    if (steer && onSteer) {
+      clearInput();
+      onSteer(msg, images);
+    } else if (onFollowUp) {
+      clearInput();
+      onFollowUp(msg, images);
     }
   }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock]);
 
-  const activeQueueMode = onSteer && onFollowUp
-    ? queueMode
-    : onSteer ? "steer"
-    : "followup";
+  // DSH queue strip data: steering items first (pi drains them first), then follow-ups.
+  const queueItems: QueueDockItem[] = React.useMemo(() => [
+    ...(queuedMessages?.steering ?? []).map((text, i) => ({ key: `steering:${i}`, kind: "steering" as const, text })),
+    ...(queuedMessages?.followUp ?? []).map((text, i) => ({ key: `followUp:${i}`, kind: "followUp" as const, text })),
+  ], [queuedMessages]);
+
+  // Empty-draft Cmd/Ctrl+Enter flushes the whole queue into the running turn.
+  const canSteerQueue = isStreaming && (onSteer || onFollowUp)
+    && value.trim() === "" && attachedImages.length === 0
+    && queueItems.length > 0 && onSteerAllQueued !== undefined;
+
+  const handleQueueRemove = useCallback((item: QueueDockItem) => {
+    setQueueBusyKey(item.key);
+    const finish = () => setQueueBusyKey((current) => current === item.key ? null : current);
+    Promise.resolve(onQueueRemoveItem?.(item.kind, item.text)).finally(finish);
+  }, [onQueueRemoveItem]);
+
+  const handleQueueSteer = useCallback((item: QueueDockItem) => {
+    setQueueBusyKey(item.key);
+    const finish = () => setQueueBusyKey((current) => current === item.key ? null : current);
+    Promise.resolve(onQueueSteerItem?.(item.kind, item.text)).finally(finish);
+  }, [onQueueSteerItem]);
+
+  const handleQueueSaveEdit = useCallback(() => {
+    if (!queueEditing || queueEditingText.trim() === "") return;
+    const item = queueEditing;
+    const text = queueEditingText;
+    setQueueBusyKey(item.key);
+    const finish = () => {
+      setQueueBusyKey((current) => current === item.key ? null : current);
+      setQueueEditing(null);
+      setQueueEditingText("");
+    };
+    Promise.resolve(onQueueEditItem?.(item.kind, item.text, text)).finally(finish);
+  }, [queueEditing, queueEditingText, onQueueEditItem]);
+
+  const handleQueueStartEdit = useCallback((item: QueueDockItem) => {
+    setQueueEditing(item);
+    setQueueEditingText(item.text);
+  }, []);
+
+  const handleQueueCancelEdit = useCallback(() => {
+    setQueueEditing(null);
+    setQueueEditingText("");
+  }, []);
+
+  // Auto-collapse once the queue empties; drop an edit whose row vanished.
+  useEffect(() => {
+    if (queueItems.length === 0 && !queueDockCollapsed) setQueueDockCollapsed(true);
+    if (queueEditing && !queueItems.some((item) => item.key === queueEditing.key)) {
+      setQueueEditing(null);
+      setQueueEditingText("");
+    }
+  }, [queueItems, queueDockCollapsed, queueEditing]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = displayedSlashCommands.length - 1;
@@ -1204,13 +1507,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (sendShortcut) {
         e.preventDefault();
         if (isStreaming && (onSteer || onFollowUp)) {
-          sendQueued(activeQueueMode);
+          // DSH busy gestures: Cmd/Ctrl+Enter interjects (steer), plain Enter
+          // queues (follow-up). An empty draft + Cmd/Ctrl+Enter steers every
+          // queued message into the running turn; empty draft + Enter is a no-op.
+          const accelerated = e.ctrlKey || e.metaKey;
+          if (accelerated && canSteerQueue) {
+            onSteerAllQueued?.();
+            return;
+          }
+          sendQueued(accelerated);
         } else {
           handleSend();
         }
       }
     },
-    [isMobile, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, activeQueueMode]
+    [isMobile, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, canSteerQueue, onSteerAllQueued]
   );
 
   const handleInput = useCallback(() => {
@@ -1426,71 +1737,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       <div style={{ maxWidth: isMobile ? undefined : 780, margin: "0 auto" }}>
         <ModelErrorBanner error={modelError} />
         <ModelScopeWarningBanner warnings={modelScopeWarnings} />
-        {/* Queued steering / follow-up messages (delivered by pi on upcoming turns) */}
-        {((queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)) > 0 && (
-          <div style={{
-            marginBottom: 8,
-            border: "1px solid var(--border)",
-            borderRadius: 6,
-            background: "var(--bg-panel)",
-            padding: "5px 0",
-          }}>
-            <div style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 8,
-              padding: "2px 8px 4px 10px",
-            }}>
-              <span style={{
-                fontSize: "var(--text-meta)",
-                fontFamily: "var(--font-mono)",
-                color: "var(--text-dim)",
-                textTransform: "uppercase",
-                letterSpacing: 0.4,
-              }}>
-                {t("chat.queued", { count: (queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0) })}
-              </span>
-              {onRecallQueue && (
-                <button
-                  onClick={onRecallQueue}
-                   title={t("chat.recallTitle")}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "4px 12px",
-                    fontSize: "var(--text-ui)",
-                    color: "var(--text)",
-                    background: "transparent",
-                    border: "1px solid var(--border)",
-                    borderRadius: 7,
-                    cursor: "pointer",
-                    transition: "background 0.12s, border-color 0.12s",
-                    whiteSpace: "nowrap",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "var(--bg-hover)";
-                    e.currentTarget.style.borderColor = "color-mix(in srgb, var(--accent) 45%, var(--border))";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "transparent";
-                    e.currentTarget.style.borderColor = "var(--border)";
-                  }}
-                >
-                  <CornerUpLeft size={13} strokeWidth={2} aria-hidden="true" />
-                   {t("chat.recall")}
-                </button>
-              )}
-            </div>
-            {queuedMessages?.steering.map((text, i) => (
-              <QueuedMessageRow key={`steer-${i}`} kind="steer" text={text} />
-            ))}
-            {queuedMessages?.followUp.map((text, i) => (
-              <QueuedMessageRow key={`followup-${i}`} kind="follow-up" text={text} />
-            ))}
-          </div>
-        )}
         {/* Retry banner */}
         {retryInfo && (
           <div style={{
@@ -1560,6 +1806,26 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </div>
             ))}
           </div>
+        )}
+
+        {/* DSH-style queue strip: queued messages with per-item edit/remove/steer-now */}
+        {(onQueueRemoveItem || onQueueEditItem || onQueueSteerItem) && (
+          <QueueDock
+            items={queueItems}
+            running={isStreaming}
+            editing={queueEditing}
+            editingText={queueEditingText}
+            busyKey={queueBusyKey}
+            collapsed={queueDockCollapsed}
+            onToggle={() => setQueueDockCollapsed((v) => !v)}
+            onStartEdit={handleQueueStartEdit}
+            onEditTextChange={setQueueEditingText}
+            onSaveEdit={handleQueueSaveEdit}
+            onCancelEdit={handleQueueCancelEdit}
+            onRemove={handleQueueRemove}
+            onSteer={handleQueueSteer}
+            t={t}
+          />
         )}
 
         {/* Main input */}
@@ -1939,7 +2205,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             onPaste={handlePaste}
             placeholder={
               isStreaming && (onSteer || onFollowUp)
-                ? t(activeQueueMode === "steer" ? "chat.steerNowPlaceholder" : "chat.followUpPlaceholder")
+                ? (queueItems.length > 0 ? t("chat.interjectAllPlaceholder") : t("chat.agentPlaceholder"))
                 : isStreaming ? t("chat.agentPlaceholder")
                 : t("chat.messagePlaceholder")
             }
@@ -2304,61 +2570,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 )}
               </div>
             )}
-          {isStreaming && (onSteer || onFollowUp) && (
-            <div className="composer-queue-toggle" style={{ display: "flex", alignItems: "center", gap: 2, marginRight: 6 }}>
-              {onSteer && (
-                <button
-                  type="button"
-                  onClick={() => setQueueMode("steer")}
-                  aria-pressed={activeQueueMode === "steer"}
-                  title="Interrupt the current run and inject this message now"
-                  style={{
-                    background: "none",
-                    border: "none",
-                    borderRadius: 999,
-                    padding: isMobile ? "8px 8px" : "6px 8px",
-                    color: activeQueueMode === "steer" ? "var(--text)" : "var(--text-dim)",
-                    cursor: "pointer",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: "var(--text-ui)",
-                    fontWeight: activeQueueMode === "steer" ? 600 : 500,
-                  }}
-                >
-                  {t("chat.steer")}
-                </button>
-              )}
-              {onSteer && onFollowUp && (
-                <span style={{ color: "var(--text-dim)", fontSize: "var(--text-meta)" }} aria-hidden="true">·</span>
-              )}
-              {onFollowUp && (
-                <button
-                  type="button"
-                  onClick={() => setQueueMode("followup")}
-                  aria-pressed={activeQueueMode === "followup"}
-                  title="Queue this message after the agent finishes"
-                  style={{
-                    background: "none",
-                    border: "none",
-                    borderRadius: 999,
-                    padding: isMobile ? "8px 8px" : "6px 8px",
-                    color: activeQueueMode === "followup" ? "var(--text)" : "var(--text-dim)",
-                    cursor: "pointer",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: "var(--text-ui)",
-                    fontWeight: activeQueueMode === "followup" ? 600 : 500,
-                  }}
-                >
-                  {t("chat.followUp")}
-                </button>
-              )}
-            </div>
-          )}
           {isStreaming ? (
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-              {(value.trim() || attachedImages.length) && (onSteer || onFollowUp) ? (
+              {/* Busy composer follows DSH: no send button on desktop — Enter
+                  queues, Cmd/Ctrl+Enter interjects. Mobile keeps a queue-send
+                  button because touch keyboards have no Cmd/Ctrl chord. */}
+              {isMobile && (value.trim() || attachedImages.length) && (onSteer || onFollowUp) ? (
                 <button
                   className="composer-icon-hit"
-                  onClick={() => sendQueued(activeQueueMode)}
+                  onClick={() => sendQueued(false)}
                   title={t("chat.send")}
                   aria-label={t("chat.send")}
                   style={roundComposerButton}
