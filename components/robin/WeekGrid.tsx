@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { useI18n } from "@/hooks/useI18n";
 import { parseLocalDate, weekDays } from "@/extension/robin/dates";
 import {
   formatEventTime,
@@ -19,12 +20,34 @@ import {
 const HOUR_HEIGHT = 44;
 const PX_PER_MINUTE = HOUR_HEIGHT / 60;
 const TIME_GUTTER = "3.5rem";
-const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
-/** Where the grid is scrolled on open — early enough to catch a 7am start. */
-const INITIAL_SCROLL_HOUR = 7;
+/** The window shown when the week is empty — a normal waking day. */
+const DEFAULT_FIRST_HOUR = 7;
+const DEFAULT_LAST_HOUR = 22;
 
-function weekdayLabel(date: string): string {
-  return parseLocalDate(date).toLocaleDateString(undefined, { weekday: "short" });
+/**
+ * The hours worth drawing.
+ *
+ * The grid renders only this range instead of all 24 hours inside its own
+ * scroller. A tall inner scroller sitting in the middle of a scrolling page
+ * swallows the wheel: the pointer lands on the grid, the grid consumes the
+ * gesture, and the page underneath never moves. Sizing the grid to its content
+ * removes the second scroller entirely — and the range always widens to cover
+ * every event, so nothing is ever hidden by the trim.
+ */
+function visibleHourRange(events: DashboardEvent[]): { first: number; last: number } {
+  let first = DEFAULT_FIRST_HOUR;
+  let last = DEFAULT_LAST_HOUR;
+  for (const event of events) {
+    if (!event.start) continue;
+    first = Math.min(first, Math.floor(toMinutes(event.start) / 60));
+    const endMinutes = event.end ? toMinutes(event.end) : toMinutes(event.start) + 60;
+    last = Math.max(last, Math.min(23, Math.ceil(endMinutes / 60)));
+  }
+  return { first: Math.max(0, first), last: Math.min(23, last) };
+}
+
+function weekdayLabel(date: string, locale: string): string {
+  return parseLocalDate(date).toLocaleDateString(locale, { weekday: "short" });
 }
 
 function useNowMinutes(): number {
@@ -53,27 +76,16 @@ export function WeekGrid({
   anchor: string;
   onDelete: (event: DashboardEvent) => void;
 }) {
+  const { t, locale } = useI18n();
   const days = weekDays(anchor);
   const { bars, lanes } = layoutSpanBars(events, days);
   const nowMinutes = useNowMinutes();
-  const scrollerRef = useRef<HTMLDivElement>(null);
-  const scrolledFor = useRef<string | null>(null);
 
-  // Scroll to the working day once per week shown, not on every re-render —
-  // otherwise the poll would yank the view back while the user is scrolling.
-  useEffect(() => {
-    if (scrolledFor.current === anchor) return;
-    scrolledFor.current = anchor;
-    const scroller = scrollerRef.current;
-    if (!scroller) return;
-    const earliest = events.reduce<number | null>((lowest, event) => {
-      if (!event.start) return lowest;
-      const minutes = toMinutes(event.start);
-      return lowest === null || minutes < lowest ? minutes : lowest;
-    }, null);
-    const target = Math.min(earliest ?? INITIAL_SCROLL_HOUR * 60, INITIAL_SCROLL_HOUR * 60);
-    scroller.scrollTop = Math.max(0, target * PX_PER_MINUTE - HOUR_HEIGHT / 2);
-  }, [anchor, events]);
+  const { first: firstHour, last: lastHour } = visibleHourRange(events);
+  const hours = Array.from({ length: lastHour - firstHour + 1 }, (_, index) => firstHour + index);
+  /** Minutes are measured from the top of the grid, not from midnight. */
+  const gridOffsetMinutes = firstHour * 60;
+  const gridHeight = hours.length * HOUR_HEIGHT;
 
   return (
     <div className="overflow-x-auto">
@@ -90,7 +102,7 @@ export function WeekGrid({
               // Weekday and number stay adjacent; spread apart they read as
               // belonging to the neighbouring column.
               <div key={date} className="flex items-baseline gap-1 px-1 pb-1">
-                <span className="text-xs" style={{ color: "var(--text-dim)" }}>{weekdayLabel(date)}</span>
+                <span className="text-xs" style={{ color: "var(--text-dim)" }}>{weekdayLabel(date, locale)}</span>
                 <span
                   className="text-xs font-medium tabular-nums"
                   style={{ color: isToday ? "var(--accent)" : "var(--text-muted)" }}
@@ -111,7 +123,7 @@ export function WeekGrid({
               borderColor: "var(--border)",
             }}
           >
-            <div className="pr-1 text-right text-xs" style={{ color: "var(--text-dim)" }}>all-day</div>
+            <div className="pr-1 text-right text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.calendar.allDay")}</div>
             <div className="relative col-span-7" style={{ height: lanes * 22 }}>
               <div className="absolute inset-0 grid grid-cols-7 gap-px">
                 {days.map((date) => (
@@ -146,21 +158,23 @@ export function WeekGrid({
           </div>
         )}
 
-        {/* Time grid */}
-        <div ref={scrollerRef} className="relative max-h-[32rem] overflow-y-auto">
+        {/* Time grid — sized to its content, so the page keeps the only scrollbar. */}
+        <div className="relative">
           <div
             className="grid gap-px"
             style={{ gridTemplateColumns: `${TIME_GUTTER} repeat(7, minmax(0, 1fr))` }}
           >
             {/* Hour gutter */}
             <div>
-              {HOURS.map((hour) => (
+              {hours.map((hour) => (
                 <div
                   key={hour}
                   className="relative pr-1 text-right text-xs tabular-nums"
                   style={{ height: HOUR_HEIGHT, color: "var(--text-dim)" }}
                 >
-                  <span className="absolute right-1 -top-1.5">{hour === 0 ? "" : `${String(hour).padStart(2, "0")}:00`}</span>
+                  <span className="absolute right-1 -top-1.5">
+                    {hour === firstHour ? "" : `${String(hour).padStart(2, "0")}:00`}
+                  </span>
                 </div>
               ))}
             </div>
@@ -174,22 +188,29 @@ export function WeekGrid({
                   key={date}
                   className="relative"
                   style={{
-                    height: HOURS.length * HOUR_HEIGHT,
+                    height: gridHeight,
                     background: isToday ? "var(--bg-subtle)" : "transparent",
                   }}
                 >
-                  {HOURS.map((hour) => (
+                  {hours.map((hour) => (
                     <div
                       key={hour}
                       className="absolute inset-x-0 border-t"
-                      style={{ top: hour * HOUR_HEIGHT, borderColor: "var(--border)", opacity: 0.5 }}
+                      style={{
+                        top: (hour - firstHour) * HOUR_HEIGHT,
+                        borderColor: "var(--border)",
+                        opacity: 0.5,
+                      }}
                     />
                   ))}
 
-                  {isToday && nowMinutes < MINUTES_PER_DAY && (
+                  {isToday && nowMinutes >= gridOffsetMinutes && nowMinutes < MINUTES_PER_DAY && (
                     <div
                       className="pointer-events-none absolute inset-x-0 z-10"
-                      style={{ top: nowMinutes * PX_PER_MINUTE, borderTop: "2px solid var(--accent)" }}
+                      style={{
+                        top: (nowMinutes - gridOffsetMinutes) * PX_PER_MINUTE,
+                        borderTop: "2px solid var(--accent)",
+                      }}
                       aria-hidden
                     />
                   )}
@@ -204,7 +225,7 @@ export function WeekGrid({
                         title={`${formatEventTime(event)} ${event.title}${event.location ? ` @ ${event.location}` : ""}`}
                         className="absolute overflow-hidden rounded px-1 text-left text-xs leading-tight"
                         style={{
-                          top: startMinutes * PX_PER_MINUTE,
+                          top: (startMinutes - gridOffsetMinutes) * PX_PER_MINUTE,
                           height: Math.max((endMinutes - startMinutes) * PX_PER_MINUTE - 2, 14),
                           left: `calc(${(column / columns) * 100}% + 1px)`,
                           width: `calc(${(1 / columns) * 100}% - 2px)`,

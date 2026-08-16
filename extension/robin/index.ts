@@ -12,6 +12,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { fetchPageTitle } from "./fetch-title.ts";
+import { fetchEvents as fetchGoogleEvents, isConnected as googleConnected } from "./google-calendar.ts";
 import {
   addDays,
   compareEvents,
@@ -218,6 +219,7 @@ const robin = (pi: ExtensionAPI) => {
     promptGuidelines: [
       "An appointment with a time goes on the calendar with calendar_create_event; a task to finish goes on the todo list with todo_add.",
       "A date range — a trip, a conference, time off — is ONE event with endDate set, never one event per day.",
+      "Events you create are stored locally. The Google calendar is read-only: you can see its events but cannot add to, change, or delete them.",
     ],
     parameters: Type.Object({
       title: Type.String({ description: "What the event is" }),
@@ -280,7 +282,7 @@ const robin = (pi: ExtensionAPI) => {
     name: "calendar_list_events",
     label: "List events",
     description:
-      "List the user's upcoming calendar events. Also reports the user's local date, which relative dates should be resolved against.",
+      "List the user's upcoming calendar events, including any from a connected Google calendar. Also reports the user's local date, which relative dates should be resolved against.",
     promptSnippet: "calendar_list_events — read the user's calendar",
     parameters: Type.Object({
       days: Type.Optional(Type.Number({ description: "How many days ahead to include, starting today (default 7)" })),
@@ -288,14 +290,38 @@ const robin = (pi: ExtensionAPI) => {
     async execute(_toolCallId, params) {
       const today = localDate();
       const span = Math.max(1, Math.min(params.days ?? 7, 365));
-      const upcoming = eventsInRange(readEvents(), today, addDays(today, span - 1));
+      const until = addDays(today, span - 1);
+
+      // The dashboard merges Google events into its view, so this tool must do
+      // the same. Reading only the local store made the agent answer "nothing
+      // scheduled" to someone whose day was full — worse than having no tool.
+      let events: CalendarEvent[] = readEvents();
+      let warning = "";
+      if (googleConnected()) {
+        try {
+          events = [...events, ...await fetchGoogleEvents(today, until)];
+        } catch {
+          warning = "\n(Could not reach Google Calendar; only locally created events are listed.)";
+        }
+      }
+
+      const upcoming = eventsInRange(events, today, until);
       const header = `Today is ${today} (user's local date).`;
-      if (upcoming.length === 0) return text(`${header}\nNothing scheduled in the next ${span} day(s).`);
+      if (upcoming.length === 0) {
+        return text(`${header}\nNothing scheduled in the next ${span} day(s).${warning}`);
+      }
       return text(
         `${header}\n`
         + upcoming
-          .map((e) => `${e.id}  ${e.date} ${formatEventTime(e)}  ${e.title}${e.location ? ` @ ${e.location}` : ""}`)
-          .join("\n"),
+          .map((e) => {
+            const span_ = e.endDate && e.endDate > e.date ? `${e.date}..${e.endDate}` : e.date;
+            // Google entries cannot be edited or deleted from here; say so
+            // rather than letting the model promise something it cannot do.
+            const source = (e as { source?: string }).source === "google" ? "  [Google, read-only]" : "";
+            return `${e.id}  ${span_} ${formatEventTime(e)}  ${e.title}${e.location ? ` @ ${e.location}` : ""}${source}`;
+          })
+          .join("\n")
+        + warning,
       );
     },
   });

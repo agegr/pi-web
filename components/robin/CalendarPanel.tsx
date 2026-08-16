@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useI18n } from "@/hooks/useI18n";
 import {
   addDays,
-  addMonths,
-  monthGrid,
   parseLocalDate,
   startOfWeek,
   weekDays,
+  weeksFrom,
 } from "@/extension/robin/dates";
 import { eventsInRange, type DashboardEvent } from "@/extension/robin/events";
 import { AgendaView, MonthView, type CalendarView } from "./CalendarViews";
@@ -23,11 +23,13 @@ interface EventsResponse {
 }
 
 const AGENDA_DAYS = 7;
+/** The month view is a rolling four-week window, not a calendar month. */
+const MONTH_WEEKS = 4;
 const VIEW_STORAGE_KEY = "robin-calendar-view";
-const VIEWS: { id: CalendarView; label: string }[] = [
-  { id: "agenda", label: "Agenda" },
-  { id: "week", label: "Week" },
-  { id: "month", label: "Month" },
+const VIEWS: { id: CalendarView; key: string }[] = [
+  { id: "agenda", key: "robin.calendar.agenda" },
+  { id: "week", key: "robin.calendar.week" },
+  { id: "month", key: "robin.calendar.month" },
 ];
 
 function readStoredView(): CalendarView {
@@ -41,6 +43,7 @@ function readStoredView(): CalendarView {
 }
 
 export function CalendarPanel() {
+  const { t, locale } = useI18n();
   const { data, error, refresh } = usePolledResource<EventsResponse>("/api/robin/events");
   // Resolved in an effect so server and client render the same first pass.
   const [view, setView] = useState<CalendarView>("week");
@@ -75,7 +78,7 @@ export function CalendarPanel() {
       const days = weekDays(activeAnchor);
       return { from: days[0] as string, to: days[6] as string };
     }
-    const grid = monthGrid(activeAnchor);
+    const grid = weeksFrom(activeAnchor, MONTH_WEEKS);
     return { from: grid[0] as string, to: grid[grid.length - 1] as string };
   }, [view, activeAnchor, today]);
 
@@ -86,23 +89,18 @@ export function CalendarPanel() {
 
   const heading = useMemo(() => {
     if (!activeAnchor || !range) return "";
-    if (view === "agenda") return `Next ${AGENDA_DAYS} days`;
-    if (view === "month") {
-      return parseLocalDate(activeAnchor).toLocaleDateString(undefined, {
-        month: "long",
-        year: "numeric",
-      });
-    }
+    if (view === "agenda") return t("robin.calendar.agendaRange", { days: String(AGENDA_DAYS) });
+    // A rolling window is named by its range; a month name would be a lie.
     const from = parseLocalDate(range.from);
     const to = parseLocalDate(range.to);
     const format = (value: Date, withYear: boolean) =>
-      value.toLocaleDateString(undefined, {
+      value.toLocaleDateString(locale, {
         month: "short",
         day: "numeric",
         ...(withYear ? { year: "numeric" } : {}),
       });
     return `${format(from, false)} – ${format(to, true)}`;
-  }, [view, activeAnchor, range]);
+  }, [view, activeAnchor, range, t, locale]);
 
   async function run(action: () => Promise<void>) {
     try {
@@ -116,9 +114,8 @@ export function CalendarPanel() {
 
   const step = (direction: -1 | 1) => {
     if (!activeAnchor) return;
-    setAnchor(view === "month"
-      ? addMonths(activeAnchor, direction)
-      : addDays(startOfWeek(activeAnchor), direction * 7));
+    const weeks = view === "month" ? MONTH_WEEKS : 1;
+    setAnchor(addDays(startOfWeek(activeAnchor), direction * 7 * weeks));
   };
 
   const addEvent = (event: React.FormEvent) => {
@@ -153,7 +150,7 @@ export function CalendarPanel() {
     >
       <header className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Calendar</h2>
+          <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>{t("robin.calendar.title")}</h2>
           <span className="text-xs" style={{ color: "var(--text-dim)" }}>{heading}</span>
         </div>
         <div className="flex items-center gap-1">
@@ -162,7 +159,7 @@ export function CalendarPanel() {
               <button
                 type="button"
                 onClick={() => step(-1)}
-                aria-label="Previous"
+                aria-label={t("robin.calendar.previous")}
                 className="rounded px-2 py-0.5 text-xs"
                 style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}
               >
@@ -175,12 +172,12 @@ export function CalendarPanel() {
                 className="rounded px-2 py-0.5 text-xs disabled:opacity-40"
                 style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}
               >
-                Today
+                {t("robin.calendar.today")}
               </button>
               <button
                 type="button"
                 onClick={() => step(1)}
-                aria-label="Next"
+                aria-label={t("robin.calendar.next")}
                 className="rounded px-2 py-0.5 text-xs"
                 style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}
               >
@@ -189,7 +186,7 @@ export function CalendarPanel() {
             </>
           )}
           <div className="ml-1 flex rounded" style={{ border: "1px solid var(--border)" }}>
-            {VIEWS.map(({ id, label }) => (
+            {VIEWS.map(({ id, key }) => (
               <button
                 key={id}
                 type="button"
@@ -200,7 +197,7 @@ export function CalendarPanel() {
                   color: view === id ? "var(--text)" : "var(--text-dim)",
                 }}
               >
-                {label}
+                {t(key)}
               </button>
             ))}
           </div>
@@ -213,7 +210,7 @@ export function CalendarPanel() {
             className="ml-1 text-xs"
             style={{ color: "var(--text-dim)" }}
           >
-            {adding ? "cancel" : "+ add"}
+            {adding ? t("robin.common.cancel") : t("robin.common.add")}
           </button>
         </div>
       </header>
@@ -223,7 +220,7 @@ export function CalendarPanel() {
           <input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder="Event…"
+            placeholder={t("robin.calendar.eventPlaceholder")}
             autoFocus
             className="rounded px-2 py-1 text-sm outline-none"
             style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
@@ -242,7 +239,7 @@ export function CalendarPanel() {
               value={endDate}
               min={date || undefined}
               onChange={(event) => setEndDate(event.target.value)}
-              title="Last day (inclusive) — leave blank for a single-day event"
+              title={t("robin.calendar.endDateHint")}
               className="rounded px-2 py-1 text-sm outline-none"
               style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
             />
@@ -268,7 +265,7 @@ export function CalendarPanel() {
               className="rounded px-3 py-1 text-sm disabled:opacity-40"
               style={{ background: "var(--accent)", color: "#fff" }}
             >
-              Save
+              {t("robin.common.save")}
             </button>
           </div>
         </form>
@@ -288,7 +285,7 @@ export function CalendarPanel() {
         <MonthView
           events={visible}
           today={today}
-          anchor={activeAnchor}
+          days={weeksFrom(activeAnchor, MONTH_WEEKS)}
           onSelectDay={(day) => {
             setAnchor(day);
             chooseView("week");

@@ -106,6 +106,20 @@ export function weekDays(date: string): string[] {
 }
 
 /**
+ * A rolling block of whole weeks starting from the week containing `date`.
+ *
+ * The dashboard's month view uses this rather than a calendar month: a fixed
+ * four-week window keeps every row the same height and always starts on the
+ * current week, which is what a personal planner is actually read for. A true
+ * month grid has to flex between five and six rows and spends its first row on
+ * days that have already passed.
+ */
+export function weeksFrom(date: string, weekCount: number): string[] {
+  const start = startOfWeek(date);
+  return Array.from({ length: weekCount * 7 }, (_, index) => addDays(start, index));
+}
+
+/**
  * Whole weeks covering `date`'s month — 35 or 42 days, so the grid is always
  * rectangular and the leading/trailing days belong to the neighbouring months.
  */

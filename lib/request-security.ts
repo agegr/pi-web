@@ -69,6 +69,28 @@ function isUserInitiatedSessionExportNavigation(request: Request): boolean {
 }
 
 /**
+ * Google's OAuth redirect arrives as a cross-site top-level navigation, so the
+ * same-origin check can never pass for a genuine callback — the request is
+ * *supposed* to come from accounts.google.com. Without this exemption the proxy
+ * rejects every real callback before the route runs.
+ *
+ * What authenticates it instead is the single-use `state` nonce minted by
+ * /api/robin/google: server-generated, consumed on first use, expires in ten
+ * minutes. That is precisely the job `state` exists to do in OAuth, and the
+ * callback route rejects anything without a recognised one.
+ *
+ * Deliberately narrow: GET, and exactly this path.
+ */
+function isOAuthCallbackNavigation(request: Request): boolean {
+  if (request.method !== "GET") return false;
+  try {
+    return new URL(request.url).pathname === "/api/robin/google/callback";
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Only trust local names, IP literals, or the hostname explicitly selected by
  * the operator. IP literals preserve LAN access but cannot be DNS-rebound
  * because the browser keeps the literal address in the Host header.
@@ -108,6 +130,7 @@ export function isApiRequestAllowed(
 ): boolean {
   if (!isApiRequestHostAllowed(request, configuredHostnames)) return false;
   if (isUserInitiatedSessionExportNavigation(request)) return true;
+  if (isOAuthCallbackNavigation(request)) return true;
   return !shouldCheckApiRequestOrigin(request) || isApiRequestOriginAllowed(request);
 }
 

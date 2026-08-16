@@ -147,9 +147,24 @@ lib/             Session, agent, model, file, Git, and security logic
 public/          Static assets and PWA files
 bin/             npm CLI entrypoint and launch option parsing
 docs/            Focused user and contributor guides
+
+extension/robin/ Robin personal-dashboard extension (agent tools, stores)
+components/robin/ Robin dashboard UI
+app/dashboard/   Robin dashboard and settings pages
+app/api/robin/   Robin API routes
+scripts/telegram/ Telegram bridge
 ```
 
 See [AGENTS.md](./AGENTS.md) for the architecture notes and detailed file map.
+
+## Robin personal dashboard
+
+This fork adds **Robin**, a personal dashboard at `/dashboard`: todos, a calendar,
+and saved links, all driven by pi through a fixed set of seven tools — no shell,
+no filesystem access. It also includes read-only Google Calendar and a Telegram
+bridge so the same assistant works away from the machine.
+
+Setup, usage, and design notes: [English](./extension/robin/README.md) | [中文](./extension/robin/README.zh-CN.md).
 
 ## License
 

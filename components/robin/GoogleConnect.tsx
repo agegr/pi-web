@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useI18n } from "@/hooks/useI18n";
 
 interface GoogleStatus {
   configured: boolean;
@@ -23,6 +24,7 @@ export function GoogleConnect({
   status?: { connected: boolean; error?: string };
   onChanged: () => void;
 }) {
+  const { t } = useI18n();
   const [config, setConfig] = useState<GoogleStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -77,7 +79,7 @@ export function GoogleConnect({
     <div className="flex flex-col gap-1 border-t pt-2" style={{ borderColor: "var(--border)" }}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs" style={{ color: "var(--text-dim)" }}>
-          {connected ? "Google Calendar connected (read-only)" : "Google Calendar not connected"}
+          {connected ? t("robin.google.connected") : t("robin.google.disconnected")}
         </span>
         {config.configured ? (
           <button
@@ -87,20 +89,20 @@ export function GoogleConnect({
             className="text-xs disabled:opacity-40"
             style={{ color: "var(--accent)" }}
           >
-            {busy ? "…" : connected ? "Disconnect" : "Connect"}
+            {busy ? "…" : connected ? t("robin.google.disconnect") : t("robin.google.connect")}
           </button>
         ) : (
-          <span className="text-xs" style={{ color: "var(--text-dim)" }}>not configured</span>
+          <span className="text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.google.notConfigured")}</span>
         )}
       </div>
 
-      {!config.configured && config.hint && (
+      {!config.configured && (
         <p className="text-xs" style={{ color: "var(--text-dim)" }}>
-          {config.hint}. Redirect URI: <code>{config.redirectUri}</code>
+          {t("robin.google.configureHint")}
         </p>
       )}
       {status?.error && (
-        <p className="text-xs" style={{ color: "var(--accent)" }}>Google: {status.error}</p>
+        <p className="text-xs" style={{ color: "var(--accent)" }}>{t("robin.google.error", { message: status.error })}</p>
       )}
       {error && <p className="text-xs" style={{ color: "var(--accent)" }}>{error}</p>}
     </div>

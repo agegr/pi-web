@@ -6,9 +6,10 @@ export const dynamic = "force-dynamic";
 /**
  * Google redirects the browser here after consent.
  *
- * This is a top-level navigation from accounts.google.com, so it deliberately
- * skips the same-origin API guard the JSON routes use — that check would reject
- * every real callback. The `state` nonce is what authenticates it instead: it
+ * This arrives as a cross-site navigation from accounts.google.com, so the
+ * same-origin guard cannot pass; `isApiRequestAllowed` exempts this exact path
+ * (see lib/request-security.ts) because otherwise proxy.ts rejects the callback
+ * before this route ever runs. The `state` nonce is what authenticates it: it
  * was minted by this server, is single-use, and expires in ten minutes.
  */
 function page(title: string, detail: string): Response {

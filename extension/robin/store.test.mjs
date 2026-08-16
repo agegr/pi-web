@@ -5,7 +5,7 @@ process.env.TZ = "America/Los_Angeles";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { addDays, dueBucket, formatTodo, localDate, normalizeDue, parseLocalDate } from "./store.ts";
-import { addMonths, isSameMonth, monthGrid, startOfMonth, startOfWeek, weekDays } from "./dates.ts";
+import { addMonths, isSameMonth, monthGrid, startOfMonth, startOfWeek, weekDays, weeksFrom } from "./dates.ts";
 
 const todo = (fields) => ({ id: "x", title: "t", done: false, createdAt: "", ...fields });
 
@@ -120,4 +120,22 @@ test("formatTodo labels relative due dates and drops them once done", () => {
   assert.match(formatTodo(todo({ due: "2026-08-15" }), today), /due tomorrow/);
   assert.match(formatTodo(todo({ due: "2026-08-13" }), today), /overdue/);
   assert.equal(formatTodo(todo({ due: "2026-08-13", done: true }), today), "[x] x  t");
+});
+
+test("weeksFrom returns whole weeks starting on the containing Monday", () => {
+  const days = weeksFrom("2026-08-14", 4); // a Friday
+  assert.equal(days.length, 28);
+  assert.equal(days[0], "2026-08-10", "starts on that week's Monday");
+  assert.equal(days[27], "2026-09-06");
+  assert.equal(startOfWeek(days[0]), days[0]);
+  for (let i = 1; i < days.length; i += 1) {
+    assert.equal(days[i], addDays(days[i - 1], 1));
+  }
+});
+
+test("weeksFrom spans month and year boundaries without gaps", () => {
+  const days = weeksFrom("2026-12-30", 4);
+  assert.equal(days.length, 28);
+  assert.equal(days[0], "2026-12-28");
+  assert.equal(days[27], "2027-01-24");
 });

@@ -1,10 +1,10 @@
 "use client";
 
-import { isSameMonth, monthGrid, parseLocalDate } from "@/extension/robin/dates";
+import { useI18n } from "@/hooks/useI18n";
+import { parseLocalDate, addDays } from "@/extension/robin/dates";
 import {
   compareEvents,
   eventEndDate,
-  formatEventDay,
   formatEventTime,
   groupEventsByDate,
   isAllDayBand,
@@ -25,16 +25,29 @@ interface ViewProps {
 const GRID_SCROLL = "overflow-x-auto";
 const GRID_MIN_WIDTH = "min-w-[42rem]";
 
+/** Relative day headings, translated here rather than in the shared module
+ *  that the English-only agent tools also use. */
+function dayHeading(date: string, today: string, locale: string, t: (key: string) => string): string {
+  if (date === today) return t("robin.calendar.relativeToday");
+  if (date === addDays(today, 1)) return t("robin.calendar.relativeTomorrow");
+  // Anything further out reads better as a weekday than as an ISO string.
+  return parseLocalDate(date).toLocaleDateString(locale, { weekday: "long", month: "short", day: "numeric" });
+}
+
 function dayNumber(date: string): string {
   return String(parseLocalDate(date).getDate());
 }
 
-function weekdayLabel(date: string): string {
-  return parseLocalDate(date).toLocaleDateString(undefined, { weekday: "short" });
+function weekdayLabel(date: string, locale: string): string {
+  return parseLocalDate(date).toLocaleDateString(locale, { weekday: "short" });
 }
 
 /** Google entries carry a dot; they cannot be edited from here. */
-function EventChip({ event, onDelete }: { event: DashboardEvent; onDelete?: () => void }) {
+function EventChip({ event, onDelete, t }: {
+  event: DashboardEvent;
+  onDelete?: () => void;
+  t: (key: string, params?: Record<string, string>) => string;
+}) {
   const readOnly = isReadOnlyEvent(event);
   return (
     <div
@@ -46,14 +59,14 @@ function EventChip({ event, onDelete }: { event: DashboardEvent; onDelete?: () =
         <span aria-hidden className="shrink-0" style={{ color: "var(--text-dim)" }}>•</span>
       )}
       <span className="shrink-0 tabular-nums" style={{ color: "var(--text-dim)" }}>
-        {event.start ?? "all-day"}
+        {event.start ?? t("robin.calendar.allDay")}
       </span>
       <span className="min-w-0 flex-1 truncate" style={{ color: "var(--text)" }}>{event.title}</span>
       {onDelete && !readOnly && (
         <button
           type="button"
           onClick={onDelete}
-          aria-label={`Delete ${event.title}`}
+          aria-label={t("robin.calendar.deleteEvent", { title: event.title })}
           className="shrink-0 opacity-0 transition-opacity group-hover/chip:opacity-100"
           style={{ color: "var(--text-dim)" }}
         >
@@ -64,13 +77,24 @@ function EventChip({ event, onDelete }: { event: DashboardEvent; onDelete?: () =
   );
 }
 
+/** Days shown in full; the rest of the window collapses to one line each. */
+const AGENDA_DETAIL_DAYS = 3;
+
 export function AgendaView({ events, today, onDelete }: ViewProps) {
+  const { t, locale } = useI18n();
   const grouped = groupEventsByDate(events);
   // Today always gets a row, even when empty: on a daily dashboard "nothing on
   // today" is itself the answer, and omitting the day reads as a load failure.
-  const days = grouped.some((group) => group.date === today)
+  const withToday = grouped.some((group) => group.date === today)
     ? grouped
     : [{ date: today, events: [] as DashboardEvent[] }, ...grouped];
+
+  // Detail only covers the days you can still act on. Everything further out
+  // becomes a one-line-per-day brief: enough to notice a busy Thursday without
+  // reading the whole week.
+  const detailUntil = addDays(today, AGENDA_DETAIL_DAYS - 1);
+  const days = withToday.filter((group) => group.date <= detailUntil);
+  const rest = withToday.filter((group) => group.date > detailUntil && group.events.length > 0);
 
   return (
     <div className="flex flex-col gap-3">
@@ -80,10 +104,10 @@ export function AgendaView({ events, today, onDelete }: ViewProps) {
             className="text-xs font-medium uppercase tracking-wide"
             style={{ color: date === today ? "var(--accent)" : "var(--text-dim)" }}
           >
-            {formatEventDay(date, today)}
+            {dayHeading(date, today, locale, t)}
           </h3>
           {dayEvents.length === 0 && (
-            <p className="px-2 py-1 text-sm" style={{ color: "var(--text-dim)" }}>Nothing scheduled.</p>
+            <p className="px-2 py-1 text-sm" style={{ color: "var(--text-dim)" }}>{t("robin.calendar.nothingScheduled")}</p>
           )}
           {dayEvents.map((event) => (
             <div
@@ -108,7 +132,7 @@ export function AgendaView({ events, today, onDelete }: ViewProps) {
                 <button
                   type="button"
                   onClick={() => onDelete(event)}
-                  aria-label={`Delete ${event.title}`}
+                  aria-label={t("robin.calendar.deleteEvent", { title: event.title })}
                   className="shrink-0 px-1 text-xs opacity-0 transition-opacity group-hover:opacity-100"
                   style={{ color: "var(--text-dim)" }}
                 >
@@ -119,11 +143,32 @@ export function AgendaView({ events, today, onDelete }: ViewProps) {
           ))}
         </div>
       ))}
+
+      {rest.length > 0 && (
+        <div className="flex flex-col gap-1 border-t pt-2" style={{ borderColor: "var(--border)" }}>
+          <h3 className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-dim)" }}>
+            {t("robin.calendar.restOfWeek")}
+          </h3>
+          {rest.map(({ date, events: dayEvents }) => (
+            <div key={date} className="flex items-baseline gap-2 px-2 py-0.5 text-xs">
+              <span className="shrink-0" style={{ color: "var(--text-muted)", minWidth: "4.5rem" }}>
+                {parseLocalDate(date).toLocaleDateString(locale, { weekday: "short", day: "numeric" })}
+              </span>
+              <span className="min-w-0 flex-1 truncate" style={{ color: "var(--text-dim)" }}>
+                {dayEvents.map((event) => event.title).join("、")}
+              </span>
+              <span className="shrink-0 tabular-nums" style={{ color: "var(--text-dim)" }}>
+                {dayEvents.length}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-const MONTH_CHIP_LIMIT = 2;
+const MONTH_CHIP_LIMIT = 4;
 const BAR_HEIGHT = 18;
 const DAY_NUMBER_HEIGHT = 18;
 
@@ -139,14 +184,14 @@ function MonthWeekRow({
   days,
   events,
   today,
-  anchor,
   onSelectDay,
+  t,
 }: {
   days: string[];
   events: DashboardEvent[];
   today: string;
-  anchor: string;
   onSelectDay: (date: string) => void;
+  t: (key: string, params?: Record<string, string>) => string;
 }) {
   const { bars, lanes } = layoutSpanBars(events, days);
   const barsHeight = lanes * BAR_HEIGHT;
@@ -161,27 +206,29 @@ function MonthWeekRow({
           const spanning = events.filter((event) => isAllDayBand(event)
             && date >= event.date && date <= eventEndDate(event)).length;
           const isToday = date === today;
-          const outside = !isSameMonth(date, anchor);
+          // A rolling window has no "outside the month"; what is worth dimming
+          // is the part of the week already behind you.
+          const past = date < today;
           return (
             <button
               key={date}
               type="button"
               onClick={() => onSelectDay(date)}
-              title={`${date} — ${chips.length + spanning} event(s)`}
-              className="flex min-h-24 flex-col gap-0.5 rounded p-1 text-left"
+              title={t("robin.calendar.dayTooltip", { date, count: String(chips.length + spanning) })}
+              className="flex min-h-32 flex-col gap-0.5 rounded p-1 text-left"
               style={{
                 background: isToday ? "var(--bg-hover)" : "transparent",
                 border: `1px solid ${isToday ? "var(--accent)" : "var(--border)"}`,
-                opacity: outside ? 0.45 : 1,
+                opacity: past ? 0.5 : 1,
                 paddingTop: DAY_NUMBER_HEIGHT + barsHeight + 2,
               }}
             >
               {chips.slice(0, MONTH_CHIP_LIMIT).map((event) => (
-                <EventChip key={event.id} event={event} />
+                <EventChip key={event.id} event={event} t={t} />
               ))}
               {chips.length > MONTH_CHIP_LIMIT && (
                 <span className="px-1 text-xs" style={{ color: "var(--text-dim)" }}>
-                  +{chips.length - MONTH_CHIP_LIMIT} more
+                  {t("robin.calendar.more", { count: String(chips.length - MONTH_CHIP_LIMIT) })}
                 </span>
               )}
             </button>
@@ -197,7 +244,7 @@ function MonthWeekRow({
             className="px-1.5 pt-1 text-xs tabular-nums"
             style={{
               color: date === today ? "var(--accent)" : "var(--text-muted)",
-              opacity: isSameMonth(date, anchor) ? 1 : 0.45,
+              opacity: date < today ? 0.5 : 1,
             }}
           >
             {dayNumber(date)}
@@ -235,12 +282,12 @@ function MonthWeekRow({
 export function MonthView({
   events,
   today,
-  anchor,
+  days: grid,
   onSelectDay,
-}: Omit<ViewProps, "onDelete"> & { anchor: string; onSelectDay: (date: string) => void }) {
-  const grid = monthGrid(anchor);
+}: Omit<ViewProps, "onDelete"> & { days: string[]; onSelectDay: (date: string) => void }) {
+  const { t, locale } = useI18n();
   const weeks = Array.from(
-    { length: grid.length / 7 },
+    { length: Math.ceil(grid.length / 7) },
     (_, index) => grid.slice(index * 7, index * 7 + 7),
   );
 
@@ -250,7 +297,7 @@ export function MonthView({
         <div className="grid grid-cols-7 gap-px">
           {(weeks[0] ?? []).map((date) => (
             <div key={date} className="px-1 text-xs" style={{ color: "var(--text-dim)" }}>
-              {weekdayLabel(date)}
+              {weekdayLabel(date, locale)}
             </div>
           ))}
         </div>
@@ -260,8 +307,8 @@ export function MonthView({
             days={days}
             events={events}
             today={today}
-            anchor={anchor}
             onSelectDay={onSelectDay}
+            t={t}
           />
         ))}
       </div>

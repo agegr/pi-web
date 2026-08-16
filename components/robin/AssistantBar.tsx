@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useI18n } from "@/hooks/useI18n";
 import { requestRefresh } from "./refreshBus";
 
 interface AssistantResponse {
@@ -8,22 +9,27 @@ interface AssistantResponse {
   usedTools: string[];
 }
 
-const TOOL_LABELS: Record<string, string> = {
-  todo_add: "added a todo",
-  todo_complete: "completed a todo",
-  todo_list: "read your todos",
-  calendar_create_event: "added an event",
-  calendar_list_events: "read your calendar",
-  link_add: "saved a link",
-  link_list: "read your links",
+/** Tool names map to message keys so the summary follows the chosen language. */
+const TOOL_KEYS: Record<string, string> = {
+  todo_add: "robin.tool.todoAdd",
+  todo_complete: "robin.tool.todoComplete",
+  todo_list: "robin.tool.todoList",
+  calendar_create_event: "robin.tool.eventAdd",
+  calendar_list_events: "robin.tool.eventList",
+  link_add: "robin.tool.linkAdd",
+  link_list: "robin.tool.linkList",
 };
 
-function describeTools(usedTools: string[]): string | null {
-  const described = [...new Set(usedTools)].map((name) => TOOL_LABELS[name] ?? name);
+function describeTools(usedTools: string[], t: (key: string) => string): string | null {
+  const described = [...new Set(usedTools)].map((name) => {
+    const key = TOOL_KEYS[name];
+    return key ? t(key) : name;
+  });
   return described.length > 0 ? described.join(", ") : null;
 }
 
 export function AssistantBar() {
+  const { t } = useI18n();
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [reply, setReply] = useState<AssistantResponse | null>(null);
@@ -60,7 +66,7 @@ export function AssistantBar() {
     }
   };
 
-  const actions = reply ? describeTools(reply.usedTools) : null;
+  const actions = reply ? describeTools(reply.usedTools, t) : null;
 
   return (
     <section
@@ -73,7 +79,7 @@ export function AssistantBar() {
           value={message}
           onChange={(event) => setMessage(event.target.value)}
           disabled={busy}
-          placeholder="Tell pi what to do — “明天要洗车”, or paste a link…"
+          placeholder={t("robin.assistant.placeholder")}
           className="min-w-0 flex-1 rounded px-3 py-2 text-sm outline-none disabled:opacity-60"
           style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
         />
@@ -83,12 +89,12 @@ export function AssistantBar() {
           className="rounded px-4 py-2 text-sm disabled:opacity-40"
           style={{ background: "var(--accent)", color: "#fff" }}
         >
-          {busy ? "…" : "Send"}
+          {busy ? "…" : t("robin.assistant.send")}
         </button>
       </form>
 
       {busy && (
-        <p className="text-xs" style={{ color: "var(--text-dim)" }}>Working…</p>
+        <p className="text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.assistant.working")}</p>
       )}
 
       {error && <p className="text-xs" style={{ color: "var(--accent)" }}>{error}</p>}

@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { dueBucket, formatDue, type DueBucket } from "@/extension/robin/dates";
+import { useI18n } from "@/hooks/useI18n";
+import { dueBucket, type DueBucket } from "@/extension/robin/dates";
 import type { Todo } from "@/extension/robin/store";
 import { mutate, usePolledResource } from "./usePolledResource";
 
@@ -11,19 +12,30 @@ interface TodosResponse {
   today: string;
 }
 
-const SECTIONS: { bucket: DueBucket; label: string }[] = [
-  { bucket: "overdue", label: "Overdue" },
-  { bucket: "today", label: "Today" },
-  { bucket: "tomorrow", label: "Tomorrow" },
-  { bucket: "upcoming", label: "Later" },
-  { bucket: "none", label: "Someday" },
+const SECTIONS: { bucket: DueBucket; key: string }[] = [
+  { bucket: "overdue", key: "robin.todos.overdue" },
+  { bucket: "today", key: "robin.todos.today" },
+  { bucket: "tomorrow", key: "robin.todos.tomorrow" },
+  { bucket: "upcoming", key: "robin.todos.later" },
+  { bucket: "none", key: "robin.todos.someday" },
 ];
+
+/** Due labels are built here rather than in the shared date module, which the
+ *  English-only agent tools also use. */
+function dueLabel(due: string, today: string, t: (key: string, params?: Record<string, string>) => string): string {
+  const bucket = dueBucket(due, today);
+  if (bucket === "today") return t("robin.todos.dueToday");
+  if (bucket === "tomorrow") return t("robin.todos.dueTomorrow");
+  if (bucket === "overdue") return t("robin.todos.dueOverdue", { date: due });
+  return due;
+}
 
 const BUCKET_COLOR: Partial<Record<DueBucket, string>> = {
   overdue: "var(--accent)",
 };
 
 export function TodoPanel() {
+  const { t } = useI18n();
   const { data, error, loading, refresh } = usePolledResource<TodosResponse>("/api/robin/todos");
   const [title, setTitle] = useState("");
   const [due, setDue] = useState("");
@@ -72,9 +84,9 @@ export function TodoPanel() {
       style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}
     >
       <header className="flex items-baseline justify-between">
-        <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>Todos</h2>
+        <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>{t("robin.todos.title")}</h2>
         <span className="text-xs" style={{ color: "var(--text-dim)" }}>
-          {loading ? "loading…" : `${open.length} open`}
+          {loading ? t("robin.common.loading") : t("robin.todos.open", { count: String(open.length) })}
         </span>
       </header>
 
@@ -82,7 +94,7 @@ export function TodoPanel() {
         <input
           value={title}
           onChange={(event) => setTitle(event.target.value)}
-          placeholder="Add a task…"
+          placeholder={t("robin.todos.placeholder")}
           className="min-w-0 flex-1 rounded px-2 py-1 text-sm outline-none"
           style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
         />
@@ -99,7 +111,7 @@ export function TodoPanel() {
           className="rounded px-3 py-1 text-sm disabled:opacity-40"
           style={{ background: "var(--accent)", color: "#fff" }}
         >
-          Add
+          {t("robin.todos.addButton")}
         </button>
       </form>
 
@@ -109,7 +121,7 @@ export function TodoPanel() {
 
       {!loading && open.length === 0 && (
         <p className="py-2 text-sm" style={{ color: "var(--text-dim)" }}>
-          Nothing open. Ask pi to add something, or use the field above.
+          {t("robin.todos.empty")}
         </p>
       )}
 
@@ -119,7 +131,7 @@ export function TodoPanel() {
             className="text-xs font-medium uppercase tracking-wide"
             style={{ color: BUCKET_COLOR[section.bucket] ?? "var(--text-dim)" }}
           >
-            {section.label}
+            {t(section.key)}
           </h3>
           {section.items.map((todo) => (
             <TodoRow
@@ -128,6 +140,7 @@ export function TodoPanel() {
               today={today}
               onToggle={() => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, done: !todo.done }))}
               onDelete={() => void run(() => mutate("/api/robin/todos", "DELETE", { id: todo.id }))}
+              t={t}
             />
           ))}
         </div>
@@ -141,7 +154,7 @@ export function TodoPanel() {
             className="self-start text-xs"
             style={{ color: "var(--text-dim)" }}
           >
-            {showDone ? "▾" : "▸"} {done.length} completed
+            {showDone ? "▾" : "▸"} {t("robin.todos.completed", { count: String(done.length) })}
           </button>
           {showDone && done.map((todo) => (
             <TodoRow
@@ -150,6 +163,7 @@ export function TodoPanel() {
               today={today}
               onToggle={() => void run(() => mutate("/api/robin/todos", "PATCH", { id: todo.id, done: false }))}
               onDelete={() => void run(() => mutate("/api/robin/todos", "DELETE", { id: todo.id }))}
+              t={t}
             />
           ))}
         </div>
@@ -163,11 +177,13 @@ function TodoRow({
   today,
   onToggle,
   onDelete,
+  t,
 }: {
   todo: Todo;
   today: string;
   onToggle: () => void;
   onDelete: () => void;
+  t: (key: string, params?: Record<string, string>) => string;
 }) {
   const overdue = !todo.done && dueBucket(todo.due, today) === "overdue";
   return (
@@ -179,7 +195,9 @@ function TodoRow({
         type="checkbox"
         checked={todo.done}
         onChange={onToggle}
-        aria-label={todo.done ? `Reopen ${todo.title}` : `Complete ${todo.title}`}
+        aria-label={todo.done
+          ? t("robin.todos.reopen", { title: todo.title })
+          : t("robin.todos.complete", { title: todo.title })}
         className="shrink-0 cursor-pointer"
       />
       <span
@@ -193,13 +211,13 @@ function TodoRow({
       </span>
       {todo.due && !todo.done && (
         <span className="shrink-0 text-xs" style={{ color: overdue ? "var(--accent)" : "var(--text-dim)" }}>
-          {formatDue(todo.due, today)}
+          {dueLabel(todo.due, today, t)}
         </span>
       )}
       <button
         type="button"
         onClick={onDelete}
-        aria-label={`Delete ${todo.title}`}
+        aria-label={t("robin.todos.delete", { title: todo.title })}
         className="shrink-0 px-1 text-xs opacity-0 transition-opacity group-hover:opacity-100"
         style={{ color: "var(--text-dim)" }}
       >

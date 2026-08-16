@@ -20,6 +20,7 @@ import { chmodSync } from "node:fs";
 import { addDays, localDate } from "./dates.ts";
 import type { DashboardEvent } from "./events.ts";
 import { dataPath, readJsonObject, writeJsonObject } from "./paths.ts";
+import { googleCredentials } from "./settings.ts";
 
 const TOKENS_FILE = "google.json";
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -42,9 +43,12 @@ export interface GoogleCredentials {
   clientSecret: string;
 }
 
+/**
+ * Read at call time, not at module load: the settings screen writes these and
+ * the change has to take effect without restarting the server.
+ */
 export function readCredentials(): GoogleCredentials | null {
-  const clientId = process.env.ROBIN_GOOGLE_CLIENT_ID?.trim();
-  const clientSecret = process.env.ROBIN_GOOGLE_CLIENT_SECRET?.trim();
+  const { clientId, clientSecret } = googleCredentials();
   return clientId && clientSecret ? { clientId, clientSecret } : null;
 }
 
