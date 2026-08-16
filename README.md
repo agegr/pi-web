@@ -38,6 +38,22 @@ To update, stop the running process with `Ctrl+C` and run the same install comma
 
 ## Configuration
 
+> ⚠️ **IMPORTANT: Docker & Cloudflare Tunnel Deployment**
+> If you are deploying `pi-web` inside **Docker** behind **Cloudflare Tunnel** or a reverse proxy, you **MUST READ**:
+> - 📖 **[DOCKER.md](./DOCKER.md)** — Docker architecture & volume setup
+> - 🛠️ **[INSTALL_GUIDE.md](./INSTALL_GUIDE.md)** — Step-by-step Docker & Cloudflare setup guide
+> - ⚡ **[STARTUP.md](./STARTUP.md)** — Quick start & container maintenance commands
+> - 👤 **[USER_GUIDE.md](./USER_GUIDE.md)** — Access credentials & workspace overview
+> - 📐 **[docs/SDD-docker-cloudflare-setup.md](./docs/SDD-docker-cloudflare-setup.md)** — Software design decisions & trade-offs
+> - 📜 **[docs/dev.log.md](./docs/dev.log.md)** — Development history & resolved pitfalls
+> - 💡 **[LESSONS_LEARNED.md](./LESSONS_LEARNED.md)** — Key technical lessons learned
+>
+> **Quick Checklist for Cloudflare + Docker**:
+> 1. Set `PI_WEB_HOSTNAME: "0.0.0.0"` in container environment.
+> 2. Set `PI_WEB_NO_OPEN: "1"`.
+> 3. Set `PI_WEB_ALLOWED_HOSTS: "pi01.xxx.com"` (or your Cloudflare domain).
+> 4. Basic Auth username is **fixed as `pi`**. Set `PI_WEB_PASSWORD` and escape any `$` in `docker-compose.yml` as `$$`.
+
 For port and hostname, command-line options override the corresponding environment variables. Either `--no-open` or `PI_WEB_NO_OPEN=1` disables automatic browser opening.
 
 | Option or environment variable | Purpose | Default |

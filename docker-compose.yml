@@ -1,41 +1,31 @@
 # pi-web — Docker Compose
 #
-#   1. cp .pi-web.env.example .pi-web.env    # 編輯 .pi-web.env（密碼 + 公開域名）
-#   2. 下面的 volumes 改成你 host 的路徑
-#   3. docker compose up -d --build          # 首次 build + 啟動
+#   1. docker compose up -d --build          # 首次 build + 啟動
+#   2. docker compose logs -f                # 看 log
+#   3. docker compose down                   # 停止
 #
-#   docker compose up -d                     # 啟動（映像已 build）
-#   docker compose logs -f                   # 看 log（出現 Ready 即可用）
-#   docker compose down                      # 停止
-#
-# 然後開 http://127.0.0.1:30141
-#
-# 密碼與公開域名放 .pi-web.env（git-ignored，絕不外流）；缺這個檔案時
-# compose 會明確報 "env file not found"，不會帶著不安全的預設悄悄跑起來。
+# 然後開 http://127.0.0.1:30141 或 https://pi01.xxx.com
 
 services:
   pi-web:
     build: .
     image: tigerai/pi-web:local
     container_name: pi-web
-    env_file:
-      # Operator values: PI_WEB_PASSWORD, PI_WEB_ALLOWED_HOSTS
-      - .pi-web.env
     ports:
-      # 要 LAN 存取改成 "0.0.0.0:30141:30141"（且 .pi-web.env 務必設密碼）
       - "30141:30141"
     environment:
-      # Required: container must bind all interfaces or port mapping fails.
-      # The app still only answers requests from the docker-proxy bridge.
+      # Required: container must bind all interfaces inside container network
       PI_WEB_HOSTNAME: "0.0.0.0"
-      # No auto browser-open (headless container).
+      # No auto browser-open (headless container)
       PI_WEB_NO_OPEN: "1"
+      # Allowed reverse proxy host (Cloudflare Tunnel)
+      PI_WEB_ALLOWED_HOSTS: "pi01.xxx.com"
+      # Secure complex password for authentication ($ escaped as $$ for Compose)
+      PI_WEB_PASSWORD: "your_complex_password_here"
     volumes:
-      # pi config, sessions, auth (shared with the TUI pi on this machine).
-      # CHANGE to your host path:
-      - 'C:/Users/yesin/.pi/agent:/home/node/.pi/agent'
-      # The project(s) the agent should work on. CHANGE to whatever you want
-      # pi to operate on; add more mounts as needed.
-      - 'C:/Tools/@@@@@@Antigravity/TigerAI-Methodology:/workspace'
+      # pi config, sessions, auth (shared with host)
+      - '${HOME}/.pi/agent:/home/node/.pi/agent'
+      # The project directory for pi agent to operate on
+      - '/home/wrt/AG/SystemRepair:/workspace'
     working_dir: /workspace
     restart: unless-stopped
