@@ -117,6 +117,7 @@ export async function smokeAllRoutes({ origin, authHeaders = {} }) {
     await probe("GET", `/api/sessions/${FAKE_ID}/export`, [404]);
     await probe("POST", `/api/sessions/${FAKE_ID}/auto-name`, [404]);
     await probe("GET", `/api/sessions/${sid}/entries/nonexistent/thinking`, [400, 404]);
+    await probe("GET", `/api/sessions/${sid}/entries/nonexistent/tool-result`, [404]);
     await probe("GET", `/api/agent/${FAKE_ID}`, [200, 404]);
     await probe("POST", `/api/agent/${FAKE_ID}`, [404], {
       headers: { "content-type": "application/json" },

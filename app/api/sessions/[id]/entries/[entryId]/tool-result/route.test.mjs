@@ -11,7 +11,7 @@ const jiti = createJiti(import.meta.url, {
   moduleCache: false,
 });
 const { GET } = await jiti.import("./route.ts");
-const { cacheSessionPath } = await jiti.import("../../../../../../lib/session-reader.ts");
+const { cacheSessionPath } = await jiti.import("../../../../../../../lib/session-reader.ts");
 
 function writeToolResultSession(extraLines = []) {
   const dir = mkdtempSync(join(tmpdir(), "pi-web-tool-result-"));
