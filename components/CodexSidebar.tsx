@@ -166,36 +166,67 @@ export function CodexSidebar({
   const [worktreeError, setWorktreeError] = useState<string | null>(null);
   const [pendingConfirmation, setPendingConfirmation] = useState<{ type: "worktree"; path: string } | null>(null);
   const [newBranch, setNewBranch] = useState("");
-  const previousRunningRef = useRef<Set<string>>(new Set());
-  const previousRawRunningRef = useRef<Set<string>>(new Set());
+  const previousRunningRef = useRef<Set<string> | null>(null);
+  const previousRawRunningRef = useRef<Set<string> | null>(null);
   const restoredRef = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const quickDialogRef = useRef<HTMLDialogElement>(null);
   const projectSearchInputRef = useRef<HTMLInputElement>(null);
   const quickInputRef = useRef<HTMLInputElement>(null);
   const quickPreviousFocusRef = useRef<HTMLElement | null>(null);
+  const loadDataInFlightRef = useRef<Promise<void> | null>(null);
+  const loadDataQueuedRef = useRef(false);
+  const loadDataForceQueuedRef = useRef(false);
 
-  const loadData = useCallback(async (force = false) => {
-    try {
-      const [sessionsResponse, projectsResponse] = await Promise.all([
-        fetch(force ? "/api/sessions?force=1" : "/api/sessions", { cache: "no-store" }),
-        fetch("/api/projects", { cache: "no-store" }),
-      ]);
-      if (!sessionsResponse.ok || !projectsResponse.ok) throw new Error(`HTTP ${sessionsResponse.status}/${projectsResponse.status}`);
-      const sessionData = await sessionsResponse.json() as { sessions: SessionInfo[]; runningSessionIds?: string[] };
-      const projectData = await projectsResponse.json() as { projects: ProjectPreference[] };
-      setSessions(sessionData.sessions);
-      setPreferences(projectData.projects);
-      setRunningIds((current) => current.size ? current : new Set(sessionData.runningSessionIds ?? []));
-      setError(null);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setLoading(false);
+  const fetchData = useCallback(async (force: boolean) => {
+    const [sessionsResponse, projectsResponse] = await Promise.all([
+      fetch(force ? "/api/sessions?force=1" : "/api/sessions", { cache: "no-store" }),
+      fetch("/api/projects", { cache: "no-store" }),
+    ]);
+    if (!sessionsResponse.ok || !projectsResponse.ok) {
+      throw new Error(`HTTP ${sessionsResponse.status}/${projectsResponse.status}`);
     }
+    const sessionData = await sessionsResponse.json() as { sessions: SessionInfo[]; runningSessionIds?: string[] };
+    const projectData = await projectsResponse.json() as { projects: ProjectPreference[] };
+    setSessions(sessionData.sessions);
+    setPreferences(projectData.projects);
+    setRunningIds((current) => current.size ? current : new Set(sessionData.runningSessionIds ?? []));
+    setError(null);
   }, []);
 
-  useEffect(() => { void loadData(refreshKey !== undefined); }, [loadData, refreshKey]);
+  const loadData = useCallback((force = false): Promise<void> => {
+    if (loadDataInFlightRef.current) {
+      loadDataQueuedRef.current = true;
+      loadDataForceQueuedRef.current ||= force;
+      return loadDataInFlightRef.current;
+    }
+
+    const run = async () => {
+      let requestForce = force;
+      try {
+        do {
+          loadDataQueuedRef.current = false;
+          requestForce ||= loadDataForceQueuedRef.current;
+          loadDataForceQueuedRef.current = false;
+          await fetchData(requestForce);
+          requestForce = false;
+        } while (loadDataQueuedRef.current);
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const pending = run();
+    loadDataInFlightRef.current = pending;
+    void pending.finally(() => {
+      if (loadDataInFlightRef.current === pending) loadDataInFlightRef.current = null;
+    });
+    return pending;
+  }, [fetchData]);
+
+  useEffect(() => { void loadData(false); }, [loadData, refreshKey]);
   useEffect(() => { writeStringSet(COLLAPSED_STORAGE_KEY, collapsed); }, [collapsed]);
   useEffect(() => { writeStringSet(UNREAD_STORAGE_KEY, unreadIds); }, [unreadIds]);
   useEffect(() => { writeArchivedSessionIds(archivedIds); }, [archivedIds]);
@@ -223,7 +254,7 @@ export function CodexSidebar({
     }), [archivedIds, sessions, subagentsByRoot]);
 
   const { roots: activeRootIds, unresolved: hasUnresolvedRunningIds } = useMemo(
-    () => activeSessionRoots(sessions, runningIds, previousRunningRef.current),
+    () => activeSessionRoots(sessions, runningIds, previousRunningRef.current ?? []),
     [runningIds, sessions],
   );
 
@@ -456,6 +487,11 @@ export function CodexSidebar({
 
   useEffect(() => {
     const previous = previousRunningRef.current;
+    if (previous === null) {
+      previousRunningRef.current = activeRootIds;
+      onRunningSessionIdsChange?.(activeRootIds);
+      return;
+    }
     const completed = [...previous].filter((id) => !activeRootIds.has(id));
     const completedInBackground = completed.filter((id) => id !== selectedSessionId);
     if (completedInBackground.length) {
@@ -463,7 +499,7 @@ export function CodexSidebar({
     }
     if (completed.length) {
       onBackgroundTaskDone?.();
-      void loadData(true);
+      if (!onBackgroundTaskDone) void loadData(false);
     }
     previousRunningRef.current = activeRootIds;
     onRunningSessionIdsChange?.(activeRootIds);
@@ -471,8 +507,12 @@ export function CodexSidebar({
 
   useEffect(() => {
     const previous = previousRawRunningRef.current;
+    if (previous === null) {
+      previousRawRunningRef.current = runningIds;
+      return;
+    }
     const newlyRunning = [...runningIds].some((id) => !previous.has(id));
-    if (hasUnresolvedRunningIds && newlyRunning) void loadData(true);
+    if (hasUnresolvedRunningIds && newlyRunning) void loadData(false);
     previousRawRunningRef.current = runningIds;
   }, [hasUnresolvedRunningIds, loadData, runningIds]);
 
@@ -764,8 +804,8 @@ export function CodexSidebar({
                         runningSubagentCount={(subagentsByRoot.get(session.id) ?? []).filter((child) => runningIds.has(child.id)).length}
                         unread={unreadIds.has(session.id)}
                         onSelect={() => selectSession(session)}
-                        onChanged={() => void loadData(true)}
-                        onDeleted={() => { onSessionDeleted?.(session.id); void loadData(true); }}
+                        onChanged={() => void loadData(false)}
+                        onDeleted={() => { onSessionDeleted?.(session.id); void loadData(false); }}
                         onArchive={() => {
                           setArchivedIds((current) => new Set(current).add(session.id));
                           setUnreadIds((current) => {
@@ -804,8 +844,8 @@ export function CodexSidebar({
               projectLabel={projectLabel}
               relativeTime={formatRelativeTime(session.modified, locale)}
               onSelect={() => selectSession(session)}
-              onChanged={() => void loadData(true)}
-              onDeleted={() => { onSessionDeleted?.(session.id); void loadData(true); }}
+              onChanged={() => void loadData(false)}
+              onDeleted={() => { onSessionDeleted?.(session.id); void loadData(false); }}
               onArchive={() => {
                 setArchivedIds((current) => new Set(current).add(session.id));
                 setUnreadIds((current) => {

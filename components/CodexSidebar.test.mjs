@@ -196,3 +196,22 @@ test("project search keeps all sessions while session-only search narrows the ro
   assert.equal(filterProjectSessions(project, "missing"), null);
   assert.equal(filterProjectSessions({ ...project, archived: true }, "pi-web"), null);
 });
+
+test("automatic inventory refreshes are unforced and coalesced", () => {
+  assert.match(sidebar, /useEffect\(\(\) => \{ void loadData\(false\); \}, \[loadData, refreshKey\]\)/);
+  assert.doesNotMatch(sidebar, /loadData\(refreshKey !== undefined\)/);
+  assert.match(sidebar, /loadDataInFlightRef = useRef<Promise<void> \| null>\(null\)/);
+  assert.match(sidebar, /loadDataQueuedRef\.current = true/);
+  assert.match(sidebar, /while \(loadDataQueuedRef\.current\)/);
+
+  const forcedCalls = sidebar.match(/loadData\(true\)/g) ?? [];
+  assert.equal(forcedCalls.length, 1, "only the manual refresh button may force a scan");
+  assert.match(sidebar, /sidebar\.refresh[^]*?onClick=\{\(\) => void loadData\(true\)\}/);
+});
+
+test("initial running ids establish a baseline without a second inventory request", () => {
+  assert.match(sidebar, /previousRunningRef = useRef<Set<string> \| null>\(null\)/);
+  assert.match(sidebar, /previousRawRunningRef = useRef<Set<string> \| null>\(null\)/);
+  assert.match(sidebar, /if \(previous === null\) \{[\s\S]*?previousRunningRef\.current = activeRootIds;[\s\S]*?return;/);
+  assert.match(sidebar, /if \(previous === null\) \{[\s\S]*?previousRawRunningRef\.current = runningIds;[\s\S]*?return;/);
+});
