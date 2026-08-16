@@ -424,6 +424,15 @@ test("keeps composer chip labels from wrapping", async () => {
   assert.match(css, /\.composer-chip \{\s*display: flex;[^}]*white-space: nowrap/);
 });
 
+test("streaming composer offers send beside stop when text is present", async () => {
+  const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  // While streaming, a send button must appear alongside stop when the input
+  // has content (mobile has no Enter-to-send, only Ctrl/Cmd+Enter).
+  assert.match(source, /\(value\.trim\(\) \|\| attachedImages\.length\) && \(onSteer \|\| onFollowUp\)/);
+  assert.match(source, /onClick=\{?\(\) => sendQueued\(activeQueueMode\)/);
+  assert.match(source, /isStreaming \? \(\s*<div style=\{\{ display: "flex", alignItems: "center", gap: 8/);
+});
+
 test("clears slash commands before waiting for a builtin handler", async () => {
   const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
   const start = source.indexOf("const handleSend = useCallback");
