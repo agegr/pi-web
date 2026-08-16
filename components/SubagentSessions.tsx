@@ -6,6 +6,7 @@ import type { ExtensionWidgetItem } from "@/lib/types";
 import { stripAnsi } from "@/lib/ansi";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { hasActiveDescendant } from "@/hooks/useSubagentTree";
 import { formatExtensionWidgetContent } from "./ExtensionWidgets";
 
 // ============================================================================
@@ -80,15 +81,6 @@ export const ACTIVE_ROW_STATES: ReadonlySet<SubagentLifecycleState> = new Set([
   "running",
   "needs_attention",
 ]);
-
-/** True when any node in the tree is still live (starting/queued/running/needs_attention). */
-function hasLiveNode(nodes: SubagentTreeNode[]): boolean {
-  for (const node of nodes) {
-    if (ACTIVE_ROW_STATES.has(node.state)) return true;
-    if (hasLiveNode(node.children)) return true;
-  }
-  return false;
-}
 
 /** Which composer action applies to a node, if any. */
 export function submitActionFor(node: SubagentTreeNode): "steer" | "resume" | null {
@@ -250,7 +242,7 @@ export function SubagentTree({
   // A settled snapshot is static (polling stops), so a later manual expand
   // survives until the next snapshot arrives.
   useEffect(() => {
-    if (hasLiveNode(nodes)) return;
+    if (hasActiveDescendant(nodes)) return;
     setCollapsed((previous) => {
       const next = new Set(previous);
       const fold = (list: SubagentTreeNode[]) => {

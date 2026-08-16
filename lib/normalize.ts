@@ -6,17 +6,9 @@ function isObject(val: unknown): val is Record<string, unknown> {
 
 function streamingRawInput(block: Record<string, unknown>): string | undefined {
   if (typeof block.rawInput === "string") return block.rawInput;
+  // SDK snapshots may carry the scratch buffer under partialJson.
   if (typeof block.partialJson === "string") return block.partialJson;
-  if (typeof block.partialArgs === "string") return block.partialArgs;
-
-  const customInput = isObject(block.customInput) ? block.customInput : null;
-  const property = customInput && typeof customInput.property === "string"
-    ? customInput.property
-    : null;
-  const args = isObject(block.arguments) ? block.arguments : null;
-  return property && args && typeof args[property] === "string"
-    ? args[property]
-    : undefined;
+  return undefined;
 }
 
 function normalizeToolCallBlock(

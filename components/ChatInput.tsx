@@ -322,6 +322,19 @@ function revokeImagePreview(image: AttachedImage): void {
   }
 }
 
+const roundComposerButton: React.CSSProperties = {
+  flexShrink: 0,
+  display: "flex", alignItems: "center", justifyContent: "center",
+  width: 28, height: 28,
+  padding: 0,
+  background: "var(--text)",
+  border: "none",
+  borderRadius: 999,
+  color: "var(--bg)",
+  cursor: "pointer",
+  transition: "background 0.15s, color 0.15s, opacity 0.15s",
+};
+
 function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: string }) {
   return (
     <div
@@ -2348,18 +2361,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   onClick={() => sendQueued(activeQueueMode)}
                   title={t("chat.send")}
                   aria-label={t("chat.send")}
-                  style={{
-                    flexShrink: 0,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    width: 28, height: 28,
-                    padding: 0,
-                    background: "var(--text)",
-                    border: "none",
-                    borderRadius: 999,
-                    color: "var(--bg)",
-                    cursor: "pointer",
-                    transition: "background 0.15s, color 0.15s",
-                  }}
+                  style={roundComposerButton}
                 >
                   <ArrowUp size={14} strokeWidth={2.2} aria-hidden="true" />
                 </button>
@@ -2375,19 +2377,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 aria-busy={aborting}
                 title={aborting ? t("chat.stopping") : t("chat.stopAgent")}
                 aria-label={aborting ? t("chat.stopping") : t("chat.stop")}
-                style={{
-                  flexShrink: 0,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  width: 28, height: 28,
-                  padding: 0,
-                  background: "var(--text)",
-                  border: "none",
-                  borderRadius: 999,
-                  color: "var(--bg)",
-                  cursor: aborting ? "wait" : "pointer",
-                  opacity: aborting ? 0.55 : 1,
-                  transition: "background 0.15s, color 0.15s, opacity 0.15s",
-                }}
+                style={{ ...roundComposerButton, cursor: aborting ? "wait" : "pointer", opacity: aborting ? 0.55 : 1 }}
               >
                 <Square size={10} fill="currentColor" aria-hidden="true" />
               </button>

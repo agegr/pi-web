@@ -376,10 +376,10 @@ test("running summary localizes in both locales", async () => {
 test("tree source: finished trees auto-collapse into a compact summary", () => {
   const source = readFileSync(new URL("./SubagentSessions.tsx", import.meta.url), "utf8");
   // Settling the whole tree folds every branch with children; live trees stay as-is.
-  assert.match(source, /if \(hasLiveNode\(nodes\)\) return;[\s\S]*?setCollapsed/);
+  // The live check reuses the shared hasActiveDescendant walk instead of a local copy.
+  assert.match(source, /hasActiveDescendant\(nodes\)\) return;[\s\S]*?setCollapsed/);
   assert.match(source, /node\.children\.length > 0[\s\S]*?next\.add\(nodeId\(node\)\)/);
-  // The live check covers the full subtree, not just the root level.
-  assert.match(source, /hasLiveNode\(node\.children\)/);
+  assert.doesNotMatch(source, /function hasLiveNode/);
 });
 
 test("pure helpers: submit action, elapsed formatting, and visible node flattening", () => {
