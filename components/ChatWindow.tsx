@@ -10,7 +10,6 @@ import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-fi
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
-import { TrajectoryView } from "./TrajectoryView";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { ConversationPlan, getConversationPlanWidget } from "./ConversationPlan";
 import { filterSubagentWidgets, isPiSubagentWidgetKey } from "./ExtensionWidgets";
@@ -63,8 +62,6 @@ interface Props {
     transcriptRefreshGeneration: number;
     composer: ReactNode;
   };
-  /** Sibling session view selected in AppShell; trajectory renders in-workspace. */
-  sessionView?: "chat" | "trajectory";
   /** True when AppShell already mounted the RPC tree card in desktopAside. */
   subagentTreeVisible?: boolean;
 }
@@ -276,12 +273,10 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, hasError = false, de
   );
 }
 
-export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, desktopAside, playDoneSound = () => {}, unlockAudio, subagentMode, sessionView, subagentTreeVisible = false }: Props) {
+export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, desktopAside, playDoneSound = () => {}, unlockAudio, subagentMode, subagentTreeVisible = false }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const isWideDesktop = useIsWideDesktop();
-  const [trajectoryVersion, setTrajectoryVersion] = useState(0);
-
   const playDoneSoundRef = useRef(playDoneSound);
   playDoneSoundRef.current = playDoneSound;
   const soundedExtensionDialogIdRef = useRef<string | null>(null);
@@ -302,7 +297,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     agentPhase,
     isNew,
     isNearBottom,
-    activeLeafId,
     sessionIdRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, promptAnchorActive,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
@@ -316,7 +310,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
     readOnlyHistory: Boolean(subagentMode),
     historyRefreshGeneration: subagentMode?.transcriptRefreshGeneration,
-    onTrajectoryVersionChange: setTrajectoryVersion,
   });
   const sessionBusy = agentRunning || bashRunning;
   const goalModel = resolveGoalPanelModel({
@@ -752,14 +745,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       ) : (
       <div className="chat-workspace-body">
         <div className="chat-workspace-main">
-        {sessionView === "trajectory" && !subagentMode ? (
-          <TrajectoryView
-            sessionId={sessionIdRef.current ?? session?.id ?? ""}
-            leafId={activeLeafId}
-            trajectoryVersion={trajectoryVersion}
-            composer={chatInputElement}
-          />
-        ) : (
         <>
       <div className="relative flex min-w-0 flex-1 overflow-hidden">
         <div
@@ -1060,7 +1045,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
           />
         )}
         </>
-        )}
         </div>
         {desktopAside || subagentWidgets.length > 0 ? (
           <div className="desktop-workspace-context">

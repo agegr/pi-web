@@ -38,7 +38,7 @@ const SettingsPage = lazy(() => import("./SettingsPage").then((module) => ({
 })));
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { BranchNavigator } from "./BranchNavigator";
-import { SessionViewSwitch, TaskHeader } from "./TaskHeader";
+import { TaskHeader } from "./TaskHeader";
 import { DesktopConversationContext } from "./DesktopConversationContext";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
@@ -108,8 +108,6 @@ export function AppShell() {
     if (soundEnabledRef.current) playDoneSound();
   }, [playDoneSound, soundEnabledRef]);
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
-  // Chat / Trajectory sibling view tabs inside the active session workspace.
-  const [sessionView, setSessionView] = useState<"chat" | "trajectory">("chat");
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const handleRunningSessionIdsChange = useCallback((ids: Set<string>) => {
     setRunningSessionIds((previous) => {
@@ -121,15 +119,6 @@ export function AppShell() {
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
   const [newSessionDraftId, setNewSessionDraftId] = useState("initial");
   const activeNewSessionDraftKeyRef = useRef<string | null>(null);
-  // Switching sessions or starting a fresh composer returns to the Chat tab.
-  const sessionViewSessionRef = useRef<string | null>(null);
-  useEffect(() => {
-    const current = selectedSession?.id ?? newSessionCwd;
-    if (current !== sessionViewSessionRef.current) {
-      sessionViewSessionRef.current = current;
-      setSessionView("chat");
-    }
-  }, [selectedSession?.id, newSessionCwd]);
   const [initialCwdStatus, setInitialCwdStatus] = useState<"idle" | "validating" | "ready" | "error">(
     () => initialNavigation.requestedCwd ? "validating" : "idle",
   );
@@ -1803,9 +1792,6 @@ export function AppShell() {
               {selectedSession.name || selectedSession.firstMessage || translate("i18n.newSession")}
             </div>
           )}
-          {showChat && !childSelected ? (
-            <SessionViewSwitch value={sessionView} onChange={setSessionView} />
-          ) : null}
           {isMobile && (
             <div
               ref={mobileToolbarRef}
@@ -1911,9 +1897,6 @@ export function AppShell() {
               onOpenSystem={() => toggleTopPanel("system", true)}
               onToggleFiles={handleRightPanelToggle}
               filePanelOpen={rightPanelOpen}
-              showSessionView={showChat && !childSelected}
-              sessionView={sessionView}
-              onSessionViewChange={setSessionView}
             />
             {renderProjectTrustWarning(false)}
             {childSelected ? null : (
@@ -2255,7 +2238,6 @@ export function AppShell() {
               soundEnabled={soundEnabled}
               playDoneSound={playDoneSound}
               unlockAudio={unlockAudio}
-              sessionView={childSelected ? undefined : sessionView}
               subagentMode={childSelected && selectedSession ? {
                 transcriptRefreshGeneration: subagents.transcriptRefreshGeneration,
                 composer: (() => {

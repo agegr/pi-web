@@ -61,8 +61,6 @@ export function toClientAgentEvent(
 ): AgentEventLike | ClientMessageUpdateEvent | null {
   if (OMITTED_EVENT_TYPES.has(event.type)) return null;
 
-  if (event.type === "trajectory_update") return event;
-
   if (event.type === "message_update") {
     const assistantMessageEvent = event.assistantMessageEvent;
     if (

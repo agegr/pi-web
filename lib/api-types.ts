@@ -168,20 +168,3 @@ export interface SubagentControlResponse {
     tree?: SubagentTreeResponse;
   };
 }
-
-// ============================================================================
-// Trajectory
-// ============================================================================
-
-export type {
-  TrajectoryDetailLevel,
-  TrajectoryRecordKind,
-  TrajectoryStatus,
-  TrajectoryTokenStats,
-  TrajectoryStats,
-  TrajectoryTurn,
-  TrajectoryRequest,
-  TrajectoryRecordView,
-  TrajectoryResponse,
-  TrajectoryUnsupportedResponse,
-} from "./trajectory-types";

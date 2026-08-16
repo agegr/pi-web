@@ -17,8 +17,7 @@ test("desktop workspace exposes a transcript and a bounded context gutter", () =
 test("context gutter is a sibling of the chat column, not stacked under the composer", () => {
   const main = chat.indexOf('className="chat-workspace-main"');
   const aside = chat.indexOf("className=\"desktop-workspace-context\"");
-  const trajectory = chat.indexOf('sessionView === "trajectory"');
-  assert.ok(main >= 0 && trajectory > main && aside > trajectory);
+  assert.ok(main >= 0 && aside > main);
   assert.match(chat, /desktopAside \|\| subagentWidgets\.length > 0/);
 });
 

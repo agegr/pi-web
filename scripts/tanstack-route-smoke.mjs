@@ -104,12 +104,8 @@ export async function smokeAllRoutes({ origin, authHeaders = {} }) {
     });
     await probe("DELETE", `/api/sessions/${FAKE_ID}`, [404]);
     await probe("GET", `/api/sessions/${FAKE_ID}/state`, [404]);
-    await probe("GET", `/api/sessions/${FAKE_ID}/trajectory`, [404, 409]);
     const contextStatus = await probe("GET", `/api/sessions/${sid}/context`, [200, 404], {
       headers: { ...authHeaders, "x-smoke-note": "existing-session-read" },
-    });
-    await probe("GET", `/api/sessions/${sid}/trajectory`, [200, 409], {
-      headers: { ...authHeaders, "x-smoke-note": "trajectory-read" },
     });
     if (sessionId && contextStatus === 500) {
       envSkip("/api/sessions/{id}/context", "session file busy (500)");

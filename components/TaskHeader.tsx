@@ -17,41 +17,6 @@ interface Props {
   onOpenSystem(): void;
   onToggleFiles(): void;
   filePanelOpen: boolean;
-  sessionView?: "chat" | "trajectory";
-  onSessionViewChange?: (view: "chat" | "trajectory") => void;
-  showSessionView?: boolean;
-}
-
-export function SessionViewSwitch({
-  value,
-  onChange,
-}: {
-  value: "chat" | "trajectory";
-  onChange: (view: "chat" | "trajectory") => void;
-}) {
-  const { t } = useI18n();
-  return (
-    <div className="session-view-switch" role="tablist" aria-label={t("session.view")}>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={value === "chat"}
-        className={value === "chat" ? "is-active" : ""}
-        onClick={() => onChange("chat")}
-      >
-        {t("session.viewChat")}
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={value === "trajectory"}
-        className={value === "trajectory" ? "is-active" : ""}
-        onClick={() => onChange("trajectory")}
-      >
-        {t("session.viewTrajectory")}
-      </button>
-    </div>
-  );
 }
 
 export function TaskHeader({
@@ -68,9 +33,6 @@ export function TaskHeader({
   onOpenSystem,
   onToggleFiles,
   filePanelOpen,
-  sessionView = "chat",
-  onSessionViewChange,
-  showSessionView = false,
 }: Props) {
   const { t, locale } = useI18n();
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -105,9 +67,6 @@ export function TaskHeader({
         <strong>{title}</strong>
         <span>{running ? t("task.running") : t("task.ready")}{modified ? ` · ${formatRelativeTime(modified, locale)}` : ""}</span>
       </div>
-      {showSessionView && onSessionViewChange ? (
-        <SessionViewSwitch value={sessionView} onChange={onSessionViewChange} />
-      ) : null}
       <div className="task-header-actions">
         <div className="task-header-menu-wrap" ref={menuRef}>
           <button onClick={() => setActionsOpen((open) => !open)} aria-label={t("task.actions")} aria-expanded={actionsOpen}><ListFilter size={16} aria-hidden="true" /></button>
