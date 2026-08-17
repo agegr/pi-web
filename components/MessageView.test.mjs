@@ -3,6 +3,11 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createJiti } from "jiti";
+import path from "node:path";
+
+// Project root, derived from this file's location so tests never hardcode
+// machine-specific absolute paths.
+const PROJECT_ROOT = path.resolve(import.meta.dirname, "..");
 
 const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
@@ -135,6 +140,41 @@ test("renders user-message images as buttons that open a larger preview", () => 
 
   assert.match(html, /<button[^>]+aria-label="Preview image"[^>]*>/);
   assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
+});
+
+test("does not re-render the markdown image reference when image blocks exist", () => {
+  const html = renderMessage({
+    role: "user",
+    content: [
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: "QUJDRA==" },
+      },
+      {
+        type: "text",
+        text: "这图是什么内容\n\n![screenshot2.png](docs/screenshot2.png)",
+      },
+    ],
+    timestamp: Date.now(),
+  }, { cwd: PROJECT_ROOT });
+
+  // The image block renders the thumbnail; the text's injected Markdown
+  // image reference must not become a second full-size <img> via /api/files.
+  assert.match(html, /src="data:image\/png;base64,QUJDRA=="/);
+  assert.match(html, /这图是什么内容/);
+  assert.doesNotMatch(html, /api\/files/);
+  assert.doesNotMatch(html, /screenshot2\.png/);
+  assert.equal((html.match(/<img[^>]+src=/g) ?? []).length, 1);
+});
+
+test("still renders local markdown images when there are no image blocks", () => {
+  const html = renderMessage({
+    role: "user",
+    content: [{ type: "text", text: "look:\n\n![icon](public/icons/icon-192.png)" }],
+    timestamp: Date.now(),
+  }, { cwd: PROJECT_ROOT });
+
+  assert.match(html, /api\/files/);
 });
 
 test("renders custom-message images as buttons that open a larger preview", () => {

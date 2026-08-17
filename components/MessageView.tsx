@@ -232,6 +232,20 @@ export function replaceUserMessageText(message: UserMessage, text: string): User
   return { ...message, content };
 }
 
+/**
+ * Removes Markdown image references (`![alt](url)`) from user message text.
+ * pi writes the attached image's path back into the text as such a reference;
+ * the image is already rendered separately from the message's image blocks, so
+ * keeping the reference would render the same picture twice (MarkdownBody
+ * resolves the local path and shows it at full size).
+ */
+function stripMarkdownImageLinks(text: string): string {
+  return text
+    .replace(/(?<!\\)!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/[ \t]*\n{3,}/g, "\n\n");
+}
+
+
 function haveSameRelevantToolResults(
   message: AgentMessage,
   previous: Map<string, ToolResultMessage> | undefined,
@@ -301,7 +315,12 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
-  const content =
+  const imageBlocks: ImageContent[] =
+    typeof message.content === "string"
+      ? []
+      : message.content.filter((b): b is ImageContent => b.type === "image");
+
+  const rawContent =
     typeof message.content === "string"
       ? message.content
       : message.content
@@ -309,10 +328,12 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
           .map((b) => b.text)
           .join("\n");
 
-  const imageBlocks: ImageContent[] =
-    typeof message.content === "string"
-      ? []
-      : message.content.filter((b): b is ImageContent => b.type === "image");
+  // pi writes the attached image's path back into the user text as a Markdown
+  // image reference, e.g. `![name.png](/abs/path/name.png)`. The image itself
+  // is already rendered from the image blocks above, so drop those references
+  // from the text — otherwise MarkdownBody's local-path resolver renders the
+  // same picture a second time at full size (clipped by the bubble max-height).
+  const content = imageBlocks.length > 0 ? stripMarkdownImageLinks(rawContent) : rawContent;
 
   const commandText = skillExpansionToCommand(content);
   const commandSeparator = commandText?.search(/\s/) ?? -1;
