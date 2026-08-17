@@ -18,13 +18,20 @@ declare global {
   }
 }
 
+/**
+ * Callers name the resting state rather than passing raw colour strings; the
+ * .ui-action rules in globals.css own every transition out of it. Hovering
+ * lifts a dim control one step to muted, which is why data-hover is pinned
+ * here instead of taking the default jump to full text colour.
+ */
 function ToolbarIconButton({
   onClick,
   title,
   disabled,
   skipHover,
-  color,
-  background = "none",
+  state,
+  surface,
+  active,
   marginRight,
   ariaPressed,
   children,
@@ -33,22 +40,13 @@ function ToolbarIconButton({
   title: string;
   disabled?: boolean;
   skipHover?: boolean;
-  color: string;
-  background?: string;
+  state?: "dim" | "accent" | "success";
+  surface?: "success";
+  active?: boolean;
   marginRight?: number;
   ariaPressed?: boolean;
   children: ReactNode;
 }) {
-  const enter = (e: React.MouseEvent<HTMLButtonElement>) => {
-    if (disabled || skipHover) return;
-    e.currentTarget.style.color = "var(--text-muted)";
-    e.currentTarget.style.background = "var(--bg-hover)";
-  };
-  const leave = (e: React.MouseEvent<HTMLButtonElement>) => {
-    if (disabled || skipHover) return;
-    e.currentTarget.style.color = color;
-    e.currentTarget.style.background = background;
-  };
   return (
     <button
       onClick={onClick}
@@ -56,21 +54,21 @@ function ToolbarIconButton({
       title={title}
       aria-label={title}
       aria-pressed={ariaPressed}
+      className="ui-action ui-action--surface"
+      data-state={state}
+      data-hover="muted"
+      data-surface={surface}
+      data-active={active ? "true" : undefined}
+      data-inert={skipHover ? "true" : undefined}
       style={{
         position: "relative",
         display: "flex", alignItems: "center", justifyContent: "center",
         width: 26, height: 26, padding: 0, marginRight,
-        background,
         border: "none",
-        color,
-        cursor: disabled ? "default" : "pointer",
-        borderRadius: 5,
+        borderRadius: "var(--control-radius)",
         flexShrink: 0,
         opacity: disabled ? 0.6 : 1,
-        transition: "color 0.3s, background 0.3s",
       }}
-      onMouseEnter={enter}
-      onMouseLeave={leave}
     >
       {children}
     </button>
@@ -956,25 +954,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               href="/dashboard"
               title={t("sidebar.dashboard")}
               aria-label={t("sidebar.dashboard")}
+              className="ui-action ui-action--chip"
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center",
-                background: "var(--bg-hover)",
-                border: "1px solid var(--border)",
-                color: "var(--text-muted)",
                 width: 32, height: 32,
-                borderRadius: 7,
+                borderRadius: "var(--card-radius)",
                 flexShrink: 0,
-                transition: "background 0.12s, color 0.12s, border-color 0.12s",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "var(--bg-selected)";
-                e.currentTarget.style.color = "var(--accent)";
-                e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "var(--bg-hover)";
-                e.currentTarget.style.color = "var(--text-muted)";
-                e.currentTarget.style.borderColor = "var(--border)";
               }}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -987,34 +972,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             <button
               onClick={handleNewSession}
               disabled={!selectedCwd}
+              className="ui-action ui-action--chip"
+              data-state={selectedCwd ? undefined : "dim"}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                background: "var(--bg-hover)",
-                border: "1px solid var(--border)",
-                color: selectedCwd ? "var(--text-muted)" : "var(--text-dim)",
                 cursor: selectedCwd ? "pointer" : "not-allowed",
                 height: 32,
                 paddingLeft: 10,
                 paddingRight: 12,
-                borderRadius: 7,
+                borderRadius: "var(--card-radius)",
                 fontSize: 12,
                 fontWeight: 500,
                 letterSpacing: "-0.01em",
                 flexShrink: 0,
-                transition: "background 0.12s, color 0.12s, border-color 0.12s",
               }}
              title={selectedCwd ? t("sidebar.newSessionTitle", { path: selectedCwd }) : t("sidebar.selectProject")}
-              onMouseEnter={(e) => {
-                if (!selectedCwd) return;
-                e.currentTarget.style.background = "var(--bg-selected)";
-                e.currentTarget.style.color = "var(--accent)";
-                e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "var(--bg-hover)";
-                e.currentTarget.style.color = selectedCwd ? "var(--text-muted)" : "var(--text-dim)";
-                e.currentTarget.style.borderColor = "var(--border)";
-              }}
             >
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
                 <line x1="6" y1="1" x2="6" y2="11" />
@@ -1024,34 +996,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             </button>
             <button
               onClick={() => loadSessions(false, true)}
+              className="ui-action ui-action--chip"
+              data-state={sessionRefreshDone ? "success" : undefined}
+              data-surface={sessionRefreshDone ? "success" : undefined}
+              data-inert={sessionRefreshDone ? "true" : undefined}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center",
-                background: sessionRefreshDone ? "rgba(74,222,128,0.18)" : "var(--bg-hover)",
-                border: `1px solid ${sessionRefreshDone ? "rgba(74,222,128,0.4)" : "var(--border)"}`,
-                color: sessionRefreshDone ? "#4ade80" : "var(--text-muted)",
-                cursor: "pointer",
                 width: 32, height: 32,
-                borderRadius: 7,
+                borderRadius: "var(--card-radius)",
                 padding: 0,
                 flexShrink: 0,
-                transition: "background 0.3s, color 0.3s, border-color 0.3s",
-              }}
-              onMouseEnter={(e) => {
-                if (sessionRefreshDone) return;
-                e.currentTarget.style.background = "var(--bg-selected)";
-                e.currentTarget.style.color = "var(--accent)";
-                e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
-              }}
-              onMouseLeave={(e) => {
-                if (sessionRefreshDone) return;
-                e.currentTarget.style.background = "var(--bg-hover)";
-                e.currentTarget.style.color = "var(--text-muted)";
-                e.currentTarget.style.borderColor = "var(--border)";
               }}
                title={t("sidebar.refresh")}
             >
               {sessionRefreshDone ? (
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
               ) : (
@@ -1443,16 +1402,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                               onClick={() => void handleRemoveWorktree(wt.path, false)}
                               disabled={wtBusy}
                                title={t("sidebar.removeWorktreeTitle", { path: wt.path })}
+                              className="ui-action ui-action--surface"
+                              data-state="dim"
+                              data-hover="danger"
                               style={{
                                 display: "flex", alignItems: "center", justifyContent: "center",
                                 width: 34, height: 28, padding: 0, marginRight: 4,
-                                background: "none", border: "none",
-                                color: "var(--text-dim)", cursor: "pointer",
-                                borderRadius: 5, flexShrink: 0,
-                                transition: "color 0.12s, background 0.12s",
+                                border: "none",
+                                borderRadius: "var(--control-radius)", flexShrink: 0,
                               }}
-                              onMouseEnter={(e) => { e.currentTarget.style.color = "#ef4444"; e.currentTarget.style.background = "rgba(239,68,68,0.08)"; }}
-                              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
                             >
                               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <polyline points="3 6 5 6 21 6" />
@@ -1708,8 +1666,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 onClick={() => setChangesCollapsed((v) => !v)}
                 title={t("sidebar.changedFiles", { count: changesCount })}
                 ariaPressed={!changesCollapsed}
-                color={changesCollapsed ? "var(--text-dim)" : "var(--accent)"}
-                background={changesCollapsed ? "none" : "var(--bg-selected)"}
+                state={changesCollapsed ? "dim" : "accent"}
+                active={!changesCollapsed}
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <circle cx="12" cy="12" r="3" />
@@ -1723,7 +1681,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 onClick={() => fileExplorerRef.current?.openUploadPicker()}
                 disabled={explorerUploadBusy}
                 title={t("sidebar.uploadFilesTitle")}
-                color="var(--text-dim)"
+                state="dim"
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -1742,12 +1700,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               }}
               title={t("sidebar.refreshExplorer")}
               skipHover={explorerRefreshDone}
-              color={explorerRefreshDone ? "#4ade80" : "var(--text-dim)"}
-              background={explorerRefreshDone ? "rgba(74,222,128,0.18)" : "none"}
+              state={explorerRefreshDone ? "success" : "dim"}
+              surface={explorerRefreshDone ? "success" : undefined}
               marginRight={6}
             >
               {explorerRefreshDone ? (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
               ) : (
@@ -2253,23 +2211,12 @@ function SessionItem({
               <button
                 onClick={startRename}
                 title={t("sidebar.rename")}
+                className="ui-action ui-action--chip"
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center",
                   width: 32, height: 32, padding: 0,
-                  background: "var(--bg-hover)", border: "1px solid var(--border)",
-                  borderRadius: 7, color: "var(--text-muted)",
-                  cursor: "pointer", flexShrink: 0,
-                  transition: "background 0.12s, color 0.12s, border-color 0.12s",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--bg-selected)";
-                  e.currentTarget.style.color = "var(--accent)";
-                  e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "var(--bg-hover)";
-                  e.currentTarget.style.color = "var(--text-muted)";
-                  e.currentTarget.style.borderColor = "var(--border)";
+                  borderRadius: "var(--card-radius)",
+                  flexShrink: 0,
                 }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2279,23 +2226,13 @@ function SessionItem({
               <button
                 onClick={handleDeleteClick}
                 title={t("sidebar.deleteWithShiftClick")}
+                className="ui-action ui-action--chip"
+                data-hover="danger"
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center",
                   width: 32, height: 32, padding: 0,
-                  background: "var(--bg-hover)", border: "1px solid var(--border)",
-                  borderRadius: 7, color: "var(--text-muted)",
-                  cursor: "pointer", flexShrink: 0,
-                  transition: "background 0.12s, color 0.12s, border-color 0.12s",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(239,68,68,0.08)";
-                  e.currentTarget.style.color = "#ef4444";
-                  e.currentTarget.style.borderColor = "rgba(239,68,68,0.35)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "var(--bg-hover)";
-                  e.currentTarget.style.color = "var(--text-muted)";
-                  e.currentTarget.style.borderColor = "var(--border)";
+                  borderRadius: "var(--card-radius)",
+                  flexShrink: 0,
                 }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

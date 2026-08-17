@@ -1,9 +1,14 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
+// PrismAsyncLight over Prism: `Prism` bundles refractor with every language it
+// supports (~1.2MB) into the entry chunk. The async variant fetches the
+// refractor core and each language definition on demand, so nothing is paid for
+// until a code block of that language is actually rendered. Styles come from
+// their own modules rather than the barrel, which re-exports ~50 themes.
+import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-async-light";
+import vs from "react-syntax-highlighter/dist/esm/styles/prism/vs";
+import vscDarkPlus from "react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
 import { copyText } from "@/lib/clipboard";

@@ -425,20 +425,12 @@ function AddPluginPanel({
                 padding: "6px 9px",
                 border: "1px solid var(--border)",
                 borderRadius: 6,
-                background: "var(--bg-panel)",
-                color: "var(--text-dim)",
-                cursor: "pointer",
                 fontFamily: "var(--font-mono)",
                 fontSize: 11,
               }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "var(--bg-hover)";
-                e.currentTarget.style.color = "var(--text-muted)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "var(--bg-panel)";
-                e.currentTarget.style.color = "var(--text-dim)";
-              }}
+              className="ui-action ui-action--panel"
+              data-state="dim"
+              data-hover="muted"
             >
               {example}
             </button>
@@ -899,14 +891,10 @@ export function PluginsConfig({
                             padding: "8px 8px",
                             borderRadius: 5,
                             cursor: "pointer",
-                            background: isSelected ? "var(--bg-selected)" : "none",
                           }}
-                          onMouseEnter={(e) => {
-                            if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)";
-                          }}
-                          onMouseLeave={(e) => {
-                            if (!isSelected) e.currentTarget.style.background = "none";
-                          }}
+                          className="ui-action ui-action--surface"
+                          data-active={isSelected ? "true" : undefined}
+                          data-inert={isSelected ? "true" : undefined}
                         >
                           <span
                             style={{
@@ -981,17 +969,12 @@ export function PluginsConfig({
                   borderRadius: 5,
                   border: "none",
                   width: "100%",
-                  cursor: "pointer",
-                  background: addMode ? "var(--bg-selected)" : "none",
-                  color: addMode ? "var(--accent)" : "var(--text-dim)",
                   fontSize: 12,
                 }}
-                onMouseEnter={(e) => {
-                  if (!addMode) e.currentTarget.style.background = "var(--bg-hover)";
-                }}
-                onMouseLeave={(e) => {
-                  if (!addMode) e.currentTarget.style.background = "none";
-                }}
+                className="ui-action ui-action--surface"
+                data-state={addMode ? "accent" : "dim"}
+                data-active={addMode ? "true" : undefined}
+                data-inert={addMode ? "true" : undefined}
               >
                 <svg
                   width="13"

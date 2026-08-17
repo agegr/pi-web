@@ -103,8 +103,8 @@ function NewSessionUpdateLink({
       rel="noopener noreferrer"
       title={accessibleLabel}
       aria-label={accessibleLabel}
-      onMouseEnter={(event) => { event.currentTarget.style.background = "var(--bg-hover)"; }}
-      onMouseLeave={(event) => { event.currentTarget.style.background = "transparent"; }}
+      className="ui-action ui-action--surface"
+      data-state="accent"
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -113,14 +113,11 @@ function NewSessionUpdateLink({
         minHeight: 32,
         minWidth: 0,
         padding: "0 4px",
-        background: "transparent",
         borderRadius: 5,
-        color: "var(--accent)",
         fontSize: 12,
         fontWeight: 600,
         lineHeight: 1.2,
         textDecoration: "none",
-        transition: "background 0.12s",
         whiteSpace: "nowrap",
       }}
     >

@@ -1,16 +1,13 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
-import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState } from "./file-tab-state";
-import { ModelsConfig } from "./ModelsConfig";
-import { SkillsConfig } from "./SkillsConfig";
-import { PluginsConfig } from "./PluginsConfig";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { BranchNavigator } from "./BranchNavigator";
 import { useTheme } from "@/hooks/useTheme";
@@ -52,6 +49,16 @@ type AutoNameStatus =
   | { kind: "naming" }
   | { kind: "success" }
   | { kind: "error"; message: string };
+
+// Each of these is mounted only on demand — the three config panels behind a
+// toolbar button, the file viewer behind an open tab — so their code (and the
+// syntax highlighter and provider icon set they pull in) stays out of the
+// entry chunk until the user actually asks for it. ssr:false because every one
+// of them is client-only anyway; there is no server pass to preserve.
+const FileViewer = dynamic(() => import("./FileViewer").then((m) => m.FileViewer), { ssr: false });
+const ModelsConfig = dynamic(() => import("./ModelsConfig").then((m) => m.ModelsConfig), { ssr: false });
+const SkillsConfig = dynamic(() => import("./SkillsConfig").then((m) => m.SkillsConfig), { ssr: false });
+const PluginsConfig = dynamic(() => import("./PluginsConfig").then((m) => m.PluginsConfig), { ssr: false });
 
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
 const LANGUAGE_MENU_WIDTH = 176;
@@ -962,15 +969,13 @@ export function AppShell() {
             onClick={onClick}
             disabled={disabled}
             title={label}
+            className="ui-action ui-action--surface"
             style={{
               flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-              height: 32, padding: 0, background: "none", border: "none",
-              borderRadius: 9, color: "var(--text-muted)", cursor: disabled ? "default" : "pointer",
+              height: 32, padding: 0, border: "none",
+              borderRadius: "var(--panel-radius)",
               fontSize: 12, opacity: disabled ? 0.35 : 1,
-              transition: "background 0.12s, color 0.12s",
             }}
-            onMouseEnter={(e) => { if (!disabled) { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text)"; } }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "var(--text-muted)"; }}
           >
             {icon}
             {label}
@@ -990,14 +995,13 @@ export function AppShell() {
       }}
       title={translate(themeLabelKey)}
       aria-label={translate(themeLabelKey)}
+      className="ui-action"
       style={{
         display: "flex", alignItems: "center", justifyContent: "center",
         width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-        background: "none", border: "none", borderRight: "1px solid var(--border)",
-        color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
+        border: "none", borderRight: "1px solid var(--border)",
+        flexShrink: 0,
       }}
-      onMouseEnter={(event) => { event.currentTarget.style.color = "var(--text)"; }}
-      onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text-muted)"; }}
       data-mobile-toolbar-action={mobile ? "theme" : undefined}
     >
       {preference === "light" ? (
@@ -1032,17 +1036,13 @@ export function AppShell() {
       aria-haspopup="menu"
       aria-expanded={activeTopPanel === "language"}
       aria-pressed={activeTopPanel === "language"}
+      className="ui-action"
+      data-active={activeTopPanel === "language" ? "true" : undefined}
       style={{
         display: "flex", alignItems: "center", justifyContent: "center",
         width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-        background: activeTopPanel === "language" ? "var(--bg-selected)" : "none",
         border: "none", borderRight: "1px solid var(--border)",
-        color: activeTopPanel === "language" ? "var(--text)" : "var(--text-muted)",
-        cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
-      }}
-      onMouseEnter={(event) => { event.currentTarget.style.color = "var(--text)"; }}
-      onMouseLeave={(event) => {
-        event.currentTarget.style.color = activeTopPanel === "language" ? "var(--text)" : "var(--text-muted)";
+        flexShrink: 0,
       }}
       data-mobile-toolbar-action={mobile ? "language" : undefined}
     >
@@ -1134,6 +1134,9 @@ export function AppShell() {
           disabled={!selectedSession}
           title={selectedSession ? translate("history.full") : translate("history.unsaved")}
           aria-label={translate("history.full")}
+          className="ui-action ui-action--surface"
+          data-state={selectedSession ? undefined : "dim"}
+          data-inert={selectedSession ? undefined : "true"}
           style={{
             display: "flex",
             alignItems: "center",
@@ -1142,26 +1145,14 @@ export function AppShell() {
             width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
             height: "100%",
             padding: mobile ? 0 : "0 12px",
-            background: "none",
             border: "none",
             borderTop: "2px solid transparent",
             borderRight: "1px solid var(--border)",
-            color: selectedSession ? "var(--text-muted)" : "var(--text-dim)",
             cursor: selectedSession ? "pointer" : "not-allowed",
             opacity: selectedSession ? 1 : 0.45,
             flexShrink: 0,
             fontSize: 11,
             whiteSpace: "nowrap",
-            transition: "color 0.1s, background 0.1s, opacity 0.1s",
-          }}
-          onMouseEnter={(event) => {
-            if (!selectedSession) return;
-            event.currentTarget.style.color = "var(--text)";
-            event.currentTarget.style.background = "var(--bg-hover)";
-          }}
-          onMouseLeave={(event) => {
-            event.currentTarget.style.color = selectedSession ? "var(--text-muted)" : "var(--text-dim)";
-            event.currentTarget.style.background = "none";
           }}
           data-mobile-toolbar-action={mobile ? "history" : undefined}
         >
@@ -1220,27 +1211,20 @@ export function AppShell() {
               disabled={disabled}
               title={title}
               aria-label={label}
+              className="ui-action ui-action--surface"
+              // The error tint used to be a hard-coded #dc2626 that stayed put
+              // in dark mode; the token flips with the theme.
+              data-state={isError ? "danger" : isSuccess ? "accent" : disabled ? "dim" : undefined}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
                 width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
                 height: "100%", padding: mobile ? 0 : "0 12px",
-                background: "none", border: "none",
+                border: "none",
                 borderTop: "2px solid transparent",
                 borderRight: "1px solid var(--border)",
-                color: isError ? "#dc2626" : isSuccess ? "var(--accent)" : disabled ? "var(--text-dim)" : "var(--text-muted)",
                 cursor: disabled ? "not-allowed" : "pointer",
                 opacity: disabled && autoNameStatus.kind !== "naming" ? 0.45 : 1,
                 flexShrink: 0, fontSize: 11, whiteSpace: "nowrap",
-                transition: "color 0.1s, background 0.1s, opacity 0.1s",
-              }}
-              onMouseEnter={(event) => {
-                if (disabled) return;
-                event.currentTarget.style.color = isError ? "#dc2626" : "var(--text)";
-                event.currentTarget.style.background = "var(--bg-hover)";
-              }}
-              onMouseLeave={(event) => {
-                event.currentTarget.style.color = isError ? "#dc2626" : isSuccess ? "var(--accent)" : disabled ? "var(--text-dim)" : "var(--text-muted)";
-                event.currentTarget.style.background = "none";
               }}
               data-mobile-toolbar-action={mobile ? "name" : undefined}
             >
@@ -1310,25 +1294,18 @@ export function AppShell() {
           title={translate("system.prompt")}
           aria-label={translate("system.prompt")}
           aria-pressed={activeTopPanel === "system"}
+          className="ui-action"
+          data-active={activeTopPanel === "system" ? "true" : undefined}
           style={{
             display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
             width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
             height: "100%", padding: mobile ? 0 : "0 12px",
-            background: activeTopPanel === "system" ? "var(--bg-selected)" : "none",
             border: "none",
             borderTop: activeTopPanel === "system" ? "2px solid var(--accent)" : "2px solid transparent",
             borderRight: "1px solid var(--border)",
             cursor: mobile && !showChat ? "not-allowed" : "pointer",
-            color: activeTopPanel === "system" ? "var(--text)" : "var(--text-muted)",
             opacity: mobile && !showChat ? 0.45 : 1,
-            fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
-          }}
-          onMouseEnter={(event) => {
-            if (mobile && !showChat) return;
-            event.currentTarget.style.color = "var(--text)";
-          }}
-          onMouseLeave={(event) => {
-            event.currentTarget.style.color = activeTopPanel === "system" ? "var(--text)" : "var(--text-muted)";
+            fontSize: 11, whiteSpace: "nowrap",
           }}
           data-mobile-toolbar-action={mobile ? "system" : undefined}
         >
@@ -1401,7 +1378,9 @@ export function AppShell() {
         aria-label={translate("session.title")}
         aria-pressed={activeTopPanel === "session"}
         aria-hidden={covered ? true : undefined}
-        className={mobile ? "mobile-session-stats" : undefined}
+        className={`ui-action${mobile ? " mobile-session-stats" : ""}`}
+        data-active={activeTopPanel === "session" ? "true" : undefined}
+        data-inert={showChat && !covered ? undefined : "true"}
         data-mobile-toolbar-stats={mobile ? "true" : undefined}
         style={{
           marginLeft: mobile ? 0 : "auto",
@@ -1415,19 +1394,11 @@ export function AppShell() {
           overflow: "hidden",
           visibility: covered ? "hidden" : "visible",
           pointerEvents: covered ? "none" : "auto",
-          background: activeTopPanel === "session" ? "var(--bg-selected)" : "none",
           border: "none",
           borderTop: activeTopPanel === "session" ? "2px solid var(--accent)" : "2px solid transparent",
-          fontSize: 11, color: "var(--text-muted)",
+          fontSize: 11,
           whiteSpace: "nowrap", cursor: showChat ? "pointer" : "default",
           fontVariantNumeric: "tabular-nums",
-          transition: "color 0.1s, background 0.1s",
-        }}
-        onMouseEnter={(event) => {
-          if (showChat && !covered) event.currentTarget.style.color = "var(--text)";
-        }}
-        onMouseLeave={(event) => {
-          event.currentTarget.style.color = activeTopPanel === "session" ? "var(--text)" : "var(--text-muted)";
         }}
       >
         {mobile ? (
@@ -1523,19 +1494,17 @@ export function AppShell() {
         title={rightPanelOpen ? translate("files.hidePanel") : translate("files.showPanel")}
         aria-label={rightPanelOpen ? translate("files.hidePanel") : translate("files.showPanel")}
         data-mobile-toolbar-file={mobile ? "true" : undefined}
+        className="ui-action"
+        data-active={rightPanelOpen ? "true" : undefined}
         style={{
           marginLeft: !mobile && !sessionStats && !contextUsage ? "auto" : 0,
           display: "flex", alignItems: "center", justifyContent: "center",
           width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
           visibility: covered ? "hidden" : "visible",
           pointerEvents: covered ? "none" : "auto",
-          background: rightPanelOpen ? "var(--bg-selected)" : "none",
           border: "none", borderLeft: "1px solid var(--border)",
-          color: rightPanelOpen ? "var(--text)" : "var(--text-muted)",
-          cursor: "pointer", flexShrink: 0, transition: "color 0.12s, background 0.12s",
+          flexShrink: 0,
         }}
-        onMouseEnter={(event) => { if (!covered) event.currentTarget.style.color = "var(--text)"; }}
-        onMouseLeave={(event) => { event.currentTarget.style.color = rightPanelOpen ? "var(--text)" : "var(--text-muted)"; }}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
@@ -1692,14 +1661,13 @@ export function AppShell() {
             onClick={handleSidebarToggle}
              title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
              aria-label={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
+            className="ui-action"
             style={{
               display: "flex", alignItems: "center", justifyContent: "center",
               width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-              background: "none", border: "none", borderRight: "1px solid var(--border)",
-              color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
+              border: "none", borderRight: "1px solid var(--border)",
+              flexShrink: 0,
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
           >
             {sidebarOpen ? (
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1838,19 +1806,17 @@ export function AppShell() {
                       }}
                       role="menuitemradio"
                       aria-checked={locale === plugin.id}
+                      className="ui-action ui-action--surface"
+                      data-state="active"
+                      data-active={locale === plugin.id ? "true" : undefined}
+                      // The selected entry keeps its own surface rather than
+                      // reacting to hover, matching the old guarded handlers.
+                      data-inert={locale === plugin.id ? "true" : undefined}
                       style={{
                         display: "flex", alignItems: "center",
                         width: "100%", height: 34, padding: "0 10px",
                         border: "none", borderRadius: 4,
-                        background: locale === plugin.id ? "var(--bg-selected)" : "transparent",
-                        color: "var(--text)", cursor: "pointer", textAlign: "left", fontSize: 12,
-                        transition: "background 0.1s",
-                      }}
-                      onMouseEnter={(e) => {
-                        if (locale !== plugin.id) e.currentTarget.style.background = "var(--bg-hover)";
-                      }}
-                      onMouseLeave={(e) => {
-                        if (locale !== plugin.id) e.currentTarget.style.background = "transparent";
+                        textAlign: "left", fontSize: 12,
                       }}
                     >
                       <span>{plugin.label}</span>
@@ -1973,6 +1939,8 @@ export function AppShell() {
                           type="button"
                            title={copied ? translate("session.copied") : translate(field === "file" ? "session.copyFile" : "session.copyId")}
                           onClick={() => handleCopySessionField(field, value)}
+                          className="ui-action ui-action--outline ui-action--surface"
+                          data-state={copied ? "accent" : "dim"}
                           style={{
                             alignSelf: "start",
                             display: "inline-flex",
@@ -1981,23 +1949,8 @@ export function AppShell() {
                             width: 22,
                             height: 22,
                             marginTop: -2,
-                            color: copied ? "var(--accent)" : "var(--text-dim)",
-                            background: "transparent",
-                            border: "1px solid var(--border)",
                             borderRadius: 4,
-                            cursor: "pointer",
                             flex: "0 0 auto",
-                            transition: "color 0.12s, border-color 0.12s, background 0.12s",
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.color = "var(--accent)";
-                            e.currentTarget.style.borderColor = "var(--accent)";
-                            e.currentTarget.style.background = "var(--bg-hover)";
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.color = copied ? "var(--accent)" : "var(--text-dim)";
-                            e.currentTarget.style.borderColor = "var(--border)";
-                            e.currentTarget.style.background = "transparent";
                           }}
                         >
                           {copied ? (
@@ -2188,14 +2141,15 @@ export function AppShell() {
             aria-expanded={rightPanelOpen}
             title={translate("files.hidePanel")}
             aria-label={translate("files.hidePanel")}
+            className="ui-action"
+            data-hover="accent"
+            data-active="true"
             style={{
               display: "flex", alignItems: "center", justifyContent: "center",
               width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-              background: "var(--bg-selected)", border: "none", borderLeft: "1px solid var(--border)",
-              color: "var(--text)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
+              border: "none", borderLeft: "1px solid var(--border)",
+              flexShrink: 0,
             }}
-            onMouseEnter={(event) => { event.currentTarget.style.color = "var(--accent)"; }}
-            onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text)"; }}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />

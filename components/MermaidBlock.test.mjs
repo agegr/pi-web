@@ -68,16 +68,25 @@ function renderCode(props) {
   );
 }
 
-test("CodeBlock highlights code when not streaming", () => {
+test("CodeBlock mounts the syntax highlighter when not streaming", () => {
   const html = renderCode({ code: "const x = 1;", lang: "javascript" });
 
-  assert.match(html, /class="token/);
+  // The highlighter is async (PrismAsyncLight): it fetches refractor and the
+  // language definition on demand, so the first synchronous pass emits the code
+  // untokenized and re-renders with `class="token"` spans once the language
+  // lands. Line numbers are the part the highlighter owns synchronously, so
+  // they are what distinguishes "highlighter mounted" from the streaming path.
+  assert.match(html, /react-syntax-highlighter-line-number/);
   assert.match(html, /const/);
+  assert.doesNotMatch(html, /class="token/);
 });
 
 test("CodeBlock renders plain text without tokenization while streaming", () => {
   const html = renderCode({ code: "const x = 1;", lang: "javascript", isStreaming: true });
 
+  // Streaming deliberately bypasses the highlighter entirely rather than
+  // re-tokenizing on every appended chunk — hence no line numbers either.
+  assert.doesNotMatch(html, /react-syntax-highlighter-line-number/);
   assert.doesNotMatch(html, /class="token/);
   assert.match(html, /const x = 1;/);
 });

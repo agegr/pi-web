@@ -1091,19 +1091,10 @@ export function SkillsConfig({
                           padding: "8px 8px",
                           borderRadius: 5,
                           cursor: "pointer",
-                          background: isSelected
-                            ? "var(--bg-selected)"
-                            : "none",
                         }}
-                        onMouseEnter={(e) => {
-                          if (!isSelected)
-                            e.currentTarget.style.background =
-                              "var(--bg-hover)";
-                        }}
-                        onMouseLeave={(e) => {
-                          if (!isSelected)
-                            e.currentTarget.style.background = "none";
-                        }}
+                        className="ui-action ui-action--surface"
+                        data-active={isSelected ? "true" : undefined}
+                        data-inert={isSelected ? "true" : undefined}
                       >
                         <span
                           style={{
@@ -1237,17 +1228,12 @@ export function SkillsConfig({
                   padding: "7px 8px",
                   borderRadius: 5,
                   cursor: "pointer",
-                  background: addMode ? "var(--bg-selected)" : "none",
-                  color: addMode ? "var(--accent)" : "var(--text-dim)",
                   fontSize: 12,
                 }}
-                onMouseEnter={(e) => {
-                  if (!addMode)
-                    e.currentTarget.style.background = "var(--bg-hover)";
-                }}
-                onMouseLeave={(e) => {
-                  if (!addMode) e.currentTarget.style.background = "none";
-                }}
+                className="ui-action ui-action--surface"
+                data-state={addMode ? "accent" : "dim"}
+                data-active={addMode ? "true" : undefined}
+                data-inert={addMode ? "true" : undefined}
               >
                 <svg
                   width="13"

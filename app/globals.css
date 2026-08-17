@@ -219,6 +219,205 @@ body {
   border-radius: 2px;
 }
 
+/* ---------------------------------------------------------------------------
+   Interactive surfaces.
+
+   Hover and focus used to be applied imperatively — onMouseEnter writing to
+   element.style, onMouseLeave writing the resting value back. That broke three
+   ways: a React re-render reapplies the `style` prop and wipes whatever the
+   handler wrote, touch devices fire mouseenter with no matching mouseleave so
+   the control sticks in its hover state, and every leave handler had to
+   re-derive the resting colour by hand.
+
+   The fix is to stop encoding the resting colour as an inline style — inline
+   styles outrank a stylesheet, which is what forced the JS in the first place.
+   A control now declares only which resting state it is in, via data-state,
+   and CSS owns every transition out of it.
+
+   Hovering changes colour only. Controls that should also light up a surface
+   opt in with .ui-action--surface, so a pressed control's own background is
+   never clobbered by a hover rule it did not ask for.
+
+   data-state  : muted (default) | active | dim | accent | danger | success
+                 the resting colour
+   data-hover  : text (default) | muted | accent
+                 where hovering takes it; semantic states keep their own hue
+   data-active : "true" marks a pressed/open control (its own resting surface)
+   data-inert  : "true" suppresses hover feedback for controls that are
+                 visually disabled but still focusable/clickable.
+--------------------------------------------------------------------------- */
+.ui-action {
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.ui-action[data-active="true"] {
+  background: var(--bg-selected);
+  color: var(--text);
+}
+
+/* Declared after data-active so a control that is both pressed and carrying an
+   explicit resting colour (a selected row that reads as accent) keeps that
+   colour; data-active alone still supplies plain text. Equal specificity, so
+   the order is what decides it. */
+.ui-action[data-state="active"]  { color: var(--text); }
+.ui-action[data-state="dim"]     { color: var(--text-dim); }
+.ui-action[data-state="accent"]  { color: var(--accent); }
+.ui-action[data-state="danger"]  { color: var(--danger); }
+.ui-action[data-state="success"] { color: var(--success); }
+
+/* An open dropdown trigger holds the hover surface rather than the deeper
+   pressed one, so hovering it does not read as a state change. */
+.ui-action[data-open="true"] { background: var(--bg-hover); }
+
+/* A toggle that is currently off: dimmed until pointed at. */
+.ui-action[data-faded="true"] { opacity: 0.55; }
+.ui-action[data-faded="true"]:hover:not(:disabled):not([data-inert="true"]) { opacity: 1; }
+
+.ui-action:hover:not(:disabled):not([data-inert="true"]) {
+  color: var(--text);
+}
+
+/* Semantic states keep their hue on hover; only the surface responds. */
+.ui-action[data-state="danger"]:hover:not(:disabled):not([data-inert="true"])  { color: var(--danger); }
+.ui-action[data-state="accent"]:hover:not(:disabled):not([data-inert="true"])  { color: var(--accent); }
+.ui-action[data-state="success"]:hover:not(:disabled):not([data-inert="true"]) { color: var(--success); }
+
+/* An explicit hover destination wins over the resting state's own hue, so it
+   is declared after them. */
+.ui-action[data-hover="muted"]:hover:not(:disabled):not([data-inert="true"])  { color: var(--text-muted); }
+.ui-action[data-hover="accent"]:hover:not(:disabled):not([data-inert="true"]) { color: var(--accent); }
+.ui-action[data-hover="danger"]:hover:not(:disabled):not([data-inert="true"]) { color: var(--danger); }
+
+/* A destructive control tints its surface rather than reaching for bg-hover. */
+.ui-action.ui-action--surface[data-hover="danger"]:hover:not(:disabled):not([data-inert="true"]) {
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+/* Opt in to a surface on hover. Kept above the pressed background so hovering
+   a pressed control still reads as hovered. */
+.ui-action.ui-action--surface:hover:not(:disabled):not([data-inert="true"]) {
+  background: var(--bg-hover);
+}
+
+/* Bordered variant: the border tracks the accent alongside the label. The
+   resting border lives here rather than inline, because an inline `border`
+   shorthand also sets border-color and would outrank the hover rule below —
+   call sites that want a different line style override borderStyle only. */
+.ui-action.ui-action--outline { border: 1px solid var(--border); }
+
+.ui-action.ui-action--outline:hover:not(:disabled):not([data-inert="true"]) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Filled: rests on the hover surface and deepens on hover, keeping its colour. */
+.ui-action.ui-action--filled { background: var(--bg-hover); }
+
+.ui-action.ui-action--filled:hover:not(:disabled):not([data-inert="true"]) {
+  background: var(--bg-selected);
+}
+
+/* Softer outline for controls whose label stays put while the border warms. */
+.ui-action.ui-action--outline-soft { border: 1px solid var(--border); }
+
+.ui-action.ui-action--outline-soft:hover:not(:disabled):not([data-inert="true"]) {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+/* Chip: rests on a filled surface with a border rather than on nothing, and
+   lifts to the accent instead of to plain text. */
+.ui-action.ui-action--chip {
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+}
+
+.ui-action.ui-action--chip:hover:not(:disabled):not([data-inert="true"]) {
+  background: var(--bg-selected);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--accent);
+}
+
+.ui-action.ui-action--chip[data-hover="danger"]:hover:not(:disabled):not([data-inert="true"]) {
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+  color: var(--danger);
+}
+
+/* Panel: rests on the panel surface instead of on nothing, and lifts to the
+   hover surface. Card adds a border that warms to the accent on top of that;
+   the labels inside either keep whatever colours they set for themselves. */
+.ui-action.ui-action--panel,
+.ui-action.ui-action--card {
+  background: var(--bg-panel);
+}
+
+.ui-action.ui-action--panel:hover:not(:disabled):not([data-inert="true"]),
+.ui-action.ui-action--card:hover:not(:disabled):not([data-inert="true"]) {
+  background: var(--bg-hover);
+}
+
+.ui-action.ui-action--card { border: 1px solid var(--border); }
+
+.ui-action.ui-action--card:hover:not(:disabled):not([data-inert="true"]) {
+  border-color: var(--accent);
+}
+
+/* Tints the surface to match a semantic state, for controls that flash a
+   result (a refresh that just succeeded) rather than sitting in that state.
+   These were rgba() literals frozen at their light-mode values; color-mix
+   against the token follows the theme. Declared after the variants above so a
+   chip's own border does not outrank the state tint at equal specificity. */
+.ui-action[data-surface="success"] {
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+  border-color: color-mix(in srgb, var(--success) 40%, transparent);
+}
+.ui-action[data-surface="danger"] {
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+.ui-action[data-surface="danger"]:hover:not(:disabled):not([data-inert="true"]) {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+}
+
+.ui-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.ui-action:disabled,
+.ui-action[data-inert="true"] {
+  cursor: default;
+}
+
+/* Touch devices fire mouseenter without a matching leave, and :hover latches
+   after a tap. Neither should leave a control looking permanently hovered. */
+@media (hover: none) {
+  .ui-action.ui-action--surface:hover        { background: none; }
+  .ui-action.ui-action--filled:hover         { background: var(--bg-hover); }
+  .ui-action.ui-action--outline-soft:hover   { border-color: var(--border); }
+  .ui-action.ui-action--chip:hover           { background: var(--bg-hover); border-color: var(--border); }
+  .ui-action.ui-action--panel:hover          { background: var(--bg-panel); }
+  .ui-action.ui-action--card:hover           { background: var(--bg-panel); border-color: var(--border); }
+  .ui-action[data-faded="true"]:hover        { opacity: 0.55; }
+  .ui-action[data-open="true"]:hover         { background: var(--bg-hover); }
+  .ui-action[data-surface="success"]:hover   { background: color-mix(in srgb, var(--success) 18%, transparent);
+                                               border-color: color-mix(in srgb, var(--success) 40%, transparent); }
+  .ui-action[data-surface="danger"]:hover    { background: color-mix(in srgb, var(--danger) 8%, transparent);
+                                               border-color: color-mix(in srgb, var(--danger) 30%, transparent); }
+  .ui-action[data-active="true"]:hover       { background: var(--bg-selected); color: var(--text); }
+  .ui-action[data-state="active"]:hover      { color: var(--text); }
+  .ui-action[data-state="dim"]:hover         { color: var(--text-dim); }
+  .ui-action[data-state="accent"]:hover      { color: var(--accent); }
+  .ui-action[data-state="danger"]:hover      { color: var(--danger); }
+  .ui-action[data-state="success"]:hover     { color: var(--success); }
+  .ui-action:not([data-state]):not([data-active="true"]):hover { color: var(--text-muted); }
+  .ui-action.ui-action--outline:hover        { border-color: var(--border); }
+}
+
 .extension-status-shelf {
   display: flex;
   flex-shrink: 0;

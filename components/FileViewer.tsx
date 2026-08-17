@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties, type MouseEvent } from "react";
-import {
-  Prism as SyntaxHighlighter,
-  createElement as renderSyntaxNode,
-  type SyntaxHighlighterProps,
-} from "react-syntax-highlighter";
-import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
+// See the note in MermaidBlock.tsx: the async highlighter keeps refractor and
+// its language definitions out of the entry chunk. Importing `createElement`
+// from its own module avoids pulling the package barrel, which also re-exports
+// the highlight.js build.
+import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-async-light";
+import renderSyntaxNode from "react-syntax-highlighter/dist/esm/create-element";
+import type { SyntaxHighlighterProps } from "react-syntax-highlighter";
+import vs from "react-syntax-highlighter/dist/esm/styles/prism/vs";
+import vscDarkPlus from "react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus";
 import ReactMarkdown from "react-markdown";
 import { useTheme } from "@/hooks/useTheme";
 import {
