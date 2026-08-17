@@ -40,15 +40,16 @@ async function acquireSession(
   if (remembered) {
     const live = getRpcSession(remembered);
     if (live?.isAlive()) {
-      await live.send({ type: "set_tools", toolNames });
+      await live.send({ type: "set_tools", toolNames, exact: true });
       return { session: live, sessionId: remembered };
     }
     const filePath = await resolveSessionPath(remembered);
     if (filePath) {
       const { session, realSessionId } = await startRpcSession(remembered, filePath, undefined, {
         toolNames,
+        exactTools: true,
       });
-      await session.send({ type: "set_tools", toolNames });
+      await session.send({ type: "set_tools", toolNames, exact: true });
       return { session, sessionId: realSessionId };
     }
     // Remembered id no longer resolves (session deleted, agent dir moved): fall
@@ -61,7 +62,7 @@ async function acquireSession(
     `__robin_assistant__${Date.now()}`,
     "",
     cwd,
-    { toolNames },
+    { toolNames, exactTools: true },
   );
   remember(realSessionId);
   return { session, sessionId: realSessionId };

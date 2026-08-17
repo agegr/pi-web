@@ -105,6 +105,8 @@ const IDLE_RESET_EVENT_TYPES = new Set([
 
 export interface RpcSessionStartOptions {
   toolNames?: string[];
+  /** Keep the active set exact instead of automatically including extension tools. */
+  exactTools?: boolean;
   initialModel?: { provider: string; modelId: string };
   thinkingLevel?: ThinkingLevel;
 }
@@ -692,7 +694,9 @@ export class AgentSessionWrapper {
       case "set_tools": {
         const toolNames = command.toolNames as string[];
         this.setForceEmptySystemPrompt(toolNames.length === 0);
-        this.inner.setActiveToolsByName(withExtensionTools(this.inner, toolNames));
+        this.inner.setActiveToolsByName(
+          command.exact === true ? toolNames : withExtensionTools(this.inner, toolNames),
+        );
         this.applyForcedEmptySystemPrompt();
         return null;
       }
@@ -1557,7 +1561,7 @@ export async function startRpcSession(
   cwd: string | undefined,
   options: RpcSessionStartOptions = {},
 ): Promise<{ session: AgentSessionWrapper; realSessionId: string }> {
-  const { toolNames, initialModel, thinkingLevel } = options;
+  const { toolNames, exactTools, initialModel, thinkingLevel } = options;
   const registry = getRegistry();
   const locks = getLocks();
 
@@ -1650,7 +1654,7 @@ export async function startRpcSession(
     // requested builtin coding tools PLUS all extension/package tools, so installed
     // extensions stay usable in Pi Web just like in the `pi` CLI.
     if (toolNames && toolNames.length > 0) {
-      inner.setActiveToolsByName(withExtensionTools(inner, toolNames));
+      inner.setActiveToolsByName(exactTools ? toolNames : withExtensionTools(inner, toolNames));
     }
 
     const wrapper = new AgentSessionWrapper(inner);

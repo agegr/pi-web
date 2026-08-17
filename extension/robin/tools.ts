@@ -7,9 +7,8 @@
  * one of those inactive, so a prompt typed into the dashboard cannot run a
  * shell command or touch the filesystem.
  *
- * Note that pi-web's `withExtensionTools()` also activates any *other* installed
- * extension's tools alongside these. That is upstream behavior, not something
- * this list controls — the guarantee here is specifically about the builtins.
+ * The assistant route requests exact tool activation, so tools from other
+ * installed extensions are not added to this list implicitly.
  */
 export const ROBIN_TOOL_NAMES = [
   "todo_add",
