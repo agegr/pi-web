@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { formatLinkPaste } from "@/lib/clipboard";
 import { requestRefresh } from "./refreshBus";
 
 interface AssistantResponse {
@@ -66,6 +67,24 @@ export function AssistantBar() {
     }
   };
 
+  const handlePaste = (event: React.ClipboardEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? start;
+    const replacement = formatLinkPaste(
+      event.clipboardData.getData("text/plain") || event.clipboardData.getData("text"),
+      event.clipboardData.getData("text/html"),
+      input.value.slice(start, end),
+    );
+    if (!replacement) return;
+
+    event.preventDefault();
+    const nextMessage = input.value.slice(0, start) + replacement + input.value.slice(end);
+    const nextCursor = start + replacement.length;
+    setMessage(nextMessage);
+    requestAnimationFrame(() => input.setSelectionRange(nextCursor, nextCursor));
+  };
+
   const actions = reply ? describeTools(reply.usedTools, t) : null;
 
   return (
@@ -78,6 +97,7 @@ export function AssistantBar() {
           ref={inputRef}
           value={message}
           onChange={(event) => setMessage(event.target.value)}
+          onPaste={handlePaste}
           disabled={busy}
           placeholder={t("robin.assistant.placeholder")}
           className="min-w-0 flex-1 rounded px-3 py-2 text-sm outline-none disabled:opacity-60"

@@ -3,6 +3,7 @@
 import React, { useRef, useState, useCallback, useEffect, useLayoutEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
 import type { SkillsResponse } from "@/lib/api-types";
+import { formatLinkPaste } from "@/lib/clipboard";
 import type { TextContent, UserMessage } from "@/lib/types";
 import {
   clearDraft,
@@ -1172,14 +1173,39 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
   }, []);
 
-  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = Array.from(e.clipboardData?.items ?? []);
     const imageItems = items.filter((item) => item.type.startsWith("image/"));
-    if (!imageItems.length) return;
+    if (imageItems.length > 0) {
+      e.preventDefault();
+      const files = imageItems.map((item) => item.getAsFile()).filter((f): f is File => f !== null);
+      processImageFiles(files);
+      return;
+    }
+
+    const textarea = e.currentTarget;
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? start;
+    const replacement = formatLinkPaste(
+      e.clipboardData.getData("text/plain") || e.clipboardData.getData("text"),
+      e.clipboardData.getData("text/html"),
+      textarea.value.slice(start, end),
+    );
+    if (!replacement) return;
+
     e.preventDefault();
-    const files = imageItems.map((item) => item.getAsFile()).filter((f): f is File => f !== null);
-    processImageFiles(files);
-  }, [processImageFiles]);
+    const nextValue = textarea.value.slice(0, start) + replacement + textarea.value.slice(end);
+    const nextCursor = start + replacement.length;
+    valueRef.current = nextValue;
+    setValue(nextValue);
+    setHistoryMenuOpen(false);
+    updateAtQuery(nextValue, nextCursor);
+    requestAnimationFrame(() => {
+      textarea.setSelectionRange(nextCursor, nextCursor);
+      textarea.style.height = "auto";
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+    });
+  }, [processImageFiles, updateAtQuery]);
 
   useEffect(() => {
     if (slashQuery === null) {
