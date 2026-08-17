@@ -64,6 +64,20 @@ PI_WEB_PASSWORD='a-long-random-password' pi-web --hostname 0.0.0.0
 
 Basic Auth does not encrypt the password in transit. Do not expose Pi Web over plain HTTP to the internet; use HTTPS through a trusted reverse proxy or a trusted VPN. If a reverse proxy sends an external hostname, add that exact name to `PI_WEB_ALLOWED_HOSTS`. This allow-list does not change the address Pi Web binds to.
 
+### Interactive terminal
+
+A session can open an interactive terminal tab in its working directory. Because this grants the browser the same filesystem and command privileges as the Pi Web process, terminal routes are intentionally stricter than the rest of the app: they require `PI_WEB_PASSWORD`, accept loopback requests only, and cannot be enabled over LAN or a reverse proxy. Closing the terminal tab terminates its shell; hiding the right panel does not.
+
+Only the terminal you are looking at holds a live connection — browsers allow just six concurrent streams per origin, so a backgrounded terminal drops its stream and catches up on the buffered output when you return to it. A shell nobody is watching is reaped after 15 minutes; one you have open is never reaped, however long it sits quiet.
+
+The shell starts from a deliberately small environment (no `~/.bashrc`, no `~/.profile`), so `nvm`, `pyenv` and shell aliases are not available in it; `PATH`, `HOME` and `SSH_AUTH_SOCK` are inherited so that `git` over SSH works. Terminals depend on `node-pty`, an optional native package: if your platform has no prebuild and no compiler, the rest of Pi Web still runs and the terminal button reports why it is unavailable.
+
+```bash
+PI_WEB_PASSWORD='a-long-random-password' pi-web
+```
+
+The shell starts without user startup files and receives a reduced environment, but it is not an OS sandbox. Commands entered in it still have the permissions of the user running Pi Web.
+
 ### HTTP Proxy
 
 Server-side model and API requests honor the standard `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` environment variables.

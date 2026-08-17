@@ -56,6 +56,7 @@ type AutoNameStatus =
 // entry chunk until the user actually asks for it. ssr:false because every one
 // of them is client-only anyway; there is no server pass to preserve.
 const FileViewer = dynamic(() => import("./FileViewer").then((m) => m.FileViewer), { ssr: false });
+const TerminalPanel = dynamic(() => import("./TerminalPanel").then((m) => m.TerminalPanel), { ssr: false });
 const ModelsConfig = dynamic(() => import("./ModelsConfig").then((m) => m.ModelsConfig), { ssr: false });
 const SkillsConfig = dynamic(() => import("./SkillsConfig").then((m) => m.SkillsConfig), { ssr: false });
 const PluginsConfig = dynamic(() => import("./PluginsConfig").then((m) => m.PluginsConfig), { ssr: false });
@@ -357,9 +358,19 @@ export function AppShell() {
     return () => ro.disconnect();
   }, [activeTopPanel, isMobile]);
 
-  // Right panel — file tabs only
+  // Right panel — file and terminal tabs
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
+  const [terminalOpeningSessionId, setTerminalOpeningSessionId] = useState<string | null>(null);
+  const [terminalNotice, setTerminalNotice] = useState<string | null>(null);
+  /** Set once the server refuses terminals outright, e.g. no password or no loopback. */
+  const [terminalBlockedReason, setTerminalBlockedReason] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!terminalNotice) return;
+    const timer = setTimeout(() => setTerminalNotice(null), 8000);
+    return () => clearTimeout(timer);
+  }, [terminalNotice]);
 
   const handleFileViewerStateChange = useCallback((
     tabId: string,
@@ -806,7 +817,96 @@ export function AppShell() {
     handleOpenFile(filePath, getFileName(filePath), { sourceSessionId: selectedSession?.id ?? null });
   }, [handleOpenFile, selectedSession?.id]);
 
+  // A shell that has ended cannot be revived — the server drops the PTY the
+  // moment it exits — so the tab is retired and the next toggle opens a fresh
+  // one, instead of re-focusing a dead screen the user has to close by hand.
+  const handleTerminalExit = useCallback((tabId: string) => {
+    setFileTabs((prev) => prev.map((tab) => (
+      tab.id === tabId ? { ...tab, terminalExited: true } : tab
+    )));
+  }, []);
+
+  const handleTerminalToggle = useCallback(async () => {
+    if (!selectedSession || terminalOpeningSessionId || terminalBlockedReason) return;
+    const existing = fileTabs.find(
+      (tab) => tab.kind === "terminal" && tab.sourceSessionId === selectedSession.id,
+    );
+    if (existing && !existing.terminalExited) {
+      if (rightPanelOpen && activeFileTabId === existing.id) {
+        setRightPanelOpen(false);
+      } else {
+        setActiveFileTabId(existing.id);
+        setRightPanelOpen(true);
+        if (isMobile) setSidebarOpen(false);
+      }
+      return;
+    }
+    if (projectTrust?.requiresTrust && !projectTrust.trusted) {
+      setProjectTrustDialogOpen(true);
+      return;
+    }
+
+    setTerminalOpeningSessionId(selectedSession.id);
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(selectedSession.id)}/terminal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ columns: 80, rows: 24 }),
+      });
+      const data = await response.json() as {
+        terminalId?: string;
+        cwd?: string;
+        error?: string;
+        blocked?: boolean;
+      };
+      if (!response.ok || !data.terminalId || !data.cwd) {
+        const message = data.error ?? `HTTP ${response.status}`;
+        // Refused by policy rather than by circumstance: retrying will never
+        // work, so stop offering the button and say why on hover.
+        if (data.blocked) setTerminalBlockedReason(message);
+        throw new Error(message);
+      }
+      const { terminalId, cwd } = data as { terminalId: string; cwd: string };
+      if (activeSessionIdRef.current !== selectedSession.id) {
+        void fetch(
+          `/api/sessions/${encodeURIComponent(selectedSession.id)}/terminal/${encodeURIComponent(terminalId)}`,
+          { method: "DELETE", keepalive: true },
+        );
+        return;
+      }
+      const tabId = `terminal:${terminalId}`;
+      const cwdName = getFileName(cwd) || cwd;
+      setFileTabs((prev) => [...prev.filter((tab) => tab.id !== existing?.id), {
+        id: tabId,
+        kind: "terminal",
+        label: `${translate("terminal.title")} · ${cwdName}`,
+        filePath: cwd,
+        sourceSessionId: selectedSession.id,
+        terminalId,
+      }]);
+      setActiveFileTabId(tabId);
+      setRightPanelOpen(true);
+      if (isMobile) setSidebarOpen(false);
+    } catch (error) {
+      setTerminalNotice(
+        `${translate("terminal.unavailable")}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      setTerminalOpeningSessionId(null);
+    }
+  }, [
+    activeFileTabId, fileTabs, isMobile, projectTrust, rightPanelOpen, selectedSession,
+    terminalBlockedReason, terminalOpeningSessionId, translate,
+  ]);
+
   const handleCloseFileTab = useCallback((tabId: string) => {
+    const closingTab = fileTabs.find((tab) => tab.id === tabId);
+    if (closingTab?.kind === "terminal" && closingTab.sourceSessionId && closingTab.terminalId) {
+      void fetch(
+        `/api/sessions/${encodeURIComponent(closingTab.sourceSessionId)}/terminal/${encodeURIComponent(closingTab.terminalId)}`,
+        { method: "DELETE", keepalive: true },
+      );
+    }
     setFileTabs((prev) => {
       const next = prev.filter((t) => t.id !== tabId);
       if (next.length === 0) setRightPanelOpen(false);
@@ -886,7 +986,13 @@ export function AppShell() {
     }
   }, [projectTrustBusy, projectTrustCwd]);
 
-  const activeFileTab = fileTabs.find((tab) => tab.id === activeFileTabId) ?? null;
+  const activePanelTab = fileTabs.find((tab) => tab.id === activeFileTabId) ?? null;
+  const activeFileTab = activePanelTab?.kind !== "terminal" ? activePanelTab : null;
+  const terminalTabs = fileTabs.filter(
+    (tab): tab is Tab & { terminalId: string; sourceSessionId: string } => (
+      tab.kind === "terminal" && Boolean(tab.terminalId) && Boolean(tab.sourceSessionId)
+    ),
+  );
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
   const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
 
@@ -1497,7 +1603,6 @@ export function AppShell() {
         className="ui-action"
         data-active={rightPanelOpen ? "true" : undefined}
         style={{
-          marginLeft: !mobile && !sessionStats && !contextUsage ? "auto" : 0,
           display: "flex", alignItems: "center", justifyContent: "center",
           width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
           visibility: covered ? "hidden" : "visible",
@@ -1508,6 +1613,52 @@ export function AppShell() {
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
+        </svg>
+      </button>
+    );
+  };
+
+  const renderTerminalToggle = (mobile: boolean) => {
+    const covered = mobile && mobileToolbarMoreOpen;
+    const currentTerminal = selectedSession
+      ? fileTabs.find((tab) => tab.kind === "terminal" && tab.sourceSessionId === selectedSession.id)
+      : undefined;
+    const visible = Boolean(currentTerminal && rightPanelOpen && activeFileTabId === currentTerminal.id);
+    const disabled = covered || !selectedSession || Boolean(terminalOpeningSessionId) || Boolean(terminalBlockedReason);
+    const label = terminalBlockedReason
+      ? `${translate("terminal.unavailable")}: ${terminalBlockedReason}`
+      : terminalOpeningSessionId
+        ? translate("terminal.opening")
+        : visible ? translate("terminal.hide") : translate("terminal.open");
+    return (
+      <button
+        type="button"
+        onClick={() => void handleTerminalToggle()}
+        disabled={disabled}
+        tabIndex={covered ? -1 : undefined}
+        aria-controls="file-panel"
+        aria-expanded={visible}
+        aria-hidden={covered ? true : undefined}
+        title={label}
+        aria-label={label}
+        data-mobile-toolbar-terminal={mobile ? "true" : undefined}
+        className="ui-action"
+        data-active={visible ? "true" : undefined}
+        style={{
+          marginLeft: !mobile && !sessionStats && !contextUsage ? "auto" : 0,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+          visibility: covered ? "hidden" : "visible",
+          pointerEvents: covered ? "none" : "auto",
+          border: "none", borderLeft: "1px solid var(--border)",
+          flexShrink: 0,
+          opacity: disabled && !covered ? 0.5 : 1,
+        }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <polyline points="7 9 10 12 7 15" />
+          <line x1="13" y1="15" x2="17" y2="15" />
         </svg>
       </button>
     );
@@ -1722,6 +1873,7 @@ export function AppShell() {
                 )}
               </button>
               {renderSessionStatsButton(true)}
+              {renderTerminalToggle(true)}
               {renderMainFileToggle(true)}
               {mobileToolbarMoreOpen && (
                 <div
@@ -1757,6 +1909,7 @@ export function AppShell() {
               {renderSessionStatsButton(false)}
             </>
           )}
+          {!isMobile && renderTerminalToggle(false)}
           {!isMobile && renderMainFileToggle(false)}
           {isMobile && (
             <BranchNavigator
@@ -2139,8 +2292,8 @@ export function AppShell() {
             onClick={() => setRightPanelOpen(false)}
             aria-controls="file-panel"
             aria-expanded={rightPanelOpen}
-            title={translate("files.hidePanel")}
-            aria-label={translate("files.hidePanel")}
+            title={translate(activePanelTab?.kind === "terminal" ? "terminal.hide" : "files.hidePanel")}
+            aria-label={translate(activePanelTab?.kind === "terminal" ? "terminal.hide" : "files.hidePanel")}
             className="ui-action"
             data-hover="accent"
             data-active="true"
@@ -2157,8 +2310,23 @@ export function AppShell() {
           </button>
         </div>
 
-        {/* Only the active viewer is mounted. Lightweight per-tab state is restored on activation. */}
-        <div style={{ flex: 1, overflow: "hidden", paddingBottom: "env(safe-area-inset-bottom)" }}>
+        {/* Only the active viewer is mounted for files. Terminal tabs stay mounted so their PTYs remain connected. */}
+        <div style={{ position: "relative", flex: 1, overflow: "hidden", paddingBottom: "env(safe-area-inset-bottom)" }}>
+          {terminalTabs.map((tab) => (
+            <div
+              key={tab.id}
+              style={{ position: "absolute", inset: 0, display: activeFileTabId === tab.id ? "block" : "none" }}
+            >
+              <TerminalPanel
+                sessionId={tab.sourceSessionId}
+                terminalId={tab.terminalId}
+                cwd={tab.filePath}
+                active={rightPanelOpen && activeFileTabId === tab.id}
+                onExit={() => handleTerminalExit(tab.id)}
+                onRestart={() => void handleTerminalToggle()}
+              />
+            </div>
+          ))}
           {activeFileTab?.filePath ? (
             <FileViewer
               key={`${activeFileTab.id}:${activeFileTab.viewerRevision ?? 0}`}
@@ -2182,14 +2350,32 @@ export function AppShell() {
                 { sourceSessionId: activeFileTab.sourceSessionId },
               )}
             />
-          ) : (
+          ) : !activePanelTab ? (
             <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
                {translate("files.noneOpen")}
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
+    {terminalNotice && (
+      <div
+        role="alert"
+        onClick={() => setTerminalNotice(null)}
+        style={{
+          position: "fixed", left: "50%", transform: "translateX(-50%)",
+          bottom: "calc(20px + env(safe-area-inset-bottom))",
+          zIndex: "var(--z-toast)" as unknown as number,
+          maxWidth: "min(560px, calc(100vw - 32px))",
+          padding: "9px 13px", borderRadius: "var(--control-radius)",
+          border: "1px solid var(--danger)", background: "var(--bg-panel)",
+          color: "var(--danger)", fontSize: 12, cursor: "pointer",
+          boxShadow: "var(--popover-shadow)",
+        }}
+      >
+        {terminalNotice}
+      </div>
+    )}
     {modelsConfigOpen && <ModelsConfig onClose={() => { setModelsConfigOpen(false); setModelsRefreshKey((k) => k + 1); }} />}
     {projectTrustDialogOpen && projectTrustCwd && (
       <ProjectTrustDialog

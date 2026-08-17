@@ -9,10 +9,24 @@ export interface Tab {
   id: string;
   label: string;
   filePath: string;
+  kind?: "file" | "terminal";
   sourceSessionId?: string | null;
+  terminalId?: string;
+  /** A terminal whose shell has ended. The server has already dropped its PTY. */
+  terminalExited?: boolean;
   initialDisplayMode?: FileViewerDisplayMode;
   viewerState?: FileViewerState;
   viewerRevision?: number;
+}
+
+function TerminalIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <polyline points="7 9 10 12 7 15" />
+      <line x1="13" y1="15" x2="17" y2="15" />
+    </svg>
+  );
 }
 
 interface Props {
@@ -73,7 +87,7 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
             }}
           >
             <span style={{ flexShrink: 0, opacity: isActive ? 1 : 0.7, display: "flex", alignItems: "center" }}>
-              {getFileIcon(tab.label, 13)}
+              {tab.kind === "terminal" ? <TerminalIcon /> : getFileIcon(tab.label, 13)}
             </span>
             <span
               style={{

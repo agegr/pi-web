@@ -14,6 +14,7 @@ import { sessionPathKey } from "@/lib/session-path";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { projectTreeForResponse } from "@/lib/project-tree";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
+import { closeTerminalsForSession } from "@/lib/terminal-manager";
 
 export async function GET(
   req: Request,
@@ -145,6 +146,7 @@ export async function DELETE(
       }
     } catch { /* skip if dir unreadable */ }
 
+    closeTerminalsForSession(id);
     await getRpcSession(id)?.shutdown();
     unlinkSync(filePath);
     invalidateSessionPathCache(id);

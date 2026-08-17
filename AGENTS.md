@@ -43,6 +43,7 @@ app/api/
   sessions/[id]/route.ts          GET/PATCH/DELETE session
   sessions/[id]/context/route.ts  GET ?leafId= — context for a specific leaf
   sessions/[id]/export/route.ts   GET exported HTML for a session
+  sessions/[id]/terminal/         authenticated loopback-only PTY create/input/events/close
   agent/new/route.ts              POST { cwd, message, toolNames?, provider?, modelId? }
   agent/[id]/route.ts             GET state | POST any command
   agent/[id]/events/route.ts      GET SSE stream
@@ -83,6 +84,8 @@ lib/
   types.ts            shared TypeScript types
   normalize.ts        normalizeToolCalls() — field name mismatch between file format and our types
   worktree.ts         project/worktree resolution and git worktree operations
+  terminal-manager.ts bounded per-session PTY lifecycle, replay buffer, and cleanup
+  terminal-security.ts loopback + Basic Auth terminal route policy
 
 components/
   AppShell.tsx        layout + URL state + tab management
@@ -99,7 +102,8 @@ components/
   FileExplorer.tsx    file tree inside sidebar
   FileIcons.tsx       file icon helpers
   FileViewer.tsx      file content in a tab
-  TabBar.tsx          tab bar (Chat + open file tabs)
+  TabBar.tsx          right-panel file + terminal tabs
+  TerminalPanel.tsx  xterm.js client, SSE output, and serialized terminal input
 
 hooks/
   useAgentSession.ts  messages + streaming + SSE + fork/navigate/reconciliation logic
@@ -182,6 +186,12 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - OAuth/device-code/manual-code flows are streamed by `GET /api/auth/login/[provider]`; manual code responses POST back with a short-lived token stored in `globalThis.__piLoginCallbacks`.
 - API-key routes store and remove keys through `AuthStorage`. Status endpoints must never return the raw key.
 - The model test route is `app/api/models-config/test/route.ts`; `app/api/models/test/` is not a real route.
+
+### Interactive terminal security
+- A terminal is direct host-user code execution, not a sandbox. Terminal routes therefore require `PI_WEB_PASSWORD`, a loopback `Host`, the normal same-origin guard, and session-bound random terminal ids.
+- The browser never supplies a cwd, shell executable, or startup argv. `terminal-manager.ts` resolves the session cwd server-side, canonicalizes it through the file allow-list, checks project trust, and spawns a fixed shell without startup files using a reduced environment.
+- One PTY is allowed per session and eight globally. Input, request bodies, replay memory, dimensions, idle lifetime, and disconnected lifetime are bounded. Closing a terminal tab kills its PTY; hiding the right panel keeps it connected.
+- Output uses SSE because it inherits the existing HTTP auth/origin controls; input and resize commands are serialized POSTs. Session deletion also closes its PTY.
 
 ### Completion sound
 - `hooks/useAudio.ts` stores the toggle in `localStorage` as `pi-sound-enabled` and reuses one `AudioContext`.
