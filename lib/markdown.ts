@@ -1,4 +1,9 @@
 import type { Options as ReactMarkdownOptions } from "react-markdown";
+// Lives beside rehype-katex rather than in app/layout.tsx so the stylesheet
+// follows the module that actually wires up math rendering; routes that render
+// no markdown (the dashboard, settings) no longer load it. scripts/test-style-stub.mjs
+// is what keeps this importable under `node --test`.
+import "katex/dist/katex.min.css";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
