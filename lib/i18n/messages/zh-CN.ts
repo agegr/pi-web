@@ -135,7 +135,10 @@ export const zhCNLocale: LocalePlugin = {
     "robin.links.urlPlaceholder": "example.com/path",
     "robin.links.namePlaceholder": "名称（可选）",
     "robin.links.groupPlaceholder": "分组",
+    "robin.links.edit": "编辑 {title}",
     "robin.links.delete": "删除 {title}",
+    "robin.links.moveUp": "向上移动 {group}",
+    "robin.links.moveDown": "向下移动 {group}",
     "robin.links.otherGroup": "其他",
 
     "robin.google.connected": "已连接 Google 日历（只读）",

@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { groupLinks, type Link } from "@/extension/robin/links";
+import { groupLinks, iconFallback, type Link } from "@/extension/robin/links";
 import { mutate, usePolledResource } from "./usePolledResource";
 
 interface LinksResponse {
@@ -17,8 +17,34 @@ export function LinksPanel() {
   const [group, setGroup] = useState("");
   const [adding, setAdding] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftUrl, setDraftUrl] = useState("");
+  const [reordering, setReordering] = useState(false);
+  const editRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editingId) editRef.current?.select();
+  }, [editingId]);
 
   const groups = useMemo(() => groupLinks(data?.links ?? []), [data]);
+
+  // Links saved before icons existed have never been looked up. Backfill them
+  // one at a time in the background rather than blocking the list on a batch of
+  // outbound requests, and only once each — `iconCheckedAt` records the attempt
+  // even when the site turned out to have no icon.
+  const backfilling = useRef(false);
+  useEffect(() => {
+    const pending = (data?.links ?? []).find((link) => !link.iconCheckedAt);
+    if (!pending || backfilling.current) return;
+    backfilling.current = true;
+    void fetch(`/api/robin/links/icon/${pending.id}`, { method: "POST" })
+      .catch(() => {})
+      .finally(() => {
+        backfilling.current = false;
+        void refresh();
+      });
+  }, [data, refresh]);
 
   async function run(action: () => Promise<void>) {
     try {
@@ -43,6 +69,38 @@ export function LinksPanel() {
       setTitle("");
       setAdding(false);
     });
+  };
+
+  const startEdit = (link: Link) => {
+    setEditingId(link.id);
+    setDraftTitle(link.title);
+    setDraftUrl(link.url);
+  };
+
+  const commitEdit = (id: string) => {
+    const title = draftTitle.trim();
+    const url = draftUrl.trim();
+    const original = data?.links.find((link) => link.id === id);
+    setEditingId(null);
+    if (!original || !title || !url) return;
+    if (title === original.title && url === original.url) return;
+
+    // Both fields go together: changing the address re-fetches the icon, and
+    // sending the title alongside keeps an edited name from being overwritten
+    // by the new page's own.
+    void run(() => mutate("/api/robin/links", "PATCH", { id, title, url }));
+  };
+
+  const moveGroup = (index: number, offset: -1 | 1) => {
+    const destination = index + offset;
+    if (destination < 0 || destination >= groups.length || reordering) return;
+    const order = groups.map(({ group: name }) => name);
+    [order[index], order[destination]] = [order[destination], order[index]];
+    setReordering(true);
+    void run(() => mutate("/api/robin/links", "PATCH", {
+      action: "reorderGroups",
+      groups: order,
+    })).finally(() => setReordering(false));
   };
 
   return (
@@ -107,33 +165,116 @@ export function LinksPanel() {
         <p className="py-2 text-sm" style={{ color: "var(--text-dim)" }}>{t("robin.links.empty")}</p>
       )}
 
-      {groups.map(({ group: name, links }) => (
+      {groups.map(({ group: name, links }, index) => (
         <div key={name} className="flex flex-col gap-1">
-          <h3 className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-dim)" }}>
-            {name}
-          </h3>
+          <div className="flex min-h-7 items-center justify-between gap-2">
+            <h3 className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-dim)" }}>
+              {name}
+            </h3>
+            {groups.length > 1 && (
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  disabled={reordering || index === 0}
+                  onClick={() => moveGroup(index, -1)}
+                  aria-label={t("robin.links.moveUp", { group: name })}
+                  title={t("robin.links.moveUp", { group: name })}
+                  className="ui-action ui-action--outline-soft flex size-7 items-center justify-center rounded disabled:opacity-30"
+                >
+                  <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="2.5 7.5 6 4 9.5 7.5" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  disabled={reordering || index === groups.length - 1}
+                  onClick={() => moveGroup(index, 1)}
+                  aria-label={t("robin.links.moveDown", { group: name })}
+                  title={t("robin.links.moveDown", { group: name })}
+                  className="ui-action ui-action--outline-soft flex size-7 items-center justify-center rounded disabled:opacity-30"
+                >
+                  <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="2.5 4.5 6 8 9.5 4.5" />
+                  </svg>
+                </button>
+              </div>
+            )}
+          </div>
           {links.map((link) => (
             <div
               key={link.id}
               className="group flex items-center gap-2 rounded px-2 py-1"
               style={{ background: "var(--bg-subtle)" }}
             >
-              {/* noreferrer matters here: these URLs are user- and agent-supplied. */}
-              <a
-                href={link.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="min-w-0 flex-1 truncate text-sm hover:underline"
-                style={{ color: "var(--text)" }}
-                title={link.url}
-              >
-                {link.title}
-              </a>
+              <LinkIcon link={link} />
+              {editingId === link.id ? (
+                // Two fields, so saving is explicit: blur-to-save would fire
+                // while moving between them.
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <input
+                    ref={editRef}
+                    value={draftTitle}
+                    onChange={(event) => setDraftTitle(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") commitEdit(link.id);
+                      if (event.key === "Escape") setEditingId(null);
+                    }}
+                    aria-label={t("robin.links.namePlaceholder")}
+                    autoFocus
+                    className="w-full rounded px-1 py-0.5 text-sm outline-none"
+                    style={{ background: "var(--bg)", border: "1px solid var(--accent)", color: "var(--text)" }}
+                  />
+                  <input
+                    value={draftUrl}
+                    onChange={(event) => setDraftUrl(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") commitEdit(link.id);
+                      if (event.key === "Escape") setEditingId(null);
+                    }}
+                    aria-label={t("robin.links.urlPlaceholder")}
+                    spellCheck={false}
+                    className="w-full rounded px-1 py-0.5 text-xs outline-none"
+                    style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+                  />
+                </div>
+              ) : (
+                /* noreferrer matters here: these URLs are user- and agent-supplied.
+                   Renaming is a button rather than a double-click: the first
+                   click of a double-click has already opened the tab, and
+                   delaying navigation to wait for a second click would both slow
+                   every link down and get window.open caught by popup blockers. */
+                <a
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="min-w-0 flex-1 truncate text-sm hover:underline"
+                  style={{ color: "var(--text)" }}
+                  title={link.url}
+                >
+                  {link.title}
+                </a>
+              )}
+              {/* Dim rather than hidden: a hover-only control is unreachable on
+                  a touch screen, and this dashboard is meant to work on a phone. */}
               <button
                 type="button"
-                onClick={() => void run(() => mutate("/api/robin/links", "DELETE", { id: link.id }))}
-                aria-label={t("robin.links.delete", { title: link.title })}
-                className="shrink-0 px-1 text-xs opacity-0 transition-opacity group-hover:opacity-100"
+                onClick={() => (editingId === link.id ? commitEdit(link.id) : startEdit(link))}
+                aria-label={t("robin.links.edit", { title: link.title })}
+                title={t("robin.links.edit", { title: link.title })}
+                className="shrink-0 px-1 text-xs opacity-40 transition-opacity hover:opacity-100 group-hover:opacity-100"
+                style={{ color: editingId === link.id ? "var(--accent)" : "var(--text-dim)" }}
+              >
+                {editingId === link.id ? "✓" : "✎"}
+              </button>
+              <button
+                type="button"
+                onClick={() => (editingId === link.id
+                  ? setEditingId(null)
+                  : void run(() => mutate("/api/robin/links", "DELETE", { id: link.id })))}
+                aria-label={editingId === link.id
+                  ? t("robin.common.cancel")
+                  : t("robin.links.delete", { title: link.title })}
+                className="shrink-0 px-1 text-xs opacity-40 transition-opacity hover:opacity-100 group-hover:opacity-100"
                 style={{ color: "var(--text-dim)" }}
               >
                 ✕
@@ -143,5 +284,47 @@ export function LinksPanel() {
         </div>
       ))}
     </section>
+  );
+}
+
+/** The site's own icon when we have one, a deterministic tile when we do not. */
+function LinkIcon({ link }: { link: Link }) {
+  const [failed, setFailed] = useState(false);
+  const { letter, hue } = iconFallback(link);
+
+  if (link.icon && !failed) {
+    // Served from our own cache at its natural 16px size; next/image would add
+    // an optimisation proxy for no benefit and a remote-pattern allow-list for
+    // images that are already local.
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        // The path alone is stable, so a refreshed icon would keep serving the
+        // cached old one for a day. Keying on the fetch time changes the URL
+        // exactly when the bytes change, which is what makes the long
+        // Cache-Control safe.
+        src={`/api/robin/links/icon/${link.id}?v=${encodeURIComponent(link.iconCheckedAt ?? "")}`}
+        alt=""
+        width={16}
+        height={16}
+        onError={() => setFailed(true)}
+        className="size-4 shrink-0 rounded-sm object-contain"
+      />
+    );
+  }
+
+  return (
+    <span
+      aria-hidden
+      className="flex size-4 shrink-0 items-center justify-center rounded-sm text-[10px] font-semibold"
+      style={{
+        // Fixed saturation and lightness keep every tile legible on both themes
+        // while the hue still distinguishes one site from another.
+        background: `hsl(${hue} 45% 55%)`,
+        color: "#fff",
+      }}
+    >
+      {letter}
+    </span>
   );
 }

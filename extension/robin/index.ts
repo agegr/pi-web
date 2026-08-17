@@ -11,7 +11,8 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { fetchPageTitle } from "./fetch-title.ts";
+import { fetchPageMetadata, nameFromUrl } from "./fetch-title.ts";
+import { storeIcon } from "./icons.ts";
 import { fetchEvents as fetchGoogleEvents, isConnected as googleConnected } from "./google-calendar.ts";
 import {
   addDays,
@@ -169,15 +170,20 @@ const robin = (pi: ExtensionAPI) => {
       // Looking the title up is what turns a pasted URL into something the
       // user recognises in the panel; the hostname is only the fallback.
       const given = params.title?.trim();
-      const fetched = given ? null : await fetchPageTitle(url);
-      const title = given || fetched || new URL(url).hostname || url;
+      const { title: fetched, iconUrl } = await fetchPageMetadata(url);
+      const title = given || fetched || nameFromUrl(url);
+
+      const id = newId();
+      const icon = iconUrl ? await storeIcon(id, iconUrl) : null;
 
       const links = readLinks();
       const link: Link = {
-        id: newId(),
+        id,
         title,
         url,
         ...(params.group?.trim() ? { group: params.group.trim() } : {}),
+        ...(icon ? { icon } : {}),
+        iconCheckedAt: new Date().toISOString(),
         createdAt: new Date().toISOString(),
       };
       links.push(link);
@@ -188,7 +194,9 @@ const robin = (pi: ExtensionAPI) => {
         ? " (title read from the page)"
         : given
           ? ""
-          : " (page title unavailable, used the hostname)";
+          : " (the page gave no usable title — a login wall or error page —"
+            + " so this name comes from the URL; the user can rename it by"
+            + " double-clicking it on the dashboard)";
       return text(
         `Saved "${link.title}" → ${link.url}${link.group ? ` under ${link.group}` : ""}${provenance}`,
       );

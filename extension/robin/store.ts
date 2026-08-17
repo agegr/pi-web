@@ -24,7 +24,7 @@ export {
   normalizeTime,
   type CalendarEvent,
 } from "./events.ts";
-export { groupLinks, normalizeUrl, type Link } from "./links.ts";
+export { groupLinks, iconFallback, normalizeUrl, reorderLinkGroups, type Link } from "./links.ts";
 export { dataDir, newId } from "./paths.ts";
 
 const TODOS_FILE = "todos.json";

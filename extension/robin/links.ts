@@ -13,8 +13,38 @@ export interface Link {
   url: string;
   /** Free-form grouping shown as a section heading, e.g. "Apps" or "Reading". */
   group?: string;
+  /** File extension of the cached icon, absent when there is none. */
+  icon?: string;
+  /**
+   * UTC instant of the last icon lookup, set whether or not one was found.
+   * Without it a link whose site has no icon would be re-fetched forever.
+   */
+  iconCheckedAt?: string;
   /** UTC instant, ISO 8601. */
   createdAt: string;
+}
+
+/**
+ * A deterministic tile for links with no icon.
+ *
+ * Derived from the host so it never changes, and computed locally so a missing
+ * icon still costs no network request. Many favicons are illegible at this size
+ * anyway, which makes this a reasonable fallback rather than a poor one.
+ */
+export function iconFallback(link: Pick<Link, "title" | "url">): { letter: string; hue: number } {
+  let host = link.title;
+  try {
+    host = new URL(link.url).hostname.replace(/^www\./, "");
+  } catch {
+    // A malformed URL still deserves a tile; fall back to the title.
+  }
+
+  const letter = (/\p{L}|\p{N}/u.exec(host)?.[0] ?? "?").toUpperCase();
+  let hash = 0;
+  for (let index = 0; index < host.length; index += 1) {
+    hash = (hash * 31 + host.charCodeAt(index)) % 360;
+  }
+  return { letter, hue: hash };
 }
 
 /**
@@ -53,4 +83,16 @@ export function groupLinks(links: Link[]): { group: string; links: Link[] }[] {
     else groups.set(key, [link]);
   }
   return [...groups].map(([group, items]) => ({ group, links: items }));
+}
+
+/** Reorder section blocks while preserving the order of links inside each one. */
+export function reorderLinkGroups(links: Link[], order: string[]): Link[] {
+  const groups = groupLinks(links);
+  const byName = new Map(groups.map((group) => [group.group, group.links]));
+  const uniqueOrder = [...new Set(order)];
+  const requested = new Set(uniqueOrder);
+  return [
+    ...uniqueOrder.flatMap((name) => byName.get(name) ?? []),
+    ...groups.filter(({ group }) => !requested.has(group)).flatMap(({ links: items }) => items),
+  ];
 }

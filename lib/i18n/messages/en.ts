@@ -135,7 +135,10 @@ export const enLocale: LocalePlugin = {
     "robin.links.urlPlaceholder": "example.com/path",
     "robin.links.namePlaceholder": "Name (optional)",
     "robin.links.groupPlaceholder": "Group",
+    "robin.links.edit": "Edit {title}",
     "robin.links.delete": "Delete {title}",
+    "robin.links.moveUp": "Move {group} up",
+    "robin.links.moveDown": "Move {group} down",
     "robin.links.otherGroup": "Other",
 
     "robin.google.connected": "Google Calendar connected (read-only)",

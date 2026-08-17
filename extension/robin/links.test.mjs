@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { groupLinks, normalizeUrl } from "./links.ts";
+import { groupLinks, normalizeUrl, reorderLinkGroups } from "./links.ts";
 
 test("normalizeUrl defaults a missing scheme to https", () => {
   assert.equal(normalizeUrl("github.com/agegr/pi-web"), "https://github.com/agegr/pi-web");
@@ -28,4 +28,13 @@ test("groupLinks buckets by group and preserves first-seen order", () => {
     grouped.map((g) => [g.group, g.links.map((l) => l.id)]),
     [["Apps", ["a", "c"]], ["Reading", ["b"]], ["Other", ["d"]]],
   );
+});
+
+test("reorderLinkGroups moves whole sections without disturbing their links", () => {
+  const link = (id, group) => ({ id, title: id, url: "https://x", createdAt: "", ...(group ? { group } : {}) });
+  const reordered = reorderLinkGroups(
+    [link("a", "Apps"), link("b", "Reading"), link("c", "Apps"), link("d")],
+    ["Other", "Apps", "Reading"],
+  );
+  assert.deepEqual(reordered.map(({ id }) => id), ["d", "a", "c", "b"]);
 });
