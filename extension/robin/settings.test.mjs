@@ -17,11 +17,20 @@ const {
   googleCredentials,
   parseChatIds,
   secretsPath,
+  setDailyAgenda,
   setGoogleCredentials,
   setTelegramChatIds,
   setTelegramToken,
   telegramSettings,
 } = await import("./settings.ts");
+const {
+  markDailyAgendaSent,
+  readAssistantSessionId,
+  readDailyAgendaDelivery,
+  readDailyAgendaSessionId,
+  writeAssistantSessionId,
+  writeDailyAgendaSessionId,
+} = await import("./store.ts");
 
 after(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -93,6 +102,32 @@ test("telegram token and chat ids are stored independently", () => {
 test("chat ids are returned in full because they are not secret", () => {
   setTelegramChatIds([42]);
   assert.deepEqual(describeTelegram().allowedChatIds, [42]);
+});
+
+test("daily agenda settings round-trip and validate times", () => {
+  const agenda = { enabled: true, time: "07:30", locale: "zh" };
+  setDailyAgenda(agenda);
+  assert.deepEqual(telegramSettings().dailyAgenda, agenda);
+  assert.throws(
+    () => setDailyAgenda({ ...agenda, time: "25:00" }),
+    /must be HH:MM/,
+  );
+});
+
+test("interactive and read-only assistants keep separate sessions", () => {
+  writeAssistantSessionId("interactive");
+  writeDailyAgendaSessionId("daily-agenda");
+  assert.equal(readAssistantSessionId(), "interactive");
+  assert.equal(readDailyAgendaSessionId(), "daily-agenda");
+});
+
+test("daily agenda delivery state survives restarts and tracks chats independently", () => {
+  assert.equal(readDailyAgendaDelivery(), null);
+  markDailyAgendaSent("2026-08-17", 42);
+  markDailyAgendaSent("2026-08-17", 43);
+  assert.deepEqual(readDailyAgendaDelivery(), { date: "2026-08-17", chatIds: [42, 43] });
+  markDailyAgendaSent("2026-08-18", 42);
+  assert.deepEqual(readDailyAgendaDelivery(), { date: "2026-08-18", chatIds: [42] });
 });
 
 test("the telegram token is only ever summarised", () => {

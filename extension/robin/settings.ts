@@ -1,5 +1,5 @@
 /**
- * Credential storage for the dashboard settings screen.
+ * Credential and Telegram preference storage for the dashboard settings screen.
  *
  * Server-only. Nothing here may be imported by a client component, and the
  * values themselves must never be sent to the browser — the API returns
@@ -23,10 +23,27 @@ import { chmodSync } from "node:fs";
 import { dataPath, readJsonObject, writeJsonObject } from "./paths.ts";
 
 const SECRETS_FILE = "secrets.json";
+const DAILY_AGENDA_TIME = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+
+export interface DailyAgendaSettings {
+  enabled: boolean;
+  time: string;
+  locale: "en" | "zh";
+}
+
+export const DEFAULT_DAILY_AGENDA: DailyAgendaSettings = {
+  enabled: false,
+  time: "08:00",
+  locale: "en",
+};
 
 export interface RobinSecrets {
   google?: { clientId?: string; clientSecret?: string };
-  telegram?: { botToken?: string; allowedChatIds?: number[] };
+  telegram?: {
+    botToken?: string;
+    allowedChatIds?: number[];
+    dailyAgenda?: DailyAgendaSettings;
+  };
 }
 
 export type SecretSource = "file" | "env";
@@ -114,25 +131,46 @@ export function clearGoogleCredentials(): void {
 
 /* ---------- Telegram ---------- */
 
-export function telegramSettings(): { botToken?: string; allowedChatIds: number[] } {
+export function telegramSettings(): {
+  botToken?: string;
+  allowedChatIds: number[];
+  dailyAgenda: DailyAgendaSettings;
+} {
   const secrets = read();
   const token = pick(secrets.telegram?.botToken, process.env.TELEGRAM_BOT_TOKEN);
   const fileIds = secrets.telegram?.allowedChatIds;
+  const storedAgenda = secrets.telegram?.dailyAgenda;
+  const dailyAgenda = storedAgenda
+    ? {
+        enabled: storedAgenda.enabled === true,
+        time: DAILY_AGENDA_TIME.test(storedAgenda.time)
+          ? storedAgenda.time
+          : DEFAULT_DAILY_AGENDA.time,
+        locale: storedAgenda.locale === "zh" ? "zh" as const : "en" as const,
+      }
+    : { ...DEFAULT_DAILY_AGENDA };
   return {
     botToken: token.value,
     allowedChatIds: Array.isArray(fileIds) && fileIds.length > 0
       ? fileIds
       : parseChatIds(process.env.TELEGRAM_ALLOWED_CHAT_IDS),
+    dailyAgenda,
   };
 }
 
-/** Chat ids are not secret, so they are returned in full. */
-export function describeTelegram(): { botToken: SecretStatus; allowedChatIds: number[] } {
+/** Chat ids and reminder settings are not secret, so they are returned in full. */
+export function describeTelegram(): {
+  botToken: SecretStatus;
+  allowedChatIds: number[];
+  dailyAgenda: DailyAgendaSettings;
+} {
   const secrets = read();
   const token = pick(secrets.telegram?.botToken, process.env.TELEGRAM_BOT_TOKEN);
+  const settings = telegramSettings();
   return {
     botToken: describeSecret(token.value, token.source),
-    allowedChatIds: telegramSettings().allowedChatIds,
+    allowedChatIds: settings.allowedChatIds,
+    dailyAgenda: settings.dailyAgenda,
   };
 }
 
@@ -144,6 +182,17 @@ export function setTelegramToken(botToken: string): void {
 export function setTelegramChatIds(allowedChatIds: number[]): void {
   const secrets = read();
   write({ ...secrets, telegram: { ...secrets.telegram, allowedChatIds } });
+}
+
+export function setDailyAgenda(dailyAgenda: DailyAgendaSettings): void {
+  if (!DAILY_AGENDA_TIME.test(dailyAgenda.time)) {
+    throw new Error("Daily agenda time must be HH:MM");
+  }
+  if (dailyAgenda.locale !== "en" && dailyAgenda.locale !== "zh") {
+    throw new Error("Daily agenda language must be en or zh");
+  }
+  const secrets = read();
+  write({ ...secrets, telegram: { ...secrets.telegram, dailyAgenda } });
 }
 
 export function clearTelegram(): void {

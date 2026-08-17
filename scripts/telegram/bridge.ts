@@ -17,7 +17,17 @@
  * Run with:  node --experimental-strip-types scripts/telegram/bridge.ts
  */
 import { pathToFileURL } from "node:url";
-import { telegramSettings } from "../../extension/robin/settings.ts";
+import { localDate } from "../../extension/robin/dates.ts";
+import {
+  DEFAULT_DAILY_AGENDA,
+  telegramSettings,
+  type DailyAgendaSettings,
+} from "../../extension/robin/settings.ts";
+import {
+  markDailyAgendaSent,
+  readDailyAgendaDelivery,
+  type DailyAgendaDelivery,
+} from "../../extension/robin/store.ts";
 import {
   chunkMessage,
   errorMessage,
@@ -43,12 +53,15 @@ export interface BridgeConfig {
   piWebUrl: string;
   /** Basic-auth password when PI_WEB_PASSWORD is set on pi-web. */
   password?: string;
+  dailyAgenda: DailyAgendaSettings;
 }
 
 export interface BridgeDeps {
   fetch: typeof fetch;
   log: (message: string) => void;
   now: () => number;
+  readDailyAgendaDelivery: () => DailyAgendaDelivery | null;
+  markDailyAgendaSent: (date: string, chatId: number) => void;
 }
 
 /**
@@ -61,7 +74,11 @@ export interface BridgeDeps {
  */
 export function readConfig(
   env: NodeJS.ProcessEnv,
-  stored: { botToken?: string; allowedChatIds: number[] } = telegramSettings(),
+  stored: {
+    botToken?: string;
+    allowedChatIds: number[];
+    dailyAgenda?: DailyAgendaSettings;
+  } = telegramSettings(),
 ): BridgeConfig {
   const token = stored.botToken?.trim() || env.TELEGRAM_BOT_TOKEN?.trim();
   if (!token) {
@@ -79,6 +96,7 @@ export function readConfig(
     allowlist,
     piWebUrl: (env.PI_WEB_URL?.trim() || "http://127.0.0.1:30141").replace(/\/$/, ""),
     ...(env.PI_WEB_PASSWORD?.trim() ? { password: env.PI_WEB_PASSWORD.trim() } : {}),
+    dailyAgenda: stored.dailyAgenda ?? { ...DEFAULT_DAILY_AGENDA },
   };
 }
 
@@ -126,6 +144,7 @@ export async function askAssistant(
   deps: BridgeDeps,
   message: string,
   locale: BridgeLocale = "en",
+  readOnly = false,
 ): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), AGENT_TIMEOUT_MS);
@@ -139,7 +158,7 @@ export async function askAssistant(
           ? { Authorization: `Basic ${Buffer.from(`pi:${config.password}`).toString("base64")}` }
           : {}),
       },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, ...(readOnly ? { readOnly: true } : {}) }),
     });
     const parsed = await response.json().catch(() => null) as
       { reply?: string; usedTools?: string[]; error?: string } | null;
@@ -150,6 +169,43 @@ export async function askAssistant(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Returns the machine-local date once today's configured send time has arrived. */
+export function dailyAgendaRunKey(
+  schedule: DailyAgendaSettings,
+  now: number,
+): string | null {
+  if (!schedule.enabled) return null;
+  const at = new Date(now);
+  const time = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+  return time >= schedule.time ? localDate(at) : null;
+}
+
+export function pendingDailyAgendaChatIds(
+  allowlist: number[],
+  date: string,
+  delivery: DailyAgendaDelivery | null,
+): number[] {
+  if (delivery?.date !== date) return allowlist;
+  return allowlist.filter((chatId) => !delivery.chatIds.includes(chatId));
+}
+
+export async function sendDailyAgenda(
+  config: BridgeConfig,
+  deps: BridgeDeps,
+  date: string,
+  chatIds = config.allowlist,
+): Promise<void> {
+  const prompt = config.dailyAgenda.locale === "zh"
+    ? `生成 ${date} 的 Telegram 每日简报。必须调用 todo_list 和 calendar_list_events，简洁列出今天的日程和未完成待办。不要新增或修改任何内容，只返回可直接发送的简报。`
+    : `Create my Telegram daily briefing for ${date}. You must call todo_list and calendar_list_events. Concisely list today's agenda and unfinished todos. Do not add or change anything; return only the ready-to-send briefing.`;
+  const reply = await askAssistant(config, deps, prompt, config.dailyAgenda.locale, true);
+  for (const chatId of chatIds) {
+    await sendMessage(config, deps, chatId, reply);
+    deps.markDailyAgendaSent(date, chatId);
+  }
+  deps.log(`[daily agenda] sent ${date} to ${chatIds.length} chat(s)`);
 }
 
 export async function handleMessage(
@@ -230,6 +286,17 @@ export async function run(config: BridgeConfig, deps: BridgeDeps): Promise<void>
   for (;;) {
     try {
       offset = await pollOnce(config, deps, offset);
+      const runKey = config.allowlist.length > 0
+        ? dailyAgendaRunKey(config.dailyAgenda, deps.now())
+        : null;
+      if (runKey) {
+        const pending = pendingDailyAgendaChatIds(
+          config.allowlist,
+          runKey,
+          deps.readDailyAgendaDelivery(),
+        );
+        if (pending.length > 0) await sendDailyAgenda(config, deps, runKey, pending);
+      }
       backoff = BACKOFF_START_MS;
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
@@ -252,6 +319,8 @@ if (invokedDirectly) {
     fetch: globalThis.fetch,
     log: (message) => console.log(`${new Date().toISOString()} ${message}`),
     now: () => Date.now(),
+    readDailyAgendaDelivery,
+    markDailyAgendaSent,
   };
   try {
     await run(readConfig(process.env), deps);

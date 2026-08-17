@@ -6,6 +6,7 @@ import {
   describeTelegram,
   parseChatIds,
   secretsPath,
+  setDailyAgenda,
   setGoogleCredentials,
   setTelegramChatIds,
   setTelegramToken,
@@ -61,6 +62,7 @@ export async function POST(req: Request) {
       clientSecret?: unknown;
       botToken?: unknown;
       chatIds?: unknown;
+      dailyAgenda?: unknown;
     };
 
     if (body.section === "google") {
@@ -81,6 +83,14 @@ export async function POST(req: Request) {
       }
       if (typeof body.chatIds === "string") {
         setTelegramChatIds(parseChatIds(body.chatIds));
+      }
+      if (typeof body.dailyAgenda === "object" && body.dailyAgenda !== null) {
+        const agenda = body.dailyAgenda as Record<string, unknown>;
+        setDailyAgenda({
+          enabled: agenda.enabled === true,
+          time: typeof agenda.time === "string" ? agenda.time : "",
+          locale: agenda.locale === "zh" ? "zh" : "en",
+        });
       }
       return NextResponse.json({ telegram: describeTelegram() });
     }

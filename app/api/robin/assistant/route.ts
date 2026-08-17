@@ -3,9 +3,11 @@ import { mkdirSync } from "node:fs";
 import {
   dataDir,
   readAssistantSessionId,
+  readDailyAgendaSessionId,
   writeAssistantSessionId,
+  writeDailyAgendaSessionId,
 } from "@/extension/robin/store";
-import { ROBIN_TOOL_NAMES } from "@/extension/robin/tools";
+import { ROBIN_READ_ONLY_TOOL_NAMES, ROBIN_TOOL_NAMES } from "@/extension/robin/tools";
 import { getRpcSession, startRpcSession, type AgentSessionWrapper } from "@/lib/rpc-manager";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { resolveSessionPath } from "@/lib/session-reader";
@@ -30,21 +32,23 @@ interface AgentEventLike {
  * set, which includes bash. Re-applying the allow-list here is what keeps the
  * restriction true for the life of the session.
  */
-async function acquireSession(): Promise<{ session: AgentSessionWrapper; sessionId: string }> {
-  const remembered = readAssistantSessionId();
-
+async function acquireSession(
+  toolNames: string[],
+  remembered: string | null,
+  remember: (sessionId: string) => void,
+): Promise<{ session: AgentSessionWrapper; sessionId: string }> {
   if (remembered) {
     const live = getRpcSession(remembered);
     if (live?.isAlive()) {
-      await live.send({ type: "set_tools", toolNames: TOOL_NAMES });
+      await live.send({ type: "set_tools", toolNames });
       return { session: live, sessionId: remembered };
     }
     const filePath = await resolveSessionPath(remembered);
     if (filePath) {
       const { session, realSessionId } = await startRpcSession(remembered, filePath, undefined, {
-        toolNames: TOOL_NAMES,
+        toolNames,
       });
-      await session.send({ type: "set_tools", toolNames: TOOL_NAMES });
+      await session.send({ type: "set_tools", toolNames });
       return { session, sessionId: realSessionId };
     }
     // Remembered id no longer resolves (session deleted, agent dir moved): fall
@@ -57,9 +61,9 @@ async function acquireSession(): Promise<{ session: AgentSessionWrapper; session
     `__robin_assistant__${Date.now()}`,
     "",
     cwd,
-    { toolNames: TOOL_NAMES },
+    { toolNames },
   );
-  writeAssistantSessionId(realSessionId);
+  remember(realSessionId);
   return { session, sessionId: realSessionId };
 }
 
@@ -139,13 +143,19 @@ export async function POST(req: Request) {
   }
 
   try {
-    const body = await req.json() as { message?: unknown };
+    const body = await req.json() as { message?: unknown; readOnly?: unknown };
     const message = typeof body.message === "string" ? body.message.trim() : "";
     if (!message) {
       return NextResponse.json({ error: "message is required" }, { status: 400 });
     }
 
-    const { session, sessionId } = await acquireSession();
+    const readOnly = body.readOnly === true;
+    const toolNames = readOnly ? [...ROBIN_READ_ONLY_TOOL_NAMES] : TOOL_NAMES;
+    const { session, sessionId } = await acquireSession(
+      toolNames,
+      readOnly ? readDailyAgendaSessionId() : readAssistantSessionId(),
+      readOnly ? writeDailyAgendaSessionId : writeAssistantSessionId,
+    );
     const { reply, usedTools } = await runTurn(session, message);
     return NextResponse.json({ reply, usedTools, sessionId });
   } catch (error) {

@@ -146,6 +146,8 @@ npm run telegram
 - 桥接通过 HTTP 调用 pi-web 的 `/api/robin/assistant`，所以它**继承同一套工具边界**，
   而不是另起一套。
 - 回复跟随发送者的 Telegram 客户端语言。
+- **每日简报。** 在**设置 → Telegram** 中配置本机发送时间和语言。发送状态按 chat
+  持久化，因此重启桥接或重试部分失败的群发不会重复发送。
 - **pi-web 必须在运行。** 桥接是它的客户端；pi-web 停了，每条消息都会回错误。
 - 改了 Telegram 设置需要重启桥接——它在启动时读取配置。
 
@@ -163,11 +165,12 @@ npm run telegram
 | `todos.json` | 待办列表 |
 | `events.json` | 本地创建的日历事件 |
 | `links.json` | 保存的链接 |
-| `assistant.json` | 仪表盘助手使用的 pi 会话 id |
-| `secrets.json` | Google 和 Telegram 凭据 —— **权限 0600** |
+| `assistant.json` | 交互助手与只读简报助手使用的 pi 会话 id |
+| `telegram-state.json` | 当天已成功发送每日简报的 chat |
+| `secrets.json` | Google、Telegram 凭据和 Telegram 设置 —— **权限 0600** |
 | `google.json` | Google refresh token —— **长期有效的凭据，权限 0600** |
 
-前四个刻意用普通 JSON：可以 grep、可以进 git、可以像普通文件一样备份。
+前五个刻意用普通 JSON：可以 grep、可以进 git、可以像普通文件一样备份。
 
 `secrets.json` 和 `google.json` 是例外——它们存的是你日历和消息账号的长期凭据。
 不要放进任何你不会放密码的仓库或同步目录。

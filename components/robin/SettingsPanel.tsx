@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { DailyAgendaSettings } from "@/extension/robin/settings";
 import { useI18n } from "@/hooks/useI18n";
 
 interface SecretStatus {
@@ -13,18 +14,81 @@ interface SecretStatus {
 
 interface SettingsResponse {
   google: { clientId: SecretStatus; clientSecret: SecretStatus };
-  telegram: { botToken: SecretStatus; allowedChatIds: number[] };
+  telegram: {
+    botToken: SecretStatus;
+    allowedChatIds: number[];
+    dailyAgenda: DailyAgendaSettings;
+  };
   storedAt: string;
   googleRedirectUri: string;
 }
 
 type Translate = (key: string, params?: Record<string, string>) => string;
+type SaveAction = "google" | "token" | "chatIds" | "dailyAgenda";
+type SavePhase = "saving" | "saved";
 
 const inputStyle = {
   background: "var(--bg)",
   border: "1px solid var(--border)",
   color: "var(--text)",
 } as const;
+
+function SaveButton({
+  label,
+  phase,
+  disabled,
+  onClick,
+  className = "",
+  t,
+}: {
+  label: string;
+  phase?: SavePhase;
+  disabled: boolean;
+  onClick: () => void;
+  className?: string;
+  t: Translate;
+}) {
+  const saved = phase === "saved";
+  return (
+    <button
+      type="button"
+      disabled={disabled || phase !== undefined}
+      onClick={onClick}
+      aria-live="polite"
+      aria-busy={phase === "saving"}
+      className={`min-h-11 cursor-pointer rounded px-3 py-2 text-sm font-medium disabled:cursor-default ${className}`}
+      style={{
+        background: saved ? "var(--success)" : "var(--accent)",
+        color: "#fff",
+        opacity: disabled && phase === undefined ? 0.4 : 1,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        transition: "background-color 0.2s ease",
+        animation: saved ? "saved-pop 0.45s ease" : undefined,
+      }}
+    >
+      {saved && (
+        <svg
+          aria-hidden="true"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{ strokeDasharray: 18, animation: "saved-check-draw 0.35s ease forwards" }}
+        >
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      )}
+      {saved ? t("i18n.saved") : phase === "saving" ? t("i18n.saving") : label}
+    </button>
+  );
+}
 
 /** Shows presence and provenance only — the value itself never reaches here. */
 function StatusLine({ label, status, t }: { label: string; status: SecretStatus; t: Translate }) {
@@ -53,11 +117,14 @@ export function SettingsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState<{ action: SaveAction; phase: SavePhase } | null>(null);
+  const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [botToken, setBotToken] = useState("");
   const [chatIds, setChatIds] = useState("");
+  const [dailyAgenda, setDailyAgenda] = useState<DailyAgendaSettings | null>(null);
   const [detected, setDetected] = useState<{ id: number; name: string }[] | null>(null);
 
   const load = useCallback(async () => {
@@ -67,6 +134,7 @@ export function SettingsPanel() {
       if (!response.ok) throw new Error(body.error ?? `Request failed (${response.status})`);
       setData(body);
       setChatIds(body.telegram.allowedChatIds.join(", "));
+      setDailyAgenda(body.telegram.dailyAgenda);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -76,10 +144,21 @@ export function SettingsPanel() {
     void load();
   }, [load]);
 
-  async function send(method: string, payload: unknown, message: string) {
+  useEffect(() => () => {
+    if (feedbackTimer.current) clearTimeout(feedbackTimer.current);
+  }, []);
+
+  async function send(
+    method: string,
+    payload: unknown,
+    message: string,
+    action?: SaveAction,
+  ): Promise<boolean> {
+    if (feedbackTimer.current) clearTimeout(feedbackTimer.current);
     setBusy(true);
     setError(null);
     setNotice(null);
+    setSaveFeedback(action ? { action, phase: "saving" } : null);
     try {
       const response = await fetch("/api/robin/settings", {
         method,
@@ -90,8 +169,15 @@ export function SettingsPanel() {
       if (!response.ok) throw new Error(body?.error ?? `Request failed (${response.status})`);
       setNotice(message);
       await load();
+      if (action) {
+        setSaveFeedback({ action, phase: "saved" });
+        feedbackTimer.current = setTimeout(() => setSaveFeedback(null), 2000);
+      }
+      return true;
     } catch (caught) {
+      setSaveFeedback(null);
       setError(caught instanceof Error ? caught.message : String(caught));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -146,7 +232,7 @@ export function SettingsPanel() {
       </section>
 
       {error && <p className="text-sm" style={{ color: "var(--accent)" }}>{error}</p>}
-      {notice && <p className="text-sm" style={{ color: "var(--text-muted)" }}>{notice}</p>}
+      {notice && <p role="status" className="text-sm" style={{ color: "var(--success)" }}>{notice}</p>}
 
       {/* ---------- Google ---------- */}
       <section
@@ -193,19 +279,20 @@ export function SettingsPanel() {
           style={inputStyle}
         />
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
+          <SaveButton
+            label={t("robin.common.save")}
+            phase={saveFeedback?.action === "google" ? saveFeedback.phase : undefined}
             disabled={busy || !clientId.trim() || !clientSecret.trim()}
             onClick={() => void send(
               "POST",
               { section: "google", clientId, clientSecret },
               t("robin.settings.googleSaved"),
-            ).then(() => { setClientId(""); setClientSecret(""); })}
-            className="rounded px-3 py-1 text-sm disabled:opacity-40"
-            style={{ background: "var(--accent)", color: "#fff" }}
-          >
-            {t("robin.common.save")}
-          </button>
+              "google",
+            ).then((saved) => {
+              if (saved) { setClientId(""); setClientSecret(""); }
+            })}
+            t={t}
+          />
           <button
             type="button"
             disabled={busy || !data?.google.clientId.set}
@@ -239,19 +326,21 @@ export function SettingsPanel() {
           className="rounded px-2 py-1 text-sm outline-none"
           style={inputStyle}
         />
-        <button
-          type="button"
+        <SaveButton
+          label={t("robin.settings.saveToken")}
+          phase={saveFeedback?.action === "token" ? saveFeedback.phase : undefined}
           disabled={busy || !botToken.trim()}
           onClick={() => void send(
             "POST",
             { section: "telegram", botToken },
             t("robin.settings.tokenSaved"),
-          ).then(() => setBotToken(""))}
-          className="self-start rounded px-3 py-1 text-sm disabled:opacity-40"
-          style={{ background: "var(--accent)", color: "#fff" }}
-        >
-          {t("robin.settings.saveToken")}
-        </button>
+            "token",
+          ).then((saved) => {
+            if (saved) setBotToken("");
+          })}
+          className="self-start"
+          t={t}
+        />
 
         <div className="mt-2 flex flex-col gap-2 border-t pt-3" style={{ borderColor: "var(--border)" }}>
           <p className="text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.settings.chatIdsHint")}</p>
@@ -264,19 +353,18 @@ export function SettingsPanel() {
             style={inputStyle}
           />
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
+            <SaveButton
+              label={t("robin.settings.saveChatIds")}
+              phase={saveFeedback?.action === "chatIds" ? saveFeedback.phase : undefined}
               disabled={busy}
               onClick={() => void send(
                 "POST",
                 { section: "telegram", chatIds },
                 t("robin.settings.chatIdsSaved"),
+                "chatIds",
               )}
-              className="rounded px-3 py-1 text-sm disabled:opacity-40"
-              style={{ background: "var(--accent)", color: "#fff" }}
-            >
-              {t("robin.settings.saveChatIds")}
-            </button>
+              t={t}
+            />
             <button
               type="button"
               disabled={busy || !data?.telegram.botToken.set}
@@ -315,6 +403,69 @@ export function SettingsPanel() {
                 ))}
               </div>
             )
+          )}
+        </div>
+
+        <div className="flex flex-col gap-3 border-t pt-3" style={{ borderColor: "var(--border)" }}>
+          <div>
+            <h3 className="text-sm font-medium" style={{ color: "var(--text)" }}>
+              {t("robin.settings.dailyAgendaTitle")}
+            </h3>
+            <p className="text-xs" style={{ color: "var(--text-dim)" }}>
+              {t("robin.settings.dailyAgendaHint")}
+            </p>
+          </div>
+          {dailyAgenda && (
+            <>
+              <label className="flex min-h-11 items-center gap-2 text-sm" style={{ color: "var(--text)" }}>
+                <input
+                  type="checkbox"
+                  checked={dailyAgenda.enabled}
+                  onChange={(event) => setDailyAgenda({ ...dailyAgenda, enabled: event.target.checked })}
+                />
+                {t("robin.settings.dailyAgendaEnabled")}
+              </label>
+              <div className="grid gap-3 desktop:grid-cols-2">
+                <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                  {t("robin.settings.dailyAgendaTime")}
+                  <input
+                    type="time"
+                    value={dailyAgenda.time}
+                    onChange={(event) => setDailyAgenda({ ...dailyAgenda, time: event.target.value })}
+                    className="min-h-11 rounded px-2 text-sm"
+                    style={inputStyle}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                  {t("robin.settings.dailyAgendaLanguage")}
+                  <select
+                    value={dailyAgenda.locale}
+                    onChange={(event) => setDailyAgenda({
+                      ...dailyAgenda,
+                      locale: event.target.value === "zh" ? "zh" : "en",
+                    })}
+                    className="min-h-11 rounded px-2 text-sm"
+                    style={inputStyle}
+                  >
+                    <option value="en">English</option>
+                    <option value="zh">中文</option>
+                  </select>
+                </label>
+              </div>
+              <SaveButton
+                label={t("robin.settings.saveDailyAgenda")}
+                phase={saveFeedback?.action === "dailyAgenda" ? saveFeedback.phase : undefined}
+                disabled={busy || !dailyAgenda.time}
+                onClick={() => void send(
+                  "POST",
+                  { section: "telegram", dailyAgenda },
+                  t("robin.settings.dailyAgendaSaved"),
+                  "dailyAgenda",
+                )}
+                className="self-start"
+                t={t}
+              />
+            </>
           )}
         </div>
 

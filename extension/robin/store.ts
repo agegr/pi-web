@@ -31,6 +31,7 @@ const TODOS_FILE = "todos.json";
 const LINKS_FILE = "links.json";
 const EVENTS_FILE = "events.json";
 const ASSISTANT_FILE = "assistant.json";
+const TELEGRAM_STATE_FILE = "telegram-state.json";
 
 /** See ./dates.ts for why `due` and `createdAt` are different kinds of value. */
 export interface Todo {
@@ -85,12 +86,55 @@ export function writeEvents(events: CalendarEvent[]): void {
  * The pi session the dashboard assistant talks to, remembered across server
  * restarts so the conversation keeps its context ("move it to Thursday").
  */
+interface AssistantState {
+  sessionId?: string;
+  dailyAgendaSessionId?: string;
+  updatedAt?: string;
+}
+
+function readAssistantState(): AssistantState {
+  return readJsonObject<AssistantState>(ASSISTANT_FILE) ?? {};
+}
+
+function writeAssistantState(patch: Partial<AssistantState>): void {
+  writeJsonObject(ASSISTANT_FILE, {
+    ...readAssistantState(),
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
 export function readAssistantSessionId(): string | null {
-  return readJsonObject<{ sessionId?: string }>(ASSISTANT_FILE)?.sessionId ?? null;
+  return readAssistantState().sessionId ?? null;
 }
 
 export function writeAssistantSessionId(sessionId: string): void {
-  writeJsonObject(ASSISTANT_FILE, { sessionId, updatedAt: new Date().toISOString() });
+  writeAssistantState({ sessionId });
+}
+
+export function readDailyAgendaSessionId(): string | null {
+  return readAssistantState().dailyAgendaSessionId ?? null;
+}
+
+export function writeDailyAgendaSessionId(dailyAgendaSessionId: string): void {
+  writeAssistantState({ dailyAgendaSessionId });
+}
+
+export interface DailyAgendaDelivery {
+  date: string;
+  chatIds: number[];
+}
+
+export function readDailyAgendaDelivery(): DailyAgendaDelivery | null {
+  return readJsonObject<DailyAgendaDelivery>(TELEGRAM_STATE_FILE);
+}
+
+/** Record each successful chat separately so a partial broadcast can resume safely. */
+export function markDailyAgendaSent(date: string, chatId: number): void {
+  const current = readDailyAgendaDelivery();
+  const chatIds = current?.date === date ? current.chatIds : [];
+  if (chatIds.includes(chatId)) return;
+  writeJsonObject(TELEGRAM_STATE_FILE, { date, chatIds: [...chatIds, chatId] });
 }
 
 /**

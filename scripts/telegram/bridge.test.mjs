@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { askAssistant, handleMessage, pollOnce, readConfig } from "./bridge.ts";
+import {
+  askAssistant,
+  dailyAgendaRunKey,
+  handleMessage,
+  pendingDailyAgendaChatIds,
+  pollOnce,
+  readConfig,
+  sendDailyAgenda,
+} from "./bridge.ts";
 
 const config = (over = {}) => ({
   token: "TOKEN",
@@ -29,10 +37,15 @@ function fakeFetch(routes) {
   return { fetch, calls };
 }
 
-const deps = (fetch, logs = []) => ({
+const deps = (fetch, logs = [], delivery = { current: null }) => ({
   fetch,
   log: (message) => logs.push(message),
   now: () => 0,
+  readDailyAgendaDelivery: () => delivery.current,
+  markDailyAgendaSent: (date, chatId) => {
+    const chatIds = delivery.current?.date === date ? delivery.current.chatIds : [];
+    delivery.current = { date, chatIds: [...chatIds, chatId] };
+  },
 });
 
 test("an unlisted chat reaches neither the agent nor Telegram", async () => {
@@ -128,6 +141,46 @@ test("pollOnce advances the offset past everything it saw", async () => {
 test("pollOnce keeps the previous offset when nothing arrives", async () => {
   const { fetch } = fakeFetch({ "getUpdates": { body: { ok: true, result: [] } } });
   assert.equal(await pollOnce(config(), deps(fetch), 500), 500);
+});
+
+test("daily agenda becomes due on the machine-local date after its configured time", () => {
+  const schedule = { enabled: true, time: "08:00", locale: "zh" };
+  assert.equal(dailyAgendaRunKey(schedule, new Date(2026, 7, 17, 7, 59).getTime()), null);
+  assert.equal(dailyAgendaRunKey(schedule, new Date(2026, 7, 17, 8, 0).getTime()), "2026-08-17");
+  assert.equal(dailyAgendaRunKey({ ...schedule, enabled: false }, new Date(2026, 7, 17, 8, 0).getTime()), null);
+});
+
+test("already delivered chats stay skipped after a restart or partial broadcast", () => {
+  assert.deepEqual(
+    pendingDailyAgendaChatIds([42, 43], "2026-08-17", { date: "2026-08-17", chatIds: [42] }),
+    [43],
+  );
+  assert.deepEqual(
+    pendingDailyAgendaChatIds([42, 43], "2026-08-18", { date: "2026-08-17", chatIds: [42, 43] }),
+    [42, 43],
+  );
+});
+
+test("daily agenda asks for both sources and broadcasts to allowed chats", async () => {
+  const { fetch, calls } = fakeFetch({
+    "/api/robin/assistant": { body: { reply: "今日简报", usedTools: ["todo_list", "calendar_list_events"] } },
+    "sendMessage": { body: { ok: true } },
+  });
+  const dailyConfig = config({
+    allowlist: [42, 43],
+    dailyAgenda: { enabled: true, time: "08:00", locale: "zh" },
+  });
+  const delivery = { current: null };
+  await sendDailyAgenda(dailyConfig, deps(fetch, [], delivery), "2026-08-17");
+
+  assert.match(calls[0].body.message, /todo_list/);
+  assert.match(calls[0].body.message, /calendar_list_events/);
+  assert.equal(calls[0].body.readOnly, true);
+  assert.deepEqual(
+    calls.filter((call) => call.url.includes("sendMessage")).map((call) => call.body.chat_id),
+    [42, 43],
+  );
+  assert.deepEqual(delivery.current, { date: "2026-08-17", chatIds: [42, 43] });
 });
 
 test("the pi-web password is sent as basic auth when configured", async () => {

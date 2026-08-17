@@ -170,6 +170,9 @@ Other properties:
 - The bridge talks to pi-web over HTTP and reuses `/api/robin/assistant`, so it
   inherits the same tool boundary rather than defining a second one.
 - Replies follow the sender's Telegram client language.
+- **Daily briefings.** Configure a machine-local send time and language in
+  **Settings → Telegram**. Delivery state is persisted per chat, so restarting
+  the bridge or retrying a partial broadcast does not send duplicates.
 - **pi-web must be running.** The bridge is its client; if pi-web is down, every
   message answers with an error.
 - Changing Telegram settings requires restarting the bridge — it reads them at
@@ -189,11 +192,12 @@ Everything is in `~/.pi/robin` (override with `ROBIN_DATA_DIR`):
 | `todos.json` | todo list |
 | `events.json` | locally created calendar events |
 | `links.json` | saved links |
-| `assistant.json` | the pi session id the dashboard assistant uses |
-| `secrets.json` | Google and Telegram credentials — **mode 0600** |
+| `assistant.json` | pi session ids for the interactive and read-only briefing assistants |
+| `telegram-state.json` | successful daily-briefing deliveries for the current date |
+| `secrets.json` | Google and Telegram credentials plus Telegram settings — **mode 0600** |
 | `google.json` | Google refresh token — **a long-lived credential, mode 0600** |
 
-The first four are plain JSON on purpose: `grep` them, put them in git, back them
+The first five are plain JSON on purpose: `grep` them, put them in git, back them
 up like any other file.
 
 `secrets.json` and `google.json` are the exception — they hold standing

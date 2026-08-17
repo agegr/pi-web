@@ -20,3 +20,8 @@ export const ROBIN_TOOL_NAMES = [
   "link_add",
   "link_list",
 ] as const;
+
+export const ROBIN_READ_ONLY_TOOL_NAMES = [
+  "todo_list",
+  "calendar_list_events",
+] as const;
