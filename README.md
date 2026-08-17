@@ -38,6 +38,36 @@ To update, stop the running process with `Ctrl+C` and run the same install comma
 
 ## Configuration
 
+> ⚠️ **IMPORTANT: Docker & Cloudflare Tunnel Deployment**
+> If you are deploying `pi-web` inside **Docker** behind **Cloudflare Tunnel** or a reverse proxy, you **MUST READ**:
+> - 📖 **[DOCKER.md](./DOCKER.md)** — Docker architecture & volume setup
+> - 🖥️ **[docs/docker-host-bridge.md](./docs/docker-host-bridge.md)** — Running host commands from the container (ssh2 bridge / pi skill, no docker.sock mount)
+> - 🛠️ **[INSTALL_GUIDE.md](./INSTALL_GUIDE.md)** — Step-by-step Docker & Cloudflare setup guide
+> - ⚡ **[STARTUP.md](./STARTUP.md)** — Quick start & container maintenance commands
+> - 👤 **[USER_GUIDE.md](./USER_GUIDE.md)** — Access credentials & workspace overview
+> - 📐 **[docs/SDD-docker-cloudflare-setup.md](./docs/SDD-docker-cloudflare-setup.md)** — Software design decisions & trade-offs
+> - 📜 **[docs/dev.log.md](./docs/dev.log.md)** — Development history & resolved pitfalls
+> - 💡 **[LESSONS_LEARNED.md](./LESSONS_LEARNED.md)** — Key technical lessons learned
+>
+> > 🔒 **Security Note: Secrets in Pi Sessions**
+> > Pi sessions are stored as JSONL files under `~/.pi/agent/sessions/...`. These files are typically world-readable (644) on the host and are mounted into the container. **Any password or secret typed in chat will be persisted verbatim in the session file**, and therefore in the container's filesystem and any backups.
+> >
+> > - Never type host credentials (SSH passwords, sudo passwords, API keys) directly in chat.
+> > - Use environment variables or a local `.env` file (mode 600) that is loaded by a pi skill, as documented in `docs/docker-host-bridge.md` (Solution B+).
+> > - If a secret has been typed in chat, rotate the secret immediately and treat the session file as compromised.
+> > - Session files are shared between pi-web and the pi TUI; treat them as sensitive data.
+>
+> > ⚠️ **Container Privilege Boundary**
+> > Container `root` ≠ host `root`. The pi agent inside the container can only access its own filesystem and the volumes explicitly mounted from the host (typically `~/.pi/agent` and `/workspace`). Any operation targeting the host itself (e.g., fixing the wrt host, managing Docker, editing files outside the mounts) must be done via an SSH bridge back to the host, as documented in `docs/docker-host-bridge.md`.
+> >
+> > Running the container with `user: "0"` does **not** make it host root; it only makes files created inside the mounted volumes owned by `root:root`. After that, switching back to `user: node` will cause "Permission denied" on those files. Prefer running as an unprivileged user and use the SSH bridge skill for host operations.
+>
+> **Quick Checklist for Cloudflare + Docker**:
+> 1. Set `PI_WEB_HOSTNAME: "0.0.0.0"` in container environment.
+> 2. Set `PI_WEB_NO_OPEN: "1"`.
+> 3. Set `PI_WEB_ALLOWED_HOSTS: "pi01.xxx.com"` (or your Cloudflare domain).
+> 4. Basic Auth username is **fixed as `pi`**. Set `PI_WEB_PASSWORD` and escape any `$` in `docker-compose.yml` as `$$`.
+
 For port and hostname, command-line options override the corresponding environment variables. Either `--no-open` or `PI_WEB_NO_OPEN=1` disables automatic browser opening.
 
 | Option or environment variable | Purpose | Default |
@@ -90,8 +120,8 @@ npx @agegr/pi-web@latest
 
 - **Agent data**: Pi Web reads pi data from `~/.pi/agent` by default, including session files under `sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`. Set `PI_CODING_AGENT_DIR` to use another pi agent directory.
 - **Filesystem access**: Pi Web must be able to read the agent data directory and the working directories recorded by its sessions. Run Pi Web in the same filesystem environment as pi when sharing existing sessions.
-- **Shared configuration**: the Models panel uses pi's model, settings, and credential storage, so changes are visible to both interfaces.
-- **File access boundary**: the file browser is limited to working directories selected in Pi Web and project or session roots it already knows about; it is not a general filesystem browser.
+- **Shared configuration**: the Models panel uses pi's model, settings, and credential storage, so changes are visible to both interfaces. Custom OpenAI-compatible providers (with custom base URLs, reasoning parameters, context windows, etc.) can also be added directly to `~/.pi/agent/models.json`.
+- **File access boundary**: the file browser is limited to working directories selected in Pi Web, the current process working directory (`process.cwd()`), and project or session roots it already knows about; it is not a general filesystem browser.
 - **Git worktrees**: see [Worktrees in Pi Web](./docs/worktrees.md) for switcher visibility, worktree creation, and removal behavior.
 
 ### Downstream Session Context Menu

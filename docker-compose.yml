@@ -4,7 +4,11 @@
 #   docker compose logs -f           # watch logs
 #   docker compose down              # stop
 #
-# Then open http://127.0.0.1:30141
+# Then open http://127.0.0.1:30141 or https://pi09.n8n.tw
+#
+# IMPORTANT: After docker compose up, run the post-start script to connect
+# cloudflared to this network so it can reach http://pi-web:30141:
+#   ./connect-cloudflared.sh
 
 services:
   pi-web:
@@ -14,22 +18,18 @@ services:
     ports:
       - "30141:30141"
     environment:
-      # Required: container must bind all interfaces or port mapping fails.
-      # The app still only answers requests from the docker-proxy bridge.
+      # Required: container must bind all interfaces inside container network
       PI_WEB_HOSTNAME: "0.0.0.0"
-      # No auto browser-open (headless container).
+      # No auto browser-open (headless container)
       PI_WEB_NO_OPEN: "1"
-      # Uncomment and set a LONG random password if you ever expose this
-      # beyond your own machine (LAN, tunnel, ...). Never reuse a real password.
-      # PI_WEB_PASSWORD: "replace-with-long-random-password"
-      # If fronting with a reverse proxy / Cloudflare Tunnel, add the exact
-      # public hostname(s) here, comma-separated:
-      # PI_WEB_ALLOWED_HOSTS: "pi.example.com"
+      # Allowed reverse proxy host (Cloudflare Tunnel)
+      PI_WEB_ALLOWED_HOSTS: "pi09.n8n.tw"
+      # Secure complex password for authentication ($ escaped as $$ for Compose)
+      PI_WEB_PASSWORD: "pW9$$kX2#mV7!zL4@qN8&jR5*tC1%yB3^uK9"
     volumes:
-      # pi config, sessions, auth (shared with the TUI pi on this machine)
-      - 'C:/Users/yesin/.pi/agent:/home/node/.pi/agent'
-      # The project(s) the agent should work on. Change to whatever you want
-      # pi to operate on; add more mounts as needed.
-      - 'C:/Tools/@@@@@@Antigravity/TigerAI-Methodology:/workspace'
+      # pi config, sessions, auth (shared with host)
+      - '${HOME}/.pi/agent:/home/node/.pi/agent'
+      # The project directory for pi agent to operate on
+      - '/home/wrt/AG/SystemRepair:/workspace'
     working_dir: /workspace
     restart: unless-stopped
