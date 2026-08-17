@@ -254,6 +254,7 @@ export const enLocale: LocalePlugin = {
     "chat.commandName": "Set the session display name",
     "chat.commandSession": "Show session message, token, and cost stats",
     "chat.commandCopy": "Copy the last assistant message",
+    "chat.commandClone": "Clone the current branch into a new session",
     "chat.compacted": "Compacted",
     "chat.tokensSaved": "{saved} saved",
     "i18n.close": "Close",

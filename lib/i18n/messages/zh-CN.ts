@@ -254,6 +254,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.commandName": "设置会话显示名称",
     "chat.commandSession": "显示会话消息、Token 和费用统计",
     "chat.commandCopy": "复制最后一条助手消息",
+    "chat.commandClone": "将当前分支复制为独立新会话",
     "chat.compacted": "已压缩",
     "chat.tokensSaved": "节省 {saved}",
     "i18n.close": "关闭",

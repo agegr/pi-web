@@ -214,6 +214,18 @@ test("streaming submissions cannot be stranded in an idle direct queue", () => {
   assert.doesNotMatch(queueSource, /type: "follow_up"/);
 });
 
+test("built-in clone switches to the independent child session", () => {
+  const builtinSource = source.slice(
+    source.indexOf("  const handleBuiltinSlashCommand"),
+    source.indexOf("  // Let AgentSession.prompt decide atomically"),
+  );
+
+  assert.match(builtinSource, /case "clone"/);
+  assert.match(builtinSource, /type: "clone"/);
+  assert.match(builtinSource, /agentRunningRef\.current \|\| bashRunningRef\.current/);
+  assert.match(builtinSource, /onSessionForked\?\.\(result\.newSessionId\)/);
+});
+
 test("post-accept prompt errors do not duplicate the user submission", () => {
   const promptErrorSource = source.slice(
     source.indexOf('case "prompt_error"'),

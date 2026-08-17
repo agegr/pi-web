@@ -168,6 +168,7 @@ const BUILTIN_SLASH_COMMANDS: BuiltinSlashCommand[] = [
   { name: "name", description: "chat.commandName", source: "builtin" },
   { name: "session", description: "chat.commandSession", source: "builtin", availableWhileStreaming: true },
   { name: "copy", description: "chat.commandCopy", source: "builtin", availableWhileStreaming: true },
+  { name: "clone", description: "chat.commandClone", source: "builtin" },
 ];
 
 function getBuiltinSlashCommand(message: string): BuiltinSlashCommand | undefined {
