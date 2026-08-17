@@ -3856,17 +3856,10 @@ span.linenumber {
 @keyframes notice-shelf-in {
   from {
     opacity: 0;
-    height: 0;
-    max-height: 0;
-    min-height: 0;
-    margin-bottom: 0;
     transform: translateY(-6px) scale(0.995);
   }
   to {
     opacity: 1;
-    height: 60px;
-    max-height: 60px;
-    min-height: 60px;
     transform: translateY(0) scale(1);
   }
 }
@@ -3874,17 +3867,10 @@ span.linenumber {
 @keyframes notice-shelf-out {
   from {
     opacity: 1;
-    height: 60px;
-    max-height: 60px;
-    min-height: 60px;
     transform: translateY(0) scale(1);
   }
   to {
     opacity: 0;
-    height: 0;
-    max-height: 0;
-    min-height: 0;
-    margin-bottom: 0;
     transform: translateY(-5px) scale(0.995);
   }
 }
@@ -4696,6 +4682,16 @@ span.subagent-tree-disclosure { cursor: default; }
 .chat-user-row { margin-bottom: 18px; display: flex; flex-direction: column; align-items: flex-end; }
 .chat-user-bubble { max-width: min(70%, 620px); padding: 10px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg); color: var(--text); }
 .chat-user-actions { max-width: min(70%, 620px); }
+.chat-user-actions-btns { display: flex; gap: 3px; opacity: 0; transition: opacity 0.12s; }
+.chat-user-row:hover .chat-user-actions-btns,
+.chat-user-row:focus-within .chat-user-actions-btns,
+.chat-user-actions-btns.is-busy { opacity: 1; }
+@media (hover: none) {
+  .chat-user-actions-btns { opacity: 1; }
+}
+@media (pointer: coarse) {
+  .chat-user-actions-btns button { min-height: 44px; min-width: 44px; }
+}
 @media (max-width: 640px) {
   .chat-user-bubble, .chat-user-actions { max-width: 92%; }
 }

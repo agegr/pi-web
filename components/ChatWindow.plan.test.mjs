@@ -5,9 +5,10 @@ import test from "node:test";
 const chat = readFileSync(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 
-test("hides recognized todos when the agent settles without returning them to the footer", () => {
+test("keeps recognized todos in the transcript after the agent settles", () => {
   assert.match(chat, /const conversationPlanWidget = getConversationPlanWidget\(visibleWidgets\)/);
-  assert.match(chat, /const activeConversationPlanWidget = agentRunning \? conversationPlanWidget : undefined/);
+  assert.match(chat, /const activeConversationPlanWidget = conversationPlanWidget \?\? planCacheRef.current.widget/);
+  assert.doesNotMatch(chat, /activeConversationPlanWidget = agentRunning \? conversationPlanWidget/);
   assert.match(chat, /filterSubagentWidgets\(planFooterWidgets\)/);
   assert.match(chat, /visibleWidgets\.filter/);
   assert.match(chat, /subagentTreeVisible/);

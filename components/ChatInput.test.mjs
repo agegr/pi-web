@@ -442,6 +442,14 @@ test("streaming composer shows a clickable interject button that steers", async 
   assert.match(source, /\(value\.trim\(\) \|\| attachedImages\.length\) && onSteer/);
   assert.match(source, /onClick=\{?\(\) => sendQueued\(true\)/);
   assert.match(source, /t\("chat\.interject"\)/);
+  assert.match(source, /chat\.interjectTitleMobile/);
+  assert.match(source, /chat\.interjectTitle/);
+  assert.match(source, /chat\.runningDraftPlaceholderMobile/);
+  assert.match(source, /chat\.runningDraftPlaceholder/);
+  assert.match(source, /chat\.agentPlaceholderMobile/);
+  assert.match(source, /t\("chat\.composerLabel"\)/);
+  assert.match(source, /background: "transparent"/);
+  assert.match(source, /border: "1px solid var\(--border\)"/);
   assert.match(source, /isStreaming \? \(\s*<div style=\{\{ display: "flex", alignItems: "center", gap: 8/);
 });
 

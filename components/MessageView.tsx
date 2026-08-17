@@ -329,7 +329,6 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   onEditContent?: (message: UserMessage) => void;
 }) {
   const { t } = useI18n();
-  const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
@@ -395,11 +394,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   };
 
   return (
-    <div
-      className="chat-user-row"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
+    <div className="chat-user-row">
       <div className="chat-user-bubble">
         <div
           style={{
@@ -475,12 +470,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
           display: "flex", alignItems: "center", justifyContent: "flex-end",
           gap: 6, marginTop: 3,
         }}>
-          <div style={{
-            display: "flex", gap: 3,
-            opacity: hovered ? 1 : 0,
-            pointerEvents: hovered ? "auto" : "none",
-            transition: "opacity 0.12s",
-          }}>
+          <div className="chat-user-actions-btns">
             <button
               onClick={copyContent}
                title={t("i18n.copyMessage")}
@@ -507,12 +497,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
             </button>
           </div>
           {(canFork || canNavigate) && (
-            <div style={{
-              display: "flex", gap: 3,
-              opacity: (hovered || forking) ? 1 : 0,
-              pointerEvents: (hovered || forking) ? "auto" : "none",
-              transition: "opacity 0.12s",
-            }}>
+            <div className={`chat-user-actions-btns${forking ? " is-busy" : ""}`}>
               {canNavigate && (
                 <button
                   onClick={() => { onNavigate!(prevAssistantEntryId!); onEditContent?.(editTarget); }}
@@ -539,7 +524,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
                 <button
                   onClick={() => { onFork!(entryId!); }}
                   disabled={forking}
-                   title={forking ? t("i18n.creatingSession") : t("i18n.newSessionTitle")}
+                   title={forking ? t("i18n.creatingSession") : t("i18n.forkSessionTitle")}
                   style={{
                     display: "flex", alignItems: "center", gap: 4,
                     padding: "3px 8px", height: 22,
@@ -555,7 +540,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
                   onMouseLeave={(e) => { if (!forking) e.currentTarget.style.color = "var(--text-dim)"; }}
                 >
                   <GitBranch size={11} strokeWidth={1.8} aria-hidden="true" />
-                   {forking ? t("i18n.creating") : t("i18n.newSession")}
+                   {forking ? t("i18n.creating") : t("i18n.forkSession")}
                 </button>
               )}
             </div>

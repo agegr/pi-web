@@ -2225,10 +2225,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             }}
             onInput={handleInput}
             onPaste={handlePaste}
+            aria-label={t("chat.composerLabel")}
             placeholder={
               isStreaming && (onSteer || onFollowUp)
-                ? (queueItems.length > 0 ? t("chat.interjectAllPlaceholder") : t("chat.agentPlaceholder"))
-                : isStreaming ? t("chat.agentPlaceholder")
+                ? ((value.trim() || attachedImages.length)
+                  ? t(isMobile ? "chat.runningDraftPlaceholderMobile" : "chat.runningDraftPlaceholder")
+                  : queueItems.length > 0
+                    ? t("chat.interjectAllPlaceholder")
+                    : t(isMobile ? "chat.agentPlaceholderMobile" : "chat.agentPlaceholder"))
+                : isStreaming ? t(isMobile ? "chat.agentPlaceholderMobile" : "chat.agentPlaceholder")
                 : t("chat.messagePlaceholder")
             }
             rows={1}
@@ -2599,7 +2604,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <button
                   className="composer-icon-hit"
                   onClick={() => sendQueued(true)}
-                  title={t("chat.interject")}
+                  title={t(isMobile ? "chat.interjectTitleMobile" : "chat.interjectTitle")}
                   aria-label={t("chat.interject")}
                   style={roundComposerButton}
                 >
@@ -2617,7 +2622,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 aria-busy={aborting}
                 title={aborting ? t("chat.stopping") : t("chat.stopAgent")}
                 aria-label={aborting ? t("chat.stopping") : t("chat.stop")}
-                style={{ ...roundComposerButton, cursor: aborting ? "wait" : "pointer", opacity: aborting ? 0.55 : 1 }}
+                style={{
+                  ...roundComposerButton,
+                  background: "transparent",
+                  border: "1px solid var(--border)",
+                  color: "var(--text)",
+                  cursor: aborting ? "wait" : "pointer",
+                  opacity: aborting ? 0.55 : 1,
+                }}
               >
                 <Square size={10} fill="currentColor" aria-hidden="true" />
               </button>

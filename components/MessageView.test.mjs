@@ -35,7 +35,14 @@ test("renders user prompts as right-aligned compact bubbles without role labels"
   const html = renderMessage({ role: "user", content: "build a game to play", timestamp: Date.now() });
   assert.match(html, /class="chat-user-row"/);
   assert.match(html, /class="chat-user-bubble"/);
+  assert.match(html, /class="chat-user-actions-btns"/);
   assert.doesNotMatch(html, />USER</);
+});
+
+test("fork action uses fork copy, not new-session wording", () => {
+  assert.match(source, /i18n\.forkSession/);
+  assert.match(source, /i18n\.forkSessionTitle/);
+  assert.doesNotMatch(source, /t\("i18n\.newSession"\)/);
 });
 
 test("does not print an ASSISTANT role label", () => {

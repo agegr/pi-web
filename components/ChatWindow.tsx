@@ -1,6 +1,6 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
-import { ArrowDown, Bug, ChevronRight, Compass, ExternalLink, GitPullRequest, Sparkles } from "lucide-react";
+import { ArrowDown, Bug, ChevronRight, Compass, ExternalLink, GitPullRequest, Sparkles, X } from "lucide-react";
 import { Fragment, cloneElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
@@ -296,7 +296,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, runExtensionCommand,
+    notices, dismissNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, runExtensionCommand,
     isAutoModelSelection,
     agentPhase,
     isNew,
@@ -325,7 +325,17 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const visibleStatuses = filterGoalStatuses(extensionStatuses);
   const visibleWidgets = filterGoalWidgets(extensionWidgets);
   const conversationPlanWidget = getConversationPlanWidget(visibleWidgets);
-  const activeConversationPlanWidget = agentRunning ? conversationPlanWidget : undefined;
+  const planCacheRef = useRef<{ sessionId: string | null; widget: typeof conversationPlanWidget }>({
+    sessionId: null,
+    widget: undefined,
+  });
+  const sessionKey = session?.id ?? null;
+  if (planCacheRef.current.sessionId !== sessionKey) {
+    planCacheRef.current = { sessionId: sessionKey, widget: conversationPlanWidget };
+  } else if (conversationPlanWidget) {
+    planCacheRef.current.widget = conversationPlanWidget;
+  }
+  const activeConversationPlanWidget = conversationPlanWidget ?? planCacheRef.current.widget;
   const subagentWidgets = visibleWidgets.filter((widget) => isPiSubagentWidgetKey(widget.key));
   const planFooterWidgets = conversationPlanWidget
     ? visibleWidgets.filter((widget) => widget !== conversationPlanWidget)
@@ -716,7 +726,9 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                   <button
                     key={key}
                     type="button"
-                    onClick={() => { void handleSend(`/skill:${skill} ${t(prompt)}`); }}
+                    onClick={() => {
+                      chatInputRef?.current?.insertIfEmpty(`/skill:${skill} ${t(prompt)}`);
+                    }}
                     style={{
                       display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 10,
                       minHeight: 92, padding: "12px 14px",
@@ -727,14 +739,15 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                     onMouseLeave={(e) => { e.currentTarget.style.background = "var(--bg)"; }}
                   >
                     <Icon size={16} strokeWidth={1.8} color={color} aria-hidden="true" />
-                    {t(key)}
+                    <span>{t(key)}</span>
+                    <span style={{ color: "var(--text-dim)", fontSize: "var(--text-meta)" }}>{t("chat.homeSkill", { skill })}</span>
                   </button>
                 ))}
               </div>
             </div>
           </div>
           <div className="relative mx-auto w-full max-w-[960px]">
-            <NoticeShelf notices={notices} align="right" />
+            <NoticeShelf notices={notices} align="right" onDismiss={dismissNotice} />
             <GoalPanel
               model={goalModel}
               onAction={(subcommand) => { void runExtensionCommand("goal", subcommand); }}
@@ -763,7 +776,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
           }}
         >
           <div style={{ maxWidth: 780, margin: "0 auto" }}>
-            <NoticeShelf notices={notices} floating align="right" />
+            <NoticeShelf notices={notices} floating align="right" onDismiss={dismissNotice} />
           </div>
         </div>
         <div ref={scrollContainerRef} className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-width:none]">
@@ -1064,7 +1077,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   );
 }
 
-function NoticeShelf({ notices, floating = false, align = "left" }: { notices: NoticeItem[]; floating?: boolean; align?: "left" | "right" }) {
+function NoticeShelf({ notices, floating = false, align = "left", onDismiss }: { notices: NoticeItem[]; floating?: boolean; align?: "left" | "right"; onDismiss?: (id: string) => void }) {
+  const { t } = useI18n();
   if (notices.length === 0) return null;
   return (
     <div
@@ -1073,6 +1087,7 @@ function NoticeShelf({ notices, floating = false, align = "left" }: { notices: N
         flexDirection: "column",
         alignItems: align === "right" ? "flex-end" : "stretch",
         marginBottom: floating ? 0 : 10,
+        pointerEvents: "none",
       }}
     >
       {notices.map((notice, index) => {
@@ -1087,15 +1102,13 @@ function NoticeShelf({ notices, floating = false, align = "left" }: { notices: N
           <div
             key={notice.id}
             className="notice-shelf-item"
+            role="status"
             style={{
               display: "flex",
-              alignItems: "center",
+              alignItems: "flex-start",
               gap: 10,
-              minHeight: 60,
-              height: 60,
-              maxHeight: 60,
+              minHeight: 44,
               marginBottom: index === notices.length - 1 ? 0 : 6,
-              overflow: "hidden",
               borderRadius: 14,
               border: "1px solid color-mix(in srgb, var(--border) 70%, transparent)",
               background: "var(--bg)",
@@ -1111,21 +1124,48 @@ function NoticeShelf({ notices, floating = false, align = "left" }: { notices: N
               animation: notice.exiting
                 ? "notice-shelf-out 0.18s ease-in forwards"
                 : "notice-shelf-in 0.18s ease-out both",
-              padding: "0 12px",
+              padding: "10px 8px 10px 12px",
+              pointerEvents: "auto",
             }}
           >
             <span
               style={{
                 width: 7,
                 height: 7,
+                marginTop: 7,
                 borderRadius: "50%",
                 background: color,
                 flexShrink: 0,
               }}
             />
-            <span style={{ padding: "14px 0", minWidth: 0, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <span style={{ padding: "2px 0", minWidth: 0, flex: 1, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
               {notice.message}
             </span>
+            {onDismiss ? (
+              <button
+                type="button"
+                className="notice-shelf-dismiss"
+                onClick={() => onDismiss(notice.id)}
+                title={t("chat.dismissNotice")}
+                aria-label={t("chat.dismissNotice")}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 28,
+                  height: 28,
+                  marginTop: -2,
+                  flexShrink: 0,
+                  border: "none",
+                  background: "none",
+                  color: "var(--text-dim)",
+                  cursor: "pointer",
+                  borderRadius: 8,
+                }}
+              >
+                <X size={14} strokeWidth={2} aria-hidden="true" />
+              </button>
+            ) : null}
           </div>
         );
       })}
