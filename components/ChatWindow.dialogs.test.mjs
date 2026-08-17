@@ -43,7 +43,7 @@ test("select options are dense rows rather than cards", () => {
   assert.match(source, /className="codex-dialog-options"/);
   assert.match(source, /className="codex-dialog-option"/);
   assert.match(source, /className="codex-dialog-option-key"/);
-  assert.match(styles, /\.codex-dialog-option\s*\{[\s\S]*?min-height:\s*36px;/);
+  assert.match(styles, /\.codex-dialog-option\s*\{[\s\S]*?min-height:\s*40px;/);
 });
 
 test("select options answer the numbered key chips", () => {

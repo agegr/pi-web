@@ -76,13 +76,20 @@ html.dark {
   padding: 0;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 12px;
   color: var(--text);
   background: var(--bg);
-  box-shadow: 0 8px 18px rgba(0, 0, 0, .28);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, .18);
 }
-.codex-dialog[open] { display: flex; flex-direction: column; }
-.codex-dialog::backdrop { background: rgba(0, 0, 0, .4); }
+.codex-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  animation: codex-dialog-in .12s ease-out;
+}
+.codex-dialog::backdrop {
+  background: rgba(15, 23, 42, .32);
+  backdrop-filter: blur(6px);
+}
 .codex-dialog[data-size="confirm"] { width: min(420px, calc(100vw - 32px)); }
 .codex-dialog[data-size="request"] { width: min(520px, calc(100vw - 32px)); }
 .codex-dialog[data-size="editor"] { width: min(680px, calc(100vw - 32px)); }
@@ -90,7 +97,7 @@ html.dark {
 .codex-dialog[data-size="terminal"] { width: min(920px, calc(100vw - 32px)); }
 .codex-dialog-header {
   min-height: 48px;
-  padding: 12px 14px 10px;
+  padding: 14px 16px 12px;
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -101,31 +108,31 @@ html.dark {
 .codex-dialog-heading h2 { margin: 0; color: var(--text); font-size: var(--text-title); font-weight: var(--weight-semibold); line-height: var(--leading-title); }
 .codex-dialog-subtitle { margin-top: 3px; color: var(--text-dim); font: var(--text-meta)/var(--leading-ui) var(--font-mono); }
 .codex-dialog-close {
-  width: 28px;
-  height: 28px;
-  margin: -3px -4px -3px 0;
+  width: 32px;
+  height: 32px;
+  margin: -4px -6px -4px 0;
   padding: 0;
   display: inline-grid;
   place-items: center;
   flex: 0 0 auto;
   border: 0;
-  border-radius: 5px;
+  border-radius: 8px;
   color: var(--text-muted);
   background: transparent;
   cursor: pointer;
 }
 .codex-dialog-close:hover:not(:disabled) { color: var(--text); background: var(--bg-hover); }
 .codex-dialog-close:disabled { opacity: .45; cursor: default; }
-.codex-dialog-body { min-height: 0; padding: 14px; overflow: auto; color: var(--text-muted); font-size: var(--text-meta); line-height: var(--leading-prose); }
-.codex-dialog-footer { min-height: 48px; padding: 8px 12px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: 0 0 auto; border-top: 1px solid var(--border); background: var(--bg-panel); }
+.codex-dialog-body { min-height: 0; padding: 16px; overflow: auto; color: var(--text); font-size: var(--text-ui); line-height: var(--leading-prose); }
+.codex-dialog-footer { min-height: 52px; padding: 10px 16px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: 0 0 auto; border-top: 1px solid var(--border); background: var(--bg-panel); }
 .codex-dialog button:focus-visible,
 .codex-dialog input:focus-visible,
-.codex-dialog textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.codex-dialog textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .codex-dialog-button {
-  min-height: 30px;
-  padding: 0 11px;
+  min-height: 32px;
+  padding: 0 12px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: 8px;
   color: var(--text-muted);
   background: transparent;
   font: inherit;
@@ -133,7 +140,9 @@ html.dark {
   cursor: pointer;
 }
 .codex-dialog-button:hover:not(:disabled) { color: var(--text); background: var(--bg-hover); }
+.codex-dialog-button:active:not(:disabled) { transform: translateY(1px); }
 .codex-dialog-button[data-variant="primary"] { border-color: var(--accent); color: #fff; background: var(--accent); font-weight: 600; }
+.codex-dialog-button[data-variant="primary"]:hover:not(:disabled) { color: #fff; background: var(--accent-hover); }
 .codex-dialog-button[data-variant="danger"] { border-color: #b44747; color: #fff; background: #b44747; font-weight: 600; }
 .codex-dialog-button:disabled { opacity: .5; cursor: default; }
 .codex-dialog-message { white-space: pre-wrap; }
@@ -146,13 +155,13 @@ html.dark .codex-dialog-error { color: #f87171; }
 .codex-dialog-options { display: grid; gap: 5px; }
 .codex-dialog-option {
   width: 100%;
-  min-height: 36px;
-  padding: 0 10px;
+  min-height: 40px;
+  padding: 0 12px;
   display: flex;
   align-items: center;
   gap: 9px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: 8px;
   color: var(--text);
   background: var(--bg-panel);
   font: inherit;
@@ -161,9 +170,13 @@ html.dark .codex-dialog-error { color: #f87171; }
   cursor: pointer;
 }
 .codex-dialog-option:hover { background: var(--bg-hover); }
+.codex-dialog-option:focus-visible {
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-hover));
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
 .codex-dialog-option-key { width: 19px; height: 19px; display: inline-grid; place-items: center; flex: 0 0 auto; border: 1px solid var(--border); border-radius: 4px; color: var(--text-dim); font-size: var(--text-meta); line-height: var(--leading-ui); font-family: var(--font-mono); }
 .codex-dialog-input,
-.codex-dialog-editor { width: 100%; border: 1px solid var(--border); border-radius: 5px; color: var(--text); background: var(--bg-panel); font: inherit; }
+.codex-dialog-editor { width: 100%; border: 1px solid var(--border); border-radius: 8px; color: var(--text); background: var(--bg-panel); font: inherit; }
 .codex-dialog-input { height: 36px; padding: 0 10px; font-size: var(--text-ui); }
 .codex-dialog-editor { min-height: 220px; max-height: min(520px, calc(100dvh - 180px)); padding: 10px; resize: vertical; font-size: var(--text-ui); line-height: var(--leading-prose); font-family: var(--font-mono); }
 .codex-dialog-terminal-body { position: relative; padding: 0; }
@@ -181,7 +194,7 @@ html.dark .codex-dialog-error { color: #f87171; }
     border-right: 0;
     border-bottom: 0;
     border-left: 0;
-    border-radius: 8px 8px 0 0;
+    border-radius: 12px 12px 0 0;
   }
   .codex-dialog[data-size="tool"],
   .codex-dialog[data-size="terminal"] {
@@ -204,8 +217,15 @@ html.dark .codex-dialog-error { color: #f87171; }
   .codex-dialog-terminal { height: calc(var(--app-viewport-height, 100dvh) - 52px); max-height: none; }
 }
 
+@keyframes codex-dialog-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .codex-dialog { scroll-behavior: auto; }
+  .codex-dialog,
+  .codex-dialog[open] { animation: none; }
+  .codex-dialog::backdrop { backdrop-filter: none; }
 }
 
 .catppuccin-file-icon {

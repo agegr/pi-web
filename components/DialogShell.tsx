@@ -40,6 +40,15 @@ export function DialogShell({
     const dialog = dialogRef.current;
     previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (dialog && !dialog.open) dialog.showModal();
+    const preferred = dialog?.querySelector<HTMLElement>([
+      "[autofocus]",
+      ".codex-dialog-input",
+      ".codex-dialog-editor",
+      ".codex-dialog-option",
+      "[data-variant=\"primary\"]",
+      ".codex-dialog-terminal-body textarea",
+    ].join(", "));
+    preferred?.focus({ preventScroll: true });
     return () => {
       if (dialog?.open) dialog.close();
       (returnFocusRef?.current ?? previousFocusRef.current)?.focus({ preventScroll: true });
@@ -51,6 +60,33 @@ export function DialogShell({
     if (dismissible) onClose();
   };
 
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDialogElement>) => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      const options = [...dialog.querySelectorAll<HTMLElement>(".codex-dialog-option")];
+      if (options.length === 0) return;
+      event.preventDefault();
+      const index = options.indexOf(document.activeElement as HTMLElement);
+      const next = event.key === "ArrowDown"
+        ? (index + 1) % options.length
+        : (index <= 0 ? options.length - 1 : index - 1);
+      options[next]?.focus();
+      return;
+    }
+
+    if (event.key !== "Enter" || event.defaultPrevented || event.nativeEvent.isComposing) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("textarea") || target?.closest(".codex-dialog-option") || target?.closest("button") || target?.closest("form") || target?.closest(".codex-dialog-input")) {
+      return;
+    }
+    const primary = dialog.querySelector<HTMLButtonElement>('[data-variant="primary"]:not(:disabled)');
+    if (!primary) return;
+    event.preventDefault();
+    primary.click();
+  };
+
   return (
     <dialog
       ref={dialogRef}
@@ -59,6 +95,7 @@ export function DialogShell({
       aria-labelledby={title ? titleId : undefined}
       aria-label={title ? undefined : ariaLabel}
       onCancel={handleCancel}
+      onKeyDown={handleKeyDown}
       onClick={(event) => {
         if (backdropDismissible && event.target === event.currentTarget) onClose();
       }}
