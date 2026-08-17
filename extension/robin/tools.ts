@@ -18,6 +18,7 @@ export const ROBIN_TOOL_NAMES = [
   "calendar_list_events",
   "link_add",
   "link_list",
+  "provider_usage",
 ] as const;
 
 export const ROBIN_READ_ONLY_TOOL_NAMES = [

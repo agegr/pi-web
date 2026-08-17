@@ -98,6 +98,7 @@ export const zhCNLocale: LocalePlugin = {
     "robin.tool.eventList": "查了日历",
     "robin.tool.linkAdd": "存了链接",
     "robin.tool.linkList": "查了链接",
+    "robin.tool.providerUsage": "查了订阅额度",
     "robin.nav.settings": "设置",
     "robin.nav.chat": "对话 →",
     "robin.nav.back": "← 返回",

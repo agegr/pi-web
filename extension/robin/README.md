@@ -4,7 +4,7 @@
 
 Todos, a calendar, and saved links, all driven by pi. Everything lives in plain
 JSON files under `~/.pi/robin`, and the agent that touches them is restricted to
-seven tools — no shell, no filesystem.
+eight tools — no shell, no filesystem.
 
 - **Dashboard** at `/dashboard` — assistant box, calendar (agenda / week / month), todos, links.
 - **Agent tools** usable from the dashboard, the `pi` CLI, and Telegram.
@@ -57,7 +57,7 @@ characters. The server does not send secrets back to the browser.
 
 ## What the agent can do
 
-Seven tools, registered in `index.ts` and listed in `tools.ts`:
+Eight tools, registered in `index.ts` and listed in `tools.ts`:
 
 | Tool | Say something like |
 | --- | --- |
@@ -68,6 +68,7 @@ Seven tools, registered in `index.ts` and listed in `tools.ts`:
 | `calendar_list_events` | "what's on today?" |
 | `link_add` | paste a bare URL |
 | `link_list` | "what did I save?" |
+| `provider_usage` | "how much OpenAI and Anthropic quota is left?" |
 
 Details worth knowing:
 
@@ -79,10 +80,14 @@ Details worth knowing:
   shows. They are marked read-only.
 - **Relative dates resolve against your local date**, which the list tools state
   explicitly in their output.
+- **Subscription usage comes directly from the providers.** `provider_usage`
+  resolves the OpenAI Codex and Anthropic OAuth logins already managed by Pi,
+  returns only percentages and reset times, and never exposes the tokens. These
+  provider-specific usage endpoints are not a stable standard and may change.
 
 ### What it deliberately cannot do
 
-- **No shell, no filesystem.** The assistant session activates only the seven
+- **No shell, no filesystem.** The assistant session activates only the eight
   tools above; pi's `bash`, `read`, `write`, and `edit` stay inactive. This is a
   tool-registration boundary, not a prompt instruction.
 - **No writing to Google.** The integration is read-only: it can show your Google

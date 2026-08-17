@@ -14,6 +14,7 @@ import { Type } from "typebox";
 import { fetchPageMetadata, nameFromUrl } from "./fetch-title.ts";
 import { storeIcon } from "./icons.ts";
 import { fetchEvents as fetchGoogleEvents, isConnected as googleConnected } from "./google-calendar.ts";
+import { fetchSubscriptionUsage, formatSubscriptionUsage } from "./provider-usage.ts";
 import {
   addDays,
   compareEvents,
@@ -331,6 +332,31 @@ const robin = (pi: ExtensionAPI) => {
           .join("\n")
         + warning,
       );
+    },
+  });
+
+  pi.registerTool({
+    name: "provider_usage",
+    label: "Check provider usage",
+    description:
+      "Read the current account-level subscription quota usage and reset times reported by OpenAI Codex and Anthropic Claude. Returns percentages and timestamps only; never returns credentials.",
+    promptSnippet: "provider_usage — read OpenAI and Anthropic subscription quota windows",
+    promptGuidelines: [
+      "Use provider_usage whenever the user asks about account quota, subscription allowance, remaining model usage, or reset times; never estimate those values.",
+    ],
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params, signal, _onUpdate, ctx) {
+      const usage = await fetchSubscriptionUsage(
+        async (provider) => {
+          const resolved = await ctx.modelRegistry.getProviderAuth(provider);
+          return { token: resolved?.auth.apiKey, source: resolved?.source };
+        },
+        { signal },
+      );
+      return {
+        content: [{ type: "text", text: formatSubscriptionUsage(usage) }],
+        details: { providers: usage },
+      };
     },
   });
 

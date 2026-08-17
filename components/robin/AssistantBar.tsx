@@ -24,6 +24,7 @@ const TOOL_KEYS: Record<string, string> = {
   calendar_list_events: "robin.tool.eventList",
   link_add: "robin.tool.linkAdd",
   link_list: "robin.tool.linkList",
+  provider_usage: "robin.tool.providerUsage",
 };
 
 function describeTools(usedTools: string[], t: (key: string) => string): string | null {

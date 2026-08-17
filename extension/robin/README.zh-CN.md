@@ -3,7 +3,7 @@
 [English](./README.md)
 
 待办、日历、链接收藏，全部由 pi 驱动。数据是 `~/.pi/robin` 下的普通 JSON 文件，
-而能碰这些数据的 agent 被限制在七个工具内——没有 shell，没有文件系统。
+而能碰这些数据的 agent 被限制在八个工具内——没有 shell，没有文件系统。
 
 - **仪表盘** 在 `/dashboard` —— 助手输入框、日历（议程 / 周 / 月）、待办、链接。
 - **agent 工具** 在仪表盘、`pi` CLI 和 Telegram 里都能用。
@@ -51,7 +51,7 @@ Google 和 Telegram 在 **/dashboard/settings** 里配置，不放 `.env.local`�
 
 ## agent 能做什么
 
-七个工具，注册在 `index.ts`，清单在 `tools.ts`：
+八个工具，注册在 `index.ts`，清单在 `tools.ts`：
 
 | 工具 | 你可以这样说 |
 | --- | --- |
@@ -62,6 +62,7 @@ Google 和 Telegram 在 **/dashboard/settings** 里配置，不放 `.env.local`�
 | `calendar_list_events` | 「今天有什么安排」 |
 | `link_add` | 直接粘一个网址 |
 | `link_list` | 「我存过哪些链接」 |
+| `provider_usage` | 「OpenAI 和 Anthropic 额度还剩多少，何时重置」 |
 
 几个值得知道的行为：
 
@@ -71,10 +72,13 @@ Google 和 Telegram 在 **/dashboard/settings** 里配置，不放 `.env.local`�
   工具返回值会说明标题的来源。
 - **`calendar_list_events` 包含 Google 事件**，和仪表盘显示的一致，并标注为只读。
 - **相对日期按你的本地日期解析**，列表类工具会在输出里显式说明当天日期。
+- **订阅额度直接向 Provider 查询。** `provider_usage` 使用 Pi 已管理的 OpenAI Codex
+  和 Anthropic OAuth 登录，只返回百分比和重置时间，不暴露令牌。这些 Provider
+  专用接口不是稳定的统一标准，未来可能变化。
 
 ### 刻意做不到的
 
-- **没有 shell，没有文件系统。** 助手会话只激活上面七个工具，pi 自带的 `bash`、
+- **没有 shell，没有文件系统。** 助手会话只激活上面八个工具，pi 自带的 `bash`、
   `read`、`write`、`edit` 全部不激活。这是工具注册层面的边界，不是提示词约束。
 - **不写 Google。** 只读接入：能看到你的 Google 日程，但加不了、改不了、删不了。
 - **不能删除。** 没有注册删除类工具。删待办、日程或链接要在仪表盘上点。远程删除

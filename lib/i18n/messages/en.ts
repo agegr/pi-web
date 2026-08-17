@@ -98,6 +98,7 @@ export const enLocale: LocalePlugin = {
     "robin.tool.eventList": "read your calendar",
     "robin.tool.linkAdd": "saved a link",
     "robin.tool.linkList": "read your links",
+    "robin.tool.providerUsage": "checked subscription usage",
     "robin.nav.settings": "Settings",
     "robin.nav.chat": "Chat →",
     "robin.nav.back": "← Back",
