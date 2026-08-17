@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -39,11 +40,23 @@ test("sorts status text by hidden key like the Pi CLI footer", () => {
   );
 });
 
-test("sanitizes status text for a single-line display", () => {
+test("preserves status line breaks while normalizing horizontal whitespace", () => {
   assert.equal(
     sanitizeExtensionStatusText("  first\tsecond \r\n third  "),
-    "first second third",
+    "first second\nthird",
   );
+});
+
+test("allows multiline status text to wrap and scroll within the footer", async () => {
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const statusLineRule = css.match(/\.extension-status-line\s*\{([^}]*)\}/)?.[1] ?? "";
+  const statusTextRule = css.match(/\.extension-status-text\s*\{([^}]*)\}/)?.[1] ?? "";
+
+  assert.match(statusLineRule, /max-height:/);
+  assert.match(statusLineRule, /overflow-y:\s*auto/);
+  assert.match(statusTextRule, /overflow-wrap:\s*anywhere/);
+  assert.match(statusTextRule, /white-space:\s*pre-wrap/);
+  assert.doesNotMatch(statusTextRule, /text-overflow:\s*ellipsis/);
 });
 
 test("renders a single status line without identifier keys", () => {

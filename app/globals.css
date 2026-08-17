@@ -312,20 +312,25 @@ button.extension-widget-trigger:focus-visible {
 .extension-status-line {
   display: flex;
   flex: 1 1 0;
-  align-items: center;
+  align-items: flex-start;
   min-width: 0;
-  height: 35px;
-  padding: 0 12px;
+  min-height: 35px;
+  max-height: min(144px, 18dvh);
+  padding: 8px 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .extension-status-text {
+  flex: 1;
   min-width: 0;
-  overflow: hidden;
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-dim);
