@@ -1,17 +1,18 @@
 "use client";
 
 import { useI18n } from "@/hooks/useI18n";
+import { groupAgendaItems } from "@/extension/robin/agenda";
 import { parseLocalDate, addDays } from "@/extension/robin/dates";
 import {
   compareEvents,
   eventEndDate,
   formatEventTime,
-  groupEventsByDate,
   isAllDayBand,
   isReadOnlyEvent,
   type DashboardEvent,
 } from "@/extension/robin/events";
 import { layoutSpanBars } from "@/extension/robin/layout";
+import type { Todo } from "@/extension/robin/store";
 import { useTodayInView } from "./useTodayInView";
 
 export type CalendarView = "agenda" | "week" | "month";
@@ -20,6 +21,11 @@ interface ViewProps {
   events: DashboardEvent[];
   today: string;
   onDelete: (event: DashboardEvent) => void;
+}
+
+interface AgendaViewProps extends ViewProps {
+  todos: Todo[];
+  onCompleteTodo: (todo: Todo) => void;
 }
 
 /** Grids are laid out for a wide viewport; narrow screens scroll rather than crush. */
@@ -81,25 +87,32 @@ function EventChip({ event, onDelete, t }: {
 /** Days shown in full; the rest of the window collapses to one line each. */
 const AGENDA_DETAIL_DAYS = 3;
 
-export function AgendaView({ events, today, onDelete }: ViewProps) {
+export function AgendaView({
+  events,
+  todos,
+  today,
+  onDelete,
+  onCompleteTodo,
+}: AgendaViewProps) {
   const { t, locale } = useI18n();
-  const grouped = groupEventsByDate(events);
+  const grouped = groupAgendaItems(events, todos);
   // Today always gets a row, even when empty: on a daily dashboard "nothing on
   // today" is itself the answer, and omitting the day reads as a load failure.
   const withToday = grouped.some((group) => group.date === today)
     ? grouped
-    : [{ date: today, events: [] as DashboardEvent[] }, ...grouped];
+    : [{ date: today, events: [] as DashboardEvent[], todos: [] as Todo[] }, ...grouped];
 
   // Detail only covers the days you can still act on. Everything further out
   // becomes a one-line-per-day brief: enough to notice a busy Thursday without
   // reading the whole week.
   const detailUntil = addDays(today, AGENDA_DETAIL_DAYS - 1);
   const days = withToday.filter((group) => group.date <= detailUntil);
-  const rest = withToday.filter((group) => group.date > detailUntil && group.events.length > 0);
+  const rest = withToday.filter((group) => group.date > detailUntil
+    && group.events.length + group.todos.length > 0);
 
   return (
     <div className="flex flex-col gap-3">
-      {days.map(({ date, events: dayEvents }) => (
+      {days.map(({ date, events: dayEvents, todos: dayTodos }) => (
         <div key={date} className="flex flex-col gap-1">
           <h3
             className="text-xs font-medium uppercase tracking-wide"
@@ -107,9 +120,33 @@ export function AgendaView({ events, today, onDelete }: ViewProps) {
           >
             {dayHeading(date, today, locale, t)}
           </h3>
-          {dayEvents.length === 0 && (
+          {dayEvents.length + dayTodos.length === 0 && (
             <p className="px-2 py-1 text-sm" style={{ color: "var(--text-dim)" }}>{t("robin.calendar.nothingScheduled")}</p>
           )}
+          {dayTodos.map((todo) => (
+            <label
+              key={`todo:${todo.id}`}
+              className="flex min-h-8 cursor-pointer items-center gap-3 rounded px-2 py-1"
+              style={{ background: "var(--bg-subtle)" }}
+            >
+              <span
+                className="shrink-0 text-xs"
+                style={{ color: "var(--text-muted)", minWidth: "5.5rem" }}
+              >
+                {t("robin.todos.title")}
+              </span>
+              <input
+                type="checkbox"
+                checked={todo.done}
+                onChange={() => onCompleteTodo(todo)}
+                aria-label={t("robin.todos.complete", { title: todo.title })}
+                className="shrink-0 cursor-pointer"
+              />
+              <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--text)" }}>
+                {todo.title}
+              </span>
+            </label>
+          ))}
           {dayEvents.map((event) => (
             <div
               key={event.id}
@@ -150,16 +187,19 @@ export function AgendaView({ events, today, onDelete }: ViewProps) {
           <h3 className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-dim)" }}>
             {t("robin.calendar.restOfWeek")}
           </h3>
-          {rest.map(({ date, events: dayEvents }) => (
+          {rest.map(({ date, events: dayEvents, todos: dayTodos }) => (
             <div key={date} className="flex items-baseline gap-2 px-2 py-0.5 text-xs">
               <span className="shrink-0" style={{ color: "var(--text-muted)", minWidth: "4.5rem" }}>
                 {parseLocalDate(date).toLocaleDateString(locale, { weekday: "short", day: "numeric" })}
               </span>
               <span className="min-w-0 flex-1 truncate" style={{ color: "var(--text-dim)" }}>
-                {dayEvents.map((event) => event.title).join("、")}
+                {[
+                  ...dayEvents.map((event) => event.title),
+                  ...dayTodos.map((todo) => `${t("robin.todos.title")}: ${todo.title}`),
+                ].join("、")}
               </span>
               <span className="shrink-0 tabular-nums" style={{ color: "var(--text-dim)" }}>
-                {dayEvents.length}
+                {dayEvents.length + dayTodos.length}
               </span>
             </div>
           ))}

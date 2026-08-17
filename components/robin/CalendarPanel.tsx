@@ -10,9 +10,11 @@ import {
   weeksFrom,
 } from "@/extension/robin/dates";
 import { eventsInRange, type DashboardEvent } from "@/extension/robin/events";
+import type { Todo } from "@/extension/robin/store";
 import { AgendaView, MonthView, type CalendarView } from "./CalendarViews";
 import { WeekGrid } from "./WeekGrid";
 import { GoogleConnect } from "./GoogleConnect";
+import { requestRefresh } from "./refreshBus";
 import { mutate, usePolledResource } from "./usePolledResource";
 
 interface EventsResponse {
@@ -20,6 +22,10 @@ interface EventsResponse {
   /** Local calendar date resolved on the server, where events were written. */
   today: string;
   google?: { connected: boolean; error?: string };
+}
+
+interface TodosResponse {
+  todos: Todo[];
 }
 
 const AGENDA_DAYS = 7;
@@ -45,6 +51,11 @@ function readStoredView(): CalendarView {
 export function CalendarPanel() {
   const { t, locale } = useI18n();
   const { data, error, refresh } = usePolledResource<EventsResponse>("/api/robin/events");
+  const {
+    data: todosData,
+    error: todosError,
+    refresh: refreshTodos,
+  } = usePolledResource<TodosResponse>("/api/robin/todos");
   // Resolved in an effect so server and client render the same first pass.
   const [view, setView] = useState<CalendarView>("week");
   const [anchor, setAnchor] = useState<string | null>(null);
@@ -85,6 +96,14 @@ export function CalendarPanel() {
   const visible = useMemo(
     () => (range ? eventsInRange(data?.events ?? [], range.from, range.to) : []),
     [data, range],
+  );
+
+  const visibleTodos = useMemo(
+    () => range
+      ? (todosData?.todos ?? []).filter((todo) => !todo.done && todo.due
+        && todo.due >= range.from && todo.due <= range.to)
+      : [],
+    [todosData, range],
   );
 
   const heading = useMemo(() => {
@@ -139,6 +158,19 @@ export function CalendarPanel() {
 
   const deleteEvent = (event: DashboardEvent) =>
     void run(() => mutate("/api/robin/events", "DELETE", { id: event.id }));
+
+  const completeTodo = (todo: Todo) => {
+    void (async () => {
+      try {
+        setActionError(null);
+        await mutate("/api/robin/todos", "PATCH", { id: todo.id, done: true });
+        await refreshTodos();
+        requestRefresh();
+      } catch (caught) {
+        setActionError(caught instanceof Error ? caught.message : String(caught));
+      }
+    })();
+  };
 
   const navigable = view !== "agenda";
   const offToday = navigable && activeAnchor !== "" && anchor !== null;
@@ -271,12 +303,18 @@ export function CalendarPanel() {
         </form>
       )}
 
-      {(error || actionError) && (
-        <p className="text-xs" style={{ color: "var(--accent)" }}>{actionError ?? error}</p>
+      {(error || todosError || actionError) && (
+        <p className="text-xs" style={{ color: "var(--accent)" }}>{actionError ?? error ?? todosError}</p>
       )}
 
       {today && view === "agenda" && (
-        <AgendaView events={visible} today={today} onDelete={deleteEvent} />
+        <AgendaView
+          events={visible}
+          todos={visibleTodos}
+          today={today}
+          onDelete={deleteEvent}
+          onCompleteTodo={completeTodo}
+        />
       )}
       {today && view === "week" && (
         <WeekGrid events={visible} today={today} anchor={activeAnchor} onDelete={deleteEvent} />
