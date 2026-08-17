@@ -15,7 +15,9 @@ export function LinksPanel() {
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
   const [group, setGroup] = useState("");
-  const [adding, setAdding] = useState(false);
+  // Empty string means the panel-level form; a group name means its inline form.
+  const [addingGroup, setAddingGroup] = useState<string | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set(["日常入口"]));
   const [actionError, setActionError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
@@ -67,7 +69,8 @@ export function LinksPanel() {
       });
       setUrl("");
       setTitle("");
-      setAdding(false);
+      setGroup("");
+      setAddingGroup(null);
     });
   };
 
@@ -103,6 +106,68 @@ export function LinksPanel() {
     })).finally(() => setReordering(false));
   };
 
+  const toggleGroup = (name: string) => {
+    setExpandedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+    if (expandedGroups.has(name) && addingGroup === name) setAddingGroup(null);
+  };
+
+  const toggleAdd = (name: string) => {
+    if (addingGroup === name) {
+      setAddingGroup(null);
+      return;
+    }
+    setUrl("");
+    setTitle("");
+    // "Other" represents links without an explicit group in groupLinks().
+    setGroup(name === "Other" ? "" : name);
+    setAddingGroup(name);
+    if (name) setExpandedGroups((current) => new Set(current).add(name));
+  };
+
+  const renderAddForm = (showGroup: boolean) => (
+    <form onSubmit={addLink} className="flex flex-col gap-2">
+      <input
+        value={url}
+        onChange={(event) => setUrl(event.target.value)}
+        placeholder={t("robin.links.urlPlaceholder")}
+        autoFocus
+        className="rounded px-2 py-1 text-sm outline-none"
+        style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
+      />
+      <div className="flex gap-2">
+        <input
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder={t("robin.links.namePlaceholder")}
+          className="min-w-0 flex-1 rounded px-2 py-1 text-sm outline-none"
+          style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
+        />
+        {showGroup && (
+          <input
+            value={group}
+            onChange={(event) => setGroup(event.target.value)}
+            placeholder={t("robin.links.groupPlaceholder")}
+            className="w-24 rounded px-2 py-1 text-sm outline-none"
+            style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
+          />
+        )}
+        <button
+          type="submit"
+          disabled={!url.trim()}
+          className="rounded px-3 py-1 text-sm disabled:opacity-40"
+          style={{ background: "var(--accent)", color: "#fff" }}
+        >
+          {t("robin.common.save")}
+        </button>
+      </div>
+    </form>
+  );
+
   return (
     <section
       className="flex flex-col gap-3 rounded-lg p-4"
@@ -112,50 +177,15 @@ export function LinksPanel() {
         <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>{t("robin.links.title")}</h2>
         <button
           type="button"
-          onClick={() => setAdding((value) => !value)}
+          onClick={() => toggleAdd("")}
           className="text-xs"
           style={{ color: "var(--text-dim)" }}
         >
-          {adding ? t("robin.common.cancel") : t("robin.common.add")}
+          {addingGroup === "" ? t("robin.common.cancel") : t("robin.common.add")}
         </button>
       </header>
 
-      {adding && (
-        <form onSubmit={addLink} className="flex flex-col gap-2">
-          <input
-            value={url}
-            onChange={(event) => setUrl(event.target.value)}
-            placeholder={t("robin.links.urlPlaceholder")}
-            autoFocus
-            className="rounded px-2 py-1 text-sm outline-none"
-            style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
-          />
-          <div className="flex gap-2">
-            <input
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder={t("robin.links.namePlaceholder")}
-              className="min-w-0 flex-1 rounded px-2 py-1 text-sm outline-none"
-              style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
-            />
-            <input
-              value={group}
-              onChange={(event) => setGroup(event.target.value)}
-              placeholder={t("robin.links.groupPlaceholder")}
-              className="w-24 rounded px-2 py-1 text-sm outline-none"
-              style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
-            />
-            <button
-              type="submit"
-              disabled={!url.trim()}
-              className="rounded px-3 py-1 text-sm disabled:opacity-40"
-              style={{ background: "var(--accent)", color: "#fff" }}
-            >
-              {t("robin.common.save")}
-            </button>
-          </div>
-        </form>
-      )}
+      {addingGroup === "" && renderAddForm(true)}
 
       {(error || actionError) && (
         <p className="text-xs" style={{ color: "var(--accent)" }}>{actionError ?? error}</p>
@@ -165,21 +195,67 @@ export function LinksPanel() {
         <p className="py-2 text-sm" style={{ color: "var(--text-dim)" }}>{t("robin.links.empty")}</p>
       )}
 
-      {groups.map(({ group: name, links }, index) => (
+      {groups.map(({ group: name, links }, index) => {
+        const expanded = expandedGroups.has(name);
+        const displayName = name === "Other" ? t("robin.links.otherGroup") : name;
+        return (
         <div key={name} className="flex flex-col gap-1">
-          <div className="flex min-h-7 items-center justify-between gap-2">
-            <h3 className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-dim)" }}>
-              {name}
-            </h3>
-            {groups.length > 1 && (
+          <div className="flex min-h-8 items-center gap-1">
+            <button
+              type="button"
+              onClick={() => toggleGroup(name)}
+              aria-expanded={expanded}
+              className="ui-action ui-action--surface flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded px-1 text-left"
+            >
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 12 12"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={`shrink-0 transition-transform motion-reduce:transition-none ${expanded ? "rotate-90" : ""}`}
+              >
+                <polyline points="4 2.5 7.5 6 4 9.5" />
+              </svg>
+              <h3 className="min-w-0 flex-1 truncate text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-dim)" }}>
+                {displayName}
+              </h3>
+              <span className="text-xs" style={{ color: "var(--text-dim)" }}>{links.length}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleAdd(name)}
+              aria-label={addingGroup === name
+                ? t("robin.common.cancel")
+                : t("robin.links.addToGroup", { group: displayName })}
+              title={addingGroup === name
+                ? t("robin.common.cancel")
+                : t("robin.links.addToGroup", { group: displayName })}
+              className="ui-action ui-action--outline-soft flex size-8 items-center justify-center rounded"
+            >
+              {addingGroup === name ? (
+                <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <path d="M2.5 2.5l7 7m0-7-7 7" />
+                </svg>
+              ) : (
+                <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <path d="M6 2v8M2 6h8" />
+                </svg>
+              )}
+            </button>
+            {expanded && groups.length > 1 && (
               <div className="flex gap-1">
                 <button
                   type="button"
                   disabled={reordering || index === 0}
                   onClick={() => moveGroup(index, -1)}
-                  aria-label={t("robin.links.moveUp", { group: name })}
-                  title={t("robin.links.moveUp", { group: name })}
-                  className="ui-action ui-action--outline-soft flex size-7 items-center justify-center rounded disabled:opacity-30"
+                  aria-label={t("robin.links.moveUp", { group: displayName })}
+                  title={t("robin.links.moveUp", { group: displayName })}
+                  className="ui-action ui-action--outline-soft flex size-8 items-center justify-center rounded disabled:opacity-30"
                 >
                   <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="2.5 7.5 6 4 9.5 7.5" />
@@ -189,9 +265,9 @@ export function LinksPanel() {
                   type="button"
                   disabled={reordering || index === groups.length - 1}
                   onClick={() => moveGroup(index, 1)}
-                  aria-label={t("robin.links.moveDown", { group: name })}
-                  title={t("robin.links.moveDown", { group: name })}
-                  className="ui-action ui-action--outline-soft flex size-7 items-center justify-center rounded disabled:opacity-30"
+                  aria-label={t("robin.links.moveDown", { group: displayName })}
+                  title={t("robin.links.moveDown", { group: displayName })}
+                  className="ui-action ui-action--outline-soft flex size-8 items-center justify-center rounded disabled:opacity-30"
                 >
                   <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="2.5 4.5 6 8 9.5 4.5" />
@@ -200,7 +276,10 @@ export function LinksPanel() {
               </div>
             )}
           </div>
-          {links.map((link) => (
+          {expanded && (
+            <>
+              {addingGroup === name && renderAddForm(false)}
+              {links.map((link) => (
             <div
               key={link.id}
               className="group flex items-center gap-2 rounded px-2 py-1"
@@ -280,9 +359,12 @@ export function LinksPanel() {
                 ✕
               </button>
             </div>
-          ))}
+              ))}
+            </>
+          )}
         </div>
-      ))}
+        );
+      })}
     </section>
   );
 }
