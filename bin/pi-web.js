@@ -17,6 +17,8 @@ const path = require("path");
 const fs = require("fs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { parseLaunchOptions } = require("./pi-web-options");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { wireChildProcessLifecycle } = require("./process-lifecycle");
 
 const pkgDir = path.join(__dirname, "..");
 const nextDir = path.join(pkgDir, ".next");
@@ -67,6 +69,7 @@ const child = spawn(process.execPath, [nextBin, ...nextArgs], {
   stdio: ["inherit", "pipe", "inherit"],
   env: { ...process.env, PI_WEB_HOSTNAME: hostname },
 });
+wireChildProcessLifecycle(child);
 
 let browserOpened = false;
 const url = `http://${hostname}:${port}`;
@@ -110,5 +113,3 @@ child.stdout.on("data", (chunk) => {
     opener.unref();
   }
 });
-
-child.on("exit", (code) => process.exit(code ?? 0));

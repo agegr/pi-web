@@ -309,6 +309,10 @@ export interface SessionInfo {
    *  Always set by the server; optional because the client builds transient
    *  SessionInfo objects before the first refresh. Fall back to cwd. */
   projectRoot?: string;
+  /** Stable server-computed project identity for grouping and comparison.
+   *  Unlike projectRoot, Windows keys are case- and separator-insensitive.
+   *  Internal only: use projectRoot/cwd for display and filesystem operations. */
+  projectKey?: string;
   /** Branch name when cwd is a linked git worktree (not the main checkout) */
   worktreeBranch?: string;
   /** True while the runtime session exists only in memory and its JSONL file
