@@ -16,7 +16,7 @@ const path = require("path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fs = require("fs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { parseLaunchOptions } = require("./pi-web-options");
+const { formatHelp, parseLaunchOptions } = require("./pi-web-options");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { wireChildProcessLifecycle } = require("./process-lifecycle");
 
@@ -38,7 +38,21 @@ try {
   }
 }
 
-const { port, hostname, openBrowser } = parseLaunchOptions();
+let launchOptions;
+try {
+  launchOptions = parseLaunchOptions();
+} catch (error) {
+  console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+  console.error("Run pi-web --help for usage.");
+  process.exit(1);
+}
+
+const { port, hostname, openBrowser, help, offline, agentOptions } = launchOptions;
+if (help) {
+  console.log(formatHelp());
+  process.exit(0);
+}
+
 const loopbackHostnames = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 const passwordEnabled = Boolean(process.env.PI_WEB_PASSWORD);
 
@@ -62,12 +76,19 @@ if (!loopbackHostnames.has(hostname)) {
 const nextArgs = ["start", "-p", port];
 nextArgs.push("-H", hostname);
 
+const childEnv = {
+  ...process.env,
+  PI_WEB_HOSTNAME: hostname,
+  PI_WEB_AGENT_OPTIONS: JSON.stringify(agentOptions),
+  ...(offline ? { PI_OFFLINE: "1", PI_SKIP_VERSION_CHECK: "1" } : {}),
+};
+
 // Always run next's JS entry with node directly — avoids .bin symlink issues
 // and path-with-spaces problems on Windows when shell: true is used.
 const child = spawn(process.execPath, [nextBin, ...nextArgs], {
   cwd: pkgDir,
   stdio: ["inherit", "pipe", "inherit"],
-  env: { ...process.env, PI_WEB_HOSTNAME: hostname },
+  env: childEnv,
 });
 wireChildProcessLifecycle(child);
 

@@ -56,6 +56,49 @@ pi-web
 pi-web -p 8080 -H 0.0.0.0 --no-open
 ```
 
+### Agent 启动参数
+
+Pi Web 也支持用于配置 `AgentSession` 创建过程的 Pi 参数。这些参数会作为
+Pi Web 每次创建 Agent runtime 时的服务端全局默认值。浏览器中为新会话明确选择的
+模型或 thinking level 优先于对应的启动默认值。启动器中的工具 allowlist 和禁用参数
+属于服务端策略，浏览器 preset 不能重新启用已禁用的工具；`--exclude-tools` 始终作为
+denylist 生效。
+
+| 分类 | 参数 |
+| --- | --- |
+| 模型 | `--provider <名称>`、`--model <模式>`、`--thinking <等级>`、`--models <模式列表>`、`--api-key <密钥>` |
+| 工具 | `--tools <名称>` / `-t`、`--exclude-tools <名称>` / `-xt`、`--no-builtin-tools` / `-nbt`、`--no-tools` / `-nt` |
+| Extensions | `--extension <来源>` / `-e`（可重复）、`--no-extensions` |
+| Skills | `--skill <路径>`（可重复）、`--no-skills` / `-ns` |
+| Prompt templates | `--prompt-template <路径>`（可重复）、`--no-prompt-templates` |
+| Agent themes | `--theme <路径>`（可重复）、`--no-themes` |
+| 上下文与 prompt | `--no-context-files` / `-nc`、`--system-prompt <文本>`、`--append-system-prompt <文本>`（可重复） |
+| 运行方式 | `--offline`、`--help` / `-h` |
+
+`--tools`、`--exclude-tools` 和 `--models` 的多个值使用逗号分隔。相对资源路径
+以启动 `pi-web` 时所在的目录为基准解析，而不是 npm 安装目录。
+
+启动一个不发现 Skills 和 `AGENTS.md` 文件的低上下文服务：
+
+```bash
+pi-web -ns -nc
+```
+
+启动只读工具、模型范围受限的服务：
+
+```bash
+pi-web \
+  --models 'anthropic/*:high,openai/gpt-*' \
+  --tools read,grep,find,ls \
+  --exclude-tools bash
+```
+
+Pi 的 TUI 参数和单进程会话参数不适用于 Pi Web 的长驻、多会话界面。因此 Pi Web
+不支持 `--print`、`--continue`、`--resume`、`--session`、`--fork` 或
+`--no-session`。短参数 `-p` 在 Pi Web 中仍表示 `--port`，而不是 Pi 的 `--print`。
+
+运行 `pi-web --help` 可查看完整启动参数。
+
 ### 远程访问
 
 监听非回环地址会暴露一个可执行高权限操作的智能体。在可信局域网中使用时，请设置足够长的随机密码：

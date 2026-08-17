@@ -1,6 +1,6 @@
 import { stat } from "fs/promises";
 import { resolve } from "path";
-import { createAgentSessionServices, getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionServices, getAgentDir, resolveCliModel, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import {
   loadModelsWithCache,
@@ -10,6 +10,7 @@ import {
 } from "@/lib/models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
+import { getLaunchAgentOptions, getLaunchResourceLoaderOptions } from "@/lib/launch-agent-options";
 import { projectTrustReloadOptions } from "@/lib/project-trust";
 
 export const dynamic = "force-dynamic";
@@ -37,20 +38,47 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   // runs a repository's .pi/extensions factories, so honor project trust here
   // too (see lib/project-trust.ts, #236).
   const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
+  const launchAgentOptions = getLaunchAgentOptions();
   const services = await createAgentSessionServices({
     cwd,
     agentDir,
+    resourceLoaderOptions: getLaunchResourceLoaderOptions(launchAgentOptions),
     ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
   });
+  const launchModel = launchAgentOptions.model
+    ? resolveCliModel({
+      cliProvider: launchAgentOptions.provider,
+      cliModel: launchAgentOptions.model,
+      cliThinking: launchAgentOptions.thinking,
+      modelRuntime: services.modelRuntime,
+    })
+    : undefined;
+  if (launchModel?.error) throw new Error(launchModel.error);
+  if (launchAgentOptions.apiKey) {
+    if (!launchModel?.model) throw new Error("--api-key requires a resolvable --model");
+    await services.modelRuntime.setRuntimeApiKey(launchModel.model.provider, launchAgentOptions.apiKey);
+  }
   const modelError = services.modelRuntime.getError();
   const settings: SettingsManager = services.settingsManager;
   // `enabledModels` supports globs and fuzzy patterns, so resolve it the same
   // way the CLI does instead of comparing pattern strings literally (#307).
   const scope = await resolveVisibleModels(
     services.modelRuntime,
-    settings.getEnabledModels(),
+    launchAgentOptions.models ?? settings.getEnabledModels(),
   );
-  const { visible, thinkingLevelPins, warnings } = scope;
+  const visible = launchModel?.model
+    && !scope.visible.some((model) => model.provider === launchModel.model?.provider && model.id === launchModel.model.id)
+    ? [launchModel.model, ...scope.visible]
+    : scope.visible;
+  const thinkingLevelPins = { ...scope.thinkingLevelPins };
+  const launchThinking = launchAgentOptions.thinking ?? launchModel?.thinkingLevel;
+  if (launchModel?.model && launchThinking) {
+    thinkingLevelPins[`${launchModel.model.provider}/${launchModel.model.id}`] = launchThinking;
+  }
+  const warnings = [
+    ...scope.warnings,
+    ...(launchModel?.warning ? [launchModel.warning] : []),
+  ];
   modelList = visible.map((m) => ({
     id: m.id,
     name: m.name,
@@ -65,11 +93,13 @@ async function loadModels(cwd: string): Promise<ModelsData> {
 
   const defaultProvider = settings.getDefaultProvider();
   const defaultModelId = settings.getDefaultModel();
-  const initial = selectInitialModelScope(scope, {
-    ...(defaultProvider && defaultModelId
-      ? { defaultModel: { provider: defaultProvider, modelId: defaultModelId } }
-      : {}),
-  });
+  const initial = launchModel?.model
+    ? { model: launchModel.model }
+    : selectInitialModelScope(scope, {
+      ...(defaultProvider && defaultModelId
+        ? { defaultModel: { provider: defaultProvider, modelId: defaultModelId } }
+        : {}),
+    });
   if (initial.model) {
     defaultModel = { provider: initial.model.provider, modelId: initial.model.id };
   }

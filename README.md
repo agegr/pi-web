@@ -54,6 +54,52 @@ For example:
 pi-web -p 8080 -H 0.0.0.0 --no-open
 ```
 
+### Agent startup options
+
+Pi Web also accepts the Pi options that configure `AgentSession` creation. They
+act as server-wide defaults whenever Pi Web opens an Agent runtime. An explicit
+model or thinking level selected in the browser for a new session takes
+precedence over the corresponding startup default. Launcher tool allowlists and
+suppression flags are server policy; browser presets cannot re-enable tools they
+disable, and `--exclude-tools` is always applied as a denylist.
+
+| Category | Options |
+| --- | --- |
+| Model | `--provider <name>`, `--model <pattern>`, `--thinking <level>`, `--models <patterns>`, `--api-key <key>` |
+| Tools | `--tools <names>` / `-t`, `--exclude-tools <names>` / `-xt`, `--no-builtin-tools` / `-nbt`, `--no-tools` / `-nt` |
+| Extensions | `--extension <source>` / `-e` (repeatable), `--no-extensions` |
+| Skills | `--skill <path>` (repeatable), `--no-skills` / `-ns` |
+| Prompt templates | `--prompt-template <path>` (repeatable), `--no-prompt-templates` |
+| Agent themes | `--theme <path>` (repeatable), `--no-themes` |
+| Context and prompt | `--no-context-files` / `-nc`, `--system-prompt <text>`, `--append-system-prompt <text>` (repeatable) |
+| Runtime | `--offline`, `--help` / `-h` |
+
+Comma-separate values passed to `--tools`, `--exclude-tools`, and `--models`.
+Relative resource paths are resolved from the directory where `pi-web` was
+launched, not from its npm installation directory.
+
+For a low-context server that does not discover skills or `AGENTS.md` files:
+
+```bash
+pi-web -ns -nc
+```
+
+For a read-only server with a constrained model scope:
+
+```bash
+pi-web \
+  --models 'anthropic/*:high,openai/gpt-*' \
+  --tools read,grep,find,ls \
+  --exclude-tools bash
+```
+
+Pi's TUI and one-process session flags do not map to Pi Web's long-running,
+multi-session interface. In particular, Pi Web does not accept `--print`,
+`--continue`, `--resume`, `--session`, `--fork`, or `--no-session`. The short
+`-p` option continues to mean `--port`, not Pi's `--print`.
+
+Run `pi-web --help` for the complete startup reference.
+
 ### Remote Access
 
 Binding to a non-loopback address exposes an agent that can execute high-privilege actions. On a trusted LAN, require a long random password:

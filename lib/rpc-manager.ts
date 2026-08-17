@@ -1,10 +1,11 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, resolveCliModel, SessionManager, SettingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
+import { getLaunchAgentOptions, getLaunchResourceLoaderOptions } from "./launch-agent-options";
 import { invalidateModelsCache } from "./models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
 import {
@@ -1568,6 +1569,7 @@ export async function startRpcSession(
   options: RpcSessionStartOptions = {},
 ): Promise<{ session: AgentSessionWrapper; realSessionId: string }> {
   const { toolNames, initialModel, thinkingLevel } = options;
+  const launchAgentOptions = getLaunchAgentOptions();
   const registry = getRegistry();
   const locks = getLocks();
 
@@ -1593,8 +1595,15 @@ export async function startRpcSession(
 
     // Determine which tools to pass based on requested toolNames.
     // Since v0.68.0, session creation expects string[] tool names instead of Tool[] instances.
+    const hasLaunchToolPolicy = launchAgentOptions.tools !== undefined
+      || launchAgentOptions.noTools !== undefined;
     let toolsOption: string[] | undefined;
-    if (toolNames !== undefined) {
+    const excludeToolsOption = launchAgentOptions.excludeTools;
+    const noToolsOption = launchAgentOptions.noTools;
+    if (hasLaunchToolPolicy) {
+      // Launcher tool flags are server policy and cannot be bypassed by a browser preset.
+      toolsOption = launchAgentOptions.tools;
+    } else if (toolNames !== undefined) {
       // toolNames === [] -> "all off" (an empty allow-list disables every tool).
       // Otherwise DO NOT pass a builtin-only allow-list: passing CODING_TOOL_NAMES
       // set allowedToolNames to coding builtins only, which filtered every
@@ -1616,6 +1625,7 @@ export async function startRpcSession(
       agentDir,
       settingsManager,
       resourceLoaderOptions: {
+        ...getLaunchResourceLoaderOptions(launchAgentOptions),
         extensionFactories: [
           createProjectCommandBashExtension({
             cwd: sessionCwd,
@@ -1626,22 +1636,53 @@ export async function startRpcSession(
       },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
+    const launchModel = launchAgentOptions.model
+      ? resolveCliModel({
+        cliProvider: launchAgentOptions.provider,
+        cliModel: launchAgentOptions.model,
+        cliThinking: launchAgentOptions.thinking,
+        modelRuntime: services.modelRuntime,
+      })
+      : undefined;
+    if (launchModel?.warning) console.warn(`[pi-web] ${launchModel.warning}`);
+    if (launchModel?.error) throw new Error(launchModel.error);
+    if (launchAgentOptions.apiKey) {
+      if (!launchModel?.model) throw new Error("--api-key requires a resolvable --model");
+      await services.modelRuntime.setRuntimeApiKey(launchModel.model.provider, launchAgentOptions.apiKey);
+    }
+
     const scope = await resolveVisibleModels(
       services.modelRuntime,
-      services.settingsManager.getEnabledModels(),
+      launchAgentOptions.models ?? services.settingsManager.getEnabledModels(),
     );
     const defaultProvider = services.settingsManager.getDefaultProvider();
     const defaultModelId = services.settingsManager.getDefaultModel();
     const hasExistingMessages = sessionManager.getBranch().some((entry) => entry.type === "message");
+    const requestedModel = initialModel ?? (launchModel?.model
+      ? { provider: launchModel.model.provider, modelId: launchModel.model.id }
+      : undefined);
+    const requestedThinking = thinkingLevel
+      ?? launchAgentOptions.thinking
+      ?? launchModel?.thinkingLevel;
     const initial = hasExistingMessages
-      ? { scopedModels: [...scope.scopedModels] }
-      : selectInitialModelScope(scope, {
-        ...(initialModel ? { requestedModel: initialModel } : {}),
-        ...(defaultProvider && defaultModelId
-          ? { defaultModel: { provider: defaultProvider, modelId: defaultModelId } }
-          : {}),
-        ...(thinkingLevel ? { thinkingLevel } : {}),
-      });
+      ? {
+        ...(launchModel?.model && !initialModel ? { model: launchModel.model } : {}),
+        ...(requestedThinking ? { thinkingLevel: requestedThinking } : {}),
+        scopedModels: [...scope.scopedModels],
+      }
+      : launchModel?.model && !initialModel
+        ? {
+          model: launchModel.model,
+          ...(requestedThinking ? { thinkingLevel: requestedThinking } : {}),
+          scopedModels: [...scope.scopedModels],
+        }
+        : selectInitialModelScope(scope, {
+          ...(requestedModel ? { requestedModel } : {}),
+          ...(defaultProvider && defaultModelId
+            ? { defaultModel: { provider: defaultProvider, modelId: defaultModelId } }
+            : {}),
+          ...(requestedThinking ? { thinkingLevel: requestedThinking } : {}),
+        });
     const { session: inner } = await createAgentSessionFromServices({
       services,
       sessionManager,
@@ -1649,6 +1690,8 @@ export async function startRpcSession(
       ...(initial.thinkingLevel ? { thinkingLevel: initial.thinkingLevel } : {}),
       ...(initial.scopedModels.length > 0 ? { scopedModels: initial.scopedModels } : {}),
       ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
+      ...(excludeToolsOption !== undefined ? { excludeTools: excludeToolsOption } : {}),
+      ...(noToolsOption !== undefined ? { noTools: noToolsOption } : {}),
     });
 
     const persistedPreferences = await persistExplicitStartupPreferences(
@@ -1670,15 +1713,20 @@ export async function startRpcSession(
     // If specific tool names were requested (non-empty), set the active tools to the
     // requested builtin coding tools PLUS all extension/package tools, so installed
     // extensions stay usable in Pi Web just like in the `pi` CLI.
-    if (toolNames && toolNames.length > 0) {
-      inner.setActiveToolsByName(withExtensionTools(inner, toolNames));
+    if (toolNames && toolNames.length > 0 && !hasLaunchToolPolicy) {
+      const excluded = new Set(excludeToolsOption ?? []);
+      inner.setActiveToolsByName(
+        withExtensionTools(inner, toolNames).filter((name) => !excluded.has(name)),
+      );
     }
 
+    const forceEmptySystemPrompt = toolsOption?.length === 0
+      || (toolsOption === undefined && noToolsOption === "all");
     const wrapper = new AgentSessionWrapper(inner);
     // When all tools are disabled, clear the system prompt entirely.
     // pi's buildSystemPrompt always produces a non-empty prompt even with no tools;
     // keep this forced after extension resource discovery and reloads as well.
-    if (toolNames?.length === 0) {
+    if (forceEmptySystemPrompt) {
       wrapper.setForceEmptySystemPrompt(true);
     }
     wrapper.start();
@@ -1689,7 +1737,7 @@ export async function startRpcSession(
 
     wrapper.onDestroy(() => registry.delete(realSessionId));
     registry.set(realSessionId, wrapper);
-    wrapper.beginExtensionBinding({ forceEmptySystemPrompt: toolNames?.length === 0 });
+    wrapper.beginExtensionBinding({ forceEmptySystemPrompt });
 
     return { session: wrapper, realSessionId };
   })().finally(() => {
