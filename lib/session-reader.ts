@@ -4,8 +4,9 @@ import {
   buildSessionContext as piBuildSessionContext,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import { closeSync, openSync, readSync } from "fs";
-import { normalize as normalizePath } from "path";
+import { closeSync, existsSync, openSync, readSync } from "fs";
+import { readdir } from "fs/promises";
+import { join as joinPath, normalize as normalizePath } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
 import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } from "@earendil-works/pi-coding-agent";
 import { normalizeToolCalls } from "./normalize";
@@ -135,9 +136,67 @@ function getPathToIdCache(): Map<string, string> {
   return globalThis.__piPathToSessionIdCache;
 }
 
+/**
+ * Find one session's file without parsing the catalogue.
+ *
+ * Session files are written as `<timestamp>_<id>.jsonl` under a per-project
+ * directory, so the id can be located by reading directory entries alone. The
+ * header is then parsed — bounded, first line only — to confirm the match
+ * rather than trusting the name. Returns null when nothing matches, leaving the
+ * caller on the full scan.
+ *
+ * `sessionId` is only ever compared against names that came back from
+ * `readdir`, never joined into a path itself, so a separator or `..` inside it
+ * cannot reach the filesystem.
+ */
+async function findSessionPathByName(sessionId: string): Promise<string | null> {
+  // The SDK keeps `getSessionsDir` internal, but it is `<agentDir>/sessions`,
+  // the same way the other agent-dir paths are derived in this codebase.
+  const sessionsDir = joinPath(getAgentDir(), "sessions");
+  if (!sessionId || !existsSync(sessionsDir)) return null;
+
+  const suffix = `_${sessionId}.jsonl`;
+  let projectDirs;
+  try {
+    projectDirs = await readdir(sessionsDir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+
+  for (const entry of projectDirs) {
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    const dir = joinPath(sessionsDir, entry.name);
+    let names: string[];
+    try {
+      names = await readdir(dir);
+    } catch {
+      continue;
+    }
+    const match = names.find((name) => name.endsWith(suffix));
+    if (!match) continue;
+
+    const candidate = joinPath(dir, match);
+    try {
+      if (readSessionHeader(candidate)?.id === sessionId) return candidate;
+    } catch {
+      // Unreadable or truncated: let the full scan decide.
+    }
+  }
+  return null;
+}
+
 export async function resolveSessionPath(sessionId: string): Promise<string | null> {
   const cached = getPathCache().get(sessionId);
   if (cached) return cached;
+
+  // Opening one session should not wait for the whole catalogue to be parsed.
+  // The name carries the id, so this costs a directory listing per project plus
+  // one header read, and only a miss falls through to the full scan.
+  const direct = await findSessionPathByName(sessionId);
+  if (direct) {
+    cacheSessionPath(sessionId, direct);
+    return direct;
+  }
 
   // Cache miss: scan all sessions to populate cache, then retry
   await listAllSessions();
