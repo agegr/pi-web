@@ -532,7 +532,7 @@ function QueueDock({
                 <span
                   style={{
                     flexShrink: 0,
-                    fontSize: 10,
+                    fontSize: "var(--text-meta)",
                     fontFamily: "var(--font-mono)",
                     padding: "1px 7px",
                     borderRadius: 999,
