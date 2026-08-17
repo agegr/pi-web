@@ -4,8 +4,9 @@ import {
   buildSessionContext as piBuildSessionContext,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import { closeSync, openSync, readSync } from "fs";
-import { normalize as normalizePath } from "path";
+import { closeSync, realpathSync, type Dirent, openSync, readSync } from "fs";
+import { readdir } from "fs/promises";
+import { isAbsolute, join, normalize as normalizePath, relative, resolve as resolvePath, sep } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
 import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } from "@earendil-works/pi-coding-agent";
 import { normalizeToolCalls } from "./normalize";
@@ -46,12 +47,21 @@ export function mergeSessionLists(
 }
 
 async function loadAllSessions(): Promise<SessionInfo[]> {
-  const piSessions: PiSessionInfo[] = await SessionManager.listAll();
+  const listedSessions: PiSessionInfo[] = await SessionManager.listAll();
+  const sessionsDir = resolveDefaultSessionsDir();
+  if (!sessionsDir) return [];
+  const piSessions = listedSessions.flatMap((session) => {
+    const sessionPath = resolvePathWithinDefaultSessions(session.path, sessionsDir);
+    return sessionPath ? [{ ...session, path: sessionPath }] : [];
+  });
   const pathToId = new Map<string, string>();
   for (const s of piSessions) pathToId.set(sessionPathKey(s.path), s.id);
 
   const sessions = piSessions.map((s) => {
     cacheSessionPath(s.id, s.path);
+    const parentSessionPath = s.parentSessionPath
+      ? resolvePathWithinDefaultSessions(s.parentSessionPath, sessionsDir)
+      : null;
     return {
       path: s.path,
       id: s.id,
@@ -61,7 +71,9 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
       modified: s.modified instanceof Date ? s.modified.toISOString() : String(s.modified),
       messageCount: s.messageCount,
       firstMessage: s.firstMessage || "(no messages)",
-      parentSessionId: s.parentSessionPath ? pathToId.get(sessionPathKey(s.parentSessionPath)) : undefined,
+      parentSessionId: parentSessionPath
+        ? pathToId.get(sessionPathKey(parentSessionPath))
+        : undefined,
       transient: false,
     };
   });
@@ -119,6 +131,107 @@ declare global {
 }
 
 const SESSION_LIST_CACHE_TTL_MS = 30_000;
+const SESSION_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
+
+function defaultSessionsDir(): string {
+  return join(getAgentDir(), "sessions");
+}
+
+function resolveDefaultSessionsDir(): string | null {
+  try {
+    return realpathSync(resolvePath(defaultSessionsDir()));
+  } catch {
+    return null;
+  }
+}
+
+function resolvePathWithinDefaultSessions(
+  filePath: string,
+  sessionsDir = resolveDefaultSessionsDir(),
+): string | null {
+  if (!sessionsDir) return null;
+  let candidatePath: string;
+  try {
+    candidatePath = realpathSync(resolvePath(filePath));
+  } catch {
+    return null;
+  }
+  const relativePath = relative(sessionsDir, candidatePath);
+  return relativePath !== ""
+    && relativePath !== ".."
+    && !relativePath.startsWith(`..${sep}`)
+    && !isAbsolute(relativePath)
+    ? candidatePath
+    : null;
+}
+
+async function findSessionPathById(sessionId: string): Promise<string | null> {
+  // The filename is only a candidate hint; the bounded header check remains
+  // authoritative so future layouts and malformed files use the full fallback.
+  if (!SESSION_ID_PATTERN.test(sessionId)) return null;
+
+  let projectDirs: Dirent[];
+  const sessionsDir = defaultSessionsDir();
+  try {
+    projectDirs = await readdir(sessionsDir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+
+  const suffix = `_${sessionId}.jsonl`;
+  const resolvedSessionsDir = resolveDefaultSessionsDir();
+  if (!resolvedSessionsDir) return null;
+  let match: string | undefined;
+  for (const projectDir of projectDirs) {
+    if (!projectDir.isDirectory() && !projectDir.isSymbolicLink()) continue;
+    const projectPath = resolvePathWithinDefaultSessions(
+      join(sessionsDir, projectDir.name),
+      resolvedSessionsDir,
+    );
+    if (!projectPath) continue;
+
+    let files: string[];
+    try {
+      files = await readdir(projectPath);
+    } catch {
+      continue;
+    }
+
+    for (const file of files) {
+      if (!file.endsWith(suffix)) continue;
+      const candidate = resolvePathWithinDefaultSessions(
+        join(projectPath, file),
+        resolvedSessionsDir,
+      );
+      if (!candidate) continue;
+      try {
+        if (readSessionHeader(candidate)?.id !== sessionId) continue;
+      } catch {
+        continue;
+      }
+      // Do not choose between duplicate candidates; retain the existing
+      // catalogue fallback for its current resolution semantics.
+      if (match && match !== candidate) return null;
+      match = candidate;
+    }
+  }
+
+  return match ?? null;
+}
+
+function findSessionIdByPath(filePath: string): string | undefined {
+  if (!filePath.endsWith(".jsonl")) return undefined;
+  const candidate = resolvePathWithinDefaultSessions(filePath);
+  if (!candidate) return undefined;
+  try {
+    const sessionId = readSessionHeader(candidate)?.id;
+    if (!sessionId) return undefined;
+    cacheSessionPath(sessionId, candidate);
+    return sessionId;
+  } catch {
+    return undefined;
+  }
+}
 
 export function invalidateSessionListCache(): void {
   globalThis.__piSessionListGeneration = (globalThis.__piSessionListGeneration ?? 0) + 1;
@@ -139,7 +252,14 @@ export async function resolveSessionPath(sessionId: string): Promise<string | nu
   const cached = getPathCache().get(sessionId);
   if (cached) return cached;
 
-  // Cache miss: scan all sessions to populate cache, then retry
+  const targetedPath = await findSessionPathById(sessionId);
+  if (targetedPath) {
+    cacheSessionPath(sessionId, targetedPath);
+    return getPathCache().get(sessionId) ?? null;
+  }
+
+  // Unknown layouts, malformed candidates, and duplicate IDs retain the
+  // existing authoritative catalogue scan instead of negative-caching a miss.
   await listAllSessions();
   return getPathCache().get(sessionId) ?? null;
 }
@@ -148,6 +268,9 @@ export async function resolveSessionIdByPath(filePath: string): Promise<string |
   const pathKey = sessionPathKey(filePath);
   const cached = getPathToIdCache().get(pathKey);
   if (cached) return cached;
+
+  const targetedId = findSessionIdByPath(filePath);
+  if (targetedId) return targetedId;
 
   await listAllSessions();
   return getPathToIdCache().get(pathKey);
