@@ -12,7 +12,44 @@ import {
 } from "@/lib/file-paths";
 import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
+import { isPakeInterceptedDownload } from "@/lib/pake-download-extensions";
 type Translate = ReturnType<typeof useI18n>["t"];
+
+/**
+ * Build a download URL with a short-lived signed download token.
+ *
+ * Wrapper apps (e.g. Pake) replay download links through their own HTTP client
+ * without the page's Basic credentials, and they intercept clicks in the
+ * capture phase before React handlers run. The token therefore must be written
+ * into the href before the click happens (prefetched on hover; see the
+ * download button's onMouseEnter). Falls back to the plain link when token
+ * issuance fails (browser clients still carry credentials and download fine).
+ */
+async function buildDownloadUrl(
+  fullPath: string,
+): Promise<{ url: string; expiresAt: number }> {
+  const url = `/api/files/${encodeFilePathForApi(fullPath)}?type=download`;
+  try {
+    const response = await fetch(
+      `/api/auth/download-token?path=${encodeURIComponent(fullPath)}`,
+    );
+    if (response.ok) {
+      const { token, expiresAt } = (await response.json()) as {
+        token?: string;
+        expiresAt?: number;
+      };
+      if (token) {
+        return {
+          url: `${url}&dt=${encodeURIComponent(token)}`,
+          expiresAt: Number(expiresAt) || 0,
+        };
+      }
+    }
+  } catch {
+    // Fall back to the plain link when issuance fails.
+  }
+  return { url, expiresAt: 0 };
+}
 
 interface FileEntry {
   name: string;
@@ -394,8 +431,24 @@ function TreeNode({
         {hovered && !node.isDir && (
           <a
             href={`/api/files/${encodeFilePathForApi(node.fullPath)}?type=download`}
-            download
-            onClick={(e) => e.stopPropagation()}
+            download={
+              isPakeInterceptedDownload(node.fullPath)
+                ? getFileName(node.fullPath)
+                : undefined
+            }
+            onMouseEnter={(e) => {
+              // Pake intercepts clicks in the capture phase, so the token must
+              // be in the href before the click. Re-issue only when the armed
+              // token has expired to avoid re-fetching on every hover.
+              const current = e.currentTarget as HTMLAnchorElement;
+              const armedUntil = Number(current.dataset.dtExpires ?? 0);
+              if (armedUntil > Date.now()) return;
+              void (async () => {
+                const { url, expiresAt } = await buildDownloadUrl(node.fullPath);
+                current.setAttribute("href", url);
+                if (expiresAt > 0) current.dataset.dtExpires = String(expiresAt);
+              })();
+            }}
             title={t("files.download")}
             style={{
               position: "absolute",
