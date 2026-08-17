@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "@/hooks/useI18n";
+import { extractPathsFromClipboardData } from "@/lib/clipboard-paths";
 
 interface DirectoryEntry {
   name: string;
@@ -151,6 +152,14 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
             onChange={(event) => {
               setPathInput(event.target.value);
               setLoadError(null);
+            }}
+            onPaste={(event) => {
+              const paths = extractPathsFromClipboardData(event.clipboardData);
+              if (paths.length > 0) {
+                event.preventDefault();
+                setPathInput(paths[0]);
+                setLoadError(null);
+              }
             }}
             style={{ minWidth: 0, flex: 1, height: 36, padding: "0 10px", border: "1px solid var(--border)", borderRadius: 6, outline: "none", background: "var(--bg-panel)", color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: 12 }}
           />

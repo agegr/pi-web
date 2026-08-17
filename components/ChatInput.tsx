@@ -26,6 +26,7 @@ import { FolderIcon, getFileIcon } from "./FileIcons";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import type { ToolPreset } from "@/lib/tool-presets";
+import { extractPathsFromClipboardData, formatPathsForInput } from "@/lib/clipboard-paths";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -1175,11 +1176,32 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const items = Array.from(e.clipboardData?.items ?? []);
     const imageItems = items.filter((item) => item.type.startsWith("image/"));
-    if (!imageItems.length) return;
-    e.preventDefault();
-    const files = imageItems.map((item) => item.getAsFile()).filter((f): f is File => f !== null);
-    processImageFiles(files);
-  }, [processImageFiles]);
+    if (imageItems.length > 0) {
+      e.preventDefault();
+      const files = imageItems.map((item) => item.getAsFile()).filter((f): f is File => f !== null);
+      processImageFiles(files);
+      return;
+    }
+
+    const paths = extractPathsFromClipboardData(e.clipboardData, { fallbackToFileName: true });
+    if (paths.length > 0) {
+      e.preventDefault();
+      const pastedText = formatPathsForInput(paths);
+      const ta = textareaRef.current;
+      const start = ta?.selectionStart ?? value.length;
+      const end = ta?.selectionEnd ?? value.length;
+      const nextValue = value.slice(0, start) + pastedText + value.slice(end);
+      setValue(nextValue);
+      requestAnimationFrame(() => {
+        if (ta) {
+          const nextCursor = start + pastedText.length;
+          ta.selectionStart = nextCursor;
+          ta.selectionEnd = nextCursor;
+          handleInput();
+        }
+      });
+    }
+  }, [processImageFiles, value, handleInput]);
 
   useEffect(() => {
     if (slashQuery === null) {

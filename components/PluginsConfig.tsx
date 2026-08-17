@@ -5,6 +5,7 @@ import { sendAgentCommand } from "@/lib/agent-client";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { PluginPackageInfo, PluginsResponse } from "@/lib/api-types";
 import { useI18n } from "@/hooks/useI18n";
+import { extractPathsFromClipboardData } from "@/lib/clipboard-paths";
 
 type PluginScope = PluginPackageInfo["scope"];
 type PluginAction = "install" | "remove" | "update" | "disable" | "enable";
@@ -361,9 +362,10 @@ function AddPluginPanel({
           value={source}
           onChange={(e) => onSourceChange(e.target.value)}
           onPaste={(e) => {
-            const pasted = e.clipboardData.getData("text");
+            const paths = extractPathsFromClipboardData(e.clipboardData);
+            const pasted = paths.length > 0 ? paths[0] : e.clipboardData.getData("text");
             const normalized = normalizePluginSourceInput(pasted);
-            if (normalized === pasted) return;
+            if (normalized === pasted && paths.length === 0) return;
             e.preventDefault();
             onSourceChange(normalized);
           }}

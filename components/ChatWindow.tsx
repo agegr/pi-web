@@ -24,6 +24,7 @@ import {
   restoreScrollTop,
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
+import { extractPathsFromClipboardData, formatPathsForInput } from "@/lib/clipboard-paths";
 
 interface Props {
   session: SessionInfo | null;
@@ -1282,7 +1283,8 @@ function ExtensionCustomPanel({
           }}
           onPaste={(event) => {
             event.preventDefault();
-            const text = event.clipboardData.getData("text");
+            const paths = extractPathsFromClipboardData(event.clipboardData);
+            const text = paths.length > 0 ? formatPathsForInput(paths) : event.clipboardData.getData("text");
             if (text) onInput(request, asBracketedPaste(text));
           }}
           style={{

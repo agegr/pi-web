@@ -32,7 +32,22 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Directory does not exist" }, { status: 404 });
     }
 
-    const directoryStat = await stat(resolved);
+    let directoryStat = await stat(resolved);
+    if (!directoryStat.isDirectory()) {
+      const parent = getParentDirectory(resolved);
+      if (parent) {
+        try {
+          const parentStat = await stat(parent);
+          if (parentStat.isDirectory()) {
+            resolved = parent;
+            directoryStat = parentStat;
+          }
+        } catch {
+          // Fall back to original directory check failure
+        }
+      }
+    }
+
     if (!directoryStat.isDirectory()) {
       return NextResponse.json({ error: "Path is not a directory" }, { status: 400 });
     }
