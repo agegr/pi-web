@@ -979,7 +979,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           <PiWebTitle />
           <div style={{ display: "flex", gap: 6 }}>
             <Link
-              href="/dashboard"
+              href={{
+                pathname: "/dashboard",
+                query: selectedSessionId
+                  ? { session: selectedSessionId }
+                  : selectedCwd
+                    ? { cwd: selectedCwd }
+                    : {},
+              }}
               title={t("sidebar.dashboard")}
               aria-label={t("sidebar.dashboard")}
               className="ui-action ui-action--chip"

@@ -195,11 +195,12 @@ export function LinksPanel() {
         <p className="py-2 text-sm" style={{ color: "var(--text-dim)" }}>{t("robin.links.empty")}</p>
       )}
 
+      <div className="columns-1 gap-4 split:columns-2">
       {groups.map(({ group: name, links }, index) => {
         const expanded = expandedGroups.has(name);
         const displayName = name === "Other" ? t("robin.links.otherGroup") : name;
         return (
-        <div key={name} className="flex flex-col gap-1">
+        <div key={name} className="mb-1 flex break-inside-avoid flex-col gap-1">
           <div className="flex min-h-8 items-center gap-1">
             <button
               type="button"
@@ -365,6 +366,7 @@ export function LinksPanel() {
         </div>
         );
       })}
+      </div>
     </section>
   );
 }

@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useI18n } from "@/hooks/useI18n";
+import { getInitialNavigation } from "@/lib/initial-navigation";
 import { useEffect, useState } from "react";
 import { localDate, parseLocalDate } from "@/extension/robin/dates";
 import { AssistantBar } from "./AssistantBar";
@@ -28,6 +30,8 @@ function useLocalToday(): string | null {
 
 export function Dashboard() {
   const { t, locale } = useI18n();
+  const searchParams = useSearchParams();
+  const { sessionId, requestedCwd: cwd } = getInitialNavigation(searchParams);
   const today = useLocalToday();
   const heading = today
     ? parseLocalDate(today).toLocaleDateString(locale, {
@@ -59,7 +63,18 @@ export function Dashboard() {
           >
             {t("robin.nav.settings")}
           </Link>
-          <Link href="/" className="text-sm hover:underline" style={{ color: "var(--accent)" }}>
+          <Link
+            href={{
+              pathname: "/",
+              query: sessionId
+                ? { session: sessionId }
+                : cwd
+                  ? { cwd }
+                  : {},
+            }}
+            className="text-sm hover:underline"
+            style={{ color: "var(--accent)" }}
+          >
             {t("robin.nav.chat")}
           </Link>
         </nav>
@@ -70,9 +85,9 @@ export function Dashboard() {
       {/* Full width: the week and month grids need the whole page to stay legible. */}
       <CalendarPanel />
 
-      {/* Splits at the same width the chat shell splits at, so the two views
-          do not disagree about what counts as a wide screen. */}
-      <div className="grid gap-4 split:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] split:items-start">
+      {/* Each section gets a full row; the links collection can grow without
+          making the todo list look like a narrow sidebar. */}
+      <div className="flex flex-col gap-4">
         <TodoPanel />
         <LinksPanel />
       </div>
