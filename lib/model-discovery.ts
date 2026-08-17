@@ -47,6 +47,29 @@ function isLoopbackHostname(hostname: string): boolean {
   return false;
 }
 
+function isLanIpv4(address: string): boolean {
+  const octets = address.split(".").map(Number);
+  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) return false;
+  const [a, b] = octets;
+  if (a === 10) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  return false;
+}
+
+function isLanHostname(hostname: string): boolean {
+  const normalized = normalizeDiscoveryHostname(hostname);
+  const ipKind = isIP(normalized);
+  if (ipKind === 4) return isLanIpv4(normalized);
+  if (ipKind === 6) {
+    const lower = normalized.toLowerCase();
+    if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
+    const mapped = /^::ffff:(.+)$/.exec(lower);
+    return mapped ? isLanIpv4(mapped[1]) : false;
+  }
+  return false;
+}
+
 function isPrivateHostname(hostname: string): boolean {
   const normalized = normalizeDiscoveryHostname(hostname);
   if (normalized === "localhost" || normalized.endsWith(".localhost")) return true;
@@ -65,9 +88,9 @@ export interface DiscoveryTargetAuth {
 /**
  * Guards discovery/test fetches against credential-forwarding SSRF.
  * Scheme is restricted to http(s); stored credentials are never forwarded to
- * link-local or private destinations. Loopback (localhost, 127.0.0.0/8, ::1)
- * is allowed with credentials so local OpenAI-compatible proxies work. LAN
- * models without credentials (e.g. Ollama on 192.168.x) stay usable.
+ * link-local or special-use destinations (cloud metadata, unspecified,
+ * multicast). Loopback and RFC1918/ULA LAN addresses are allowed with
+ * credentials so local and LAN OpenAI-compatible proxies work.
  */
 export function assertSafeDiscoveryTarget(target: URL, auth: DiscoveryTargetAuth): void {
   if (target.protocol !== "http:" && target.protocol !== "https:") {
@@ -75,7 +98,12 @@ export function assertSafeDiscoveryTarget(target: URL, auth: DiscoveryTargetAuth
   }
   const hasCredentials = Boolean(auth.apiKey)
     || Object.values(auth.headers ?? {}).some((value) => typeof value === "string" && value.length > 0);
-  if (hasCredentials && isPrivateHostname(target.hostname) && !isLoopbackHostname(target.hostname)) {
+  if (
+    hasCredentials
+    && isPrivateHostname(target.hostname)
+    && !isLoopbackHostname(target.hostname)
+    && !isLanHostname(target.hostname)
+  ) {
     throw new Error("Base URL must not target a link-local or private address when credentials are attached");
   }
 }
