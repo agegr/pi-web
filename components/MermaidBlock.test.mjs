@@ -79,6 +79,10 @@ test("CodeBlock mounts the syntax highlighter when not streaming", () => {
   assert.match(html, /react-syntax-highlighter-line-number/);
   assert.match(html, /const/);
   assert.doesNotMatch(html, /class="token/);
+
+  const preStyle = html.match(/<pre[^>]*style="([^"]*)"/)?.[1] ?? "";
+  assert.match(preStyle, /background-color:color-mix/);
+  assert.doesNotMatch(preStyle, /(?:^|;)background:/, "do not mix background shorthand with backgroundColor");
 });
 
 test("CodeBlock renders plain text without tokenization while streaming", () => {

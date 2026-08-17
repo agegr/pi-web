@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 // PrismAsyncLight over Prism: `Prism` bundles refractor with every language it
 // supports (~1.2MB) into the entry chunk. The async variant fetches the
 // refractor core and each language definition on demand, so nothing is paid for
@@ -22,6 +22,18 @@ interface MermaidBlockProps {
 const ZOOM_STEP = 0.25;
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 3;
+const SYNTAX_PRE_KEY = 'pre[class*="language-"]';
+
+/** React cannot safely reconcile `background` and `backgroundColor` on one element. */
+function withoutPreBackground(theme: Record<string, CSSProperties>): Record<string, CSSProperties> {
+  const pre = { ...(theme[SYNTAX_PRE_KEY] ?? {}) };
+  delete pre.background;
+  delete pre.backgroundColor;
+  return { ...theme, [SYNTAX_PRE_KEY]: pre };
+}
+
+const LIGHT_SYNTAX_THEME = withoutPreBackground(vs);
+const DARK_SYNTAX_THEME = withoutPreBackground(vscDarkPlus);
 
 type RenderState =
   | { key: string; status: "loading" }
@@ -284,7 +296,7 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, headerAction, isS
       ) : (
         <SyntaxHighlighter
           language={lang || "text"}
-          style={isDark ? vscDarkPlus : vs}
+          style={isDark ? DARK_SYNTAX_THEME : LIGHT_SYNTAX_THEME}
           showLineNumbers
           lineNumberStyle={{ color: "var(--text-dim)", fontStyle: "normal" }}
           customStyle={{
@@ -293,7 +305,7 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, headerAction, isS
             fontSize: 12.5,
             lineHeight: 1.62,
             borderRadius: 0,
-            background: "color-mix(in srgb, var(--bg) 92%, var(--bg-panel))",
+            backgroundColor: "color-mix(in srgb, var(--bg) 92%, var(--bg-panel))",
           }}
           codeTagProps={{ style: { fontFamily: "var(--font-mono)" } }}
         >
