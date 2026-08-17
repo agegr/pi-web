@@ -528,6 +528,20 @@ function QueueDock({
                   }}
                 />
               ) : (
+                <>
+                <span
+                  style={{
+                    flexShrink: 0,
+                    fontSize: 10,
+                    fontFamily: "var(--font-mono)",
+                    padding: "1px 7px",
+                    borderRadius: 999,
+                    border: `1px solid ${item.kind === "steering" ? "color-mix(in srgb, var(--accent) 45%, transparent)" : "var(--border)"}`,
+                    color: item.kind === "steering" ? "var(--accent)" : "var(--text-dim)",
+                  }}
+                >
+                  {item.kind === "steering" ? t("chat.queueKindSteer") : t("chat.queueKindFollowUp")}
+                </span>
                 <span
                   title={item.text}
                   style={{
@@ -543,6 +557,7 @@ function QueueDock({
                 >
                   {item.text}
                 </span>
+                </>
               )}
               <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 6 }}>
                 {editingRow === item.key ? (
@@ -588,6 +603,7 @@ function QueueDock({
                     >
                       <Trash2 size={13} strokeWidth={1.8} aria-hidden="true" />
                     </button>
+                    {item.kind === "followUp" ? (
                     <button
                       type="button"
                       aria-label={t("chat.queueSteer")}
@@ -598,6 +614,7 @@ function QueueDock({
                     >
                       <ArrowUp size={13} strokeWidth={2} aria-hidden="true" />
                     </button>
+                    ) : null}
                   </>
                 )}
               </div>

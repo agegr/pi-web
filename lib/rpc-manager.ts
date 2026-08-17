@@ -370,8 +370,9 @@ export class AgentSessionWrapper {
    * mid-flight) converges silently — the snapshot just gets rebuilt as-is.
    * A failed rebuild restores the original items before rethrowing.
    *
-   * `steer` delivers the target through prompt(streamingBehavior: "steer")
-   * first so it enters the running turn before the surviving items.
+   * `steer` re-queues the target via AgentSession.steer() so it joins the
+   * current turn (after this assistant+tools, before the next LLM call).
+   * Do not abort — that would throw away in-flight work (not DSH/Codex 引导).
    */
   private async mutateQueue(
     kind: "steering" | "followUp",
@@ -402,7 +403,7 @@ export class AgentSessionWrapper {
 
     try {
       if (op === "steer" && target !== null) {
-        await this.send({ type: "prompt", message: target, streamingBehavior: "steer" });
+        await this.inner.steer(target);
       } else if (op === "edit" && target !== null) {
         const queueEdited = kind === "steering"
           ? () => this.inner.steer(trimmedReplacement)
@@ -433,17 +434,14 @@ export class AgentSessionWrapper {
   private async steerAllQueued(): Promise<{ steering: string[]; followUp: string[] }> {
     const { steering, followUp } = this.inner.clearQueue();
     const delivered: string[] = [];
-    const all = [...steering, ...followUp];
     try {
-      // Abort+new-turn once for the first item; queue the rest so we don't
-      // abort the turn we just started.
-      if (all.length > 0) {
-        await this.send({ type: "prompt", message: all[0], streamingBehavior: "steer" });
-        delivered.push(all[0]);
-        for (const text of all.slice(1)) {
-          await this.inner.steer(text);
-          delivered.push(text);
-        }
+      for (const text of steering) {
+        await this.inner.steer(text);
+        delivered.push(text);
+      }
+      for (const text of followUp) {
+        await this.inner.steer(text);
+        delivered.push(text);
       }
     } catch (error) {
       const remaining = {
@@ -566,14 +564,7 @@ export class AgentSessionWrapper {
             throw new Error("Cannot send a prompt while a shell command is running");
           }
           const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-          let streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
-          // Steer during an in-flight model wait must abort first. The agent
-          // loop only drains the steering queue after streamAssistantResponse
-          // returns, so queue-only 插话 looks dead while "等待模型".
-          if (streamingBehavior === "steer" && this.inner.isStreaming) {
-            await this.withFinalRunningNotification(() => this.inner.abort());
-            streamingBehavior = undefined;
-          }
+          const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
           let preflightAccepted = false;
           let preflightSettled = false;
           let promptSettled = false;

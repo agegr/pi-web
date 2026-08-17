@@ -424,6 +424,16 @@ test("keeps composer chip labels from wrapping", async () => {
   assert.match(css, /\.composer-chip \{\s*display: flex;[^}]*white-space: nowrap/);
 });
 
+test("queue dock labels steering vs follow-up and only steers follow-ups", async () => {
+  const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  const start = source.indexOf("function QueueDock(");
+  const end = source.indexOf("function ModelNoticeBanner(", start);
+  const dock = source.slice(start, end);
+  assert.match(dock, /t\("chat\.queueKindSteer"\)/);
+  assert.match(dock, /t\("chat\.queueKindFollowUp"\)/);
+  assert.match(dock, /item\.kind === "followUp"/);
+});
+
 test("streaming composer shows a clickable interject button that steers", async () => {
   const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
   // Draft + running: visible 插话 button on desktop and mobile. Enter still
