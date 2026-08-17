@@ -3,12 +3,16 @@ import { statSync, type Stats } from "fs";
 import { homedir } from "os";
 import { isAbsolute, resolve } from "path";
 import { allowFileRoot } from "@/lib/file-access";
+import { convertWindowsPathToWsl } from "@/lib/paths";
 import { projectIdentityKey } from "@/lib/project-identity";
 import { resolveProject } from "@/lib/worktree";
 
 function normalizeCwd(cwd: string): string {
   if (cwd === "~") return homedir();
   if (cwd.startsWith("~/")) return resolve(homedir(), cwd.slice(2));
+  if (process.platform === "linux" && /^[a-zA-Z]:/.test(cwd)) {
+    return resolve(convertWindowsPathToWsl(cwd));
+  }
   return isAbsolute(cwd) ? cwd : resolve(cwd);
 }
 

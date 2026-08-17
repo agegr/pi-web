@@ -28,6 +28,21 @@ export function isWindowsAbsolutePath(filePath: string): boolean {
 }
 
 /**
+ * Converts a Windows absolute path (e.g. C:\Users\... or C:/...) to a WSL / Linux mount path (/mnt/c/Users/...)
+ * when running on a Linux platform.
+ */
+export function convertWindowsPathToWsl(p: string): string {
+  const trimmed = p.trim();
+  const driveMatch = trimmed.match(/^([a-zA-Z]):(?:[\\/](.*))?$/);
+  if (driveMatch) {
+    const drive = driveMatch[1].toLowerCase();
+    const rest = (driveMatch[2] ?? "").replace(/\\/g, "/");
+    return rest ? `/mnt/${drive}/${rest}` : `/mnt/${drive}`;
+  }
+  return p;
+}
+
+/**
  * Convert a path to native separators. Chiefly for git output: git prints
  * POSIX-style absolute paths even on Windows (`D:/repo/sub`), which never
  * string-compares equal to the native paths Node and pi produce.
