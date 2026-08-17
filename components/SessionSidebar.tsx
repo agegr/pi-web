@@ -551,20 +551,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     persistExplorerRatio();
   }, [applyExplorerRatio, persistExplorerRatio]);
 
-  const handleExplorerSplitKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    const step = event.shiftKey ? 0.1 : 0.05;
-    let next: number | null = null;
-    if (event.key === "ArrowUp") next = explorerRatioRef.current + step;
-    else if (event.key === "ArrowDown") next = explorerRatioRef.current - step;
-    else if (event.key === "Home") next = EXPLORER_RATIO_MIN;
-    else if (event.key === "End") next = EXPLORER_RATIO_MAX;
-    else if (event.key === "Enter") next = EXPLORER_RATIO_DEFAULT;
-    if (next === null) return;
-    event.preventDefault();
-    applyExplorerRatio(next);
-    persistExplorerRatio();
-  }, [applyExplorerRatio, persistExplorerRatio]);
-
   // Clean up the transient drag state (cursor/user-select) on unmount.
   useEffect(() => {
     return () => {
@@ -1806,8 +1792,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           aria-valuemax={Math.round(EXPLORER_RATIO_MAX * 100)}
           aria-valuenow={Math.round(explorerRatio * 100)}
           aria-valuetext={`${Math.round(explorerRatio * 100)}%`}
-          tabIndex={0}
-          title={`${t("layout.resizeExplorerSplit")}: ${t("layout.resizeHint")}`}
+          title={t("layout.resizeExplorerSplit")}
           className={`sidebar-explorer-split-handle${explorerSplitResizing ? " is-resizing" : ""}`}
           onPointerDown={handleExplorerSplitPointerDown}
           onPointerMove={handleExplorerSplitPointerMove}
@@ -1815,7 +1800,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           onPointerCancel={(event) => finishExplorerSplitDrag(event.pointerId)}
           onLostPointerCapture={(event) => finishExplorerSplitDrag(event.pointerId)}
           onDoubleClick={resetExplorerRatio}
-          onKeyDown={handleExplorerSplitKeyDown}
         />
       )}
 
