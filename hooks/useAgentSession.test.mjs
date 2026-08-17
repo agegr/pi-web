@@ -286,6 +286,18 @@ test("connects a selected session when another browser reports it running", () =
   assert.match(appShellSource, /onRunningSessionIdsChange=\{handleRunningSessionIdsChange\}/);
 });
 
+test("shows the latest streamed tool execution progress in the running phase", () => {
+  const updateSource = source.slice(
+    source.indexOf('case "tool_execution_update"'),
+    source.indexOf('case "tool_execution_end"'),
+  );
+
+  assert.match(updateSource, /getToolExecutionProgress\(event\.partialResult\)/);
+  assert.match(updateSource, /tools: \[\.\.\.tools\.filter\([\s\S]*, updated\]/);
+  assert.match(chatWindowSource, /if \(latest\?\.progress\)/);
+  assert.match(chatWindowSource, /chat\.runningNamedTool[\s\S]*latest\.progress/);
+});
+
 test("keeps one reducer-owned assistant partial and consumes Pi JSON deltas", () => {
   const connectedSource = source.slice(
     source.indexOf('case "connected"'),

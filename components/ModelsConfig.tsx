@@ -1780,8 +1780,8 @@ export function ModelsConfig({ onControllerChange }: ModelsConfigProps) {
   const loadOAuthProviders = useCallback(() => {
     fetch("/api/auth/providers")
       .then((r) => r.json())
-      .then((d: { providers: OAuthProvider[] }) => {
-        setOauthProviders(d.providers);
+      .then((d: { providers?: OAuthProvider[] }) => {
+        if (Array.isArray(d.providers)) setOauthProviders(d.providers);
         setOauthError(null);
       })
       .catch(() => setOauthError(t("models.accountsLoadFailed")));
@@ -1790,8 +1790,8 @@ export function ModelsConfig({ onControllerChange }: ModelsConfigProps) {
   const loadApiKeyProviders = useCallback(() => {
     fetch("/api/auth/all-providers")
       .then((r) => r.json())
-      .then((d: { providers: ApiKeyProvider[] }) => {
-        setApiKeyProviders(d.providers);
+      .then((d: { providers?: ApiKeyProvider[] }) => {
+        if (Array.isArray(d.providers)) setApiKeyProviders(d.providers);
         setApiKeyError(null);
       })
       .catch(() => setApiKeyError(t("models.accountsLoadFailed")));

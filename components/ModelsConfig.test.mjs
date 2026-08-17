@@ -16,6 +16,17 @@ const {
 const source = await readFile(new URL("./ModelsConfig.tsx", import.meta.url), "utf8");
 const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 
+test("ignores malformed auth provider responses", () => {
+  assert.match(
+    source,
+    /if \(Array\.isArray\(d\.providers\)\) setOauthProviders\(d\.providers\)/,
+  );
+  assert.match(
+    source,
+    /if \(Array\.isArray\(d\.providers\)\) setApiKeyProviders\(d\.providers\)/,
+  );
+});
+
 test("custom model config exposes provider-level request headers", () => {
   const providerDetail = source.slice(
     source.indexOf("function ProviderDetail"),

@@ -68,6 +68,10 @@ interface Props {
 
 function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, string | number>) => string): string | null {
   if (phase?.kind === "running_tools") {
+    const latest = phase.tools[phase.tools.length - 1];
+    if (latest?.progress) {
+      return `${t("chat.runningNamedTool", { name: latest.name })} ${latest.progress}`;
+    }
     const names = phase.tools.map((t) => t.name);
     if (names.length === 0) return t("chat.runningTool");
     if (names.length === 1) return t("chat.runningNamedTool", { name: names[0] });
@@ -966,7 +970,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               </div>
             )}
             {agentRunning && !hasStreamingContent && agentPhase && agentPhase.kind !== "stopping" && (
-              <div className="py-2 text-[13px] text-text-muted">
+              <div className="break-words py-2 text-[13px] text-text-muted">
                 <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t)}</span>
               </div>
             )}

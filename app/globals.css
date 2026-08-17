@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Prism marks markdown tables as token.table; Tailwind's .table utility would make them display:table. */
+span.token.table {
+  display: inline;
+}
+
 @theme {
   --color-bg: var(--bg);
   --color-bg-panel: var(--bg-panel);

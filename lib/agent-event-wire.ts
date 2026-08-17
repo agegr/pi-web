@@ -26,7 +26,6 @@ export type ClientMessageUpdateEvent = Omit<JsonMessageUpdateEvent, "assistantMe
 const OMITTED_EVENT_TYPES = new Set([
   "turn_start",
   "turn_end",
-  "tool_execution_update",
 ]);
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -83,6 +82,15 @@ export function toClientAgentEvent(
       type: "message_update",
       assistantMessageEvent: metadata ? { ...deltaEvent, ...metadata } : deltaEvent,
     } as ClientMessageUpdateEvent;
+  }
+
+  if (event.type === "tool_execution_update") {
+    return {
+      type: "tool_execution_update",
+      toolCallId: event.toolCallId,
+      toolName: event.toolName,
+      partialResult: event.partialResult,
+    };
   }
 
   if (event.type === "agent_end") return { type: "agent_end" };
