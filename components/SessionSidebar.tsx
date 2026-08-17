@@ -11,6 +11,24 @@ import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 
+// Vertical split between the session list (conversation manager) and the file
+// explorer. Stored as the explorer's share of the region height, in [0..1].
+const EXPLORER_SPLIT_STORAGE_KEY = "pi-sidebar-explorer-ratio";
+const EXPLORER_RATIO_DEFAULT = 0.5;
+const EXPLORER_RATIO_MIN = 0.2;
+const EXPLORER_RATIO_MAX = 0.75;
+
+function readStoredExplorerRatio(): number {
+  if (typeof window === "undefined") return EXPLORER_RATIO_DEFAULT;
+  try {
+    const stored = Number.parseFloat(window.localStorage.getItem(EXPLORER_SPLIT_STORAGE_KEY) ?? "");
+    if (!Number.isFinite(stored)) return EXPLORER_RATIO_DEFAULT;
+    return Math.min(EXPLORER_RATIO_MAX, Math.max(EXPLORER_RATIO_MIN, stored));
+  } catch {
+    return EXPLORER_RATIO_DEFAULT;
+  }
+}
+
 declare global {
   interface Window {
     piDesktop?: {
@@ -435,6 +453,128 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
+
+  // Resizable split between the session list and the file explorer.
+  const [explorerRatio, setExplorerRatio] = useState(EXPLORER_RATIO_DEFAULT);
+  const explorerRatioRef = useRef(EXPLORER_RATIO_DEFAULT);
+  const explorerRatioRestoredRef = useRef(false);
+  const [explorerSplitResizing, setExplorerSplitResizing] = useState(false);
+  const explorerSplitDragRef = useRef<{
+    pointerId: number;
+    startY: number;
+    startRatio: number;
+    target: HTMLDivElement;
+  } | null>(null);
+  const splitRegionRef = useRef<HTMLDivElement>(null);
+
+  // Restore the persisted ratio on mount only (avoids hydration mismatch).
+  useEffect(() => {
+    if (explorerRatioRestoredRef.current) return;
+    explorerRatioRestoredRef.current = true;
+    const stored = readStoredExplorerRatio();
+    if (stored !== EXPLORER_RATIO_DEFAULT) {
+      explorerRatioRef.current = stored;
+      setExplorerRatio(stored);
+    }
+  }, []);
+
+  const applyExplorerRatio = useCallback((next: number) => {
+    const clamped = Math.min(EXPLORER_RATIO_MAX, Math.max(EXPLORER_RATIO_MIN, next));
+    explorerRatioRef.current = clamped;
+    setExplorerRatio(clamped);
+    return clamped;
+  }, []);
+
+  const persistExplorerRatio = useCallback(() => {
+    try {
+      window.localStorage.setItem(EXPLORER_SPLIT_STORAGE_KEY, String(explorerRatioRef.current));
+    } catch {
+      // Best-effort persistence; storage failures must not break dragging.
+    }
+  }, []);
+
+  const finishExplorerSplitDrag = useCallback((pointerId: number) => {
+    const drag = explorerSplitDragRef.current;
+    if (!drag || drag.pointerId !== pointerId) return;
+    explorerSplitDragRef.current = null;
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    setExplorerSplitResizing(false);
+    persistExplorerRatio();
+    try {
+      if (drag.target.hasPointerCapture(pointerId)) {
+        drag.target.releasePointerCapture(pointerId);
+      }
+    } catch {
+      // The browser may have already released capture after pointer cancellation.
+    }
+  }, [persistExplorerRatio]);
+
+  const handleExplorerSplitPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const target = event.currentTarget;
+    target.focus({ preventScroll: true });
+    target.setPointerCapture(event.pointerId);
+    explorerSplitDragRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startRatio: explorerRatioRef.current,
+      target,
+    };
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+    setExplorerSplitResizing(true);
+  }, []);
+
+  const handleExplorerSplitPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = explorerSplitDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (event.pointerType === "mouse" && event.buttons === 0) {
+      finishExplorerSplitDrag(event.pointerId);
+      return;
+    }
+    event.preventDefault();
+    const region = splitRegionRef.current;
+    if (!region) return;
+    const height = region.getBoundingClientRect().height;
+    if (height <= 0) return;
+    // The separator sits at the bottom edge of the session list (the flex-1
+    // item), i.e. y = (1 - ratio) * height, so dragging up must *grow* the
+    // explorer ratio for the boundary to follow the pointer.
+    applyExplorerRatio(drag.startRatio - (event.clientY - drag.startY) / height);
+  }, [applyExplorerRatio, finishExplorerSplitDrag]);
+
+  const resetExplorerRatio = useCallback(() => {
+    applyExplorerRatio(EXPLORER_RATIO_DEFAULT);
+    persistExplorerRatio();
+  }, [applyExplorerRatio, persistExplorerRatio]);
+
+  const handleExplorerSplitKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    const step = event.shiftKey ? 0.1 : 0.05;
+    let next: number | null = null;
+    if (event.key === "ArrowUp") next = explorerRatioRef.current + step;
+    else if (event.key === "ArrowDown") next = explorerRatioRef.current - step;
+    else if (event.key === "Home") next = EXPLORER_RATIO_MIN;
+    else if (event.key === "End") next = EXPLORER_RATIO_MAX;
+    else if (event.key === "Enter") next = EXPLORER_RATIO_DEFAULT;
+    if (next === null) return;
+    event.preventDefault();
+    applyExplorerRatio(next);
+    persistExplorerRatio();
+  }, [applyExplorerRatio, persistExplorerRatio]);
+
+  // Clean up the transient drag state (cursor/user-select) on unmount.
+  useEffect(() => {
+    return () => {
+      const drag = explorerSplitDragRef.current;
+      if (!drag) return;
+      explorerSplitDragRef.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, []);
 
   const loadSessions = useCallback(async (showLoading = false, force = false) => {
     try {
@@ -1618,8 +1758,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         )}
       </div>
 
-      {/* Session list */}
-      <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}>
+      {/* Session list + file explorer: resizable vertical split */}
+      <div ref={splitRegionRef} style={{ flex: "1 1 0", minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {/* Session list (conversation manager) */}
+      <div style={{ flex: "1 1 0", minHeight: 0, overflowY: "auto", padding: "0" }}>
         {loading && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
             {t("sidebar.loading")}
@@ -1653,14 +1795,39 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         ))}
       </div>
 
+      {/* Drag handle between the conversation manager and the file browser */}
+      {(selectedCwdProp || selectedCwd) && explorerOpen && (
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-controls="sidebar-file-explorer"
+          aria-label={t("layout.resizeExplorerSplit")}
+          aria-valuemin={Math.round(EXPLORER_RATIO_MIN * 100)}
+          aria-valuemax={Math.round(EXPLORER_RATIO_MAX * 100)}
+          aria-valuenow={Math.round(explorerRatio * 100)}
+          aria-valuetext={`${Math.round(explorerRatio * 100)}%`}
+          tabIndex={0}
+          title={`${t("layout.resizeExplorerSplit")}: ${t("layout.resizeHint")}`}
+          className={`sidebar-explorer-split-handle${explorerSplitResizing ? " is-resizing" : ""}`}
+          onPointerDown={handleExplorerSplitPointerDown}
+          onPointerMove={handleExplorerSplitPointerMove}
+          onPointerUp={(event) => finishExplorerSplitDrag(event.pointerId)}
+          onPointerCancel={(event) => finishExplorerSplitDrag(event.pointerId)}
+          onLostPointerCapture={(event) => finishExplorerSplitDrag(event.pointerId)}
+          onDoubleClick={resetExplorerRatio}
+          onKeyDown={handleExplorerSplitKeyDown}
+        />
+      )}
+
       {/* File Explorer section */}
       {(selectedCwdProp || selectedCwd) && (
         <div
+          id="sidebar-file-explorer"
           style={{
             borderTop: "1px solid var(--border)",
             display: "flex",
             flexDirection: "column",
-            flex: explorerOpen ? "1 1 0" : "0 0 auto",
+            flex: explorerOpen ? `0 0 ${(explorerRatio * 100).toFixed(1)}%` : "0 0 auto",
             minHeight: 0,
             overflow: "hidden",
           }}
@@ -1770,6 +1937,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }

@@ -1242,6 +1242,36 @@ span.token.table {
 .panel-resize-handle.is-resizing::after {
   background: color-mix(in srgb, var(--text-muted) 70%, var(--border));
 }
+
+/* Sidebar inner split between the session list and the file explorer.
+   The explorer's top border stays the idle separator; this element only
+   expands the hit target. */
+.sidebar-explorer-split-handle {
+  position: relative;
+  z-index: 5;
+  height: 10px;
+  margin: -5px 0;
+  flex: 0 0 10px;
+  cursor: row-resize;
+  touch-action: none;
+  outline: none;
+}
+.sidebar-explorer-split-handle::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 5px;
+  height: 2px;
+  pointer-events: none;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+.sidebar-explorer-split-handle:hover::after,
+.sidebar-explorer-split-handle:focus-visible::after,
+.sidebar-explorer-split-handle.is-resizing::after {
+  background: color-mix(in srgb, var(--text-muted) 70%, var(--border));
+}
 .right-panel-overlay-backdrop {
   display: none;
 }

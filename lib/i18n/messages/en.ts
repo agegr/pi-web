@@ -71,6 +71,7 @@ export const enLocale: LocalePlugin = {
     "files.noneOpen": "No file open",
     "layout.resizeSidebar": "Resize sidebar",
     "layout.resizeFilePanel": "Resize file panel",
+    "layout.resizeExplorerSplit": "Resize file explorer split",
     "layout.resizeHint": "Drag to resize. Double-click or press Enter to reset.",
     "sidebar.new": "New",
     "sidebar.newSessionTitle": "New session in {path}",
