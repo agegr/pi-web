@@ -1403,8 +1403,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         nativeEvent.keyCode === 229;
 
       if (sendShortcut && (isComposing || recentlyComposed)) {
-        if (recentlyComposed) e.preventDefault();
-        return;
+        // Plain Enter confirms IME; Cmd/Ctrl+Enter is 插话 and must not be eaten
+        // by the composition-end grace after Chinese input.
+        const accelerated = e.ctrlKey || e.metaKey;
+        if (isComposing || !accelerated) {
+          if (recentlyComposed) e.preventDefault();
+          return;
+        }
       }
 
       if (historyMenuOpen && !isComposing) {
@@ -2572,15 +2577,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             )}
           {isStreaming ? (
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-              {/* Busy composer follows DSH: no send button on desktop — Enter
-                  queues, Cmd/Ctrl+Enter interjects. Mobile keeps a queue-send
-                  button because touch keyboards have no Cmd/Ctrl chord. */}
-              {isMobile && (value.trim() || attachedImages.length) && (onSteer || onFollowUp) ? (
+              {/* Running + draft: click 插话 to steer now. Enter still queues. */}
+              {(value.trim() || attachedImages.length) && onSteer ? (
                 <button
                   className="composer-icon-hit"
-                  onClick={() => sendQueued(false)}
-                  title={t("chat.send")}
-                  aria-label={t("chat.send")}
+                  onClick={() => sendQueued(true)}
+                  title={t("chat.interject")}
+                  aria-label={t("chat.interject")}
                   style={roundComposerButton}
                 >
                   <ArrowUp size={14} strokeWidth={2.2} aria-hidden="true" />

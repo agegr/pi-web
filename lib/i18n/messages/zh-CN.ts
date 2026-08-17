@@ -335,6 +335,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.queueRemove": "删除排队消息",
     "chat.queueSteer": "插话发送",
     "chat.queueSteerUnavailable": "仅运行中可插话发送",
+    "chat.interject": "插话",
     "chat.send": "发送",
     "chat.homeTitle": "我们应该在{cwd}中做些什么？",
     "chat.homeTitleGeneric": "我们应该做什么？",

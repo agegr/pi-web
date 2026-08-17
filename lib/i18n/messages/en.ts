@@ -335,6 +335,7 @@ export const enLocale: LocalePlugin = {
     "chat.queueRemove": "Remove queued message",
     "chat.queueSteer": "Steer queued message",
     "chat.queueSteerUnavailable": "Steering is available only while the agent is running",
+    "chat.interject": "Interject",
     "chat.send": "Send",
     "chat.homeTitle": "What should we do in {cwd}?",
     "chat.homeTitleGeneric": "What should we do?",

@@ -402,7 +402,7 @@ export class AgentSessionWrapper {
 
     try {
       if (op === "steer" && target !== null) {
-        await this.inner.prompt(target, { streamingBehavior: "steer", source: "rpc" });
+        await this.send({ type: "prompt", message: target, streamingBehavior: "steer" });
       } else if (op === "edit" && target !== null) {
         const queueEdited = kind === "steering"
           ? () => this.inner.steer(trimmedReplacement)
@@ -433,14 +433,17 @@ export class AgentSessionWrapper {
   private async steerAllQueued(): Promise<{ steering: string[]; followUp: string[] }> {
     const { steering, followUp } = this.inner.clearQueue();
     const delivered: string[] = [];
+    const all = [...steering, ...followUp];
     try {
-      for (const text of steering) {
-        await this.inner.prompt(text, { streamingBehavior: "steer", source: "rpc" });
-        delivered.push(text);
-      }
-      for (const text of followUp) {
-        await this.inner.prompt(text, { streamingBehavior: "steer", source: "rpc" });
-        delivered.push(text);
+      // Abort+new-turn once for the first item; queue the rest so we don't
+      // abort the turn we just started.
+      if (all.length > 0) {
+        await this.send({ type: "prompt", message: all[0], streamingBehavior: "steer" });
+        delivered.push(all[0]);
+        for (const text of all.slice(1)) {
+          await this.inner.steer(text);
+          delivered.push(text);
+        }
       }
     } catch (error) {
       const remaining = {
@@ -563,7 +566,14 @@ export class AgentSessionWrapper {
             throw new Error("Cannot send a prompt while a shell command is running");
           }
           const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-          const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
+          let streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
+          // Steer during an in-flight model wait must abort first. The agent
+          // loop only drains the steering queue after streamAssistantResponse
+          // returns, so queue-only 插话 looks dead while "等待模型".
+          if (streamingBehavior === "steer" && this.inner.isStreaming) {
+            await this.withFinalRunningNotification(() => this.inner.abort());
+            streamingBehavior = undefined;
+          }
           let preflightAccepted = false;
           let preflightSettled = false;
           let promptSettled = false;

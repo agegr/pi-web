@@ -424,13 +424,14 @@ test("keeps composer chip labels from wrapping", async () => {
   assert.match(css, /\.composer-chip \{\s*display: flex;[^}]*white-space: nowrap/);
 });
 
-test("streaming composer follows DSH: stop only on desktop, queue-send beside stop on mobile", async () => {
+test("streaming composer shows a clickable interject button that steers", async () => {
   const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
-  // Desktop busy state has no send button — Enter queues, Cmd/Ctrl+Enter
-  // interjects (插话). Mobile keeps a queue-send button beside stop because
-  // touch keyboards have no Cmd/Ctrl chord; the button always queues.
-  assert.match(source, /\{isMobile && \(value\.trim\(\) \|\| attachedImages\.length\) && \(onSteer \|\| onFollowUp\)/);
-  assert.match(source, /onClick=\{?\(\) => sendQueued\(false\)/);
+  // Draft + running: visible 插话 button on desktop and mobile. Enter still
+  // queues; the button / Cmd+Enter steers. A mobile-only follow-up send left
+  // no way to click-guide the agent.
+  assert.match(source, /\(value\.trim\(\) \|\| attachedImages\.length\) && onSteer/);
+  assert.match(source, /onClick=\{?\(\) => sendQueued\(true\)/);
+  assert.match(source, /t\("chat\.interject"\)/);
   assert.match(source, /isStreaming \? \(\s*<div style=\{\{ display: "flex", alignItems: "center", gap: 8/);
 });
 
@@ -445,6 +446,16 @@ test("busy Enter queues, Cmd/Ctrl+Enter interjects, empty-draft chord flushes th
   assert.match(source, /const canSteerQueue = isStreaming/);
   assert.match(source, /if \(accelerated && canSteerQueue\) \{\s*\n\s*onSteerAllQueued\?\.\(\)/);
   assert.match(source, /sendQueued\(accelerated\)/);
+});
+
+test("IME grace does not swallow Cmd/Ctrl+Enter interject", async () => {
+  const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  const start = source.indexOf("if (sendShortcut && (isComposing || recentlyComposed))");
+  const end = source.indexOf("if (historyMenuOpen && !isComposing)", start);
+  const guard = source.slice(start, end);
+  assert.ok(start >= 0 && end > start, "IME send guard should exist");
+  assert.match(guard, /accelerated/);
+  assert.match(guard, /isComposing \|\| !accelerated/);
 });
 
 test("clears slash commands before waiting for a builtin handler", async () => {

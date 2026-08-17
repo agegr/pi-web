@@ -66,7 +66,7 @@ test("uses a restrained DSCode desktop composer without changing mobile sizing",
 test("keeps the streaming composer in the idle capsule", () => {
   assert.doesNotMatch(chatInputSource, /isStreaming && \(onSteer \|\| onFollowUp\)\s*\n?\s*\? "rgba\(234,179,8,0\.4\)"/);
   // The steer/follow-up toggle is gone — busy delivery is gesture-driven:
-  // Enter queues, Cmd/Ctrl+Enter interjects, mobile button queues.
+  // Enter queues, click/Cmd+Enter interjects.
   assert.doesNotMatch(chatInputSource, /const \[queueMode, setQueueMode\]/);
   assert.doesNotMatch(chatInputSource, /composer-queue-toggle/);
   assert.match(chatInputSource, /isStreaming \?[\s\S]*onAbort[\s\S]*<Square/);
