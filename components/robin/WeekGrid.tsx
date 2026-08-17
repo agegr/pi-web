@@ -15,6 +15,7 @@ import {
   MINUTES_PER_DAY,
   toMinutes,
 } from "@/extension/robin/layout";
+import { useTodayInView } from "./useTodayInView";
 
 /** Tall enough that a 30-minute block still fits its title. */
 const HOUR_HEIGHT = 44;
@@ -78,6 +79,7 @@ export function WeekGrid({
 }) {
   const { t, locale } = useI18n();
   const days = weekDays(anchor);
+  const scrollerRef = useTodayInView(anchor, today);
   const { bars, lanes } = layoutSpanBars(events, days);
   const nowMinutes = useNowMinutes();
 
@@ -88,7 +90,7 @@ export function WeekGrid({
   const gridHeight = hours.length * HOUR_HEIGHT;
 
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto" ref={scrollerRef}>
       <div className="min-w-[44rem]">
         {/* Day headings */}
         <div
@@ -186,6 +188,7 @@ export function WeekGrid({
               return (
                 <div
                   key={date}
+                  data-date={date}
                   className="relative"
                   style={{
                     height: gridHeight,

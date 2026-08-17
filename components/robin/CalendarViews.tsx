@@ -12,6 +12,7 @@ import {
   type DashboardEvent,
 } from "@/extension/robin/events";
 import { layoutSpanBars } from "@/extension/robin/layout";
+import { useTodayInView } from "./useTodayInView";
 
 export type CalendarView = "agenda" | "week" | "month";
 
@@ -195,9 +196,19 @@ function MonthWeekRow({
 }) {
   const { bars, lanes } = layoutSpanBars(events, days);
   const barsHeight = lanes * BAR_HEIGHT;
+  // The window always opens on today's week, but when today falls late in it
+  // most of the row is already past — marking the row is what makes "this is
+  // your current week" readable at a glance.
+  const isCurrentWeek = days.length > 0 && (days[0] as string) <= today
+    && today <= (days[days.length - 1] as string);
 
   return (
-    <div className="relative">
+    <div
+      className="relative"
+      style={isCurrentWeek
+        ? { borderLeft: "2px solid var(--accent)", paddingLeft: 4, marginLeft: -6 }
+        : { paddingLeft: 4, marginLeft: -6 }}
+    >
       <div className="grid grid-cols-7 gap-px">
         {days.map((date) => {
           const chips = events
@@ -213,6 +224,7 @@ function MonthWeekRow({
             <button
               key={date}
               type="button"
+              data-date={date}
               onClick={() => onSelectDay(date)}
               title={t("robin.calendar.dayTooltip", { date, count: String(chips.length + spanning) })}
               className="flex min-h-32 flex-col gap-0.5 rounded p-1 text-left"
@@ -286,13 +298,14 @@ export function MonthView({
   onSelectDay,
 }: Omit<ViewProps, "onDelete"> & { days: string[]; onSelectDay: (date: string) => void }) {
   const { t, locale } = useI18n();
+  const scrollerRef = useTodayInView(grid[0] ?? "", today);
   const weeks = Array.from(
     { length: Math.ceil(grid.length / 7) },
     (_, index) => grid.slice(index * 7, index * 7 + 7),
   );
 
   return (
-    <div className={GRID_SCROLL}>
+    <div className={GRID_SCROLL} ref={scrollerRef}>
       <div className={`flex flex-col gap-px ${GRID_MIN_WIDTH}`}>
         <div className="grid grid-cols-7 gap-px">
           {(weeks[0] ?? []).map((date) => (
