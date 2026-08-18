@@ -1245,6 +1245,12 @@ span.token.table {
 .right-panel-overlay-backdrop {
   display: none;
 }
+.conversation-panel {
+  display: flex;
+}
+.conversation-panel.file-panel-maximized {
+  display: none;
+}
 
 /* Desktop sidebar: animate width */
 @media (min-width: 641px) {
@@ -1301,6 +1307,15 @@ span.token.table {
   .right-panel-container.right-panel-resizing > * {
     transition: none !important;
   }
+  .right-panel-container.right-panel-maximized {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .right-panel-container.right-panel-maximized > * {
+    width: 100%;
+    min-width: 0;
+  }
 }
 
 /* Compact desktop file panel: overlay the chat instead of collapsing it. */
@@ -1344,6 +1359,16 @@ span.token.table {
   .right-panel-container > * {
     width: 100%;
     min-width: 0;
+  }
+  .right-panel-container.right-panel-maximized {
+    position: relative;
+    inset: auto;
+    z-index: auto;
+    width: auto;
+    min-width: 0;
+    flex: 1 1 auto;
+    box-shadow: none;
+    transform: none;
   }
 }
 

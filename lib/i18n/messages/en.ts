@@ -68,6 +68,8 @@ export const enLocale: LocalePlugin = {
     "workspace.stepModels": "Add models via the Models button at the bottom",
     "files.hidePanel": "Hide file panel",
     "files.showPanel": "Show file panel",
+    "files.maximizePanel": "Maximize file panel",
+    "files.restorePanel": "Restore file panel",
     "files.noneOpen": "No file open",
     "layout.resizeSidebar": "Resize sidebar",
     "layout.resizeFilePanel": "Resize file panel",
