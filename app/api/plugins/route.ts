@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { existsSync, readFileSync, statSync } from "fs";
 import { basename, dirname, extname, join, relative } from "path";
 import {
+  CONFIG_DIR_NAME,
   DefaultPackageManager,
   getAgentDir,
   SettingsManager,
@@ -12,7 +13,9 @@ import {
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getProjectTrustStatus } from "@/lib/project-trust";
+import { findDirectExtensionSymlink, unlinkExtensionSymlink } from "@/lib/extension-links";
 import type {
+  ExtensionResourceInfo,
   PluginDiagnostic,
   PluginPackageInfo,
   PluginResourceCounts,
@@ -24,7 +27,7 @@ import type {
 
 export const dynamic = "force-dynamic";
 
-type PluginAction = "install" | "remove" | "update" | "disable" | "enable";
+type PluginAction = "install" | "remove" | "update" | "disable" | "enable" | "unlink-extension";
 
 function emptyCounts(): PluginResourceCounts {
   return { extensions: 0, skills: 0, prompts: 0, themes: 0 };
@@ -186,9 +189,10 @@ function collectResource(
   resourcesByPackage.set(key, resources);
 }
 
-function collectResources(paths: ResolvedPaths): {
+function collectResources(paths: ResolvedPaths, cwd: string, agentDir: string): {
   countsByPackage: Map<string, PluginResourceCounts>;
   resourcesByPackage: Map<string, PluginResourceInfo[]>;
+  extensions: ExtensionResourceInfo[];
   totals: PluginResourceCounts;
 } {
   const countsByPackage = new Map<string, PluginResourceCounts>();
@@ -198,7 +202,26 @@ function collectResources(paths: ResolvedPaths): {
   for (const resource of paths.skills) collectResource(resource, "skills", countsByPackage, resourcesByPackage, totals);
   for (const resource of paths.prompts) collectResource(resource, "prompts", countsByPackage, resourcesByPackage, totals);
   for (const resource of paths.themes) collectResource(resource, "themes", countsByPackage, resourcesByPackage, totals);
-  return { countsByPackage, resourcesByPackage, totals };
+  const extensions = paths.extensions.map((resource) => {
+    const scope = toPluginScope(resource.metadata.scope);
+    const extensionRoot = scope === "project"
+      ? join(cwd, CONFIG_DIR_NAME, "extensions")
+      : join(agentDir, "extensions");
+    const linkPath = resource.metadata.origin === "top-level" && resource.metadata.source === "auto"
+      ? findDirectExtensionSymlink(resource.path, extensionRoot)
+      : undefined;
+    return {
+      name: getResourceName(resource.path, "extension"),
+      path: resource.path,
+      relativePath: getRelativePath(resource),
+      scope,
+      source: resource.metadata.source,
+      origin: resource.metadata.origin,
+      enabled: resource.enabled,
+      ...(linkPath ? { linkPath } : {}),
+    };
+  });
+  return { countsByPackage, resourcesByPackage, extensions, totals };
 }
 
 async function readPlugins(cwd: string): Promise<PluginsResponse> {
@@ -216,6 +239,7 @@ async function readPlugins(cwd: string): Promise<PluginsResponse> {
   const diagnostics: PluginDiagnostic[] = [];
   let countsByPackage = new Map<string, PluginResourceCounts>();
   let resourcesByPackage = new Map<string, PluginResourceInfo[]>();
+  let extensions: ExtensionResourceInfo[] = [];
   let totals = emptyCounts();
   const disabledByPackage = getDisabledPackages(settingsManager);
 
@@ -228,7 +252,7 @@ async function readPlugins(cwd: string): Promise<PluginsResponse> {
       });
       return "skip";
     });
-    ({ countsByPackage, resourcesByPackage, totals } = collectResources(resolved));
+    ({ countsByPackage, resourcesByPackage, extensions, totals } = collectResources(resolved, cwd, agentDir));
   } catch (error) {
     diagnostics.push({
       type: "error",
@@ -268,6 +292,7 @@ async function readPlugins(cwd: string): Promise<PluginsResponse> {
 
   return {
     packages,
+    extensions,
     totals,
     diagnostics,
     projectResourcesLoaded: projectTrust.trusted,
@@ -309,6 +334,7 @@ export async function POST(req: Request) {
       source?: string;
       scope?: PluginScope;
       cwd?: string;
+      linkPath?: string;
     };
     if (!body.cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
     if (!body.action) return NextResponse.json({ error: "action required" }, { status: 400 });
@@ -343,6 +369,17 @@ export async function POST(req: Request) {
     } else if (body.action === "remove") {
       if (!source) return NextResponse.json({ error: "source required" }, { status: 400 });
       await packageManager.removeAndPersist(source, { local });
+    } else if (body.action === "unlink-extension") {
+      const linkPath = body.linkPath?.trim();
+      if (!linkPath) return NextResponse.json({ error: "linkPath required" }, { status: 400 });
+      const resolved = await packageManager.resolve(async () => "skip");
+      const extension = collectResources(resolved, body.cwd, agentDir).extensions.find((item) => (
+        item.scope === scope && item.linkPath === linkPath
+      ));
+      if (!extension?.linkPath) {
+        return NextResponse.json({ error: "Managed extension symlink not found" }, { status: 404 });
+      }
+      unlinkExtensionSymlink(extension.linkPath);
     } else if (body.action === "update") {
       await packageManager.update(source);
     } else if (body.action === "disable") {

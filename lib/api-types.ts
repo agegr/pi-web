@@ -104,8 +104,20 @@ export interface PluginPackageInfo {
   status: "loaded" | "installed" | "missing" | "disabled";
 }
 
+export interface ExtensionResourceInfo {
+  name: string;
+  path: string;
+  relativePath: string;
+  scope: PluginScope;
+  source: string;
+  origin: "package" | "top-level";
+  enabled: boolean;
+  linkPath?: string;
+}
+
 export interface PluginsResponse {
   packages: PluginPackageInfo[];
+  extensions: ExtensionResourceInfo[];
   totals: PluginResourceCounts;
   diagnostics: PluginDiagnostic[];
   projectResourcesLoaded: boolean;

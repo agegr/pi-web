@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import type { PluginPackageInfo, PluginsResponse } from "@/lib/api-types";
+import type { ExtensionResourceInfo, PluginPackageInfo, PluginsResponse } from "@/lib/api-types";
 import { useI18n } from "@/hooks/useI18n";
 
 type PluginScope = PluginPackageInfo["scope"];
@@ -629,6 +629,10 @@ export function PluginsConfig({
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const packages = useMemo(() => data?.packages ?? [], [data?.packages]);
+  const directExtensions = useMemo(
+    () => (data?.extensions ?? []).filter((extension) => extension.origin === "top-level"),
+    [data?.extensions],
+  );
   const selectedPackage = packages.find((pkg) => packageKey(pkg) === selected) ?? null;
   const projectResourcesLoaded = data?.projectResourcesLoaded ?? true;
 
@@ -742,6 +746,35 @@ export function PluginsConfig({
     }
   }, [loadPlugins, onReloaded, sessionId]);
 
+  const unlinkExtension = useCallback(async (extension: ExtensionResourceInfo) => {
+    if (!extension.linkPath) return;
+    if (!window.confirm(t("i18n.unlinkExtensionConfirm", { name: extension.name }))) return;
+    setBusyKey(`unlink:${extension.linkPath}`);
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      const res = await fetch("/api/plugins", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "unlink-extension",
+          linkPath: extension.linkPath,
+          scope: extension.scope,
+          cwd,
+        }),
+      });
+      const next = (await res.json()) as PluginsResponse & { error?: string };
+      if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
+      setData(next);
+      await reloadSession();
+      setActionMessage(t("i18n.extensionLinkRemoved"));
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyKey(null);
+    }
+  }, [cwd, reloadSession, t]);
+
   const addBusy = busyKey?.startsWith("install:") ?? false;
 
   return (
@@ -854,12 +887,13 @@ export function PluginsConfig({
                 <div style={{ padding: "10px 8px", fontSize: 11, color: "#ef4444" }}>
                   {error}
                 </div>
-              ) : packages.length === 0 ? (
+              ) : packages.length === 0 && directExtensions.length === 0 ? (
                 <div style={{ padding: "10px 8px", fontSize: 11, color: "var(--text-dim)" }}>
                   No plugins configured
                 </div>
               ) : (
-                groupedPackages.map((group) => (
+                <>
+                {groupedPackages.map((group) => (
                   <div key={group.scope} style={{ marginBottom: 6 }}>
                     <div
                       style={{
@@ -950,7 +984,81 @@ export function PluginsConfig({
                       );
                     })}
                   </div>
-                ))
+                ))}
+                {directExtensions.length > 0 && (
+                  <div style={{ marginBottom: 6 }}>
+                    <div style={{
+                      padding: "4px 8px 3px",
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: "var(--text-dim)",
+                      textTransform: "uppercase",
+                    }}>
+                      {t("i18n.directExtensions")}
+                    </div>
+                    {directExtensions.map((extension) => {
+                      const unlinking = busyKey === `unlink:${extension.linkPath}`;
+                      return (
+                        <div key={`${extension.scope}:${extension.path}`} style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 7,
+                          minHeight: 42,
+                          padding: "7px 8px",
+                        }}>
+                          <span style={{
+                            flexShrink: 0,
+                            width: 7,
+                            height: 7,
+                            borderRadius: "50%",
+                            background: extension.enabled ? "var(--accent)" : "var(--border)",
+                          }} />
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{
+                              fontSize: 12,
+                              color: extension.enabled ? "var(--text)" : "var(--text-dim)",
+                              fontFamily: "var(--font-mono)",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}>
+                              {extension.name}
+                            </div>
+                            <div
+                              title={extension.linkPath ?? extension.path}
+                              style={{
+                                marginTop: 2,
+                                fontSize: 10,
+                                color: "var(--text-dim)",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {extension.scope} · {shortenPath(extension.linkPath ?? extension.path)}
+                            </div>
+                          </div>
+                          {extension.linkPath && (
+                            <button
+                              type="button"
+                              onClick={() => void unlinkExtension(extension)}
+                              disabled={busyKey !== null}
+                              title={t("i18n.unlinkExtensionKeepsSource")}
+                              style={{
+                                ...buttonStyle(busyKey !== null, true),
+                                padding: "4px 7px",
+                                fontSize: 10,
+                              }}
+                            >
+                              {unlinking ? t("i18n.removing") : t("i18n.unlinkExtension")}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                </>
               )}
             </div>
             <div style={{ padding: "8px 6px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
