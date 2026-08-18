@@ -115,7 +115,7 @@ export const zhCNLocale: LocalePlugin = {
     "robin.assistant.send": "发送",
     "robin.assistant.working": "处理中…",
     "robin.search.results": "全局搜索结果",
-    "robin.common.add": "+ 添加",
+    "robin.common.add": "添加",
     "robin.common.cancel": "取消",
     "robin.common.save": "保存",
     "robin.common.clear": "清除",

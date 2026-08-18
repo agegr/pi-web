@@ -1121,12 +1121,12 @@ export function AppShell() {
             onClick={onClick}
             disabled={disabled}
             title={label}
-            className="ui-action ui-action--surface"
+            className="ui-action ui-action--surface pi-chrome-label"
             style={{
               flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
               height: 32, padding: 0, border: "none",
               borderRadius: "var(--panel-radius)",
-              fontSize: 12, opacity: disabled ? 0.35 : 1,
+              fontSize: 11, opacity: disabled ? 0.35 : 1,
             }}
           >
             {icon}
@@ -1239,11 +1239,11 @@ export function AppShell() {
           minHeight: mobileBanner ? 32 : undefined,
           height: mobileBanner ? undefined : "100%",
           padding: mobileBanner ? "6px 12px" : "0 12px",
-          background: mobileBanner ? "color-mix(in srgb, #d97706 8%, var(--bg-panel))" : "none",
+          background: mobileBanner ? "color-mix(in srgb, var(--warning) 8%, var(--bg-panel))" : "none",
           border: "none",
           borderRight: mobileBanner ? "none" : "1px solid var(--border)",
           borderBottom: mobileBanner ? "1px solid var(--border)" : "none",
-          color: "#d97706",
+          color: "var(--warning)",
           cursor: "pointer",
           flexShrink: 0,
           fontSize: 11,
@@ -1397,7 +1397,7 @@ export function AppShell() {
               title={title}
               aria-label={label}
               className="ui-action ui-action--surface"
-              // The error tint used to be a hard-coded #dc2626 that stayed put
+              // The error tint used to be a hard-coded var(--danger) that stayed put
               // in dark mode; the token flips with the theme.
               data-state={isError ? "danger" : isSuccess ? "accent" : disabled ? "dim" : undefined}
               style={{
@@ -1525,8 +1525,8 @@ export function AppShell() {
     let mobileContextText: string | null = null;
     if (contextUsage?.contextWindow) {
       const percent = contextUsage.percent;
-      if (percent !== null && percent > 90) contextColor = "#ef4444";
-      else if (percent !== null && percent > 70) contextColor = "rgba(234,179,8,0.95)";
+      if (percent !== null && percent > 90) contextColor = "var(--danger)";
+      else if (percent !== null && percent > 70) contextColor = "color-mix(in srgb, var(--warning) 95%, transparent)";
       desktopContextText = percent !== null
         ? `${percent.toFixed(0)}% / ${formatCompact(contextUsage.contextWindow)}`
         : `? / ${formatCompact(contextUsage.contextWindow)}`;
@@ -1758,7 +1758,7 @@ export function AppShell() {
           transform: translateY(0);
           filter: blur(0);
           background: color-mix(in srgb, var(--accent) 8%, var(--bg-panel));
-          box-shadow: 0 18px 44px rgba(37,99,235,0.16);
+          box-shadow: 0 18px 44px color-mix(in srgb, var(--accent) 16%, transparent);
         }
         100% {
           opacity: 1;
@@ -1836,7 +1836,9 @@ export function AppShell() {
       paddingLeft: "env(safe-area-inset-left)",
       paddingRight: "env(safe-area-inset-right)",
       overflow: "hidden",
-      background: "var(--bg)",
+      // Transparent so the ruled paper painted on <html> reads through the
+      // chat column; the sidebar and toolbars paint their own surfaces on top.
+      background: "transparent",
     }}>
       {/* Mobile overlay backdrop */}
       <div
@@ -1860,7 +1862,7 @@ export function AppShell() {
         className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${sidebarResizer.isResizing ? " sidebar-resizing" : ""}`}
         style={{
           "--sidebar-width": `${sidebarResizer.width}px`,
-          background: "var(--bg-panel)",
+          background: "var(--nav-panel-background)",
           borderRight: "1px solid var(--border)",
           display: "flex",
           flexDirection: "column",
@@ -1885,7 +1887,7 @@ export function AppShell() {
       {/* Center: chat */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Top bar with sidebar toggle */}
-        <div ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
+        <div ref={topBarRef} className="pi-topbar" style={{ flexShrink: 0, background: "var(--nav-panel-background)" }}>
         <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
           <button
             onClick={handleSidebarToggle}
@@ -2006,7 +2008,7 @@ export function AppShell() {
           )}
           {/* Top panel dropdown — shared, only one active at a time */}
           {activeTopPanel && topPanelPos && (
-            <div style={{
+            <div className="pi-topbar-panel" style={{
               position: "fixed",
               top: topPanelPos.top,
               left: topPanelPos.left,
@@ -2047,7 +2049,7 @@ export function AppShell() {
                       style={{
                         display: "flex", alignItems: "center",
                         width: "100%", height: 34, padding: "0 10px",
-                        border: "none", borderRadius: 4,
+                        border: "none", borderRadius: 0,
                         textAlign: "left", fontSize: 12,
                       }}
                     >
@@ -2181,7 +2183,7 @@ export function AppShell() {
                             width: 22,
                             height: 22,
                             marginTop: -2,
-                            borderRadius: 4,
+                            borderRadius: 0,
                             flex: "0 0 auto",
                           }}
                         >
@@ -2294,7 +2296,7 @@ export function AppShell() {
               role="alert"
               style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: 24, color: "var(--text-muted)", textAlign: "center" }}
             >
-               <div style={{ fontSize: 14, color: "#dc2626" }}>{translate("workspace.unable")}</div>
+               <div style={{ fontSize: 14, color: "var(--danger)" }}>{translate("workspace.unable")}</div>
               <div style={{ maxWidth: "min(720px, 100%)", overflowWrap: "anywhere", fontFamily: "var(--font-mono)", fontSize: 12 }}>
                 {initialNavigation.requestedCwd}
               </div>
@@ -2302,7 +2304,7 @@ export function AppShell() {
             </div>
           ) : showPlaceholder ? (
             activeCwd ? (
-              <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 15 }}>
+              <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontFamily: "var(--font-serif)", fontStyle: "italic", fontSize: 17 }}>
                  {translate("workspace.selectSession")}
               </div>
             ) : (
@@ -2311,7 +2313,8 @@ export function AppShell() {
                   <line x1="20" y1="12" x2="4" y2="12" /><polyline points="10 6 4 12 10 18" />
                 </svg>
                 <div>
-                   <div style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>{translate("workspace.getStarted")}</div>
+                   {/* The one heading on the empty canvas, so it gets pi's serif italic. */}
+                   <div style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontSize: 26, fontWeight: 400, color: "var(--text)", marginBottom: 8 }}>{translate("workspace.getStarted")}</div>
                   <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.8 }}>
                      <span style={{ color: "var(--text-dim)", marginRight: 6 }}>1.</span>{translate("workspace.selectProject")}<br />
                      <span style={{ color: "var(--text-dim)", marginRight: 6 }}>2.</span>{translate("workspace.addModels")}

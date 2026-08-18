@@ -115,7 +115,7 @@ export const enLocale: LocalePlugin = {
     "robin.assistant.send": "Send",
     "robin.assistant.working": "Working…",
     "robin.search.results": "Global search results",
-    "robin.common.add": "+ add",
+    "robin.common.add": "add",
     "robin.common.cancel": "cancel",
     "robin.common.save": "Save",
     "robin.common.clear": "Clear",

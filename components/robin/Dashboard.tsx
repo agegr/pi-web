@@ -47,20 +47,19 @@ export function Dashboard() {
     // supplies its own scroll container rather than changing that shared rule.
     <div className="robin-dashboard flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
       <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-4 desktop:p-6">
+      {/* pi's page head: an italic serif title over a tracked mono dateline. */}
       <header className="flex items-baseline justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold" style={{ color: "var(--text)" }}>{t("sidebar.dashboard")}</h1>
+        <div className="flex flex-col gap-1">
+          <h1 className="text-3xl" style={{ fontStyle: "italic", fontWeight: 400, color: "var(--text)" }}>
+            {t("sidebar.dashboard")}
+          </h1>
           {/* Empty until the effect runs, so server and client markup agree. */}
-          <p className="text-sm" style={{ color: "var(--text-muted)" }} suppressHydrationWarning>
+          <p className="pi-eyebrow" suppressHydrationWarning>
             {heading}
           </p>
         </div>
-        <nav className="flex items-baseline gap-4">
-          <Link
-            href="/dashboard/settings"
-            className="text-sm hover:underline"
-            style={{ color: "var(--text-muted)" }}
-          >
+        <nav className="flex items-baseline gap-3">
+          <Link href="/dashboard/settings" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 11 }}>
             {t("robin.nav.settings")}
           </Link>
           <Link
@@ -72,8 +71,9 @@ export function Dashboard() {
                   ? { cwd }
                   : {},
             }}
-            className="text-sm hover:underline"
-            style={{ color: "var(--accent)" }}
+            className="ui-action pi-chrome-label pi-bracket"
+            data-state="accent"
+            style={{ fontSize: 11 }}
           >
             {t("robin.nav.chat")}
           </Link>

@@ -143,8 +143,7 @@ export function AssistantBar() {
 
   return (
     <section
-      className="flex flex-col gap-2 rounded-lg p-4"
-      style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}
+      className="pi-card flex flex-col gap-2 p-4"
     >
       <form onSubmit={submit} className="flex gap-2">
         <input
@@ -155,13 +154,12 @@ export function AssistantBar() {
           disabled={busy}
           placeholder={t("robin.assistant.placeholder")}
           className="min-w-0 flex-1 rounded px-3 py-2 text-sm outline-none disabled:opacity-60"
-          style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
         />
         <button
           type="submit"
           disabled={busy || !message.trim()}
-          className="rounded px-4 py-2 text-sm disabled:opacity-40"
-          style={{ background: "var(--accent)", color: "#fff" }}
+          className="ui-action ui-action--outline pi-bracket px-3 disabled:opacity-40"
+          data-state="accent"
         >
           {busy ? "…" : t("robin.assistant.send")}
         </button>

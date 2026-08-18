@@ -1,6 +1,24 @@
 @import "tailwindcss";
 
 /* ---------------------------------------------------------------------------
+   Departure Mono — the pixel face pi.dev sets its labels, buttons and nav in.
+   Helena Zhang, SIL Open Font License 1.1; the licence ships beside the font
+   at public/fonts/DepartureMono-OFL.txt, which is what the OFL asks for.
+
+   `block` rather than `swap`: this face is only ever used for short tracked
+   labels, and swapping in a pixel font mid-paint reflows every one of them.
+   The file is 22KB and served from the same local host as the page, so the
+   block period is not something a reader will see.
+--------------------------------------------------------------------------- */
+@font-face {
+  font-family: "Departure Mono";
+  src: url("/fonts/DepartureMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+/* ---------------------------------------------------------------------------
    Design tokens.
 
    Every token is declared twice on purpose. The bare name (`--text-muted`,
@@ -25,11 +43,14 @@
 
 @theme {
   --color-bg: var(--bg);
+  --color-bg-deep: var(--bg-deep);
   --color-bg-panel: var(--bg-panel);
   --color-bg-hover: var(--bg-hover);
   --color-bg-selected: var(--bg-selected);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-text: var(--text);
+  --color-copy: var(--copy);
   --color-text-muted: var(--text-muted);
   --color-text-dim: var(--text-dim);
   --color-accent: var(--accent);
@@ -42,6 +63,11 @@
   --color-danger: var(--danger);
   --color-success: var(--success);
   --color-warning: var(--warning);
+  --color-accent-teal: var(--accent-teal);
+  --color-accent-amber: var(--accent-amber);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-line: var(--accent-line);
 
   /* Semantic names rather than t-shirt sizes, so these do not silently
      redefine Tailwind's own --radius-sm/md/lg. */
@@ -49,6 +75,19 @@
   --radius-card: var(--card-radius);
   --radius-panel: var(--panel-radius);
   --radius-pill: var(--pill-radius);
+
+  /* pi's surfaces are square. Tailwind's own scale is flattened to match, so a
+     stray `rounded-lg` cannot reintroduce a corner the tokens just removed.
+     `rounded-full` is left alone — round things stay round. */
+  --radius: 0px;
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-4xl: 0px;
 
   --shadow-popover: var(--popover-shadow);
   --shadow-drawer: var(--drawer-shadow);
@@ -62,36 +101,187 @@
   --breakpoint-split: 960px;
 
   --font-mono: var(--font-noto-mono), 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, 'PingFang SC', 'Microsoft YaHei', monospace;
+
+  /* pi.dev sets prose in Plantin MT Pro, a licensed Monotype face that cannot
+     ship with an npm package. Its own stack falls back to Georgia, so this is
+     the same stack minus the webfont, with CJK serifs added because this UI is
+     also read in Chinese. Chrome (buttons, labels, tabs) stays monospace the
+     way pi does it; the serif is for prose — messages, docs, the dashboard. */
+  --font-serif: Georgia, 'Times New Roman', 'Songti SC', STSong, 'Noto Serif CJK SC', serif;
+
+  /* pi's third face: the pixel mono behind every uppercase label on the site.
+     It is Latin-only, so the regular mono stack follows it — a Chinese label
+     falls back glyph by glyph instead of losing the whole line. */
+  --font-pixel: 'Departure Mono', var(--font-mono);
 }
 
-:root {
-  --bg: #ffffff;
-  --bg-panel: #f5f5f5;
-  --bg-hover: #eeeeee;
-  --bg-selected: #e8e8e8;
-  --border: #e0e0e0;
-  --text: #1a1a1a;
-  --text-muted: #6b7280;
-  --text-dim: #9ca3af;
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --on-accent: #ffffff;
-  --user-bg: #eff6ff;
-  --assistant-bg: #ffffff;
-  --tool-bg: #f9fafb;
-  --bg-subtle: rgba(0,0,0,0.03);
-  --danger: #dc2626;
-  --success: #16a34a;
-  --warning: #d97706;
+/* ---------------------------------------------------------------------------
+   Palette: pi.dev.
 
-  --control-radius: 5px;
-  --card-radius: 7px;
-  --panel-radius: 9px;
+   The values below are lifted from https://pi.dev/style.css so this UI reads
+   as the same product as the site and the CLI it fronts: a navy "paper" ground
+   with grid ruling, translucent square-cornered panels hairlined in slate, one
+   cool blue accent, and warm off-white text. Light mode is pi's parchment
+   theme (warm paper, evening-blue ink, tidal-blue accent) rather than plain
+   white — inverting the dark theme instead would lose the warmth the site
+   leans on.
+
+   pi ships dark-first; this app decides theme with `html.dark` (see the
+   inline script in app/layout.tsx), so `:root` still holds light and the dark
+   overrides follow. `--pi-*` names are the raw source colours and never get
+   used directly by components — only the semantic tokens below them are.
+--------------------------------------------------------------------------- */
+:root {
+  --pi-parchment: #dacbc2;
+  --pi-moonstone: #ebe7e4;
+  --pi-warm-white: #f3f2f0;
+  --pi-cool-white: #f0f2f3;
+  --pi-driftwood: #5c5752;
+  --pi-warm-30: #8b847d;
+  --pi-evening-blue: #252f3d;
+  --pi-tidal-blue: #4b607c;
+  --pi-accent-blue: #6a9fcc;
+  --pi-terracotta: #844f3b;
+  --pi-terracotta-light: #b86b52;
+  --pi-sage: #a3a473;
+  --pi-sunkissed: #e1b06e;
+  --pi-honey: #eacd7c;
+  --pi-deep: #0d1116;
+  --pi-canvas: #161d27;
+  --pi-panel: #212730;
+  --pi-panel-soft: #252f3d;
+  --pi-line: #495059;
+  --pi-line-strong: #757d89;
+  --pi-ink: #d5d8db;
+  --pi-muted: #9fa4ab;
+
+  /* Light = pi's parchment theme. */
+  --bg: var(--pi-moonstone);
+  --bg-deep: var(--pi-parchment);
+  --bg-panel: #f4f2f0;
+  /* The chrome (sidebar + topbar) carries pi's nav-panel wash: a warm white
+     fading to parchment, over a horizontal honey → tidal-blue tint. This is
+     the warm colour our light theme otherwise lacks — without it the page is
+     all cool ink on cool paper. Matches https://pi.dev/style.css. */
+  --nav-panel-background:
+    linear-gradient(180deg, var(--pi-warm-white), var(--pi-moonstone)),
+    linear-gradient(90deg, rgb(234 205 124 / 0.13), rgb(139 81 60 / 0.07));
+  --bg-hover: rgb(37 47 61 / 0.06);
+  --bg-selected: rgb(37 47 61 / 0.10);
+  --border: rgb(139 132 125 / 0.55);
+  --border-strong: rgb(92 87 82 / 0.42);
+  --text: #252f3d;
+  /* Running prose sits a step below headings and labels, as on pi.dev. */
+  --copy: rgb(56 66 81 / 0.86);
+  /* Muted copy remains readable at small UI sizes; dim metadata still clears
+     3:1 against both the paper and panel surfaces. */
+  --text-muted: rgb(92 87 82 / 0.90);
+  --text-dim: rgb(92 87 82 / 0.70);
+  /* The two themes take their accent from opposite ends of pi's palette on
+     purpose. Dark keeps pi's own blue. Light goes warm — terracotta, out of
+     the same family as --pi-terracotta and --pi-sunkissed — because the light
+     theme is parchment: a cool blue on warm paper reads as a foreign element
+     on every surface it touches, and pi.dev's own light accent (--pi-tidal-blue
+     #4b607c) sits so close to the ink that it just reads gray.
+
+     #8b513c rather than a brighter burnt orange: it sits at pi's own
+     saturation for this hue (--pi-terracotta is ~38%, and a 60%-saturated
+     orange is louder than anything else on the parchment), at the lightness
+     the ground needs for ≥4.5:1 as text — including over the dashboard's
+     darkened ground. --danger stays redder and more saturated than this on
+     purpose: an alarm is the one thing that should be louder. */
+  --accent: #8b513c;
+  --accent-hover: #75422f;
+  --on-accent: var(--pi-warm-white);
+  --user-bg: rgb(139 81 60 / 0.08);
+  --assistant-bg: transparent;
+  --tool-bg: var(--pi-cool-white);
+  --bg-subtle: rgb(37 47 61 / 0.05);
+  /* Terracotta is the accent now, so the alarm goes a step redder to keep the
+     two apart — deleting something must not look like a link. */
+  --danger: #9b3227;
+  --danger-soft: rgb(155 50 39 / 0.13);
+  --success: #397a50;
+  --warning: #a35e19;
+
+  /* Two accents kept out of the semantic set on purpose. pi's palette is one
+     blue and a lot of restraint, which is right for chrome but leaves every
+     category of thing looking like every other. These two are for the rare
+     spot that should catch the eye — a different *kind* of item, not a
+     different state — and are deliberately not wired into --danger/--warning
+     so a teal chip never reads as an alarm. Both clear 4:1 as text on both
+     grounds; keep them that way if you retune them. */
+  --accent-teal: #256a66;
+  /* Olive-gold rather than the orange it used to be: with a clay accent, an
+     amber todo row and an accent-tinted event row were the same peach wash.
+     Held at the accent's saturation so it reads as the same palette. */
+  --accent-amber: #6d5929;
+  --accent-amber-soft: rgb(109 89 41 / 0.16);
+  --accent-amber-line: rgb(109 89 41 / 0.45);
+
+  /* Accent surface scale. pi builds every tinted surface out of one hue at a
+     fixed set of alphas rather than picking a new colour per component, which
+     is what keeps a page of panels reading as one material. */
+  /* A step up in alpha from the blue this replaced: the clay is much less
+     saturated, so the same alphas read as a fainter wash. */
+  --accent-faint: rgb(139 81 60 / 0.05);
+  --accent-subtle: rgb(139 81 60 / 0.10);
+  --accent-soft: rgb(139 81 60 / 0.15);
+  --accent-fill: rgb(139 81 60 / 0.24);
+  --accent-line: rgb(139 81 60 / 0.38);
+  --accent-line-strong: rgb(139 81 60 / 0.60);
+  --focus-ring: rgb(139 81 60 / 0.72);
+
+  /* Today. Reserved for the current day and used for nothing else: the one
+     square of a different hue on a grid where every event is drawn in the
+     accent. Dark separates today by hue — teal against its blue. Light
+     separates it by chroma instead: the same orange family as the terracotta
+     accent, but at more than twice its saturation, so the current day is the
+     one vivid thing on a page of muted clay. #b34a12 is as vivid as the hue
+     goes while the badge's reversed-out --on-accent still clears 4.5:1, and
+     the wash is a lighter orange than the mark and kept thin — the badge and
+     the doubled ring are what identify the day, so the fill only has to tint
+     the cell, not shout. */
+  --today-mark: #b34a12;
+  --today-wash: rgb(240 150 60 / 0.15);
+
+  /* The dashboard is read as paper on a desk: the ground is washed a step
+     toward parchment so the panels laid on it have something to sit on. Light
+     enough to stay paper, and translucent, so the ruling still shows through. */
+  --dashboard-ground: rgb(218 203 194 / 0.18);
+  --card-shadow: 0 1px 2px rgb(92 87 82 / 0.06), 0 8px 20px -14px rgb(92 87 82 / 0.45);
+
+  --control-bg: rgb(37 47 61 / 0.03);
+  --control-bg-hover: rgb(37 47 61 / 0.07);
+  --selection-bg: rgb(139 81 60 / 0.24);
+  /* xterm parses this itself and its parser rejects any colour with alpha, so
+     the terminal gets an opaque selection of its own rather than the
+     translucent --bg-selected the rest of the app uses. */
+  --terminal-selection: #dcd8d4;
+  --scrollbar-thumb: rgb(139 81 60 / 0.30);
+  --scrollbar-thumb-hover: rgb(139 81 60 / 0.48);
+
+  /* Grid ruling for the page ground — 4px minor, 20px major, plus the cross
+     ticks that give pi's paper its engineering-pad feel. */
+  /* Parchment already has texture; keep the ruling behind the content rather
+     than letting it become the highest-contrast element on the page. */
+  --page-grid-minor: rgb(37 47 61 / 0.02);
+  --page-grid-major: rgb(37 47 61 / 0.05);
+  --page-grid-cross: rgb(37 47 61 / 0.08);
+
+  /* The two-tone rule pi puts down the left edge of an active row. */
+  --active-stripe-vertical: linear-gradient(180deg, var(--accent) 0 62%, var(--accent-hover) 62% 100%);
+
+  /* pi's surfaces are square. Only genuinely round things (avatars, count
+     badges) keep a radius, so --pill-radius survives and the rest go to 0. */
+  --control-radius: 0px;
+  --card-radius: 0px;
+  --panel-radius: 0px;
   --pill-radius: 999px;
 
-  --popover-shadow: 0 10px 28px rgb(0 0 0 / 0.10);
-  --drawer-shadow: 4px 0 20px rgb(0 0 0 / 0.15);
-  --overlay-shadow: 0 20px 60px rgb(0 0 0 / 0.40);
+  --popover-shadow: 0 10px 28px rgb(92 87 82 / 0.18);
+  --drawer-shadow: 4px 0 20px rgb(92 87 82 / 0.20);
+  --overlay-shadow: 0 20px 60px rgb(92 87 82 / 0.30);
 
   /* Stacking order. Previously hand-picked per call site, which is how values
      like 95 and 199 ended up in the tree. */
@@ -106,24 +296,64 @@
 }
 
 html.dark {
-  --bg: #1a1a1a;
-  --bg-panel: #242424;
-  --bg-hover: #2e2e2e;
-  --bg-selected: #383838;
-  --border: #3a3a3a;
-  --text: #e8e8e8;
-  --text-muted: #9ca3af;
-  --text-dim: #6b7280;
-  --accent: #60a5fa;
-  --accent-hover: #93c5fd;
-  --on-accent: #0b1220;
-  --user-bg: #1e293b;
-  --assistant-bg: #1a1a1a;
-  --tool-bg: #1f2937;
-  --bg-subtle: rgba(255,255,255,0.04);
-  --danger: #f87171;
-  --success: #4ade80;
-  --warning: #f59e0b;
+  --bg: var(--pi-canvas);
+  --bg-deep: var(--pi-deep);
+  --bg-panel: var(--pi-panel);
+  /* Same wash as light, on pi's dark stops: panel fading to deep, over a
+     tidal-blue → #2f5f8a horizontal tint. */
+  --nav-panel-background:
+    linear-gradient(180deg, var(--pi-panel), var(--pi-deep)),
+    linear-gradient(90deg, rgb(75 96 124 / 0.14), rgb(47 95 138 / 0.08));
+  --bg-hover: rgb(255 255 255 / 0.045);
+  --bg-selected: rgb(255 255 255 / 0.085);
+  --border: rgb(73 80 89 / 0.55);
+  --border-strong: rgb(117 125 137 / 0.46);
+  --text: var(--pi-moonstone);
+  --copy: rgb(235 231 228 / 0.75);
+  --text-muted: rgb(159 164 171 / 0.84);
+  --text-dim: rgb(159 164 171 / 0.62);
+  --accent: var(--pi-accent-blue);
+  --accent-hover: #8fbde3;
+  --on-accent: var(--pi-deep);
+  --user-bg: rgb(106 159 204 / 0.09);
+  --assistant-bg: transparent;
+  --tool-bg: var(--pi-panel-soft);
+  --bg-subtle: rgb(255 255 255 / 0.025);
+  --danger: #e8704f;
+  --danger-soft: rgb(232 112 79 / 0.12);
+  --success: #5db87a;
+  --warning: #e8993a;
+
+  --accent-teal: #5fb3ab;
+  --accent-amber: #e8a15a;
+  --accent-amber-soft: rgb(232 161 90 / 0.13);
+  --accent-amber-line: rgb(232 161 90 / 0.42);
+
+  --accent-faint: rgb(106 159 204 / 0.03);
+  --accent-subtle: rgb(106 159 204 / 0.06);
+  --accent-soft: rgb(106 159 204 / 0.11);
+  --accent-fill: rgb(106 159 204 / 0.20);
+  --accent-line: rgb(106 159 204 / 0.36);
+  --accent-line-strong: rgb(106 159 204 / 0.50);
+  --focus-ring: rgb(106 159 204 / 0.72);
+  --today-mark: var(--accent-teal);
+  --today-wash: rgb(95 179 171 / 0.13);
+  --dashboard-ground: rgb(13 17 22 / 0.40);
+  --card-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 10px 24px -16px rgb(0 0 0 / 0.8);
+  --control-bg: rgb(255 255 255 / 0.016);
+  --control-bg-hover: rgb(255 255 255 / 0.035);
+  --selection-bg: rgb(106 159 204 / 0.24);
+  --terminal-selection: #2b3441;
+  --scrollbar-thumb: rgb(47 95 138 / 0.28);
+  --scrollbar-thumb-hover: rgb(47 95 138 / 0.40);
+
+  --page-grid-minor: rgb(170 203 232 / 0.0094);
+  --page-grid-major: rgb(170 203 232 / 0.0263);
+  --page-grid-cross: rgb(170 203 232 / 0.075);
+
+  /* pi splits the active rule 62/38 between the accent and the deeper thread
+     blue in dark mode; light mode keeps it solid. */
+  --active-stripe-vertical: linear-gradient(180deg, var(--accent) 0 62%, var(--pi-tidal-blue) 62% 100%);
 
   /* Shadows need more weight to read against the dark surfaces. */
   --popover-shadow: 0 10px 28px rgb(0 0 0 / 0.45);
@@ -195,11 +425,198 @@ html, body {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 14px;
+  /* pi sets its chrome — nav, labels, controls — in monospace and reserves the
+     serif for prose. The app follows: mono is the default, and .pi-prose opts
+     text back into the serif. */
+  font-family: var(--font-mono);
+  font-size: 13px;
   overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* The paper. pi rules its background as an engineering pad: a 4px minor grid,
+   a 20px major grid, and a cross tick at each major intersection. The ticks
+   come from the radial layer, which paints the paper colour over everything
+   except a small circle at the centre of each major cell — the cross lines sit
+   below it and show through only there. Layer order is load-bearing (first
+   layer paints on top), so this stack is kept in pi's original order.
+
+   It lives on `html` rather than a pseudo-element because the app shell is a
+   full-height flex container: a fixed overlay would have to be punched back
+   through by every panel. Instead the shell is transparent and each panel
+   paints its own surface over the grid, which is how pi.dev layers too. */
+html {
+  --grid-gap: 4px;
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(var(--page-grid-minor) 0 1px, transparent 1px var(--grid-gap)),
+    linear-gradient(to right, var(--page-grid-minor) 0 1px, transparent 1px var(--grid-gap)),
+    linear-gradient(var(--page-grid-major) 0 1px, transparent 1px calc(var(--grid-gap) * 5)),
+    linear-gradient(to right, var(--page-grid-major) 0 1px, transparent 1px calc(var(--grid-gap) * 5)),
+    radial-gradient(circle at center, transparent calc(var(--grid-gap) / 2), var(--bg) calc(var(--grid-gap) / 2) 100%),
+    linear-gradient(var(--page-grid-cross) 0 1px, transparent 1px calc(var(--grid-gap) * 5)),
+    linear-gradient(to right, var(--page-grid-cross) 0 1px, transparent 1px calc(var(--grid-gap) * 5));
+  background-size:
+    var(--grid-gap) var(--grid-gap),
+    var(--grid-gap) var(--grid-gap),
+    calc(var(--grid-gap) * 5) calc(var(--grid-gap) * 5),
+    calc(var(--grid-gap) * 5) calc(var(--grid-gap) * 5),
+    calc(var(--grid-gap) * 5) calc(var(--grid-gap) * 5),
+    calc(var(--grid-gap) * 5) calc(var(--grid-gap) * 5),
+    calc(var(--grid-gap) * 5) calc(var(--grid-gap) * 5);
+  background-position:
+    0 0, 0 0, 0 0, 0 0,
+    calc(var(--grid-gap) * -2.5) calc(var(--grid-gap) * -2.5),
+    0 0, 0 0;
+  background-attachment: fixed;
+}
+
+body {
+  background: transparent;
+}
+
+::selection {
+  background: var(--selection-bg);
+}
+
+/* Prose. pi's reading surfaces are serif, looser, and a size up from the
+   chrome around them. */
+.pi-prose {
+  font-family: var(--font-serif);
+  font-size: 15.5px;
+  line-height: 1.72;
+}
+
+/* pi's label: monospace, uppercase, widely tracked, with the accent as a
+   left-hand rule. Used for panel headings and section markers. */
+.pi-label {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+  padding: 4px 7px 5px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.13em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+/* Bare metadata markers carry changing dates and field names, so they use the
+   regular mono rather than the display face. */
+.pi-eyebrow {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+/* Pixel type is an explicit accent for short, fixed, top-level chrome. Dense
+   controls and changing data stay in the regular mono. */
+.pi-chrome-label {
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Only the toolbar's own actions take the display face. The popovers it opens
+   render inside the same container — they are content, not chrome — so they
+   are excluded by class rather than by depth: the toolbar buttons sit one or
+   two levels down depending on the viewport, and a direct-child selector
+   reached only the icon-only buttons, i.e. nothing with a glyph in it. */
+.pi-topbar button:not(.pi-topbar-panel *),
+.pi-topbar a:not(.pi-topbar-panel *),
+.pi-topbar [role="button"]:not(.pi-topbar-panel *) {
+  font-family: var(--font-pixel);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Square hairlined surface over the grid. pi keeps panels translucent so the
+   ruling stays faintly visible through them. */
+.pi-panel {
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
+}
+
+/* pi's bracket button: the label sits between [ ] in the accent colour, and
+   the brackets spread on hover. Applied on top of .ui-action so the hover and
+   focus rules there still own colour and surface. */
+.pi-bracket {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.pi-bracket::before,
+.pi-bracket::after {
+  display: inline-block;
+  color: var(--accent);
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.pi-bracket::before {
+  content: "[";
+  margin-right: 0.7ch;
+}
+.pi-bracket::after {
+  content: "]";
+  margin-left: 0.7ch;
+}
+.pi-bracket:hover:not(:disabled)::before,
+.pi-bracket:focus-visible::before {
+  transform: translateX(-3px);
+}
+.pi-bracket:hover:not(:disabled)::after,
+.pi-bracket:focus-visible::after {
+  transform: translateX(3px);
+}
+@media (hover: none) {
+  .pi-bracket:hover::before,
+  .pi-bracket:hover::after {
+    transform: none;
+  }
+}
+
+/* Today's date, set solid rather than tinted. Everything else in a calendar
+   is a wash of one alpha or another, so the one reversed-out block on the
+   screen is unmistakably the day you are on — including in greyscale. */
+.pi-today-badge {
+  display: inline-flex;
+  min-width: 1.7em;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 4px 2px;
+  background: var(--today-mark);
+  color: var(--on-accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  line-height: 1.25;
+}
+
+/* The rule pi runs down the left edge of the selected row in a list. */
+.pi-active-stripe {
+  position: relative;
+}
+.pi-active-stripe::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: var(--active-stripe-vertical);
 }
 
 body {
@@ -207,9 +624,65 @@ body {
   flex-direction: column;
 }
 
-/* The daily dashboard is read as a document, not a dense coding surface. */
+/* ---------------------------------------------------------------------------
+   The daily dashboard.
+
+   This is the one screen in the app that is read as a document rather than as
+   a dense coding surface, so it follows pi.dev's page idiom directly: serif
+   copy over the ruled ground, square hairlined panels, a boxed uppercase mono
+   label at the head of each panel, and bracket buttons for the actions. Form
+   controls are stated once here instead of per panel — every field in the
+   dashboard is the same field.
+--------------------------------------------------------------------------- */
 .robin-dashboard {
+  font-family: var(--font-serif);
   font-size: 15px;
+  /* Translucent, so the page ruling still reads through the wash. */
+  background: var(--dashboard-ground);
+}
+
+/* Opaque and lifted, unlike the chat shell's panels. The chat surface is one
+   continuous document and stays flat; the dashboard is a stack of separate
+   sheets, and without a real step against the ground they dissolve into it. */
+.robin-dashboard .pi-card {
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--bg-panel);
+  box-shadow: var(--card-shadow);
+}
+
+.robin-dashboard input:not([type="checkbox"]),
+.robin-dashboard select,
+.robin-dashboard textarea {
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 7px 10px;
+  background: var(--control-bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.robin-dashboard input::placeholder,
+.robin-dashboard textarea::placeholder {
+  color: var(--text-dim);
+}
+
+.robin-dashboard input:focus-visible,
+.robin-dashboard select:focus-visible,
+.robin-dashboard textarea:focus-visible {
+  border-color: var(--accent-line-strong);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -1px;
+}
+
+/* Dates and times read as data, not prose. */
+.robin-dashboard time,
+.robin-dashboard .pi-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
 }
 .robin-dashboard .text-xs {
   font-size: 13px;
@@ -228,16 +701,24 @@ body {
   line-height: 1rem;
 }
 
+/* Square, accent-tinted scrollbars, as on pi.dev. */
+* {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 2px;
+  background: var(--scrollbar-thumb);
+  border: 0;
+  border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* ---------------------------------------------------------------------------
@@ -655,28 +1136,36 @@ pre, code {
 }
 
 /* react-markdown output styles */
+/* Prose is the one place pi drops the monospace: agent replies, docs and
+   dashboard copy are set in the serif at a reading size, with code and other
+   chrome inside them staying mono. */
 .markdown-body {
   min-width: 0;
   max-width: 100%;
   overflow-x: hidden;
-  font-size: 14px;
-  line-height: 1.7;
-  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.72;
+  color: var(--copy);
   word-break: break-word;
 }
 .markdown-body p { margin: 0 0 8px; }
 .markdown-body p:last-child { margin-bottom: 0; }
+/* pi sets display headings in serif italic at regular weight — the contrast
+   comes from the slope and the size, not from bolding. */
 .markdown-body h1, .markdown-body h2, .markdown-body h3,
 .markdown-body h4, .markdown-body h5, .markdown-body h6 {
-  font-weight: 600;
-  margin: 10px 0 5px;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 400;
+  margin: 14px 0 6px;
   color: var(--text);
-  line-height: 1.35;
+  line-height: 1.3;
   letter-spacing: 0;
 }
-.markdown-body h1 { font-size: 1.16em; }
-.markdown-body h2 { font-size: 1.08em; }
-.markdown-body h3 { font-size: 0.98em; color: color-mix(in srgb, var(--text) 88%, var(--text-muted)); }
+.markdown-body h1 { font-size: 1.5em; }
+.markdown-body h2 { font-size: 1.28em; }
+.markdown-body h3 { font-size: 1.12em; color: color-mix(in srgb, var(--text) 88%, var(--text-muted)); }
 .markdown-body ul, .markdown-body ol {
   padding-left: 22px;
   margin: 5px 0 8px;
@@ -692,7 +1181,7 @@ pre, code {
 }
 .markdown-body strong {
   color: color-mix(in srgb, var(--text) 88%, var(--accent));
-  font-weight: 700;
+  font-weight: 600;
 }
 .markdown-body em { color: var(--text-muted); }
 .markdown-body a {
@@ -708,11 +1197,11 @@ pre, code {
   max-width: 100%;
   height: auto;
   margin: 8px 0;
-  border-radius: 6px;
+  border-radius: 0;
 }
 .markdown-body .markdown-inline-code {
   background: var(--bg-subtle);
-  border-radius: 5px;
+  border-radius: 0;
   padding: 1px 5px;
   color: var(--text);
   font-family: var(--font-mono);
@@ -739,7 +1228,7 @@ pre, code {
   height: 14px;
   margin: 0;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 0;
   background: var(--bg);
   display: inline-grid;
   place-content: center;
@@ -760,7 +1249,7 @@ pre, code {
 }
 .markdown-body blockquote {
   border-left: 3px solid color-mix(in srgb, var(--border) 75%, var(--text-muted));
-  border-radius: 0 6px 6px 0;
+  border-radius: 0;
   margin: 6px 0;
   padding: 6px 11px;
   background: var(--bg-subtle);
@@ -772,7 +1261,7 @@ pre, code {
   overflow-x: auto;
   overflow-y: hidden;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 0;
 }
 .markdown-body table {
   border-collapse: separate;
@@ -890,7 +1379,7 @@ pre, code {
   padding: 7px 8px;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 0;
   background: var(--bg-panel);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -911,7 +1400,7 @@ pre, code {
   max-width: 100%;
   margin: 6px 0;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 0;
   overflow: hidden;
   background: var(--bg);
   box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 42%, transparent);
@@ -927,10 +1416,15 @@ pre, code {
   align-items: center;
   gap: 8px;
 }
+/* The language tag and the actions beside it are chrome, so they take pi's
+   tracked uppercase mono. */
 .markdown-code-lang {
   color: var(--text-muted);
   font-family: var(--font-mono);
-  font-weight: 650;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 .markdown-code-actions {
   display: flex;
@@ -939,18 +1433,21 @@ pre, code {
 }
 .markdown-code-action {
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: 0;
   padding: 2px 7px;
-  background: var(--bg);
+  background: var(--control-bg);
   color: var(--text-muted);
   cursor: pointer;
-  font: inherit;
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
   line-height: 1.25;
+  text-transform: uppercase;
 }
 .markdown-code-action:hover:not(:disabled) {
   color: var(--text);
-  border-color: color-mix(in srgb, var(--border) 70%, var(--text-muted));
+  border-color: var(--accent-line);
+  background: var(--control-bg-hover);
 }
 .markdown-code-action:disabled {
   color: var(--text-dim);
@@ -1028,7 +1525,7 @@ pre, code {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  border-radius: 8px;
+  border-radius: 0;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
 }
 
@@ -1044,7 +1541,7 @@ pre, code {
   height: 36px;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 0;
   background: var(--bg-panel);
   color: var(--text-muted);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
@@ -1120,7 +1617,7 @@ pre, code {
   height: 24px;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: 0;
   background: var(--bg);
 }
 .mermaid-zoom-stepper button,
@@ -1147,7 +1644,7 @@ pre, code {
 .mermaid-zoom-icon-button {
   flex: 0 0 24px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: 0;
 }
 .mermaid-zoom-stepper button:hover:not(:disabled),
 .mermaid-zoom-icon-button:hover {
@@ -1184,7 +1681,7 @@ pre, code {
 .mermaid-zoom-canvas {
   padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 0;
   background: var(--bg-panel);
   margin: 0 auto;
   transition: width 0.15s ease;
@@ -1260,7 +1757,7 @@ pre, code {
   height: 24px;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: 0;
 }
 
 .file-viewer-mode-button {
@@ -1294,7 +1791,7 @@ pre, code {
   box-sizing: border-box;
   flex: 0 0 24px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: 0;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -1353,7 +1850,7 @@ pre, code {
 .markdown-file-preview pre {
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 0;
   padding: 12px 16px;
   overflow-x: auto;
   font-family: var(--font-mono);
@@ -1365,7 +1862,7 @@ pre, code {
   font-size: 0.9em;
   background: var(--bg-panel);
   padding: 1px 5px;
-  border-radius: 3px;
+  border-radius: 0;
 }
 .markdown-file-preview pre code {
   background: none;
@@ -1377,7 +1874,7 @@ pre, code {
   margin-bottom: 20px;
   padding: 14px 16px 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 0;
   background: var(--bg-panel);
 }
 .markdown-frontmatter-title {

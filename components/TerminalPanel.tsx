@@ -22,20 +22,23 @@ type ExitInfo = { code: number | null; reason?: "detached" };
 /**
  * xterm's built-in palette assumes a black background, so on the light theme its
  * `white` and `brightWhite` land invisibly on `--bg` — which is exactly what
- * `ls --color`, npm and vite print with. Both palettes are stated in full.
+ * `ls --color`, npm and vite print with. Both palettes are stated in full, in
+ * literal hex: xterm parses these itself and cannot resolve `var()`. The hues
+ * are pi's — terracotta, sage, sunkissed, tidal blue — rather than the default
+ * VGA set, so terminal output sits in the same palette as the rest of the app.
  */
 const DARK_ANSI = {
-  black: "#3a3a3a", red: "#f87171", green: "#4ade80", yellow: "#fbbf24",
-  blue: "#60a5fa", magenta: "#c084fc", cyan: "#22d3ee", white: "#d4d4d4",
-  brightBlack: "#6b7280", brightRed: "#fca5a5", brightGreen: "#86efac", brightYellow: "#fde047",
-  brightBlue: "#93c5fd", brightMagenta: "#d8b4fe", brightCyan: "#67e8f9", brightWhite: "#f5f5f5",
+  black: "#29313c", red: "#e8704f", green: "#5db87a", yellow: "#e8993a",
+  blue: "#6a9fcc", magenta: "#a48fc4", cyan: "#67b6c4", white: "#d5d8db",
+  brightBlack: "#757d89", brightRed: "#f08b6d", brightGreen: "#79c992", brightYellow: "#f0ad5c",
+  brightBlue: "#8fbde3", brightMagenta: "#bda9d8", brightCyan: "#8bd0da", brightWhite: "#ebe7e4",
 } satisfies ITheme;
 
 const LIGHT_ANSI = {
-  black: "#1a1a1a", red: "#c62828", green: "#2e7d32", yellow: "#a26e00",
-  blue: "#1565c0", magenta: "#8e24aa", cyan: "#00838f", white: "#5c5c5c",
-  brightBlack: "#757575", brightRed: "#d32f2f", brightGreen: "#388e3c", brightYellow: "#b26a00",
-  brightBlue: "#1976d2", brightMagenta: "#9c27b0", brightCyan: "#0097a7", brightWhite: "#1a1a1a",
+  black: "#252f3d", red: "#844f3b", green: "#397a50", yellow: "#a35e19",
+  blue: "#4b607c", magenta: "#7a5a86", cyan: "#2f6f74", white: "#5c5752",
+  brightBlack: "#8b847d", brightRed: "#b86b52", brightGreen: "#4a8f61", brightYellow: "#b8752b",
+  brightBlue: "#5d7695", brightMagenta: "#916f9e", brightCyan: "#3d858a", brightWhite: "#252f3d",
 } satisfies ITheme;
 
 /**
@@ -111,11 +114,11 @@ function terminalTheme(): ITheme {
   const read = (name: string, fallback: string) => styles.getPropertyValue(name).trim() || fallback;
   return {
     ...(dark ? DARK_ANSI : LIGHT_ANSI),
-    background: read("--bg", dark ? "#1a1a1a" : "#ffffff"),
-    foreground: read("--text", dark ? "#e8e8e8" : "#1a1a1a"),
-    cursor: read("--accent", dark ? "#60a5fa" : "#2563eb"),
-    cursorAccent: read("--bg", dark ? "#1a1a1a" : "#ffffff"),
-    selectionBackground: read("--bg-selected", dark ? "#383838" : "#e8e8e8"),
+    background: read("--bg", dark ? "#161d27" : "#ebe7e4"),
+    foreground: read("--text", dark ? "#ebe7e4" : "#252f3d"),
+    cursor: read("--accent", dark ? "#6a9fcc" : "#335a8c"),
+    cursorAccent: read("--bg", dark ? "#161d27" : "#ebe7e4"),
+    selectionBackground: read("--terminal-selection", dark ? "#2b3441" : "#dcd8d4"),
   };
 }
 

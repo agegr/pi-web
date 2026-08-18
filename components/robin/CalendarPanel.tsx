@@ -177,23 +177,21 @@ export function CalendarPanel() {
 
   return (
     <section
-      className="flex flex-col gap-3 rounded-lg p-4"
-      style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}
+      className="pi-card flex flex-col gap-3 p-4"
     >
       <header className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>{t("robin.calendar.title")}</h2>
-          <span className="text-xs" style={{ color: "var(--text-dim)" }}>{heading}</span>
+          <h2 className="pi-label">{t("robin.calendar.title")}</h2>
+          <span className="pi-meta">{heading}</span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 font-mono">
           {navigable && (
             <>
               <button
                 type="button"
                 onClick={() => step(-1)}
                 aria-label={t("robin.calendar.previous")}
-                className="rounded px-2 py-0.5 text-xs"
-                style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}
+                className="ui-action ui-action--outline-soft px-2 py-0.5 text-xs"
               >
                 ‹
               </button>
@@ -201,8 +199,7 @@ export function CalendarPanel() {
                 type="button"
                 onClick={() => setAnchor(null)}
                 disabled={!offToday}
-                className="rounded px-2 py-0.5 text-xs disabled:opacity-40"
-                style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}
+                className="ui-action ui-action--outline-soft px-2 py-0.5 text-xs disabled:opacity-40"
               >
                 {t("robin.calendar.today")}
               </button>
@@ -210,24 +207,24 @@ export function CalendarPanel() {
                 type="button"
                 onClick={() => step(1)}
                 aria-label={t("robin.calendar.next")}
-                className="rounded px-2 py-0.5 text-xs"
-                style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}
+                className="ui-action ui-action--outline-soft px-2 py-0.5 text-xs"
               >
                 ›
               </button>
             </>
           )}
-          <div className="ml-1 flex rounded" style={{ border: "1px solid var(--border)" }}>
+          {/* No box around the group: the active view already reads from its
+              surface and left stripe, and a border here put a third line
+              through an already busy row. */}
+          <div className="ml-3 flex gap-1.5">
             {VIEWS.map(({ id, key }) => (
               <button
                 key={id}
                 type="button"
                 onClick={() => chooseView(id)}
-                className="px-2 py-0.5 text-xs"
-                style={{
-                  background: view === id ? "var(--bg-selected)" : "transparent",
-                  color: view === id ? "var(--text)" : "var(--text-dim)",
-                }}
+                className={`ui-action px-2 py-0.5 text-xs${view === id ? " pi-active-stripe" : ""}`}
+                data-active={view === id ? "true" : undefined}
+                data-state={view === id ? undefined : "dim"}
               >
                 {t(key)}
               </button>
@@ -239,8 +236,7 @@ export function CalendarPanel() {
               setAdding((value) => !value);
               if (!date) setDate(today);
             }}
-            className="ml-1 text-xs"
-            style={{ color: "var(--text-dim)" }}
+            className="ui-action pi-chrome-label pi-bracket ml-2 text-xs"
           >
             {adding ? t("robin.common.cancel") : t("robin.common.add")}
           </button>
@@ -294,8 +290,8 @@ export function CalendarPanel() {
             <button
               type="submit"
               disabled={!title.trim() || !date}
-              className="rounded px-3 py-1 text-sm disabled:opacity-40"
-              style={{ background: "var(--accent)", color: "#fff" }}
+              className="ui-action ui-action--outline pi-bracket px-3 disabled:opacity-40"
+              data-state="accent"
             >
               {t("robin.common.save")}
             </button>

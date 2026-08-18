@@ -15,6 +15,7 @@ import {
   MINUTES_PER_DAY,
   toMinutes,
 } from "@/extension/robin/layout";
+import { spanSurface, timedSurface } from "./eventSurface";
 import { useTodayInView } from "./useTodayInView";
 
 /** Tall enough that a 30-minute block still fits its title. */
@@ -94,8 +95,11 @@ export function WeekGrid({
       <div className="min-w-[44rem]">
         {/* Day headings */}
         <div
-          className="grid gap-px"
-          style={{ gridTemplateColumns: `${TIME_GUTTER} repeat(7, minmax(0, 1fr))` }}
+          className="grid gap-px border-b"
+          style={{
+            gridTemplateColumns: `${TIME_GUTTER} repeat(7, minmax(0, 1fr))`,
+            borderColor: "var(--border)",
+          }}
         >
           <div />
           {days.map((date) => {
@@ -103,14 +107,26 @@ export function WeekGrid({
             return (
               // Weekday and number stay adjacent; spread apart they read as
               // belonging to the neighbouring column.
-              <div key={date} className="flex items-baseline gap-1 px-1 pb-1">
-                <span className="text-xs" style={{ color: "var(--text-dim)" }}>{weekdayLabel(date, locale)}</span>
+              <div
+                key={date}
+                className="flex items-baseline gap-1.5 px-1 pb-1.5"
+                // Today is marked by the rule under its heading as well as by
+                // the solid date, so it survives a glance and a greyscale screen.
+                style={isToday ? { boxShadow: "inset 0 -2px 0 var(--today-mark)" } : undefined}
+              >
                 <span
-                  className="text-xs font-medium tabular-nums"
-                  style={{ color: isToday ? "var(--accent)" : "var(--text-muted)" }}
+                  className="pi-eyebrow"
+                  style={isToday ? { color: "var(--text)" } : undefined}
                 >
-                  {parseLocalDate(date).getDate()}
+                  {weekdayLabel(date, locale)}
                 </span>
+                {isToday ? (
+                  <span className="pi-today-badge">{parseLocalDate(date).getDate()}</span>
+                ) : (
+                  <span className="font-mono text-sm tabular-nums" style={{ color: "var(--text)" }}>
+                    {parseLocalDate(date).getDate()}
+                  </span>
+                )}
               </div>
             );
           })}
@@ -119,17 +135,17 @@ export function WeekGrid({
         {/* All-day / multi-day band */}
         {lanes > 0 && (
           <div
-            className="grid gap-px border-y py-1"
+            className="grid gap-px border-y py-1 font-mono"
             style={{
               gridTemplateColumns: `${TIME_GUTTER} repeat(7, minmax(0, 1fr))`,
               borderColor: "var(--border)",
             }}
           >
-            <div className="pr-1 text-right text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.calendar.allDay")}</div>
+            <div className="pi-meta pr-1 text-right" style={{ color: "var(--text-dim)" }}>{t("robin.calendar.allDay")}</div>
             <div className="relative col-span-7" style={{ height: lanes * 22 }}>
               <div className="absolute inset-0 grid grid-cols-7 gap-px">
                 {days.map((date) => (
-                  <div key={date} style={{ background: date === today ? "var(--bg-subtle)" : "transparent" }} />
+                  <div key={date} style={{ background: date === today ? "var(--today-wash)" : "transparent" }} />
                 ))}
               </div>
               {bars.map((bar) => (
@@ -138,17 +154,17 @@ export function WeekGrid({
                   type="button"
                   onClick={() => !isReadOnlyEvent(bar.event) && onDelete(bar.event)}
                   title={`${bar.event.title}${bar.event.calendar ? ` — ${bar.event.calendar}` : ""}`}
-                  className="absolute truncate px-1.5 text-left text-xs leading-5"
+                  className="absolute truncate px-1.5 text-left leading-5"
                   style={{
                     left: `calc(${(bar.startIndex / 7) * 100}% + 1px)`,
                     width: `calc(${((bar.endIndex - bar.startIndex + 1) / 7) * 100}% - 2px)`,
                     top: bar.lane * 22,
                     height: 20,
-                    background: isReadOnlyEvent(bar.event) ? "var(--bg-selected)" : "var(--accent)",
-                    color: isReadOnlyEvent(bar.event) ? "var(--text)" : "#fff",
-                    // Square off the edge that runs past this week.
-                    borderRadius: `${bar.continuesBefore ? 0 : 4}px ${bar.continuesAfter ? 0 : 4}px ${bar.continuesAfter ? 0 : 4}px ${bar.continuesBefore ? 0 : 4}px`,
-                    opacity: 0.9,
+                    ...spanSurface(bar.event),
+                    color: "var(--text)",
+                    borderRadius: 0,
+                    fontFamily: "var(--font-serif)",
+                    fontSize: 13,
                   }}
                 >
                   {bar.continuesBefore && "‹ "}
@@ -167,15 +183,18 @@ export function WeekGrid({
             style={{ gridTemplateColumns: `${TIME_GUTTER} repeat(7, minmax(0, 1fr))` }}
           >
             {/* Hour gutter */}
-            <div>
+            <div className="font-mono">
               {hours.map((hour) => (
                 <div
                   key={hour}
-                  className="relative pr-1 text-right text-xs tabular-nums"
-                  style={{ height: HOUR_HEIGHT, color: "var(--text-dim)" }}
+                  className="relative pr-1 text-right tabular-nums"
+                  style={{ height: HOUR_HEIGHT, color: "var(--text-muted)", fontSize: 11 }}
                 >
-                  <span className="absolute right-1 -top-1.5">
-                    {hour === firstHour ? "" : `${String(hour).padStart(2, "0")}:00`}
+                  {/* Under the rule rather than straddling it: the label then
+                      reads as naming the band below it, and the first hour is
+                      no longer the one row without a time on it. */}
+                  <span className="absolute right-1 top-0.5">
+                    {`${String(hour).padStart(2, "0")}:00`}
                   </span>
                 </div>
               ))}
@@ -192,7 +211,9 @@ export function WeekGrid({
                   className="relative"
                   style={{
                     height: gridHeight,
-                    background: isToday ? "var(--bg-subtle)" : "transparent",
+                    // A hue of its own, so it separates from the accent-tinted
+                    // blocks laid on top of it.
+                    background: isToday ? "var(--today-wash)" : "transparent",
                   }}
                 >
                   {hours.map((hour) => (
@@ -212,7 +233,7 @@ export function WeekGrid({
                       className="pointer-events-none absolute inset-x-0 z-10"
                       style={{
                         top: (nowMinutes - gridOffsetMinutes) * PX_PER_MINUTE,
-                        borderTop: "2px solid var(--accent)",
+                        borderTop: "2px solid var(--today-mark)",
                       }}
                       aria-hidden
                     />
@@ -220,25 +241,44 @@ export function WeekGrid({
 
                   {placed.map(({ event, startMinutes, endMinutes, column, columns }) => {
                     const readOnly = isReadOnlyEvent(event);
+                    const height = Math.max((endMinutes - startMinutes) * PX_PER_MINUTE - 2, 16);
+                    // A half-hour block is 22px: two lines do not fit in it, and
+                    // the clipped second line is what made short events unreadable.
+                    // Below two lines' worth the time is dropped — the block's own
+                    // position and the tooltip both still carry it.
+                    const showTime = height >= 34;
                     return (
                       <button
                         key={event.id}
                         type="button"
                         onClick={() => !readOnly && onDelete(event)}
                         title={`${formatEventTime(event)} ${event.title}${event.location ? ` @ ${event.location}` : ""}`}
-                        className="absolute overflow-hidden rounded px-1 text-left text-xs leading-tight"
+                        // A button centres its content vertically, so a long
+                        // block floated its title in the middle of itself
+                        // rather than putting it at the time it starts.
+                        className="absolute flex flex-col items-start overflow-hidden px-1.5 py-px text-left"
                         style={{
                           top: (startMinutes - gridOffsetMinutes) * PX_PER_MINUTE,
-                          height: Math.max((endMinutes - startMinutes) * PX_PER_MINUTE - 2, 14),
+                          height,
                           left: `calc(${(column / columns) * 100}% + 1px)`,
                           width: `calc(${(1 / columns) * 100}% - 2px)`,
-                          background: readOnly ? "var(--bg-selected)" : "var(--accent)",
-                          color: readOnly ? "var(--text)" : "#fff",
-                          borderLeft: readOnly ? "2px solid var(--text-dim)" : "none",
+                          ...timedSurface(event),
+                          color: "var(--text)",
+                          // The title is what someone reads; the clock is data.
+                          fontFamily: "var(--font-serif)",
                         }}
                       >
-                        <span className="block truncate font-medium">{event.title}</span>
-                        <span className="block truncate opacity-80">{formatEventTime(event)}</span>
+                        <span className="block truncate" style={{ fontSize: 13, lineHeight: 1.3 }}>
+                          {event.title}
+                        </span>
+                        {showTime && (
+                          <span
+                            className="block truncate tabular-nums"
+                            style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)" }}
+                          >
+                            {formatEventTime(event)}
+                          </span>
+                        )}
                       </button>
                     );
                   })}

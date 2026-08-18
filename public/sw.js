@@ -8,6 +8,9 @@ const PRECACHE_URLS = [
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/icons/apple-touch-icon.png",
+  // The chrome font. Every label in the app is set in it, so without this the
+  // installed app comes back from offline with its toolbars in a fallback face.
+  "/fonts/DepartureMono-Regular.woff2",
 ];
 
 self.addEventListener("install", (event) => {

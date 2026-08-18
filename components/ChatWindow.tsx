@@ -124,7 +124,7 @@ function NewSessionUpdateLink({
         minHeight: 32,
         minWidth: 0,
         padding: "0 4px",
-        borderRadius: 5,
+        borderRadius: 0,
         fontSize: 12,
         fontWeight: 600,
         lineHeight: 1.2,
@@ -724,24 +724,45 @@ export function ChatWindow({ session, sessionRunning, sessionSearchOpen = false,
       onDrop={handleDrop}
     >
       {isDragOver && (
-        <div className="pointer-events-none absolute inset-0 z-50 flex animate-[drop-zone-in_0.15s_ease_both] items-center justify-center bg-[rgba(37,99,235,0.06)] backdrop-blur-[1px]">
+        <div className="pointer-events-none absolute inset-0 z-50 flex animate-[drop-zone-in_0.15s_ease_both] items-center justify-center bg-[color-mix(in_srgb,var(--accent)_6%,transparent)] backdrop-blur-[1px]">
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             {[0, 0.8, 1.6].map((delay) => (
               <div
                 key={delay}
-                className="absolute h-[720px] w-[720px] rounded-full border-[1.5px] border-solid border-[rgba(37,99,235,0.5)] animate-[drop-ripple_2.4s_ease-out_infinite_backwards]"
+                className="absolute h-[720px] w-[720px] rounded-full border-[1.5px] border-solid border-[color-mix(in_srgb,var(--accent)_50%,transparent)] animate-[drop-ripple_2.4s_ease-out_infinite_backwards]"
                 style={{ transformOrigin: "center", animationDelay: `${delay}s` }}
               />
             ))}
           </div>
           <svg
             width="280" height="280" viewBox="0 0 140 140" fill="none" xmlns="http://www.w3.org/2000/svg"
-            className="drop-shadow-[0_6px_18px_rgba(37,99,235,0.18)]"
+            className="drop-shadow-[0_6px_18px_color-mix(in_srgb,var(--accent)_18%,transparent)]"
           >
-            <rect x="28" y="44" width="84" height="60" rx="8" fill="rgba(37,99,235,0.08)" stroke="rgba(37,99,235,0.50)" strokeWidth="1.8"/>
-            <path d="M36 100 L54 72 L68 88 L80 74 L104 100Z" fill="rgba(37,99,235,0.16)" stroke="rgba(37,99,235,0.40)" strokeWidth="1.4" strokeLinejoin="round"/>
-            <circle cx="96" cy="58" r="8" fill="rgba(37,99,235,0.22)" stroke="rgba(37,99,235,0.55)" strokeWidth="1.6"/>
-            <g stroke="rgba(37,99,235,0.45)" strokeWidth="1.4" strokeLinecap="round">
+            <rect
+              x="28" y="44" width="84" height="60" rx="8" strokeWidth="1.8"
+              style={{
+                fill: "color-mix(in srgb, var(--accent) 8%, transparent)",
+                stroke: "color-mix(in srgb, var(--accent) 50%, transparent)",
+              }}
+            />
+            <path
+              d="M36 100 L54 72 L68 88 L80 74 L104 100Z" strokeWidth="1.4" strokeLinejoin="round"
+              style={{
+                fill: "color-mix(in srgb, var(--accent) 16%, transparent)",
+                stroke: "color-mix(in srgb, var(--accent) 40%, transparent)",
+              }}
+            />
+            <circle
+              cx="96" cy="58" r="8" strokeWidth="1.6"
+              style={{
+                fill: "color-mix(in srgb, var(--accent) 22%, transparent)",
+                stroke: "color-mix(in srgb, var(--accent) 55%, transparent)",
+              }}
+            />
+            <g
+              strokeWidth="1.4" strokeLinecap="round"
+              style={{ stroke: "color-mix(in srgb, var(--accent) 45%, transparent)" }}
+            >
               <line x1="96" y1="46" x2="96" y2="43"/>
               <line x1="96" y1="70" x2="96" y2="73"/>
               <line x1="84" y1="58" x2="81" y2="58"/>
@@ -825,7 +846,7 @@ export function ChatWindow({ session, sessionRunning, sessionSearchOpen = false,
               spellCheck={false}
               style={{
                 width: "100%", height: 30, padding: "0 70px 0 28px",
-                border: "1px solid var(--border)", borderRadius: 6,
+                border: "1px solid var(--border)", borderRadius: 0,
                 outline: "none", background: "var(--bg)", color: "var(--text)",
                 fontSize: 12, fontFamily: "var(--font-mono)",
               }}
@@ -844,7 +865,7 @@ export function ChatWindow({ session, sessionRunning, sessionSearchOpen = false,
             title={t("sessionSearch.previous")}
             aria-label={t("sessionSearch.previous")}
             className="ui-action ui-action--outline-soft"
-            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, padding: 0, borderRadius: 6, opacity: sessionSearchMatches.length === 0 ? 0.4 : 1 }}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, padding: 0, borderRadius: 0, opacity: sessionSearchMatches.length === 0 ? 0.4 : 1 }}
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polyline points="2.5 7.5 6 4 9.5 7.5" />
@@ -857,7 +878,7 @@ export function ChatWindow({ session, sessionRunning, sessionSearchOpen = false,
             title={t("sessionSearch.next")}
             aria-label={t("sessionSearch.next")}
             className="ui-action ui-action--outline-soft"
-            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, padding: 0, borderRadius: 6, opacity: sessionSearchMatches.length === 0 ? 0.4 : 1 }}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, padding: 0, borderRadius: 0, opacity: sessionSearchMatches.length === 0 ? 0.4 : 1 }}
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polyline points="2.5 4.5 6 8 9.5 4.5" />
@@ -869,7 +890,7 @@ export function ChatWindow({ session, sessionRunning, sessionSearchOpen = false,
             title={t("chat.close")}
             aria-label={t("chat.close")}
             className="ui-action ui-action--surface"
-            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, padding: 0, border: "none", borderRadius: 6 }}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, padding: 0, border: "none", borderRadius: 0 }}
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
               <path d="M2.5 2.5l7 7m0-7-7 7" />
@@ -1171,11 +1192,11 @@ function NoticeShelf({ notices, floating = false }: { notices: NoticeItem[]; flo
     >
       {notices.map((notice, index) => {
         const color = notice.type === "error"
-          ? "#ef4444"
+          ? "var(--danger)"
           : notice.type === "warning"
-            ? "#d97706"
+            ? "var(--warning)"
             : notice.type === "success"
-              ? "#10b981"
+              ? "var(--success)"
               : "var(--accent)";
         return (
           <div
@@ -1190,15 +1211,15 @@ function NoticeShelf({ notices, floating = false }: { notices: NoticeItem[]; flo
               maxHeight: 60,
               marginBottom: index === notices.length - 1 ? 0 : 6,
               overflow: "hidden",
-              borderRadius: 14,
+              borderRadius: 0,
               border: "1px solid color-mix(in srgb, var(--border) 70%, transparent)",
               background: "var(--bg)",
               color: "var(--text-muted)",
               width: "fit-content",
               maxWidth: "min(100%, 620px)",
               boxShadow: floating
-                ? "0 1px 2px rgba(15,23,42,0.05), 0 10px 28px -14px rgba(15,23,42,0.24)"
-                : "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
+                ? "0 1px 2px var(--bg-subtle), 0 10px 28px -14px var(--bg-selected)"
+                : "0 1px 2px var(--bg-subtle), 0 8px 24px -12px var(--bg-selected)",
               fontSize: 18,
               lineHeight: 1.45,
               transformOrigin: "top center",
@@ -1270,7 +1291,7 @@ function ExtensionDialog({
         style={{
           width: "min(560px, 100%)",
           border: "1px solid var(--border)",
-          borderRadius: 8,
+          borderRadius: 0,
           background: "var(--bg)",
           boxShadow: "0 20px 60px rgba(0,0,0,0.28)",
           overflow: "hidden",
@@ -1294,7 +1315,7 @@ function ExtensionDialog({
                   style={{
                     width: "100%",
                     padding: "9px 10px",
-                    borderRadius: 7,
+                    borderRadius: 0,
                     border: "1px solid var(--border)",
                     background: "var(--bg-panel)",
                     color: "var(--text)",
@@ -1321,7 +1342,7 @@ function ExtensionDialog({
               style={{
                 width: "100%",
                 padding: "9px 10px",
-                borderRadius: 7,
+                borderRadius: 0,
                 border: "1px solid var(--border)",
                 background: "var(--bg-panel)",
                 color: "var(--text)",
@@ -1343,7 +1364,7 @@ function ExtensionDialog({
                 width: "100%",
                 minHeight: 220,
                 padding: 10,
-                borderRadius: 7,
+                borderRadius: 0,
                 border: "1px solid var(--border)",
                 background: "var(--bg-panel)",
                 color: "var(--text)",
@@ -1362,7 +1383,7 @@ function ExtensionDialog({
             onClick={() => onRespond(request, { cancelled: true })}
             style={{
               padding: "6px 10px",
-              borderRadius: 6,
+              borderRadius: 0,
               border: "1px solid var(--border)",
               background: "var(--bg)",
               color: "var(--text-muted)",
@@ -1376,10 +1397,10 @@ function ExtensionDialog({
               onClick={submitValue}
               style={{
                 padding: "6px 10px",
-                borderRadius: 6,
-                border: "1px solid var(--accent)",
-                background: "var(--accent)",
-                color: "#fff",
+                borderRadius: 0,
+                border: "1px solid var(--accent-line-strong)",
+                background: "var(--accent-soft)",
+                color: "var(--accent)",
                 cursor: "pointer",
               }}
             >
@@ -1390,10 +1411,10 @@ function ExtensionDialog({
               onClick={submitValue}
               style={{
                 padding: "6px 10px",
-                borderRadius: 6,
-                border: "1px solid var(--accent)",
-                background: "var(--accent)",
-                color: "#fff",
+                borderRadius: 0,
+                border: "1px solid var(--accent-line-strong)",
+                background: "var(--accent-soft)",
+                color: "var(--accent)",
                 cursor: "pointer",
               }}
             >
@@ -1456,7 +1477,7 @@ function ExtensionCustomPanel({
           width: "min(920px, 100%)",
           maxHeight: "min(760px, calc(100vh - 40px))",
           border: "1px solid var(--border)",
-          borderRadius: 8,
+          borderRadius: 0,
           background: "var(--bg)",
           boxShadow: "0 20px 60px rgba(0,0,0,0.28)",
           overflow: "hidden",
@@ -1517,7 +1538,7 @@ function ExtensionCustomPanel({
             onClick={() => onInput(request, "\x03")}
             style={{
               padding: "5px 9px",
-              borderRadius: 6,
+              borderRadius: 0,
               border: "1px solid var(--border)",
               background: "var(--bg-panel)",
               color: "var(--text-muted)",

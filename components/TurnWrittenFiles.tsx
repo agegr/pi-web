@@ -38,7 +38,7 @@ export function TurnWrittenFiles({ files, onOpenFile }: {
               color: "var(--text)",
               background: "var(--bg-subtle)",
               border: "1px solid var(--border)",
-              borderRadius: 6,
+              borderRadius: 0,
               cursor: "pointer",
             }}
           >

@@ -12,6 +12,7 @@ import {
   type DashboardEvent,
 } from "@/extension/robin/events";
 import { layoutSpanBars } from "@/extension/robin/layout";
+import { spanSurface, timedSurface } from "./eventSurface";
 import type { Todo } from "@/extension/robin/store";
 import { useTodayInView } from "./useTodayInView";
 
@@ -49,37 +50,27 @@ function weekdayLabel(date: string, locale: string): string {
   return parseLocalDate(date).toLocaleDateString(locale, { weekday: "short" });
 }
 
-/** Google entries carry a dot; they cannot be edited from here. */
-function EventChip({ event, onDelete, t }: {
+/** A timed event in a month cell. Read-only here whatever its calendar — the
+ *  cell itself is the click target, and a ✕ does not fit the width. */
+function EventChip({ event, t }: {
   event: DashboardEvent;
-  onDelete?: () => void;
-  t: (key: string, params?: Record<string, string>) => string;
+  t: (key: string) => string;
 }) {
-  const readOnly = isReadOnlyEvent(event);
   return (
     <div
-      className="group/chip flex items-baseline gap-1.5 rounded px-1.5 py-0.5 text-xs"
-      style={{ background: "var(--bg-subtle)" }}
+      className="flex items-baseline gap-1.5 py-0.5 pl-1 pr-1.5"
+      style={timedSurface(event)}
       title={`${formatEventTime(event)} ${event.title}${event.calendar ? ` — ${event.calendar}` : ""}`}
     >
-      {readOnly && (
-        <span aria-hidden className="shrink-0" style={{ color: "var(--text-dim)" }}>•</span>
-      )}
-      <span className="shrink-0 tabular-nums" style={{ color: "var(--text-dim)" }}>
+      <span
+        className="shrink-0 font-mono tabular-nums"
+        style={{ color: "var(--text-muted)", fontSize: 10 }}
+      >
         {event.start ?? t("robin.calendar.allDay")}
       </span>
-      <span className="min-w-0 flex-1 truncate" style={{ color: "var(--text)" }}>{event.title}</span>
-      {onDelete && !readOnly && (
-        <button
-          type="button"
-          onClick={onDelete}
-          aria-label={t("robin.calendar.deleteEvent", { title: event.title })}
-          className="shrink-0 opacity-0 transition-opacity group-hover/chip:opacity-100"
-          style={{ color: "var(--text-dim)" }}
-        >
-          ✕
-        </button>
-      )}
+      <span className="min-w-0 flex-1 truncate" style={{ color: "var(--text)", fontSize: 13 }}>
+        {event.title}
+      </span>
     </div>
   );
 }
@@ -115,9 +106,14 @@ export function AgendaView({
       {days.map(({ date, events: dayEvents, todos: dayTodos }) => (
         <div key={date} className="flex flex-col gap-1">
           <h3
-            className="text-xs font-medium uppercase tracking-wide"
-            style={{ color: date === today ? "var(--accent)" : "var(--text-dim)" }}
+            className="pi-eyebrow"
+            style={date === today
+              ? { color: "var(--text)", fontWeight: 500 }
+              : { color: "var(--text-dim)" }}
           >
+            {date === today && (
+              <span className="pi-today-badge mr-2">{dayNumber(date)}</span>
+            )}
             {dayHeading(date, today, locale, t)}
           </h3>
           {dayEvents.length + dayTodos.length === 0 && (
@@ -126,12 +122,15 @@ export function AgendaView({
           {dayTodos.map((todo) => (
             <label
               key={`todo:${todo.id}`}
-              className="flex min-h-8 cursor-pointer items-center gap-3 rounded px-2 py-1"
-              style={{ background: "var(--bg-subtle)" }}
+              className="flex min-h-8 cursor-pointer items-center gap-3 px-2 py-1"
+              style={{
+                background: "var(--accent-amber-soft)",
+                borderLeft: "2px solid var(--accent-amber-line)",
+              }}
             >
               <span
-                className="shrink-0 text-xs"
-                style={{ color: "var(--text-muted)", minWidth: "5.5rem" }}
+                className="pi-eyebrow shrink-0"
+                style={{ color: "var(--accent-amber)", minWidth: "5.5rem" }}
               >
                 {t("robin.todos.title")}
               </span>
@@ -150,11 +149,14 @@ export function AgendaView({
           {dayEvents.map((event) => (
             <div
               key={event.id}
-              className="group flex items-center gap-3 rounded px-2 py-1"
-              style={{ background: "var(--bg-subtle)" }}
+              className="group flex items-center gap-3 px-2 py-1"
+              // Same two-axis colouring as the grids: hue for the kind of
+              // thing, weight for whether it is yours. Which day it is under
+              // is the heading's job, not the row's.
+              style={isAllDayBand(event) ? spanSurface(event) : timedSurface(event)}
             >
               <span
-                className="shrink-0 text-xs tabular-nums"
+                className="shrink-0 font-mono text-xs tabular-nums"
                 style={{ color: "var(--text-muted)", minWidth: "5.5rem" }}
               >
                 {formatEventTime(event)}
@@ -184,12 +186,12 @@ export function AgendaView({
 
       {rest.length > 0 && (
         <div className="flex flex-col gap-1 border-t pt-2" style={{ borderColor: "var(--border)" }}>
-          <h3 className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-dim)" }}>
+          <h3 className="font-mono text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-dim)" }}>
             {t("robin.calendar.restOfWeek")}
           </h3>
           {rest.map(({ date, events: dayEvents, todos: dayTodos }) => (
             <div key={date} className="flex items-baseline gap-2 px-2 py-0.5 text-xs">
-              <span className="shrink-0" style={{ color: "var(--text-muted)", minWidth: "4.5rem" }}>
+              <span className="shrink-0 font-mono" style={{ color: "var(--text-muted)", minWidth: "4.5rem" }}>
                 {parseLocalDate(date).toLocaleDateString(locale, { weekday: "short", day: "numeric" })}
               </span>
               <span className="min-w-0 flex-1 truncate" style={{ color: "var(--text-dim)" }}>
@@ -198,7 +200,7 @@ export function AgendaView({
                   ...dayTodos.map((todo) => `${t("robin.todos.title")}: ${todo.title}`),
                 ].join("、")}
               </span>
-              <span className="shrink-0 tabular-nums" style={{ color: "var(--text-dim)" }}>
+              <span className="shrink-0 font-mono tabular-nums" style={{ color: "var(--text-dim)" }}>
                 {dayEvents.length + dayTodos.length}
               </span>
             </div>
@@ -246,7 +248,7 @@ function MonthWeekRow({
     <div
       className="relative"
       style={isCurrentWeek
-        ? { borderLeft: "2px solid var(--accent)", paddingLeft: 4, marginLeft: -6 }
+        ? { borderLeft: "2px solid var(--today-mark)", paddingLeft: 4, marginLeft: -6 }
         : { paddingLeft: 4, marginLeft: -6 }}
     >
       <div className="grid grid-cols-7 gap-px">
@@ -267,10 +269,14 @@ function MonthWeekRow({
               data-date={date}
               onClick={() => onSelectDay(date)}
               title={t("robin.calendar.dayTooltip", { date, count: String(chips.length + spanning) })}
-              className="flex min-h-32 flex-col gap-0.5 rounded p-1 text-left"
+              className="flex min-h-32 flex-col gap-0.5 p-1 text-left"
               style={{
-                background: isToday ? "var(--bg-hover)" : "transparent",
-                border: `1px solid ${isToday ? "var(--accent)" : "var(--border)"}`,
+                // The one cell in another hue, ringed twice over: the inset
+                // shadow doubles the border without moving the cell, which a
+                // 2px border in a hairline grid would.
+                background: isToday ? "var(--today-wash)" : "transparent",
+                border: `1px solid ${isToday ? "var(--today-mark)" : "var(--border)"}`,
+                boxShadow: isToday ? "inset 0 0 0 1px var(--today-mark)" : undefined,
                 opacity: past ? 0.5 : 1,
                 paddingTop: DAY_NUMBER_HEIGHT + barsHeight + 2,
               }}
@@ -293,13 +299,15 @@ function MonthWeekRow({
         {days.map((date) => (
           <span
             key={date}
-            className="px-1.5 pt-1 text-xs tabular-nums"
+            className="px-1.5 pt-1 font-mono text-xs tabular-nums"
             style={{
-              color: date === today ? "var(--accent)" : "var(--text-muted)",
+              color: "var(--text-muted)",
               opacity: date < today ? 0.5 : 1,
             }}
           >
-            {dayNumber(date)}
+            {date === today
+              ? <span className="pi-today-badge">{dayNumber(date)}</span>
+              : dayNumber(date)}
           </span>
         ))}
       </div>
@@ -310,16 +318,17 @@ function MonthWeekRow({
           type="button"
           onClick={() => onSelectDay(bar.event.date)}
           title={`${bar.event.title}${bar.event.calendar ? ` — ${bar.event.calendar}` : ""}`}
-          className="absolute truncate px-1.5 text-left text-xs leading-4"
+          className="absolute truncate px-1.5 text-left leading-4"
           style={{
             left: `calc(${(bar.startIndex / 7) * 100}% + 2px)`,
             width: `calc(${((bar.endIndex - bar.startIndex + 1) / 7) * 100}% - 4px)`,
             top: DAY_NUMBER_HEIGHT + bar.lane * BAR_HEIGHT + 2,
             height: BAR_HEIGHT - 2,
-            background: isReadOnlyEvent(bar.event) ? "var(--bg-selected)" : "var(--accent)",
-            color: isReadOnlyEvent(bar.event) ? "var(--text)" : "#fff",
-            // Square off whichever edge runs past this week.
-            borderRadius: `${bar.continuesBefore ? 0 : 4}px ${bar.continuesAfter ? 0 : 4}px ${bar.continuesAfter ? 0 : 4}px ${bar.continuesBefore ? 0 : 4}px`,
+            ...spanSurface(bar.event),
+            color: "var(--text)",
+            borderRadius: 0,
+            fontFamily: "var(--font-serif)",
+            fontSize: 12,
           }}
         >
           {bar.continuesBefore && "‹ "}
@@ -348,11 +357,24 @@ export function MonthView({
     <div className={GRID_SCROLL} ref={scrollerRef}>
       <div className={`flex flex-col gap-px ${GRID_MIN_WIDTH}`}>
         <div className="grid grid-cols-7 gap-px">
-          {(weeks[0] ?? []).map((date) => (
-            <div key={date} className="px-1 text-xs" style={{ color: "var(--text-dim)" }}>
-              {weekdayLabel(date, locale)}
-            </div>
-          ))}
+          {(weeks[0] ?? []).map((date) => {
+            // The window opens on today's week, so today's weekday names its
+            // column — but only while today is still somewhere in the window;
+            // paged forward, no column is today's.
+            const isTodayColumn = grid.includes(today)
+              && parseLocalDate(date).getDay() === parseLocalDate(today).getDay();
+            return (
+              <div
+                key={date}
+                className="px-1 font-mono text-xs"
+                style={isTodayColumn
+                  ? { color: "var(--today-mark)", fontWeight: 500 }
+                  : { color: "var(--text-dim)" }}
+              >
+                {weekdayLabel(date, locale)}
+              </div>
+            );
+          })}
         </div>
         {weeks.map((days) => (
           <MonthWeekRow

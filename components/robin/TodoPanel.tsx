@@ -31,7 +31,8 @@ function dueLabel(due: string, today: string, t: (key: string, params?: Record<s
 }
 
 const BUCKET_COLOR: Partial<Record<DueBucket, string>> = {
-  overdue: "var(--accent)",
+  overdue: "var(--danger)",
+  today: "var(--accent-amber)",
 };
 
 export function TodoPanel() {
@@ -80,11 +81,10 @@ export function TodoPanel() {
 
   return (
     <section
-      className="flex flex-col gap-3 rounded-lg p-4"
-      style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}
+      className="pi-card flex flex-col gap-3 p-4"
     >
       <header className="flex items-baseline justify-between">
-        <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>{t("robin.todos.title")}</h2>
+        <h2 className="pi-label">{t("robin.todos.title")}</h2>
         <span className="text-xs" style={{ color: "var(--text-dim)" }}>
           {loading ? t("robin.common.loading") : t("robin.todos.open", { count: String(open.length) })}
         </span>
@@ -96,20 +96,18 @@ export function TodoPanel() {
           onChange={(event) => setTitle(event.target.value)}
           placeholder={t("robin.todos.placeholder")}
           className="min-w-0 flex-1 rounded px-2 py-1 text-sm outline-none"
-          style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
         />
         <input
           type="date"
           value={due}
           onChange={(event) => setDue(event.target.value)}
           className="rounded px-2 py-1 text-sm outline-none"
-          style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
         />
         <button
           type="submit"
           disabled={!title.trim()}
-          className="rounded px-3 py-1 text-sm disabled:opacity-40"
-          style={{ background: "var(--accent)", color: "#fff" }}
+          className="ui-action ui-action--outline pi-bracket px-3 disabled:opacity-40"
+          data-state="accent"
         >
           {t("robin.todos.addButton")}
         </button>
@@ -128,7 +126,7 @@ export function TodoPanel() {
       {sections.map((section) => (
         <div key={section.bucket} className="flex flex-col gap-1">
           <h3
-            className="text-xs font-medium uppercase tracking-wide"
+            className="pi-eyebrow"
             style={{ color: BUCKET_COLOR[section.bucket] ?? "var(--text-dim)" }}
           >
             {t(section.key)}
@@ -151,8 +149,7 @@ export function TodoPanel() {
           <button
             type="button"
             onClick={() => setShowDone((value) => !value)}
-            className="self-start text-xs"
-            style={{ color: "var(--text-dim)" }}
+            className="ui-action pi-eyebrow self-start"
           >
             {showDone ? "▾" : "▸"} {t("robin.todos.completed", { count: String(done.length) })}
           </button>
@@ -189,7 +186,9 @@ function TodoRow({
   return (
     <div
       className="group flex items-center gap-2 rounded px-2 py-1"
-      style={{ background: "var(--bg-subtle)" }}
+      style={overdue
+        ? { background: "var(--danger-soft)", borderLeft: "2px solid var(--danger)" }
+        : { background: "var(--bg-subtle)", borderLeft: "2px solid transparent" }}
     >
       <input
         type="checkbox"
@@ -210,7 +209,7 @@ function TodoRow({
         {todo.title}
       </span>
       {todo.due && !todo.done && (
-        <span className="shrink-0 text-xs" style={{ color: overdue ? "var(--accent)" : "var(--text-dim)" }}>
+        <span className="shrink-0 text-xs" style={{ color: overdue ? "var(--danger)" : "var(--text-dim)" }}>
           {dueLabel(todo.due, today, t)}
         </span>
       )}

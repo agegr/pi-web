@@ -659,7 +659,7 @@ export function ChatMinimap({
               style={{
                 width: 8,
                 height: 8,
-                borderRadius: 2,
+                borderRadius: 0,
                 background: isActive ? "rgba(128,128,128,0.42)" : "rgba(128,128,128,0.16)",
                 border: `1.5px solid ${isActive ? "rgba(128,128,128,0.95)" : "rgba(128,128,128,0.58)"}`,
                 boxShadow: isActive ? "0 0 0 2px var(--bg-panel)" : "none",

@@ -145,7 +145,6 @@ export function LinksPanel() {
           onChange={(event) => setTitle(event.target.value)}
           placeholder={t("robin.links.namePlaceholder")}
           className="min-w-0 flex-1 rounded px-2 py-1 text-sm outline-none"
-          style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" }}
         />
         {showGroup && (
           <input
@@ -159,8 +158,8 @@ export function LinksPanel() {
         <button
           type="submit"
           disabled={!url.trim()}
-          className="rounded px-3 py-1 text-sm disabled:opacity-40"
-          style={{ background: "var(--accent)", color: "#fff" }}
+          className="ui-action ui-action--outline pi-bracket px-3 disabled:opacity-40"
+          data-state="accent"
         >
           {t("robin.common.save")}
         </button>
@@ -170,16 +169,14 @@ export function LinksPanel() {
 
   return (
     <section
-      className="flex flex-col gap-3 rounded-lg p-4"
-      style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}
+      className="pi-card flex flex-col gap-3 p-4"
     >
       <header className="flex items-baseline justify-between">
-        <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>{t("robin.links.title")}</h2>
+        <h2 className="pi-label">{t("robin.links.title")}</h2>
         <button
           type="button"
           onClick={() => toggleAdd("")}
-          className="text-xs"
-          style={{ color: "var(--text-dim)" }}
+          className="ui-action pi-chrome-label pi-bracket text-xs"
         >
           {addingGroup === "" ? t("robin.common.cancel") : t("robin.common.add")}
         </button>
@@ -400,12 +397,13 @@ function LinkIcon({ link }: { link: Link }) {
   return (
     <span
       aria-hidden
-      className="flex size-4 shrink-0 items-center justify-center rounded-sm text-[10px] font-semibold"
+      className="flex size-4 shrink-0 items-center justify-center text-[10px]"
       style={{
-        // Fixed saturation and lightness keep every tile legible on both themes
-        // while the hue still distinguishes one site from another.
-        background: `hsl(${hue} 45% 55%)`,
-        color: "#fff",
+        // The hue still distinguishes one site from another, but at pi's
+        // saturation: these tiles sit in a page of slate and parchment, and a
+        // row of fully saturated chips would be the loudest thing on it.
+        background: `hsl(${hue} 22% 42%)`,
+        color: "var(--pi-moonstone)",
       }}
     >
       {letter}

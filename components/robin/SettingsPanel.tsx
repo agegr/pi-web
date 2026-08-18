@@ -56,10 +56,9 @@ function SaveButton({
       onClick={onClick}
       aria-live="polite"
       aria-busy={phase === "saving"}
-      className={`min-h-11 cursor-pointer rounded px-3 py-2 text-sm font-medium disabled:cursor-default ${className}`}
+      className={`ui-action ui-action--outline pi-bracket min-h-11 cursor-pointer px-3 py-2 disabled:cursor-default ${className}`}
+      data-state={saved ? "success" : "accent"}
       style={{
-        background: saved ? "var(--success)" : "var(--accent)",
-        color: "#fff",
         opacity: disabled && phase === undefined ? 0.4 : 1,
         display: "inline-flex",
         alignItems: "center",
