@@ -28,7 +28,12 @@ import {
   showBrowserNotification,
 } from "@/lib/browser-notifications";
 import { getInitialNavigation } from "@/lib/initial-navigation";
-import { clearLastOpen, getLastOpenSession, setLastOpenSession } from "@/lib/workspace-memory";
+import {
+  clearLastOpen,
+  getLastOpenSession,
+  setLastOpenSession,
+  workspaceKeyOf,
+} from "@/lib/workspace-memory";
 import {
   getDefaultRightPanelWidth,
   getRightPanelMaxWidth,
@@ -382,7 +387,7 @@ export function AppShell() {
 
   const initialSessionId = initialNavigation.sessionId;
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
-  const activeProjectRootRef = useRef<string | null>(null);
+  const activeProjectKeyRef = useRef<string | null>(null);
   // True once the initial ?session= URL param has been resolved (or confirmed absent)
   const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !initialSessionId);
   // Suppresses sessionKey bump in handleCwdChange during the initial URL restore
@@ -397,12 +402,12 @@ export function AppShell() {
 
   // Persist every active-session transition, including new and forked sessions
   // that bypass the sidebar selection handler. Transient sessions do not yet
-  // carry projectRoot, so use the active project identity until hydration.
+  // carry projectKey, so use the active project identity until hydration.
   useEffect(() => {
     if (!selectedSession) return;
-    const projectKey = selectedSession.projectRoot
-      ?? activeProjectRootRef.current
-      ?? selectedSession.cwd;
+    const projectKey = selectedSession.projectKey
+      ?? activeProjectKeyRef.current
+      ?? workspaceKeyOf(selectedSession);
     setLastOpenSession(projectKey, selectedSession.id);
   }, [selectedSession]);
 
@@ -464,7 +469,7 @@ export function AppShell() {
           if (d) clearLastOpen(projectKey);
           return;
         }
-        if ((s.projectRoot ?? s.cwd) !== projectKey) {
+        if (workspaceKeyOf(s) !== projectKey) {
           // Defensive: the remembered session drifted out of this workspace.
           clearLastOpen(projectKey);
           return;
@@ -484,16 +489,20 @@ export function AppShell() {
       });
   }, [router]);
 
-  const handleCwdChange = useCallback((cwd: string | null, projectRoot?: string | null) => {
+  const handleCwdChange = useCallback((
+    cwd: string | null,
+    projectRoot?: string | null,
+    projectKey?: string | null,
+  ) => {
     invalidateWorkspaceRestore();
     const currentFreshCwd = newSessionCwd ?? activeCwd;
     setActiveCwd(cwd);
     // Skip if cwd is null (initial mount).
     if (!cwd) return;
-    const newProject = projectRoot ?? cwd;
-    const currentProject = activeProjectRootRef.current
-      ?? (selectedSession ? (selectedSession.projectRoot ?? selectedSession.cwd) : null);
-    activeProjectRootRef.current = newProject;
+    const newProject = projectKey ?? projectRoot ?? cwd;
+    const currentProject = activeProjectKeyRef.current
+      ?? (selectedSession ? workspaceKeyOf(selectedSession) : null);
+    activeProjectKeyRef.current = newProject;
 
     // Keep the project identity in sync during the initial URL restore without
     // remounting the just-created or restored chat.
@@ -501,6 +510,9 @@ export function AppShell() {
       suppressCwdBumpRef.current = false;
       return;
     }
+    // The server may hydrate a normalized key after a custom cwd is already
+    // active. Updating identity for the exact same cwd is not a user switch.
+    if (currentFreshCwd === cwd && currentProject !== newProject) return;
     // Existing sessions stay open when the worktree selector moves within the
     // same project. A fresh composer must remount when its effective cwd moves,
     // otherwise its already-created runtime would keep sending to the old cwd.
@@ -550,8 +562,7 @@ export function AppShell() {
     // the full re-select flow.
     if (!isRestore && selectedSession) {
       const sameProject =
-        (selectedSession.projectRoot ?? selectedSession.cwd) ===
-        (session.projectRoot ?? session.cwd);
+        workspaceKeyOf(selectedSession) === workspaceKeyOf(session);
       if (selectedSession.id === session.id && sameProject) {
         if (isMobile) setSidebarOpen(false);
         return;
@@ -601,7 +612,7 @@ export function AppShell() {
   });
 
   // Client-built transient SessionInfo (new session / fork) lacks the
-  // server-computed projectRoot, which the same-project check in
+  // server-computed projectKey, which the same-project check in
   // handleCwdChange relies on. Hydrate it from the session list so switching
   // worktrees right after creating a session doesn't close the chat.
   const hydrateSelectedSession = useCallback((sessionId: string) => {
