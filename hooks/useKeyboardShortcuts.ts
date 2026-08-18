@@ -23,6 +23,8 @@ export function registerAbortHandler(handler: (() => void) | null): void {
 interface UseGlobalKeyboardShortcutsOptions {
   /** Called when Ctrl+Alt+N is pressed. Receives current cwd. */
   onNewSession?: (cwd: string) => void;
+  /** Called when Ctrl+` / Ctrl+~ is pressed. Toggles the terminal panel. */
+  onToggleTerminal?: () => void;
   /** The currently selected project directory (sidebar cwd). */
   activeCwd?: string | null;
 }
@@ -33,6 +35,7 @@ interface UseGlobalKeyboardShortcutsOptions {
  * Shortcuts handled here:
  *   Esc          – stop the running agent (via module-level abort handler)
  *   Ctrl+Alt+N   – create a new session in the active project directory
+ *   Ctrl+`       – toggle the terminal panel
  *
  * Note: Esc inside <textarea> or <input> is deliberately NOT handled here.
  * ChatInput manages its own Esc logic (closing slash / @ file menus, stopping
@@ -42,7 +45,7 @@ interface UseGlobalKeyboardShortcutsOptions {
 export function useGlobalKeyboardShortcuts(
   options: UseGlobalKeyboardShortcutsOptions,
 ): void {
-  const { onNewSession, activeCwd } = options;
+  const { onNewSession, onToggleTerminal, activeCwd } = options;
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
@@ -59,6 +62,15 @@ export function useGlobalKeyboardShortcuts(
         return;
       }
 
+      // ---- Ctrl+` / Ctrl+~: toggle terminal panel ----
+      // On many layouts the backquote key produces "`" but with Shift it is
+      // "~"; Ctrl+~ is the common VS Code binding so both are accepted.
+      if (e.ctrlKey && !e.altKey && !e.metaKey && (e.key === "`" || e.key === "~")) {
+        e.preventDefault();
+        onToggleTerminal?.();
+        return;
+      }
+
       // ---- Ctrl+Alt+N: new session ----
       if (e.key === "n" && e.ctrlKey && e.altKey) {
         if (!activeCwd || !onNewSession) return;
@@ -69,5 +81,5 @@ export function useGlobalKeyboardShortcuts(
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activeCwd, onNewSession]);
+  }, [activeCwd, onNewSession, onToggleTerminal]);
 }

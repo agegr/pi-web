@@ -11,6 +11,7 @@ import { openFileTab, saveFileViewerState } from "./file-tab-state";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
+import { TerminalPanel } from "./TerminalPanel";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { BranchNavigator } from "./BranchNavigator";
 import { useTheme } from "@/hooks/useTheme";
@@ -108,6 +109,7 @@ export function AppShell() {
   const [projectTrustError, setProjectTrustError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
   const [mobileToolbarMoreOpen, setMobileToolbarMoreOpen] = useState(false);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
   const sidebarWidthRef = useRef(SIDEBAR_DEFAULT_WIDTH);
@@ -605,9 +607,10 @@ export function AppShell() {
     router.replace("/", { scroll: false });
   }, [invalidateWorkspaceRestore, router, isMobile]);
 
-  // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
+  // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N, Ctrl+` etc.)
   useGlobalKeyboardShortcuts({
     onNewSession: (cwd: string) => handleNewSession(`kb-${Date.now()}`, cwd),
+    onToggleTerminal: () => setTerminalOpen((open) => !open),
     activeCwd,
   });
 
@@ -1555,6 +1558,39 @@ export function AppShell() {
     );
   };
 
+  const renderTerminalToggle = (mobile: boolean) => {
+    const covered = mobile && mobileToolbarMoreOpen;
+    return (
+      <button
+        type="button"
+        onClick={() => setTerminalOpen((open) => !open)}
+        disabled={covered}
+        tabIndex={covered ? -1 : undefined}
+        aria-expanded={terminalOpen}
+        aria-hidden={covered ? true : undefined}
+        title={terminalOpen ? translate("terminal.hide") : translate("terminal.show")}
+        aria-label={terminalOpen ? translate("terminal.hide") : translate("terminal.show")}
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "center",
+          width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+          visibility: covered ? "hidden" : "visible",
+          pointerEvents: covered ? "none" : "auto",
+          background: terminalOpen ? "var(--bg-selected)" : "none",
+          border: "none", borderLeft: "1px solid var(--border)",
+          color: terminalOpen ? "var(--text)" : "var(--text-muted)",
+          cursor: "pointer", flexShrink: 0, transition: "color 0.12s, background 0.12s",
+        }}
+        onMouseEnter={(event) => { if (!covered) event.currentTarget.style.color = "var(--text)"; }}
+        onMouseLeave={(event) => { event.currentTarget.style.color = terminalOpen ? "var(--text)" : "var(--text-muted)"; }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polyline points="4 17 10 11 4 5" />
+          <line x1="12" y1="19" x2="20" y2="19" />
+        </svg>
+      </button>
+    );
+  };
+
   return (
     <>
     <style>{`
@@ -1765,6 +1801,7 @@ export function AppShell() {
                 )}
               </button>
               {renderSessionStatsButton(true)}
+              {renderTerminalToggle(true)}
               {renderMainFileToggle(true)}
               {mobileToolbarMoreOpen && (
                 <div
@@ -1801,6 +1838,7 @@ export function AppShell() {
             </>
           )}
           {!isMobile && renderMainFileToggle(false)}
+          {!isMobile && renderTerminalToggle(false)}
           {isMobile && (
             <BranchNavigator
               tree={branchTree}
@@ -2144,6 +2182,12 @@ export function AppShell() {
             )
           ) : null}
         </div>
+        {/* Always mounted; hiding keeps PTY sessions and scrollback alive */}
+        <TerminalPanel
+          open={terminalOpen}
+          cwd={activeCwd ?? selectedSession?.cwd ?? effectiveNewSessionCwd ?? null}
+          onClose={() => setTerminalOpen(false)}
+        />
       </div>
 
       <div
