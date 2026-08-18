@@ -207,6 +207,27 @@ body {
   flex-direction: column;
 }
 
+/* The daily dashboard is read as a document, not a dense coding surface. */
+.robin-dashboard {
+  font-size: 15px;
+}
+.robin-dashboard .text-xs {
+  font-size: 13px;
+  line-height: 1.125rem;
+}
+.robin-dashboard .text-sm {
+  font-size: 15px;
+  line-height: 1.375rem;
+}
+.robin-dashboard .text-lg {
+  font-size: 22px;
+  line-height: 1.75rem;
+}
+.robin-dashboard [class~="text-[10px]"] {
+  font-size: 12px;
+  line-height: 1rem;
+}
+
 ::-webkit-scrollbar {
   width: 4px;
   height: 4px;
@@ -386,6 +407,13 @@ body {
 .ui-action:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
+}
+
+[data-session-search-active="true"] {
+  border-radius: var(--card-radius);
+  outline: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
+  outline-offset: 3px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
 .ui-action:disabled,

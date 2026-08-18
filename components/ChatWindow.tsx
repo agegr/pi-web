@@ -24,10 +24,18 @@ import {
   restoreScrollTop,
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
+import {
+  createSessionSearchDocuments,
+  searchSessionDocuments,
+  type SessionSearchTarget,
+} from "@/lib/session-search";
 
 interface Props {
   session: SessionInfo | null;
   sessionRunning?: boolean;
+  sessionSearchOpen?: boolean;
+  sessionSearchTarget?: SessionSearchTarget | null;
+  onSessionSearchOpenChange?: (open: boolean) => void;
   newSessionCwd: string | null;
   newSessionDraftKey: string | null;
   onAgentEnd?: () => void;
@@ -194,6 +202,14 @@ function isGroupAnchor(message: AgentMessage): boolean {
   return message.role === "custom" && (message as CustomMessage).customType === "compaction";
 }
 
+function visibleMessageRefIndex(messages: AgentMessage[], messageIndex: number): number {
+  let refIndex = -1;
+  for (let index = 0; index <= messageIndex && index < messages.length; index += 1) {
+    if (messages[index]?.role === "user" || messages[index]?.role === "assistant") refIndex += 1;
+  }
+  return refIndex;
+}
+
 function withAssistantBlocks(
   message: AssistantMessage,
   content: AssistantContentBlock[],
@@ -247,7 +263,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, sessionRunning, sessionSearchOpen = false, sessionSearchTarget, onSessionSearchOpenChange, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
 
@@ -417,6 +433,116 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const revealHistoryForMinimap = useCallback(() => {
     setVisibleCount((current) => Math.max(current, messages.length * 2));
   }, [messages.length]);
+
+  const [sessionSearchQuery, setSessionSearchQuery] = useState("");
+  const [activeSearchIndex, setActiveSearchIndex] = useState(0);
+  const [pendingSearchEntryId, setPendingSearchEntryId] = useState<string | null>(null);
+  const sessionSearchInputRef = useRef<HTMLInputElement>(null);
+  const highlightedSearchElementRef = useRef<HTMLDivElement | null>(null);
+  const lastSearchTargetRequestRef = useRef<number | null>(null);
+  const sessionSearchDocuments = useMemo(
+    () => createSessionSearchDocuments(messages, entryIds),
+    [messages, entryIds],
+  );
+  const sessionSearchMatches = useMemo(
+    () => searchSessionDocuments(sessionSearchDocuments, sessionSearchQuery),
+    [sessionSearchDocuments, sessionSearchQuery],
+  );
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!onSessionSearchOpenChange) return;
+      if (event.key.toLowerCase() !== "f" || event.shiftKey || (!event.metaKey && !event.ctrlKey)) return;
+      event.preventDefault();
+      onSessionSearchOpenChange(true);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onSessionSearchOpenChange]);
+
+  useEffect(() => {
+    if (!sessionSearchOpen) return;
+    const frame = requestAnimationFrame(() => {
+      sessionSearchInputRef.current?.focus();
+      sessionSearchInputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [sessionSearchOpen]);
+
+  useEffect(() => {
+    setActiveSearchIndex(0);
+  }, [sessionSearchQuery]);
+
+  useEffect(() => {
+    if (!sessionSearchTarget || sessionSearchTarget.sessionId !== session?.id) return;
+    if (lastSearchTargetRequestRef.current === sessionSearchTarget.requestId) return;
+    lastSearchTargetRequestRef.current = sessionSearchTarget.requestId;
+    setPendingSearchEntryId(sessionSearchTarget.entryId);
+    setSessionSearchQuery(sessionSearchTarget.query);
+    onSessionSearchOpenChange?.(true);
+  }, [onSessionSearchOpenChange, session?.id, sessionSearchTarget]);
+
+  useEffect(() => {
+    if (!pendingSearchEntryId) return;
+    const targetIndex = sessionSearchMatches.findIndex((match) => match.entryId === pendingSearchEntryId);
+    if (targetIndex === -1) return;
+    setActiveSearchIndex(targetIndex);
+    setPendingSearchEntryId(null);
+  }, [pendingSearchEntryId, sessionSearchMatches]);
+
+  useEffect(() => {
+    setActiveSearchIndex((current) => (
+      sessionSearchMatches.length === 0 ? 0 : Math.min(current, sessionSearchMatches.length - 1)
+    ));
+  }, [sessionSearchMatches.length]);
+
+  const activeSearchMatch = sessionSearchMatches[activeSearchIndex] ?? null;
+  useEffect(() => {
+    const previous = highlightedSearchElementRef.current;
+    if (!sessionSearchOpen || !activeSearchMatch) {
+      previous?.removeAttribute("data-session-search-active");
+      highlightedSearchElementRef.current = null;
+      return;
+    }
+
+    setVisibleCount((current) => Math.max(current, messages.length * 2));
+    let frame = 0;
+    let attempts = 0;
+    const locate = () => {
+      let refIndex = visibleMessageRefIndex(messages, activeSearchMatch.messageIndex);
+      let target = messageRefs.current[refIndex] ?? null;
+      // Process entries can be folded under their turn; in that case locate the
+      // nearest rendered user/assistant wrapper before the matching entry.
+      while (!target && refIndex > 0) {
+        refIndex -= 1;
+        target = messageRefs.current[refIndex] ?? null;
+      }
+      if (!target && attempts < 12) {
+        attempts += 1;
+        frame = requestAnimationFrame(locate);
+        return;
+      }
+      previous?.removeAttribute("data-session-search-active");
+      if (!target) return;
+      target.setAttribute("data-session-search-active", "true");
+      highlightedSearchElementRef.current = target;
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      target.scrollIntoView({ block: "center", behavior: reduceMotion ? "auto" : "smooth" });
+    };
+    frame = requestAnimationFrame(locate);
+    return () => {
+      cancelAnimationFrame(frame);
+      highlightedSearchElementRef.current?.removeAttribute("data-session-search-active");
+      highlightedSearchElementRef.current = null;
+    };
+  }, [activeSearchMatch, messageRefs, messages, sessionSearchOpen]);
+
+  const moveSessionSearch = useCallback((offset: -1 | 1) => {
+    if (sessionSearchMatches.length === 0) return;
+    setActiveSearchIndex((current) => (
+      (current + offset + sessionSearchMatches.length) % sessionSearchMatches.length
+    ));
+  }, [sessionSearchMatches.length]);
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
   const hasStreamingContent = Boolean(streamState.streamingMessage?.content.length);
@@ -658,6 +784,99 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       >
         <NoticeShelf notices={notices} floating />
       </div>
+
+      {sessionSearchOpen && (
+        <div
+          role="search"
+          data-session-search-bar="true"
+          style={{
+            display: "flex", alignItems: "center", gap: 6,
+            minHeight: 40, padding: "5px 8px",
+            borderBottom: "1px solid var(--border)",
+            background: "var(--bg-panel)", flexShrink: 0,
+          }}
+        >
+          <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+            <svg
+              width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" aria-hidden="true"
+              style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: "var(--text-dim)", pointerEvents: "none" }}
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+            <input
+              ref={sessionSearchInputRef}
+              value={sessionSearchQuery}
+              onChange={(event) => setSessionSearchQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  moveSessionSearch(event.shiftKey ? -1 : 1);
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  onSessionSearchOpenChange?.(false);
+                }
+              }}
+              placeholder={t("sessionSearch.currentPlaceholder")}
+              aria-label={t("sessionSearch.currentPlaceholder")}
+              autoComplete="off"
+              spellCheck={false}
+              style={{
+                width: "100%", height: 30, padding: "0 70px 0 28px",
+                border: "1px solid var(--border)", borderRadius: 6,
+                outline: "none", background: "var(--bg)", color: "var(--text)",
+                fontSize: 12, fontFamily: "var(--font-mono)",
+              }}
+            />
+            <span
+              aria-live="polite"
+              style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", color: "var(--text-dim)", fontSize: 10, fontVariantNumeric: "tabular-nums" }}
+            >
+              {sessionSearchMatches.length === 0 ? "0 / 0" : `${activeSearchIndex + 1} / ${sessionSearchMatches.length}`}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => moveSessionSearch(-1)}
+            disabled={sessionSearchMatches.length === 0}
+            title={t("sessionSearch.previous")}
+            aria-label={t("sessionSearch.previous")}
+            className="ui-action ui-action--outline-soft"
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, padding: 0, borderRadius: 6, opacity: sessionSearchMatches.length === 0 ? 0.4 : 1 }}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="2.5 7.5 6 4 9.5 7.5" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => moveSessionSearch(1)}
+            disabled={sessionSearchMatches.length === 0}
+            title={t("sessionSearch.next")}
+            aria-label={t("sessionSearch.next")}
+            className="ui-action ui-action--outline-soft"
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, padding: 0, borderRadius: 6, opacity: sessionSearchMatches.length === 0 ? 0.4 : 1 }}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="2.5 4.5 6 8 9.5 4.5" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => onSessionSearchOpenChange?.(false)}
+            title={t("chat.close")}
+            aria-label={t("chat.close")}
+            className="ui-action ui-action--surface"
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, padding: 0, border: "none", borderRadius: 6 }}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+              <path d="M2.5 2.5l7 7m0-7-7 7" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {isEmptyNew ? (
         <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8">

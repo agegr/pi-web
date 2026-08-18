@@ -45,8 +45,8 @@ export function Dashboard() {
     // globals.css locks html/body to the viewport height with
     // overflow:hidden for the chat shell. This page is a document, so it
     // supplies its own scroll container rather than changing that shared rule.
-    <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
-      <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 desktop:p-6">
+    <div className="robin-dashboard flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
+      <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-4 desktop:p-6">
       <header className="flex items-baseline justify-between gap-4">
         <div>
           <h1 className="text-lg font-semibold" style={{ color: "var(--text)" }}>{t("sidebar.dashboard")}</h1>

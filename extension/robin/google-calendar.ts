@@ -283,7 +283,11 @@ export async function fetchEvents(from: string, to: string): Promise<DashboardEv
   try {
     const response = await fetch(
       `${CALENDAR_ENDPOINT}/calendars/primary/events?${params.toString()}`,
-      { signal: controller.signal, headers: { Authorization: `Bearer ${token}` } },
+      {
+        signal: controller.signal,
+        headers: { Authorization: `Bearer ${token}` },
+        next: { revalidate: 300 },
+      },
     );
     if (!response.ok) {
       throw new Error(`Google Calendar returned HTTP ${response.status}`);

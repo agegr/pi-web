@@ -9,6 +9,7 @@ import {
 } from "@/extension/robin/search";
 import { formatLinkPaste } from "@/lib/clipboard";
 import { requestRefresh } from "./refreshBus";
+import { splitReplyLinks } from "./reply-links";
 
 interface AssistantResponse {
   reply: string;
@@ -180,8 +181,18 @@ export function AssistantBar() {
       {reply && !busy && (
         <div className="flex flex-col gap-1">
           {reply.reply && (
-            <p className="whitespace-pre-wrap text-sm" style={{ color: "var(--text-muted)" }}>
-              {reply.reply}
+            <p className="whitespace-pre-wrap break-words text-sm" style={{ color: "var(--text-muted)" }}>
+              {splitReplyLinks(reply.reply).map((segment, index) => segment.type === "link" ? (
+                <a
+                  key={`${segment.href}:${index}`}
+                  href={segment.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: "var(--accent)", textDecoration: "underline", textUnderlineOffset: 3 }}
+                >
+                  {segment.value}
+                </a>
+              ) : segment.value)}
             </p>
           )}
           {actions && (

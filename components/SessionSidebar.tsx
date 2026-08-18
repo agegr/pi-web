@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
+import type { GlobalSessionSearchHit } from "@/lib/session-search";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
@@ -80,6 +81,8 @@ function ToolbarIconButton({
 interface Props {
   selectedSessionId: string | null;
   onSelectSession: (session: SessionInfo, isRestore?: boolean) => void;
+  onSelectSessionMatch?: (session: SessionInfo, entryId: string, query: string) => void;
+  onSessionSearchShortcut?: () => void;
   onNewSession?: (sessionId: string, cwd: string) => void;
   initialSessionId?: string | null;
   skipInitialProjectSelection?: boolean;
@@ -178,6 +181,11 @@ function formatRelativeTime(dateStr: string): string {
 /** Substitute the home dir prefix with ~ (no path truncation — see PathLabel) */
 function displayCwd(cwd: string, homeDir?: string): string {
   return (homeDir && cwd.startsWith(homeDir)) ? "~" + cwd.slice(homeDir.length) : cwd;
+}
+
+function sessionTitle(session: SessionInfo): string {
+  const firstMessage = skillExpansionToCommand(session.firstMessage) ?? session.firstMessage;
+  return session.name || firstMessage.slice(0, 50) || session.id.slice(0, 12);
 }
 
 /**
@@ -391,7 +399,7 @@ function PiWebTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSessionMatch, onSessionSearchShortcut, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -400,6 +408,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [homeDir, setHomeDir] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [projectFilter, setProjectFilter] = useState("");
+  const [sessionSearchQuery, setSessionSearchQuery] = useState("");
+  const [sessionSearchResults, setSessionSearchResults] = useState<GlobalSessionSearchHit[]>([]);
+  const [sessionSearchLoading, setSessionSearchLoading] = useState(false);
+  const [sessionSearchError, setSessionSearchError] = useState<string | null>(null);
+  const [sessionSearchHasMore, setSessionSearchHasMore] = useState(false);
+  const sessionSearchInputRef = useRef<HTMLInputElement>(null);
   const [wtFilter, setWtFilter] = useState("");
   const [customPathOpen, setCustomPathOpen] = useState(false);
   const [customPathValue, setCustomPathValue] = useState("");
@@ -475,6 +489,65 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     initialLoadDone.current = true;
     loadSessions(isFirst, !isFirst);
   }, [loadSessions, refreshKey]);
+
+  useEffect(() => {
+    const query = sessionSearchQuery.trim();
+    if (!query) {
+      setSessionSearchResults([]);
+      setSessionSearchLoading(false);
+      setSessionSearchError(null);
+      setSessionSearchHasMore(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setSessionSearchLoading(true);
+    setSessionSearchError(null);
+    const timer = setTimeout(() => {
+      const params = new URLSearchParams({ q: query, limit: "50" });
+      void fetch(`/api/sessions/search?${params.toString()}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      }).then(async (response) => {
+        const body = await response.json().catch(() => null) as {
+          results?: GlobalSessionSearchHit[];
+          hasMore?: boolean;
+          error?: string;
+        } | null;
+        if (!response.ok) throw new Error(body?.error ?? `HTTP ${response.status}`);
+        setSessionSearchResults(body?.results ?? []);
+        setSessionSearchHasMore(body?.hasMore === true);
+      }).catch((caught: unknown) => {
+        if ((caught as { name?: string }).name !== "AbortError") {
+          setSessionSearchError(caught instanceof Error ? caught.message : String(caught));
+          setSessionSearchResults([]);
+          setSessionSearchHasMore(false);
+        }
+      }).finally(() => {
+        if (!controller.signal.aborted) setSessionSearchLoading(false);
+      });
+    }, 250);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [sessionSearchQuery]);
+
+  // Cmd/Ctrl+Shift+F jumps straight to the all-session search field.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "f" || !event.shiftKey || (!event.metaKey && !event.ctrlKey)) return;
+      event.preventDefault();
+      onSessionSearchShortcut?.();
+      requestAnimationFrame(() => {
+        sessionSearchInputRef.current?.focus();
+        sessionSearchInputRef.current?.select();
+      });
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onSessionSearchShortcut]);
 
   // Browser storage is unavailable during server rendering. Restore the panel
   // preference after hydration so a collapsed explorer stays collapsed on reload.
@@ -978,32 +1051,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <PiWebTitle />
           <div style={{ display: "flex", gap: 6 }}>
-            <Link
-              href={{
-                pathname: "/dashboard",
-                query: selectedSessionId
-                  ? { session: selectedSessionId }
-                  : selectedCwd
-                    ? { cwd: selectedCwd }
-                    : {},
-              }}
-              title={t("sidebar.dashboard")}
-              aria-label={t("sidebar.dashboard")}
-              className="ui-action ui-action--chip"
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "center",
-                width: 32, height: 32,
-                borderRadius: "var(--card-radius)",
-                flexShrink: 0,
-              }}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="7" height="9" rx="1" />
-                <rect x="14" y="3" width="7" height="5" rx="1" />
-                <rect x="14" y="12" width="7" height="9" rx="1" />
-                <rect x="3" y="16" width="7" height="5" rx="1" />
-              </svg>
-            </Link>
             <button
               onClick={handleNewSession}
               disabled={!selectedCwd}
@@ -1057,6 +1104,60 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             </button>
           </div>
         </div>
+
+        <nav
+          aria-label={t("sidebar.mainNavigation")}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 3,
+            marginBottom: 10,
+            padding: 3,
+            border: "1px solid var(--border)",
+            borderRadius: 7,
+            background: "var(--bg-hover)",
+          }}
+        >
+          <span
+            aria-current="page"
+            className="ui-action"
+            data-active="true"
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              minWidth: 0, height: 34, borderRadius: 5,
+              fontSize: 11, fontWeight: 500,
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
+            </svg>
+            <span>{t("sidebar.chat")}</span>
+          </span>
+          <Link
+            href={{
+              pathname: "/dashboard",
+              query: selectedSessionId
+                ? { session: selectedSessionId }
+                : selectedCwd
+                  ? { cwd: selectedCwd }
+                  : {},
+            }}
+            title={t("sidebar.dashboard")}
+            className="ui-action ui-action--surface"
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              minWidth: 0, height: 34, borderRadius: 5,
+              fontSize: 11, fontWeight: 500,
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="5" width="18" height="16" rx="2" />
+              <path d="M16 3v4M8 3v4M3 10h18" />
+              <path d="m8 15 2 2 4-4" />
+            </svg>
+            <span>{t("sidebar.daily")}</span>
+          </Link>
+        </nav>
 
         {/* CWD picker */}
         <div ref={dropdownRef} style={{ position: "relative" }}>
@@ -1616,39 +1717,172 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         )}
       </div>
 
+      {/* Full-text search spans every saved session, regardless of the active project. */}
+      <div style={{ position: "relative", flexShrink: 0, padding: "7px 10px", borderBottom: "1px solid var(--border)" }}>
+        <svg
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          aria-hidden="true"
+          style={{ position: "absolute", left: 19, top: "50%", transform: "translateY(-50%)", color: "var(--text-dim)", pointerEvents: "none" }}
+        >
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.5-3.5" />
+        </svg>
+        <input
+          ref={sessionSearchInputRef}
+          value={sessionSearchQuery}
+          onChange={(event) => setSessionSearchQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              setSessionSearchQuery("");
+              event.currentTarget.blur();
+            }
+          }}
+          placeholder={t("sidebar.searchSessions")}
+          aria-label={t("sidebar.searchSessions")}
+          title={t("sidebar.searchSessionsShortcut")}
+          spellCheck={false}
+          style={{
+            width: "100%",
+            height: 30,
+            padding: sessionSearchQuery ? "0 30px 0 28px" : "0 9px 0 28px",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            outline: "none",
+            background: "var(--bg)",
+            color: "var(--text)",
+            fontSize: 11,
+            fontFamily: "var(--font-mono)",
+          }}
+        />
+        {sessionSearchQuery && (
+          <button
+            type="button"
+            onClick={() => {
+              setSessionSearchQuery("");
+              sessionSearchInputRef.current?.focus();
+            }}
+            aria-label={t("chat.close")}
+            title={t("chat.close")}
+            className="ui-action ui-action--surface"
+            style={{
+              position: "absolute", right: 13, top: "50%", transform: "translateY(-50%)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              width: 24, height: 24, padding: 0, border: "none", borderRadius: 4,
+            }}
+          >
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+              <path d="M2.5 2.5l7 7m0-7-7 7" />
+            </svg>
+          </button>
+        )}
+      </div>
+
       {/* Session list */}
       <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}>
-        {loading && (
-          <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
-            {t("sidebar.loading")}
-          </div>
+        {sessionSearchQuery.trim() ? (
+          <>
+            {sessionSearchLoading && (
+              <div role="status" style={{ padding: "12px 14px", color: "var(--text-muted)", fontSize: 12 }}>
+                {t("sidebar.searchingSessions")}
+              </div>
+            )}
+            {sessionSearchError && (
+              <div role="alert" style={{ padding: "12px 14px", color: "var(--danger)", fontSize: 12 }}>
+                {sessionSearchError}
+              </div>
+            )}
+            {!sessionSearchLoading && !sessionSearchError && sessionSearchResults.length === 0 && (
+              <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
+                {t("sidebar.noSessionMatches")}
+              </div>
+            )}
+            {!sessionSearchLoading && sessionSearchResults.map((hit) => {
+              const session = allSessions.find((candidate) => candidate.id === hit.sessionId);
+              if (!session) return null;
+              return (
+                <button
+                  key={`${hit.sessionId}:${hit.entryId}`}
+                  type="button"
+                  onClick={() => {
+                    if (session.cwd) setSelectedCwd(session.cwd);
+                    if (onSelectSessionMatch) {
+                      onSelectSessionMatch(session, hit.entryId, sessionSearchQuery.trim());
+                    } else {
+                      onSelectSession(session);
+                    }
+                    setSessionSearchQuery("");
+                  }}
+                  className="ui-action ui-action--surface"
+                  style={{
+                    display: "block", width: "100%", minHeight: 72,
+                    padding: "8px 12px", border: "none", borderBottom: "1px solid var(--border)",
+                    textAlign: "left", overflow: "hidden",
+                  }}
+                >
+                  <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                    <span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text)", fontSize: 12, fontWeight: 500 }}>
+                      {sessionTitle(session)}
+                    </span>
+                    <span style={{ flexShrink: 0, color: "var(--text-dim)", fontSize: 10, textTransform: "uppercase" }}>
+                      {t(hit.role === "user" ? "sessionSearch.user" : "sessionSearch.assistant")}
+                    </span>
+                  </span>
+                  <span style={{ display: "-webkit-box", marginTop: 3, overflow: "hidden", WebkitBoxOrient: "vertical", WebkitLineClamp: 2, color: "var(--text-muted)", fontSize: 11, lineHeight: 1.4 }}>
+                    {hit.snippet}
+                  </span>
+                  <span style={{ display: "block", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-dim)", fontSize: 10, fontFamily: "var(--font-mono)" }}>
+                    {displayCwd(session.projectRoot ?? session.cwd, homeDir)} · {formatRelativeTime(session.modified)}
+                  </span>
+                </button>
+              );
+            })}
+            {!sessionSearchLoading && sessionSearchHasMore && (
+              <div style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 10, textAlign: "center" }}>
+                {t("sidebar.moreSessionMatches")}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            {loading && (
+              <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
+                {t("sidebar.loading")}
+              </div>
+            )}
+            {error && (
+              <div style={{ padding: "12px 14px", color: "#f87171", fontSize: 12 }}>
+                {error}
+              </div>
+            )}
+            {!loading && !error && filteredSessions.length === 0 && (
+              <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
+                {t("sidebar.noSessions")}
+              </div>
+            )}
+            {sessionTree.map((node) => (
+              <SessionTreeItem
+                key={node.session.id}
+                node={node}
+                selectedSessionId={selectedSessionId}
+                runningSessionIds={runningSessionIds}
+                unreadSessionIds={unreadSessionIds}
+                onSelectSession={handleSelectSessionFromList}
+                onRenamed={loadSessions}
+                onSessionDeleted={(id) => {
+                  onSessionDeleted?.(id);
+                  loadSessions();
+                }}
+                depth={0}
+              />
+            ))}
+          </>
         )}
-        {error && (
-          <div style={{ padding: "12px 14px", color: "#f87171", fontSize: 12 }}>
-            {error}
-          </div>
-        )}
-        {!loading && !error && filteredSessions.length === 0 && (
-          <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
-            {t("sidebar.noSessions")}
-          </div>
-        )}
-        {sessionTree.map((node) => (
-          <SessionTreeItem
-            key={node.session.id}
-            node={node}
-            selectedSessionId={selectedSessionId}
-            runningSessionIds={runningSessionIds}
-            unreadSessionIds={unreadSessionIds}
-            onSelectSession={handleSelectSessionFromList}
-            onRenamed={loadSessions}
-            onSessionDeleted={(id) => {
-              onSessionDeleted?.(id);
-              loadSessions();
-            }}
-            depth={0}
-          />
-        ))}
       </div>
 
       {/* File Explorer section */}

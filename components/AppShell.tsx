@@ -43,6 +43,7 @@ import {
   SIDEBAR_MIN_WIDTH,
 } from "@/lib/panel-layout";
 import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@/lib/types";
+import type { SessionSearchTarget } from "@/lib/session-search";
 import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -88,6 +89,9 @@ export function AppShell() {
     if (soundEnabledRef.current) playDoneSound();
   }, [playDoneSound, soundEnabledRef]);
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
+  const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
+  const [sessionSearchTarget, setSessionSearchTarget] = useState<SessionSearchTarget | null>(null);
+  const sessionSearchRequestIdRef = useRef(0);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const handleRunningSessionIdsChange = useCallback((ids: Set<string>) => {
     setRunningSessionIds((previous) => {
@@ -297,6 +301,12 @@ export function AppShell() {
     }
     setSidebarOpen((open) => !open);
   }, [isMobile]);
+
+  const handleSessionSearchShortcut = useCallback(() => {
+    setSidebarOpen(true);
+    setActiveTopPanel(null);
+    setMobileToolbarMoreOpen(false);
+  }, []);
 
   const handleMobileToolbarMoreToggle = useCallback(() => {
     setSidebarOpen(false);
@@ -548,6 +558,8 @@ export function AppShell() {
     setNewSessionDraftId(draftId);
     activeNewSessionDraftKeyRef.current = `new:${draftId}:${cwd}`;
     setSelectedSession(null);
+    setSessionSearchOpen(false);
+    setSessionSearchTarget(null);
     setNewSessionCwd((prev) => {
       if (prev && prev !== cwd) return null;
       return prev;
@@ -571,7 +583,13 @@ export function AppShell() {
     router.replace("/", { scroll: false });
   }, [activeCwd, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);
 
-  const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
+  const handleSelectSession = useCallback((
+    session: SessionInfo,
+    isRestore = false,
+    searchTarget: SessionSearchTarget | null = null,
+  ) => {
+    setSessionSearchTarget(searchTarget);
+    setSessionSearchOpen(searchTarget !== null);
     invalidateWorkspaceRestore();
     activeNewSessionDraftKeyRef.current = null;
     // Re-clicking the already-open session must not remount the chat and
@@ -606,12 +624,23 @@ export function AppShell() {
     }
   }, [invalidateWorkspaceRestore, router, isMobile, selectedSession]);
 
+  const handleSelectSessionMatch = useCallback((session: SessionInfo, entryId: string, query: string) => {
+    handleSelectSession(session, false, {
+      requestId: ++sessionSearchRequestIdRef.current,
+      sessionId: session.id,
+      entryId,
+      query,
+    });
+  }, [handleSelectSession]);
+
   const handleNewSession = useCallback((sessionId: string, cwd: string) => {
     invalidateWorkspaceRestore();
     const draftKey = `new:${sessionId}:${cwd}`;
     activeNewSessionDraftKeyRef.current = draftKey;
     setNewSessionDraftId(sessionId);
     setSelectedSession(null);
+    setSessionSearchOpen(false);
+    setSessionSearchTarget(null);
     setNewSessionCwd(cwd);
     setSessionKey((k) => k + 1);
     setBranchTree([]);
@@ -768,6 +797,8 @@ export function AppShell() {
     setRefreshKey((k) => k + 1);
     setSessionKey((k) => k + 1);
     setNewSessionCwd(null);
+    setSessionSearchOpen(false);
+    setSessionSearchTarget(null);
     setSelectedSession((prev) => ({
       ...(prev ?? { path: "", cwd: "", created: "", modified: "", messageCount: 0, firstMessage: "" }),
       id: newSessionId,
@@ -792,6 +823,8 @@ export function AppShell() {
       setNewSessionDraftId(draftId);
       activeNewSessionDraftKeyRef.current = cwd ? `new:${draftId}:${cwd}` : null;
       setSelectedSession(null);
+      setSessionSearchOpen(false);
+      setSessionSearchTarget(null);
       setNewSessionCwd(cwd ?? null);
       setSessionKey((k) => k + 1);
       setBranchTree([]);
@@ -1023,6 +1056,8 @@ export function AppShell() {
       <SessionSidebar
         selectedSessionId={selectedSession?.id ?? null}
         onSelectSession={handleSelectSession}
+        onSelectSessionMatch={handleSelectSessionMatch}
+        onSessionSearchShortcut={handleSessionSearchShortcut}
         onNewSession={handleNewSession}
         initialSessionId={initialSessionId}
         skipInitialProjectSelection={initialNavigation.requestedCwd !== null}
@@ -1242,6 +1277,39 @@ export function AppShell() {
     if (!mobile && !showChat) return null;
     return (
       <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
+        <button
+          type="button"
+          onClick={() => {
+            setSessionSearchTarget(null);
+            setSessionSearchOpen((open) => !open);
+            if (mobile) setMobileToolbarMoreOpen(true);
+          }}
+          disabled={!showChat}
+          title={translate("sessionSearch.current")}
+          aria-label={translate("sessionSearch.current")}
+          aria-pressed={sessionSearchOpen}
+          className="ui-action ui-action--surface"
+          data-active={sessionSearchOpen ? "true" : undefined}
+          data-state={showChat ? undefined : "dim"}
+          data-inert={showChat ? undefined : "true"}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: TOP_BAR_ICON_BUTTON_SIZE,
+            height: "100%", padding: 0,
+            border: "none",
+            borderTop: sessionSearchOpen ? "2px solid var(--accent)" : "2px solid transparent",
+            borderRight: "1px solid var(--border)",
+            cursor: showChat ? "pointer" : "not-allowed",
+            opacity: showChat ? 1 : 0.45,
+            flexShrink: 0, fontSize: 11, whiteSpace: "nowrap",
+          }}
+          data-mobile-toolbar-action={mobile ? "search" : undefined}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
+          </svg>
+        </button>
         <button
           type="button"
           onClick={() => {
@@ -2188,6 +2256,9 @@ export function AppShell() {
               key={sessionKey}
               session={selectedSession}
               sessionRunning={Boolean(selectedSession && runningSessionIds.has(selectedSession.id))}
+              sessionSearchOpen={sessionSearchOpen}
+              sessionSearchTarget={sessionSearchTarget}
+              onSessionSearchOpenChange={setSessionSearchOpen}
               newSessionCwd={effectiveNewSessionCwd}
               newSessionDraftKey={newSessionDraftKey}
               onAgentEnd={handleAgentEnd}
