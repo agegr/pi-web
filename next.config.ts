@@ -13,6 +13,12 @@ try {
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: configDir,
+  // A second dev server on the same checkout fights the first one over
+  // .next/dev. Pointing it at its own build directory is what makes a
+  // throwaway instance possible — e.g. an unauthenticated one to look at the
+  // UI with, while the real server keeps running:
+  //   PI_WEB_PASSWORD= PI_WEB_DIST_DIR=.next-preview npm run dev -- -p 30143
+  distDir: process.env.PI_WEB_DIST_DIR || ".next",
   serverExternalPackages: [
     "undici",
     "node-pty",

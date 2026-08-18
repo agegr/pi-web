@@ -3,11 +3,22 @@
  * matter (who is allowed, what gets acknowledged) can be tested directly.
  */
 
+export interface TelegramPhoto {
+  /** `file_id` for getFile. */
+  fileId: string;
+  width?: number;
+  height?: number;
+}
+
 export interface IncomingMessage {
   updateId: number;
   chatId: number;
   /** Display name for logs only; never used for authorization. */
   from: string;
+  /**
+   * The message text, or the photo caption. Empty for a bare photo, which is
+   * why the photo attachment must be checked before treating a message as blank.
+   */
   text: string;
   /**
    * The sender's Telegram client language, e.g. "en" or "zh-hans".
@@ -17,6 +28,11 @@ export interface IncomingMessage {
    * sender's own client language, which is the closest true signal available.
    */
   languageCode?: string;
+  /**
+   * Photo attachments. Telegram sends one array per photo with several sizes;
+   * the largest is last. Present only for photo messages.
+   */
+  photos?: TelegramPhoto[];
 }
 
 export interface ParsedUpdates {
@@ -27,6 +43,26 @@ export interface ParsedUpdates {
    * sticker, a channel post) wedges the loop forever re-fetching it.
    */
   nextOffset: number | null;
+}
+
+/**
+ * Normalize Telegram's `photo` array into `file_id`s. Telegram lists the same
+ * photo at several sizes, smallest first; callers take the last for the full
+ * resolution. An empty array means the update carried no usable photo.
+ */
+export function parsePhotos(photo: unknown): TelegramPhoto[] {
+  if (!Array.isArray(photo)) return [];
+  const photos: TelegramPhoto[] = [];
+  for (const size of photo) {
+    const item = size as { file_id?: unknown; width?: unknown; height?: unknown };
+    if (typeof item.file_id !== "string" || !item.file_id) continue;
+    photos.push({
+      fileId: item.file_id,
+      ...(typeof item.width === "number" ? { width: item.width } : {}),
+      ...(typeof item.height === "number" ? { height: item.height } : {}),
+    });
+  }
+  return photos;
 }
 
 export function parseUpdates(payload: unknown): ParsedUpdates {
@@ -43,22 +79,33 @@ export function parseUpdates(payload: unknown): ParsedUpdates {
         chat?: { id?: unknown };
         from?: { first_name?: unknown; username?: unknown; language_code?: unknown };
         text?: unknown;
+        caption?: unknown;
+        photo?: unknown;
       };
     };
     if (typeof update.update_id !== "number") continue;
     highest = highest === null ? update.update_id : Math.max(highest, update.update_id);
 
     const chatId = update.message?.chat?.id;
-    const text = update.message?.text;
-    if (typeof chatId !== "number" || typeof text !== "string" || !text.trim()) continue;
+    if (typeof chatId !== "number") continue;
+
+    const rawText = update.message?.text;
+    const rawCaption = update.message?.caption;
+    const text = typeof rawText === "string" ? rawText.trim()
+      : typeof rawCaption === "string" ? rawCaption.trim() : "";
+    const photos = parsePhotos(update.message?.photo);
+    // A photo message has no `text` field, so without this a bare photo would
+    // be treated as blank and dropped.
+    if (!text && photos.length === 0) continue;
 
     const languageCode = update.message?.from?.language_code;
     messages.push({
       updateId: update.update_id,
       chatId,
       from: String(update.message?.from?.username ?? update.message?.from?.first_name ?? "unknown"),
-      text: text.trim(),
+      text,
       ...(typeof languageCode === "string" ? { languageCode } : {}),
+      ...(photos.length > 0 ? { photos } : {}),
     });
   }
 

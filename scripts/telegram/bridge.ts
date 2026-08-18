@@ -17,6 +17,7 @@
  * Run with:  node --experimental-strip-types scripts/telegram/bridge.ts
  */
 import { pathToFileURL } from "node:url";
+import { MAX_ATTACHED_IMAGE_BYTES } from "../../lib/image-attachments.ts";
 import { localDate } from "../../extension/robin/dates.ts";
 import {
   DEFAULT_DAILY_AGENDA,
@@ -41,6 +42,7 @@ import {
 } from "./protocol.ts";
 
 const TELEGRAM_API = "https://api.telegram.org";
+const TELEGRAM_FILE_API = "https://api.telegram.org/file";
 /** Long-poll window; Telegram holds the request open this long when idle. */
 const POLL_TIMEOUT_SECONDS = 30;
 const AGENT_TIMEOUT_MS = 120_000;
@@ -127,6 +129,40 @@ async function telegram(
   }
 }
 
+/** Guess a Telegram photo's MIME type from its file path. */
+function mimeTypeForPath(filePath: string): string {
+  const extension = filePath.slice(filePath.lastIndexOf(".") + 1).toLowerCase();
+  switch (extension) {
+    case "png": return "image/png";
+    case "webp": return "image/webp";
+    case "gif": return "image/gif";
+    case "bmp": return "image/bmp";
+    default: return "image/jpeg";
+  }
+}
+
+/** Download a Telegram photo and return it as a base64 image attachment. */
+async function downloadPhoto(
+  config: BridgeConfig,
+  deps: BridgeDeps,
+  fileId: string,
+): Promise<{ data: string; mimeType: string }> {
+  const info = await telegram(config, deps, "getFile", { file_id: fileId }, 30_000) as
+    { ok?: boolean; result?: { file_path?: string } };
+  const filePath = info?.result?.file_path;
+  if (!filePath) throw new Error("Telegram getFile returned no file path");
+
+  const response = await deps.fetch(`${TELEGRAM_FILE_API}/bot${config.token}/${filePath}`);
+  if (!response.ok) throw new Error(`Downloading the photo failed: HTTP ${response.status}`);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > MAX_ATTACHED_IMAGE_BYTES) {
+    throw new Error(
+      `The photo is ${bytes.byteLength} bytes; the assistant accepts at most ${MAX_ATTACHED_IMAGE_BYTES}`,
+    );
+  }
+  return { data: Buffer.from(bytes).toString("base64"), mimeType: mimeTypeForPath(filePath) };
+}
+
 export async function sendMessage(
   config: BridgeConfig,
   deps: BridgeDeps,
@@ -145,6 +181,7 @@ export async function askAssistant(
   message: string,
   locale: BridgeLocale = "en",
   readOnly = false,
+  images: Array<{ data: string; mimeType: string }> = [],
 ): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), AGENT_TIMEOUT_MS);
@@ -158,7 +195,11 @@ export async function askAssistant(
           ? { Authorization: `Basic ${Buffer.from(`pi:${config.password}`).toString("base64")}` }
           : {}),
       },
-      body: JSON.stringify({ message, ...(readOnly ? { readOnly: true } : {}) }),
+      body: JSON.stringify({
+        message,
+        ...(readOnly ? { readOnly: true } : {}),
+        ...(images.length > 0 ? { images: images.map((image) => ({ type: "image", ...image })) } : {}),
+      }),
     });
     const parsed = await response.json().catch(() => null) as
       { reply?: string; usedTools?: string[]; error?: string } | null;
@@ -230,9 +271,17 @@ export async function handleMessage(
   // follow the sender's own Telegram client language.
   const locale = resolveLocale(message.languageCode);
 
-  deps.log(`[${message.chatId}] ${message.text}`);
+  deps.log(
+    `[${message.chatId}] ${message.text || (message.photos?.length ? "(photo)" : "")}`,
+  );
   try {
-    const reply = await askAssistant(config, deps, message.text, locale);
+    // Telegram sends each photo as several sizes, smallest first; the largest
+    // (last) is the one to send on to the model.
+    const largest = message.photos?.at(-1);
+    const images = largest
+      ? [await downloadPhoto(config, deps, largest.fileId)]
+      : [];
+    const reply = await askAssistant(config, deps, message.text, locale, false, images);
     await sendMessage(config, deps, message.chatId, reply);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);

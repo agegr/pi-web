@@ -9,6 +9,7 @@ import {
 } from "@/extension/robin/store";
 import { ROBIN_READ_ONLY_TOOL_NAMES, ROBIN_TOOL_NAMES } from "@/extension/robin/tools";
 import { getRpcSession, startRpcSession, type AgentSessionWrapper } from "@/lib/rpc-manager";
+import { validateAgentImages } from "@/lib/image-attachments";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { resolveSessionPath } from "@/lib/session-reader";
 
@@ -93,6 +94,7 @@ function textFromMessage(message: unknown): string {
 async function runTurn(
   session: AgentSessionWrapper,
   message: string,
+  images: Array<{ type: "image"; data: string; mimeType: string }> = [],
 ): Promise<{ reply: string; usedTools: string[] }> {
   const chunks: string[] = [];
   const usedTools: string[] = [];
@@ -129,7 +131,11 @@ async function runTurn(
       }
     });
 
-    session.send({ type: "prompt", message }).catch((error: unknown) => {
+    session.send({
+      type: "prompt",
+      message,
+      ...(images.length > 0 ? { images } : {}),
+    }).catch((error: unknown) => {
       finish(() => reject(error instanceof Error ? error : new Error(String(error))));
     });
   });
@@ -144,9 +150,14 @@ export async function POST(req: Request) {
   }
 
   try {
-    const body = await req.json() as { message?: unknown; readOnly?: unknown };
+    const body = await req.json() as { message?: unknown; readOnly?: unknown; images?: unknown };
     const message = typeof body.message === "string" ? body.message.trim() : "";
-    if (!message) {
+    const imageError = body.images === undefined ? null : validateAgentImages(body.images);
+    if (imageError) {
+      return NextResponse.json({ error: imageError }, { status: 400 });
+    }
+    const images = (body.images ?? []) as Array<{ type: "image"; data: string; mimeType: string }>;
+    if (!message && images.length === 0) {
       return NextResponse.json({ error: "message is required" }, { status: 400 });
     }
 
@@ -157,7 +168,7 @@ export async function POST(req: Request) {
       readOnly ? readDailyAgendaSessionId() : readAssistantSessionId(),
       readOnly ? writeDailyAgendaSessionId : writeAssistantSessionId,
     );
-    const { reply, usedTools } = await runTurn(session, message);
+    const { reply, usedTools } = await runTurn(session, message, images);
     return NextResponse.json({ reply, usedTools, sessionId });
   } catch (error) {
     return NextResponse.json(

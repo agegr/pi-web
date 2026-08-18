@@ -29,6 +29,7 @@ function fakeFetch(routes) {
           ok: value.ok ?? true,
           status: value.status ?? 200,
           json: async () => value.body,
+          arrayBuffer: async () => value.buffer ?? new ArrayBuffer(0),
         };
       }
     }
@@ -88,6 +89,32 @@ test("an allowed chat is forwarded and answered", async () => {
   assert.match(calls[1].url, /sendMessage$/);
   assert.equal(calls[1].body.chat_id, 42);
   assert.equal(calls[1].body.text, "Added todo: buy milk.\n\n— added a todo");
+});
+
+test("a photo is downloaded and forwarded to the assistant as an image", async () => {
+  const { fetch, calls } = fakeFetch({
+    "getFile": { body: { ok: true, result: { file_path: "photos/file_1.jpg" } } },
+    "file/botTOKEN/photos/file_1.jpg": { buffer: new TextEncoder().encode("JPEGDATA").buffer },
+    "/api/robin/assistant": { body: { reply: "That is a screenshot.", usedTools: [] } },
+    "sendMessage": { body: { ok: true } },
+  });
+  await handleMessage(config(), deps(fetch), {
+    updateId: 1,
+    chatId: 42,
+    from: "bruce",
+    text: "what is this?",
+    photos: [{ fileId: "big-id", width: 400, height: 400 }],
+  });
+
+  const getFile = calls.find((call) => call.url.includes("getFile"));
+  assert.equal(getFile.body.file_id, "big-id", "getFile must ask for the photo's file id");
+
+  const assistant = calls.find((call) => call.url.includes("/api/robin/assistant"));
+  assert.equal(assistant.body.message, "what is this?");
+  assert.equal(assistant.body.images.length, 1);
+  assert.equal(assistant.body.images[0].type, "image");
+  assert.equal(assistant.body.images[0].mimeType, "image/jpeg");
+  assert.equal(assistant.body.images[0].data, Buffer.from("JPEGDATA").toString("base64"));
 });
 
 test("an agent failure is reported back to the authorized sender", async () => {

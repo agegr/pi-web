@@ -6,6 +6,7 @@ import {
   formatReply,
   isAllowed,
   parseAllowlist,
+  parsePhotos,
   parseUpdates,
   resolveLocale,
 } from "./protocol.ts";
@@ -28,6 +29,50 @@ test("unsupported updates are still acknowledged", () => {
   const { messages, nextOffset } = parseUpdates({ ok: true, result: [sticker] });
   assert.deepEqual(messages, []);
   assert.equal(nextOffset, 12, "the offset must move past updates we cannot handle");
+});
+
+test("a photo is parsed with its caption as text, largest size last", () => {
+  const { messages, nextOffset } = parseUpdates({
+    ok: true,
+    result: [{
+      update_id: 20,
+      message: {
+        chat: { id: 42 },
+        from: { username: "bruce" },
+        caption: " 这是截图 ",
+        photo: [
+          { file_id: "small", width: 100, height: 100 },
+          { file_id: "large", width: 400, height: 400 },
+        ],
+      },
+    }],
+  });
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].text, "这是截图");
+  assert.deepEqual(messages[0].photos, [
+    { fileId: "small", width: 100, height: 100 },
+    { fileId: "large", width: 400, height: 400 },
+  ]);
+  assert.equal(nextOffset, 21);
+});
+
+test("a bare photo with no caption is kept, with empty text", () => {
+  const { messages } = parseUpdates({
+    ok: true,
+    result: [{
+      update_id: 21,
+      message: { chat: { id: 42 }, photo: [{ file_id: "p1", width: 10, height: 10 }] },
+    }],
+  });
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].text, "");
+  assert.deepEqual(messages[0].photos, [{ fileId: "p1", width: 10, height: 10 }]);
+});
+
+test("parsePhotos drops sizes without a usable file id", () => {
+  assert.deepEqual(parsePhotos(undefined), []);
+  assert.deepEqual(parsePhotos("nope"), []);
+  assert.deepEqual(parsePhotos([{ width: 1 }, { file_id: "ok" }]), [{ fileId: "ok" }]);
 });
 
 test("blank and whitespace-only messages are ignored but acknowledged", () => {
