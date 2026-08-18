@@ -87,6 +87,14 @@ export function isApiRequestHostAllowed(
   );
 }
 
+function originHostname(value: string): string | null {
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return null;
+  }
+}
+
 /** Reject browser cross-site API requests while preserving non-browser clients. */
 export function isApiRequestOriginAllowed(request: Request): boolean {
   const origin = request.headers.get("origin");
@@ -94,8 +102,18 @@ export function isApiRequestOriginAllowed(request: Request): boolean {
   if (fetchSite === "cross-site") return false;
   if (!origin) return true;
 
+  // Chromium 150+ strips the port from the Origin header for same-origin
+  // requests on non-default ports. Strict canonical-origin comparison would
+  // therefore reject those legitimate requests ("http://127.0.0.1:30141"
+  // vs. the browser-sent "http://127.0.0.1"). The Host header is the
+  // authoritative source for where the request actually went, so accept any
+  // Origin whose hostname matches it. Hostnames are case-insensitive, which
+  // the URL constructor already handles for us.
   const requestOrigin = getRequestOrigin(request);
-  return requestOrigin !== null && canonicalOrigin(origin) === requestOrigin;
+  if (!requestOrigin) return false;
+  const originHost = originHostname(origin);
+  const requestHost = originHostname(requestOrigin);
+  return originHost !== null && originHost === requestHost;
 }
 
 export function shouldCheckApiRequestOrigin(request: Request): boolean {
