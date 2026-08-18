@@ -91,8 +91,55 @@ export function isApiRequestHostAllowed(
   );
 }
 
+function defaultPortForProtocol(protocol: string): string {
+  return protocol === "https:" ? "443" : "80";
+}
+
+function isConfiguredHostname(hostname: string, configured: string[]): boolean {
+  return configured.some((value) => normalizeConfiguredHostname(value) === hostname);
+}
+
+function originHostMatchesRequestHost(
+  origin: string,
+  host: string,
+  configured: string[],
+): boolean {
+  let originUrl: URL;
+  try {
+    originUrl = new URL(origin);
+  } catch {
+    return false;
+  }
+
+  const originHostname = normalizeHostname(originUrl.hostname);
+  const requestHostname = hostnameFromAuthority(host);
+  if (!originHostname || !requestHostname || originHostname !== requestHostname) {
+    return false;
+  }
+
+  // Operator-configured public names: reverse proxies often disagree on port
+  // (Lucky :8096 vs browser https default, or Host with :443). Hostname match
+  // is enough; Host was already allow-listed.
+  if (isConfiguredHostname(requestHostname, configured)) return true;
+
+  const originPort = originUrl.port || defaultPortForProtocol(originUrl.protocol);
+  let hostPort: string;
+  try {
+    hostPort = new URL(`http://${host}`).port;
+  } catch {
+    return false;
+  }
+  // Omitted Host port matches an Origin that uses a scheme default (80/443).
+  // Explicit Host :443 still matches https://example.com (no port in Origin).
+  if (!hostPort) return originPort === "80" || originPort === "443";
+  return hostPort === originPort;
+}
+
 /** Reject browser cross-site API requests while preserving non-browser clients. */
-export function isApiRequestOriginAllowed(request: Request): boolean {
+export function isApiRequestOriginAllowed(
+  request: Request,
+  configured = configuredHostnames(),
+): boolean {
   const origin = request.headers.get("origin");
   const fetchSite = request.headers.get("sec-fetch-site");
   if (fetchSite === "cross-site") return false;
@@ -100,11 +147,7 @@ export function isApiRequestOriginAllowed(request: Request): boolean {
 
   const host = request.headers.get("host");
   if (!host) return false;
-  try {
-    return normalizeHostname(new URL(origin).host) === normalizeHostname(host);
-  } catch {
-    return false;
-  }
+  return originHostMatchesRequestHost(origin, host, configured);
 }
 
 export function shouldCheckApiRequestOrigin(request: Request): boolean {
@@ -117,7 +160,7 @@ export function isApiRequestAllowed(
 ): boolean {
   if (!isApiRequestHostAllowed(request, configured)) return false;
   if (isUserInitiatedSessionExportNavigation(request)) return true;
-  return !shouldCheckApiRequestOrigin(request) || isApiRequestOriginAllowed(request);
+  return !shouldCheckApiRequestOrigin(request) || isApiRequestOriginAllowed(request, configured);
 }
 
 export function hasJsonContentType(request: Request): boolean {
