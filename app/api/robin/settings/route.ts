@@ -7,6 +7,8 @@ import {
   parseChatIds,
   secretsPath,
   setDailyAgenda,
+  setGmailDigest,
+  setJobDigest,
   setGoogleCredentials,
   setTelegramChatIds,
   setTelegramToken,
@@ -63,6 +65,8 @@ export async function POST(req: Request) {
       botToken?: unknown;
       chatIds?: unknown;
       dailyAgenda?: unknown;
+      jobDigest?: unknown;
+      gmailDigest?: unknown;
     };
 
     if (body.section === "google") {
@@ -90,6 +94,36 @@ export async function POST(req: Request) {
           enabled: agenda.enabled === true,
           time: typeof agenda.time === "string" ? agenda.time : "",
           locale: agenda.locale === "zh" ? "zh" : "en",
+        });
+      }
+      if (typeof body.jobDigest === "object" && body.jobDigest !== null) {
+        const digest = body.jobDigest as Record<string, unknown>;
+        setJobDigest({
+          enabled: digest.enabled === true,
+          morning: typeof digest.morning === "string" ? digest.morning : "",
+          evening: typeof digest.evening === "string" ? digest.evening : "",
+          count: Number(digest.count),
+          locale: digest.locale === "zh" ? "zh" : "en",
+          chatIds: typeof digest.chatIds === "string"
+            ? parseChatIds(digest.chatIds)
+            : Array.isArray(digest.chatIds)
+              ? digest.chatIds.filter((id): id is number => Number.isInteger(id))
+              : [],
+          sweepAt: typeof digest.sweepAt === "string" ? digest.sweepAt : "",
+        });
+      }
+      if (typeof body.gmailDigest === "object" && body.gmailDigest !== null) {
+        const digest = body.gmailDigest as Record<string, unknown>;
+        setGmailDigest({
+          enabled: digest.enabled === true,
+          time: typeof digest.time === "string" ? digest.time : "",
+          locale: digest.locale === "zh" ? "zh" : "en",
+          chatIds: typeof digest.chatIds === "string"
+            ? parseChatIds(digest.chatIds)
+            : Array.isArray(digest.chatIds)
+              ? digest.chatIds.filter((id): id is number => Number.isInteger(id))
+              : [],
+          query: typeof digest.query === "string" ? digest.query.trim() : "",
         });
       }
       return NextResponse.json({ telegram: describeTelegram() });
@@ -145,7 +179,10 @@ export async function PUT(req: Request) {
         method: "POST",
         signal: controller.signal,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ timeout: 0, allowed_updates: ["message"] }),
+        body: JSON.stringify({
+          timeout: 0,
+          allowed_updates: ["message", "channel_post", "my_chat_member"],
+        }),
       });
       payload = await response.json() as typeof payload;
       if (!response.ok || !payload.ok) {
@@ -157,11 +194,21 @@ export async function PUT(req: Request) {
 
     const seen = new Map<number, string>();
     for (const raw of payload.result ?? []) {
-      const message = (raw as { message?: { chat?: { id?: unknown; title?: unknown }; from?: { username?: unknown; first_name?: unknown } } }).message;
-      const id = message?.chat?.id;
+      // A private chat arrives as `message`; a channel the bot was just added
+      // to arrives as `my_chat_member`, and a channel it can post in as
+      // `channel_post`. Reading only `message` is why adding the bot to a
+      // channel used to detect nothing.
+      const update = raw as {
+        message?: { chat?: { id?: unknown; title?: unknown }; from?: { username?: unknown; first_name?: unknown } };
+        channel_post?: { chat?: { id?: unknown; title?: unknown } };
+        my_chat_member?: { chat?: { id?: unknown; title?: unknown; type?: unknown } };
+      };
+      const source = update.message ?? update.channel_post ?? update.my_chat_member;
+      const id = source?.chat?.id;
       if (typeof id !== "number") continue;
+      const from = (update.message as { from?: { username?: unknown; first_name?: unknown } } | undefined)?.from;
       seen.set(id, String(
-        message?.chat?.title ?? message?.from?.username ?? message?.from?.first_name ?? "unknown",
+        source?.chat?.title ?? from?.username ?? from?.first_name ?? "unknown",
       ));
     }
 

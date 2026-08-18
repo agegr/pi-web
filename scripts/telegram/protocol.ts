@@ -84,6 +84,9 @@ export function parseUpdates(payload: unknown): ParsedUpdates {
       };
     };
     if (typeof update.update_id !== "number") continue;
+    // Advanced for EVERY update, including callback queries this function does
+    // not return — an un-acknowledged update is redelivered on the next poll,
+    // forever.
     highest = highest === null ? update.update_id : Math.max(highest, update.update_id);
 
     const chatId = update.message?.chat?.id;

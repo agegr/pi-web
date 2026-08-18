@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DailyAgendaSettings } from "@/extension/robin/settings";
+import type { DailyAgendaSettings, GmailDigestSettings, JobDigestSettings } from "@/extension/robin/settings";
 import { useI18n } from "@/hooks/useI18n";
+import { ChatLink } from "./ChatLink";
 
 interface SecretStatus {
   set: boolean;
@@ -18,13 +19,15 @@ interface SettingsResponse {
     botToken: SecretStatus;
     allowedChatIds: number[];
     dailyAgenda: DailyAgendaSettings;
+    jobDigest: JobDigestSettings;
+    gmailDigest: GmailDigestSettings;
   };
   storedAt: string;
   googleRedirectUri: string;
 }
 
 type Translate = (key: string, params?: Record<string, string>) => string;
-type SaveAction = "google" | "token" | "chatIds" | "dailyAgenda";
+type SaveAction = "google" | "token" | "chatIds" | "dailyAgenda" | "jobDigest" | "gmailDigest";
 type SavePhase = "saving" | "saved";
 
 const inputStyle = {
@@ -123,7 +126,11 @@ export function SettingsPanel() {
   const [clientSecret, setClientSecret] = useState("");
   const [botToken, setBotToken] = useState("");
   const [chatIds, setChatIds] = useState("");
+  const [jobChatIds, setJobChatIds] = useState("");
   const [dailyAgenda, setDailyAgenda] = useState<DailyAgendaSettings | null>(null);
+  const [jobDigest, setJobDigest] = useState<JobDigestSettings | null>(null);
+  const [gmailDigest, setGmailDigest] = useState<GmailDigestSettings | null>(null);
+  const [gmailChatIds, setGmailChatIds] = useState("");
   const [detected, setDetected] = useState<{ id: number; name: string }[] | null>(null);
 
   const load = useCallback(async () => {
@@ -134,6 +141,10 @@ export function SettingsPanel() {
       setData(body);
       setChatIds(body.telegram.allowedChatIds.join(", "));
       setDailyAgenda(body.telegram.dailyAgenda);
+      setJobDigest(body.telegram.jobDigest);
+      setJobChatIds((body.telegram.jobDigest.chatIds ?? []).join(", "));
+      setGmailDigest(body.telegram.gmailDigest);
+      setGmailChatIds((body.telegram.gmailDigest.chatIds ?? []).join(", "));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -217,9 +228,12 @@ export function SettingsPanel() {
             {t("robin.settings.subtitle")}
           </p>
         </div>
-        <Link href="/dashboard" className="text-sm hover:underline" style={{ color: "var(--accent)" }}>
-          {t("robin.nav.back")}
-        </Link>
+        <nav className="flex items-baseline gap-3">
+          <Link href="/dashboard" className="text-sm hover:underline" style={{ color: "var(--accent)" }}>
+            {t("robin.nav.back")}
+          </Link>
+          <ChatLink />
+        </nav>
       </header>
 
       <section
@@ -303,6 +317,7 @@ export function SettingsPanel() {
           </button>
         </div>
         <p className="text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.settings.googleNext")}</p>
+        <p className="text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.settings.googleGmailHint")}</p>
       </section>
 
       {/* ---------- Telegram ---------- */}
@@ -460,6 +475,199 @@ export function SettingsPanel() {
                   { section: "telegram", dailyAgenda },
                   t("robin.settings.dailyAgendaSaved"),
                   "dailyAgenda",
+                )}
+                className="self-start"
+                t={t}
+              />
+            </>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-3 border-t pt-3" style={{ borderColor: "var(--border)" }}>
+          <div>
+            <h3 className="text-sm font-medium" style={{ color: "var(--text)" }}>
+              {t("robin.settings.jobDigestTitle")}
+            </h3>
+            <p className="text-xs" style={{ color: "var(--text-dim)" }}>
+              {t("robin.settings.jobDigestHint")}
+            </p>
+          </div>
+          {jobDigest && (
+            <>
+              <label className="flex min-h-11 items-center gap-2 text-sm" style={{ color: "var(--text)" }}>
+                <input
+                  type="checkbox"
+                  checked={jobDigest.enabled}
+                  onChange={(event) => setJobDigest({ ...jobDigest, enabled: event.target.checked })}
+                />
+                {t("robin.settings.jobDigestEnabled")}
+              </label>
+              <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                {t("robin.settings.jobChatIds")}
+                <input
+                  value={jobChatIds}
+                  onChange={(event) => setJobChatIds(event.target.value)}
+                  placeholder={t("robin.settings.jobChatIdsPlaceholder")}
+                  spellCheck={false}
+                  className="min-h-11 rounded px-2 text-sm"
+                  style={inputStyle}
+                />
+                <span style={{ color: "var(--text-dim)" }}>{t("robin.settings.jobChatIdsHint")}</span>
+              </label>
+              <div className="grid gap-3 desktop:grid-cols-5">
+                <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                  {t("robin.settings.jobDigestSweep")}
+                  <input
+                    type="time"
+                    value={jobDigest.sweepAt}
+                    onChange={(event) => setJobDigest({ ...jobDigest, sweepAt: event.target.value })}
+                    className="min-h-11 rounded px-2 text-sm"
+                    style={inputStyle}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                  {t("robin.settings.jobDigestMorning")}
+                  <input
+                    type="time"
+                    value={jobDigest.morning}
+                    onChange={(event) => setJobDigest({ ...jobDigest, morning: event.target.value })}
+                    className="min-h-11 rounded px-2 text-sm"
+                    style={inputStyle}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                  {t("robin.settings.jobDigestEvening")}
+                  <input
+                    type="time"
+                    value={jobDigest.evening}
+                    onChange={(event) => setJobDigest({ ...jobDigest, evening: event.target.value })}
+                    className="min-h-11 rounded px-2 text-sm"
+                    style={inputStyle}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                  {t("robin.settings.jobDigestCount")}
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={jobDigest.count}
+                    onChange={(event) => setJobDigest({ ...jobDigest, count: Number(event.target.value) })}
+                    className="min-h-11 rounded px-2 text-sm tabular-nums"
+                    style={inputStyle}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                  {t("robin.settings.dailyAgendaLanguage")}
+                  <select
+                    value={jobDigest.locale}
+                    onChange={(event) => setJobDigest({
+                      ...jobDigest,
+                      locale: event.target.value === "zh" ? "zh" : "en",
+                    })}
+                    className="min-h-11 rounded px-2 text-sm"
+                    style={inputStyle}
+                  >
+                    <option value="en">English</option>
+                    <option value="zh">中文</option>
+                  </select>
+                </label>
+              </div>
+              <SaveButton
+                label={t("robin.settings.saveJobDigest")}
+                phase={saveFeedback?.action === "jobDigest" ? saveFeedback.phase : undefined}
+                disabled={busy || !jobDigest.morning || !jobDigest.evening}
+                onClick={() => void send(
+                  "POST",
+                  { section: "telegram", jobDigest: { ...jobDigest, chatIds: jobChatIds } },
+                  t("robin.settings.jobDigestSaved"),
+                  "jobDigest",
+                )}
+                className="self-start"
+                t={t}
+              />
+            </>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-3 border-t pt-3" style={{ borderColor: "var(--border)" }}>
+          <div>
+            <h3 className="text-sm font-medium" style={{ color: "var(--text)" }}>
+              {t("robin.settings.gmailDigestTitle")}
+            </h3>
+            <p className="text-xs" style={{ color: "var(--text-dim)" }}>
+              {t("robin.settings.gmailDigestHint")}
+            </p>
+          </div>
+          {gmailDigest && (
+            <>
+              <label className="flex min-h-11 items-center gap-2 text-sm" style={{ color: "var(--text)" }}>
+                <input
+                  type="checkbox"
+                  checked={gmailDigest.enabled}
+                  onChange={(event) => setGmailDigest({ ...gmailDigest, enabled: event.target.checked })}
+                />
+                {t("robin.settings.gmailDigestEnabled")}
+              </label>
+              <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                {t("robin.settings.gmailDigestChatIds")}
+                <input
+                  value={gmailChatIds}
+                  onChange={(event) => setGmailChatIds(event.target.value)}
+                  placeholder={t("robin.settings.gmailDigestChatIdsPlaceholder")}
+                  spellCheck={false}
+                  className="min-h-11 rounded px-2 text-sm"
+                  style={inputStyle}
+                />
+                <span style={{ color: "var(--text-dim)" }}>{t("robin.settings.gmailDigestChatIdsHint")}</span>
+              </label>
+              <div className="grid gap-3 desktop:grid-cols-3">
+                <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                  {t("robin.settings.gmailDigestTime")}
+                  <input
+                    type="time"
+                    value={gmailDigest.time}
+                    onChange={(event) => setGmailDigest({ ...gmailDigest, time: event.target.value })}
+                    className="min-h-11 rounded px-2 text-sm"
+                    style={inputStyle}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                  {t("robin.settings.dailyAgendaLanguage")}
+                  <select
+                    value={gmailDigest.locale}
+                    onChange={(event) => setGmailDigest({
+                      ...gmailDigest,
+                      locale: event.target.value === "zh" ? "zh" : "en",
+                    })}
+                    className="min-h-11 rounded px-2 text-sm"
+                    style={inputStyle}
+                  >
+                    <option value="en">English</option>
+                    <option value="zh">中文</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                  {t("robin.settings.gmailDigestQuery")}
+                  <input
+                    value={gmailDigest.query}
+                    onChange={(event) => setGmailDigest({ ...gmailDigest, query: event.target.value })}
+                    placeholder="newer_than:1d"
+                    spellCheck={false}
+                    className="min-h-11 rounded px-2 text-sm"
+                    style={inputStyle}
+                  />
+                </label>
+              </div>
+              <SaveButton
+                label={t("robin.settings.saveGmailDigest")}
+                phase={saveFeedback?.action === "gmailDigest" ? saveFeedback.phase : undefined}
+                disabled={busy || !gmailDigest.time}
+                onClick={() => void send(
+                  "POST",
+                  { section: "telegram", gmailDigest: { ...gmailDigest, chatIds: gmailChatIds } },
+                  t("robin.settings.gmailDigestSaved"),
+                  "gmailDigest",
                 )}
                 className="self-start"
                 t={t}

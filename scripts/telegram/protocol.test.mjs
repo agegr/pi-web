@@ -166,3 +166,5 @@ test("formatReply appends the tools that actually ran", () => {
 test("formatReply survives an empty model reply", () => {
   assert.equal(formatReply("   ", ["todo_add"]), "(no reply text)\n\n— added a todo");
 });
+
+

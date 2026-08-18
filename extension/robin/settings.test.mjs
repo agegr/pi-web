@@ -18,6 +18,7 @@ const {
   parseChatIds,
   secretsPath,
   setDailyAgenda,
+  setGmailDigest,
   setGoogleCredentials,
   setTelegramChatIds,
   setTelegramToken,
@@ -112,6 +113,19 @@ test("daily agenda settings round-trip and validate times", () => {
     () => setDailyAgenda({ ...agenda, time: "25:00" }),
     /must be HH:MM/,
   );
+});
+
+test("gmail digest settings round-trip and keep an empty query from crashing", () => {
+  const digest = { enabled: true, time: "09:15", locale: "zh", chatIds: [42], query: "is:unread" };
+  setGmailDigest(digest);
+  assert.deepEqual(telegramSettings().gmailDigest, digest);
+  assert.throws(
+    () => setGmailDigest({ ...digest, time: "25:00" }),
+    /must be HH:MM/,
+  );
+  // An edited file with no query must fall back, not reach a `.trim()` on undefined.
+  setGmailDigest({ ...digest, query: "" });
+  assert.equal(telegramSettings().gmailDigest.query, "newer_than:1d");
 });
 
 test("interactive and read-only assistants keep separate sessions", () => {

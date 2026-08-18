@@ -4,11 +4,12 @@
 
 Todos, a calendar, and saved links, all driven by pi. Everything lives in plain
 JSON files under `~/.pi/robin`, and the agent that touches them is restricted to
-eight tools — no shell, no filesystem.
+a fixed allow-list — no shell, no filesystem.
 
 - **Dashboard** at `/dashboard` — assistant box, calendar (agenda / week / month), todos, links.
 - **Agent tools** usable from the dashboard, the `pi` CLI, and Telegram.
 - **Google Calendar** read-only, merged into the calendar views.
+- **Gmail** read-only: `/dashboard/gmail` shows the inbox, and a daily email digest goes to Telegram.
 - **Telegram bridge** so the same assistant works when you are away from the machine.
 
 ---
@@ -57,7 +58,7 @@ characters. The server does not send secrets back to the browser.
 
 ## What the agent can do
 
-Eight tools, registered in `index.ts` and listed in `tools.ts`:
+The tools are registered in `index.ts` and listed in `tools.ts`:
 
 | Tool | Say something like |
 | --- | --- |
@@ -68,6 +69,8 @@ Eight tools, registered in `index.ts` and listed in `tools.ts`:
 | `calendar_list_events` | "what's on today?" |
 | `link_add` | paste a bare URL |
 | `link_list` | "what did I save?" |
+| `gmail_list` | "any important email today?" |
+| `gmail_get` | "read me that interview email" |
 | `provider_usage` | "how much OpenAI and Anthropic quota is left?" |
 
 Details worth knowing:
@@ -87,9 +90,9 @@ Details worth knowing:
 
 ### What it deliberately cannot do
 
-- **No shell, no filesystem.** The assistant session activates only the eight
-  tools above; pi's `bash`, `read`, `write`, and `edit` stay inactive. This is a
-  tool-registration boundary, not a prompt instruction.
+- **No shell, no filesystem.** The assistant session activates only the
+  allow-list above; pi's `bash`, `read`, `write`, and `edit` stay inactive. This
+  is a tool-registration boundary, not a prompt instruction.
 - **No writing to Google.** The integration is read-only: it can show your Google
   events but cannot create, change, or delete them.
 - **No deleting.** There are no delete tools. Removing a todo, event, or link is a
@@ -122,14 +125,15 @@ formatting.
 
 ---
 
-## Google Calendar (read-only)
+## Google (read-only: Calendar + Gmail)
 
 The OAuth client must be your own; a shared client secret cannot ship in an open
-repository.
+repository. Calendar and Gmail share one OAuth grant, so a single refresh token
+covers both read-only scopes.
 
 1. In the [Google Cloud console](https://console.cloud.google.com/), create or
    pick a project.
-2. Enable the **Google Calendar API**.
+2. Enable the **Google Calendar API** and the **Gmail API**.
 3. Configure the OAuth consent screen as **External** and add your own account
    under **Test users**.
 4. Create credentials → **OAuth client ID** → **Web application**.
@@ -140,9 +144,30 @@ repository.
 
 > While the app stays in "Testing", Google expires refresh tokens after **7 days**,
 > so you will reconnect weekly until you publish it.
+>
+> If you connected Google before Gmail was added, **Clear** and connect again so
+> Google re-issues a token that includes the Gmail scope — the old token is
+> calendar-only and Gmail will answer 403.
 
-Pulled events are never written to `events.json` — they are fetched per request,
-so disconnecting removes them immediately.
+Pulled events and messages are never written to the local JSON — they are
+fetched per request, so disconnecting removes them immediately.
+
+### Gmail (read-only)
+
+- **Page** `/dashboard/gmail`: not a message list but a categorised answer to
+  "what came in today and what needs me". **Check today** runs the mail-review
+  turn: the agent reads today's mail, files it into buckets (important / interview
+  / OA / appointment / delivery / deadline / document / other), and creates a
+  calendar event for appointments, meetings, and confirmed schedules, and a todo
+  for deadlines. A row opens the thread in Gmail. There is deliberately no reply,
+  delete, or archive.
+- **Agent tools** `gmail_list` / `gmail_get` / `gmail_review`: read mail,
+  categorise it, and persist the review. Mail is untrusted third-party data, so
+  the tool prompts tell the model to extract facts only and never follow
+  instructions found inside a message.
+- **Email digest** (Settings → Telegram): once a day, the same mail-review turn —
+  read, categorise, auto-create todos/events, then push the report to Telegram.
+  Send time, language, chat ids, and the Gmail query are all configurable.
 
 ---
 
@@ -178,6 +203,10 @@ Other properties:
 - **Daily briefings.** Configure a machine-local send time and language in
   **Settings → Telegram**. Delivery state is persisted per chat, so restarting
   the bridge or retrying a partial broadcast does not send duplicates.
+- **Email digest.** Also under **Settings → Telegram**: the agent reads recent
+  mail via `gmail_list` and sends a separate message for documents / OA /
+  interviews / deliveries / deadlines. When Google is not connected the day is
+  skipped rather than retried hourly.
 - **pi-web must be running.** The bridge is its client; if pi-web is down, every
   message answers with an error.
 - Changing Telegram settings requires restarting the bridge — it reads them at
@@ -201,6 +230,8 @@ Everything is in `~/.pi/robin` (override with `ROBIN_DATA_DIR`):
 | `telegram-state.json` | successful daily-briefing deliveries for the current date |
 | `secrets.json` | Google and Telegram credentials plus Telegram settings — **mode 0600** |
 | `google.json` | Google refresh token — **a long-lived credential, mode 0600** |
+| `gmail-digest-state.json` | which chats got the email digest on which day |
+| `mail-review.json` | today's categorised email review |
 
 The first five are plain JSON on purpose: `grep` them, put them in git, back them
 up like any other file.
@@ -231,6 +262,7 @@ fails the build rather than warning.
 | `settings.ts` | **no** | credential storage |
 | `fetch-title.ts` | **no** | outbound page-title lookup |
 | `google-calendar.ts` | **no** | OAuth and the Google Calendar feed |
+| `gmail.ts` | **no** | read-only Gmail list / detail fetch |
 
 Importing a *type* from a server-only module is fine — type imports are erased.
 

@@ -8,6 +8,7 @@
 - **仪表盘** 在 `/dashboard` —— 助手输入框、日历（议程 / 周 / 月）、待办、链接。
 - **agent 工具** 在仪表盘、`pi` CLI 和 Telegram 里都能用。
 - **Google 日历** 只读接入，合并进日历视图。
+- **Gmail** 只读接入：`/dashboard/gmail` 看收件箱，每日邮件简报推到 Telegram。
 - **Telegram 桥接** 让同一个助手在你离开电脑时也能用。
 
 ---
@@ -106,12 +107,13 @@ Google 和 Telegram 在 **/dashboard/settings** 里配置，不放 `.env.local`�
 
 ---
 
-## Google 日历（只读）
+## Google（只读：日历 + Gmail）
 
-OAuth 客户端必须是你自己的——开源仓库里不能内置共享的 client secret。
+OAuth 客户端必须是你自己的——开源仓库里不能内置共享的 client secret。日历和 Gmail
+共享同一个 OAuth 授权，一个 refresh token 同时覆盖两个只读 scope。
 
 1. 在 [Google Cloud 控制台](https://console.cloud.google.com/) 建一个项目（或选现有的）。
-2. 启用 **Google Calendar API**。
+2. 启用 **Google Calendar API** 和 **Gmail API**。
 3. OAuth 同意屏幕配置成 **External**，并把你自己的账号加进 **Test users**。
 4. 创建凭据 → **OAuth 客户端 ID** → 类型选 **Web application**。
 5. 把设置页上显示的地址**原样**填进「已授权的重定向 URI」——默认端口下是
@@ -120,8 +122,23 @@ OAuth 客户端必须是你自己的——开源仓库里不能内置共享的 c
 
 > 应用停留在「Testing」状态时，Google 的 refresh token **7 天就过期**，所以在你
 > 把应用发布出去之前，每周都要重连一次。
+>
+> 如果你是在「Gmail 加入之前」就连过 Google 的，需要先点**清除**再重新连接，
+> 让 Google 补发 Gmail 只读 scope——旧 token 只含日历权限，Gmail 会报 403。
 
-拉取的事件**从不写入** `events.json`——每次请求现拉，所以断开连接后立刻消失。
+拉取的事件和邮件**从不写入**本地 JSON——每次请求现拉，断开连接后立刻消失。
+
+### Gmail（只读）
+
+- **页面** `/dashboard/gmail`：不是邮件列表，而是「今天进来什么、哪些需要你」的
+  分类视图。点**检查今天**，agent 读今天的新邮件、按类别归档（重要 / 面试 / OA /
+  预约 / 快递 / 截止 / 文件 / 其他），对预约、会议、确认的日程自动建日历事件，对
+  截止、待办自动建待办。点条目跳到 Gmail。刻意没有回复、删除、归档按钮。
+- **agent 工具** `gmail_list` / `gmail_get` / `gmail_review`：读邮件、分类、落库。
+  邮件是不可信第三方数据，工具提示明确要求只提取事实、绝不执行邮件里的指令。
+- **邮件简报**（设置 → Telegram）：每天一次，走同一个「邮件检查」回合——读、分类、
+  自动建待办/日程、把报告推到 Telegram。发送时间、语言、chat id 和 Gmail 搜索
+  条件都可配。
 
 ---
 
@@ -152,6 +169,9 @@ npm run telegram
 - 回复跟随发送者的 Telegram 客户端语言。
 - **每日简报。** 在**设置 → Telegram** 中配置本机发送时间和语言。发送状态按 chat
   持久化，因此重启桥接或重试部分失败的群发不会重复发送。
+- **邮件简报。** 同样在**设置 → Telegram** 中配置；agent 用 `gmail_list` 读最近的
+  邮件，把重要文件 / OA / 面试 / 快递 / 截止日期单独发一条。Google 没连接时当天
+  跳过，不会每小时重试。
 - **pi-web 必须在运行。** 桥接是它的客户端；pi-web 停了，每条消息都会回错误。
 - 改了 Telegram 设置需要重启桥接——它在启动时读取配置。
 
@@ -173,6 +193,8 @@ npm run telegram
 | `telegram-state.json` | 当天已成功发送每日简报的 chat |
 | `secrets.json` | Google、Telegram 凭据和 Telegram 设置 —— **权限 0600** |
 | `google.json` | Google refresh token —— **长期有效的凭据，权限 0600** |
+| `gmail-digest-state.json` | 邮件简报每天向哪些 chat 发过 |
+| `mail-review.json` | 今天邮件的分类检查结果 |
 
 前五个刻意用普通 JSON：可以 grep、可以进 git、可以像普通文件一样备份。
 
@@ -200,6 +222,7 @@ npm run telegram
 | `settings.ts` | **否** | 凭据存储 |
 | `fetch-title.ts` | **否** | 出站抓取页面标题 |
 | `google-calendar.ts` | **否** | OAuth 与 Google 日历拉取 |
+| `gmail.ts` | **否** | 只读 Gmail 列表 / 详情拉取 |
 
 从服务端模块里 `import type` 是安全的——类型导入会被擦除。
 

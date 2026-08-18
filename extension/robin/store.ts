@@ -12,6 +12,8 @@
  */
 import { dueBucket, localDate, type DueBucket } from "./dates.ts";
 import type { CalendarEvent } from "./events.ts";
+import type { MailReview } from "./mail.ts";
+import { DEFAULT_JOB_PROFILE, type Job, type JobProfile } from "./jobs.ts";
 import type { Link } from "./links.ts";
 import { dataPath, readJsonArray, readJsonObject, writeJsonArray, writeJsonObject } from "./paths.ts";
 
@@ -25,6 +27,24 @@ export {
   type CalendarEvent,
 } from "./events.ts";
 export { groupLinks, iconFallback, normalizeUrl, reorderLinkGroups, type Link } from "./links.ts";
+export {
+  DEFAULT_JOB_PROFILE,
+  EXCLUDE_PRESETS,
+  JOB_STATUSES,
+  LOCATION_PRESETS,
+  STARTER_COMPANIES,
+  TITLE_PRESETS,
+  digestCandidates,
+  formatJob,
+  formatJobDigest,
+  jobKey,
+  pendingJobs,
+  sortJobs,
+  type Job,
+  type JobProfile,
+  type JobStatus,
+  type TrackedCompany,
+} from "./jobs.ts";
 export { dataDir, newId } from "./paths.ts";
 
 const TODOS_FILE = "todos.json";
@@ -32,6 +52,14 @@ const LINKS_FILE = "links.json";
 const EVENTS_FILE = "events.json";
 const ASSISTANT_FILE = "assistant.json";
 const TELEGRAM_STATE_FILE = "telegram-state.json";
+const JOBS_FILE = "jobs.json";
+const JOB_PROFILE_FILE = "job-profile.json";
+const JOB_SCAN_FILE = "job-scan.json";
+const JOB_DIGEST_STATE_FILE = "job-digest-state.json";
+const GMAIL_DIGEST_STATE_FILE = "gmail-digest-state.json";
+const MAIL_REVIEW_FILE = "mail-review.json";
+const JOB_SWEEP_FILE = "job-sweep.json";
+const JOB_SCORING_FILE = "job-scoring.json";
 
 /** See ./dates.ts for why `due` and `createdAt` are different kinds of value. */
 export interface Todo {
@@ -89,6 +117,17 @@ export function writeEvents(events: CalendarEvent[]): void {
 interface AssistantState {
   sessionId?: string;
   dailyAgendaSessionId?: string;
+  /**
+   * Kept apart from the conversational session on purpose: the scoring turn
+   * reads employer-authored job descriptions, and anything a posting tries to
+   * talk the model into must not survive into the session you chat with later.
+   */
+  jobScorerSessionId?: string;
+  /**
+   * Same isolation for the mail review: email is untrusted third-party text,
+   * so the turn that reads it and writes todos/events runs in its own session.
+   */
+  mailReviewSessionId?: string;
   updatedAt?: string;
 }
 
@@ -120,6 +159,22 @@ export function writeDailyAgendaSessionId(dailyAgendaSessionId: string): void {
   writeAssistantState({ dailyAgendaSessionId });
 }
 
+export function readJobScorerSessionId(): string | null {
+  return readAssistantState().jobScorerSessionId ?? null;
+}
+
+export function writeJobScorerSessionId(jobScorerSessionId: string): void {
+  writeAssistantState({ jobScorerSessionId });
+}
+
+export function readMailReviewSessionId(): string | null {
+  return readAssistantState().mailReviewSessionId ?? null;
+}
+
+export function writeMailReviewSessionId(mailReviewSessionId: string): void {
+  writeAssistantState({ mailReviewSessionId });
+}
+
 export interface DailyAgendaDelivery {
   date: string;
   chatIds: number[];
@@ -135,6 +190,240 @@ export function markDailyAgendaSent(date: string, chatId: number): void {
   const chatIds = current?.date === date ? current.chatIds : [];
   if (chatIds.includes(chatId)) return;
   writeJsonObject(TELEGRAM_STATE_FILE, { date, chatIds: [...chatIds, chatId] });
+}
+
+/* ──────────────────────────── jobs ──────────────────────────── */
+
+export function jobsPath(): string {
+  return dataPath(JOBS_FILE);
+}
+
+export function readJobs(): Job[] {
+  return readJsonArray<Job>(JOBS_FILE);
+}
+
+export function writeJobs(jobs: Job[]): void {
+  writeJsonArray(JOBS_FILE, jobs);
+}
+
+export function jobProfilePath(): string {
+  return dataPath(JOB_PROFILE_FILE);
+}
+
+/**
+ * Always merged over the defaults rather than returned raw. The profile grows
+ * new keys as the feature does, and a file written by an older version must
+ * keep working — an absent `digestSize` has to mean "the default", not
+ * `undefined` reaching a `.slice()`.
+ */
+export function readJobProfile(): JobProfile {
+  const stored = readJsonObject<Partial<JobProfile>>(JOB_PROFILE_FILE);
+  return { ...DEFAULT_JOB_PROFILE, ...(stored ?? {}) };
+}
+
+export function writeJobProfile(profile: JobProfile): void {
+  writeJsonObject(JOB_PROFILE_FILE, { ...profile, updatedAt: new Date().toISOString() });
+}
+
+/** What the last scan did, so the page can say when it last ran and what broke. */
+export interface JobScanState {
+  startedAt: string;
+  finishedAt: string;
+  scanned: number;
+  matched: number;
+  added: number;
+  sources: { id: string; name: string; count: number; error?: string }[];
+}
+
+export function readJobScanState(): JobScanState | null {
+  return readJsonObject<JobScanState>(JOB_SCAN_FILE);
+}
+
+export function writeJobScanState(state: JobScanState): void {
+  writeJsonObject(JOB_SCAN_FILE, state);
+}
+
+/**
+ * Progress of a scoring run.
+ *
+ * Scoring is the one step that costs money and the one step with nothing to
+ * watch: the model works inside an agent session and the only outward sign is
+ * rows quietly gaining a number. Without this the honest answer to "is it
+ * running" is "look at the list again in a minute".
+ *
+ * `remaining` is re-read from the job store on each publish rather than
+ * counted down, so it stays true even when something else scores in parallel.
+ */
+export interface JobScoringState {
+  startedAt: string;
+  finishedAt: string | null;
+  running: boolean;
+  round: number;
+  totalRounds: number;
+  /** Unscored count when the run began — the denominator of the bar. */
+  startedWith: number;
+  remaining: number;
+  /** Which model did the work, so a bad batch can be traced to it. */
+  model: string | null;
+  error: string | null;
+}
+
+export function readJobScoringState(): JobScoringState | null {
+  return readJsonObject<JobScoringState>(JOB_SCORING_FILE);
+}
+
+export function writeJobScoringState(state: JobScoringState): void {
+  writeJsonObject(JOB_SCORING_FILE, state);
+}
+
+/**
+ * Progress of a directory sweep.
+ *
+ * Written to disk rather than held in memory because the sweep outlives the
+ * request that started it: the page polls this file to draw a progress bar,
+ * and a server restart mid-sweep leaves a readable record of where it got to
+ * instead of a spinner that never resolves.
+ */
+export interface JobSweepState {
+  startedAt: string;
+  finishedAt: string | null;
+  running: boolean;
+  boardsTotal: number;
+  boardsDone: number;
+  /** Dead slugs and failed boards. About a third of the dataset is expected. */
+  unreachable: number;
+  scanned: number;
+  matched: number;
+  added: number;
+  directories: {
+    id: string;
+    label: string;
+    status: "ok" | "stale" | "empty";
+    boards: number;
+    matched: number;
+  }[];
+  /** How far each directory got, so a killed sweep can resume. */
+  cursors: Record<string, number>;
+  error: string | null;
+}
+
+export function readJobSweepState(): JobSweepState | null {
+  return readJsonObject<JobSweepState>(JOB_SWEEP_FILE);
+}
+
+export function writeJobSweepState(state: JobSweepState): void {
+  writeJsonObject(JOB_SWEEP_FILE, state);
+}
+
+/**
+ * Which scheduled runs have already gone out.
+ *
+ * Keyed by `YYYY-MM-DD:slot` — `morning`, `evening`, `sweep` — and recorded
+ * per chat, so a broadcast that failed halfway resumes instead of re-sending
+ * to everyone.
+ *
+ * MANY keys, not one. Holding a single `{runKey, chatIds}` meant every writer
+ * wiped the previous one's record: the sweep marked itself, the morning digest
+ * overwrote that, the sweep then found no record of itself and fired again,
+ * and the two ping-ponged every thirty seconds all day.
+ */
+export interface JobDigestDelivery {
+  runs: Record<string, number[]>;
+}
+
+/** Enough for a few days of slots; keeps the file from growing forever. */
+const DELIVERY_HISTORY = 20;
+
+export function readJobDigestDelivery(): JobDigestDelivery | null {
+  const stored = readJsonObject<JobDigestDelivery & { runKey?: string; chatIds?: number[] }>(
+    JOB_DIGEST_STATE_FILE,
+  );
+  if (!stored) return null;
+  // Migrate the single-run shape in place on read, so an upgrade does not
+  // re-send whatever that last run was.
+  if (!stored.runs && typeof stored.runKey === "string") {
+    return { runs: { [stored.runKey]: stored.chatIds ?? [] } };
+  }
+  return { runs: stored.runs ?? {} };
+}
+
+export function markJobDigestSent(runKey: string, chatId: number): void {
+  const runs = { ...(readJobDigestDelivery()?.runs ?? {}) };
+  const chatIds = runs[runKey] ?? [];
+  if (chatIds.includes(chatId)) return;
+  runs[runKey] = [...chatIds, chatId];
+
+  // Keys sort chronologically (YYYY-MM-DD:slot), so the oldest drop off first.
+  const trimmed = Object.fromEntries(
+    Object.entries(runs).sort(([a], [b]) => a.localeCompare(b)).slice(-DELIVERY_HISTORY),
+  );
+  writeJsonObject(JOB_DIGEST_STATE_FILE, { runs: trimmed });
+}
+
+/**
+ * Which days the email digest has gone out, per chat.
+ *
+ * Same runs-ledger shape as the job digest — keyed by local date — so a bridge
+ * that restarts mid-morning resumes the broadcast instead of re-sending it.
+ */
+export interface GmailDigestDelivery {
+  runs: Record<string, number[]>;
+}
+
+export function readGmailDigestDelivery(): GmailDigestDelivery | null {
+  const stored = readJsonObject<GmailDigestDelivery & { runKey?: string; chatIds?: number[] }>(
+    GMAIL_DIGEST_STATE_FILE,
+  );
+  if (!stored) return null;
+  if (!stored.runs && typeof stored.runKey === "string") {
+    return { runs: { [stored.runKey]: stored.chatIds ?? [] } };
+  }
+  return { runs: stored.runs ?? {} };
+}
+
+export function markGmailDigestSent(runKey: string, chatId: number): void {
+  const runs = { ...(readGmailDigestDelivery()?.runs ?? {}) };
+  const chatIds = runs[runKey] ?? [];
+  if (chatIds.includes(chatId)) return;
+  runs[runKey] = [...chatIds, chatId];
+
+  const trimmed = Object.fromEntries(
+    Object.entries(runs).sort(([a], [b]) => a.localeCompare(b)).slice(-DELIVERY_HISTORY),
+  );
+  writeJsonObject(GMAIL_DIGEST_STATE_FILE, { runs: trimmed });
+}
+
+/**
+ * The latest categorised email review.
+ *
+ * One file, keyed by day: the review is "what came in today and what it means",
+ * so a second check the same day replaces the first rather than appending. The
+ * items carry their own Gmail metadata, so the dashboard renders the review
+ * without another Gmail call.
+ */
+export function readMailReview(): MailReview | null {
+  return readJsonObject<MailReview>(MAIL_REVIEW_FILE);
+}
+
+export function writeMailReview(review: MailReview): void {
+  writeJsonObject(MAIL_REVIEW_FILE, review);
+}
+
+/**
+ * Attach the assistant's report to today's review.
+ *
+ * The report is the turn's final text, produced after gmail_review already
+ * wrote the items — so it has to be merged in a second step. An empty inbox is
+ * still a review ("no mail" is information), so a turn with no items still
+ * creates a shell review rather than dropping the report.
+ */
+export function attachMailReport(reply: string): void {
+  const report = reply.trim();
+  if (!report) return;
+  const review = readMailReview();
+  writeMailReview(review
+    ? { ...review, report }
+    : { day: localDate(), reviewedAt: new Date().toISOString(), items: [], report });
 }
 
 /**

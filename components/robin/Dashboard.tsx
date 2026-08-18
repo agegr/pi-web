@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { localDate, parseLocalDate } from "@/extension/robin/dates";
 import { AssistantBar } from "./AssistantBar";
 import { CalendarPanel } from "./CalendarPanel";
+import { JobsPanel } from "./JobsPanel";
 import { LinksPanel } from "./LinksPanel";
 import { TodoPanel } from "./TodoPanel";
 
@@ -59,6 +60,12 @@ export function Dashboard() {
           </p>
         </div>
         <nav className="flex items-baseline gap-3">
+          <Link href="/dashboard/gmail" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 11 }}>
+            {t("robin.nav.gmail")}
+          </Link>
+          <Link href="/dashboard/jobs" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 11 }}>
+            {t("robin.nav.jobs")}
+          </Link>
           <Link href="/dashboard/settings" className="ui-action pi-chrome-label pi-bracket" style={{ fontSize: 11 }}>
             {t("robin.nav.settings")}
           </Link>
@@ -89,6 +96,9 @@ export function Dashboard() {
           making the todo list look like a narrow sidebar. */}
       <div className="flex flex-col gap-4">
         <TodoPanel />
+        {/* Between the todos and the links: the morning push lands here, and
+            this is the row you scan before deciding what today looks like. */}
+        <JobsPanel />
         <LinksPanel />
       </div>
       </main>
