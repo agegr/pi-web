@@ -52,6 +52,17 @@ html.dark {
   --bg-subtle: rgba(255,255,255,0.04);
 }
 
+/* WebKit reports dvh/innerHeight without the status-bar strip for installed
+   home-screen apps even though the layout still starts at the screen's top.
+   In standalone mode there is no browser toolbar to make vh unstable, and vh
+   includes that missing strip. The keyboard hook temporarily overrides this
+   custom property with visualViewport.height while an editor is focused. */
+@media (display-mode: standalone) {
+  :root {
+    --app-viewport-height: 100vh;
+  }
+}
+
 .catppuccin-file-icon {
   display: block;
   flex-shrink: 0;
