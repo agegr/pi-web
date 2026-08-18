@@ -79,6 +79,12 @@ export interface DashboardEvent extends CalendarEvent {
   source?: "local" | "google";
   /** Name of the originating calendar, for events that came from one. */
   calendar?: string;
+  /**
+   * A key into the event palette (see eventColors.ts), set from Google's
+   * `colorId` when resolvable. Absent for local events and custom Google
+   * colours — the renderer falls back to a hash of the title.
+   */
+  colorKey?: string;
 }
 
 export function isReadOnlyEvent(event: DashboardEvent): boolean {

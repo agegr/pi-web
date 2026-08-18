@@ -93,3 +93,9 @@ test("location is carried through when present", () => {
   assert.equal(map({ id: "k", summary: "x", location: "  Room B  ", start: { date: "2026-08-17" } }).location, "Room B");
   assert.equal(map({ id: "l", summary: "x", location: "  ", start: { date: "2026-08-17" } }).location, undefined);
 });
+
+test("a standard google colourId maps to a palette key; a custom one is dropped", () => {
+  assert.equal(map({ id: "m", summary: "Standup", start: { dateTime: "2026-08-17T15:00:00Z" }, colorId: "7" }).colorKey, "teal");
+  assert.equal(map({ id: "n", summary: "Custom", start: { date: "2026-08-17" }, end: { date: "2026-08-18" }, colorId: "zz" }).colorKey, undefined);
+  assert.equal(map({ id: "o", summary: "No colour", start: { date: "2026-08-17" } }).colorKey, undefined);
+});

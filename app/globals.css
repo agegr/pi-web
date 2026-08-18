@@ -232,18 +232,49 @@
   --accent-line-strong: rgb(139 81 60 / 0.60);
   --focus-ring: rgb(139 81 60 / 0.72);
 
+  /* Calendar event palette. Each event is drawn in one of six muted colours —
+     picked from its Google colourId when it has one, otherwise a stable hash
+     of its title — so commitments are distinguishable at a glance. Low
+     saturation on purpose: the calendar is a field of quiet washes, and the
+     one loud thing on it must stay the current day. Each key carries four
+     alphas: solid for the editable rule, `-line` for the held-back Google
+     rule, `-soft` for a timed chip, `-fill` for a spanning bar. */
+  --event-clay: #a8745c;
+  --event-clay-soft: rgb(168 116 92 / 0.24);
+  --event-clay-fill: rgb(168 116 92 / 0.32);
+  --event-clay-line: rgb(168 116 92 / 0.55);
+  --event-sage: #8b8f5f;
+  --event-sage-soft: rgb(139 143 95 / 0.24);
+  --event-sage-fill: rgb(139 143 95 / 0.32);
+  --event-sage-line: rgb(139 143 95 / 0.55);
+  --event-teal: #5c8a83;
+  --event-teal-soft: rgb(92 138 131 / 0.24);
+  --event-teal-fill: rgb(92 138 131 / 0.32);
+  --event-teal-line: rgb(92 138 131 / 0.55);
+  --event-slate: #75839a;
+  --event-slate-soft: rgb(117 131 154 / 0.24);
+  --event-slate-fill: rgb(117 131 154 / 0.32);
+  --event-slate-line: rgb(117 131 154 / 0.55);
+  --event-plum: #99718a;
+  --event-plum-soft: rgb(153 113 138 / 0.24);
+  --event-plum-fill: rgb(153 113 138 / 0.32);
+  --event-plum-line: rgb(153 113 138 / 0.55);
+  --event-honey: #a58a4d;
+  --event-honey-soft: rgb(165 138 77 / 0.24);
+  --event-honey-fill: rgb(165 138 77 / 0.32);
+  --event-honey-line: rgb(165 138 77 / 0.55);
+
   /* Today. Reserved for the current day and used for nothing else: the one
      square of a different hue on a grid where every event is drawn in the
-     accent. Dark separates today by hue — teal against its blue. Light
-     separates it by chroma instead: the same orange family as the terracotta
-     accent, but at more than twice its saturation, so the current day is the
-     one vivid thing on a page of muted clay. #b34a12 is as vivid as the hue
-     goes while the badge's reversed-out --on-accent still clears 4.5:1, and
-     the wash is a lighter orange than the mark and kept thin — the badge and
-     the doubled ring are what identify the day, so the fill only has to tint
-     the cell, not shout. */
-  --today-mark: #b34a12;
-  --today-wash: rgb(240 150 60 / 0.15);
+     accent. Dark separates today by hue — teal against its blue. Light does
+     the same with a magenta-pink held below full saturation, so the current
+     day is the one loud thing on a page of muted clay. The mark carries the
+     timeline and the date; the badge reverses it to dark ink (light mode's
+     --on-accent is white and would fail on a pink this bright), and the wash
+     stays thin — the badge and the doubled ring are what identify the day, so
+     the fill only has to tint the cell, not shout. */
+  --today-mark: #d9669c;
+  --today-wash: rgb(217 102 156 / 0.12);
 
   /* The dashboard is read as paper on a desk: the ground is washed a step
      toward parchment so the panels laid on it have something to sit on. Light
@@ -336,6 +367,32 @@ html.dark {
   --accent-line: rgb(106 159 204 / 0.36);
   --accent-line-strong: rgb(106 159 204 / 0.50);
   --focus-ring: rgb(106 159 204 / 0.72);
+  --event-clay: #c08b6f;
+  --event-clay-soft: rgb(192 139 111 / 0.24);
+  --event-clay-fill: rgb(192 139 111 / 0.32);
+  --event-clay-line: rgb(192 139 111 / 0.55);
+  --event-sage: #a9ab77;
+  --event-sage-soft: rgb(169 171 119 / 0.24);
+  --event-sage-fill: rgb(169 171 119 / 0.32);
+  --event-sage-line: rgb(169 171 119 / 0.55);
+  /* The teal slot shifts to violet in dark: today already owns teal here
+     (--today-mark), so an event in the same hue would read as "now". */
+  --event-teal: #9488cc;
+  --event-teal-soft: rgb(148 136 204 / 0.24);
+  --event-teal-fill: rgb(148 136 204 / 0.32);
+  --event-teal-line: rgb(148 136 204 / 0.55);
+  --event-slate: #96a6c0;
+  --event-slate-soft: rgb(150 166 192 / 0.24);
+  --event-slate-fill: rgb(150 166 192 / 0.32);
+  --event-slate-line: rgb(150 166 192 / 0.55);
+  --event-plum: #bb90a4;
+  --event-plum-soft: rgb(187 144 164 / 0.24);
+  --event-plum-fill: rgb(187 144 164 / 0.32);
+  --event-plum-line: rgb(187 144 164 / 0.55);
+  --event-honey: #c3a565;
+  --event-honey-soft: rgb(195 165 101 / 0.24);
+  --event-honey-fill: rgb(195 165 101 / 0.32);
+  --event-honey-line: rgb(195 165 101 / 0.55);
   --today-mark: var(--accent-teal);
   --today-wash: rgb(95 179 171 / 0.13);
   --dashboard-ground: rgb(13 17 22 / 0.40);
@@ -588,8 +645,10 @@ body {
 }
 
 /* Today's date, set solid rather than tinted. Everything else in a calendar
-   is a wash of one alpha or another, so the one reversed-out block on the
-   screen is unmistakably the day you are on — including in greyscale. */
+   is a wash of one alpha or another, so the one solid block on the screen is
+   unmistakably the day you are on — including in greyscale. Dark ink rather
+   than --on-accent: light mode's mark is a pink that white text would
+   not clear on. */
 .pi-today-badge {
   display: inline-flex;
   min-width: 1.7em;
@@ -597,7 +656,7 @@ body {
   justify-content: center;
   padding: 1px 4px 2px;
   background: var(--today-mark);
-  color: var(--on-accent);
+  color: var(--pi-deep);
   font-family: var(--font-mono);
   font-size: 11px;
   font-variant-numeric: tabular-nums;

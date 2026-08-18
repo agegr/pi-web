@@ -18,6 +18,7 @@
  */
 import { chmodSync } from "node:fs";
 import { addDays, localDate } from "./dates.ts";
+import { googleColorKey } from "./eventColors.ts";
 import type { DashboardEvent } from "./events.ts";
 import { dataPath, readJsonObject, writeJsonObject } from "./paths.ts";
 import { googleCredentials } from "./settings.ts";
@@ -26,8 +27,17 @@ const TOKENS_FILE = "google.json";
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const CALENDAR_ENDPOINT = "https://www.googleapis.com/calendar/v3";
-/** Read-only on purpose: this integration cannot modify the user's calendar. */
-const SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+/**
+ * Read-only on purpose: this integration cannot modify the user's data.
+ *
+ * Calendar and Gmail share the one OAuth grant, so a single refresh token
+ * covers both and reconnecting (after the scopes here change) adds mail
+ * without a second consent flow.
+ */
+const SCOPES = [
+  "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/gmail.readonly",
+];
 const REQUEST_TIMEOUT_MS = 10_000;
 
 interface StoredTokens {
@@ -85,7 +95,7 @@ export function authorizeUrl(redirectUri: string, state: string): string {
     client_id: credentials.clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: SCOPE,
+    scope: SCOPES.join(" "),
     // A refresh token is only issued with consent + offline access, and Google
     // omits it on repeat grants unless prompted again.
     access_type: "offline",
@@ -148,7 +158,14 @@ export async function exchangeCode(code: string, redirectUri: string): Promise<v
   });
 }
 
-async function accessToken(): Promise<string> {
+/**
+ * The current access token, refreshed when needed.
+ *
+ * Exported for gmail.ts: the two Google surfaces read the same grant, so there
+ * is exactly one refresh path and one cache rather than two fighting over the
+ * same token file.
+ */
+export async function getAccessToken(): Promise<string> {
   const tokens = readTokens();
   if (!tokens?.refreshToken) throw new Error("Google Calendar is not connected");
 
@@ -208,6 +225,7 @@ export interface GoogleEvent {
   summary?: string;
   location?: string;
   status?: string;
+  colorId?: string;
   start?: GoogleEventTime;
   end?: GoogleEventTime;
 }
@@ -243,6 +261,8 @@ export function mapGoogleEvent(item: GoogleEvent, calendar: string): DashboardEv
     ? endParts.start
     : undefined;
 
+  const colorKey = googleColorKey(item.colorId);
+
   return {
     id: `google:${item.id ?? crypto.randomUUID()}`,
     title: item.summary?.trim() || "(no title)",
@@ -251,6 +271,7 @@ export function mapGoogleEvent(item: GoogleEvent, calendar: string): DashboardEv
     ...(startParts.start ? { start: startParts.start } : {}),
     ...(end ? { end } : {}),
     ...(item.location?.trim() ? { location: item.location.trim() } : {}),
+    ...(colorKey ? { colorKey } : {}),
     createdAt: "",
     source: "google",
     calendar,
@@ -265,7 +286,7 @@ export function mapGoogleEvent(item: GoogleEvent, calendar: string): DashboardEv
  * Google event into several would make it look like several commitments.
  */
 export async function fetchEvents(from: string, to: string): Promise<DashboardEvent[]> {
-  const token = await accessToken();
+  const token = await getAccessToken();
   const timeMin = new Date(`${from}T00:00:00`);
   const timeMax = new Date(`${to}T23:59:59`);
 
