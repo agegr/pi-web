@@ -5,7 +5,8 @@ import type { SessionInfo } from "@/lib/types";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
-import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
+import { getProjectActivity, getRecentProjects, isCustomOnlyProject, sessionsForProject } from "@/lib/project-groups";
+import { loadCustomProjects, removeCustomProject, saveCustomProject } from "@/lib/custom-projects";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
@@ -406,6 +407,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [customPathValue, setCustomPathValue] = useState("");
   const [customPathError, setCustomPathError] = useState<string | null>(null);
   const [customPathValidating, setCustomPathValidating] = useState(false);
+  // User-pinned custom project paths. Persisted in localStorage so the
+  // directory picker's "Custom path" branch survives a reload even when
+  // no session has been started in that project yet.
+  const [customProjects, setCustomProjects] = useState(loadCustomProjects);
   const [validatedProject, setValidatedProject] = useState<ValidatedProject | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   // Worktree switcher state
@@ -712,10 +717,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         // Session not found — notify parent so it can show the placeholder
         onInitialRestoreDone?.();
       }
-      const projects = getRecentProjects(allSessions);
+      const projects = getRecentProjects(allSessions, customProjects);
       if (projects.length > 0) setSelectedCwd(projects[0].root);
     }
-  }, [allSessions, selectedCwd, initialSessionId, skipInitialProjectSelection, onSelectSession, onInitialRestoreDone]);
+  }, [allSessions, customProjects, selectedCwd, initialSessionId, skipInitialProjectSelection, onSelectSession, onInitialRestoreDone]);
 
   // Prefer an exact UI selection while a refetch is in flight. Once the
   // response catches up, the server-resolved path handles Windows case and
@@ -751,6 +756,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         setCustomPathError(data.error ?? `HTTP ${res.status}`);
         return;
       }
+      saveCustomProject({ key: data.projectKey, root: data.projectRoot });
+      setCustomProjects(loadCustomProjects());
       setValidatedProject({
         cwd: data.cwd,
         root: data.projectRoot,
@@ -894,7 +901,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onNewSession?.(tempId, selectedCwd);
   }, [selectedCwd, onNewSession]);
 
-  const recentProjects = getRecentProjects(allSessions);
+  const recentProjects = getRecentProjects(allSessions, customProjects);
   const showProjectFilter = recentProjects.length > 8;
   const visibleProjects = projectFilter.trim()
     ? recentProjects.filter((project) => project.root.toLowerCase().includes(projectFilter.trim().toLowerCase()))
@@ -1164,7 +1171,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 </div>
               )}
               <div style={{ maxHeight: "min(50vh, 380px)", overflowY: "auto" }}>
-                {visibleProjects.map((project) => (
+                {visibleProjects.map((project) => {
+                  const isCustomOnly = isCustomOnlyProject(project.key, allSessions, customProjects);
+                  return (
                   <button
                     key={project.key}
                     onClick={() => {
@@ -1202,9 +1211,42 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     )}
                     {project.key !== selectedProject?.key && <span style={{ width: 10, flexShrink: 0 }} />}
                     <PathLabel text={displayCwd(project.root, homeDir)} style={{ flex: 1 }} />
+                    {isCustomOnly && (
+                      <span
+                        role="button"
+                        tabIndex={-1}
+                        aria-label={t("sidebar.removeCustomProject")}
+                        title={t("sidebar.removeCustomProject")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeCustomProject(project.key);
+                          setCustomProjects(loadCustomProjects());
+                        }}
+                        style={{
+                          flexShrink: 0,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: 16,
+                          height: 16,
+                          borderRadius: 4,
+                          color: "var(--text-dim)",
+                          cursor: "pointer",
+                          opacity: 0.7,
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = "#ef4444"; e.currentTarget.style.opacity = "1"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.opacity = "0.7"; }}
+                      >
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+                          <line x1="2" y1="2" x2="8" y2="8" />
+                          <line x1="8" y1="2" x2="2" y2="8" />
+                        </svg>
+                      </span>
+                    )}
                     {showProjectActivity(projectActivity.get(project.key), t)}
                   </button>
-                ))}
+                  );
+                })}
                 {visibleProjects.length === 0 && projectFilter.trim() && (
                    <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-dim)" }}>{t("sidebar.noMatchingProjects")}</div>
                 )}
