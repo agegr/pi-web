@@ -4,9 +4,9 @@ import test from "node:test";
 
 const source = await readFile(new URL("./PluginsConfig.tsx", import.meta.url), "utf8");
 
-test("shows direct extensions and only offers to unlink managed symlinks", () => {
+test("shows direct extensions without adding management actions", () => {
   assert.match(source, /extension\.origin === "top-level"/);
-  assert.match(source, /action: "unlink-extension"/);
-  assert.match(source, /extension\.linkPath &&/);
-  assert.match(source, /unlinkExtensionKeepsSource/);
+  assert.match(source, /directExtensions\.map/);
+  assert.match(source, /shortenPath\(extension\.path\)/);
+  assert.doesNotMatch(source, /unlink-extension|unlinkExtension|extension\.linkPath/);
 });

@@ -112,7 +112,6 @@ export interface ExtensionResourceInfo {
   source: string;
   origin: "package" | "top-level";
   enabled: boolean;
-  linkPath?: string;
 }
 
 export interface PluginsResponse {

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import type { ExtensionResourceInfo, PluginPackageInfo, PluginsResponse } from "@/lib/api-types";
+import type { PluginPackageInfo, PluginsResponse } from "@/lib/api-types";
 import { useI18n } from "@/hooks/useI18n";
 
 type PluginScope = PluginPackageInfo["scope"];
@@ -746,35 +746,6 @@ export function PluginsConfig({
     }
   }, [loadPlugins, onReloaded, sessionId]);
 
-  const unlinkExtension = useCallback(async (extension: ExtensionResourceInfo) => {
-    if (!extension.linkPath) return;
-    if (!window.confirm(t("i18n.unlinkExtensionConfirm", { name: extension.name }))) return;
-    setBusyKey(`unlink:${extension.linkPath}`);
-    setActionError(null);
-    setActionMessage(null);
-    try {
-      const res = await fetch("/api/plugins", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "unlink-extension",
-          linkPath: extension.linkPath,
-          scope: extension.scope,
-          cwd,
-        }),
-      });
-      const next = (await res.json()) as PluginsResponse & { error?: string };
-      if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
-      setData(next);
-      await reloadSession();
-      setActionMessage(t("i18n.extensionLinkRemoved"));
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusyKey(null);
-    }
-  }, [cwd, reloadSession, t]);
-
   const addBusy = busyKey?.startsWith("install:") ?? false;
 
   return (
@@ -996,9 +967,7 @@ export function PluginsConfig({
                     }}>
                       {t("i18n.directExtensions")}
                     </div>
-                    {directExtensions.map((extension) => {
-                      const unlinking = busyKey === `unlink:${extension.linkPath}`;
-                      return (
+                    {directExtensions.map((extension) => (
                         <div key={`${extension.scope}:${extension.path}`} style={{
                           display: "flex",
                           alignItems: "center",
@@ -1025,7 +994,7 @@ export function PluginsConfig({
                               {extension.name}
                             </div>
                             <div
-                              title={extension.linkPath ?? extension.path}
+                              title={extension.path}
                               style={{
                                 marginTop: 2,
                                 fontSize: 10,
@@ -1035,27 +1004,11 @@ export function PluginsConfig({
                                 whiteSpace: "nowrap",
                               }}
                             >
-                              {extension.scope} · {shortenPath(extension.linkPath ?? extension.path)}
+                              {extension.scope} · {shortenPath(extension.path)}
                             </div>
                           </div>
-                          {extension.linkPath && (
-                            <button
-                              type="button"
-                              onClick={() => void unlinkExtension(extension)}
-                              disabled={busyKey !== null}
-                              title={t("i18n.unlinkExtensionKeepsSource")}
-                              style={{
-                                ...buttonStyle(busyKey !== null, true),
-                                padding: "4px 7px",
-                                fontSize: 10,
-                              }}
-                            >
-                              {unlinking ? t("i18n.removing") : t("i18n.unlinkExtension")}
-                            </button>
-                          )}
                         </div>
-                      );
-                    })}
+                    ))}
                   </div>
                 )}
                 </>
