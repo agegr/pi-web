@@ -5,6 +5,10 @@ import { createPairToken } from "@/lib/pair-tokens";
 
 export const dynamic = "force-dynamic";
 
+function isFullUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
+}
+
 /**
  * Generate a one-time pairing token the desktop embeds in the QR code.
  * The token lets the phone reach the server with `/?pair=<token>`,
@@ -15,6 +19,10 @@ export const dynamic = "force-dynamic";
  * /api/pair-info: env var wins, then the .pi-web-hostname file, then
  * the request's Host header (last resort — only useful in dev mode
  * without a configured bind address).
+ *
+ * If the resolved value is a full URL (e.g. `https://...ts.net` written
+ * by `tailscale serve`), we use it as-is so the phone gets a secure
+ * context — required for Chrome to install the PWA in standalone mode.
  */
 export async function GET() {
   const configured = process.env.PI_WEB_HOSTNAME?.trim();
@@ -36,6 +44,9 @@ export async function GET() {
   if (!host) host = "127.0.0.1";
 
   const { token, expiresAt } = createPairToken();
-  const url = `http://${host}:${port}/?pair=${encodeURIComponent(token)}`;
+  const baseUrl = isFullUrl(host)
+    ? (host.endsWith("/") ? host.slice(0, -1) : host)
+    : `http://${host}:${port}`;
+  const url = `${baseUrl}/?pair=${encodeURIComponent(token)}`;
   return NextResponse.json({ url, expiresAt });
 }

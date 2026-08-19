@@ -31,12 +31,42 @@ const { parseLaunchOptions } = require("./pi-web-options");
 const pkgDir = path.join(__dirname, "..");
 const { port, hostname, openBrowser } = parseLaunchOptions();
 
+// Read the HTTPS URL `tailscale serve` is publishing, when configured. We
+// prefer this over the bare Tailscale IPv4 address because only HTTPS
+// counts as a secure context for the browser — and a secure context is
+// the prerequisite for installing this app as a real PWA in standalone
+// mode (no browser UI). Returns `null` when `tailscale serve` is not
+// installed, not configured, or status output is unparseable.
+function resolveTailscaleHttpsUrl() {
+  try {
+    const out = execFileSync("tailscale", ["serve", "status"], {
+      encoding: "utf8",
+      timeout: 2000,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    // Capture protocol + hostname + optional port; drop the trailing slash
+    // tailscale prints. Matches look like:
+    //   "https://duoji.taildee88d.ts.net/"      -> "https://duoji.taildee88d.ts.net"
+    //   "https://duoji.taildee88d.ts.net:8443/" -> "https://duoji.taildee88d.ts.net:8443"
+    const match = out.match(/(https:\/\/[^\s]+?ts\.net(?::\d+)?)\/?/);
+    return match ? match[1] : null;
+  } catch {
+    /* `tailscale serve` not installed / not configured / failed — fall through */
+    return null;
+  }
+}
+
 // Pick the address to advertise in the QR code. If the operator bound to
-// 0.0.0.0 (all interfaces), we look up the Tailscale IP of this machine so
-// the phone can dial it. If `tailscale` isn't installed or the lookup
-// fails, we fall back to 127.0.0.1 (the modal will show a warning).
+// 0.0.0.0 (all interfaces), we look up the Tailscale HTTPS URL first
+// (preferred — gives the phone a secure context so PWA install works in
+// standalone mode), then fall back to the bare Tailscale IPv4, then to
+// 127.0.0.1 (the modal will show a warning if we end up here).
 function resolveQrHost(boundHost) {
   if (boundHost && boundHost !== "0.0.0.0") return boundHost;
+
+  const tsHttps = resolveTailscaleHttpsUrl();
+  if (tsHttps) return tsHttps;
+
   try {
     const out = execFileSync("tailscale", ["ip", "-4"], {
       encoding: "utf8",
@@ -51,6 +81,20 @@ function resolveQrHost(boundHost) {
 }
 
 const qrHost = resolveQrHost(hostname);
+
+// `PI_WEB_HOSTNAME` is consumed by `lib/request-security.ts` via
+// `hostnameFromAuthority`, which rejects anything containing '/' (it
+// expects an `authority` form, not a full URL). When `qrHost` is a full
+// HTTPS URL we hand the security check the bare hostname — that matches
+// what the Host header carries on the wire (`duoji.taildee88d.ts.net`,
+// no protocol, no port). The full URL still flows into `.pi-web-hostname`
+// so the QR route can emit a working HTTPS pair URL.
+let envHostname = qrHost;
+try {
+  envHostname = new URL(qrHost).hostname;
+} catch {
+  /* qrHost is already a bare host or IP — leave it untouched */
+}
 
 // The QR-encoding route reads this file because Next.js route workers don't
 // always inherit the parent environment. We write the addressable hostname
@@ -69,7 +113,7 @@ const nextArgs = ["start", pkgDir, "-p", port, "-H", hostname];
 
 const child = spawn(process.execPath, [require.resolve("next/dist/bin/next", { paths: [pkgDir] }), ...nextArgs], {
   stdio: ["inherit", "pipe", "inherit"],
-  env: { ...process.env, PI_WEB_HOSTNAME: qrHost },
+  env: { ...process.env, PI_WEB_HOSTNAME: envHostname },
 });
 
 let browserOpened = false;

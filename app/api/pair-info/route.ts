@@ -12,6 +12,11 @@ export const dynamic = "force-dynamic";
  *   3. `0.0.0.0` is rejected because the phone can't dial it. We fall back to
  *      `127.0.0.1` for that case so the user gets a working code instead of
  *      a broken one — they can read the address from the modal and copy it.
+ *
+ * The launcher may write a full URL (e.g. `https://duoji.taildee88d.ts.net`
+ * when `tailscale serve` is configured) so the QR code lands on a secure
+ * context and Chrome will install the PWA in standalone mode. In that case
+ * we keep the URL intact instead of wrapping it in `http://host:port`.
  */
 function readBoundHostname(): string {
   const fromEnv = process.env.PI_WEB_HOSTNAME?.trim();
@@ -26,6 +31,10 @@ function readBoundHostname(): string {
     /* ignore */
   }
   return "127.0.0.1";
+}
+
+function isFullUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
 }
 
 /**
@@ -54,6 +63,20 @@ export async function GET() {
   // dial. Loopback / unspecified is only acceptable when the operator
   // hasn't bound a specific address — they get a clear warning.
   if (configured) {
+    if (isFullUrl(configured)) {
+      // `tailscale serve` (or any other HTTPS-terminating proxy in front of
+      // us) wrote a full URL. Honor it as-is so the phone gets a secure
+      // context — required for Chrome to install this as a real PWA.
+      const parsed = new URL(configured);
+      const url = configured.endsWith("/") ? configured : `${configured}/`;
+      return NextResponse.json({
+        url,
+        hostname: parsed.hostname,
+        port: parsed.port || (parsed.protocol === "https:" ? "443" : "80"),
+        authRequired,
+        username: "pi",
+      });
+    }
     return NextResponse.json({
       url: `http://${configured}:${port}/`,
       hostname: configured,
