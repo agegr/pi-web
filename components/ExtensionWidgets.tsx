@@ -160,7 +160,7 @@ export function ExtensionWidgets({ widgets, footer = null }: {
             className="extension-widget-panel"
             aria-labelledby={footerId}
           >
-            <div className="extension-widget-panel-heading">footer</div>
+            <div className="extension-widget-panel-heading">Details</div>
             <FooterPanel data={footer} />
           </section>
         </div>
@@ -239,7 +239,7 @@ export function ExtensionWidgets({ widgets, footer = null }: {
             className={`extension-widget-trigger${footerExpanded ? " is-expanded" : ""}`}
             aria-controls={footerPanelId}
             aria-expanded={footerExpanded}
-            title={`footer - ${footerExpanded ? t("i18n.collapse") : t("i18n.expand")}`}
+            title={`Details - ${footerExpanded ? t("i18n.collapse") : t("i18n.expand")}`}
             onClick={toggleFooter}
           >
             <span className="extension-widget-update-pulse" aria-hidden="true" />
@@ -255,7 +255,7 @@ export function ExtensionWidgets({ widgets, footer = null }: {
                 <path d="M4 0l4 6H0z" />
               </svg>
             </span>
-            <span className="extension-widget-key">footer</span>
+            <span className="extension-widget-key">Details</span>
           </button>
         )}
       </div>
