@@ -65,8 +65,11 @@ const nextConfig: NextConfig = {
     "@earendil-works/pi-tui",
   ],
   // "100.*.*.*" covers Tailscale's 100.64.0.0/10 CGNAT range so `next dev`
-  // does not reject requests arriving over a tailnet.
-  allowedDevOrigins: ["127.0.0.1", "192.168.*.*", "100.*.*.*"],
+  // does not reject requests arriving over a tailnet. "*.ts.net" covers
+  // the secure-context HTTPS hostname that `tailscale serve` publishes —
+  // the phone reaches the dev server through that hostname when the
+  // operator has configured `tailscale serve --https=443 ...`.
+  allowedDevOrigins: ["127.0.0.1", "192.168.*.*", "100.*.*.*", "*.ts.net"],
   async headers() {
     return [
       {
