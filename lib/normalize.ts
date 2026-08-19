@@ -14,9 +14,11 @@ function streamingRawInput(block: Record<string, unknown>): string | undefined {
     ? customInput.property
     : null;
   const args = isObject(block.arguments) ? block.arguments : null;
-  return property && args && typeof args[property] === "string"
-    ? args[property]
-    : undefined;
+  if (property && args) {
+    const value = args[property];
+    if (typeof value === "string") return value;
+  }
+  return undefined;
 }
 
 function normalizeToolCallBlock(
