@@ -13,12 +13,13 @@ import {
 } from "@/lib/web-themes";
 
 const PICKER_WIDTH = 320;
-const PICKER_HEIGHT_ESTIMATE = 560;
+const PICKER_HEIGHT_ESTIMATE = 720;
 const VIEWPORT_MARGIN = 8;
 
-const GROUP_ORDER: PaletteGroup[] = ["signature", "dark", "light", "special"];
+const GROUP_ORDER: PaletteGroup[] = ["signature", "ai", "dark", "light", "special"];
 const GROUP_LABELS: Record<PaletteGroup, string> = {
   signature: "SIGNATURE",
+  ai: "AI / AGENT",
   dark: "DARK",
   light: "LIGHT",
   special: "SPECIAL",
@@ -149,7 +150,7 @@ export function ThemePalettePicker() {
       className="pi-theme-picker"
       role="dialog"
       aria-label="Theme picker"
-      style={{ position: "fixed", top: panelPos.top, left: panelPos.left, width: PICKER_WIDTH }}
+      style={{ position: "fixed", top: panelPos.top, left: panelPos.left, width: PICKER_WIDTH, maxHeight: "min(78vh, 720px)", overflowY: "auto", overscrollBehavior: "contain" }}
     >
       {/* Appearance section */}
       <div className="pi-theme-picker-section">
@@ -181,8 +182,8 @@ export function ThemePalettePicker() {
           const items = PALETTES.filter((p) => p.group === group);
           if (items.length === 0) return null;
           return (
-            <div key={group} className="pi-theme-picker-group">
-              <div className="pi-theme-picker-group-label">{GROUP_LABELS[group]}</div>
+            <div key={group} className={`pi-theme-picker-group${group === "ai" ? " pi-theme-picker-group-ai" : ""}`}>
+              <div className={`pi-theme-picker-group-label${group === "ai" ? " pi-theme-picker-group-label-ai" : ""}`} style={group === "ai" ? { color: "var(--accent)", letterSpacing: "0.08em" } : undefined}>{GROUP_LABELS[group]}</div>
               {items.map((p) => {
                 const isActive = palette === p.id;
                 return (

@@ -80,12 +80,26 @@ export type PaletteId =
   | "obsidian"
   | "arctic-light"
   | "paper-ink"
-  | "amber-terminal";
+  | "amber-terminal"
+  | "cursor"
+  | "claude"
+  | "codex"
+  | "devin"
+  | "replit"
+  | "linear"
+  | "vercel"
+  | "github-dark"
+  | "zed"
+  | "warp"
+  | "roo"
+  | "aider"
+  | "reasonix"
+  | "agentic";
 
 export interface PaletteDef {
   id: PaletteId;
   label: string;
-  group: "signature" | "dark" | "light" | "special";
+  group: "signature" | "dark" | "light" | "special" | "ai";
   descriptor: string;
   /** Default appearance used by the picker preview. */
   defaultMode: ThemeMode;
@@ -112,6 +126,64 @@ function map(overrides: Partial<TokenMap>): TokenMap {
   if (!out["border-focus"]) out["border-focus"] = get("accent");
   return out;
 }
+
+function agentPalette(spec: {
+  dark: { bg: string; panel: string; elevated: string; accent: string; text: string; secondary: string; muted: string; border: string };
+  light: { bg: string; panel: string; elevated: string; accent: string; text: string; secondary: string; muted: string; border: string };
+  status?: { dark?: { success: string; warning: string; error: string; info: string }; light?: { success: string; warning: string; error: string; info: string } };
+}): PaletteTokens {
+  const statuses = {
+    dark: { success: "#57d39b", warning: "#f2c66d", error: "#f47d86", info: "#63c8f2", ...(spec.status?.dark ?? {}) },
+    light: { success: "#15803d", warning: "#b45309", error: "#dc2626", info: "#0369a1", ...(spec.status?.light ?? {}) },
+  };
+
+  const build = (mode: "dark" | "light") => {
+    const p = spec[mode];
+    const s = statuses[mode];
+    const isDark = mode === "dark";
+    const overlay = isDark ? "white" : "black";
+    return map({
+      bg: p.bg,
+      "bg-panel": p.panel,
+      "bg-elevated": p.elevated,
+      "bg-popover": isDark ? `color-mix(in srgb, ${p.elevated} 92%, ${overlay})` : `color-mix(in srgb, ${p.elevated} 96%, white)`,
+      "bg-input": isDark ? `color-mix(in srgb, ${p.panel} 72%, ${p.bg})` : `color-mix(in srgb, ${p.panel} 92%, ${p.bg})`,
+      "bg-hover": isDark ? `color-mix(in srgb, ${p.panel} 78%, ${p.accent} 22%)` : `color-mix(in srgb, ${p.panel} 92%, ${p.accent} 8%)`,
+      "bg-selected": isDark ? `color-mix(in srgb, ${p.panel} 68%, ${p.accent} 32%)` : `color-mix(in srgb, ${p.panel} 84%, ${p.accent} 16%)`,
+      "bg-subtle": isDark ? `color-mix(in srgb, ${p.bg} 92%, ${p.text} 8%)` : `color-mix(in srgb, ${p.bg} 94%, ${p.text} 6%)`,
+      text: p.text,
+      "text-secondary": p.secondary,
+      "text-muted": p.muted,
+      "text-dim": isDark ? `color-mix(in srgb, ${p.muted} 68%, ${p.bg})` : `color-mix(in srgb, ${p.muted} 72%, ${p.bg})`,
+      "text-inverse": isDark ? p.bg : "#ffffff",
+      "text-accent": p.accent,
+      border: p.border,
+      "border-subtle": isDark ? `color-mix(in srgb, ${p.border} 62%, ${p.bg})` : `color-mix(in srgb, ${p.border} 70%, white)`,
+      "border-strong": isDark ? `color-mix(in srgb, ${p.border} 72%, ${p.text} 28%)` : `color-mix(in srgb, ${p.border} 82%, ${p.text} 18%)`,
+      "border-focus": p.accent,
+      accent: p.accent,
+      "accent-hover": isDark ? `color-mix(in srgb, ${p.accent} 82%, white)` : `color-mix(in srgb, ${p.accent} 84%, black)`,
+      "accent-active": isDark ? `color-mix(in srgb, ${p.accent} 76%, black)` : `color-mix(in srgb, ${p.accent} 78%, black)`,
+      "focus-ring": `color-mix(in oklab, ${p.accent} ${isDark ? 48 : 42}%, transparent)`,
+      "selection-bg": `color-mix(in oklab, ${p.accent} ${isDark ? 30 : 20}%, transparent)`,
+      success: s.success, "success-bg": `color-mix(in srgb, ${s.success} ${isDark ? 16 : 10}%, transparent)`,
+      warning: s.warning, "warning-bg": `color-mix(in srgb, ${s.warning} ${isDark ? 16 : 10}%, transparent)`,
+      error: s.error, "error-bg": `color-mix(in srgb, ${s.error} ${isDark ? 16 : 10}%, transparent)`,
+      info: s.info, "info-bg": `color-mix(in srgb, ${s.info} ${isDark ? 16 : 10}%, transparent)`,
+      "user-bg": isDark ? `color-mix(in srgb, ${p.panel} 82%, ${p.accent} 18%)` : `color-mix(in srgb, ${p.panel} 92%, ${p.accent} 8%)`,
+      "assistant-bg": p.panel,
+      "tool-bg": isDark ? `color-mix(in srgb, ${p.bg} 76%, ${p.accent} 24%)` : `color-mix(in srgb, ${p.bg} 94%, ${p.accent} 6%)`,
+      "code-bg": isDark ? `color-mix(in srgb, ${p.bg} 70%, ${p.accent} 30%)` : `color-mix(in srgb, ${p.bg} 93%, ${p.accent} 7%)`,
+      "terminal-bg": isDark ? `color-mix(in srgb, ${p.bg} 82%, black)` : `color-mix(in srgb, ${p.bg} 96%, ${p.text})`,
+      "thinking-bg": isDark ? `color-mix(in srgb, ${p.panel} 82%, ${p.accent} 18%)` : `color-mix(in srgb, ${p.panel} 94%, ${p.accent} 6%)`,
+      link: p.accent,
+      "badge-bg": isDark ? `color-mix(in srgb, ${p.panel} 72%, ${p.accent} 28%)` : `color-mix(in srgb, ${p.panel} 86%, ${p.accent} 14%)`,
+      scrollbar: isDark ? `color-mix(in srgb, ${p.border} 76%, ${p.text} 24%)` : `color-mix(in srgb, ${p.border} 82%, ${p.text} 18%)`,
+    });
+  };
+  return { dark: build("dark"), light: build("light") };
+}
+
 
 export const PALETTE_DEFS: Record<PaletteId, PaletteDef> = {
   // ============================================================
@@ -771,5 +843,171 @@ export const PALETTE_DEFS: Record<PaletteId, PaletteDef> = {
         "badge-bg": "#e4d7b6", scrollbar: "#ccc096",
       }),
     },
+  },  cursor: {
+    id: "cursor",
+    label: "Cursor",
+    group: "ai",
+    descriptor: "Graphite workspace with electric blue agent focus; crisp, low-noise developer UI.",
+    defaultMode: "dark",
+    tokens: agentPalette({
+      dark: { bg: "#0b0d10", panel: "#12161c", elevated: "#181d24", accent: "#4f8cff", text: "#e8edf5", secondary: "#b8c2d0", muted: "#7d8898", border: "#252b34" },
+      light: { bg: "#f6f8fb", panel: "#ffffff", elevated: "#ffffff", accent: "#2f6fec", text: "#172033", secondary: "#465264", muted: "#6b7482", border: "#d7dee8" },
+    }),
   },
+  claude: {
+    id: "claude",
+    label: "Claude",
+    group: "ai",
+    descriptor: "Warm graphite and clay-red accent for a calmer, editorial agent workspace.",
+    defaultMode: "dark",
+    tokens: agentPalette({
+      dark: { bg: "#171512", panel: "#211d18", elevated: "#28221c", accent: "#d97757", text: "#f1e9df", secondary: "#cbbfb2", muted: "#8f8378", border: "#3a3028" },
+      light: { bg: "#faf7f2", panel: "#ffffff", elevated: "#ffffff", accent: "#a64b32", text: "#f3eee7", secondary: "#665c53", muted: "#8b8178", border: "#ddd5cc" },
+    }),
+  },
+  codex: {
+    id: "codex",
+    label: "Codex",
+    group: "ai",
+    descriptor: "Near-black engineering canvas with mint execution states and precise contrast.",
+    defaultMode: "dark",
+    tokens: agentPalette({
+      dark: { bg: "#0b0f0d", panel: "#121815", elevated: "#18201b", accent: "#65d69a", text: "#e5f2eb", secondary: "#b8cdbf", muted: "#75877c", border: "#27352c" },
+      light: { bg: "#f5faf7", panel: "#ffffff", elevated: "#ffffff", accent: "#137a4a", text: "#e7f2eb", secondary: "#50645a", muted: "#77867d", border: "#d7e2da" },
+    }),
+  },
+  devin: {
+    id: "devin",
+    label: "Devin",
+    group: "ai",
+    descriptor: "Deep navy autonomous-agent workspace with bright blue supervision cues.",
+    defaultMode: "dark",
+    tokens: agentPalette({
+      dark: { bg: "#0a1020", panel: "#111a2d", elevated: "#18233a", accent: "#5b8cff", text: "#e7edff", secondary: "#b8c5df", muted: "#74829f", border: "#263552" },
+      light: { bg: "#f4f7ff", panel: "#ffffff", elevated: "#ffffff", accent: "#345fd1", text: "#e8edff", secondary: "#4f5d77", muted: "#77839b", border: "#d7deeb" },
+    }),
+  },
+  replit: {
+    id: "replit",
+    label: "Replit",
+    group: "ai",
+    descriptor: "Dark build-lab navy with warm orange-red action color and energetic status contrast.",
+    defaultMode: "dark",
+    tokens: agentPalette({
+      dark: { bg: "#0d1022", panel: "#171a33", elevated: "#202544", accent: "#f2624d", text: "#f2f4ff", secondary: "#c2c7df", muted: "#7e849f", border: "#303652" },
+      light: { bg: "#fff7f5", panel: "#ffffff", elevated: "#ffffff", accent: "#d84332", text: "#ffe8e4", secondary: "#65504d", muted: "#8a7774", border: "#ded1ce" },
+    }),
+  },
+  linear: {
+    id: "linear",
+    label: "Linear",
+    group: "ai",
+    descriptor: "Minimal near-black workspace with violet interaction and extremely restrained chrome.",
+    defaultMode: "dark",
+    tokens: agentPalette({
+      dark: { bg: "#111116", panel: "#19191f", elevated: "#202026", accent: "#8b7cff", text: "#eeeeF4", secondary: "#bfc0cf", muted: "#797b8c", border: "#30303a" },
+      light: { bg: "#f8f8fb", panel: "#ffffff", elevated: "#ffffff", accent: "#5b4fd1", text: "#ecebfd", secondary: "#555466", muted: "#81808f", border: "#d7d6df" },
+    }),
+  },
+  vercel: {
+    id: "vercel",
+    label: "Vercel",
+    group: "ai",
+    descriptor: "Monochrome command center: black, white, sharp hierarchy, no decorative noise.",
+    defaultMode: "dark",
+    tokens: agentPalette({
+      dark: { bg: "#050505", panel: "#111111", elevated: "#191919", accent: "#f5f5f5", text: "#f5f5f5", secondary: "#bdbdbd", muted: "#747474", border: "#292929" },
+      light: { bg: "#fafafa", panel: "#ffffff", elevated: "#ffffff", accent: "#111111", text: "#f0f0f0", secondary: "#555555", muted: "#808080", border: "#d5d5d5" },
+    }),
+  },
+  "github-dark": {
+    id: "github-dark",
+    label: "GitHub Dark",
+    group: "ai",
+    descriptor: "Familiar engineering graphite with blue navigation and review affordances.",
+    defaultMode: "dark",
+    tokens: agentPalette({
+      dark: { bg: "#0d1117", panel: "#161b22", elevated: "#1f2630", accent: "#58a6ff", text: "#e6edf3", secondary: "#b1bac4", muted: "#7d8590", border: "#30363d" },
+      light: { bg: "#f6f8fa", panel: "#ffffff", elevated: "#ffffff", accent: "#0969da", text: "#1f2328", secondary: "#57606a", muted: "#818b98", border: "#d0d7de" },
+    }),
+  },
+  zed: {
+    id: "zed",
+    label: "Zed",
+    group: "ai",
+    descriptor: "Cool graphite editor palette with bright blue focus and sparse visual hierarchy.",
+    defaultMode: "dark",
+    tokens: agentPalette({
+      dark: { bg: "#0d1014", panel: "#151a20", elevated: "#1d232b", accent: "#75b7ff", text: "#e8eef5", secondary: "#b9c5d2", muted: "#7c8998", border: "#29333f" },
+      light: { bg: "#f4f7fa", panel: "#ffffff", elevated: "#ffffff", accent: "#3d7ac2", text: "#e8eef5", secondary: "#566575", muted: "#7c8998", border: "#d6dee7" },
+    }),
+  },
+  warp: {
+    id: "warp",
+    label: "Warp",
+    group: "ai",
+    descriptor: "Terminal-first dark violet workspace with vivid command focus and strong tool separation.",
+    defaultMode: "dark",
+    tokens: agentPalette({
+      dark: { bg: "#0d0c14", panel: "#151320", elevated: "#1d1a2a", accent: "#9b7cff", text: "#eeeaff", secondary: "#c2bbd9", muted: "#80799a", border: "#312a45" },
+      light: { bg: "#f8f6ff", panel: "#ffffff", elevated: "#ffffff", accent: "#684fd1", text: "#ece9ff", secondary: "#5c536f", muted: "#81798f", border: "#d9d4e5" },
+    }),
+  },
+  roo: {
+    id: "roo",
+    label: "Roo",
+    group: "ai",
+    descriptor: "Agent swarm palette: deep slate, cyan execution cues, green completion states.",
+    defaultMode: "dark",
+    tokens: agentPalette({
+      dark: { bg: "#0b1113", panel: "#121b1e", elevated: "#192529", accent: "#4ed7c2", text: "#e4f7f4", secondary: "#b5d2ce", muted: "#738c89", border: "#29413f" },
+      light: { bg: "#f3fbfa", panel: "#ffffff", elevated: "#ffffff", accent: "#138b7b", text: "#e5f7f4", secondary: "#506b68", muted: "#78908d", border: "#d4e4e1" },
+    }),
+  },
+  aider: {
+    id: "aider",
+    label: "Aider",
+    group: "ai",
+    descriptor: "Terminal-native pair-programming palette with readable command/output separation.",
+    defaultMode: "dark",
+    tokens: agentPalette({
+      dark: { bg: "#0b0f12", panel: "#131a1f", elevated: "#1b2329", accent: "#62a8ff", text: "#e6eef6", secondary: "#b6c4d0", muted: "#748491", border: "#29353f" },
+      light: { bg: "#f5f8fb", panel: "#ffffff", elevated: "#ffffff", accent: "#2869b2", text: "#e7f0f8", secondary: "#516170", muted: "#7c8b98", border: "#d4dce4" },
+    }),
+  },
+  reasonix: {
+    id: "reasonix",
+    label: "Reasonix",
+    group: "ai",
+    descriptor: "Cache-conscious terminal harness aesthetic: dark steel, cobalt focus, amber diagnostics.",
+    defaultMode: "dark",
+    tokens: agentPalette({
+      dark: { bg: "#090d12", panel: "#111820", elevated: "#19212b", accent: "#4c8dff", text: "#e7edf6", secondary: "#b5c1cf", muted: "#71808f", border: "#283440" },
+      light: { bg: "#f5f8fc", panel: "#ffffff", elevated: "#ffffff", accent: "#315fbd", text: "#e7eef8", secondary: "#536170", muted: "#7d8995", border: "#d6dde5" },
+    }),
+  },
+  agentic: {
+    id: "agentic",
+    label: "Agentic",
+    group: "ai",
+    descriptor: "A purpose-built command center palette for parallel agents, tools, approvals and reasoning.",
+    defaultMode: "dark",
+    tokens: agentPalette({
+      dark: { bg: "#090b10", panel: "#11151d", elevated: "#191e28", accent: "#5ce1e6", text: "#e8f7f8", secondary: "#b8ced0", muted: "#72878a", border: "#27363a" },
+      light: { bg: "#f3fafb", panel: "#ffffff", elevated: "#ffffff", accent: "#168b90", text: "#e6f7f8", secondary: "#50676a", muted: "#7b8e90", border: "#d4e2e3" },
+    }),
+  },
+
+
+
+
+  // ============================================================
+  // AI / AGENT COLLECTION
+  //
+  // Product-language inspired, not pixel copies. These themes are
+  // intentionally optimized for agent-heavy work: clear tool surfaces,
+  // readable reasoning/terminal states, restrained accents, and strong
+  // separation between user, assistant, and execution surfaces.
+  // ============================================================
+
 };

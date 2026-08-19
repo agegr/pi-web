@@ -18,7 +18,7 @@ import {
 
 export type { PaletteId } from "./theme-palettes";
 
-export type PaletteGroup = "signature" | "dark" | "light" | "special";
+export type PaletteGroup = "signature" | "dark" | "light" | "special" | "ai";
 
 export interface PaletteMeta {
   id: PaletteId;

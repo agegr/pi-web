@@ -63,7 +63,7 @@ export default function RootLayout({
         <meta name="google" content="notranslate" />
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("pi-theme");var dark=t==="dark"||((t==null||t===""||t==="auto")&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(dark)document.documentElement.classList.add("dark");var p=localStorage.getItem("pi-web-palette");if(p==="solarized-dark"||p==="solarized-light")p="solarized";if(p&&p!=="pi"&&["midnight","tokyo-night","catppuccin","dracula","nord","gruvbox","rose-pine","solarized","cyberpunk","obsidian","arctic-light","paper-ink","amber-terminal"].indexOf(p)>=0)document.documentElement.setAttribute("data-palette",p)}catch(e){}})();`,
+            __html: `(function(){try{var t=localStorage.getItem("pi-theme");var dark=t==="dark"||((t==null||t===""||t==="auto")&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(dark)document.documentElement.classList.add("dark");var p=localStorage.getItem("pi-web-palette");if(p==="solarized-dark"||p==="solarized-light")p="solarized";if(p&&p!=="pi"&&["midnight","tokyo-night","catppuccin","dracula","nord","gruvbox","rose-pine","solarized","cyberpunk","obsidian","arctic-light","paper-ink","amber-terminal","cursor","claude","codex","devin","replit","linear","vercel","github-dark","zed","warp","roo","aider","reasonix","agentic"].indexOf(p)>=0)document.documentElement.setAttribute("data-palette",p)}catch(e){}})();`,
           }}
         />
       </head>
