@@ -36,7 +36,7 @@ for (const id of order) {
   if (id === "pi") continue; // pi is the default (no data-palette attribute)
   const def = PALETTE_DEFS[id];
   parts.push(`/* --- ${def.label} --- */`);
-  parts.push(block(`html[data-palette="${id}"]`, def.tokens.dark));
+  parts.push(block(`html.dark[data-palette="${id}"]`, def.tokens.dark));
   parts.push("");
   parts.push(block(`html:not(.dark)[data-palette="${id}"]`, def.tokens.light));
   parts.push("");

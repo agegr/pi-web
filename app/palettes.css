@@ -2,7 +2,7 @@
  * Source of truth: lib/theme-palettes.ts. */
 
 /* --- Midnight --- */
-html[data-palette="midnight"] {
+html.dark[data-palette="midnight"] {
   --bg: #0d1119;
   --bg-panel: #121724;
   --bg-elevated: #161c2c;
@@ -89,7 +89,7 @@ html:not(.dark)[data-palette="midnight"] {
 }
 
 /* --- Tokyo Night --- */
-html[data-palette="tokyo-night"] {
+html.dark[data-palette="tokyo-night"] {
   --bg: #16161e;
   --bg-panel: #1a1b26;
   --bg-elevated: #1f2132;
@@ -176,7 +176,7 @@ html:not(.dark)[data-palette="tokyo-night"] {
 }
 
 /* --- Catppuccin --- */
-html[data-palette="catppuccin"] {
+html.dark[data-palette="catppuccin"] {
   --bg: #12121d;
   --bg-panel: #1e1e2e;
   --bg-elevated: #242434;
@@ -263,7 +263,7 @@ html:not(.dark)[data-palette="catppuccin"] {
 }
 
 /* --- Dracula --- */
-html[data-palette="dracula"] {
+html.dark[data-palette="dracula"] {
   --bg: #191a24;
   --bg-panel: #21222e;
   --bg-elevated: #262733;
@@ -350,7 +350,7 @@ html:not(.dark)[data-palette="dracula"] {
 }
 
 /* --- Nord --- */
-html[data-palette="nord"] {
+html.dark[data-palette="nord"] {
   --bg: #242933;
   --bg-panel: #2e3440;
   --bg-elevated: #333b49;
@@ -437,7 +437,7 @@ html:not(.dark)[data-palette="nord"] {
 }
 
 /* --- Gruvbox --- */
-html[data-palette="gruvbox"] {
+html.dark[data-palette="gruvbox"] {
   --bg: #242422;
   --bg-panel: #282828;
   --bg-elevated: #2e2e2c;
@@ -524,7 +524,7 @@ html:not(.dark)[data-palette="gruvbox"] {
 }
 
 /* --- Rosé Pine --- */
-html[data-palette="rose-pine"] {
+html.dark[data-palette="rose-pine"] {
   --bg: #191724;
   --bg-panel: #1f1d2e;
   --bg-elevated: #26233a;
@@ -611,7 +611,7 @@ html:not(.dark)[data-palette="rose-pine"] {
 }
 
 /* --- Solarized --- */
-html[data-palette="solarized"] {
+html.dark[data-palette="solarized"] {
   --bg: #002b36;
   --bg-panel: #07333f;
   --bg-elevated: #073642;
@@ -698,7 +698,7 @@ html:not(.dark)[data-palette="solarized"] {
 }
 
 /* --- Cyberpunk --- */
-html[data-palette="cyberpunk"] {
+html.dark[data-palette="cyberpunk"] {
   --bg: #0a0a10;
   --bg-panel: #11111a;
   --bg-elevated: #151520;
@@ -785,7 +785,7 @@ html:not(.dark)[data-palette="cyberpunk"] {
 }
 
 /* --- Obsidian --- */
-html[data-palette="obsidian"] {
+html.dark[data-palette="obsidian"] {
   --bg: #0d0c0b;
   --bg-panel: #141311;
   --bg-elevated: #181614;
@@ -872,7 +872,7 @@ html:not(.dark)[data-palette="obsidian"] {
 }
 
 /* --- Arctic Light --- */
-html[data-palette="arctic-light"] {
+html.dark[data-palette="arctic-light"] {
   --bg: #0f141c;
   --bg-panel: #161d28;
   --bg-elevated: #1a2230;
@@ -959,7 +959,7 @@ html:not(.dark)[data-palette="arctic-light"] {
 }
 
 /* --- Paper & Ink --- */
-html[data-palette="paper-ink"] {
+html.dark[data-palette="paper-ink"] {
   --bg: #17150f;
   --bg-panel: #1e1b14;
   --bg-elevated: #241f17;
@@ -1046,7 +1046,7 @@ html:not(.dark)[data-palette="paper-ink"] {
 }
 
 /* --- Amber Terminal --- */
-html[data-palette="amber-terminal"] {
+html.dark[data-palette="amber-terminal"] {
   --bg: #100e0a;
   --bg-panel: #191510;
   --bg-elevated: #1e1a12;
