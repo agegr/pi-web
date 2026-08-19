@@ -25,9 +25,7 @@ const {
   telegramSettings,
 } = await import("./settings.ts");
 const {
-  markDailyAgendaSent,
   readAssistantSessionId,
-  readDailyAgendaDelivery,
   readDailyAgendaSessionId,
   writeAssistantSessionId,
   writeDailyAgendaSessionId,
@@ -133,15 +131,6 @@ test("interactive and read-only assistants keep separate sessions", () => {
   writeDailyAgendaSessionId("daily-agenda");
   assert.equal(readAssistantSessionId(), "interactive");
   assert.equal(readDailyAgendaSessionId(), "daily-agenda");
-});
-
-test("daily agenda delivery state survives restarts and tracks chats independently", () => {
-  assert.equal(readDailyAgendaDelivery(), null);
-  markDailyAgendaSent("2026-08-17", 42);
-  markDailyAgendaSent("2026-08-17", 43);
-  assert.deepEqual(readDailyAgendaDelivery(), { date: "2026-08-17", chatIds: [42, 43] });
-  markDailyAgendaSent("2026-08-18", 42);
-  assert.deepEqual(readDailyAgendaDelivery(), { date: "2026-08-18", chatIds: [42] });
 });
 
 test("the telegram token is only ever summarised", () => {

@@ -2,22 +2,15 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   askAssistant,
-  dailyAgendaRunKey,
   gmailAudience,
-  gmailDigestRunKey,
   handleMessage,
   jobAudience,
-  jobDigestRunKey,
-  pendingDailyAgendaChatIds,
-  pendingGmailDigestChatIds,
-  pendingJobDigestChatIds,
   pollOnce,
   readConfig,
   sendDailyAgenda,
   sendGmailDigest,
   sendJobDigest,
   startNightlySweep,
-  sweepRunKey,
 } from "./bridge.ts";
 
 const config = (over = {}) => ({
@@ -49,34 +42,34 @@ function fakeFetch(routes) {
   return { fetch, calls };
 }
 
+/** An in-memory DeliveryLedger with its runs exposed for assertions. */
+function ledger() {
+  const runs = new Map();
+  return {
+    pending(key, audience) {
+      const sent = runs.get(key) ?? [];
+      return audience.filter((id) => !sent.includes(id));
+    },
+    mark(key, chatId) {
+      const sent = runs.get(key) ?? [];
+      if (!sent.includes(chatId)) runs.set(key, [...sent, chatId]);
+    },
+    runs,
+  };
+}
+
 const deps = (
   fetch,
   logs = [],
-  delivery = { current: null },
-  digest = { current: null },
-  mail = { current: null },
+  ledgers = {},
   googleConnected = () => true,
 ) => ({
   fetch,
   log: (message) => logs.push(message),
   now: () => 0,
-  readDailyAgendaDelivery: () => delivery.current,
-  markDailyAgendaSent: (date, chatId) => {
-    const chatIds = delivery.current?.date === date ? delivery.current.chatIds : [];
-    delivery.current = { date, chatIds: [...chatIds, chatId] };
-  },
-  readJobDigestDelivery: () => digest.current,
-  markJobDigestSent: (runKey, chatId) => {
-    const runs = { ...(digest.current?.runs ?? {}) };
-    runs[runKey] = [...(runs[runKey] ?? []), chatId];
-    digest.current = { runs };
-  },
-  readGmailDigestDelivery: () => mail.current,
-  markGmailDigestSent: (runKey, chatId) => {
-    const runs = { ...(mail.current?.runs ?? {}) };
-    runs[runKey] = [...(runs[runKey] ?? []), chatId];
-    mail.current = { runs };
-  },
+  dailyAgendaLedger: ledgers.agenda ?? ledger(),
+  jobLedger: ledgers.job ?? ledger(),
+  gmailLedger: ledgers.gmail ?? ledger(),
   googleConnected,
 });
 
@@ -201,24 +194,6 @@ test("pollOnce keeps the previous offset when nothing arrives", async () => {
   assert.equal(await pollOnce(config(), deps(fetch), 500), 500);
 });
 
-test("daily agenda becomes due on the machine-local date after its configured time", () => {
-  const schedule = { enabled: true, time: "08:00", locale: "zh" };
-  assert.equal(dailyAgendaRunKey(schedule, new Date(2026, 7, 17, 7, 59).getTime()), null);
-  assert.equal(dailyAgendaRunKey(schedule, new Date(2026, 7, 17, 8, 0).getTime()), "2026-08-17");
-  assert.equal(dailyAgendaRunKey({ ...schedule, enabled: false }, new Date(2026, 7, 17, 8, 0).getTime()), null);
-});
-
-test("already delivered chats stay skipped after a restart or partial broadcast", () => {
-  assert.deepEqual(
-    pendingDailyAgendaChatIds([42, 43], "2026-08-17", { date: "2026-08-17", chatIds: [42] }),
-    [43],
-  );
-  assert.deepEqual(
-    pendingDailyAgendaChatIds([42, 43], "2026-08-18", { date: "2026-08-17", chatIds: [42, 43] }),
-    [42, 43],
-  );
-});
-
 test("daily agenda asks for both sources and broadcasts to allowed chats", async () => {
   const { fetch, calls } = fakeFetch({
     "/api/robin/assistant": { body: { reply: "今日简报", usedTools: ["todo_list", "calendar_list_events"] } },
@@ -228,8 +203,8 @@ test("daily agenda asks for both sources and broadcasts to allowed chats", async
     allowlist: [42, 43],
     dailyAgenda: { enabled: true, time: "08:00", locale: "zh" },
   });
-  const delivery = { current: null };
-  await sendDailyAgenda(dailyConfig, deps(fetch, [], delivery), "2026-08-17");
+  const agenda = ledger();
+  await sendDailyAgenda(dailyConfig, deps(fetch, [], { agenda }), "2026-08-17");
 
   assert.match(calls[0].body.message, /todo_list/);
   assert.match(calls[0].body.message, /calendar_list_events/);
@@ -238,7 +213,7 @@ test("daily agenda asks for both sources and broadcasts to allowed chats", async
     calls.filter((call) => call.url.includes("sendMessage")).map((call) => call.body.chat_id),
     [42, 43],
   );
-  assert.deepEqual(delivery.current, { date: "2026-08-17", chatIds: [42, 43] });
+  assert.deepEqual(agenda.runs.get("2026-08-17"), [42, 43]);
 });
 
 test("the pi-web password is sent as basic auth when configured", async () => {
@@ -253,23 +228,6 @@ test("the pi-web password is sent as basic auth when configured", async () => {
 /* ── job digest ── */
 
 const schedule = { enabled: true, morning: "08:00", evening: "20:00", count: 10, locale: "en", sweepAt: "03:00", chatIds: [] };
-const at = (hour, minute = 0) => new Date(2026, 7, 17, hour, minute).getTime();
-
-test("only the latest due slot fires, so a late start does not send both", () => {
-  assert.equal(jobDigestRunKey(schedule, at(7, 59)), null);
-  assert.equal(jobDigestRunKey(schedule, at(8)), "2026-08-17:morning");
-  assert.equal(jobDigestRunKey(schedule, at(19, 59)), "2026-08-17:morning");
-  assert.equal(jobDigestRunKey(schedule, at(20)), "2026-08-17:evening");
-  // Starting the bridge at nine in the evening must not replay the morning.
-  assert.equal(jobDigestRunKey(schedule, at(21)), "2026-08-17:evening");
-  assert.equal(jobDigestRunKey({ ...schedule, enabled: false }, at(20)), null);
-});
-
-test("a chat already sent this slot is skipped, and the next slot is a new key", () => {
-  const delivered = { runs: { "2026-08-17:morning": [42] } };
-  assert.deepEqual(pendingJobDigestChatIds([42, 43], "2026-08-17:morning", delivered), [43]);
-  assert.deepEqual(pendingJobDigestChatIds([42, 43], "2026-08-17:evening", delivered), [42, 43]);
-});
 
 test("the digest scans, scores in the narrow mode, then claims only what it sent", async () => {
   const { fetch, calls } = fakeFetch({
@@ -280,8 +238,8 @@ test("the digest scans, scores in the narrow mode, then claims only what it sent
     },
     "sendMessage": { body: { ok: true } },
   });
-  const digest = { current: null };
-  await sendJobDigest(config({ jobDigest: schedule }), deps(fetch, [], { current: null }, digest), "2026-08-17:morning");
+  const job = ledger();
+  await sendJobDigest(config({ jobDigest: schedule }), deps(fetch, [], { job }), "2026-08-17:morning");
 
   const paths = calls.map((call) => call.url.replace("http://127.0.0.1:30141", "").split("?")[0]);
   assert.ok(paths[0].endsWith("/api/robin/jobs/scan"));
@@ -295,7 +253,7 @@ test("the digest scans, scores in the narrow mode, then claims only what it sent
 
   const claim = calls.at(-1);
   assert.deepEqual(claim.body.claim, ["j1"], "claimed after delivery, not before");
-  assert.deepEqual(digest.current, { runs: { "2026-08-17:morning": [42] } });
+  assert.deepEqual(job.runs.get("2026-08-17:morning"), [42]);
 });
 
 test("a failed send claims nothing, so the same jobs are offered again", async () => {
@@ -305,12 +263,12 @@ test("a failed send claims nothing, so the same jobs are offered again", async (
     "/api/robin/jobs/digest": { body: { text: "1. 4.6 Acme", jobIds: ["j1"], count: 1, pending: 0, scoreBatch: 40 } },
     "sendMessage": { ok: false, status: 429, body: { description: "Too Many Requests" } },
   });
-  const digest = { current: null };
+  const job = ledger();
   const logs = [];
-  await sendJobDigest(config({ jobDigest: schedule }), deps(fetch, logs, { current: null }, digest), "2026-08-17:morning");
+  await sendJobDigest(config({ jobDigest: schedule }), deps(fetch, logs, { job }), "2026-08-17:morning");
 
   assert.equal(calls.some((call) => call.body?.claim), false, "nothing landed, so nothing is consumed");
-  assert.equal(digest.current, null);
+  assert.equal(job.runs.size, 0);
   assert.match(logs.join("\n"), /send to 42 failed/);
 });
 
@@ -322,7 +280,7 @@ test("a board being down still lets already-scored jobs go out", async () => {
     "sendMessage": { body: { ok: true } },
   });
   const logs = [];
-  await sendJobDigest(config({ jobDigest: schedule }), deps(fetch, logs, { current: null }, { current: null }), "2026-08-17:evening");
+  await sendJobDigest(config({ jobDigest: schedule }), deps(fetch, logs), "2026-08-17:evening");
 
   assert.match(logs.join("\n"), /scan failed/);
   assert.equal(calls.filter((call) => call.url.includes("sendMessage")).length, 1);
@@ -331,18 +289,6 @@ test("a board being down still lets already-scored jobs go out", async () => {
 /* ── gmail digest ── */
 
 const mailSchedule = { enabled: true, time: "08:00", locale: "en", chatIds: [], query: "newer_than:1d" };
-
-test("the email digest fires once a day at its time", () => {
-  assert.equal(gmailDigestRunKey(mailSchedule, at(7, 59)), null);
-  assert.equal(gmailDigestRunKey(mailSchedule, at(8)), "2026-08-17");
-  assert.equal(gmailDigestRunKey({ ...mailSchedule, enabled: false }, at(8)), null);
-});
-
-test("a chat already emailed today is skipped", () => {
-  const delivered = { runs: { "2026-08-17": [42] } };
-  assert.deepEqual(pendingGmailDigestChatIds([42, 43], "2026-08-17", delivered), [43]);
-  assert.deepEqual(pendingGmailDigestChatIds([42, 43], "2026-08-18", delivered), [42, 43]);
-});
 
 test("the email digest goes to its own chat list when set", () => {
   assert.deepEqual(gmailAudience(config({ allowlist: [42], gmailDigest: mailSchedule })), [42]);
@@ -357,12 +303,12 @@ test("the email digest runs in the mail-review mode and marks delivery", async (
     "/api/robin/assistant": { body: { reply: "面试邀请", usedTools: ["gmail_list"] } },
     "sendMessage": { body: { ok: true } },
   });
-  const mail = { current: null };
+  const gmail = ledger();
   const mailConfig = config({
     allowlist: [42, 43],
     gmailDigest: { enabled: true, time: "08:00", locale: "zh", chatIds: [], query: "is:unread" },
   });
-  await sendGmailDigest(mailConfig, deps(fetch, [], { current: null }, { current: null }, mail), "2026-08-17");
+  await sendGmailDigest(mailConfig, deps(fetch, [], { gmail }), "2026-08-17");
 
   assert.match(calls[0].body.message, /gmail_list/);
   assert.equal(calls[0].body.mode, "mail");
@@ -371,21 +317,21 @@ test("the email digest runs in the mail-review mode and marks delivery", async (
     calls.filter((call) => call.url.includes("sendMessage")).map((call) => call.body.chat_id),
     [42, 43],
   );
-  assert.deepEqual(mail.current, { runs: { "2026-08-17": [42, 43] } });
+  assert.deepEqual(gmail.runs.get("2026-08-17"), [42, 43]);
 });
 
 test("an unconnected Google skips the digest for the day rather than retrying", async () => {
   const { fetch, calls } = fakeFetch({});
-  const mail = { current: null };
+  const gmail = ledger();
   const logs = [];
   await sendGmailDigest(
     config({ allowlist: [42], gmailDigest: mailSchedule }),
-    deps(fetch, logs, { current: null }, { current: null }, mail, () => false),
+    deps(fetch, logs, { gmail }, () => false),
     "2026-08-17",
   );
   assert.deepEqual(calls, [], "no assistant call, no send");
   assert.match(logs.join("\n"), /skipped/);
-  assert.deepEqual(mail.current, { runs: { "2026-08-17": [42] } });
+  assert.deepEqual(gmail.runs.get("2026-08-17"), [42]);
 });
 
 const noStored = { allowedChatIds: [] };
@@ -421,26 +367,19 @@ test("the environment still works when nothing is stored", () => {
   assert.deepEqual(config.allowlist, [7]);
 });
 
-test("the nightly sweep fires once a day and marks itself even when it fails", async () => {
-  assert.equal(sweepRunKey(schedule, at(2, 59)), null);
-  assert.equal(sweepRunKey({ ...schedule, sweepAt: "03:00" }, at(3)), "2026-08-17:sweep");
-  assert.equal(sweepRunKey({ ...schedule, sweepAt: "" }, at(3)), null, "empty disables it");
-
+test("the nightly sweep marks itself even when it fails", async () => {
   const { fetch, calls } = fakeFetch({
     "/api/robin/jobs/sweep": { ok: false, status: 500, body: { error: "boom" } },
   });
-  const digest = { current: null };
+  const job = ledger();
   const logs = [];
-  await startNightlySweep(config({ jobDigest: schedule }), deps(fetch, logs, { current: null }, digest), "2026-08-17:sweep");
+  await startNightlySweep(config({ jobDigest: schedule }), deps(fetch, logs, { job }), "2026-08-17:sweep");
 
   assert.equal(calls.length, 1);
   assert.match(logs.join("\n"), /nightly sweep failed/);
   // Marked anyway — otherwise a failing sweep retries every poll all night.
-  assert.deepEqual(digest.current, { runs: { "2026-08-17:sweep": [42] } });
+  assert.deepEqual(job.runs.get("2026-08-17:sweep"), [42]);
 });
-
-
-
 
 test("the job feed goes to its own chats, falling back to the main allow-list", () => {
   const base = config({ allowlist: [42], jobDigest: schedule });
@@ -453,20 +392,17 @@ test("the job feed goes to its own chats, falling back to the main allow-list", 
   assert.deepEqual(jobAudience(dedicated), [-1001234567890]);
 });
 
-
-test("the sweep and the digest do not erase each other's delivery record", async () => {
+test("the sweep and the digest do not erase each other's delivery record", () => {
   // The bug this pins: one ledger slot meant the sweep marked itself, the
   // morning digest overwrote that, the sweep found no record of itself and
   // fired again — ping-ponging every poll all day.
-  const digest = { current: null };
-  const d = deps(fakeFetch({}).fetch, [], { current: null }, digest);
+  const job = ledger();
+  job.mark("2026-08-18:sweep", 42);
+  job.mark("2026-08-18:morning", 42);
 
-  d.markJobDigestSent("2026-08-18:sweep", 42);
-  d.markJobDigestSent("2026-08-18:morning", 42);
-
-  assert.deepEqual(pendingJobDigestChatIds([42], "2026-08-18:sweep", digest.current), [],
+  assert.deepEqual(job.pending("2026-08-18:sweep", [42]), [],
     "the sweep must still count as delivered after the digest wrote");
-  assert.deepEqual(pendingJobDigestChatIds([42], "2026-08-18:morning", digest.current), []);
-  assert.deepEqual(pendingJobDigestChatIds([42], "2026-08-18:evening", digest.current), [42],
+  assert.deepEqual(job.pending("2026-08-18:morning", [42]), []);
+  assert.deepEqual(job.pending("2026-08-18:evening", [42]), [42],
     "a slot that has not run is still pending");
 });

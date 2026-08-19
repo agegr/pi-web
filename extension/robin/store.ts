@@ -15,7 +15,10 @@ import type { CalendarEvent } from "./events.ts";
 import type { MailReview } from "./mail.ts";
 import { DEFAULT_JOB_PROFILE, type Job, type JobProfile } from "./jobs.ts";
 import type { Link } from "./links.ts";
+import { createDeliveryLedger } from "./delivery-ledger.ts";
 import { dataPath, readJsonArray, readJsonObject, writeJsonArray, writeJsonObject } from "./paths.ts";
+
+export type { DeliveryLedger } from "./delivery-ledger.ts";
 
 export { addDays, dueBucket, localDate, normalizeDue, parseLocalDate, type DueBucket } from "./dates.ts";
 export {
@@ -58,6 +61,17 @@ const JOB_SCAN_FILE = "job-scan.json";
 const JOB_DIGEST_STATE_FILE = "job-digest-state.json";
 const GMAIL_DIGEST_STATE_FILE = "gmail-digest-state.json";
 const MAIL_REVIEW_FILE = "mail-review.json";
+
+/**
+ * Which chats have already received which run, per digest.
+ *
+ * One shape for all three: the daily agenda, the job digest (morning/evening/
+ * sweep share one ledger), and the email digest. The bridge and its tests
+ * build in-memory adapters of the same `DeliveryLedger` interface.
+ */
+export const dailyAgendaLedger = createDeliveryLedger(TELEGRAM_STATE_FILE);
+export const jobLedger = createDeliveryLedger(JOB_DIGEST_STATE_FILE);
+export const gmailLedger = createDeliveryLedger(GMAIL_DIGEST_STATE_FILE);
 const JOB_SWEEP_FILE = "job-sweep.json";
 const JOB_SCORING_FILE = "job-scoring.json";
 
@@ -173,23 +187,6 @@ export function readMailReviewSessionId(): string | null {
 
 export function writeMailReviewSessionId(mailReviewSessionId: string): void {
   writeAssistantState({ mailReviewSessionId });
-}
-
-export interface DailyAgendaDelivery {
-  date: string;
-  chatIds: number[];
-}
-
-export function readDailyAgendaDelivery(): DailyAgendaDelivery | null {
-  return readJsonObject<DailyAgendaDelivery>(TELEGRAM_STATE_FILE);
-}
-
-/** Record each successful chat separately so a partial broadcast can resume safely. */
-export function markDailyAgendaSent(date: string, chatId: number): void {
-  const current = readDailyAgendaDelivery();
-  const chatIds = current?.date === date ? current.chatIds : [];
-  if (chatIds.includes(chatId)) return;
-  writeJsonObject(TELEGRAM_STATE_FILE, { date, chatIds: [...chatIds, chatId] });
 }
 
 /* ──────────────────────────── jobs ──────────────────────────── */
@@ -313,84 +310,6 @@ export function readJobSweepState(): JobSweepState | null {
 
 export function writeJobSweepState(state: JobSweepState): void {
   writeJsonObject(JOB_SWEEP_FILE, state);
-}
-
-/**
- * Which scheduled runs have already gone out.
- *
- * Keyed by `YYYY-MM-DD:slot` — `morning`, `evening`, `sweep` — and recorded
- * per chat, so a broadcast that failed halfway resumes instead of re-sending
- * to everyone.
- *
- * MANY keys, not one. Holding a single `{runKey, chatIds}` meant every writer
- * wiped the previous one's record: the sweep marked itself, the morning digest
- * overwrote that, the sweep then found no record of itself and fired again,
- * and the two ping-ponged every thirty seconds all day.
- */
-export interface JobDigestDelivery {
-  runs: Record<string, number[]>;
-}
-
-/** Enough for a few days of slots; keeps the file from growing forever. */
-const DELIVERY_HISTORY = 20;
-
-export function readJobDigestDelivery(): JobDigestDelivery | null {
-  const stored = readJsonObject<JobDigestDelivery & { runKey?: string; chatIds?: number[] }>(
-    JOB_DIGEST_STATE_FILE,
-  );
-  if (!stored) return null;
-  // Migrate the single-run shape in place on read, so an upgrade does not
-  // re-send whatever that last run was.
-  if (!stored.runs && typeof stored.runKey === "string") {
-    return { runs: { [stored.runKey]: stored.chatIds ?? [] } };
-  }
-  return { runs: stored.runs ?? {} };
-}
-
-export function markJobDigestSent(runKey: string, chatId: number): void {
-  const runs = { ...(readJobDigestDelivery()?.runs ?? {}) };
-  const chatIds = runs[runKey] ?? [];
-  if (chatIds.includes(chatId)) return;
-  runs[runKey] = [...chatIds, chatId];
-
-  // Keys sort chronologically (YYYY-MM-DD:slot), so the oldest drop off first.
-  const trimmed = Object.fromEntries(
-    Object.entries(runs).sort(([a], [b]) => a.localeCompare(b)).slice(-DELIVERY_HISTORY),
-  );
-  writeJsonObject(JOB_DIGEST_STATE_FILE, { runs: trimmed });
-}
-
-/**
- * Which days the email digest has gone out, per chat.
- *
- * Same runs-ledger shape as the job digest — keyed by local date — so a bridge
- * that restarts mid-morning resumes the broadcast instead of re-sending it.
- */
-export interface GmailDigestDelivery {
-  runs: Record<string, number[]>;
-}
-
-export function readGmailDigestDelivery(): GmailDigestDelivery | null {
-  const stored = readJsonObject<GmailDigestDelivery & { runKey?: string; chatIds?: number[] }>(
-    GMAIL_DIGEST_STATE_FILE,
-  );
-  if (!stored) return null;
-  if (!stored.runs && typeof stored.runKey === "string") {
-    return { runs: { [stored.runKey]: stored.chatIds ?? [] } };
-  }
-  return { runs: stored.runs ?? {} };
-}
-
-export function markGmailDigestSent(runKey: string, chatId: number): void {
-  const runs = { ...(readGmailDigestDelivery()?.runs ?? {}) };
-  const chatIds = runs[runKey] ?? [];
-  if (chatIds.includes(chatId)) return;
-  runs[runKey] = [...chatIds, chatId];
-
-  const trimmed = Object.fromEntries(
-    Object.entries(runs).sort(([a], [b]) => a.localeCompare(b)).slice(-DELIVERY_HISTORY),
-  );
-  writeJsonObject(GMAIL_DIGEST_STATE_FILE, { runs: trimmed });
 }
 
 /**

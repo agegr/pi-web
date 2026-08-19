@@ -18,7 +18,6 @@
  */
 import { pathToFileURL } from "node:url";
 import { MAX_ATTACHED_IMAGE_BYTES } from "../../lib/image-attachments.ts";
-import { localDate } from "../../extension/robin/dates.ts";
 import {
   DEFAULT_DAILY_AGENDA,
   DEFAULT_GMAIL_DIGEST,
@@ -30,16 +29,12 @@ import {
 } from "../../extension/robin/settings.ts";
 import { isConnected as googleConnected } from "../../extension/robin/google-calendar.ts";
 import {
-  markDailyAgendaSent,
-  markGmailDigestSent,
-  markJobDigestSent,
-  readDailyAgendaDelivery,
-  readGmailDigestDelivery,
-  readJobDigestDelivery,
-  type DailyAgendaDelivery,
-  type GmailDigestDelivery,
-  type JobDigestDelivery,
+  dailyAgendaLedger,
+  gmailLedger,
+  jobLedger,
+  type DeliveryLedger,
 } from "../../extension/robin/store.ts";
+import { runIfDue, type Slot } from "./schedule.ts";
 import {
   chunkMessage,
   errorMessage,
@@ -79,12 +74,10 @@ export interface BridgeDeps {
   fetch: typeof fetch;
   log: (message: string) => void;
   now: () => number;
-  readDailyAgendaDelivery: () => DailyAgendaDelivery | null;
-  markDailyAgendaSent: (date: string, chatId: number) => void;
-  readJobDigestDelivery: () => JobDigestDelivery | null;
-  markJobDigestSent: (runKey: string, chatId: number) => void;
-  readGmailDigestDelivery: () => GmailDigestDelivery | null;
-  markGmailDigestSent: (runKey: string, chatId: number) => void;
+  /** Which chats have already received which run. */
+  dailyAgendaLedger: DeliveryLedger;
+  jobLedger: DeliveryLedger;
+  gmailLedger: DeliveryLedger;
   /** Whether Google is connected — injectable so the email digest is testable. */
   googleConnected: () => boolean;
 }
@@ -252,25 +245,6 @@ export async function askAssistant(
 }
 
 /** Returns the machine-local date once today's configured send time has arrived. */
-export function dailyAgendaRunKey(
-  schedule: DailyAgendaSettings,
-  now: number,
-): string | null {
-  if (!schedule.enabled) return null;
-  const at = new Date(now);
-  const time = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
-  return time >= schedule.time ? localDate(at) : null;
-}
-
-export function pendingDailyAgendaChatIds(
-  allowlist: number[],
-  date: string,
-  delivery: DailyAgendaDelivery | null,
-): number[] {
-  if (delivery?.date !== date) return allowlist;
-  return allowlist.filter((chatId) => !delivery.chatIds.includes(chatId));
-}
-
 export async function sendDailyAgenda(
   config: BridgeConfig,
   deps: BridgeDeps,
@@ -283,14 +257,12 @@ export async function sendDailyAgenda(
   const reply = await askAssistant(config, deps, prompt, config.dailyAgenda.locale, "readOnly");
   for (const chatId of chatIds) {
     await sendMessage(config, deps, chatId, reply);
-    deps.markDailyAgendaSent(date, chatId);
+    deps.dailyAgendaLedger.mark(date, chatId);
   }
   deps.log(`[daily agenda] sent ${date} to ${chatIds.length} chat(s)`);
 }
 
 /* ─────────────────────────── job digest ─────────────────────────── */
-
-export type DigestSlot = "morning" | "evening";
 
 /**
  * Who the job feed goes to.
@@ -332,37 +304,6 @@ async function piWeb<T>(
   } finally {
     clearTimeout(timer);
   }
-}
-
-/**
- * The slot that is due now, or null.
- *
- * Only the LATEST due slot fires. Starting the bridge at nine in the evening
- * should send the evening digest, not the morning one it missed and then the
- * evening one on top of it — twenty jobs at once is not what "twice a day"
- * means, and the morning's batch is not stale anyway: unsent jobs stay queued
- * and simply go out in the evening's ten.
- */
-export function jobDigestRunKey(schedule: JobDigestSettings, now: number): string | null {
-  if (!schedule.enabled) return null;
-  const at = new Date(now);
-  const time = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
-  const slots: { slot: DigestSlot; at: string }[] = [
-    { slot: "morning", at: schedule.morning },
-    { slot: "evening", at: schedule.evening },
-  ];
-  const due = slots.filter((entry) => time >= entry.at).sort((a, b) => a.at.localeCompare(b.at));
-  const latest = due.at(-1);
-  return latest ? `${localDate(at)}:${latest.slot}` : null;
-}
-
-export function pendingJobDigestChatIds(
-  allowlist: number[],
-  runKey: string,
-  delivery: JobDigestDelivery | null,
-): number[] {
-  const sent = delivery?.runs?.[runKey] ?? [];
-  return allowlist.filter((chatId) => !sent.includes(chatId));
 }
 
 /** Poll interval and ceiling while waiting for a scoring run to finish. */
@@ -468,7 +409,7 @@ export async function sendJobDigest(
     try {
       await sendMessage(config, deps, chatId, digest.text);
       delivered.push(chatId);
-      deps.markJobDigestSent(runKey, chatId);
+      deps.jobLedger.mark(runKey, chatId);
     } catch (error) {
       deps.log(`[jobs] send to ${chatId} failed — ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -491,22 +432,6 @@ export function gmailAudience(config: BridgeConfig): number[] {
   return config.gmailDigest.chatIds.length > 0 ? config.gmailDigest.chatIds : config.allowlist;
 }
 
-export function gmailDigestRunKey(schedule: GmailDigestSettings, now: number): string | null {
-  if (!schedule.enabled) return null;
-  const at = new Date(now);
-  const time = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
-  return time >= schedule.time ? localDate(at) : null;
-}
-
-export function pendingGmailDigestChatIds(
-  allowlist: number[],
-  runKey: string,
-  delivery: GmailDigestDelivery | null,
-): number[] {
-  const sent = delivery?.runs?.[runKey] ?? [];
-  return allowlist.filter((chatId) => !sent.includes(chatId));
-}
-
 /**
  * One email check: the agent reads the configured window and reports what
  * needs attention. Runs in the read-only assistant mode, whose tool set has
@@ -522,7 +447,7 @@ export async function sendGmailDigest(
   // the day, like a sweep that fails to start, and let tomorrow try again.
   if (!deps.googleConnected()) {
     deps.log("[gmail digest] skipped — Google is not connected");
-    for (const chatId of chatIds) deps.markGmailDigestSent(runKey, chatId);
+    for (const chatId of chatIds) deps.gmailLedger.mark(runKey, chatId);
     return;
   }
 
@@ -545,7 +470,7 @@ export async function sendGmailDigest(
   const reply = await askAssistant(config, deps, prompt, locale, "mail");
   for (const chatId of chatIds) {
     await sendMessage(config, deps, chatId, reply);
-    deps.markGmailDigestSent(runKey, chatId);
+    deps.gmailLedger.mark(runKey, chatId);
   }
   deps.log(`[gmail digest] sent ${runKey} to ${chatIds.length} chat(s)`);
 }
@@ -553,18 +478,11 @@ export async function sendGmailDigest(
 /**
  * The nightly directory sweep, at most once a day.
  *
- * Reuses the digest's delivery ledger with its own key, so a bridge that
+ * Shares the job digest's delivery ledger with its own key, so a bridge that
  * restarts five times between three and four in the morning still sweeps once.
  * The request returns immediately — the sweep runs inside pi-web and takes
  * about a quarter of an hour — so this only has to fire it, not wait for it.
  */
-export function sweepRunKey(schedule: JobDigestSettings, now: number): string | null {
-  if (!schedule.enabled || !schedule.sweepAt) return null;
-  const at = new Date(now);
-  const time = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
-  return time >= schedule.sweepAt ? `${localDate(at)}:sweep` : null;
-}
-
 export async function startNightlySweep(
   config: BridgeConfig,
   deps: BridgeDeps,
@@ -583,7 +501,7 @@ export async function startNightlySweep(
   }
   // Marked whatever happened: a sweep that failed to start should be retried
   // tomorrow, not every sixty seconds for the rest of the night.
-  for (const chatId of jobAudience(config)) deps.markJobDigestSent(runKey, chatId);
+  for (const chatId of jobAudience(config)) deps.jobLedger.mark(runKey, chatId);
 }
 
 export async function handleMessage(
@@ -684,56 +602,37 @@ export async function run(config: BridgeConfig, deps: BridgeDeps): Promise<void>
   for (;;) {
     try {
       offset = await pollOnce(config, deps, offset);
-      const runKey = config.allowlist.length > 0
-        ? dailyAgendaRunKey(config.dailyAgenda, deps.now())
-        : null;
-      if (runKey) {
-        const pending = pendingDailyAgendaChatIds(
-          config.allowlist,
-          runKey,
-          deps.readDailyAgendaDelivery(),
-        );
-        if (pending.length > 0) await sendDailyAgenda(config, deps, runKey, pending);
-      }
+      const now = deps.now();
+
+      const agendaSlots: Slot[] = config.dailyAgenda.enabled
+        ? [{ key: "", at: config.dailyAgenda.time }]
+        : [];
+      await runIfDue(deps.dailyAgendaLedger, config.allowlist, agendaSlots, now,
+        (key, chats) => sendDailyAgenda(config, deps, key, chats));
 
       const mailChats = gmailAudience(config);
-      const mailKey = mailChats.length > 0
-        ? gmailDigestRunKey(config.gmailDigest, deps.now())
-        : null;
-      if (mailKey) {
-        const pending = pendingGmailDigestChatIds(
-          mailChats,
-          mailKey,
-          deps.readGmailDigestDelivery(),
-        );
-        if (pending.length > 0) await sendGmailDigest(config, deps, mailKey, pending);
-      }
+      const mailSlots: Slot[] = config.gmailDigest.enabled
+        ? [{ key: "", at: config.gmailDigest.time }]
+        : [];
+      await runIfDue(deps.gmailLedger, mailChats, mailSlots, now,
+        (key, chats) => sendGmailDigest(config, deps, key, chats));
 
       const jobChats = jobAudience(config);
+      const sweepSlots: Slot[] = config.jobDigest.enabled && config.jobDigest.sweepAt
+        ? [{ key: "sweep", at: config.jobDigest.sweepAt }]
+        : [];
+      await runIfDue(deps.jobLedger, jobChats, sweepSlots, now,
+        (key) => startNightlySweep(config, deps, key));
 
-      const sweepKey = jobChats.length > 0
-        ? sweepRunKey(config.jobDigest, deps.now())
-        : null;
-      if (sweepKey) {
-        const pending = pendingJobDigestChatIds(
-          jobChats,
-          sweepKey,
-          deps.readJobDigestDelivery(),
-        );
-        if (pending.length > 0) await startNightlySweep(config, deps, sweepKey);
-      }
+      const digestSlots: Slot[] = config.jobDigest.enabled
+        ? [
+            { key: "morning", at: config.jobDigest.morning },
+            { key: "evening", at: config.jobDigest.evening },
+          ]
+        : [];
+      await runIfDue(deps.jobLedger, jobChats, digestSlots, now,
+        (key, chats) => sendJobDigest(config, deps, key, chats));
 
-      const digestKey = jobChats.length > 0
-        ? jobDigestRunKey(config.jobDigest, deps.now())
-        : null;
-      if (digestKey) {
-        const pending = pendingJobDigestChatIds(
-          jobChats,
-          digestKey,
-          deps.readJobDigestDelivery(),
-        );
-        if (pending.length > 0) await sendJobDigest(config, deps, digestKey, pending);
-      }
       backoff = BACKOFF_START_MS;
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
@@ -756,12 +655,9 @@ if (invokedDirectly) {
     fetch: globalThis.fetch,
     log: (message) => console.log(`${new Date().toISOString()} ${message}`),
     now: () => Date.now(),
-    readDailyAgendaDelivery,
-    markDailyAgendaSent,
-    readJobDigestDelivery,
-    markJobDigestSent,
-    readGmailDigestDelivery,
-    markGmailDigestSent,
+    dailyAgendaLedger,
+    jobLedger,
+    gmailLedger,
     googleConnected,
   };
   try {
