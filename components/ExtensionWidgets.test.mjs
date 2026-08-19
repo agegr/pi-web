@@ -315,7 +315,7 @@ test("computeFileSummary handles empty lines", () => {
 
 // --- Filechanges widget trigger/panel tests ---
 
-test("filechanges trigger shows computed summary instead of widget key", () => {
+test("filechanges trigger shows the File Changes label", () => {
   const html = renderWidgets({
     widgets: [{
       key: "filechanges",
@@ -327,8 +327,8 @@ test("filechanges trigger shows computed summary instead of widget key", () => {
       placement: "aboveEditor",
     }],
   });
-  // Trigger shows computed summary, not raw "filechanges" key
-  assert.match(html, /Δ 3 files \(2 mod \/ 1 new\)/);
+  // Trigger shows the canonical user-visible label, not raw "filechanges" key
+  assert.match(html, />File Changes</);
   // Panel heading still shows widget key
   assert.match(html, /extension-widget-panel-heading.*filechanges/s);
 });
@@ -383,15 +383,42 @@ test("filechanges click does not produce /filechanges in visible text", () => {
 });
 
 test("filechanges preserves existing exec/tasks/details behavior", () => {
-  // Other widgets still render with their key, not file summary
+  // Fixed tabs render their canonical user-visible labels
   const html = renderWidgets({
     widgets: [
       { key: "exec-summary", lines: ["done"], placement: "aboveEditor" },
       { key: "filechanges", lines: ["Δ a.ts (+1/-0)"], placement: "aboveEditor" },
     ],
   });
-  // exec-summary shows its key, not a file summary
-  assert.match(html, /exec-summary/);
-  // filechanges shows computed summary
-  assert.match(html, /Δ 1 file \(1 mod\)/);
+  // exec-summary renders its canonical label
+  assert.match(html, />Exec Summary</);
+  // filechanges renders its canonical label
+  assert.match(html, />File Changes</);
+});
+
+test("renders fixed extension tabs in canonical order at the end", () => {
+  // Register in arbitrary order (worst case: reverse), footer present.
+  const html = renderWidgets({
+    widgets: [
+      { key: "exec-summary", lines: ["tools: 3"], placement: "aboveEditor" },
+      { key: "plan-todos", lines: ["task-1"], placement: "aboveEditor" },
+      { key: "filechanges", lines: ["Δ a.ts (+1/-0)"], placement: "aboveEditor" },
+      { key: "normal-tab", lines: ["x"], placement: "aboveEditor" },
+    ],
+    footer: { sections: [], meta: null },
+  });
+  const labels = [...html.matchAll(/class="extension-widget-key">([^<]+)</g)].map((m) => m[1]);
+  assert.deepEqual(labels, ["normal-tab", "File Changes", "Details", "Tasks", "Exec Summary"]);
+});
+
+test("repeated recreation keeps fixed tab order stable", () => {
+  const render = (order) => renderWidgets({
+    widgets: order.map((key, i) => ({ key, lines: [`line-${i}`], placement: "aboveEditor" })),
+    footer: { sections: [], meta: null },
+  });
+  const html1 = render(["exec-summary", "plan-todos", "filechanges", "details"]);
+  const html2 = render(["details", "filechanges", "plan-todos", "exec-summary"]);
+  const labels = (h) => [...h.matchAll(/class="extension-widget-key">([^<]+)</g)].map((m) => m[1]);
+  assert.deepEqual(labels(html1), ["File Changes", "Details", "Tasks", "Exec Summary"]);
+  assert.deepEqual(labels(html2), ["File Changes", "Details", "Tasks", "Exec Summary"]);
 });

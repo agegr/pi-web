@@ -347,7 +347,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
             <img
               src={src}
               alt=""
-              style={{ maxWidth: 240, maxHeight: 240, borderRadius: 6, objectFit: "contain", display: "block", border: "1px solid rgba(59,130,246,0.15)" }}
+              style={{ maxWidth: 240, maxHeight: 240, borderRadius: 6, objectFit: "contain", display: "block", border: "1px solid color-mix(in srgb, var(--accent) 16%, transparent)" }}
             />
           </ImagePreview>
         );
@@ -375,7 +375,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
             flex: 1,
             minWidth: 0,
             background: "var(--user-bg)",
-            border: "1px solid rgba(59,130,246,0.2)",
+            border: "1px solid color-mix(in srgb, var(--accent) 22%, transparent)",
             borderRadius: 12,
             padding: "8px 12px",
             fontSize: 14,
@@ -932,7 +932,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
         <div
           style={{
             padding: "8px 10px",
-            color: error ? "#f87171" : "var(--text-muted)",
+            color: error ? "var(--error)" : "var(--text-muted)",
             fontSize: 12,
             lineHeight: 1.6,
             whiteSpace: "pre-wrap",
@@ -969,8 +969,8 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
         borderRadius: 7,
         overflow: "hidden",
         fontSize: 12,
-        border: isError ? "1px solid rgba(248,113,113,0.45)" : "1px solid rgba(34,197,94,0.25)",
-        background: isError ? "rgba(248,113,113,0.05)" : "rgba(34,197,94,0.04)",
+        border: isError ? "1px solid color-mix(in srgb, var(--error) 45%, transparent)" : "1px solid color-mix(in srgb, var(--success) 28%, transparent)",
+        background: isError ? "color-mix(in srgb, var(--error) 8%, transparent)" : "color-mix(in srgb, var(--success) 8%, transparent)",
       }}
     >
       {/* ── Tool call header ── */}
@@ -991,7 +991,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
           minWidth: 0,
         }}
       >
-        <span style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
+        <span style={{ color: isError ? "var(--error)" : "var(--success)", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
           {block.toolName}
         </span>
         <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
@@ -1016,7 +1016,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
             lineHeight: 1.5,
             overflow: "auto",
             background: "var(--bg-subtle)",
-            borderTop: isError ? "1px solid rgba(248,113,113,0.25)" : "1px solid rgba(34,197,94,0.2)",
+            borderTop: isError ? "1px solid color-mix(in srgb, var(--error) 28%, transparent)" : "1px solid color-mix(in srgb, var(--success) 22%, transparent)",
             whiteSpace: "pre-wrap",
             wordBreak: "break-all",
           }}
@@ -1053,7 +1053,7 @@ function PairedDiffResult({ diff }: {
   return (
     <div
       style={{
-        borderTop: "1px solid rgba(34,197,94,0.15)",
+        borderTop: "1px solid color-mix(in srgb, var(--success) 16%, transparent)",
         background: "var(--bg)",
       }}
     >
@@ -1139,16 +1139,16 @@ function SplitDiffHeader({ title, side }: { title: string; side: "left" | "right
 function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" | "right" }) {
   const bg =
     cell.type === "added"
-      ? "rgba(34,197,94,0.12)"
+      ? "color-mix(in srgb, var(--success) 13%, transparent)"
       : cell.type === "removed"
-      ? "rgba(248,113,113,0.13)"
+      ? "color-mix(in srgb, var(--error) 16%, transparent)"
       : cell.type === "empty"
       ? "var(--bg-subtle)"
       : "transparent";
   const marker =
     cell.type === "added" ? "+" : cell.type === "removed" ? "-" : " ";
   const markerColor =
-    cell.type === "added" ? "#22c55e" : cell.type === "removed" ? "#f87171" : "var(--text-dim)";
+    cell.type === "added" ? "var(--success)" : cell.type === "removed" ? "var(--error)" : "var(--text-dim)";
 
   return (
     <div
@@ -1213,13 +1213,13 @@ function PatchTextView({ text }: { text: string }) {
           line.startsWith("-") && !line.startsWith("---") ? "removed" :
           "context";
         const bg =
-          kind === "added" ? "rgba(34,197,94,0.12)" :
-          kind === "removed" ? "rgba(248,113,113,0.13)" :
-          kind === "hunk" ? "rgba(96,165,250,0.12)" :
+          kind === "added" ? "color-mix(in srgb, var(--success) 13%, transparent)" :
+          kind === "removed" ? "color-mix(in srgb, var(--error) 16%, transparent)" :
+          kind === "hunk" ? "color-mix(in srgb, var(--info) 14%, transparent)" :
           "transparent";
         const color =
-          kind === "added" ? "#22c55e" :
-          kind === "removed" ? "#f87171" :
+          kind === "added" ? "var(--success)" :
+          kind === "removed" ? "var(--error)" :
           kind === "hunk" ? "var(--accent)" :
           "var(--text)";
 
@@ -1230,9 +1230,9 @@ function PatchTextView({ text }: { text: string }) {
               display: "flex",
               background: bg,
               borderLeft: kind === "added"
-                ? "3px solid #22c55e"
+                ? "3px solid var(--success)"
                 : kind === "removed"
-                ? "3px solid #f87171"
+                ? "3px solid var(--error)"
                 : kind === "hunk"
                 ? "3px solid var(--accent)"
                 : "3px solid transparent",
@@ -1288,7 +1288,7 @@ function PairedResult({ text, isEmpty, isError }: {
   return (
     <div
       style={{
-        borderTop: `1px solid ${isError ? "rgba(248,113,113,0.3)" : "rgba(34,197,94,0.15)"}`,
+        borderTop: `1px solid ${isError ? "color-mix(in srgb, var(--error) 32%, transparent)" : "color-mix(in srgb, var(--success) 16%, transparent)"}`,
         background: isError ? "rgba(248,113,113,0.04)" : "var(--bg-subtle)",
       }}
     >
@@ -1296,7 +1296,7 @@ function PairedResult({ text, isEmpty, isError }: {
         style={{
           margin: 0,
           padding: "8px 10px",
-          color: isError ? "#f87171" : (isEmpty ? "var(--text-dim)" : "var(--text-muted)"),
+          color: isError ? "var(--error)" : (isEmpty ? "var(--text-dim)" : "var(--text-muted)"),
           fontSize: 12,
           lineHeight: 1.5,
           overflow: "auto",

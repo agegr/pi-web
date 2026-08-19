@@ -1380,7 +1380,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                             <button
                               onClick={() => void handleRemoveWorktree(wt.path, true)}
                               disabled={wtBusy}
-                              style={{ padding: "3px 9px", background: "#ef4444", border: "none", borderRadius: 5, color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
+                              style={{ padding: "3px 9px", background: "var(--error)", border: "none", borderRadius: 5, color: "var(--text-inverse)", fontSize: 11, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
                             >
                               {t("sidebar.force")}
                             </button>

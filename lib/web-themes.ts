@@ -1,90 +1,81 @@
 /**
- * Palette definitions for the multi-palette theme system.
- * Each palette defines a name, label, and color preview swatches.
+ * Palette metadata + storage for the multi-palette theme system.
+ *
+ * The authoritative palette data (full semantic token maps) lives in
+ * lib/theme-palettes.ts. This module derives the picker-side metadata
+ * (label / group / descriptor / preview swatch) from it, and owns the
+ * localStorage persistence + DOM application for the active palette.
+ *
+ * Persistence contract (backward compatible):
+ *   - `pi-theme`      -> "light" | "dark" | "auto"   (appearance, useTheme.ts)
+ *   - `pi-web-palette`-> palette id (this module)
  */
 
-export type PaletteId =
-  | "pi"
-  | "midnight"
-  | "tokyo-night"
-  | "catppuccin"
-  | "dracula"
-  | "nord"
-  | "gruvbox"
-  | "solarized-dark"
-  | "solarized-light";
+import {
+  PALETTE_DEFS,
+  type PaletteId,
+} from "./theme-palettes.ts";
+
+export type { PaletteId } from "./theme-palettes";
+
+export type PaletteGroup = "signature" | "dark" | "light" | "special";
 
 export interface PaletteMeta {
   id: PaletteId;
   label: string;
-  /** Colors for the preview swatch: [bg, accent, text, border] */
+  group: PaletteGroup;
+  descriptor: string;
+  /** Preview swatches: [bg, surface, accent, text] from the real theme. */
   swatch: [string, string, string, string];
-  /** Whether this is a light palette (used for appearance defaults) */
+  /** Whether the palette's default appearance is light. */
   isLight: boolean;
 }
 
-export const PALETTES: PaletteMeta[] = [
-  {
-    id: "pi",
-    label: "Pi",
-    swatch: ["#ffffff", "#2563eb", "#1a1a1a", "#e0e0e0"],
-    isLight: true,
-  },
-  {
-    id: "midnight",
-    label: "Midnight",
-    swatch: ["#0f1117", "#7aa2f7", "#c8cad8", "#2a2d3e"],
-    isLight: false,
-  },
-  {
-    id: "tokyo-night",
-    label: "Tokyo Night",
-    swatch: ["#1a1b26", "#7aa2f7", "#c0caf5", "#3b4261"],
-    isLight: false,
-  },
-  {
-    id: "catppuccin",
-    label: "Catppuccin Mocha",
-    swatch: ["#1e1e2e", "#89b4fa", "#cdd6f4", "#585b70"],
-    isLight: false,
-  },
-  {
-    id: "dracula",
-    label: "Dracula",
-    swatch: ["#282a36", "#bd93f9", "#f8f8f2", "#44475a"],
-    isLight: false,
-  },
-  {
-    id: "nord",
-    label: "Nord",
-    swatch: ["#2e3440", "#88c0d0", "#eceff4", "#4c566a"],
-    isLight: false,
-  },
-  {
-    id: "gruvbox",
-    label: "Gruvbox",
-    swatch: ["#282828", "#d79921", "#ebdbb2", "#665c54"],
-    isLight: false,
-  },
-  {
-    id: "solarized-dark",
-    label: "Solarized Dark",
-    swatch: ["#002b36", "#268bd2", "#93a1a1", "#0b5060"],
-    isLight: false,
-  },
-  {
-    id: "solarized-light",
-    label: "Solarized Light",
-    swatch: ["#fdf6e3", "#268bd2", "#002b36", "#c4bda5"],
-    isLight: true,
-  },
-];
-
 export const PALETTE_STORAGE_KEY = "pi-web-palette";
+
+/** Legacy ids that collapsed into newer palettes. */
+const LEGACY_ALIASES: Record<string, PaletteId> = {
+  "solarized-dark": "solarized",
+  "solarized-light": "solarized",
+};
+
+function paletteSwatch(id: PaletteId): [string, string, string, string] {
+  const def = PALETTE_DEFS[id];
+  const mode = def.defaultMode;
+  const t = def.tokens[mode];
+  return [t.bg, t["bg-panel"], t.accent, t.text] as [string, string, string, string];
+}
+
+function defaultGroup(id: PaletteId): PaletteGroup {
+  const def = PALETTE_DEFS[id];
+  if (id === "pi") return "signature";
+  if (def.defaultMode === "light") return "light";
+  return "dark";
+}
+
+export const PALETTES: PaletteMeta[] = (Object.keys(PALETTE_DEFS) as PaletteId[]).map((id) => {
+  const def = PALETTE_DEFS[id];
+  return {
+    id,
+    label: def.label,
+    group: def.group ?? defaultGroup(id),
+    descriptor: def.descriptor,
+    swatch: paletteSwatch(id),
+    isLight: def.defaultMode === "light",
+  };
+});
 
 export const VALID_PALETTE_IDS = new Set<string>(
   PALETTES.map((p) => p.id),
 );
+
+/** Normalize a raw stored value to a valid palette id (legacy aliases ok). */
+function normalizePaletteId(raw: string): PaletteId | null {
+  const legacy = LEGACY_ALIASES[raw];
+  if (legacy) return legacy;
+  if (VALID_PALETTE_IDS.has(raw)) return raw as PaletteId;
+  return null;
+}
 
 /** Read the stored palette id from localStorage. Falls back to "pi". */
 export type MinimalStorage = {
@@ -97,7 +88,10 @@ export function readStoredPalette(storage?: MinimalStorage): PaletteId {
   if (!s) return "pi";
   try {
     const value = s.getItem(PALETTE_STORAGE_KEY);
-    if (value && VALID_PALETTE_IDS.has(value)) return value as PaletteId;
+    if (value) {
+      const norm = normalizePaletteId(value);
+      if (norm) return norm;
+    }
   } catch {
     // ignore storage errors
   }
@@ -116,7 +110,15 @@ export function persistPalette(palette: PaletteId, storage?: MinimalStorage): vo
 }
 
 /** Apply the palette data attribute to the document root. */
-export function applyPaletteToDom(palette: PaletteId, doc?: { documentElement: { setAttribute: (n: string, v: string) => void; removeAttribute: (n: string) => void } }): void {
+export function applyPaletteToDom(
+  palette: PaletteId,
+  doc?: {
+    documentElement: {
+      setAttribute: (n: string, v: string) => void;
+      removeAttribute: (n: string) => void;
+    };
+  },
+): void {
   const d = doc ?? (typeof document !== "undefined" ? document : null);
   if (!d) return;
   if (palette === "pi") {

@@ -5,6 +5,11 @@ import { useI18n } from "@/hooks/useI18n";
 import type { ExtensionWidgetItem } from "@/lib/types";
 import type { FooterPanelData } from "@/lib/footer-status";
 import { FooterPanel } from "./FooterPanel";
+import {
+  EXTENSION_TAB_LABELS,
+  canonicalExtensionTabId,
+  normalizeExtensionTabOrder,
+} from "@/lib/extension-tab-order";
 
 export const DEFAULT_EXPANDED_WIDGET_LINES = 3;
 export const WIDGET_UPDATE_IDLE_MS = 1100;
@@ -170,13 +175,23 @@ export function ExtensionWidgets({ widgets, footer = null }: {
   const footerId = `${idPrefix}-trigger-footer`;
   const footerPanelId = `${idPrefix}-panel-footer`;
 
+  // Deterministic tab order: normal tabs first (relative order preserved),
+  // then the fixed extension tabs in canonical order. Pure + idempotent, so
+  // widget recreation/updates can never move these tabs.
+  const orderedIds = normalizeExtensionTabOrder([
+    ...widgets.map((w) => w.key),
+    ...(footer ? ["details"] : []),
+  ]);
+  const widgetByCanonical = new Map<string, ExtensionWidgetItem>();
+  for (const w of widgets) widgetByCanonical.set(canonicalExtensionTabId(w.key), w);
+
   return (
     <>
       {expandedWidget && (
         <div className="extension-widget-panels">
           {(() => {
             const widget = expandedWidget;
-            const index = widgets.indexOf(widget);
+            const index = orderedIds.indexOf(canonicalExtensionTabId(widget.key));
             const triggerId = `${idPrefix}-trigger-${index}`;
             const panelId = `${idPrefix}-panel-${index}`;
             return (
@@ -231,9 +246,40 @@ export function ExtensionWidgets({ widgets, footer = null }: {
         </div>
       )}
       <div className="extension-widget-triggers" aria-label={t("chat.extensionWidgets")}>
-        {widgets.map((widget, index) => {
-          // Any widget with content is clickable — even a single-line summary
-          // (e.g. filechanges collapsed mode). The panel shows all lines.
+        {orderedIds.map((id, index) => {
+          if (id === "details") {
+            return (
+              <button
+                key="details"
+                id={footerId}
+                type="button"
+                className={`extension-widget-trigger${footerExpanded ? " is-expanded" : ""}`}
+                aria-controls={footerPanelId}
+                aria-expanded={footerExpanded}
+                title={`Details - ${footerExpanded ? t("i18n.collapse") : t("i18n.expand")}`}
+                onClick={toggleFooter}
+              >
+                <span className="extension-widget-update-pulse" aria-hidden="true" />
+                <span className="extension-widget-placement" aria-hidden="true">
+                  <svg
+                    className="extension-widget-placement-icon"
+                    viewBox="0 0 8 6"
+                    width="8"
+                    height="6"
+                    data-direction="up"
+                    focusable="false"
+                  >
+                    <path d="M4 0l4 6H0z" />
+                  </svg>
+                </span>
+                <span className="extension-widget-key">{EXTENSION_TAB_LABELS["details"]}</span>
+              </button>
+            );
+          }
+
+          const widget = widgetByCanonical.get(id);
+          if (!widget) return null;
+
           const expandable = widget.lines.length >= 1;
           const expanded = expandable && widget.key === expandedWidget?.key;
           const updating = updatingWidgetKeys.has(widget.key);
@@ -248,8 +294,7 @@ export function ExtensionWidgets({ widgets, footer = null }: {
           );
           const triggerId = `${idPrefix}-trigger-${index}`;
           const panelId = `${idPrefix}-panel-${index}`;
-          const isFilechanges = widget.key === FILECHANGES_WIDGET_KEY;
-          const summary = isFilechanges ? computeFileSummary(widget.lines) : null;
+          const label = EXTENSION_TAB_LABELS[id] ?? widget.key;
           const content = (
             <>
               <span className="extension-widget-update-pulse" aria-hidden="true" />
@@ -269,9 +314,7 @@ export function ExtensionWidgets({ widgets, footer = null }: {
                   />
                 </svg>
               </span>
-              <span className="extension-widget-key">
-                {summary ?? widget.key}
-              </span>
+              <span className="extension-widget-key">{label}</span>
             </>
           );
 
@@ -300,33 +343,6 @@ export function ExtensionWidgets({ widgets, footer = null }: {
             </div>
           );
         })}
-        {footer && (
-          <button
-            key="footer"
-            id={footerId}
-            type="button"
-            className={`extension-widget-trigger${footerExpanded ? " is-expanded" : ""}`}
-            aria-controls={footerPanelId}
-            aria-expanded={footerExpanded}
-            title={`Details - ${footerExpanded ? t("i18n.collapse") : t("i18n.expand")}`}
-            onClick={toggleFooter}
-          >
-            <span className="extension-widget-update-pulse" aria-hidden="true" />
-            <span className="extension-widget-placement" aria-hidden="true">
-              <svg
-                className="extension-widget-placement-icon"
-                viewBox="0 0 8 6"
-                width="8"
-                height="6"
-                data-direction="up"
-                focusable="false"
-              >
-                <path d="M4 0l4 6H0z" />
-              </svg>
-            </span>
-            <span className="extension-widget-key">Details</span>
-          </button>
-        )}
       </div>
     </>
   );

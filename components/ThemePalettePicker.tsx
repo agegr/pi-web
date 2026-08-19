@@ -9,18 +9,28 @@ import {
   persistPalette,
   applyPaletteToDom,
   type PaletteId,
+  type PaletteGroup,
 } from "@/lib/web-themes";
 
-const PICKER_WIDTH = 280;
-const PICKER_HEIGHT_ESTIMATE = 420;
+const PICKER_WIDTH = 320;
+const PICKER_HEIGHT_ESTIMATE = 560;
 const VIEWPORT_MARGIN = 8;
+
+const GROUP_ORDER: PaletteGroup[] = ["signature", "dark", "light", "special"];
+const GROUP_LABELS: Record<PaletteGroup, string> = {
+  signature: "SIGNATURE",
+  dark: "DARK",
+  light: "LIGHT",
+  special: "SPECIAL",
+};
 
 function usePaletteState(): [PaletteId, (id: PaletteId) => void] {
   const [palette, setPaletteState] = useState<PaletteId>("pi");
 
   useEffect(() => {
-    setPaletteState(readStoredPalette());
-    applyPaletteToDom(readStoredPalette());
+    const stored = readStoredPalette();
+    setPaletteState(stored);
+    applyPaletteToDom(stored);
   }, []);
 
   const setPalette = useCallback((id: PaletteId) => {
@@ -32,17 +42,12 @@ function usePaletteState(): [PaletteId, (id: PaletteId) => void] {
   return [palette, setPalette];
 }
 
-/** Swatch row for a palette preview. */
-function PaletteSwatch({ colors }: { colors: [string, string, string, string] }) {
+/** A real preview swatch: app bg + surface chip + accent bar + text tick. */
+function ThemeSwatch({ bg, surface, accent, text }: { bg: string; surface: string; accent: string; text: string }) {
   return (
-    <span className="pi-theme-swatch" aria-hidden="true">
-      {colors.map((color, i) => (
-        <span
-          key={i}
-          className="pi-theme-swatch-color"
-          style={{ background: color }}
-        />
-      ))}
+    <span className="pi-theme-swatch" aria-hidden="true" style={{ "--pr-bg": bg, "--pr-surface": surface, "--pr-accent": accent, "--pr-text": text } as React.CSSProperties}>
+      <span className="pi-theme-swatch-chip" />
+      <span className="pi-theme-swatch-accent" />
     </span>
   );
 }
@@ -51,21 +56,26 @@ function computePickerPosition(buttonRect: DOMRect): { top: number; left: number
   const vw = window.innerWidth;
   const vh = window.innerHeight;
 
-  // Default: below the button, right-aligned to button right edge
   let left = buttonRect.right - PICKER_WIDTH;
   let top = buttonRect.bottom + 6;
 
-  // Horizontal: clamp within viewport
   if (left < VIEWPORT_MARGIN) left = VIEWPORT_MARGIN;
   if (left + PICKER_WIDTH > vw - VIEWPORT_MARGIN) left = vw - PICKER_WIDTH - VIEWPORT_MARGIN;
 
-  // Vertical: if it would overflow bottom, show above the button
   if (top + PICKER_HEIGHT_ESTIMATE > vh - VIEWPORT_MARGIN) {
     top = buttonRect.top - PICKER_HEIGHT_ESTIMATE - 6;
   }
   if (top < VIEWPORT_MARGIN) top = VIEWPORT_MARGIN;
 
   return { top, left };
+}
+
+function Check() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="1.5 5 4 7.5 8.5 2.5" />
+    </svg>
+  );
 }
 
 export function ThemePalettePicker() {
@@ -76,11 +86,9 @@ export function ThemePalettePicker() {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [panelPos, setPanelPos] = useState<{ top: number; left: number } | null>(null);
 
-  // Compute button position for portal placement
   const recomputePosition = useCallback(() => {
     if (!buttonRef.current) return;
-    const rect = buttonRef.current.getBoundingClientRect();
-    setPanelPos(computePickerPosition(rect));
+    setPanelPos(computePickerPosition(buttonRef.current.getBoundingClientRect()));
   }, []);
 
   useLayoutEffect(() => {
@@ -88,7 +96,6 @@ export function ThemePalettePicker() {
     recomputePosition();
   }, [open, recomputePosition]);
 
-  // Recompute on scroll/resize while open
   useEffect(() => {
     if (!open) return;
     const recompute = () => recomputePosition();
@@ -100,7 +107,6 @@ export function ThemePalettePicker() {
     };
   }, [open, recomputePosition]);
 
-  // Close on outside click or Escape
   useEffect(() => {
     if (!open) return;
     const handle = (e: MouseEvent | KeyboardEvent) => {
@@ -123,9 +129,16 @@ export function ThemePalettePicker() {
     };
   }, [open]);
 
-  const handleAppearanceCycle = useCallback(() => {
-    toggleTheme();
-  }, [toggleTheme]);
+  const handleAppearance = useCallback((pref: string) => {
+    if (pref === preference) return;
+    // Cycle the toggle until it reaches the requested preference.
+    // toggleTheme cycles light -> dark -> auto.
+    const order: string[] = ["light", "dark", "auto"];
+    const targetIdx = order.indexOf(pref);
+    const curIdx = order.indexOf(preference);
+    const hops = (targetIdx - curIdx + order.length) % order.length;
+    for (let i = 0; i < hops; i++) toggleTheme();
+  }, [preference, toggleTheme]);
 
   const appearanceLabel = preference === "light" ? "Light" : preference === "dark" ? "Dark" : "System";
   const activePalette = PALETTES.find((p) => p.id === palette) ?? PALETTES[0];
@@ -134,66 +147,67 @@ export function ThemePalettePicker() {
     <div
       ref={panelRef}
       className="pi-theme-picker"
-      role="menu"
+      role="dialog"
       aria-label="Theme picker"
-      style={{ position: "fixed", top: panelPos.top, left: panelPos.left }}
+      style={{ position: "fixed", top: panelPos.top, left: panelPos.left, width: PICKER_WIDTH }}
     >
       {/* Appearance section */}
       <div className="pi-theme-picker-section">
-        <div className="pi-theme-picker-section-title">APPEARANCE</div>
-        {(["light", "dark", "auto"] as const).map((pref) => {
-          const label = pref === "light" ? "Light" : pref === "dark" ? "Dark" : "System";
-          const isActive = preference === pref;
-          return (
-            <button
-              key={pref}
-              type="button"
-              className={`pi-theme-picker-option${isActive ? " is-active" : ""}`}
-              role="menuitemradio"
-              aria-checked={isActive}
-              onClick={() => {
-                if (!isActive) handleAppearanceCycle();
-              }}
-            >
-              <span className="pi-theme-picker-check">
-                {isActive && (
-                  <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="1.5 5 4 7.5 8.5 2.5" />
-                  </svg>
-                )}
-              </span>
-              <span className="pi-theme-picker-label">{label}</span>
-            </button>
-          );
-        })}
+        <div className="pi-theme-picker-section-title">Appearance</div>
+        <div className="pi-theme-appearance-row">
+          {(["light", "dark", "auto"] as const).map((pref) => {
+            const label = pref === "light" ? "Light" : pref === "dark" ? "Dark" : "System";
+            const isActive = preference === pref;
+            return (
+              <button
+                key={pref}
+                type="button"
+                className={`pi-theme-picker-option seg${isActive ? " is-active" : ""}`}
+                role="menuitemradio"
+                aria-checked={isActive}
+                onClick={() => handleAppearance(pref)}
+              >
+                <span className="pi-theme-appearance-label">{label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Palette section */}
+      {/* Palette section, grouped */}
       <div className="pi-theme-picker-section">
-        <div className="pi-theme-picker-section-title">PALETTE</div>
-        {PALETTES.map((p) => {
-          const isActive = palette === p.id;
+        <div className="pi-theme-picker-section-title">Palette</div>
+        {GROUP_ORDER.map((group) => {
+          const items = PALETTES.filter((p) => p.group === group);
+          if (items.length === 0) return null;
           return (
-            <button
-              key={p.id}
-              type="button"
-              className={`pi-theme-picker-option${isActive ? " is-active" : ""}`}
-              role="menuitemradio"
-              aria-checked={isActive}
-              onClick={() => {
-                if (!isActive) setPalette(p.id);
-              }}
-            >
-              <span className="pi-theme-picker-check">
-                {isActive && (
-                  <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="1.5 5 4 7.5 8.5 2.5" />
-                  </svg>
-                )}
-              </span>
-              <PaletteSwatch colors={p.swatch} />
-              <span className="pi-theme-picker-label">{p.label}</span>
-            </button>
+            <div key={group} className="pi-theme-picker-group">
+              <div className="pi-theme-picker-group-label">{GROUP_LABELS[group]}</div>
+              {items.map((p) => {
+                const isActive = palette === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={`pi-theme-picker-option${isActive ? " is-active" : ""}`}
+                    role="menuitemradio"
+                    aria-checked={isActive}
+                    title={p.descriptor}
+                    onClick={() => {
+                      if (!isActive) setPalette(p.id);
+                    }}
+                  >
+                    <span className="pi-theme-picker-check">
+                      {isActive && <Check />}
+                    </span>
+                    <ThemeSwatch bg={p.swatch[0]} surface={p.swatch[1]} accent={p.swatch[2]} text={p.swatch[3]} />
+                    <span className="pi-theme-picker-meta">
+                      <span className="pi-theme-picker-label">{p.label}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           );
         })}
       </div>
@@ -227,7 +241,7 @@ export function ThemePalettePicker() {
         onMouseEnter={(e) => { if (!open) e.currentTarget.style.color = "var(--text)"; }}
         onMouseLeave={(e) => { if (!open) e.currentTarget.style.color = "var(--text-muted)"; }}
       >
-        <PaletteSwatch colors={activePalette.swatch} />
+        <ThemeSwatch bg={activePalette.swatch[0]} surface={activePalette.swatch[1]} accent={activePalette.swatch[2]} text={activePalette.swatch[3]} />
       </button>
       {pickerPanel}
     </div>
