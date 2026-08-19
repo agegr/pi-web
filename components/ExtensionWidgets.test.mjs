@@ -136,11 +136,99 @@ test("uses a compact key-only trigger with a placement icon", () => {
   assert.match(html, /data-direction="down"/);
   assert.doesNotMatch(html, /[\u2191\u2193]/);
   assert.match(html, /Below editor widget/);
-  assert.doesNotMatch(html, /aria-expanded/);
-  assert.match(html, /title="long-extension-widget-key - Below editor widget"/);
+  assert.match(html, /aria-expanded="false"/);
+  assert.match(html, /title="long-extension-widget-key - Below editor widget - Expand"/);
   assert.match(html, /extension-widget-key/);
   assert.match(html, /extension-widget-update-pulse/);
   assert.doesNotMatch(html, /extension-widget-preview/);
   assert.doesNotMatch(html, /extension-widget-line-count/);
   assert.doesNotMatch(html, />ready</);
+});
+
+test("single-line widget is clickable and can open its panel", () => {
+  // Regression: a 1-line widget (e.g. filechanges collapsed summary) must be a
+  // real button that opens a panel showing its content, not an inert div.
+  const html = renderWidgets({
+    widgets: [{ key: "filechanges", lines: ["Δ 6 files changed"], placement: "aboveEditor" }],
+  });
+  assert.match(html, /<button/);
+  assert.match(html, /aria-controls=/);
+  assert.match(html, /aria-expanded="false"/);
+  // Toggle math: clicking the same key collapses it, never expands twice.
+  assert.equal(getNextExpandedWidgetKey(null, "filechanges"), "filechanges");
+  assert.equal(getNextExpandedWidgetKey("filechanges", "filechanges"), null);
+});
+
+test("footer tab renders when footer data is provided", () => {
+  const footer = {
+    provider: "opencode-go",
+    model: "deepseek-v4-flash",
+    thinking: "high",
+    activeTool: null,
+    totalTokens: 0,
+    activityBusy: false,
+    context: { percent: 13, contextWindow: 1000000, tokens: 130000 },
+    workspace: { cwd: "/Users/x/app", branch: "main", modified: 9, untracked: 7 },
+    tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheHitPercent: null },
+    cost: { inputUsd: 0, outputUsd: 0, cacheReadUsd: 0, estimatedTotalUsd: 0 },
+  };
+  const html = renderWidgets({
+    widgets: [],
+    footer,
+  });
+
+  assert.match(html, /extension-widget-triggers/);
+  assert.match(html, /aria-expanded="false"/);
+  assert.match(html, /extension-widget-key/);
+  assert.doesNotMatch(html, /footer-panel /); // collapsed: panel hidden
+});
+
+test("footer panel content is hidden until expanded", () => {
+  const footer = {
+    provider: "opencode-go",
+    model: "deepseek-v4-flash",
+    thinking: "high",
+    activeTool: null,
+    totalTokens: 0,
+    activityBusy: false,
+    context: { percent: 13, contextWindow: 1000000, tokens: 130000 },
+    workspace: { cwd: "/Users/x/app", branch: "main", modified: 9, untracked: 7 },
+    tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheHitPercent: null },
+    cost: { inputUsd: 0, outputUsd: 0, cacheReadUsd: 0, estimatedTotalUsd: 0 },
+  };
+  const html = renderWidgets({ widgets: [], footer });
+  // No model/provider string leaks into the collapsed shelf.
+  assert.doesNotMatch(html, /deepseek-v4-flash/);
+});
+
+test("filechanges widget renders every changed file in the expanded panel", () => {
+  // The filechange tab is a generic extension widget: its lines are the
+  // published changed-file list. Render with multiple files and confirm the
+  // panel (expanded via default for 2-3 line widgets) shows each file.
+  const html = renderWidgets({
+    widgets: [{
+      key: "filechanges",
+      lines: [
+        "Δ components/Foo.tsx (+12/-4)",
+        "Δ lib/bar.ts (+8/-2)",
+        "Δ app/page.tsx (+20/-6)",
+      ],
+      placement: "aboveEditor",
+    }],
+  });
+
+  assert.match(html, /filechanges/);
+  assert.match(html, /components\/Foo\.tsx/);
+  assert.match(html, /lib\/bar\.ts/);
+  assert.match(html, /app\/page\.tsx/);
+  assert.match(html, /\+12\/-4/);
+});
+
+test("filechanges empty-content widget still renders a clickable tab", () => {
+  // Zero changes: the extension clears the widget (no tab). But if a widget has
+  // an empty lines array it must not crash; render the trigger row without a panel.
+  const html = renderWidgets({
+    widgets: [{ key: "filechanges", lines: [], placement: "aboveEditor" }],
+  });
+  assert.match(html, /extension-widget-triggers/);
 });

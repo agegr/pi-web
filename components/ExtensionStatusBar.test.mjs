@@ -46,7 +46,10 @@ test("sanitizes status text for a single-line display", () => {
   );
 });
 
-test("renders a single status line without identifier keys", () => {
+test("does not render a permanent status line (partial footer removed)", () => {
+  // The user requires NO condensed/partial footer perman_emnently visible at
+  // the bottom-right. Statuses feed the footer panel via ChatWindow, but the
+  // shelf must not render a standalone status line.
   const html = renderStatusBar({
     statuses: [
       { key: "20-memory", text: "\x1b[32mmemory\x1b[0m" },
@@ -54,16 +57,15 @@ test("renders a single status line without identifier keys", () => {
     ],
   });
 
-  assert.match(html, /aria-label="ponytail memory"/);
-  assert.match(html, /extension-status-shelf/);
-  assert.match(html, /extension-status-line/);
-  assert.match(html, /extension-status-text/);
-  assert.match(html, />ponytail <\/span>/);
-  assert.match(html, />memory</);
-  assert.doesNotMatch(html, /05-ponytail|20-memory/);
+  // No widgets and no footer -> nothing renders at all (no partial footer).
+  assert.equal(html.replace(/<[^>]+>/g, "").trim(), "");
+  assert.doesNotMatch(html, /extension-status-line/);
+  assert.doesNotMatch(html, /extension-status-text/);
+  assert.doesNotMatch(html, />ponytail/);
+  assert.doesNotMatch(html, />memory/);
 });
 
-test("renders widgets and status text in one footer", () => {
+test("renders widgets and the footer panel, with no permanent status line", () => {
   const html = renderStatusBar({
     statuses: [{ key: "status", text: "connected" }],
     widgets: [{
@@ -73,8 +75,9 @@ test("renders widgets and status text in one footer", () => {
     }],
   });
 
-  assert.match(html, /extension-status-shelf has-widgets has-status/);
   assert.match(html, /extension-widget-triggers/);
   assert.match(html, /usage/);
-  assert.match(html, /connected/);
+  // No condensed status line is rendered permanently.
+  assert.doesNotMatch(html, /extension-status-line/);
+  assert.doesNotMatch(html, />connected/);
 });

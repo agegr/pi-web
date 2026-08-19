@@ -11,9 +11,11 @@ test("uses a compact mobile toolbar with a floating six-action layer", () => {
     /data-mobile-toolbar-actions="true"[\s\S]*?position: "absolute"[\s\S]*?right: 0,[\s\S]*?left: TOP_BAR_ICON_BUTTON_SIZE/,
   );
 
-  for (const action of ["history", "name", "branches", "system", "theme", "language"]) {
+  for (const action of ["history", "name", "branches", "system", "language"]) {
     assert.match(source, new RegExp(`data-mobile-toolbar-action=(?:\\{mobile \\? )?"${action}"`));
   }
+  // Theme picker uses ThemePalettePicker component instead of a data attribute
+  assert.match(source, /<ThemePalettePicker \/>/);
 });
 
 test("keeps covered statistics and file controls out of interaction and focus", () => {
@@ -32,11 +34,13 @@ test("closes the mobile action layer on outside click, Escape, and session chang
 
 test("keeps the mobile action layer open after using an expanded action", () => {
   const toggleTopPanel = source.match(/const toggleTopPanel = useCallback\([\s\S]*?\n  \}, \[isMobile\]\);/)?.[0];
-  const themeHandler = source.match(/const renderThemeButton =[\s\S]*?onClick=\{\(event\) => \{[\s\S]*?toggleTheme\([\s\S]*?\n      \}\}/)?.[0];
   const historyHandler = source.match(/onClick=\{\(\) => \{[\s\S]*?handleViewFullHistory\(\);[\s\S]*?\n          \}\}/)?.[0];
   const autoNameHandler = source.match(/onClick=\{\(\) => \{[\s\S]*?void handleAutoName\(\);[\s\S]*?\n              \}\}/)?.[0];
 
-  for (const handler of [toggleTopPanel, themeHandler, historyHandler, autoNameHandler]) {
+  // ThemePalettePicker manages its own state; verify it is rendered
+  assert.match(source, /<ThemePalettePicker \/>/);
+
+  for (const handler of [toggleTopPanel, historyHandler, autoNameHandler]) {
     assert.ok(handler);
     assert.doesNotMatch(handler, /setMobileToolbarMoreOpen\(false\)/);
     assert.match(handler, /setMobileToolbarMoreOpen\(true\)/);

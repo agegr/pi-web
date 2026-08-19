@@ -17,6 +17,11 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { AppUpdateResponse } from "@/lib/api-types";
 import {
+  buildFooterPanelData,
+  parseFooterFileCounts,
+  type FooterPanelData,
+} from "@/lib/footer-status";
+import {
   captureScrollDistance,
   getNextVisibleCount,
   getPromptAnchorSpacerHeight,
@@ -531,6 +536,51 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     ? (modelThinkingLevelMaps[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
     : null;
 
+  // Footer status tab: same information the combined TUI footer shows,
+  // computed from existing Web session state (see lib/footer-status.ts).
+  // No timers/polling/network — every value is live session state.
+  const footerData = useMemo<FooterPanelData | null>(() => {
+    const currentTool =
+      agentPhase?.kind === "running_tools"
+        ? (agentPhase.tools[agentPhase.tools.length - 1]?.name ?? null)
+        : null;
+    // Parse modified/untracked file counts from the filechanges extension
+    // status (e.g. "Δ 9  + 7" -> 9 modified, 7 new/untracked).
+    const fcStatus =
+      extensionStatuses.find((s) => s.key === "filechanges")?.text ?? "";
+    const counts = parseFooterFileCounts(fcStatus);
+    return buildFooterPanelData({
+      provider: displayModelValue?.provider,
+      model: displayModelValue?.modelId,
+      thinking: thinkingLevel ?? null,
+      hasReasoning: availableThinkingLevels != null && availableThinkingLevels.length > 0,
+      contextPercent: contextUsage?.percent ?? null,
+      contextWindow: contextUsage?.contextWindow ?? 0,
+      contextTokens: contextUsage?.tokens ?? null,
+      sessionTokens: sessionStats?.tokens,
+      sessionCost: sessionStats?.cost ?? 0,
+      activeTool: currentTool,
+      agentBusy: agentRunning || sessionBusy,
+      cwd: session?.cwd ?? newSessionCwd ?? null,
+      branch: session?.worktreeBranch ?? null,
+      modifiedCount: counts.modified,
+      untrackedCount: counts.untracked,
+    });
+  }, [
+    displayModelValue,
+    availableThinkingLevels,
+    thinkingLevel,
+    contextUsage,
+    sessionStats,
+    extensionStatuses,
+    agentRunning,
+    sessionBusy,
+    agentPhase,
+    session?.cwd,
+    session?.worktreeBranch,
+    newSessionCwd,
+  ]);
+
   const chatInputElement = (
     <ChatInput
       ref={chatInputRef}
@@ -692,7 +742,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               </div>
             </div>
             {chatInputElement}
-            <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} />
+            <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} footer={footerData} />
           </div>
         </div>
       ) : (
@@ -700,7 +750,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       <div className="relative flex min-w-0 flex-1 overflow-hidden">
         <div ref={scrollContainerRef} className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-width:none]">
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
-            <div ref={messageContentRef} style={{ width: "100%", minWidth: 0, maxWidth: 820, margin: "0 auto" }}>
+            <div ref={messageContentRef} style={{ width: "100%", minWidth: 0, maxWidth: 1100, margin: "0 auto" }}>
             {(() => {
               let lastUserIdx = -1;
               for (let i = messages.length - 1; i >= 0; i--) {
@@ -934,7 +984,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
 
       <div className="relative">
         {chatInputElement}
-        <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} />
+        <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} footer={footerData} />
       </div>
       </>
       )}

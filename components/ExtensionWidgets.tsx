@@ -3,6 +3,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { ExtensionWidgetItem } from "@/lib/types";
+import type { FooterPanelData } from "@/lib/footer-status";
+import { FooterPanel } from "./FooterPanel";
 
 export const DEFAULT_EXPANDED_WIDGET_LINES = 3;
 export const WIDGET_UPDATE_IDLE_MS = 1100;
@@ -45,7 +47,11 @@ export function getNextExpandedWidgetKey(
   return currentKey === requestedKey ? null : requestedKey;
 }
 
-export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }) {
+export function ExtensionWidgets({ widgets, footer = null }: {
+  widgets: ExtensionWidgetItem[];
+  /** Optional structured footer panel data (see lib/footer-status.ts). */
+  footer?: FooterPanelData | null;
+}) {
   const { t } = useI18n();
   const idPrefix = useId();
   const previousContentsRef = useRef<Map<string, string[]> | null>(null);
@@ -53,6 +59,7 @@ export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }
   const [expandedWidgetKey, setExpandedWidgetKey] = useState<string | null>(
     () => getDefaultExpandedWidgetKey(widgets),
   );
+  const [footerExpanded, setFooterExpanded] = useState(false);
   const [updatingWidgetKeys, setUpdatingWidgetKeys] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -101,16 +108,25 @@ export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }
     updateClearTimersRef.current.clear();
   }, []);
 
-  if (widgets.length === 0) return null;
+  if (widgets.length === 0 && !footer) return null;
 
   const expandedWidget = widgets.find((widget) => (
     widget.key === expandedWidgetKey
-    && widget.lines.length > 1
+    && widget.lines.length >= 1
   ));
 
   const toggleWidget = (widget: ExtensionWidgetItem) => {
+    setFooterExpanded(false);
     setExpandedWidgetKey((current) => getNextExpandedWidgetKey(current, widget.key));
   };
+
+  const toggleFooter = () => {
+    setExpandedWidgetKey(null);
+    setFooterExpanded((current) => !current);
+  };
+
+  const footerId = `${idPrefix}-trigger-footer`;
+  const footerPanelId = `${idPrefix}-panel-footer`;
 
   return (
     <>
@@ -137,9 +153,23 @@ export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }
           })()}
         </div>
       )}
+      {footer && footerExpanded && (
+        <div className="extension-widget-panels">
+          <section
+            id={footerPanelId}
+            className="extension-widget-panel"
+            aria-labelledby={footerId}
+          >
+            <div className="extension-widget-panel-heading">footer</div>
+            <FooterPanel data={footer} />
+          </section>
+        </div>
+      )}
       <div className="extension-widget-triggers" aria-label={t("chat.extensionWidgets")}>
         {widgets.map((widget, index) => {
-          const expandable = widget.lines.length > 1;
+          // Any widget with content is clickable — even a single-line summary
+          // (e.g. filechanges collapsed mode). The panel shows all lines.
+          const expandable = widget.lines.length >= 1;
           const expanded = expandable && widget.key === expandedWidget?.key;
           const updating = updatingWidgetKeys.has(widget.key);
           const lineCountLabel = t(
@@ -201,6 +231,33 @@ export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }
             </div>
           );
         })}
+        {footer && (
+          <button
+            key="footer"
+            id={footerId}
+            type="button"
+            className={`extension-widget-trigger${footerExpanded ? " is-expanded" : ""}`}
+            aria-controls={footerPanelId}
+            aria-expanded={footerExpanded}
+            title={`footer - ${footerExpanded ? t("i18n.collapse") : t("i18n.expand")}`}
+            onClick={toggleFooter}
+          >
+            <span className="extension-widget-update-pulse" aria-hidden="true" />
+            <span className="extension-widget-placement" aria-hidden="true">
+              <svg
+                className="extension-widget-placement-icon"
+                viewBox="0 0 8 6"
+                width="8"
+                height="6"
+                data-direction="up"
+                focusable="false"
+              >
+                <path d="M4 0l4 6H0z" />
+              </svg>
+            </span>
+            <span className="extension-widget-key">footer</span>
+          </button>
+        )}
       </div>
     </>
   );

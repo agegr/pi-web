@@ -1,7 +1,7 @@
 "use client";
 
-import { parseAnsiLine, stripAnsi } from "@/lib/ansi";
 import type { ExtensionStatusItem, ExtensionWidgetItem } from "@/lib/types";
+import type { FooterPanelData } from "@/lib/footer-status";
 import { ExtensionWidgets } from "./ExtensionWidgets";
 
 export function sanitizeExtensionStatusText(text: string): string {
@@ -19,36 +19,23 @@ export function formatExtensionStatusLine(statuses: ExtensionStatusItem[]): stri
 }
 
 export function ExtensionStatusBar({
-  statuses,
   widgets = [],
+  footer = null,
 }: {
   statuses: ExtensionStatusItem[];
   widgets?: ExtensionWidgetItem[];
+  /** Optional structured footer panel data (see lib/footer-status.ts). */
+  footer?: FooterPanelData | null;
 }) {
-  if (statuses.length === 0 && widgets.length === 0) return null;
-
-  const statusLine = formatExtensionStatusLine(statuses);
-  const plainStatusLine = stripAnsi(statusLine);
+  // statuses feed the footer panel (file counts, cache, etc.) via ChatWindow;
+  // they are intentionally NOT rendered as a permanent condensed footer line.
+  if (widgets.length === 0 && !footer) return null;
 
   return (
     <div
-      className={`extension-status-shelf${widgets.length > 0 ? " has-widgets" : ""}${statuses.length > 0 ? " has-status" : ""}`}
+      className={`extension-status-shelf${widgets.length > 0 ? " has-widgets" : ""}${footer ? " has-footer" : ""}`}
     >
-      {widgets.length > 0 && <ExtensionWidgets widgets={widgets} />}
-      {statuses.length > 0 && (
-        <div
-          role="status"
-          className="extension-status-line"
-          aria-label={plainStatusLine}
-          title={plainStatusLine}
-        >
-          <span className="extension-status-text">
-            {parseAnsiLine(statusLine).map((segment, index) => (
-              <span key={index} style={segment.style}>{segment.text}</span>
-            ))}
-          </span>
-        </div>
-      )}
+      {(widgets.length > 0 || footer) && <ExtensionWidgets widgets={widgets} footer={footer} />}
     </div>
   );
 }
