@@ -7,12 +7,24 @@ const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8
 const english = await readFile(new URL("../lib/i18n/messages/en.ts", import.meta.url), "utf8");
 const chinese = await readFile(new URL("../lib/i18n/messages/zh-CN.ts", import.meta.url), "utf8");
 
-test("offers maximize and restore controls around the file panel toggle", () => {
+test("keeps maximize and restore immediately left of the file panel's own toggle", () => {
+  const conversationHeaderStart = source.indexOf("{/* Top bar with sidebar toggle */}");
+  const conversationHeaderEnd = source.indexOf("{/* Chat content */}", conversationHeaderStart);
+  const fileHeaderStart = source.indexOf("{/* Right panel tab bar */}");
+  const fileHeaderEnd = source.indexOf("{/* Only the active viewer", fileHeaderStart);
+  assert.notEqual(conversationHeaderStart, -1);
+  assert.notEqual(conversationHeaderEnd, -1);
+  assert.notEqual(fileHeaderStart, -1);
+  assert.notEqual(fileHeaderEnd, -1);
+
+  const conversationHeader = source.slice(conversationHeaderStart, conversationHeaderEnd);
+  const fileHeader = source.slice(fileHeaderStart, fileHeaderEnd);
+  const layoutControl = 'renderFilePanelLayoutButton(rightPanelMaximized ? "restore" : "maximize")';
+  assert.doesNotMatch(conversationHeader, /renderFilePanelLayoutButton/);
+  assert.ok(fileHeader.includes(layoutControl));
+  assert.ok(fileHeader.indexOf(layoutControl) < fileHeader.indexOf("onClick={handleRightPanelClose}"));
+
   assert.match(source, /data-file-panel-layout-action=\{mode\}/);
-  assert.match(source, /files\.maximizePanel/);
-  assert.match(source, /files\.restorePanel/);
-  assert.match(source, /rightPanelOpen && !rightPanelMaximized && renderFilePanelLayoutButton\("maximize"\)/);
-  assert.match(source, /rightPanelMaximized && !isMobile && renderFilePanelLayoutButton\("restore"\)/);
   assert.match(english, /"files\.maximizePanel": "Maximize file panel"/);
   assert.match(english, /"files\.restorePanel": "Restore file panel"/);
   assert.match(chinese, /"files\.maximizePanel": "最大化文件面板"/);

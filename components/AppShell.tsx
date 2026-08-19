@@ -1639,6 +1639,7 @@ export function AppShell() {
         aria-label={rightPanelOpen ? translate("files.hidePanel") : translate("files.showPanel")}
         data-mobile-toolbar-file={mobile ? "true" : undefined}
         style={{
+          marginLeft: !mobile && !sessionStats && !contextUsage ? "auto" : 0,
           display: "flex", alignItems: "center", justifyContent: "center",
           width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
           visibility: covered ? "hidden" : "visible",
@@ -1885,12 +1886,7 @@ export function AppShell() {
               {renderSessionStatsButton(false)}
             </>
           )}
-          {!isMobile && (
-            <div style={{ display: "flex", alignItems: "stretch", height: "100%", marginLeft: !sessionStats && !contextUsage ? "auto" : 0 }}>
-              {rightPanelOpen && !rightPanelMaximized && renderFilePanelLayoutButton("maximize")}
-              {renderMainFileToggle(false)}
-            </div>
-          )}
+          {!isMobile && renderMainFileToggle(false)}
           {isMobile && (
             <BranchNavigator
               tree={branchTree}
@@ -2283,7 +2279,7 @@ export function AppShell() {
               onCloseTab={handleCloseFileTab}
             />
           </div>
-          {rightPanelMaximized && !isMobile && renderFilePanelLayoutButton("restore")}
+          {rightPanelOpen && !isMobile && renderFilePanelLayoutButton(rightPanelMaximized ? "restore" : "maximize")}
           <button
             type="button"
             onClick={handleRightPanelClose}
