@@ -5,6 +5,7 @@ import {
   type AgentTool,
 } from "@earendil-works/pi-agent-core";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import type { TextContent } from "@earendil-works/pi-ai";
 
 const TITLE_TIMEOUT_MS = 90_000;
 const MAX_TITLE_LENGTH = 80;
@@ -144,7 +145,7 @@ function getAssistantResult(agent: Agent, historyLength: number): GeneratedSessi
       throw new Error(message.errorMessage || "The title model request failed");
     }
     const text = message.content
-      .filter((block) => block.type === "text")
+      .filter((block): block is TextContent => block.type === "text")
       .map((block) => block.text)
       .join("\n")
       .trim();

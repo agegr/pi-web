@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { completeSimple, type AssistantMessage } from "@earendil-works/pi-ai/compat";
+import type { TextContent } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
@@ -20,7 +21,7 @@ function errorMessage(error: unknown): string {
 
 function getAssistantText(message: AssistantMessage): string {
   return message.content
-    .filter((block) => block.type === "text")
+    .filter((block): block is TextContent => block.type === "text")
     .map((block) => block.text)
     .join("");
 }

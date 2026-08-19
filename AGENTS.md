@@ -190,6 +190,22 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 ### Exported session HTML
 - `/api/sessions/[id]/export` delegates to pi's export helper, then patches recursive tree helpers in the generated HTML to iterative versions so very deep linear sessions do not overflow the browser call stack.
 
+### Session list hot path (`/api/sessions` + `lib/session-reader.ts`)
+- **Git fan-out is bounded**: `lib/worktree.ts::git()` is wrapped in a process-local `Semaphore(8)` before `execFile`. Windows spawns many git processes at once overwhelm antivirus/process-creation; the bound prevents the "all 20 git procs block on the same AV hook" stall while still parallelizing small cwd sets.
+- **Response never waits on git**: `applyCachedProjectInfo(session)` reads `__piProjectCache` synchronously; `scheduleProjectEnrichment(sessions)` runs `resolveProject` in the background and populates the cache for the next request. Persisted sessions come out of `loadAllSessions()` already enriched; runtime RPC sessions get the sync cache lookup.
+- **Disk cache survives cold boots**: `~/.pi/agent/.pi-web-list-cache.json` (schema `schemaVersion: 1`) stores `sessions` + `sessionsDirMtimeMs`. On read, compare against the current sessions-dir mtime — equal-or-older means trust the cache; newer means rescan. There is no TTL; mtime is the only signal. `invalidateSessionListCache()` removes the disk file, so every existing caller (rpc-manager + 4 routes) automatically invalidates both layers.
+- **Empty-clobber safeguard in `writeListCacheToDisk`**: refuses to write `[]` if either an existing non-empty cache is present or the sessions dir contains JSONL files. Logs a warning so transient FS hiccups surface in dev logs instead of as silent data loss across the next cold boot.
+- **`resolveSessionPath` verifies the cached path**: `if (cached && existsSync(cached)) return cached;` then `await listAllSessions({ force: true })`. Necessary because the disk cache stores absolute paths that were valid in a prior dev server's `cleanHome` (see `scripts/with-clean-home.js`); without the existence check the route opens a missing file and renders blank.
+- **Startup prewarm**: `instrumentation.ts` calls `listAllSessions()` + `scheduleProjectEnrichment()` at server boot. Disk cache makes the first user request fast even before any client request lands.
+
+### Next.js 16 dev overlay — `AbortController` is the enemy
+- Next 16's dev overlay tracks `AbortController.abort()` source lines even when downstream code catches the `AbortError`, surfacing "Runtime AbortError: signal is aborted without reason" as a noise issue. The fix is **not** to silence the error — it's to use a `cancelled` flag in cleanup instead of `AbortController`. See `components/ChatWindow.tsx::NewSessionUpdateLink` and `hooks/useAgentSession.ts` (loadModels effect) for the pattern.
+- Belt-and-braces: `next.config.ts` sets `devIndicators: false` to hide the bottom-right overlay button. Both are needed — `devIndicators` alone leaves the error panel reachable via keyboard shortcut.
+
+### `next.config.ts` excludes (do not move)
+- `devIndicators: false` — see above.
+- The Windows profile symlink excludes in `outputFileTracingExcludes` are required for `next build` on Windows; see `next.config.ts` comments.
+
 ## Pi Session File Format
 
 Location: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
@@ -216,3 +232,89 @@ Location: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
 --accent --user-bg --tool-bg
 --font-mono
 ```
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
+
+## Maintenance — syncing from upstream
+
+This repository is a fork of [`agegr/pi-web`](https://github.com/agegr/pi-web). To pull new commits from upstream into this fork's `main` branch.
+
+### Standard sync (4 steps)
+
+1. **Fetch + merge + push**
+   ```bash
+   git checkout main
+   git upsync
+   ```
+   `git upsync` is a repo-local alias (written to `.git/config`, not the user's global `~/.gitconfig`). It chains `git fetch upstream --prune --tags`, `git merge upstream/main --no-ff`, and `git push origin HEAD`. The alias refuses to run on non-`main`/`master` branches, and `upstream`'s push URL is set to the sentinel `no-pushing-to-upstream` so it cannot accidentally push back to the public repo.
+
+   If the alias is missing (e.g. after cloning fresh), re-add it:
+   ```bash
+   git config alias.upsync '!f() { current=$(git rev-parse --abbrev-ref HEAD); if [ "$current" != "main" ] && [ "$current" != "master" ]; then echo "upsync: must be on main or master (currently on $current)" >&2; return 1; fi; git fetch upstream --prune --tags && git merge upstream/main --no-ff -m "Merge upstream main" && git push origin HEAD; }; f'
+   ```
+
+2. **Sync dependencies**
+   ```bash
+   npm install
+   ```
+   Prefer `npm install` over `npm ci` here: it both installs and re-aligns `package-lock.json` if upstream's lockfile disagrees with our `node_modules`. After the run, `package-lock.json` will likely be modified — commit it in the same commit as any sync-related code changes.
+
+3. **Restart the dev server** if it was running. The running `next dev` process loads React into memory at boot, and `npm install` may bump `react` and `react-dom` to different patch versions because `npm` satisfies each `^19.2.4` constraint independently. Symptom: webui returns **500 Internal Server Error** with this line in `.next/dev/logs/next-development.log`:
+   ```
+   Incompatible React versions: react: 19.2.8 / react-dom: 19.2.4
+   ```
+   Fix:
+   ```bash
+   cmd //c "taskkill /F /PID <dev-server-pid>"   # in git bash, //c avoids path mangling
+   rm -rf .next/dev                               # drop the Turbopack cache to be safe
+   npm run dev:lan                                # or npm run dev for 127.0.0.1 only
+   ```
+
+4. **Verify**
+   ```bash
+   curl -s -o /dev/null -w "%{http_code}\n" http://localhost:30141/    # should print 200
+   npm test                                                           # expect ~40 pre-existing failures — see below
+   ```
+
+### Known traps during a sync
+
+- **`AGENTS.md` auto-append block.** Next.js 16 injects a `<!-- BEGIN:nextjs-agent-rules -->…<!-- END:nextjs-agent-rules -->` block on every `next dev` start (see `node_modules/next/dist/server/lib/generate-agent-files.js::upsertAgentRulesBlock`). The block's own comment says *"committing it with your work keeps the tree clean"* — so commit it. Removing it just causes `next dev` to re-add it on the next start. The upsert function preserves content before the `BEGIN` marker and after the `END` marker, so any section placed outside that block survives restarts untouched.
+
+- **`package-lock.json` may be rewritten by `npm install`.** That's expected. Commit the rewritten version in the same commit as any other sync changes (npm typically reports hundreds of inserts/removes; that's fine).
+
+- **Uncommitted work blocks the merge.** If `git status` shows local modifications before `git upsync`, commit them first or `git stash push` to clear the dirty tree. Otherwise git will refuse to start the merge.
+
+- **`git upsync` rejects feature branches.** If you started sync work on a `feat/*` branch by accident, switch to `main` first: `git checkout main`.
+
+### ~40 pre-existing `npm test` failures
+
+`npm test` reports ~40 failures that exist independently of any upstream sync — they are not caused by merging and should not be "fixed" as part of a sync, since addressing them risks accidentally re-shaping fork code that is supposed to stay different. Root causes by category:
+
+- **`Cannot find module './runtime-password'`** (5 tests in `lib/web-auth.test.mjs`) — fork-introduced. `lib/web-auth.ts` does `import { getActivePassword } from "./runtime-password"` without the `.ts` extension. Webpack/Turbopack auto-resolves, so the dev server runs fine; only `node --test` (which does not auto-resolve extensions) fails. Not user-visible at runtime.
+
+- **`EPERM: symlink not permitted`** (e.g. `lib/directory-browser.test.mjs`) — Windows-specific; the test calls `symlinkSync` without elevation. Pre-existing.
+
+- **`useI18n must be used inside I18nProvider`** (e.g. `components/MermaidBlock.test.mjs`) — test setup missing a provider wrapper. Pre-existing.
+
+- **Various value-mismatch assertion failures** across the suite — pre-existing test drift, not caused by the sync.
+
+To confirm a failure is pre-existing rather than sync-induced: `git stash push package-lock.json -m "npm install sync" && npm test 2>&1 | tail -10 && git stash pop` (if the failure count matches before/after the lockfile change, it is pre-existing).
+
+### Conflict resolution strategy
+
+When merging upstream, conflicts will land in files that were edited on **both** sides since the fork point. For this fork that has historically been:
+
+- **`bin/pi-web.js`** — upstream removed the fork's `openBrowserWindow` helper. Resolution: keep HEAD (preserve fork behavior; auto-opening the browser on `pi-web` start is intentional in this fork).
+- **`package-lock.json`** — always take upstream (`git checkout --theirs package-lock.json`), then `npm install` to regenerate consistency with `node_modules`. Lockfile diffs in the thousands of lines are normal here.
+
+For files where the fork made an independent feature (**PWA, QR + Tailscale, session perf, AGENTS.md documentation notes), prefer HEAD — these are the things this fork exists for. For files where upstream is purely maintenance (refactors, type tightening, security dep bumps), prefer upstream — they are general code-quality improvements.
+
+After resolving a conflict, always re-run `npm test` on the touched file to make sure the resolution didn't introduce a new failure.

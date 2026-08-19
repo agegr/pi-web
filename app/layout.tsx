@@ -70,8 +70,16 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   interactiveWidget: "resizes-content",
+  // Meta theme-color for the *initial* paint before `pi-theme-init` runs.
+  // The inline script below (strategy="beforeInteractive") immediately
+  // overrides these based on the user's actual app theme (localStorage
+  // `pi-theme`, falling back to OS preference), so dark-mode users see a
+  // dark status bar and light-mode users see a light one without a flash.
+  // The manifest's `theme_color` is the install-time fallback for PWA
+  // WebAPKs; this meta tag controls the browser address bar and most
+  // runtime cases.
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: light)", color: "#f5f5f5" },
     { media: "(prefers-color-scheme: dark)", color: "#1a1a1a" },
   ],
 };
@@ -94,7 +102,7 @@ export default function RootLayout({
             degrades harmlessly for users already on the tailnet. */}
         <meta name="apple-itunes-app" content="app-id=1470499037, app-argument=tailscale://" />
         <Script id="pi-theme-init" strategy="beforeInteractive">
-          {`(function(){try{var t=localStorage.getItem("pi-theme");var d=t==="dark"||((t==null||t===""||t==="auto")&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(d)document.documentElement.classList.add("dark")}catch(e){}})();`}
+          {`(function(){try{var t=localStorage.getItem("pi-theme");var d=t==="dark"||((t==null||t===""||t==="auto")&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(d)document.documentElement.classList.add("dark");var sync=function(){var c=document.documentElement.classList.contains("dark")?"#1a1a1a":"#f5f5f5";document.querySelectorAll('meta[name="theme-color"]').forEach(function(m){m.setAttribute("content",c);});};sync();new MutationObserver(sync).observe(document.documentElement,{attributes:true,attributeFilter:["class"]});}catch(e){}})();`}
         </Script>
       </head>
       <body translate="no" className="notranslate" suppressHydrationWarning>

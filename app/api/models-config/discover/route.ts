@@ -1,10 +1,44 @@
 import { NextResponse } from "next/server";
+import { isIP } from "node:net";
+import { isApiRequestAllowed } from "@/lib/request-security";
 import { resolveModelDiscoveryAuth } from "@/lib/model-discovery-auth";
 import { buildModelsListUrl, parseDiscoveredModels } from "@/lib/model-discovery";
 
 export const dynamic = "force-dynamic";
 
 const DISCOVERY_TIMEOUT_MS = 20_000;
+
+/**
+ * SSRF guard: refuse to issue the upstream fetch when the resolved hostname
+ * points at the loopback interface, a private network, a link-local address,
+ * or an IPv6 ULA. Cloud metadata endpoints (169.254.169.254 and friends) are
+ * the most attractive target — they sit in 169.254.0.0/16. This is a
+ * best-effort block; DNS rebinding still applies, but it raises the bar.
+ */
+function isBlockedHost(hostname: string): boolean {
+  if (isIP(hostname) === 4) {
+    const parts = hostname.split(".").map(Number);
+    // 127.0.0.0/8 loopback, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 private,
+    // 169.254.0.0/16 link-local (AWS / GCP / Azure metadata).
+    if (parts[0] === 127) return true;
+    if (parts[0] === 10) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    if (parts[0] === 0) return true;
+    return false;
+  }
+  if (isIP(hostname) === 6) {
+    const lower = hostname.toLowerCase();
+    if (lower === "::1" || lower === "[::1]") return true;
+    if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // fc00::/7 ULA
+    if (lower.startsWith("fe8") || lower.startsWith("fe9") || lower.startsWith("fea") || lower.startsWith("feb")) return true; // fe80::/10 link-local
+    return false;
+  }
+  // Hostname literals: nothing to check here — DNS resolution happens at
+  // fetch time. Document the residual risk in the operator docs.
+  return false;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -31,6 +65,9 @@ function buildHeaders(api: string, apiKey: string | undefined, configured: Recor
 }
 
 export async function POST(req: Request) {
+  if (!isApiRequestAllowed(req)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
   try {
     const body = await req.json() as { providerName?: unknown; provider?: unknown };
     const providerName = typeof body.providerName === "string" ? body.providerName.trim() : "";
@@ -48,6 +85,14 @@ export async function POST(req: Request) {
       endpoint = buildModelsListUrl(baseUrl, api);
     } catch {
       return NextResponse.json({ error: "Base URL is invalid" }, { status: 400 });
+    }
+
+    // SSRF block: refuse loopback / private / link-local upstreams.
+    if (isBlockedHost(endpoint.hostname)) {
+      return NextResponse.json({ error: `Refusing to fetch upstream: ${endpoint.hostname} is loopback, private, or link-local` }, { status: 400 });
+    }
+    if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
+      return NextResponse.json({ error: `Refusing non-HTTP(S) upstream: ${endpoint.protocol}` }, { status: 400 });
     }
 
     const auth = await resolveModelDiscoveryAuth(providerName, body.provider);

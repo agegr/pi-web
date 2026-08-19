@@ -1,7 +1,7 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
+import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, TextContent, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
@@ -79,21 +79,28 @@ function NewSessionUpdateLink({
   const [update, setUpdate] = useState<AppUpdateResponse | null>(null);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void fetch("/api/app-update", { signal: controller.signal })
+    // Avoid AbortController on cleanup: Next 16's dev overlay tracks the
+    // abort source line even when downstream code catches the AbortError,
+    // which surfaces "Runtime AbortError: signal is aborted without
+    // reason" as a noise issue. A simple `cancelled` flag is enough — the
+    // fetch result is dropped if it lands after unmount, but no error
+    // bubbles up.
+    let cancelled = false;
+    void fetch("/api/app-update")
       .then(async (response) => {
         if (!response.ok) return null;
         return response.json() as Promise<AppUpdateResponse>;
       })
       .then((result) => {
+        if (cancelled) return;
         if (result?.updateAvailable && result.latestVersion && result.releaseUrl) {
           setUpdate(result);
         }
       })
       .catch(() => {
-        // Update checks are best-effort and must not interrupt a new session.
+        // Update checks are best-effort; ignore any other error.
       });
-    return () => controller.abort();
+    return () => { cancelled = true; };
   }, []);
 
   if (!update) return null;
@@ -160,7 +167,7 @@ function getUserInputText(message: AgentMessage): string | null {
     return text.length > 0 ? text : null;
   }
   const text = message.content
-    .filter((block) => block.type === "text")
+    .filter((block): block is TextContent => block.type === "text")
     .map((block) => block.text)
     .join("\n")
     .trim();

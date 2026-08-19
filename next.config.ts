@@ -47,6 +47,12 @@ const WINDOWS_PROFILE_SYMLINKS = [
 ];
 
 const nextConfig: NextConfig = {
+  // Disable the bottom-right dev indicators: they show the dev server's
+  // "build/hmr" status, plus an error counter for uncaught errors. Even
+  // when downstream code catches everything (e.g. AbortError on cleanup),
+  // Next 16's overlay still surfaces the source line which is noisy for
+  // a chat client that intentionally aborts fetches on route changes.
+  devIndicators: false,
   outputFileTracingRoot: configDir,
   outputFileTracingExcludes: {
     "**/*": WINDOWS_PROFILE_SYMLINKS.map((name) => `**/${name}/**`),
@@ -59,8 +65,11 @@ const nextConfig: NextConfig = {
     "@earendil-works/pi-tui",
   ],
   // "100.*.*.*" covers Tailscale's 100.64.0.0/10 CGNAT range so `next dev`
-  // does not reject requests arriving over a tailnet.
-  allowedDevOrigins: ["127.0.0.1", "192.168.*.*", "100.*.*.*"],
+  // does not reject requests arriving over a tailnet. "*.ts.net" covers
+  // the secure-context HTTPS hostname that `tailscale serve` publishes —
+  // the phone reaches the dev server through that hostname when the
+  // operator has configured `tailscale serve --https=443 ...`.
+  allowedDevOrigins: ["127.0.0.1", "192.168.*.*", "100.*.*.*", "*.ts.net"],
   async headers() {
     return [
       {

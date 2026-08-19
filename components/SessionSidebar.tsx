@@ -436,15 +436,28 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
 
+  // Tracks whether we've ever rendered a non-empty session list. Survives
+  // re-renders so a refresh fired while the sidebar already shows data does
+  // not blank it with a Loading state. Read by `loadSessions` below; kept
+  // out of its deps so its identity is stable across renders.
+  const hasDisplayedSessionsRef = useRef(false);
+
   const loadSessions = useCallback(async (showLoading = false, force = false) => {
+    // Stale-while-revalidate: only show "Loading..." when we have nothing
+    // to render. Once the sidebar has data, keep it visible during refreshes
+    // so a slow /api/sessions does not blank the list. The disk cache layer
+    // makes the very first response land in <50ms, so this only matters
+    // when the first response is genuinely slow (large dir scan, AV stalls).
+    const shouldShowLoading = showLoading && !hasDisplayedSessionsRef.current;
     try {
-      if (showLoading) setLoading(true);
+      if (shouldShowLoading) setLoading(true);
       const res = await fetch(force ? "/api/sessions?force=1" : "/api/sessions", {
         cache: "no-store",
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as { sessions: SessionInfo[]; runningSessionIds?: string[] };
       setAllSessions(data.sessions);
+      if (data.sessions.length > 0) hasDisplayedSessionsRef.current = true;
       // Treat the fetched running set as an initial fallback only. Once the
       // lightweight poll is live, a slow session-list fetch cannot overwrite it.
       if (!runningPollAuthoritativeRef.current) {
@@ -458,7 +471,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         return next.size === prev.size ? prev : next;
       });
       setError(null);
-      if (!showLoading) {
+      if (!shouldShowLoading) {
         setSessionRefreshDone(true);
         if (sessionRefreshTimerRef.current) clearTimeout(sessionRefreshTimerRef.current);
         sessionRefreshTimerRef.current = setTimeout(() => setSessionRefreshDone(false), 2000);
@@ -466,7 +479,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     } catch (e) {
       setError(String(e));
     } finally {
-      if (showLoading) setLoading(false);
+      if (shouldShowLoading) setLoading(false);
     }
   }, []);
 

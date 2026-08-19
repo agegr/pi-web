@@ -24,52 +24,26 @@ const { spawn, execFileSync } = require("child_process");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require("path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { writeFileSync } = require("fs");
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { parseLaunchOptions } = require("./pi-web-options");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { resolveAndPersist } = require("./host-info");
 
 const pkgDir = path.join(__dirname, "..");
 const { port, hostname, openBrowser } = parseLaunchOptions();
 
-// Pick the address to advertise in the QR code. If the operator bound to
-// 0.0.0.0 (all interfaces), we look up the Tailscale IP of this machine so
-// the phone can dial it. If `tailscale` isn't installed or the lookup
-// fails, we fall back to 127.0.0.1 (the modal will show a warning).
-function resolveQrHost(boundHost) {
-  if (boundHost && boundHost !== "0.0.0.0") return boundHost;
-  try {
-    const out = execFileSync("tailscale", ["ip", "-4"], {
-      encoding: "utf8",
-      timeout: 2000,
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-    if (out && /\d+\.\d+\.\d+\.\d+/.test(out)) return out.split("\n")[0].trim();
-  } catch {
-    /* tailscale not installed or not running — fall through */
-  }
-  return "127.0.0.1";
-}
-
-const qrHost = resolveQrHost(hostname);
-
-// The QR-encoding route reads this file because Next.js route workers don't
-// always inherit the parent environment. We write the addressable hostname
-// (not the bind address) so the QR works whether the server is bound to
-// 0.0.0.0 or to a specific IP.
-try {
-  writeFileSync(path.join(pkgDir, ".pi-web-hostname"), qrHost + "\n", {
-    encoding: "utf8",
-    mode: 0o644,
-  });
-} catch (error) {
-  console.warn(`Could not write runtime hostname file: ${error.message}`);
+// Single source of truth for QR URL + PI_WEB_HOSTNAME — also used by
+// scripts/with-clean-home.js so `npm run dev` / `npm run dev:lan` pick
+// up the same tailscale-serve detection as `npm start`.
+const { qrHost, envHostname, source } = resolveAndPersist({ pkgDir, boundHost: hostname });
+if (source === "tailscale-serve") {
+  console.log(`Tailscale HTTPS ready: ${qrHost}`);
 }
 
 const nextArgs = ["start", pkgDir, "-p", port, "-H", hostname];
 
 const child = spawn(process.execPath, [require.resolve("next/dist/bin/next", { paths: [pkgDir] }), ...nextArgs], {
   stdio: ["inherit", "pipe", "inherit"],
-  env: { ...process.env, PI_WEB_HOSTNAME: qrHost },
+  env: { ...process.env, PI_WEB_HOSTNAME: envHostname },
 });
 
 let browserOpened = false;
