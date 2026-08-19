@@ -28,11 +28,9 @@
     "package.json"
   ],
   "scripts": {
-    "dev": "node scripts/with-clean-home.js next dev -H 127.0.0.1 -p 30141",
-    "dev:lan": "node scripts/with-clean-home.js next dev -H 0.0.0.0 -p 30141",
+    "dev": "node scripts/with-clean-home.js next dev -H 0.0.0.0 -p 30141",
     "build": "node scripts/with-clean-home.js next build --webpack",
-    "start": "node bin/pi-web.js -H 127.0.0.1",
-    "start:lan": "node bin/pi-web.js -H 0.0.0.0",
+    "start": "node bin/pi-web.js -H 0.0.0.0",
     "lint": "eslint .",
     "test": "node --experimental-strip-types --test \"app/**/*.test.mjs\" \"components/**/*.test.mjs\" \"hooks/**/*.test.mjs\" \"lib/**/*.test.mjs\" \"public/**/*.test.mjs\"",
     "icons:generate": "node scripts/generate-pwa-icons.mjs",

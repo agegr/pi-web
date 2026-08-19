@@ -38,6 +38,8 @@ const { execFileSync } = require("node:child_process");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { writeFileSync } = require("node:fs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
+const { networkInterfaces } = require("node:os");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { join } = require("node:path");
 
 function resolveTailscaleHttpsUrl() {
@@ -73,6 +75,49 @@ function resolveTailscaleIpv4() {
   return null;
 }
 
+// Adapter-name patterns that almost always correspond to virtual or
+// non-routable interfaces. Anything matching is skipped so the LAN
+// detector picks the host's *real* network adapter.
+const VIRTUAL_INTERFACE_PATTERN = /vethernet|hyper-v|vmware|virtualbox|docker|br-|veth|wsl|hambridge|tailscale|loopback|bluetooth|isatap|tunneling|teredo|6to4|webfilter|npcap|winpcap|npf/i;
+
+function isRoutableLanAddress(name, address) {
+  if (VIRTUAL_INTERFACE_PATTERN.test(name)) return false;
+  if (address.internal) return false;
+  if (address.family !== "IPv4") return false;
+  if (address.address.startsWith("169.254.")) return false; // link-local
+  if (address.address.startsWith("127.")) return false;       // loopback
+  if (address.address.startsWith("0.0.0.0")) return false;
+  return true;
+}
+
+// Prefer the most-likely physical adapter. Common home/office ranges:
+//   192.168.0.0/16   -> score 0 (most common consumer router range)
+//   10.0.0.0/8       -> score 1 (common corporate / larger networks)
+//   172.16-31.0.0/12 -> score 2 (less common; some Docker bridges live
+//                       here too, but we already filter those by name)
+//   anything else    -> score 3 (least preferred)
+function lanScore(address) {
+  if (/^192\.168\./.test(address)) return 0;
+  if (/^10\./.test(address)) return 1;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(address)) return 2;
+  return 3;
+}
+
+function resolveLanIpv4() {
+  const interfaces = networkInterfaces();
+  const candidates = [];
+  for (const [name, addrs] of Object.entries(interfaces)) {
+    if (!addrs) continue;
+    for (const addr of addrs) {
+      if (!isRoutableLanAddress(name, addr)) continue;
+      candidates.push({ name, address: addr.address });
+    }
+  }
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => lanScore(a.address) - lanScore(b.address));
+  return candidates[0].address;
+}
+
 function resolveAddress(boundHost) {
   if (boundHost && boundHost !== "0.0.0.0") {
     return { value: boundHost, source: "bound" };
@@ -86,6 +131,11 @@ function resolveAddress(boundHost) {
   const tsIp = resolveTailscaleIpv4();
   if (tsIp) {
     return { value: tsIp, source: "tailscale-ip" };
+  }
+
+  const lanIp = resolveLanIpv4();
+  if (lanIp) {
+    return { value: lanIp, source: "lan" };
   }
 
   return { value: "127.0.0.1", source: "loopback" };
@@ -132,6 +182,7 @@ function resolveAndPersist(options) {
 module.exports = {
   resolveTailscaleHttpsUrl,
   resolveTailscaleIpv4,
+  resolveLanIpv4,
   resolveAddress,
   deriveEnvHostname,
   resolveAndPersist,
