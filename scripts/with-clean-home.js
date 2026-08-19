@@ -127,6 +127,24 @@ function runWithCleanHome(cmd, args) {
     process.env.HOME = cleanHome;
     process.env.USERPROFILE = cleanHome;
 
+    // Resolve the addressable URL/host and persist it to .pi-web-hostname
+    // so the QR/pair routes pick up the right URL regardless of whether
+    // the operator started via `npm start` (which routes through
+    // bin/pi-web.js) or via `npm run dev` / `npm run dev:lan` (which goes
+    // through this shim). Tailscale Serve HTTPS URLs take priority — they
+    // give the phone a secure context so Chrome can install the PWA in
+    // standalone mode.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { resolveAndPersist } = require(join(__dirname, "..", "bin", "host-info.js"));
+    const { envHostname, source } = resolveAndPersist({
+      pkgDir: join(__dirname, ".."),
+      boundHost: process.env.PI_WEB_HOSTNAME,
+    });
+    process.env.PI_WEB_HOSTNAME = envHostname;
+    if (source === "tailscale-serve") {
+      console.log(`Tailscale HTTPS ready: ${envHostname}`);
+    }
+
     const resolved = resolveCommand(cmd);
     const finalArgs = [...resolved.args, ...args];
     const child = spawn(resolved.file, finalArgs, {
