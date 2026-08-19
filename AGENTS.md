@@ -242,3 +242,79 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+## Maintenance — syncing from upstream
+
+This repository is a fork of [`agegr/pi-web`](https://github.com/agegr/pi-web). To pull new commits from upstream into this fork's `main` branch.
+
+### Standard sync (4 steps)
+
+1. **Fetch + merge + push**
+   ```bash
+   git checkout main
+   git upsync
+   ```
+   `git upsync` is a repo-local alias (written to `.git/config`, not the user's global `~/.gitconfig`). It chains `git fetch upstream --prune --tags`, `git merge upstream/main --no-ff`, and `git push origin HEAD`. The alias refuses to run on non-`main`/`master` branches, and `upstream`'s push URL is set to the sentinel `no-pushing-to-upstream` so it cannot accidentally push back to the public repo.
+
+   If the alias is missing (e.g. after cloning fresh), re-add it:
+   ```bash
+   git config alias.upsync '!f() { current=$(git rev-parse --abbrev-ref HEAD); if [ "$current" != "main" ] && [ "$current" != "master" ]; then echo "upsync: must be on main or master (currently on $current)" >&2; return 1; fi; git fetch upstream --prune --tags && git merge upstream/main --no-ff -m "Merge upstream main" && git push origin HEAD; }; f'
+   ```
+
+2. **Sync dependencies**
+   ```bash
+   npm install
+   ```
+   Prefer `npm install` over `npm ci` here: it both installs and re-aligns `package-lock.json` if upstream's lockfile disagrees with our `node_modules`. After the run, `package-lock.json` will likely be modified — commit it in the same commit as any sync-related code changes.
+
+3. **Restart the dev server** if it was running. The running `next dev` process loads React into memory at boot, and `npm install` may bump `react` and `react-dom` to different patch versions because `npm` satisfies each `^19.2.4` constraint independently. Symptom: webui returns **500 Internal Server Error** with this line in `.next/dev/logs/next-development.log`:
+   ```
+   Incompatible React versions: react: 19.2.8 / react-dom: 19.2.4
+   ```
+   Fix:
+   ```bash
+   cmd //c "taskkill /F /PID <dev-server-pid>"   # in git bash, //c avoids path mangling
+   rm -rf .next/dev                               # drop the Turbopack cache to be safe
+   npm run dev:lan                                # or npm run dev for 127.0.0.1 only
+   ```
+
+4. **Verify**
+   ```bash
+   curl -s -o /dev/null -w "%{http_code}\n" http://localhost:30141/    # should print 200
+   npm test                                                           # expect ~40 pre-existing failures — see below
+   ```
+
+### Known traps during a sync
+
+- **`AGENTS.md` auto-append block.** Next.js 16 injects a `<!-- BEGIN:nextjs-agent-rules -->…<!-- END:nextjs-agent-rules -->` block on every `next dev` start (see `node_modules/next/dist/server/lib/generate-agent-files.js::upsertAgentRulesBlock`). The block's own comment says *"committing it with your work keeps the tree clean"* — so commit it. Removing it just causes `next dev` to re-add it on the next start. The upsert function preserves content before the `BEGIN` marker and after the `END` marker, so any section placed outside that block survives restarts untouched.
+
+- **`package-lock.json` may be rewritten by `npm install`.** That's expected. Commit the rewritten version in the same commit as any other sync changes (npm typically reports hundreds of inserts/removes; that's fine).
+
+- **Uncommitted work blocks the merge.** If `git status` shows local modifications before `git upsync`, commit them first or `git stash push` to clear the dirty tree. Otherwise git will refuse to start the merge.
+
+- **`git upsync` rejects feature branches.** If you started sync work on a `feat/*` branch by accident, switch to `main` first: `git checkout main`.
+
+### ~40 pre-existing `npm test` failures
+
+`npm test` reports ~40 failures that exist independently of any upstream sync — they are not caused by merging and should not be "fixed" as part of a sync, since addressing them risks accidentally re-shaping fork code that is supposed to stay different. Root causes by category:
+
+- **`Cannot find module './runtime-password'`** (5 tests in `lib/web-auth.test.mjs`) — fork-introduced. `lib/web-auth.ts` does `import { getActivePassword } from "./runtime-password"` without the `.ts` extension. Webpack/Turbopack auto-resolves, so the dev server runs fine; only `node --test` (which does not auto-resolve extensions) fails. Not user-visible at runtime.
+
+- **`EPERM: symlink not permitted`** (e.g. `lib/directory-browser.test.mjs`) — Windows-specific; the test calls `symlinkSync` without elevation. Pre-existing.
+
+- **`useI18n must be used inside I18nProvider`** (e.g. `components/MermaidBlock.test.mjs`) — test setup missing a provider wrapper. Pre-existing.
+
+- **Various value-mismatch assertion failures** across the suite — pre-existing test drift, not caused by the sync.
+
+To confirm a failure is pre-existing rather than sync-induced: `git stash push package-lock.json -m "npm install sync" && npm test 2>&1 | tail -10 && git stash pop` (if the failure count matches before/after the lockfile change, it is pre-existing).
+
+### Conflict resolution strategy
+
+When merging upstream, conflicts will land in files that were edited on **both** sides since the fork point. For this fork that has historically been:
+
+- **`bin/pi-web.js`** — upstream removed the fork's `openBrowserWindow` helper. Resolution: keep HEAD (preserve fork behavior; auto-opening the browser on `pi-web` start is intentional in this fork).
+- **`package-lock.json`** — always take upstream (`git checkout --theirs package-lock.json`), then `npm install` to regenerate consistency with `node_modules`. Lockfile diffs in the thousands of lines are normal here.
+
+For files where the fork made an independent feature (**PWA, QR + Tailscale, session perf, AGENTS.md documentation notes), prefer HEAD — these are the things this fork exists for. For files where upstream is purely maintenance (refactors, type tightening, security dep bumps), prefer upstream — they are general code-quality improvements.
+
+After resolving a conflict, always re-run `npm test` on the touched file to make sure the resolution didn't introduce a new failure.

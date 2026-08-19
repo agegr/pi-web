@@ -137,6 +137,44 @@ npm run lint
 
 日常开发时不要运行 `next build` 或 `npm run build`。它们会写入 `.next/`，可能干扰开发服务器；仅在发布流程中执行构建。
 
+### 与上游同步
+
+本仓库 fork 自 [`agegr/pi-web`](https://github.com/agegr/pi-web)。标准同步流程（4 步）：
+
+```bash
+git checkout main
+git upsync              # fetch + merge + push 一行搞定
+npm install             # 同步依赖（可能修改 package-lock.json，一并 commit）
+# 重启 dev server（如果之前在跑）—— 老进程会因 react/react-dom 版本漂移报 500
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:30141/   # 应输出 200
+```
+
+`git upsync` 是仓库级 alias（写在 `.git/config`，不在用户全局配置里），需要在 `main`/`master` 分支上才能跑。upstream 的 push URL 已设为占位符 `no-pushing-to-upstream`，即使 alias 误拼也不会推回上游。
+
+如果 alias 不存在（例如新克隆的仓库），重新加上：
+
+```bash
+git config alias.upsync '!f() { current=$(git rev-parse --abbrev-ref HEAD); if [ "$current" != "main" ] && [ "$current" != "master" ]; then echo "upsync: must be on main or master (currently on $current)" >&2; return 1; fi; git fetch upstream --prune --tags && git merge upstream/main --no-ff -m "Merge upstream main" && git push origin HEAD; }; f'
+```
+
+#### 已知坑
+
+- **AGENTS.md 自动追加**：Next.js 16 每次 `next dev` 都会往 `AGENTS.md` 末尾追加一段 `<!-- BEGIN:nextjs-agent-rules -->`。那段注释里自己说了 *"committing it with your work keeps the tree clean"*，所以**要 commit 它**。删了下次还会被加回来。
+
+- **package-lock.json 会被 `npm install` 改写**：正常，跟代码改动一起 commit。
+
+- **约 40 个 pre-existing 测试失败**：`npm test` 的 ~40 个失败与同步无关，是项目长期累积问题，不要在同步时一并修。根因分类：模块扩展名（fork 引入的 `web-auth.ts`）、symlink 权限（Windows）、`I18nProvider` 缺失（测试 setup）等。
+
+- **dev server 必须重启**：`npm install` 后老 `next dev` 进程内的 react 和 react-dom 可能被漂移到不同补丁版本（`react@19.2.8` vs `react-dom@19.2.4`），症状是 webui 返回 500。必须杀掉进程、清 `.next/dev` 缓存、重启：
+
+  ```bash
+  cmd //c "taskkill /F /PID <dev-server-pid>"   # git bash 下用 //c 避免路径被转义
+  rm -rf .next/dev
+  npm run dev:lan
+  ```
+
+- **合并冲突**：本 fork 历史上冲突主要落在 `bin/pi-web.js`（保留 HEAD）和 `package-lock.json`（接受上游）。其他文件按"fork 独立特性 → 留 HEAD、上游纯维护性改动 → 接受上游"的策略解决。
+
 贡献者文档：[国际化](./docs/i18n.md)和[发布流程](./docs/release.md)。
 
 ## 仓库结构
