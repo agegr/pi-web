@@ -190,6 +190,22 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 ### Exported session HTML
 - `/api/sessions/[id]/export` delegates to pi's export helper, then patches recursive tree helpers in the generated HTML to iterative versions so very deep linear sessions do not overflow the browser call stack.
 
+### Session list hot path (`/api/sessions` + `lib/session-reader.ts`)
+- **Git fan-out is bounded**: `lib/worktree.ts::git()` is wrapped in a process-local `Semaphore(8)` before `execFile`. Windows spawns many git processes at once overwhelm antivirus/process-creation; the bound prevents the "all 20 git procs block on the same AV hook" stall while still parallelizing small cwd sets.
+- **Response never waits on git**: `applyCachedProjectInfo(session)` reads `__piProjectCache` synchronously; `scheduleProjectEnrichment(sessions)` runs `resolveProject` in the background and populates the cache for the next request. Persisted sessions come out of `loadAllSessions()` already enriched; runtime RPC sessions get the sync cache lookup.
+- **Disk cache survives cold boots**: `~/.pi/agent/.pi-web-list-cache.json` (schema `schemaVersion: 1`) stores `sessions` + `sessionsDirMtimeMs`. On read, compare against the current sessions-dir mtime — equal-or-older means trust the cache; newer means rescan. There is no TTL; mtime is the only signal. `invalidateSessionListCache()` removes the disk file, so every existing caller (rpc-manager + 4 routes) automatically invalidates both layers.
+- **Empty-clobber safeguard in `writeListCacheToDisk`**: refuses to write `[]` if either an existing non-empty cache is present or the sessions dir contains JSONL files. Logs a warning so transient FS hiccups surface in dev logs instead of as silent data loss across the next cold boot.
+- **`resolveSessionPath` verifies the cached path**: `if (cached && existsSync(cached)) return cached;` then `await listAllSessions({ force: true })`. Necessary because the disk cache stores absolute paths that were valid in a prior dev server's `cleanHome` (see `scripts/with-clean-home.js`); without the existence check the route opens a missing file and renders blank.
+- **Startup prewarm**: `instrumentation.ts` calls `listAllSessions()` + `scheduleProjectEnrichment()` at server boot. Disk cache makes the first user request fast even before any client request lands.
+
+### Next.js 16 dev overlay — `AbortController` is the enemy
+- Next 16's dev overlay tracks `AbortController.abort()` source lines even when downstream code catches the `AbortError`, surfacing "Runtime AbortError: signal is aborted without reason" as a noise issue. The fix is **not** to silence the error — it's to use a `cancelled` flag in cleanup instead of `AbortController`. See `components/ChatWindow.tsx::NewSessionUpdateLink` and `hooks/useAgentSession.ts` (loadModels effect) for the pattern.
+- Belt-and-braces: `next.config.ts` sets `devIndicators: false` to hide the bottom-right overlay button. Both are needed — `devIndicators` alone leaves the error panel reachable via keyboard shortcut.
+
+### `next.config.ts` excludes (do not move)
+- `devIndicators: false` — see above.
+- The Windows profile symlink excludes in `outputFileTracingExcludes` are required for `next build` on Windows; see `next.config.ts` comments.
+
 ## Pi Session File Format
 
 Location: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
