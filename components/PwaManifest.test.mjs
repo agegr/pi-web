@@ -14,8 +14,8 @@ test("manifest declares standalone display with Pi Web identity", () => {
   assert.equal(m.scope, "/");
   assert.equal(m.display, "standalone");
   assert.equal(m.orientation, "any");
-  assert.equal(m.background_color, "#1a1a1a");
-  assert.equal(m.theme_color, "#1a1a1a");
+  assert.equal(m.background_color, "#ffffff");
+  assert.equal(m.theme_color, "#f5f5f5");
 });
 
 test("manifest includes a maskable icon for Android adaptive icons", () => {

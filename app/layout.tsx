@@ -71,7 +71,11 @@ export const viewport: Viewport = {
   viewportFit: "cover",
   interactiveWidget: "resizes-content",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    // Match manifest.ts theme_color / background_color so the address bar
+    // and status bar use the same value as the app body — Chrome's PWA
+    // WebAPK builder consults both sources and picks whichever disagrees
+    // last.
+    { media: "(prefers-color-scheme: light)", color: "#f5f5f5" },
     { media: "(prefers-color-scheme: dark)", color: "#1a1a1a" },
   ],
 };
