@@ -70,13 +70,15 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   interactiveWidget: "resizes-content",
+  // Both media queries use the same value so the system status bar
+  // matches the app body even when the OS is in dark mode but the user
+  // has the app in light mode (or vice-versa). The manifest's
+  // `theme_color` is the canonical source; this just makes sure the
+  // meta tag agrees so Chrome's WebAPK builder doesn't pick a stale
+  // value.
   themeColor: [
-    // Match manifest.ts theme_color / background_color so the address bar
-    // and status bar use the same value as the app body — Chrome's PWA
-    // WebAPK builder consults both sources and picks whichever disagrees
-    // last.
     { media: "(prefers-color-scheme: light)", color: "#f5f5f5" },
-    { media: "(prefers-color-scheme: dark)", color: "#1a1a1a" },
+    { media: "(prefers-color-scheme: dark)", color: "#f5f5f5" },
   ],
 };
 
