@@ -141,7 +141,8 @@ body {
   display: flex;
   flex: 0 0 100%;
   flex-direction: column;
-  max-height: min(144px, 18dvh);
+  /* max-height: min(144px, 18dvh); */
+  max-height: min(269px, 28dvh);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -167,6 +168,55 @@ body {
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* File list panel for filechanges widget */
+.extension-widget-file-list {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.extension-widget-file-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 1px 12px;
+  min-width: 0;
+}
+
+.extension-widget-file-status {
+  flex-shrink: 0;
+  width: 12px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.extension-widget-file-status[data-status="added"] {
+  color: var(--accent);
+}
+
+.extension-widget-file-status[data-status="modified"] {
+  color: var(--text-muted);
+}
+
+.extension-widget-file-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.extension-widget-file-changes {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  font-size: 10px;
 }
 
 .extension-widget-triggers {

@@ -47,6 +47,48 @@ export function getNextExpandedWidgetKey(
   return currentKey === requestedKey ? null : requestedKey;
 }
 
+/** Widget key for the filechanges extension. */
+const FILECHANGES_WIDGET_KEY = "filechanges";
+
+/**
+ * Parse a filechanges widget line into a structured file entry.
+ * Lines follow the format: `Δ path/to/file.ts (+5/-2)` or `+ path/to/new-file.ts (+10/-0)`
+ * Returns null for non-matching lines (e.g. summary-only lines).
+ */
+export function parseFilechangeLine(
+  line: string,
+): { status: string; path: string; added: number; removed: number } | null {
+  const match = line.match(/^([Δ+])\s+(.+?)\s+\(\+(\d+)\/-([\d]+)\)$/);
+  if (!match) return null;
+  return {
+    status: match[1] === "+" ? "added" : "modified",
+    path: match[2],
+    added: Number(match[3]),
+    removed: Number(match[4]),
+  };
+}
+
+/**
+ * Compute a compact summary string for the filechanges widget trigger.
+ * Example: "Δ 17 files (10 mod / 7 new)" or "Δ 1 file changed".
+ */
+export function computeFileSummary(lines: string[]): string {
+  let modified = 0;
+  let added = 0;
+  for (const line of lines) {
+    const entry = parseFilechangeLine(line);
+    if (!entry) continue;
+    if (entry.status === "added") added++;
+    else modified++;
+  }
+  const total = modified + added;
+  if (total === 0) return "Δ 0 files";
+  const parts: string[] = [];
+  if (modified > 0) parts.push(`${modified} mod`);
+  if (added > 0) parts.push(`${added} new`);
+  return `Δ ${total} file${total === 1 ? "" : "s"} (${parts.join(" / ")})`;
+}
+
 export function ExtensionWidgets({ widgets, footer = null }: {
   widgets: ExtensionWidgetItem[];
   /** Optional structured footer panel data (see lib/footer-status.ts). */
@@ -145,9 +187,32 @@ export function ExtensionWidgets({ widgets, footer = null }: {
                 aria-labelledby={triggerId}
               >
                 <div className="extension-widget-panel-heading">{widget.key}</div>
-                <pre className="extension-widget-content">
-                  {formatExtensionWidgetContent(widget.lines)}
-                </pre>
+                {widget.key === FILECHANGES_WIDGET_KEY ? (
+                  <div className="extension-widget-content extension-widget-file-list">
+                    {widget.lines.map((line, i) => {
+                      const entry = parseFilechangeLine(line);
+                      return entry ? (
+                        <div key={i} className="extension-widget-file-entry">
+                          <span className="extension-widget-file-status" data-status={entry.status}>
+                            {entry.status === "added" ? "+" : "✎"}
+                          </span>
+                          <span className="extension-widget-file-path">{entry.path}</span>
+                          <span className="extension-widget-file-changes">
+                            +{entry.added}/-{entry.removed}
+                          </span>
+                        </div>
+                      ) : (
+                        <div key={i} className="extension-widget-file-entry">
+                          <span className="extension-widget-file-path">{line}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <pre className="extension-widget-content">
+                    {formatExtensionWidgetContent(widget.lines)}
+                  </pre>
+                )}
               </section>
             );
           })()}
@@ -183,6 +248,8 @@ export function ExtensionWidgets({ widgets, footer = null }: {
           );
           const triggerId = `${idPrefix}-trigger-${index}`;
           const panelId = `${idPrefix}-panel-${index}`;
+          const isFilechanges = widget.key === FILECHANGES_WIDGET_KEY;
+          const summary = isFilechanges ? computeFileSummary(widget.lines) : null;
           const content = (
             <>
               <span className="extension-widget-update-pulse" aria-hidden="true" />
@@ -202,7 +269,9 @@ export function ExtensionWidgets({ widgets, footer = null }: {
                   />
                 </svg>
               </span>
-              <span className="extension-widget-key">{widget.key}</span>
+              <span className="extension-widget-key">
+                {summary ?? widget.key}
+              </span>
             </>
           );
 
