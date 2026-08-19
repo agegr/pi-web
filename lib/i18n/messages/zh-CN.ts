@@ -159,6 +159,7 @@ export const zhCNLocale: LocalePlugin = {
     "files.uploading": "正在上传，{progress}%",
     "chat.loadingSession": "正在加载会话...",
     "chat.runningTool": "正在运行工具...",
+    "chat.generatingToolInput": "正在生成参数...",
     "chat.runningNamedTool": "正在运行 {name}...",
     "chat.runningTools": "正在运行 {names}...",
     "chat.runningToolsMore": "正在运行 {names}（另有 {count} 个）...",

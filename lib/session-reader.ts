@@ -10,6 +10,7 @@ import { writePrivateFileAtomicSync } from "./atomic-file";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
 import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } from "@earendil-works/pi-coding-agent";
 import { normalizeToolCalls } from "./normalize";
+import { projectIdentityKey } from "./project-identity";
 import { sessionPathKey } from "./session-path";
 import { getCachedProjectInfo, resolveProject, type ProjectInfo } from "./worktree";
 
@@ -34,9 +35,11 @@ export async function attachSessionProjectInfo(sessions: SessionInfo[]): Promise
 
   return sessions.map((session) => {
     const project = session.cwd ? projectByCwd.get(session.cwd) : undefined;
+    const projectRoot = project?.projectRoot ?? session.cwd;
     return {
       ...session,
-      projectRoot: project?.projectRoot ?? session.cwd,
+      projectRoot,
+      projectKey: projectIdentityKey(projectRoot),
       ...(project?.isWorktree && project.branch ? { worktreeBranch: project.branch } : {}),
     };
   });

@@ -8,18 +8,45 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { MessageView, replaceUserMessageText } = await jiti.import("./MessageView.tsx");
+const {
+  MessageView,
+  getTokenEstimateText,
+  getToolCallInputText,
+  replaceUserMessageText,
+} = await jiti.import("./MessageView.tsx");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
-function renderMessage(message) {
+function renderMessage(message, props = {}) {
   return renderToStaticMarkup(
     React.createElement(
       I18nProvider,
       null,
-      React.createElement(MessageView, { message }),
+      React.createElement(MessageView, { message, ...props }),
     ),
   );
 }
+
+test("keeps streamed tool input out of collapsed markup while counting it", () => {
+  const block = {
+    type: "toolCall",
+    toolCallId: "call-write-1",
+    toolName: "write",
+    input: {},
+    rawInput: '{"path":"/tmp/file","content":"secret-stream-fragment',
+  };
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [block],
+  }, { isStreaming: true });
+
+  assert.match(html, /write/);
+  assert.match(html, /Generating parameters/);
+  assert.doesNotMatch(html, /secret-stream-fragment/);
+  assert.equal(getToolCallInputText(block), block.rawInput);
+  assert.equal(getTokenEstimateText(block), block.rawInput);
+});
 
 const COMPLETE_SKILL_EXPANSION = `<skill name="review" location="/skills/review/SKILL.md">
 References are relative to /skills/review.

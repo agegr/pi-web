@@ -1,6 +1,6 @@
 {
   "name": "@agegr/pi-web",
-  "version": "0.8.8",
+  "version": "0.8.9",
   "description": "Web UI for the pi coding agent",
   "homepage": "https://github.com/agegr/pi-web#readme",
   "repository": {
@@ -39,18 +39,18 @@
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.84.1",
-    "@earendil-works/pi-ai": "0.84.1",
-    "@earendil-works/pi-coding-agent": "0.84.1",
-    "@earendil-works/pi-tui": "0.84.1",
+    "@earendil-works/pi-agent-core": "0.84.2",
+    "@earendil-works/pi-ai": "0.84.2",
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@earendil-works/pi-tui": "0.84.2",
     "js-yaml": "^5.2.3",
-    "next": "16.2.12",
+    "next": "16.3.1",
     "proper-lockfile": "4.1.2",
     "qrcode": "^1.5.4",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "remark-frontmatter": "^5.0.0",
-    "undici": "8.5.0"
+    "undici": "8.10.0"
   },
   "devDependencies": {
     "@lobehub/icons": "^5.6.0",
@@ -63,12 +63,12 @@
     "@types/react-dom": "^19",
     "@types/react-syntax-highlighter": "^15.5.13",
     "eslint": "^9",
-    "eslint-config-next": "16.2.12",
+    "eslint-config-next": "16.3.1",
     "jiti": "^2.7.0",
     "katex": "^0.16.47",
     "mammoth": "^1.12.0",
-    "mermaid": "^11.14.0",
-    "postcss": "^8",
+    "mermaid": "^11.16.1",
+    "postcss": "^8.5.26",
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.1",
     "rehype-katex": "^7.0.1",
