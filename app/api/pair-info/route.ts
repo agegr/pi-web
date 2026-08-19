@@ -5,95 +5,100 @@ import { getActivePassword } from "@/lib/runtime-password";
 
 export const dynamic = "force-dynamic";
 
-/**
- * Read the hostname the QR code should encode. Tries, in order:
- *   1. `PI_WEB_HOSTNAME` env var (operator passed `-H <host>`)
- *   2. `.pi-web-hostname` file (written by the launcher)
- *   3. `0.0.0.0` is rejected because the phone can't dial it. We fall back to
- *      `127.0.0.1` for that case so the user gets a working code instead of
- *      a broken one — they can read the address from the modal and copy it.
- *
- * The launcher may write a full URL (e.g. `https://duoji.taildee88d.ts.net`
- * when `tailscale serve` is configured) so the QR code lands on a secure
- * context and Chrome will install the PWA in standalone mode. In that case
- * we keep the URL intact instead of wrapping it in `http://host:port`.
- */
-function readBoundHostname(): string {
-  const fromEnv = process.env.PI_WEB_HOSTNAME?.trim();
-  if (fromEnv && fromEnv !== "0.0.0.0") return fromEnv;
-  try {
-    const path = join(process.cwd(), ".pi-web-hostname");
-    if (existsSync(path)) {
-      const value = readFileSync(path, "utf8").trim();
-      if (value && value !== "0.0.0.0") return value;
-    }
-  } catch {
-    /* ignore */
-  }
-  return "127.0.0.1";
-}
-
 function isFullUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
 }
 
 /**
+ * Resolve the address the *phone* should dial, with the port and hostname
+ * broken out for display.
+ *
+ * Source of truth order:
+ *   1. `.pi-web-hostname` file (written by `bin/pi-web.js` on every launch)
+ *     — may be a bare host (`100.75.255.47`) or a full URL
+ *     (`https://duoji.taildee88d.ts.net`) when `tailscale serve` is set up.
+ *     The file carries the canonical addressable URL.
+ *   2. `PI_WEB_HOSTNAME` env var — used by `lib/request-security.ts` as a
+ *     bare hostname whitelist entry, so it can't carry a full URL through
+ *     here. We only consume it as a fallback when the file is missing.
+ *   3. `127.0.0.1` — last resort; the modal will surface a warning.
+ */
+function resolveServiceInfo(): { url: string; hostname: string; port: string } {
+  const fallbackPort = process.env.PORT?.trim() || "30141";
+
+  try {
+    const path = join(process.cwd(), ".pi-web-hostname");
+    if (existsSync(path)) {
+      const raw = readFileSync(path, "utf8").trim();
+      if (raw && raw !== "0.0.0.0") {
+        if (isFullUrl(raw)) {
+          // `tailscale serve` (or any HTTPS-terminating proxy in front of
+          // us) wrote a full URL. Honor it as-is so the phone gets a
+          // secure context — required for Chrome to install this as a
+          // real PWA in standalone mode.
+          const parsed = new URL(raw);
+          const url = raw.endsWith("/") ? raw : `${raw}/`;
+          return {
+            url,
+            hostname: parsed.hostname,
+            port: parsed.port || (parsed.protocol === "https:" ? "443" : "80"),
+          };
+        }
+        return {
+          url: `http://${raw}:${fallbackPort}/`,
+          hostname: raw,
+          port: fallbackPort,
+        };
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const fromEnv = process.env.PI_WEB_HOSTNAME?.trim();
+  if (fromEnv && fromEnv !== "0.0.0.0") {
+    return {
+      url: `http://${fromEnv}:${fallbackPort}/`,
+      hostname: fromEnv,
+      port: fallbackPort,
+    };
+  }
+
+  return {
+    url: `http://127.0.0.1:${fallbackPort}/`,
+    hostname: "127.0.0.1",
+    port: fallbackPort,
+  };
+}
+
+/**
  * Information the desktop's "Connect Phone" modal needs to render a QR code
  * the phone can scan.
- *
- * Hostname priority:
- *   1. `PI_WEB_HOSTNAME` env var — the address the server is *bound to*.
- *      This is what the phone must dial, regardless of how the desktop
- *      browser reached the server.
- *   2. Request `Host` header — only used as a last resort if the operator
- *      has no configured hostname (e.g. fresh dev mode on loopback).
  */
 export async function GET() {
-  const configured = readBoundHostname();
-  const port = process.env.PORT?.trim() || "30141";
   // Auth is required iff a password is in play — either explicit env var
   // or the runtime-generated one. We don't want to leak the *existence* of
   // the password here (that's what /api/pair-password is for), just whether
   // the phone will be prompted at all.
   const authRequired = getActivePassword().length > 0;
 
-  // The QR must encode the address the *phone* can reach, regardless of how
-  // the desktop browser got to the modal. PI_WEB_HOSTNAME wins because
-  // that's what the server is bound to and therefore what the phone must
-  // dial. Loopback / unspecified is only acceptable when the operator
-  // hasn't bound a specific address — they get a clear warning.
-  if (configured) {
-    if (isFullUrl(configured)) {
-      // `tailscale serve` (or any other HTTPS-terminating proxy in front of
-      // us) wrote a full URL. Honor it as-is so the phone gets a secure
-      // context — required for Chrome to install this as a real PWA.
-      const parsed = new URL(configured);
-      const url = configured.endsWith("/") ? configured : `${configured}/`;
-      return NextResponse.json({
-        url,
-        hostname: parsed.hostname,
-        port: parsed.port || (parsed.protocol === "https:" ? "443" : "80"),
-        authRequired,
-        username: "pi",
-      });
-    }
-    return NextResponse.json({
-      url: `http://${configured}:${port}/`,
-      hostname: configured,
-      port,
-      authRequired,
-      username: "pi",
-    });
-  }
+  const info = resolveServiceInfo();
 
-  return NextResponse.json({
-    url: `http://127.0.0.1:${port}/`,
-    hostname: "127.0.0.1",
-    port,
+  // Loopback / unspecified is only acceptable when the operator hasn't
+  // bound a specific address — surface a clear warning in that case.
+  const response: Record<string, unknown> = {
+    url: info.url,
+    hostname: info.hostname,
+    port: info.port,
     authRequired,
     username: "pi",
-    warning: "Server has no bound hostname; QR encodes loopback. Pass PI_WEB_HOSTNAME or -H tailscale for cross-device access.",
-  });
+  };
+
+  if (info.hostname === "127.0.0.1") {
+    response.warning = "Server has no bound hostname; QR encodes loopback. Pass PI_WEB_HOSTNAME or -H tailscale for cross-device access.";
+  }
+
+  return NextResponse.json(response);
 }
 
 function unused() {
