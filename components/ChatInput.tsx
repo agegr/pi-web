@@ -1043,7 +1043,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       const nativeEvent = e.nativeEvent;
-      const sendShortcut = e.key === "Enter" && !e.shiftKey && (!isMobile || e.ctrlKey || e.metaKey);
+      // Enter sends, Shift+Enter inserts a newline — same on every layout.
+      // Mobile previously required Ctrl/Meta+Enter (#472), which left
+      // hardware/Bluetooth keyboards with no way to send.
+      const sendShortcut = e.key === "Enter" && !e.shiftKey;
       const recentlyComposed = Date.now() - lastCompositionEndAtRef.current < COMPOSITION_END_ENTER_GRACE_MS;
       const isComposing =
         isComposingRef.current ||
