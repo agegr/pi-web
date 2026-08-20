@@ -14,6 +14,8 @@ import { sessionPathKey } from "@/lib/session-path";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { projectTreeForResponse } from "@/lib/project-tree";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
+import { computeSessionStats } from "@/lib/session-stats";
+import type { SessionEntry } from "@/lib/types";
 
 export async function GET(
   req: Request,
@@ -38,6 +40,10 @@ export async function GET(
     const deferToolResultImages = searchParams.has("deferMedia");
     const context = buildSessionContext(entries as never, leafId, { deferThinking, deferToolResultImages });
     const totalActiveMs = computeSessionTotalActiveMs(entries);
+    // Cumulative usage over ALL entries, including history compacted away —
+    // the same aggregation the SDK's getSessionStats() uses. Lets the client
+    // keep monotonic token/cost counters across compaction and page reloads.
+    const stats = computeSessionStats(entries as unknown as SessionEntry[]);
 
     const header = sm.getHeader();
     let modified = header?.timestamp ?? new Date().toISOString();
@@ -72,6 +78,7 @@ export async function GET(
       tree,
       context,
       totalActiveMs,
+      stats,
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

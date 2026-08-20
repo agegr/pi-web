@@ -18,6 +18,7 @@ import { clearDraft, rekeyDraft, restoreDraftSubmission } from "@/lib/draft-stor
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
 import { getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import type { SessionFileStats } from "@/lib/session-stats";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { AgentEventConnection } from "@/lib/agent-event-connection";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
@@ -44,6 +45,8 @@ export interface SessionData {
     thinkingLevel: string;
     model: { provider: string; modelId: string } | null;
   };
+  /** Cumulative usage over ALL session-file entries (incl. compacted history). */
+  stats?: SessionFileStats;
 }
 
 interface AgentEvent {
@@ -442,8 +445,25 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       tokens.cacheWrite += u.cacheWrite ?? 0;
       cost += u.cost?.total ?? 0;
     }
+    // The file stats span the ENTIRE session file — including history that
+    // compaction summarized away — while `messages` only covers the current
+    // (post-compaction) context. Merge per-field with max() so token/cost
+    // counters keep increasing after compaction and survive page reloads;
+    // session entries are only ever appended, never removed.
+    const fileStats = data?.stats;
+    if (fileStats) {
+      tokens.input = Math.max(tokens.input, fileStats.tokens.input);
+      tokens.output = Math.max(tokens.output, fileStats.tokens.output);
+      tokens.cacheRead = Math.max(tokens.cacheRead, fileStats.tokens.cacheRead);
+      tokens.cacheWrite = Math.max(tokens.cacheWrite, fileStats.tokens.cacheWrite);
+      cost = Math.max(cost, fileStats.cost);
+      userMessages = Math.max(userMessages, fileStats.userMessages);
+      assistantMessages = Math.max(assistantMessages, fileStats.assistantMessages);
+      toolResults = Math.max(toolResults, fileStats.toolResults);
+      toolCalls = Math.max(toolCalls, fileStats.toolCalls);
+    }
     tokens.total = tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite;
-    if (tokens.total === 0 && messages.length === 0) return null;
+    if (tokens.total === 0 && messages.length === 0 && !fileStats) return null;
     return {
       sessionFile: data?.filePath || undefined,
       sessionId: sessionIdRef.current ?? session?.id ?? "",
@@ -452,13 +472,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       assistantMessages,
       toolCalls,
       toolResults,
-      totalMessages: messages.length,
+      totalMessages: fileStats ? Math.max(messages.length, fileStats.totalMessages) : messages.length,
       tokens,
       cost,
       totalActiveMs: data?.totalActiveMs,
       ...(contextUsage ? { contextUsage } : {}),
     } satisfies SessionStatsInfo;
-  }, [messages, sessionStatsOverride, contextUsage, data?.filePath, data?.totalActiveMs, session?.id, session?.name]);
+  }, [messages, sessionStatsOverride, contextUsage, data?.filePath, data?.totalActiveMs, data?.stats, session?.id, session?.name]);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
     let messagesLoaded = false;
