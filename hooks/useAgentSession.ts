@@ -1898,8 +1898,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     return () => clearTimeout(t);
   }, [compactResult]);
 
+  // Pause notice expiry while hovered: no countdown runs when hoveredNoticeId is set.
+  // The remainingMs/startedAt/oldestId refs implement a true pause-and-resume instead of resetting the 5s timer.
+  const [hoveredNoticeId, setHoveredNoticeId] = useState<string | null>(null);
+  const noticeRemainingMsRef = useRef(NOTICE_VISIBLE_MS);
+  const noticeTimerStartedAtRef = useRef<number | null>(null);
+  const noticeOldestIdRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (noticeState.visible.length === 0) return;
+    if (noticeState.visible.length === 0) {
+      noticeOldestIdRef.current = null;
+      return;
+    }
     const exiting = noticeState.visible.find((notice) => notice.exiting);
     if (exiting) {
       const t = setTimeout(() => {
@@ -1909,11 +1919,29 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
     const oldest = noticeState.visible[0];
     if (!oldest) return;
+    // Oldest visible notice changed; restart the countdown
+    if (noticeOldestIdRef.current !== oldest.id) {
+      noticeOldestIdRef.current = oldest.id;
+      noticeRemainingMsRef.current = NOTICE_VISIBLE_MS;
+    }
+    // Hovered: countdown paused
+    if (hoveredNoticeId !== null) return;
+    noticeTimerStartedAtRef.current = Date.now();
     const t = setTimeout(() => {
       dispatchNotice({ type: "mark_oldest_exiting" });
-    }, NOTICE_VISIBLE_MS);
-    return () => clearTimeout(t);
-  }, [noticeState.visible]);
+    }, noticeRemainingMsRef.current);
+    return () => {
+      clearTimeout(t);
+      // Accrue the elapsed time so the countdown resumes from the remaining time
+      if (noticeTimerStartedAtRef.current !== null) {
+        noticeRemainingMsRef.current = Math.max(
+          0,
+          noticeRemainingMsRef.current - (Date.now() - noticeTimerStartedAtRef.current),
+        );
+        noticeTimerStartedAtRef.current = null;
+      }
+    };
+  }, [noticeState.visible, hoveredNoticeId]);
 
   useEffect(() => {
     setSessionStatsOverride(null);
@@ -1939,6 +1967,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
+    setNoticeHover: setHoveredNoticeId,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
     scrollToBottom, scrollUserMsgToTop,
     dispatch, setAgentRunning, setForkingEntryId,
