@@ -75,10 +75,11 @@ export function readModelsConfig(
 export function writeModelsConfig(
   data: Record<string, unknown>,
   modelsPath = getModelsConfigPath(),
-): void {
+): Record<string, unknown> {
   const dir = dirname(modelsPath);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const normalized = normalizeModelsConfigCosts(sanitizeModelsConfig(data));
   writePrivateFileAtomicSync(modelsPath, JSON.stringify(normalized, null, 2));
   invalidateModelsCache();
+  return normalized;
 }
