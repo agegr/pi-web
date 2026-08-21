@@ -42,3 +42,5 @@ next-env.d.ts
 .factory
 # pi-web operator env (holds password + public hostnames)
 .pi-web.env
+docker-compose.override.yml
+.env

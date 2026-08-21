@@ -24,8 +24,14 @@ services:
       PI_WEB_NO_OPEN: "1"
       # Allowed reverse proxy host (Cloudflare Tunnel)
       PI_WEB_ALLOWED_HOSTS: "pi09.n8n.tw"
-      # Secure complex password for authentication ($ escaped as $$ for Compose)
-      PI_WEB_PASSWORD: "pW9$$kX2#mV7!zL4@qN8&jR5*tC1%yB3^uK9"
+      # Basic Auth 密碼。**不要寫死在這裡** —— 這個 repo 是公開的，寫進來的值
+      # 等於公開，而且 git 歷史會永久保留。改從環境或 .env 讀：
+      #
+      #   echo "PI_WEB_PASSWORD=$(openssl rand -base64 30 | tr -d '/+=' | head -c 32)" >> .env
+      #
+      # 沒設的話這裡會是空字串，pi-web 會以無認證啟動 —— 只有在容器僅綁
+      # 127.0.0.1 且你信任本機所有行程時才可接受。
+      PI_WEB_PASSWORD: "${PI_WEB_PASSWORD:?請在 .env 設定 PI_WEB_PASSWORD}"
     volumes:
       # pi config, sessions, auth (shared with host)
       - '${HOME}/.pi/agent:/home/node/.pi/agent'
