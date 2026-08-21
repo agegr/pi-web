@@ -6,6 +6,7 @@ import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
+import { computeTurnToolDurationMs } from "@/lib/turn-timing";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
@@ -755,6 +756,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 let turnStartTimestamp: number | undefined;
                 let firstTokenMs: number | undefined;
                 let turnOutputTokens = 0;
+                let turnToolDurationMs: number | undefined;
                 if (msg.role === "assistant") {
                   for (let j = idx - 1; j >= 0; j--) {
                     const prev = messages[j];
@@ -765,6 +767,16 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                   }
                   turnOutputTokens += (msg as AssistantMessage).usage?.output ?? 0;
                   firstTokenMs = msg.timeToFirstTokenMs;
+                  // Tool execution total: sum of adjacent toolResult timestamp gaps
+                  // after the user message (correct for serial and parallel tools).
+                  const turnTail: AgentMessage[] = [];
+                  for (let j = idx - 1; j >= 0; j--) {
+                    const prev = messages[j];
+                    if (prev.role === "user") break;
+                    turnTail.unshift(prev);
+                  }
+                  const toolMs = computeTurnToolDurationMs(turnTail, turnStartTimestamp);
+                  if (toolMs > 0) turnToolDurationMs = toolMs;
                 }
                 const view = (
                   <MessageView
@@ -785,6 +797,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                     turnStartTimestamp={turnStartTimestamp}
                     firstTokenMs={firstTokenMs}
                     turnOutputTokens={turnOutputTokens}
+                    toolDurationMs={turnToolDurationMs}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
                     writtenFiles={options.writtenFiles}
                   />

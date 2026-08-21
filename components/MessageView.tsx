@@ -193,6 +193,7 @@ interface Props {
   turnStartTimestamp?: number;
   firstTokenMs?: number;
   turnOutputTokens?: number;
+  toolDurationMs?: number;
   sessionId?: string;
   /**
    * Files this turn wrote, derived by the caller from the whole turn's
@@ -217,7 +218,7 @@ function formatTime(ts?: number): string | null {
 }
 
 function formatTurnDuration(seconds: number, t: (key: string, params?: Record<string, string | number>) => string): string {
-  const total = Math.max(1, seconds);
+  const total = Math.max(0, Math.round(seconds));
   if (total < 60) return t("i18n.durationSecondsOnly", { seconds: String(total) });
   const minutes = Math.floor(total / 60);
   const secs = total % 60;
@@ -257,12 +258,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, turnStartTimestamp, firstTokenMs, turnOutputTokens, sessionId, writtenFiles }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, turnStartTimestamp, firstTokenMs, turnOutputTokens, toolDurationMs, sessionId, writtenFiles }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} turnStartTimestamp={turnStartTimestamp} firstTokenMs={firstTokenMs} turnOutputTokens={turnOutputTokens} sessionId={sessionId} entryId={entryId} writtenFiles={writtenFiles} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} turnStartTimestamp={turnStartTimestamp} firstTokenMs={firstTokenMs} turnOutputTokens={turnOutputTokens} toolDurationMs={toolDurationMs} sessionId={sessionId} entryId={entryId} writtenFiles={writtenFiles} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -589,6 +590,7 @@ function AssistantMessageView({
   turnStartTimestamp,
   firstTokenMs,
   turnOutputTokens,
+  toolDurationMs,
   sessionId,
   entryId,
   writtenFiles,
@@ -604,6 +606,7 @@ function AssistantMessageView({
   turnStartTimestamp?: number;
   firstTokenMs?: number;
   turnOutputTokens?: number;
+  toolDurationMs?: number;
   sessionId?: string;
   entryId?: string;
   writtenFiles?: WrittenFile[];
@@ -611,22 +614,37 @@ function AssistantMessageView({
   const { t } = useI18n();
   const endTime = message.endedAt ?? message.timestamp;
   const time = showTimestamp ? formatTime(endTime) : null;
-  const turnDurationSec = time && endTime && turnStartTimestamp
-    ? Math.round((endTime - turnStartTimestamp) / 1000)
+  // Keep raw milliseconds and subtract before rounding so the split parts
+  // (LLM vs tool calls) never drift by accumulated per-part rounding.
+  const turnDurationMs = time && endTime && turnStartTimestamp
+    ? endTime - turnStartTimestamp
     : undefined;
   const outputTokens = turnOutputTokens ?? message.usage?.output ?? 0;
+  // Tool execution total in ms (aggregated over the whole turn by the caller);
+  // the split display engages only when real tool time exists.
+  const toolMs = toolDurationMs !== undefined && toolDurationMs > 0 ? toolDurationMs : undefined;
+  // 纯生成时长：整轮扣除工具执行时间；无工具时即整轮时长（用于 LLM 显示与 tok/s 分母）
+  const generationMs = turnDurationMs !== undefined
+    ? Math.max(0, turnDurationMs - (toolMs ?? 0))
+    : undefined;
+  const turnDurationSec = turnDurationMs !== undefined ? Math.round(turnDurationMs / 1000) : undefined;
+  const toolDurationSec = toolMs !== undefined ? Math.round(toolMs / 1000) : undefined;
+  const generationDurationSec = generationMs !== undefined ? Math.round(generationMs / 1000) : undefined;
   const summaryText = (() => {
     if (!time || isStreaming) return null;
     const parts: string[] = [time];
-    if (turnDurationSec !== undefined && turnDurationSec > 0) {
+    if (toolDurationSec !== undefined && generationDurationSec !== undefined) {
+      parts.push(t("i18n.llmDuration", { duration: formatTurnDuration(generationDurationSec, t) }));
+      parts.push(t("i18n.toolCallDuration", { duration: formatTurnDuration(toolDurationSec, t) }));
+    } else if (turnDurationSec !== undefined && turnDurationSec > 0) {
       parts.push(t("i18n.turnDuration", { duration: formatTurnDuration(turnDurationSec, t) }));
     }
     if (firstTokenMs !== undefined && firstTokenMs > 0) {
       const ttftSec = (firstTokenMs / 1000).toFixed(1).replace(/\.0$/, "");
       parts.push(t("i18n.firstTokenTime", { seconds: ttftSec }));
     }
-    if (turnDurationSec !== undefined && turnDurationSec > 0 && outputTokens > 0) {
-      const rate = outputTokens / turnDurationSec;
+    if (generationDurationSec !== undefined && generationDurationSec > 0 && outputTokens > 0) {
+      const rate = outputTokens / generationDurationSec;
       const tps = rate >= 10 ? String(Math.round(rate)) : rate.toFixed(1);
       parts.push(t("i18n.tokPerSec", { tps }));
     }
@@ -677,19 +695,20 @@ function AssistantMessageView({
   }, [message.timestamp, prevTimestamp]);
 
   // Tool call durations derived from session file timestamps (accurate for completed messages)
-  // assistant message timestamp = when generation ended = when tools started running
+  // assistant message endedAt (entry timestamp) = when generation ended = when tools started running
   // toolResult timestamp = when tool execution finished
   const toolCallDurations = useMemo<Map<string, number>>(() => {
     const map = new Map<string, number>();
-    if (!toolResults || !message.timestamp) return map;
+    const toolStart = message.endedAt ?? message.timestamp;
+    if (!toolResults || !toolStart) return map;
     for (const [callId, result] of toolResults) {
-      if (result.timestamp && message.timestamp) {
-        const secs = Math.round((result.timestamp - message.timestamp) / 1000);
+      if (result.timestamp && toolStart) {
+        const secs = Math.round((result.timestamp - toolStart) / 1000);
         if (secs > 0) map.set(callId, secs);
       }
     }
     return map;
-  }, [toolResults, message.timestamp]);
+  }, [toolResults, message.timestamp, message.endedAt]);
 
   const textContent = blocks
     .filter((b): b is TextContent => b.type === "text")

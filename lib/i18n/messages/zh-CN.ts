@@ -462,6 +462,8 @@ export const zhCNLocale: LocalePlugin = {
     "i18n.estimatedTokens": "流式输出期间的估算 Token 数",
     "i18n.noOutput": "（无输出）",
     "i18n.turnDuration": "用时 {duration}",
+    "i18n.llmDuration": "LLM {duration}",
+    "i18n.toolCallDuration": "工具调用 {duration}",
     "i18n.firstTokenTime": "首 token {seconds}秒",
     "i18n.tokPerSec": "{tps} tok/s",
     "i18n.durationMinSec": "{minutes}分{seconds}秒",

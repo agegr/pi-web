@@ -461,6 +461,8 @@ export const enLocale: LocalePlugin = {
     "i18n.newSessionTitle": "New session — creates an independent copy from here",
     "i18n.estimatedTokens": "Estimated token count while streaming",
     "i18n.turnDuration": "Took {duration}",
+    "i18n.llmDuration": "LLM {duration}",
+    "i18n.toolCallDuration": "Tool calls {duration}",
     "i18n.firstTokenTime": "First token {seconds}s",
     "i18n.tokPerSec": "{tps} tok/s",
     "i18n.durationMinSec": "{minutes}m {seconds}s",
