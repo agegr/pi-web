@@ -243,9 +243,14 @@ export class AgentSessionWrapper {
     } else if (event.type === "message_update") {
       this.recordTtft();
     } else if (event.type === "message_end") {
-      if (this.ttftMs <= 0) return;
-      const message = event.message as { role?: string; timeToFirstTokenMs?: number } | undefined;
-      if (message?.role === "assistant" && typeof message.timeToFirstTokenMs !== "number") {
+      const message = event.message as { role?: string; timeToFirstTokenMs?: number; endedAt?: number } | undefined;
+      if (message?.role !== "assistant") return;
+      // Stamp the generation end time on live SSE messages and before pi persists
+      // the entry: without it the LLM/tool duration split falls back to
+      // message.timestamp (= thinking start) and miscomputes both parts.
+      // On reload the session reader overrides with the entry timestamp (~1ms apart).
+      if (typeof message.endedAt !== "number") message.endedAt = Date.now();
+      if (this.ttftMs > 0 && typeof message.timeToFirstTokenMs !== "number") {
         message.timeToFirstTokenMs = this.ttftMs;
       }
     }

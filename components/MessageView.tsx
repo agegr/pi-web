@@ -630,10 +630,15 @@ function AssistantMessageView({
   const turnDurationSec = turnDurationMs !== undefined ? Math.round(turnDurationMs / 1000) : undefined;
   const toolDurationSec = toolMs !== undefined ? Math.round(toolMs / 1000) : undefined;
   const generationDurationSec = generationMs !== undefined ? Math.round(generationMs / 1000) : undefined;
+  // TTFT can never exceed total generation time. If it does, the endedAt/tool
+  // timings are unreliable (e.g. live messages missing endedAt) — fall back to
+  // the plain whole-turn duration instead of showing self-contradictory parts.
+  const timingConsistent = generationMs === undefined || firstTokenMs === undefined || firstTokenMs <= 0
+    || generationMs >= firstTokenMs;
   const summaryText = (() => {
     if (!time || isStreaming) return null;
     const parts: string[] = [time];
-    if (toolDurationSec !== undefined && generationDurationSec !== undefined) {
+    if (timingConsistent && toolDurationSec !== undefined && generationDurationSec !== undefined) {
       parts.push(t("i18n.llmDuration", { duration: formatTurnDuration(generationDurationSec, t) }));
       parts.push(t("i18n.toolCallDuration", { duration: formatTurnDuration(toolDurationSec, t) }));
     } else if (turnDurationSec !== undefined && turnDurationSec > 0) {
@@ -643,7 +648,7 @@ function AssistantMessageView({
       const ttftSec = (firstTokenMs / 1000).toFixed(1).replace(/\.0$/, "");
       parts.push(t("i18n.firstTokenTime", { seconds: ttftSec }));
     }
-    if (generationDurationSec !== undefined && generationDurationSec > 0 && outputTokens > 0) {
+    if (timingConsistent && generationDurationSec !== undefined && generationDurationSec > 0 && outputTokens > 0) {
       const rate = outputTokens / generationDurationSec;
       const tps = rate >= 10 ? String(Math.round(rate)) : rate.toFixed(1);
       parts.push(t("i18n.tokPerSec", { tps }));
