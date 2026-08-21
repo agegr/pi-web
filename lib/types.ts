@@ -63,9 +63,15 @@ export interface AssistantMessage {
   stopReason?: string;
   errorMessage?: string;
   timestamp?: number;
-  /** Time from the user's prompt to the first generated token, in milliseconds (persisted by the server). */
+  /**
+   * Time from the user's prompt to the first generated token, in milliseconds.
+   * Measured by pi-web's RPC wrapper (not by pi): stamped onto the message object
+   * during `message_end`, which pi then persists because its `_handleAgentEvent`
+   * notifies listeners before `appendMessage(event.message)` with the same object
+   * reference. Absent for sessions recorded before this feature shipped.
+   */
   timeToFirstTokenMs?: number;
-  /** When the message finished generating and was persisted (entry timestamp); the message's own `timestamp` is when generation started. */
+  /** When the message finished generating (session entry `timestamp`); the message's own `timestamp` is when generation started. Derived from the entry timestamp by the session reader on reload, and stamped on live SSE messages by the RPC wrapper. */
   endedAt?: number;
   usage?: {
     input: number;

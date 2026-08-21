@@ -753,11 +753,16 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                   }
                 }
                 if (options.showTimestamp !== undefined) showTimestamp = options.showTimestamp;
+                // A message after the last anchor belongs to a turn that is still
+                // in flight. Its timing summary would be partial/misleading (an
+                // intermediate assistant keeps generating after tool calls), so
+                // suppress the duration/tok-s parts until the turn completes.
+                const turnActive = (sessionBusy || streamState.isStreaming) && idx > lastAnchorIdx;
                 let turnStartTimestamp: number | undefined;
                 let firstTokenMs: number | undefined;
                 let turnOutputTokens = 0;
                 let turnToolDurationMs: number | undefined;
-                if (msg.role === "assistant") {
+                if (msg.role === "assistant" && !turnActive) {
                   for (let j = idx - 1; j >= 0; j--) {
                     const prev = messages[j];
                     if (prev.role === "user") { turnStartTimestamp = prev.timestamp; break; }

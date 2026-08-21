@@ -294,6 +294,10 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.onEditContent === next.onEditContent
     && prev.showTimestamp === next.showTimestamp
     && prev.prevTimestamp === next.prevTimestamp
+    && prev.turnStartTimestamp === next.turnStartTimestamp
+    && prev.firstTokenMs === next.firstTokenMs
+    && prev.turnOutputTokens === next.turnOutputTokens
+    && prev.toolDurationMs === next.toolDurationMs
     && prev.sessionId === next.sessionId;
 });
 
@@ -630,6 +634,12 @@ function AssistantMessageView({
   const turnDurationSec = turnDurationMs !== undefined ? Math.round(turnDurationMs / 1000) : undefined;
   const toolDurationSec = toolMs !== undefined ? Math.round(toolMs / 1000) : undefined;
   const generationDurationSec = generationMs !== undefined ? Math.round(generationMs / 1000) : undefined;
+  // tok/s 分母：decode 阶段（首 token 之后）的生成时长，TTFT 单独显示——
+  // 与 DeepSeek-Harness / llama.cpp 的主流语义一致（速率从首 token 开始计时）。
+  const decodeMs = generationMs !== undefined && firstTokenMs !== undefined && firstTokenMs > 0
+    ? Math.max(0, generationMs - firstTokenMs)
+    : generationMs;
+  const decodeDurationSec = decodeMs !== undefined ? Math.round(decodeMs / 1000) : undefined;
   // TTFT can never exceed total generation time. If it does, the endedAt/tool
   // timings are unreliable (e.g. live messages missing endedAt) — fall back to
   // the plain whole-turn duration instead of showing self-contradictory parts.
@@ -648,8 +658,8 @@ function AssistantMessageView({
       const ttftSec = (firstTokenMs / 1000).toFixed(1).replace(/\.0$/, "");
       parts.push(t("i18n.firstTokenTime", { seconds: ttftSec }));
     }
-    if (timingConsistent && generationDurationSec !== undefined && generationDurationSec > 0 && outputTokens > 0) {
-      const rate = outputTokens / generationDurationSec;
+    if (timingConsistent && decodeDurationSec !== undefined && decodeDurationSec > 0 && outputTokens > 0) {
+      const rate = outputTokens / decodeDurationSec;
       const tps = rate >= 10 ? String(Math.round(rate)) : rate.toFixed(1);
       parts.push(t("i18n.tokPerSec", { tps }));
     }

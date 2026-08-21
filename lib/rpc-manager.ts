@@ -174,6 +174,8 @@ export class AgentSessionWrapper {
   private pendingPromptCount = 0;
   private turnStartMs = 0;
   private ttftMs = 0;
+  // Set once the turn's first assistant message_end has stamped timeToFirstTokenMs.
+  private ttftStamped = false;
   private promptAdmissionTail: Promise<void> = Promise.resolve();
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
@@ -245,13 +247,23 @@ export class AgentSessionWrapper {
     } else if (event.type === "message_end") {
       const message = event.message as { role?: string; timeToFirstTokenMs?: number; endedAt?: number } | undefined;
       if (message?.role !== "assistant") return;
-      // Stamp the generation end time on live SSE messages and before pi persists
-      // the entry: without it the LLM/tool duration split falls back to
-      // message.timestamp (= thinking start) and miscomputes both parts.
-      // On reload the session reader overrides with the entry timestamp (~1ms apart).
+      // Stamp generation end + TTFT on the message before pi persists it.
+      // This in-place mutation is reliable by design: pi's AgentSession emits
+      // message_end to listeners (us) BEFORE sessionManager.appendMessage(event.message)
+      // with the same object reference, so fields added here are written to the .jsonl.
+      // message_start/message_update never persist, so we only mutate on message_end.
+      // On reload the session reader re-derives endedAt from the entry timestamp
+      // (~1ms apart); timeToFirstTokenMs survives via the persisted message object.
       if (typeof message.endedAt !== "number") message.endedAt = Date.now();
-      if (this.ttftMs > 0 && typeof message.timeToFirstTokenMs !== "number") {
-        message.timeToFirstTokenMs = this.ttftMs;
+      // TTFT is a turn-level metric and belongs to the turn's first assistant
+      // message only. Later assistant messages in the same turn (after tool calls)
+      // have their own, unmeasured first-token time, so stamping the turn-level
+      // value there would mislead any per-message consumer.
+      if (this.ttftMs > 0 && !this.ttftStamped) {
+        this.ttftStamped = true;
+        if (typeof message.timeToFirstTokenMs !== "number") {
+          message.timeToFirstTokenMs = this.ttftMs;
+        }
       }
     }
   }
@@ -482,6 +494,7 @@ export class AgentSessionWrapper {
           try {
             this.turnStartMs = Date.now();
             this.ttftMs = 0;
+            this.ttftStamped = false;
             prompt = this.inner.prompt(command.message as string, {
               ...(promptImages?.length ? { images: promptImages } : {}),
               ...(streamingBehavior ? { streamingBehavior } : {}),
@@ -679,6 +692,7 @@ export class AgentSessionWrapper {
         const steerImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
         this.turnStartMs = Date.now();
         this.ttftMs = 0;
+        this.ttftStamped = false;
         await this.inner.steer(command.message as string, steerImages?.length ? steerImages : undefined);
         return null;
       }
@@ -687,6 +701,7 @@ export class AgentSessionWrapper {
         const followImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
         this.turnStartMs = Date.now();
         this.ttftMs = 0;
+        this.ttftStamped = false;
         await this.inner.followUp(command.message as string, followImages?.length ? followImages : undefined);
         return null;
       }
