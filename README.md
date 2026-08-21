@@ -38,10 +38,11 @@ To update, stop the running process with `Ctrl+C` and run the same install comma
 
 ## Configuration
 
-For port and hostname, command-line options override the corresponding environment variables. Either `--no-open` or `PI_WEB_NO_OPEN=1` disables automatic browser opening.
+For port and hostname, command-line options override the corresponding environment variables. Either `--no-open` or `PI_WEB_NO_OPEN=1` disables automatic browser opening. Run `pi-web --help` (or `-h`) to print startup options and exit without starting the server. Unknown options exit with an error.
 
 | Option or environment variable | Purpose | Default |
 | --- | --- | --- |
+| `--help`, `-h` | Print startup options and exit | — |
 | `--port <port>`, `-p <port>`, or `PORT` | Server port | `30141` |
 | `--hostname <host>`, `-H <host>`, or `PI_WEB_HOSTNAME` | Bind hostname | `127.0.0.1` |
 | `--no-open` or `PI_WEB_NO_OPEN=1` | Do not open a browser automatically | Browser opens |
@@ -51,6 +52,7 @@ For port and hostname, command-line options override the corresponding environme
 For example:
 
 ```bash
+pi-web --help
 pi-web -p 8080 -H 0.0.0.0 --no-open
 ```
 

@@ -16,9 +16,24 @@ const path = require("path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fs = require("fs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { parseLaunchOptions } = require("./pi-web-options");
+const { getHelpText, parseLaunchOptions } = require("./pi-web-options");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { wireChildProcessLifecycle } = require("./process-lifecycle");
+
+let launchOptions;
+try {
+  launchOptions = parseLaunchOptions();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+}
+
+if (launchOptions.help) {
+  console.log(getHelpText());
+  process.exit(0);
+}
+
+const { port, hostname, openBrowser } = launchOptions;
 
 const pkgDir = path.join(__dirname, "..");
 const nextDir = path.join(pkgDir, ".next");
@@ -38,7 +53,6 @@ try {
   }
 }
 
-const { port, hostname, openBrowser } = parseLaunchOptions();
 const loopbackHostnames = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 const passwordEnabled = Boolean(process.env.PI_WEB_PASSWORD);
 
