@@ -1003,6 +1003,10 @@ function TextFileViewer({
   });
   const onStateChangeRef = useRef(onStateChange);
   const [selectedLineRange, setSelectedLineRange] = useState<SelectedLineRange | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedContent, setEditedContent] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   onStateChangeRef.current = onStateChange;
 
@@ -1018,6 +1022,37 @@ function TextFileViewer({
       return next;
     });
   }, []);
+
+  const startEditing = useCallback(() => {
+    setEditedContent(data?.content ?? "");
+    setSaveError(null);
+    setIsEditing(true);
+  }, [data?.content]);
+
+  const cancelEditing = useCallback(() => {
+    setIsEditing(false);
+    setSaveError(null);
+  }, []);
+
+  const saveFile = useCallback(async (nextContent: string) => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch(`/api/files/${encodeFilePathForApi(filePath)}?type=save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: nextContent }),
+      });
+      const body = await res.json().catch(() => ({})) as { error?: string; size?: number };
+      if (!res.ok || body.error) throw new Error(body.error ?? `Save failed (HTTP ${res.status})`);
+      setData((prev) => (prev ? { ...prev, content: nextContent, size: body.size ?? prev.size } : prev));
+      setIsEditing(false);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  }, [filePath]);
 
   useEffect(() => {
     const nextState: FileViewerState = {
@@ -1102,6 +1137,8 @@ function TextFileViewer({
     setGitDiff(null);
     setGitDiffResolved(false);
     setWatching(false);
+    setIsEditing(false);
+    setSaveError(null);
 
     fetchContent(filePath).finally(() => {
       if (active) setLoading(false);
@@ -1387,8 +1424,55 @@ function TextFileViewer({
                 <MentionIcon />
               </button>
             )}
-            {effectiveDisplayMode === "source" && (
+            {isEditing ? (
               <>
+                <button
+                  type="button"
+                  onClick={cancelEditing}
+                  title={t("files.cancel")}
+                  aria-label={t("files.cancel")}
+                  className="file-viewer-icon-button"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+                    <path d="m6 6 12 12" />
+                    <path d="m18 6-12 12" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveFile(editedContent)}
+                  disabled={saving}
+                  title={t("files.save")}
+                  aria-label={t("files.save")}
+                  className="file-viewer-icon-button"
+                  style={{ color: saving ? "var(--text-dim)" : "#4ade80" }}
+                >
+                  {saving ? (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ animation: "spin 0.8s linear infinite" }}>
+                      <path d="M21 12a9 9 0 1 1-5.7-8.4" />
+                    </svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="m5 12 4 4L19 6" />
+                    </svg>
+                  )}
+                </button>
+              </>
+            ) : effectiveDisplayMode === "source" ? (
+              <>
+                <button
+                  type="button"
+                  onClick={startEditing}
+                  title={t("files.edit")}
+                  aria-label={t("files.edit")}
+                  className="file-viewer-icon-button"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                  </svg>
+                </button>
                 <button
                   type="button"
                   onClick={toggleWrapLines}
@@ -1409,12 +1493,29 @@ function TextFileViewer({
                   </svg>
                 </button>
               </>
-            )}
+            ) : null}
           </div>
 
           {!isDeletedDiff && <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />}
         </div>
       </div>
+
+      {saveError && (
+        <div
+          role="alert"
+          style={{
+            padding: "4px 12px",
+            fontSize: 11,
+            color: "#f87171",
+            background: "color-mix(in srgb, #f87171 8%, var(--bg))",
+            borderBottom: "1px solid var(--border)",
+            flexShrink: 0,
+            overflowWrap: "anywhere",
+          }}
+        >
+          {saveError}
+        </div>
+      )}
 
       {/* Content area */}
       <div
@@ -1426,7 +1527,43 @@ function TextFileViewer({
         }}
         style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}
       >
-        {effectiveDisplayMode === "diff" && hasGitDiff ? (
+        {isEditing ? (
+          <textarea
+            value={editedContent}
+            onChange={(event) => setEditedContent(event.target.value)}
+            onKeyDown={(event) => {
+              // Ctrl/Cmd+S saves; Escape cancels back to read-only view.
+              if (event.key === "s" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                void saveFile(editedContent);
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                cancelEditing();
+              }
+            }}
+            spellCheck={false}
+            className="file-editor-textarea"
+            style={{
+              display: "block",
+              width: "100%",
+              height: "100%",
+              boxSizing: "border-box",
+              padding: 12,
+              margin: 0,
+              border: "none",
+              outline: "none",
+              resize: "none",
+              background: "var(--bg)",
+              color: "var(--text)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 13,
+              lineHeight: 1.6,
+              tabSize: 2,
+              whiteSpace: "pre",
+              overflow: "auto",
+            }}
+          />
+        ) : effectiveDisplayMode === "diff" && hasGitDiff ? (
           <DiffView patch={gitDiff.patch!} />
         ) : isHtml && effectiveDisplayMode === "preview" ? (
           <iframe

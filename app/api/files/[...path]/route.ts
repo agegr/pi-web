@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import { spawn } from "child_process";
 import {
   getAllowedFileRoots,
   isExistingFilePathAllowed,
@@ -123,6 +124,68 @@ function parseUploadFileNames(value: unknown): string[] | null {
   return value;
 }
 
+type WritableTarget = { ok: string; size: number };
+
+/**
+ * Authorize writing to an existing file: the lexical path must sit inside the
+ * allowed roots and, after resolving symlinks, still resolve inside them so a
+ * link inside an allowed root cannot redirect the write outside it.
+ */
+async function getWritableFile(segments: string[]): Promise<WritableTarget | { response: NextResponse }> {
+  const filePath = filePathFromSegments(segments);
+  const allowedRoots = await getAllowedFileRoots();
+  if (!isFilePathAllowed(filePath, allowedRoots)) {
+    return { response: NextResponse.json({ error: "Access denied" }, { status: 403 }) };
+  }
+
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(filePath);
+  } catch {
+    return { response: NextResponse.json({ error: "File not found" }, { status: 404 }) };
+  }
+  if (!stat.isFile()) {
+    return { response: NextResponse.json({ error: "Not a file" }, { status: 400 }) };
+  }
+
+  const realPath = fs.realpathSync(filePath);
+  const realRoots = new Set<string>();
+  for (const root of allowedRoots) {
+    try {
+      realRoots.add(fs.realpathSync(root));
+    } catch {
+      // Ignore stale session roots that no longer exist.
+    }
+  }
+  if (!isFilePathAllowed(realPath, realRoots)) {
+    return { response: NextResponse.json({ error: "Access denied" }, { status: 403 }) };
+  }
+
+  return { ok: realPath, size: stat.size };
+}
+
+/** Launch the platform's file manager on a directory, resolving once launched. */
+function openInSystemFileManager(directory: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    let command: string;
+    let args: string[];
+    if (process.platform === "win32") {
+      command = "explorer";
+      args = [directory];
+    } else if (process.platform === "darwin") {
+      command = "open";
+      args = [directory];
+    } else {
+      command = "xdg-open";
+      args = [directory];
+    }
+    const child = spawn(command, args, { detached: true, stdio: "ignore" });
+    child.on("error", () => resolve(`Failed to launch file manager (${command})`));
+    child.unref();
+    resolve(null);
+  });
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
@@ -133,10 +196,42 @@ export async function POST(
 
   try {
     const { path: segments } = await params;
+    const type = request.nextUrl.searchParams.get("type") ?? "upload";
+
+    if (type === "save") {
+      const writable = await getWritableFile(segments);
+      if ("response" in writable) return writable.response;
+      if (writable.size > TEXT_PREVIEW_MAX_BYTES) {
+        return NextResponse.json({ error: "File too large to edit (>256KB)" }, { status: 413 });
+      }
+      const body = await request.json().catch(() => null) as { content?: unknown } | null;
+      if (typeof body?.content !== "string") {
+        return NextResponse.json({ error: "content must be a string" }, { status: 400 });
+      }
+      try {
+        fs.writeFileSync(writable.ok, body.content, "utf-8");
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : String(error) },
+          { status: 500 },
+        );
+      }
+      return NextResponse.json({ ok: true, size: Buffer.byteLength(body.content, "utf-8") });
+    }
+
+    if (type === "open-directory") {
+      const uploadDirectory = await getUploadDirectory(segments);
+      if ("response" in uploadDirectory) return uploadDirectory.response;
+      const launchError = await openInSystemFileManager(uploadDirectory.directory);
+      if (launchError) {
+        return NextResponse.json({ error: launchError }, { status: 500 });
+      }
+      return NextResponse.json({ ok: true });
+    }
+
     const uploadDirectory = await getUploadDirectory(segments);
     if ("response" in uploadDirectory) return uploadDirectory.response;
     const { directory } = uploadDirectory;
-    const type = request.nextUrl.searchParams.get("type") ?? "upload";
 
     if (type === "upload-check") {
       const body = await request.json().catch(() => null) as { fileNames?: unknown } | null;
