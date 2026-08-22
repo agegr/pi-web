@@ -9,11 +9,12 @@ import {
   isWebPasswordEnabled,
 } from "@/lib/web-auth";
 
-function isSafeInternalPath(path: string | null | undefined): boolean {
+function isSafeInternalPath(path: string | null | undefined): path is string {
   if (!path || typeof path !== "string") return false;
   try {
-    const parsed = new URL(path, "http://127.0.0.1");
-    if (parsed.origin !== "http://127.0.0.1") return false;
+    const dummyOrigin = "http://127.0.0.1";
+    const parsed = new URL(path, dummyOrigin);
+    if (parsed.origin !== dummyOrigin) return false;
     if (parsed.username || parsed.password) return false;
     return parsed.pathname.startsWith("/");
   } catch {
@@ -93,7 +94,7 @@ export function proxy(request: NextRequest) {
   if (isLoginPage) {
     const redirectParam = request.nextUrl.searchParams.get("redirect");
     const redirectUrl = isSafeInternalPath(redirectParam)
-      ? new URL(redirectParam!, request.url)
+      ? new URL(redirectParam, request.url)
       : new URL("/", request.url);
     return NextResponse.redirect(redirectUrl);
   }

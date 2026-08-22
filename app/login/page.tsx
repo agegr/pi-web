@@ -1,11 +1,6 @@
 "use client";
 
-import React, {
-  useState,
-  useCallback,
-  useTransition,
-  Suspense,
-} from "react";
+import React, { useState, useCallback, useTransition, Suspense } from "react";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n, I18nProvider } from "@/hooks/useI18n";
 import type { Locale } from "@/lib/i18n/types";
@@ -498,8 +493,7 @@ function LoginForm() {
                 borderRadius: 8,
                 fontSize: 14,
                 fontWeight: 500,
-                cursor:
-                  isPending || !password ? "not-allowed" : "pointer",
+                cursor: isPending || !password ? "not-allowed" : "pointer",
                 opacity: isPending || !password ? 0.65 : 1,
                 display: "flex",
                 alignItems: "center",
