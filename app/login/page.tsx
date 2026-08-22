@@ -408,7 +408,6 @@ function LoginForm() {
                 {/* 显隐密码切换按钮 */}
                 <button
                   type="button"
-                  tabIndex={-1}
                   onClick={() => setShowPassword(!showPassword)}
                   aria-label={t(
                     showPassword ? "auth.hidePassword" : "auth.showPassword",
@@ -460,6 +459,8 @@ function LoginForm() {
               {/* 错误提示 */}
               {error && (
                 <div
+                  role="alert"
+                  aria-live="polite"
                   style={{
                     fontSize: 12,
                     color: "var(--error, #ef4444)",

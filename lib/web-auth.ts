@@ -114,3 +114,17 @@ export function isValidWebAuth(
   if (isValidBasicAuthorization(authorization, effectivePassword)) return true;
   return false;
 }
+
+export function isValidCredential(
+  username: string,
+  passwordInput: string,
+  configuredPassword?: string,
+): boolean {
+  const effectivePassword =
+    arguments.length >= 3 ? configuredPassword : process.env.PI_WEB_PASSWORD;
+  if (!isWebPasswordEnabled(effectivePassword)) return true;
+  const usernameMatches = secretsEqual(username, PI_WEB_AUTH_USERNAME);
+  const passwordMatches = secretsEqual(passwordInput, effectivePassword);
+  return usernameMatches && passwordMatches;
+}
+

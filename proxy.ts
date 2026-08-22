@@ -9,6 +9,16 @@ import {
   isWebPasswordEnabled,
 } from "@/lib/web-auth";
 
+function isSafeInternalPath(path: string | null | undefined): boolean {
+  if (!path || typeof path !== "string") return false;
+  return (
+    path.startsWith("/") &&
+    !path.startsWith("//") &&
+    !path.includes("\\") &&
+    !path.includes("\0")
+  );
+}
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isApiRequest = pathname === "/api" || pathname.startsWith("/api/");
@@ -62,6 +72,7 @@ export function proxy(request: NextRequest) {
           status: 401,
           headers: {
             "Cache-Control": "no-store",
+            "WWW-Authenticate": 'Basic realm="Pi Web", charset="UTF-8"',
           },
         },
       );
@@ -69,21 +80,19 @@ export function proxy(request: NextRequest) {
 
     // For web page navigation, redirect to /login
     const loginUrl = new URL("/login", request.url);
-    if (pathname && pathname !== "/") {
-      loginUrl.searchParams.set("redirect", pathname + request.nextUrl.search);
+    const targetPathWithQuery = pathname + request.nextUrl.search;
+    if (targetPathWithQuery && targetPathWithQuery !== "/") {
+      loginUrl.searchParams.set("redirect", targetPathWithQuery);
     }
     return NextResponse.redirect(loginUrl);
   }
 
-  // If user is already authenticated and visits /login, redirect to home /
+  // If user is already authenticated and visits /login, redirect to target or home /
   if (isLoginPage) {
     const redirectParam = request.nextUrl.searchParams.get("redirect");
-    const redirectUrl =
-      redirectParam &&
-      redirectParam.startsWith("/") &&
-      !redirectParam.startsWith("//")
-        ? new URL(redirectParam, request.url)
-        : new URL("/", request.url);
+    const redirectUrl = isSafeInternalPath(redirectParam)
+      ? new URL(redirectParam!, request.url)
+      : new URL("/", request.url);
     return NextResponse.redirect(redirectUrl);
   }
 

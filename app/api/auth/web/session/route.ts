@@ -2,7 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   isWebPasswordEnabled,
   isValidSessionToken,
+  isValidBasicAuthorization,
+  isValidCredential,
   generateSessionToken,
+  PI_WEB_AUTH_USERNAME,
   PI_WEB_SESSION_COOKIE,
 } from "@/lib/web-auth";
 
@@ -18,7 +21,10 @@ export function GET(request: NextRequest) {
   }
 
   const cookieToken = request.cookies.get(PI_WEB_SESSION_COOKIE)?.value;
-  const authenticated = isValidSessionToken(cookieToken, password);
+  const authorization = request.headers.get("authorization");
+  const authenticated =
+    isValidSessionToken(cookieToken, password) ||
+    isValidBasicAuthorization(authorization, password);
 
   return NextResponse.json({
     authRequired: true,
@@ -34,7 +40,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true });
   }
 
-  let body: { password?: string } = {};
+  let body: unknown;
   try {
     body = await request.json();
   } catch {
@@ -44,9 +50,26 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const inputPassword = typeof body.password === "string" ? body.password : "";
-  if (inputPassword !== password) {
-    return NextResponse.json({ error: "Invalid password" }, { status: 401 });
+  if (!body || typeof body !== "object") {
+    return NextResponse.json(
+      { error: "Invalid request payload" },
+      { status: 400 },
+    );
+  }
+
+  const payload = body as Record<string, unknown>;
+  const inputUsername =
+    typeof payload.username === "string" && payload.username.trim()
+      ? payload.username.trim()
+      : PI_WEB_AUTH_USERNAME;
+  const inputPassword =
+    typeof payload.password === "string" ? payload.password : "";
+
+  if (!isValidCredential(inputUsername, inputPassword, password)) {
+    return NextResponse.json(
+      { error: "Invalid credentials" },
+      { status: 401 },
+    );
   }
 
   const token = generateSessionToken(password);
