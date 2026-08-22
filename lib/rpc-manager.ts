@@ -2,8 +2,8 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
-import { existsSync, realpathSync, writeFileSync } from "fs";
-import { resolve } from "path";
+import { existsSync, mkdirSync, realpathSync, writeFileSync } from "fs";
+import { dirname, resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
 import { invalidateModelsCache } from "./models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
@@ -16,7 +16,7 @@ import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
-import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
+import type { AgentSessionLike, ExtensionUiContextLike, ReplacedSessionContextLike, ToolInfo } from "./pi-types";
 import type {
   ExtensionUiRequest,
   ExtensionUiResponse,
@@ -78,12 +78,21 @@ type ExtensionUiRequestBody = Record<string, unknown> & {
   expiresAt?: number;
 };
 
+type ReplacedSessionCallback = (ctx: ReplacedSessionContextLike) => Promise<void>;
+
 type ExtensionCommandContextActionsLike = {
   waitForIdle: () => Promise<void>;
-  newSession: () => Promise<{ cancelled: boolean }>;
+  newSession: (options?: {
+    parentSession?: string;
+    setup?: (sessionManager: SessionManager) => Promise<void>;
+    withSession?: ReplacedSessionCallback;
+  }) => Promise<{ cancelled: boolean }>;
   fork: () => Promise<{ cancelled: boolean }>;
   navigateTree: (targetId: string, options?: { summarize?: boolean }) => Promise<{ cancelled: boolean }>;
-  switchSession: () => Promise<{ cancelled: boolean }>;
+  switchSession: (
+    sessionPath: string,
+    options?: { withSession?: ReplacedSessionCallback },
+  ) => Promise<{ cancelled: boolean }>;
   reload: () => Promise<void>;
 };
 
@@ -112,7 +121,25 @@ export interface RpcSessionStartOptions {
   toolNames?: string[];
   initialModel?: { provider: string; modelId: string };
   thinkingLevel?: ThinkingLevel;
+  /**
+   * Reuse an already-open SessionManager instead of reopening the file.
+   * Used by extension-driven session replacement, where the new session file
+   * may not have been flushed to disk yet.
+   */
+  sessionManager?: SessionManager;
+  /**
+   * Reason reported to `session_start` handlers. Defaults to the SDK's
+   * "startup". Session replacement passes "new"/"resume" so extensions that
+   * react to switches (branch checkout, etc.) run like they do in the TUI.
+   */
+  sessionStartEvent?: SessionStartEventLike;
 }
+
+type SessionStartEventLike = {
+  type: "session_start";
+  reason: "new" | "resume" | "fork";
+  previousSessionFile?: string;
+};
 
 const CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 
@@ -154,6 +181,24 @@ function withExtensionTools(session: AgentSessionLike, toolNames: string[]): str
     .filter((name) => !codingToolNames.has(name));
 
   return [...new Set([...toolNames, ...extensionToolNames])];
+}
+
+/**
+ * Write a not-yet-flushed session file so readers (/api/sessions/[id]) can see it.
+ * Mirrors AgentSessionWrapper.persistBashOnlySession() for extension-created sessions.
+ */
+function persistSessionFileIfMissing(manager: SessionManager): void {
+  const sessionFile = manager.getSessionFile();
+  if (!sessionFile || existsSync(sessionFile)) return;
+  const header = manager.getHeader();
+  if (!header) return;
+
+  const content = [header, ...manager.getEntries()]
+    .map((entry) => JSON.stringify(entry))
+    .join("\n") + "\n";
+  mkdirSync(dirname(sessionFile), { recursive: true });
+  writeFileSync(sessionFile, content, { encoding: "utf8", flag: "wx" });
+  (manager as unknown as { flushed: boolean }).flushed = true;
 }
 
 // ============================================================================
@@ -1336,13 +1381,14 @@ export class AgentSessionWrapper {
         const agent = this.inner.agent as { waitForIdle?: () => Promise<void> };
         await agent.waitForIdle?.();
       },
-      newSession: async () => ({ cancelled: true }),
+      newSession: async (options) => this.replaceWithNewSession(options),
       fork: async () => ({ cancelled: true }),
       navigateTree: async (targetId, options) => {
         const result = await this.inner.navigateTree(targetId, { summarize: options?.summarize });
         return { cancelled: result.cancelled };
       },
-      switchSession: async () => ({ cancelled: true }),
+      switchSession: async (sessionPath, options) =>
+        this.replaceWithExistingSession(sessionPath, options?.withSession),
       reload: async () => {
         this.extensionStatuses.clear();
         this.resetExtensionWidgetsForReload();
@@ -1355,6 +1401,135 @@ export class AgentSessionWrapper {
         this.applyForcedEmptySystemPrompt();
       },
     };
+  }
+
+  /**
+   * Ask `session_before_switch` handlers whether a replacement may proceed.
+   * Mirrors AgentSessionRuntime.emitBeforeSwitch() so extension guards (e.g. a
+   * dirty-worktree prompt) can cancel the switch exactly like they do in the TUI.
+   */
+  private async emitBeforeSwitch(
+    reason: "new" | "resume",
+    targetSessionFile?: string,
+  ): Promise<boolean> {
+    const runner = this.inner.extensionRunner;
+    if (!runner.emit || runner.hasHandlers?.("session_before_switch") === false) return false;
+    const result = await runner.emit({
+      type: "session_before_switch",
+      reason,
+      ...(targetSessionFile ? { targetSessionFile } : {}),
+    });
+    return result?.cancel === true;
+  }
+
+  /**
+   * Extension-driven `ctx.newSession()`: create a fresh session file, tell the
+   * browser to follow it, then hand the extension a context bound to it.
+   */
+  private async replaceWithNewSession(options?: {
+    parentSession?: string;
+    setup?: (sessionManager: SessionManager) => Promise<void>;
+    withSession?: ReplacedSessionCallback;
+  }): Promise<{ cancelled: boolean }> {
+    if (await this.emitBeforeSwitch("new")) return { cancelled: true };
+
+    const current = this.inner.sessionManager;
+    const sessionManager = SessionManager.create(current.getCwd(), current.getSessionDir());
+    sessionManager.newSession(options?.parentSession ? { parentSession: options.parentSession } : undefined);
+    if (options?.setup) await options.setup(sessionManager);
+    // Pi delays the first flush until an assistant message exists. The browser
+    // navigates to this session immediately, so it must be readable on disk now.
+    persistSessionFileIfMissing(sessionManager);
+
+    return this.finishSessionReplacement("new", sessionManager, options?.withSession);
+  }
+
+  /**
+   * Extension-driven `ctx.switchSession(path)`: resume an existing session file.
+   */
+  private async replaceWithExistingSession(
+    sessionPath: string,
+    withSession?: ReplacedSessionCallback,
+  ): Promise<{ cancelled: boolean }> {
+    if (!existsSync(sessionPath)) throw new Error(`Session file not found: ${sessionPath}`);
+    if (await this.emitBeforeSwitch("resume", sessionPath)) return { cancelled: true };
+
+    const sessionManager = SessionManager.open(sessionPath, undefined);
+    return this.finishSessionReplacement("resume", sessionManager, withSession);
+  }
+
+  /**
+   * Shared tail of both replacement flows: notify browsers, tear this session
+   * down, start the replacement, and run the extension's withSession callback
+   * against it.
+   *
+   * The browser is told to follow BEFORE teardown, because this wrapper's event
+   * listeners disappear with it.
+   */
+  private async finishSessionReplacement(
+    reason: "new" | "resume",
+    sessionManager: SessionManager,
+    withSession?: ReplacedSessionCallback,
+  ): Promise<{ cancelled: boolean }> {
+    const previousSessionFile = this.inner.sessionFile;
+    const sessionFile = sessionManager.getSessionFile();
+    const sessionId = sessionManager.getSessionId();
+    const cwd = sessionManager.getCwd();
+    if (sessionFile) cacheSessionPath(sessionId, sessionFile);
+    invalidateSessionListCache();
+
+    this.emit({ type: "session_switch", sessionId, reason } as unknown as AgentEvent);
+
+    // The target may already be open elsewhere (another tab). Retire it so the
+    // replacement runs session_start handlers with the right reason.
+    const openTarget = getRegistry().get(sessionId);
+    if (openTarget && openTarget !== this && openTarget.isAlive()) await openTarget.shutdown();
+
+    await this.teardownForReplacement(reason, sessionFile);
+
+    const { session: next } = await startRpcSession(sessionId, sessionFile ?? "", cwd, {
+      sessionManager,
+      sessionStartEvent: {
+        type: "session_start",
+        reason,
+        ...(previousSessionFile ? { previousSessionFile } : {}),
+      },
+    });
+    await next.waitUntilReady();
+
+    if (withSession) {
+      const replacedContext = next.inner.createReplacedSessionContext?.();
+      if (replacedContext) await withSession(replacedContext);
+    }
+    return { cancelled: false };
+  }
+
+  /** Settle and dispose this session on behalf of its replacement. */
+  private async teardownForReplacement(
+    reason: "new" | "resume",
+    targetSessionFile: string | undefined,
+  ): Promise<void> {
+    try {
+      await this.inner.abort();
+    } catch (error) {
+      console.error(
+        "[pi-web] failed to abort session before switch:",
+        error instanceof Error ? error.message : error,
+      );
+    }
+    try {
+      await this.inner.extensionRunner.emit?.({
+        type: "session_shutdown",
+        reason,
+        ...(targetSessionFile ? { targetSessionFile } : {}),
+      });
+    } catch (error) {
+      console.error(
+        "[pi-web] session_shutdown handler failed during switch:",
+        error instanceof Error ? error.message : error,
+      );
+    }
+    this.destroy();
   }
 
   private syncProjectTrust(): void {
@@ -1567,7 +1742,7 @@ export async function startRpcSession(
   cwd: string | undefined,
   options: RpcSessionStartOptions = {},
 ): Promise<{ session: AgentSessionWrapper; realSessionId: string }> {
-  const { toolNames, initialModel, thinkingLevel } = options;
+  const { toolNames, initialModel, thinkingLevel, sessionStartEvent } = options;
   const registry = getRegistry();
   const locks = getLocks();
 
@@ -1578,7 +1753,9 @@ export async function startRpcSession(
   if (inflight) return inflight;
 
   let sessionManager: SessionManager;
-  if (sessionFile) {
+  if (options.sessionManager) {
+    sessionManager = options.sessionManager;
+  } else if (sessionFile) {
     sessionManager = SessionManager.open(sessionFile, undefined);
   } else {
     if (!cwd) throw new Error("cwd is required for a new session");
@@ -1645,6 +1822,7 @@ export async function startRpcSession(
     const { session: inner } = await createAgentSessionFromServices({
       services,
       sessionManager,
+      ...(sessionStartEvent ? { sessionStartEvent } : {}),
       ...(initial.model ? { model: initial.model } : {}),
       ...(initial.thinkingLevel ? { thinkingLevel: initial.thinkingLevel } : {}),
       ...(initial.scopedModels.length > 0 ? { scopedModels: initial.scopedModels } : {}),
