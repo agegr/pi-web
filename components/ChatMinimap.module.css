@@ -55,25 +55,36 @@
   color: var(--text-muted);
 }
 
+/* The located marker must stay visible on the opaque request row. */
+.turn[data-located="true"] .user {
+  background: color-mix(in srgb, var(--user-bg) 93%, var(--text));
+  box-shadow:
+    inset 2px 0 0 color-mix(in srgb, var(--text-muted) 70%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
 .content {
   grid-column: 2;
   min-width: 0;
 }
 
+/* Requests carry the same blue as the user bubbles in the chat, so the
+   outline reads as question / answer at a glance. */
 .user {
   display: block;
   width: calc(100% + 34px);
   min-height: 32px;
-  max-height: 86px;
+  max-height: 50px;
   margin: 0 0 0 -34px;
   padding: 7px 10px 7px 40px;
   border: 0;
   border-radius: 0;
-  background: transparent;
+  background: var(--user-bg);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--accent) 22%, transparent);
   color: var(--text);
   font-family: inherit;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: 0;
   line-height: 18px;
   text-align: left;
@@ -88,12 +99,12 @@
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 .user:hover {
-  background: color-mix(in srgb, var(--text) 6%, transparent);
+  background: color-mix(in srgb, var(--user-bg) 88%, var(--text));
 }
 
 .assistant {
@@ -218,7 +229,14 @@
   line-height: 28px;
 }
 
-.user:focus-visible,
+.user:focus-visible {
+  outline: 0;
+  background: color-mix(in srgb, var(--user-bg) 88%, var(--text));
+  box-shadow:
+    inset 2px 0 0 color-mix(in srgb, var(--accent) 70%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
 .heading:focus-visible,
 .paragraph:focus-visible {
   outline: 0;
