@@ -1,6 +1,7 @@
 import type { AssistantContentBlock, ToolResultMessage } from "./types";
 import { resolveLocalFilePath } from "./file-links";
-import { isEditToolName, isWriteToolName } from "./tool-names";
+import { isApplyPatchToolName, isEditToolName, isWriteToolName } from "./tool-names";
+import { applyPatchPreviewToFiles, extractApplyPatchPaths, getApplyPatchInputText } from "./apply-patch";
 
 export interface WrittenFile {
   /** Resolved absolute path of a file this turn wrote. */
@@ -18,12 +19,34 @@ function readToolPath(input: Record<string, unknown> | undefined): string | null
 }
 
 /**
+ * Collect the paths targeted by one apply_patch call.
+ *
+ * Prefers the applied-result preview — it reflects what actually landed on
+ * disk, including rename targets. Falls back to parsing the patch document
+ * from the call input. A single call may contain several file operations.
+ */
+function readApplyPatchPaths(input: Record<string, unknown> | undefined, result: ToolResultMessage | undefined): string[] {
+  const details = (result as (ToolResultMessage & { details?: unknown }) | undefined)?.details;
+  if (details && typeof details === "object" && !Array.isArray(details)) {
+    const files = applyPatchPreviewToFiles((details as Record<string, unknown>).preview);
+    if (files) {
+      const paths = files
+        .map((file) => file.newPath ?? file.oldPath)
+        .filter((path): path is string => typeof path === "string");
+      if (paths.length > 0) return paths;
+    }
+  }
+  return extractApplyPatchPaths(getApplyPatchInputText(input));
+}
+
+/**
  * Collect the distinct files a single assistant turn actually wrote.
  *
- * Every entry is derived from a `write`/`edit` tool call whose result arrived
- * and did not error — never from the reply text. A path the assistant merely
- * mentions in prose is not evidence that any file was touched, so it is not a
- * source here; the tool call is the record of what happened.
+ * Every entry is derived from a `write`/`edit`/`apply_patch` tool call whose
+ * result arrived and did not error — never from the reply text. A path the
+ * assistant merely mentions in prose is not evidence that any file was
+ * touched, so it is not a source here; the tool call is the record of what
+ * happened.
  *
  * Paths are resolved against `cwd`, deduped, and kept in first-seen order.
  */
@@ -37,23 +60,27 @@ export function extractTurnWrittenFiles(
 
   for (const block of content) {
     if (block.type !== "toolCall") continue;
-    if (!isFileWritingToolName(block.toolName)) continue;
+    if (!isFileWritingToolName(block.toolName) && !isApplyPatchToolName(block.toolName)) continue;
 
-    // No result yet (still streaming) or the call failed — nothing was written.
     const result = toolResults?.get(block.toolCallId);
     if (!result || result.isError) continue;
 
-    const rawPath = readToolPath(block.input);
-    if (!rawPath) continue;
+    const rawPaths = isApplyPatchToolName(block.toolName)
+      ? readApplyPatchPaths(block.input, result)
+      : [readToolPath(block.input)];
 
-    // Tool arguments are filesystem paths, not hrefs: preserve characters such
-    // as #, ?, and :digits that have special meaning in links and source refs.
-    const filePath = resolveLocalFilePath(rawPath, cwd);
-    if (!filePath) continue;
+    for (const rawPath of rawPaths) {
+      if (!rawPath) continue;
 
-    if (seen.has(filePath)) continue;
-    seen.add(filePath);
-    writtenFiles.push({ filePath });
+      // Tool arguments are filesystem paths, not hrefs: preserve characters such
+      // as #, ?, and :digits that have special meaning in links and source refs.
+      const filePath = resolveLocalFilePath(rawPath, cwd);
+      if (!filePath) continue;
+
+      if (seen.has(filePath)) continue;
+      seen.add(filePath);
+      writtenFiles.push({ filePath });
+    }
   }
 
   return writtenFiles;
