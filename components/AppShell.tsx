@@ -13,6 +13,7 @@ import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { BranchNavigator } from "./BranchNavigator";
+import { TerminalTabs } from "./TerminalTabs";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -387,6 +388,10 @@ export function AppShell() {
 
   const initialSessionId = initialNavigation.sessionId;
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
+  const [terminalTabs, setTerminalTabs] = useState<{ key: string; cwd: string }[]>([]);
+  const [activeTerminalKey, setActiveTerminalKey] = useState<string | null>(null);
+  const terminalSeqRef = useRef(1);
+  const terminalOpen = terminalTabs.length > 0;
   const activeProjectKeyRef = useRef<string | null>(null);
   // True once the initial ?session= URL param has been resolved (or confirmed absent)
   const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !initialSessionId);
@@ -842,6 +847,32 @@ export function AppShell() {
   }, [newSessionDraftKey]);
   const showChat = selectedSession !== null || effectiveNewSessionCwd !== null;
   const projectTrustCwd = selectedSession?.cwd ?? effectiveNewSessionCwd;
+  const terminalCwd = selectedSession?.cwd ?? effectiveNewSessionCwd ?? activeCwd;
+
+  const openTerminalTab = useCallback(() => {
+    if (!terminalCwd) return;
+    const key = `term-${terminalSeqRef.current++}`;
+    setTerminalTabs((prev) => [...prev, { key, cwd: terminalCwd }]);
+    setActiveTerminalKey(key);
+  }, [terminalCwd]);
+
+  const closeTerminalTab = useCallback((key: string) => {
+    const next = terminalTabs.filter((tab) => tab.key !== key);
+    setTerminalTabs(next);
+    if (activeTerminalKey === key) {
+      setActiveTerminalKey(next.length > 0 ? next[next.length - 1].key : null);
+    }
+  }, [activeTerminalKey, terminalTabs]);
+
+  const toggleTerminal = useCallback(() => {
+    if (terminalOpen) {
+      // Closing the dock kills all terminal processes (panels unmount).
+      setTerminalTabs([]);
+      setActiveTerminalKey(null);
+    } else {
+      openTerminalTab();
+    }
+  }, [openTerminalTab, terminalOpen]);
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat;
 
@@ -1077,6 +1108,39 @@ export function AppShell() {
       </svg>
     </button>
   );
+
+  const renderTerminalToggle = () => {
+    const enabled = Boolean(terminalCwd);
+    return (
+      <button
+        type="button"
+        onClick={toggleTerminal}
+        disabled={!enabled}
+        title={translate(terminalOpen ? "terminal.close" : "terminal.toggle")}
+        aria-label={translate("terminal.toggle")}
+        aria-pressed={terminalOpen}
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "center",
+          width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+          background: terminalOpen ? "var(--bg-selected)" : "none",
+          border: "none", borderRight: "1px solid var(--border)",
+          color: terminalOpen ? "var(--text)" : "var(--text-muted)",
+          cursor: enabled ? "pointer" : "not-allowed",
+          opacity: enabled ? 1 : 0.45,
+          flexShrink: 0, transition: "color 0.12s",
+        }}
+        onMouseEnter={(event) => { if (enabled) event.currentTarget.style.color = "var(--text)"; }}
+        onMouseLeave={(event) => {
+          event.currentTarget.style.color = terminalOpen ? "var(--text)" : "var(--text-muted)";
+        }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polyline points="4 17 10 11 4 5" />
+          <line x1="12" y1="19" x2="20" y2="19" />
+        </svg>
+      </button>
+    );
+  };
 
   const renderProjectTrustWarning = (mobileBanner: boolean) => {
     if (!showChat || !projectTrust?.requiresTrust || projectTrust.trusted) return null;
@@ -1798,6 +1862,7 @@ export function AppShell() {
               {renderProjectTrustWarning(false)}
               {renderChatToolbarActions(false)}
               {renderSessionStatsButton(false)}
+              {renderTerminalToggle()}
             </>
           )}
           {!isMobile && renderMainFileToggle(false)}
@@ -2144,6 +2209,15 @@ export function AppShell() {
             )
           ) : null}
         </div>
+        {terminalTabs.length > 0 && (
+          <TerminalTabs
+            tabs={terminalTabs}
+            activeKey={activeTerminalKey}
+            onSelect={setActiveTerminalKey}
+            onOpenNew={openTerminalTab}
+            onClose={closeTerminalTab}
+          />
+        )}
       </div>
 
       <div
