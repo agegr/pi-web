@@ -141,6 +141,8 @@ export interface UseAgentSessionOptions {
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
   onSessionCreated?: (session: SessionInfo, sourceDraftKey: string) => void;
   onSessionForked?: (newSessionId: string) => void;
+  /** An extension replaced this session server-side (ctx.newSession/ctx.switchSession). */
+  onSessionSwitched?: (targetSessionId: string) => void;
   modelsRefreshKey?: number;
   chatInputRef?: React.RefObject<ChatInputHandle | null>;
   onBranchDataChange?: (tree: SessionTreeNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void) => void;
@@ -263,7 +265,7 @@ type SlashCommandsResponse = {
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
-    session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
+    session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, onSessionSwitched,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsPanelOpen,
   } = opts;
 
@@ -1032,6 +1034,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
         break;
       }
+      case "session_switch": {
+        // An extension command (e.g. /pr, /work) replaced this session with
+        // another one server-side. Follow it in the browser.
+        const targetSessionId = event.sessionId;
+        if (typeof targetSessionId === "string" && targetSessionId !== sessionIdRef.current) {
+          onSessionSwitched?.(targetSessionId);
+        }
+        break;
+      }
       case "agent_start":
         cancelEventStreamGrace();
         sdkAgentActiveRef.current = true;
@@ -1247,7 +1258,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
+  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, onSessionSwitched, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {

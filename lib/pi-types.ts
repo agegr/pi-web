@@ -74,8 +74,23 @@ interface ExtensionRunnerLike {
     description?: string;
     sourceInfo: SlashCommandInfo["sourceInfo"];
   }>;
-  emit?(event: { type: "session_shutdown"; reason: "quit" }): Promise<unknown>;
+  emit?(event:
+    | { type: "session_shutdown"; reason: "quit" | "new" | "resume" | "fork"; targetSessionFile?: string }
+    | { type: "session_before_switch"; reason: "new" | "resume"; targetSessionFile?: string }
+  ): Promise<{ cancel?: boolean } | undefined>;
+  hasHandlers?(eventType: string): boolean;
   setUIContext?(uiContext?: unknown, mode?: "tui" | "rpc" | "json" | "print"): void;
+}
+
+/**
+ * Command-capable context bound to a replacement session after a switch.
+ * Only the members pi-web hands back to extension `withSession()` callbacks.
+ */
+export interface ReplacedSessionContextLike {
+  sendUserMessage(
+    content: string,
+    options?: { deliverAs?: "steer" | "followUp"; expandPromptTemplates?: boolean },
+  ): Promise<void>;
 }
 
 type DialogOptionsLike = {
@@ -144,6 +159,7 @@ export interface AgentSessionLike {
   readonly resourceLoader: ResourceLoaderLike;
 
   readonly bindExtensions?: unknown;
+  createReplacedSessionContext?(): ReplacedSessionContextLike;
   dispose(): void;
   reload(options?: { beforeSessionStart?: () => void | Promise<void> }): Promise<void>;
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;

@@ -123,6 +123,11 @@ hooks/
 
 **Fix**: `send("fork")` captures `newSessionId`, then calls `this.destroy()` before returning. The next request for the original session reloads a clean AgentSession from the original file.
 
+### Extension-driven session switching (`ctx.newSession` / `ctx.switchSession`)
+Extension commands like `/pr` or `/work` replace the running session. pi-web has no `AgentSessionRuntime`, so `rpc-manager.ts` reimplements that flow: emit `session_before_switch` (a handler returning `{cancel:true}` makes the action report `cancelled`, which is what the extension reports as "Resume cancelled"), emit a `session_switch` event to connected browsers **before** teardown, emit `session_shutdown`, destroy the wrapper, then `startRpcSession()` the target with `sessionStartEvent.reason` `new`/`resume` so `session_start` handlers (branch checkout, etc.) run like they do in the TUI. `withSession()` runs against the replacement's `createReplacedSessionContext()` only after `waitUntilReady()`.
+
+The client follows via `case "session_switch"` in `useAgentSession` → `onSessionSwitched` → `AppShell.handleSessionForked` (same select + hydrate + URL replace as a fork). Sessions created by `ctx.newSession()` are written to disk immediately (`persistSessionFileIfMissing`) because pi otherwise delays the first flush until an assistant message exists, and the browser navigates to the file right away.
+
 ### Two kinds of branching — don't confuse them
 - **Fork** (Fork button on user message): creates a new independent `.jsonl` file. Shown as a child in the sidebar tree via `parentSession` header field.
 - **In-session branch** (Continue button / BranchNavigator): calls `navigate_tree` within the same file. Multiple entries share the same `parentId`. Switching between them calls `/api/sessions/[id]/context?leafId=`.
