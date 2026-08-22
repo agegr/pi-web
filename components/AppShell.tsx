@@ -66,6 +66,24 @@ export function AppShell() {
   const searchParams = useSearchParams();
   const [initialNavigation] = useState(() => getInitialNavigation(searchParams));
   const { preference, toggleTheme } = useTheme();
+  const [authEnabled, setAuthEnabled] = useState(false);
+  useEffect(() => {
+    fetch("/api/auth/web/session")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { authRequired?: boolean } | null) => {
+        if (data && typeof data.authRequired === "boolean") {
+          setAuthEnabled(data.authRequired);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await fetch("/api/auth/web/logout", { method: "POST" });
+    } catch {}
+    window.location.href = "/login";
+  }, []);
   const themeLabelKey =
     preference === "light" ? "theme.light" : preference === "dark" ? "theme.dark" : "theme.auto";
   const { locale, setLocale, t: translate, supportedLocales } = useI18n();
@@ -1033,6 +1051,39 @@ export function AppShell() {
     </button>
   );
 
+  const renderLogoutButton = (mobile: boolean) => {
+    if (!authEnabled) return null;
+    return (
+      <button
+        key="logout-button"
+        type="button"
+        onClick={handleLogout}
+        title={translate("auth.logout")}
+        aria-label={translate("auth.logout")}
+        className={
+          mobile
+            ? "flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text)] active:scale-95"
+            : "flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text)]"
+        }
+      >
+        <svg
+          width={mobile ? 18 : 14}
+          height={mobile ? 18 : 14}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+          <polyline points="16 17 21 12 16 7" />
+          <line x1="21" y1="12" x2="9" y2="12" />
+        </svg>
+      </button>
+    );
+  };
+
   const renderLanguageButton = (mobile: boolean) => (
     <button
       ref={languageBtnRef}
@@ -1353,6 +1404,7 @@ export function AppShell() {
         </button>
         {mobile && renderThemeButton(true)}
         {mobile && renderLanguageButton(true)}
+        {mobile && renderLogoutButton(true)}
       </div>
     );
   };
@@ -1795,6 +1847,7 @@ export function AppShell() {
             <>
               {renderThemeButton(false)}
               {renderLanguageButton(false)}
+              {renderLogoutButton(false)}
               {renderProjectTrustWarning(false)}
               {renderChatToolbarActions(false)}
               {renderSessionStatsButton(false)}
