@@ -49,7 +49,7 @@ interface Props {
   model?: { provider: string; modelId: string } | null;
   isAutoModelSelection?: boolean;
   modelNames?: Record<string, string>;
-  modelList?: { id: string; name: string; provider: string }[];
+  modelList?: { id: string; name: string; provider: string; acceptsImages?: boolean }[];
   modelError?: string | null;
   /** Diagnostics from resolving `enabledModels`, e.g. a pattern that matched nothing. */
   modelScopeWarnings?: string[];
@@ -1172,14 +1172,36 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
   }, []);
 
+  // Whether the selected model can accept images. Defaults to enabled when the
+  // model is unknown (e.g. no selection yet) or it does not declare a capability.
+  const currentModelAcceptsImages = (() => {
+    if (!model) return true;
+    if (modelList && modelList.length > 0) {
+      const entry = modelList.find(
+        (m) => m.provider === model.provider && m.id === model.modelId,
+      );
+      if (entry && typeof entry.acceptsImages === "boolean") return entry.acceptsImages;
+    }
+    return true;
+  })();
+
+  // Whether the selected model supports thinking/reasoning. `availableThinkingLevels`
+  // becomes exactly ["off"] when the model has reasoning disabled in models.json
+  // (the "推理 / 思考" toggle), mirroring getSupportedThinkingLevels().
+  const currentModelSupportsReasoning = (() => {
+    if (!availableThinkingLevels || availableThinkingLevels.length !== 1) return true;
+    return availableThinkingLevels[0] !== "off";
+  })();
+
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    if (!currentModelAcceptsImages) return;
     const items = Array.from(e.clipboardData?.items ?? []);
     const imageItems = items.filter((item) => item.type.startsWith("image/"));
     if (!imageItems.length) return;
     e.preventDefault();
     const files = imageItems.map((item) => item.getAsFile()).filter((f): f is File => f !== null);
     processImageFiles(files);
-  }, [processImageFiles]);
+  }, [processImageFiles, currentModelAcceptsImages]);
 
   useEffect(() => {
     if (slashQuery === null) {
@@ -1318,6 +1340,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     ? `${compactResult.reason && compactResult.reason !== "manual" ? `${compactResult.reason[0].toUpperCase()}${compactResult.reason.slice(1)} ` : t("chat.compacted")} ${formatTokenCount(compactResult.tokensBefore)} -> ${formatTokenCount(compactResult.estimatedTokensAfter)} tokens (${t("chat.tokensSaved", { saved: formatTokenCount(compactSavedTokens) })})`
     : null;
   const thinkingDisplayLabel = (() => {
+    // 模型不支持推理（设置里关闭「推理 / 思考」）时实际行为始终为关闭，直接显示 off
+    if (!currentModelSupportsReasoning) return "off";
     const lvl = thinkingLevel ?? "auto";
     if (lvl === "auto" || !thinkingLevelMap) return lvl;
     return thinkingLevelMap[lvl] ?? lvl;
@@ -2031,26 +2055,33 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           {/* LEFT: attach + model selector (idle) or steer/followup toggle (streaming) */}
           <div style={{ flex: isMobile ? "1 1 auto" : "0 0 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2 }}>
             <button
-              onClick={() => fileInputRef.current?.click()}
-             title={t("chat.attachImage")}
+              onClick={() => {
+                if (currentModelAcceptsImages) fileInputRef.current?.click();
+              }}
+              disabled={!currentModelAcceptsImages}
+              aria-disabled={!currentModelAcceptsImages || undefined}
+              title={currentModelAcceptsImages
+                ? t("chat.attachImage")
+                : t("chat.imageInputDisabled")}
               style={{
                 flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                 width: 32, height: 32, padding: 0,
                 background: "none", border: "none",
                 borderRadius: 9,
-                color: attachedImages.length ? "var(--accent)" : "var(--text-muted)",
-                cursor: "pointer",
-                opacity: 1,
-                transition: "background 0.12s, color 0.12s",
+                color: !currentModelAcceptsImages ? "var(--text-dim)"
+                  : attachedImages.length ? "var(--accent)" : "var(--text-muted)",
+                cursor: currentModelAcceptsImages ? "pointer" : "not-allowed",
+                opacity: currentModelAcceptsImages ? 1 : 0.45,
+                transition: "background 0.12s, color 0.12s, opacity 0.12s",
               }}
-              onMouseEnter={(e) => {
+              onMouseEnter={currentModelAcceptsImages ? (e) => {
                 e.currentTarget.style.background = "var(--bg-hover)";
                 e.currentTarget.style.color = attachedImages.length ? "var(--accent)" : "var(--text)";
-              }}
-              onMouseLeave={(e) => {
+              } : undefined}
+              onMouseLeave={currentModelAcceptsImages ? (e) => {
                 e.currentTarget.style.background = "none";
                 e.currentTarget.style.color = attachedImages.length ? "var(--accent)" : "var(--text-muted)";
-              }}
+              } : undefined}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
@@ -2306,9 +2337,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {!isStreaming && onThinkingLevelChange && (
               <div ref={thinkingDropdownRef} style={{ position: "relative" }}>
                 <button
-                  onClick={() => !isStreaming && setThinkingDropdownOpen((v) => !v)}
-                  disabled={isStreaming}
-                   title={t("chat.changeReasoning", { level: thinkingDisplayLabel })}
+                  onClick={() => !isStreaming && currentModelSupportsReasoning && setThinkingDropdownOpen((v) => !v)}
+                  disabled={isStreaming || !currentModelSupportsReasoning}
+                   title={currentModelSupportsReasoning
+                     ? t("chat.changeReasoning", { level: thinkingDisplayLabel })
+                     : t("chat.reasoningDisabled")}
                    aria-label={t("chat.changeReasoningLabel")}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
@@ -2318,20 +2351,20 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     background: thinkingDropdownOpen ? "var(--bg-hover)" : "none",
                     border: "none",
                     borderRadius: 9,
-                    color: "var(--text-muted)",
-                    cursor: isStreaming ? "not-allowed" : "pointer",
+                    color: !currentModelSupportsReasoning ? "var(--text-dim)" : "var(--text-muted)",
+                    cursor: (isStreaming || !currentModelSupportsReasoning) ? "not-allowed" : "pointer",
                     fontSize: 12,
-                    opacity: isStreaming ? 0.5 : 1,
-                    transition: "background 0.12s, color 0.12s",
+                    opacity: (isStreaming || !currentModelSupportsReasoning) ? 0.45 : 1,
+                    transition: "background 0.12s, color 0.12s, opacity 0.12s",
                   }}
                   onMouseEnter={(e) => {
-                    if (isStreaming) return;
+                    if (isStreaming || !currentModelSupportsReasoning) return;
                     e.currentTarget.style.background = "var(--bg-hover)";
                     e.currentTarget.style.color = "var(--text)";
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.background = thinkingDropdownOpen ? "var(--bg-hover)" : "none";
-                    e.currentTarget.style.color = "var(--text-muted)";
+                    e.currentTarget.style.color = !currentModelSupportsReasoning ? "var(--text-dim)" : "var(--text-muted)";
                   }}
                 >
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
