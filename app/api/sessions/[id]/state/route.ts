@@ -11,13 +11,14 @@ export async function GET(
     const rpc = getRpcSession(id);
     if (rpc?.isAlive()) {
       const state = await rpc.send({ type: "get_state" });
-      return NextResponse.json({ running: true, state });
+      return NextResponse.json({ running: true, attached: rpc.isAttached(), state });
     }
 
     if (!await resolveSessionPath(id)) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
-    return NextResponse.json({ running: false });
+    // No registry entry means the session is being reviewed, not attached.
+    return NextResponse.json({ running: false, attached: false });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

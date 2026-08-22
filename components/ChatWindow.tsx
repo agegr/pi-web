@@ -8,10 +8,11 @@ import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantB
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
+import { ReviewingComposer } from "./ReviewingComposer";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { useI18n } from "@/hooks/useI18n";
-import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
+import { useAgentSession, type AgentPhase, type AttachState, type NoticeItem } from "@/hooks/useAgentSession";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -43,6 +44,10 @@ interface Props {
   onSessionStatsChange?: (stats: SessionStatsInfo | null) => void;
   onSessionStatsPanelOpen?: () => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
+  /** Reports whether this session owns its working directory, for the top bar. */
+  onAttachStateChange?: (state: AttachState) => void;
+  /** Registers the action that releases this session's working directory. */
+  onDetachHandlerChange?: (handler: (() => Promise<void>) | null) => void;
   onOpenFile?: (filePath: string) => void;
   /** Completion sound state + controls, owned by AppShell so tasks finishing in
    *  a non-active workspace can still ring. */
@@ -251,7 +256,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, onSessionSwitched, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, onSessionSwitched, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onAttachStateChange, onDetachHandlerChange, onOpenFile, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
 
@@ -286,6 +291,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     isAutoModelSelection,
     agentPhase,
     isNew,
+    attachState, attachConflict, attachError,
+    attach, detach,
     sessionIdRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, promptAnchorActive,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
@@ -373,6 +380,15 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     onSessionStatsChange?.(sessionStatsRef.current);
   }, [statsKey, onSessionStatsChange]);
   useEffect(() => () => { onSessionStatsChange?.(null); }, [onSessionStatsChange]);
+
+  useEffect(() => {
+    onAttachStateChange?.(attachState);
+  }, [attachState, onAttachStateChange]);
+
+  useEffect(() => {
+    onDetachHandlerChange?.(detach);
+    return () => onDetachHandlerChange?.(null);
+  }, [detach, onDetachHandlerChange]);
 
   // Push context usage up to AppShell as well.
   const ctxKey = contextUsage
@@ -524,6 +540,13 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     promptAnchorUpdateRef.current?.();
   }, [streamState.streamingMessage]);
 
+  // Attaching loads extensions, so the composer only appears once the working
+  // directory is claimed; focus it then so typing can continue immediately.
+  const handleAttach = useCallback(async () => {
+    const attached = await attach();
+    if (attached) requestAnimationFrame(() => chatInputRef?.current?.focus());
+  }, [attach, chatInputRef]);
+
   const availableThinkingLevels = displayModelValue
     ? (modelThinkingLevels[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
     : null;
@@ -532,7 +555,18 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     ? (modelThinkingLevelMaps[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
     : null;
 
-  const chatInputElement = (
+  // While a session is only being reviewed the editor is replaced by a button:
+  // continuing runs the extension hooks that reconcile the working directory,
+  // so it has to be asked for. Drafts are keyed by session id and reload with
+  // the editor once it mounts.
+  const chatInputElement = attachState !== "attached" ? (
+    <ReviewingComposer
+      attachState={attachState}
+      conflict={attachConflict}
+      error={attachError}
+      onAttach={handleAttach}
+    />
+  ) : (
     <ChatInput
       ref={chatInputRef}
       onSend={handleSend}

@@ -133,6 +133,23 @@ export interface RpcSessionStartOptions {
    * react to switches (branch checkout, etc.) run like they do in the TUI.
    */
   sessionStartEvent?: SessionStartEventLike;
+  /**
+   * Build a throwaway AgentSession: no registry entry, no working-directory
+   * claim, no idle timer. Used by metadata work such as title generation,
+   * which needs a model but never touches the checkout. Callers must dispose it.
+   *
+   * A registry entry means "attached", so utility work must stay out of it —
+   * otherwise startRpcSession() would later hand that entry to an attach and
+   * skip session_start(reason: "resume") entirely.
+   */
+  ephemeral?: boolean;
+  /**
+   * Mark this session as owning its working directory. Only attachment does
+   * this: incidental starts (a fork button, an SSE reconnect) need an
+   * AgentSession but have not reconciled the checkout, and must not claim it
+   * or report themselves as active.
+   */
+  attach?: boolean;
 }
 
 type SessionStartEventLike = {
@@ -227,6 +244,7 @@ export class AgentSessionWrapper {
   private onDestroyCallback: (() => void) | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private _alive = true;
+  private _attached = false;
 
   constructor(public readonly inner: AgentSessionLike) {}
 
@@ -252,6 +270,18 @@ export class AgentSessionWrapper {
 
   isAlive(): boolean {
     return this._alive;
+  }
+
+  /**
+   * True when this session owns its working directory, i.e. it was started by
+   * an attach and its `session_start` handlers reconciled the checkout.
+   */
+  isAttached(): boolean {
+    return this._alive && this._attached;
+  }
+
+  markAttached(): void {
+    this._attached = true;
   }
 
   isRunning(): boolean {
@@ -1475,6 +1505,18 @@ export class AgentSessionWrapper {
     const sessionFile = sessionManager.getSessionFile();
     const sessionId = sessionManager.getSessionId();
     const cwd = sessionManager.getCwd();
+
+    // Both ends of this switch are about to be replaced, so neither counts as
+    // an occupant. Any other session mid-run in the target directory does.
+    const blocking = findBlockingOccupant(cwd, [this.inner.sessionId, sessionId]);
+    if (blocking) {
+      this.notifyUi(
+        `Cannot switch: ${cwd} is in use by a running session (${blocking.sessionName ?? blocking.sessionId}).`,
+        "error",
+      );
+      return { cancelled: true };
+    }
+
     if (sessionFile) cacheSessionPath(sessionId, sessionFile);
     invalidateSessionListCache();
 
@@ -1489,6 +1531,8 @@ export class AgentSessionWrapper {
 
     const { session: next } = await startRpcSession(sessionId, sessionFile ?? "", cwd, {
       sessionManager,
+      // A switch lands in a session you are working in, not reviewing.
+      attach: true,
       sessionStartEvent: {
         type: "session_start",
         reason,
@@ -1502,6 +1546,17 @@ export class AgentSessionWrapper {
       if (replacedContext) await withSession(replacedContext);
     }
     return { cancelled: false };
+  }
+
+  /** Surface a message in whichever browsers are watching this session. */
+  private notifyUi(message: string, notifyType: "info" | "warning" | "error"): void {
+    this.emit({
+      type: "extension_ui_request",
+      id: randomUUID(),
+      method: "notify",
+      notifyType,
+      message,
+    } as ExtensionUiRequest as AgentEvent);
   }
 
   /** Settle and dispose this session on behalf of its replacement. */
@@ -1547,6 +1602,8 @@ declare global {
   var __piStartLocks: Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> | undefined;
   var __piStartingSessionCwds: Map<string, number> | undefined;
   var __piRunningListeners: Set<(ids: string[]) => void> | undefined;
+  /** cwd -> ids of the attached sessions holding it. */
+  var __piWorktreeOwners: Map<string, Set<string>> | undefined;
 }
 
 function getRegistry(): Map<string, AgentSessionWrapper> {
@@ -1563,6 +1620,93 @@ function getRegistry(): Map<string, AgentSessionWrapper> {
 function getLocks(): Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> {
   if (!globalThis.__piStartLocks) globalThis.__piStartLocks = new Map();
   return globalThis.__piStartLocks;
+}
+
+// ----------------------------------------------------------------------------
+// Working-directory ownership
+//
+// An attached session owns its working directory. Sessions in different
+// directories never interact; several sessions may share one directory as long
+// as no other one is mid-run, because two agents writing the same files is
+// unsafe regardless of which branch they expect.
+//
+// Pi Web deliberately does not model branches here. Which branch a session
+// wants is extension metadata, and extensions guard that themselves through
+// session_before_switch.
+// ----------------------------------------------------------------------------
+
+function getWorktreeOwners(): Map<string, Set<string>> {
+  if (!globalThis.__piWorktreeOwners) globalThis.__piWorktreeOwners = new Map();
+  return globalThis.__piWorktreeOwners;
+}
+
+function claimWorktree(cwd: string, sessionId: string): void {
+  const owners = getWorktreeOwners();
+  const key = normalizeRpcCwd(cwd);
+  const held = owners.get(key);
+  if (held) held.add(sessionId);
+  else owners.set(key, new Set([sessionId]));
+}
+
+function releaseWorktree(cwd: string, sessionId: string): void {
+  const owners = getWorktreeOwners();
+  const key = normalizeRpcCwd(cwd);
+  const held = owners.get(key);
+  if (!held) return;
+  held.delete(sessionId);
+  if (held.size === 0) owners.delete(key);
+}
+
+export interface WorktreeOccupant {
+  sessionId: string;
+  sessionName: string | null;
+  running: boolean;
+}
+
+/** Attached sessions holding `cwd`, excluding `exceptSessionIds`. */
+export function getWorktreeOccupants(
+  cwd: string,
+  exceptSessionIds: readonly string[] = [],
+): WorktreeOccupant[] {
+  const held = getWorktreeOwners().get(normalizeRpcCwd(cwd));
+  if (!held) return [];
+
+  const registry = getRegistry();
+  const occupants: WorktreeOccupant[] = [];
+  for (const sessionId of held) {
+    if (exceptSessionIds.includes(sessionId)) continue;
+    const wrapper = registry.get(sessionId);
+    if (!wrapper?.isAttached()) continue;
+    occupants.push({
+      sessionId,
+      sessionName: wrapper.inner.sessionManager.getSessionName() ?? null,
+      running: wrapper.isRunning(),
+    });
+  }
+  return occupants;
+}
+
+/**
+ * The occupant that blocks an attach, if any. Only an in-flight run blocks:
+ * an idle co-tenant is reported to the caller but does not prevent attaching.
+ */
+export function findBlockingOccupant(
+  cwd: string,
+  exceptSessionIds: readonly string[] = [],
+): WorktreeOccupant | null {
+  return getWorktreeOccupants(cwd, exceptSessionIds).find((occupant) => occupant.running) ?? null;
+}
+
+export class WorktreeBusyError extends Error {
+  readonly occupant: WorktreeOccupant;
+
+  constructor(cwd: string, occupant: WorktreeOccupant) {
+    super(
+      `${cwd} is in use by a running session (${occupant.sessionName ?? occupant.sessionId}).`,
+    );
+    this.name = "WorktreeBusyError";
+    this.occupant = occupant;
+  }
 }
 
 function normalizeRpcCwd(cwd: string): string {
@@ -1746,11 +1890,16 @@ export async function startRpcSession(
   const registry = getRegistry();
   const locks = getLocks();
 
-  const existing = registry.get(sessionId);
-  if (existing?.isAlive()) return { session: existing, realSessionId: sessionId };
+  // Ephemeral sessions never consult or populate the registry: reusing an
+  // attached session for utility work is fine, but the reverse would let a
+  // throwaway satisfy a later attach and silently skip session_start.
+  if (!options.ephemeral) {
+    const existing = registry.get(sessionId);
+    if (existing?.isAlive()) return { session: existing, realSessionId: sessionId };
 
-  const inflight = locks.get(sessionId);
-  if (inflight) return inflight;
+    const inflight = locks.get(sessionId);
+    if (inflight) return inflight;
+  }
 
   let sessionManager: SessionManager;
   if (options.sessionManager) {
@@ -1865,16 +2014,29 @@ export async function startRpcSession(
     const realSessionFile = inner.sessionFile as string | undefined;
     if (realSessionFile) cacheSessionPath(realSessionId, realSessionFile);
 
-    wrapper.onDestroy(() => registry.delete(realSessionId));
-    registry.set(realSessionId, wrapper);
+    if (!options.ephemeral) {
+      const claimedCwd = sessionCwd;
+      wrapper.onDestroy(() => {
+        registry.delete(realSessionId);
+        releaseWorktree(claimedCwd, realSessionId);
+      });
+      registry.set(realSessionId, wrapper);
+      // Only an attach claims the directory. Incidental starts stay listed but
+      // unowned, so the interface never reports a checkout that never happened.
+      if (options.attach) {
+        wrapper.markAttached();
+        claimWorktree(claimedCwd, realSessionId);
+      }
+    }
     wrapper.beginExtensionBinding({ forceEmptySystemPrompt: toolNames?.length === 0 });
 
     return { session: wrapper, realSessionId };
   })().finally(() => {
-    locks.delete(sessionId);
+    if (!options.ephemeral) locks.delete(sessionId);
     finishStartingSession();
   });
 
+  if (options.ephemeral) return starting;
   locks.set(sessionId, starting);
   return starting;
 }

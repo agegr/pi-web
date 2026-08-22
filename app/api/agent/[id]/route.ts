@@ -58,11 +58,12 @@ export async function GET(
   try {
     const session = getRpcSession(id);
     if (!session || !session.isAlive()) {
-      return NextResponse.json({ running: false });
+      // No registry entry means the session is being reviewed, not attached.
+      return NextResponse.json({ running: false, attached: false });
     }
 
     const state = await session.send({ type: "get_state" });
-    return NextResponse.json({ running: true, state });
+    return NextResponse.json({ running: true, attached: session.isAttached(), state });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

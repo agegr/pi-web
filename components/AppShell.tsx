@@ -19,6 +19,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useAudio } from "@/hooks/useAudio";
+import type { AttachState } from "@/hooks/useAgentSession";
 import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
@@ -243,6 +244,14 @@ export function AppShell() {
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
   const handleContextUsageChange = useCallback((usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => {
     setContextUsage(usage);
+  }, []);
+  const [attachState, setAttachState] = useState<AttachState>("reviewing");
+  const handleAttachStateChange = useCallback((state: AttachState) => {
+    setAttachState(state);
+  }, []);
+  const detachHandlerRef = useRef<(() => Promise<void>) | null>(null);
+  const handleDetachHandlerChange = useCallback((handler: (() => Promise<void>) | null) => {
+    detachHandlerRef.current = handler;
   }, []);
 
   // Single active panel — only one dropdown open at a time
@@ -1136,10 +1145,70 @@ export function AppShell() {
     );
   };
 
+  // Nothing else in the interface says whether opening a session touched the
+  // working directory, so the state is shown next to the session's actions.
+  const renderAttachChip = (mobile: boolean) => {
+    if (mobile || !showChat || !selectedSession || selectedSession.transient) return null;
+    const reviewing = attachState !== "attached";
+    const sharedStyle = {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      height: "100%",
+      padding: "0 12px",
+      border: "none",
+      borderRight: "1px solid var(--border)",
+      background: "none",
+      color: reviewing ? "var(--text-dim)" : "var(--text-muted)",
+      font: "inherit",
+      fontSize: 12,
+      whiteSpace: "nowrap",
+      flexShrink: 0,
+    } as const;
+    const dot = (
+      <span
+        aria-hidden="true"
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: "50%",
+          flexShrink: 0,
+          background: reviewing ? "var(--text-dim)" : "#4ade80",
+        }}
+      />
+    );
+
+    // While attached the chip doubles as the release action, so a working
+    // directory can be handed to another session without waiting for the idle
+    // timeout. Reviewing sessions hold nothing, so there is nothing to release.
+    if (reviewing) {
+      return (
+        <div role="status" title={translate("attach.reviewingChipHint")} style={sharedStyle}>
+          {dot}
+          <span>{translate("attach.reviewingChip")}</span>
+        </div>
+      );
+    }
+
+    return (
+      <button
+        type="button"
+        onClick={() => { void detachHandlerRef.current?.(); }}
+        title={`${translate("attach.attachedHint")} ${translate("attach.detach")}`}
+        aria-label={translate("attach.detach")}
+        style={{ ...sharedStyle, cursor: "pointer" }}
+      >
+        {dot}
+        <span>{translate("attach.attached")}</span>
+      </button>
+    );
+  };
+
   const renderChatToolbarActions = (mobile: boolean) => {
     if (!mobile && !showChat) return null;
     return (
       <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
+        {renderAttachChip(mobile)}
         <button
           type="button"
           onClick={() => {
@@ -2101,6 +2170,8 @@ export function AppShell() {
               onSessionStatsChange={handleSessionStatsChange}
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onContextUsageChange={handleContextUsageChange}
+              onAttachStateChange={handleAttachStateChange}
+              onDetachHandlerChange={handleDetachHandlerChange}
               onOpenFile={handleOpenLinkedFile}
               soundEnabled={soundEnabled}
               onSoundToggle={onSoundToggle}

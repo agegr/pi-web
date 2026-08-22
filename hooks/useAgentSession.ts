@@ -60,6 +60,21 @@ interface LastAssistantTextResponse {
   text?: string;
 }
 
+/** Reviewing is read-only; attached means the session owns its directory. */
+export type AttachState = "reviewing" | "attaching" | "attached";
+
+export interface AttachConflict {
+  sessionId: string;
+  sessionName: string | null;
+  running: boolean;
+}
+
+type AttachResponse = {
+  attached?: boolean;
+  error?: string;
+  conflict?: AttachConflict;
+};
+
 type AgentStateResponse = {
   contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
   systemPrompt?: string;
@@ -295,6 +310,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
   const [forkingEntryId, setForkingEntryId] = useState<string | null>(null);
+  // A fresh session is attached the moment it is created, so only saved
+  // sessions start out under review.
+  const [attachState, setAttachState] = useState<AttachState>(isNew ? "attached" : "reviewing");
+  // Mirrors attachState for callbacks that must not re-create on every change.
+  const attachStateRef = useRef<AttachState>(isNew ? "attached" : "reviewing");
+  // The session id this hook holds. A new session is attached the moment it is
+  // created, and promoting it into the sidebar must not drop that claim.
+  const attachedSessionIdRef = useRef<string | null>(null);
+  const [attachConflict, setAttachConflict] = useState<AttachConflict | null>(null);
+  const [attachError, setAttachError] = useState<string | null>(null);
   const [currentModelOverride, setCurrentModelOverride] = useState<{ provider: string; modelId: string } | null>(null);
   const [pendingModel, setPendingModel] = useState<{ provider: string; modelId: string } | null>(null);
   const [modelSwitching, setModelSwitching] = useState(false);
@@ -498,8 +523,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       try {
         const stateRes = await fetch(`/api/sessions/${encodeURIComponent(sid)}/state`);
         if (!stateRes.ok) throw new Error(`HTTP ${stateRes.status}`);
-        const agentState = await stateRes.json() as { running: boolean; state?: AgentStateResponse };
+        const agentState = await stateRes.json() as {
+          running: boolean;
+          attached?: boolean;
+          state?: AgentStateResponse;
+        };
         if (sessionIdRef.current !== sid) return null;
+        // A live registry entry is exactly what "attached" means server-side.
+        // Do not interrupt an attach that is still in flight.
+        if (attachStateRef.current !== "attaching") {
+          const nextAttachState: AttachState = agentState.attached ? "attached" : "reviewing";
+          attachStateRef.current = nextAttachState;
+          attachedSessionIdRef.current = agentState.attached ? sid : null;
+          setAttachState(nextAttachState);
+        }
 
         const liveState = agentState.state;
         if (liveState) {
@@ -610,6 +647,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       };
       const realId = result.sessionId;
       sessionIdRef.current = realId;
+      // Creating a session attaches it: the server built an AgentSession in
+      // that working directory.
+      attachedSessionIdRef.current = realId;
+      attachStateRef.current = "attached";
+      setAttachState("attached");
       if (result.model && newSessionModelOverrideRef.current === selectedModel) {
         setPendingModel(result.model);
         if (!selectedModel) setNewSessionDefaultModel(result.model);
@@ -1261,9 +1303,76 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, onSessionSwitched, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
 
+  /**
+   * Claim this session's working directory and start it with
+   * session_start(reason: "resume"), so extensions reconcile the checkout.
+   * Returns true once the session is attached.
+   */
+  const attach = useCallback(async (): Promise<boolean> => {
+    const sid = sessionIdRef.current;
+    if (!sid) return false;
+    if (attachStateRef.current === "attached") return true;
+    if (attachStateRef.current === "attaching") return false;
+
+    attachStateRef.current = "attaching";
+    setAttachState("attaching");
+    setAttachConflict(null);
+    setAttachError(null);
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}/attach`, { method: "POST" });
+      const body = await res.json().catch(() => ({})) as AttachResponse;
+      // The session may have been switched away from while the checkout ran.
+      if (sessionIdRef.current !== sid) return false;
+
+      if (!res.ok || !body.attached) {
+        attachStateRef.current = "reviewing";
+        setAttachState("reviewing");
+        if (body.conflict) setAttachConflict(body.conflict);
+        else setAttachError(body.error ?? `HTTP ${res.status}`);
+        return false;
+      }
+
+      attachStateRef.current = "attached";
+      attachedSessionIdRef.current = sid;
+      setAttachState("attached");
+      // Extensions only exist once attached, so their commands and the tool
+      // set are unknown until now.
+      void loadTools(sid);
+      void loadSlashCommands();
+      return true;
+    } catch (e) {
+      if (sessionIdRef.current !== sid) return false;
+      attachStateRef.current = "reviewing";
+      setAttachState("reviewing");
+      setAttachError(e instanceof Error ? e.message : String(e));
+      return false;
+    }
+  }, [loadSlashCommands, loadTools]);
+
+  const detach = useCallback(async (): Promise<void> => {
+    const sid = sessionIdRef.current;
+    if (!sid || attachStateRef.current !== "attached") return;
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}/attach`, { method: "DELETE" });
+      if (!res.ok) return;
+      if (sessionIdRef.current !== sid) return;
+      attachStateRef.current = "reviewing";
+      attachedSessionIdRef.current = null;
+      setAttachState("reviewing");
+    } catch (e) {
+      console.error("Failed to detach session:", e);
+    }
+  }, []);
+
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return;
+    // Reaching the composer already required attaching, but a detach can race
+    // an in-flight submission.
+    if (!isNew && attachStateRef.current !== "attached" && !(await attach())) {
+      restoreSubmission(message, images, composerDraftKey);
+      return;
+    }
     if (agentRunningRef.current || bashRunningRef.current) {
       restoreSubmission(message, images, composerDraftKey);
       return;
@@ -1378,7 +1487,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
+  }, [isNew, newSessionCwd, newSessionModel, session, attach, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -1793,6 +1902,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [scrollToBottom]);
 
+  // Opening a different session starts from Reviewing until the state
+  // response says otherwise, so a previous session's claim never leaks in.
+  useEffect(() => {
+    // Keep the claim when this is the session the hook already holds — a new
+    // session being promoted into the sidebar arrives here as an id change.
+    const stillHeld = session?.id !== undefined && attachedSessionIdRef.current === session.id;
+    const next: AttachState = isNew || stillHeld ? "attached" : "reviewing";
+    attachStateRef.current = next;
+    setAttachState(next);
+    setAttachConflict(null);
+    setAttachError(null);
+  }, [session?.id, isNew]);
+
   // Load session on mount
   useEffect(() => {
     sessionHookMountedRef.current = true;
@@ -1941,6 +2063,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     isAutoModelSelection: isNew && newSessionModel === null,
     agentPhase,
     isNew,
+    attachState, attachConflict, attachError,
     promptAnchorActive,
     // Refs
     sessionIdRef, messagesEndRef, scrollContainerRef,
@@ -1950,6 +2073,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
+    attach, detach,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
     scrollToBottom, scrollUserMsgToTop,
     dispatch, setAgentRunning, setForkingEntryId,

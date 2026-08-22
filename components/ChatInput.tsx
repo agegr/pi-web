@@ -83,6 +83,8 @@ interface Props {
 }
 
 export interface ChatInputHandle {
+  /** Focus the editor without altering its contents or the caret. */
+  focus: () => void;
   insertText: (text: string) => void;
   insertIfEmpty: (text: string) => void;
   replaceMessage: (message: UserMessage) => void;
@@ -602,6 +604,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
+    },
+    focus() {
+      textareaRef.current?.focus();
     },
     insertText(text: string) {
       const ta = textareaRef.current;

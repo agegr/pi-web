@@ -62,6 +62,7 @@ test("live detail and state routes work without a persisted JSONL file", async (
   };
   globalThis.__piSessions = new Map([[id, {
     isAlive: () => true,
+    isAttached: () => true,
     isRunning: () => true,
     inner: { sessionManager },
     sessionFile: sessionManager.getSessionFile(),
@@ -90,6 +91,9 @@ test("live detail and state routes work without a persisted JSONL file", async (
   assert.equal(stateResponse.status, 200);
   assert.deepEqual(await stateResponse.json(), {
     running: true,
+    // Reported from the claim, so the client can tell an owned working
+    // directory from a session that is only being reviewed.
+    attached: true,
     state: { isStreaming: true },
   });
 });
