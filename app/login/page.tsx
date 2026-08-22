@@ -2,7 +2,6 @@
 
 import React, {
   useState,
-  useEffect,
   useCallback,
   useTransition,
   Suspense,
@@ -15,18 +14,14 @@ function getSafeRedirectUrl(): string {
   try {
     const urlParams = new URLSearchParams(window.location.search);
     const redirect = urlParams.get("redirect");
-    if (
-      redirect &&
-      redirect.startsWith("/") &&
-      !redirect.startsWith("//") &&
-      !redirect.includes("\\")
-    ) {
-      return redirect;
-    }
+    if (!redirect) return "/";
+    const parsed = new URL(redirect, window.location.origin);
+    if (parsed.origin !== window.location.origin) return "/";
+    if (parsed.username || parsed.password) return "/";
+    return parsed.pathname + parsed.search + parsed.hash;
   } catch {
-    // 忽略异常
+    return "/";
   }
-  return "/";
 }
 
 function LoginForm() {
@@ -49,12 +44,12 @@ function LoginForm() {
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!password.trim()) return;
+      if (!password) return;
 
       setError(null);
       startTransition(async () => {
         try {
-          const res = await fetch("/api/auth/web/session", {
+          const res = await fetch("/api/auth/web/login", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ username: username.trim(), password }),
@@ -493,7 +488,7 @@ function LoginForm() {
             {/* 提交按钮 */}
             <button
               type="submit"
-              disabled={isPending || !password.trim()}
+              disabled={isPending || !password}
               style={{
                 height: 42,
                 marginTop: 6,
@@ -504,8 +499,8 @@ function LoginForm() {
                 fontSize: 14,
                 fontWeight: 500,
                 cursor:
-                  isPending || !password.trim() ? "not-allowed" : "pointer",
-                opacity: isPending || !password.trim() ? 0.65 : 1,
+                  isPending || !password ? "not-allowed" : "pointer",
+                opacity: isPending || !password ? 0.65 : 1,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",

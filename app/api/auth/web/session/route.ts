@@ -66,10 +66,7 @@ export async function POST(request: NextRequest) {
     typeof payload.password === "string" ? payload.password : "";
 
   if (!isValidCredential(inputUsername, inputPassword, password)) {
-    return NextResponse.json(
-      { error: "Invalid credentials" },
-      { status: 401 },
-    );
+    return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
 
   const token = generateSessionToken(password);

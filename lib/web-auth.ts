@@ -89,8 +89,8 @@ export function isValidSessionToken(
   const expiresAt = Number.parseInt(expiresAtStr, 10);
   if (Number.isNaN(expiresAt)) return false;
 
-  // Check if expired
-  if (Math.floor(Date.now() / 1000) > expiresAt) return false;
+  // Check if expired (use >= for exact second match)
+  if (Math.floor(Date.now() / 1000) >= expiresAt) return false;
 
   const expectedSignature = createHmac("sha256", effectivePassword)
     .update(`pi-web-session:${expiresAt}`)
@@ -127,4 +127,3 @@ export function isValidCredential(
   const passwordMatches = secretsEqual(passwordInput, effectivePassword);
   return usernameMatches && passwordMatches;
 }
-

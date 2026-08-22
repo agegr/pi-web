@@ -11,12 +11,14 @@ import {
 
 function isSafeInternalPath(path: string | null | undefined): boolean {
   if (!path || typeof path !== "string") return false;
-  return (
-    path.startsWith("/") &&
-    !path.startsWith("//") &&
-    !path.includes("\\") &&
-    !path.includes("\0")
-  );
+  try {
+    const parsed = new URL(path, "http://127.0.0.1");
+    if (parsed.origin !== "http://127.0.0.1") return false;
+    if (parsed.username || parsed.password) return false;
+    return parsed.pathname.startsWith("/");
+  } catch {
+    return false;
+  }
 }
 
 export function proxy(request: NextRequest) {
@@ -101,6 +103,6 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/|offline.html|sw.js).*)",
+    "/((?!_next/static|_next/image|_next/webpack-hmr|favicon.ico|manifest.webmanifest|icons/|offline.html|sw.js).*)",
   ],
 };

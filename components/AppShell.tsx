@@ -81,8 +81,10 @@ export function AppShell() {
   const handleLogout = useCallback(async () => {
     try {
       await fetch("/api/auth/web/logout", { method: "POST" });
-    } catch {}
-    window.location.href = "/login";
+    } catch {
+      // Ignore network errors on logout
+    }
+    window.location.replace("/login");
   }, []);
   const themeLabelKey =
     preference === "light" ? "theme.light" : preference === "dark" ? "theme.dark" : "theme.auto";
