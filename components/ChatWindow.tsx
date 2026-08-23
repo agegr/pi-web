@@ -282,6 +282,10 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     chatInputRef?.current?.replaceMessage(message);
   }, [chatInputRef]);
 
+  const handleQuote = useCallback((text: string) => {
+    chatInputRef?.current?.addQuote(text);
+  }, [chatInputRef]);
+
   const {
     loading, error, messages, entryIds, streamState,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
@@ -802,6 +806,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                     onNavigate={sessionBusy ? undefined : handleNavigate}
                     prevAssistantEntryId={sessionBusy ? undefined : prevAssistantEntryId}
                     onEditContent={handleEditContent}
+                    onQuote={sessionBusy || attachState !== "attached" ? undefined : handleQuote}
                     showTimestamp={showTimestamp}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}

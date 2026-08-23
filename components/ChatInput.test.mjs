@@ -8,9 +8,17 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canRestoreUserMessage, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canRestoreUserMessage, filterModelOptions, formatQuotedText, serializeQuotedReply, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages } = await jiti.import("./ChatInput.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("../lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
+
+test("formats selected response text as a markdown quoted reply", () => {
+  assert.equal(formatQuotedText("First line\n\n- bullet"), "> First line\n> \n> - bullet");
+  assert.equal(serializeQuotedReply([
+    { id: "q1", markdown: "**First** quote" },
+    { id: "q2", markdown: "2. second quote" },
+  ], "My question"), "> **First** quote\n\n> 2. second quote\n\nMy question");
+});
 
 test("renders the upstream model error", () => {
   const html = renderToStaticMarkup(
@@ -156,6 +164,7 @@ test("does not restore a historical message over a pending image attachment", ()
   assert.equal(canRestoreUserMessage("", 0, 0), true);
   assert.equal(canRestoreUserMessage("", 1, 0), false);
   assert.equal(canRestoreUserMessage("", 0, 1), false);
+  assert.equal(canRestoreUserMessage("", 0, 0, 1), false);
   assert.equal(canRestoreUserMessage("draft", 0, 0), false);
 });
 
@@ -208,6 +217,23 @@ test("preserves duplicate image attachments when restoring a submission", () => 
   assert.deepEqual(restored.images, [image, image, image]);
 });
 
+test("persists rich quote cards when a draft is rekeyed", () => {
+  const provisionalKey = "new:/tmp/quote-rekey";
+  const sessionKey = "session-quote-rekey";
+  const quote = { id: "quote-1", markdown: "**Quoted** item" };
+  clearDraft(provisionalKey);
+  clearDraft(sessionKey);
+  setDraft(provisionalKey, { value: "Question", images: [], quotes: [quote] });
+
+  assert.deepEqual(rekeyDraft(provisionalKey, sessionKey), {
+    value: "Question",
+    images: [],
+    quotes: [quote],
+  });
+  assert.deepEqual(getDraft(sessionKey)?.quotes, [quote]);
+  clearDraft(sessionKey);
+});
+
 test("moves a provisional new-session draft to the real session key", () => {
   const provisionalKey = "new:/tmp/rekey-test";
   const sessionKey = "session-rekey-test";
@@ -246,6 +272,35 @@ test("rekey keeps a synchronously restored draft when React state is still empty
   });
 
   clearDraft(sessionKey);
+});
+
+test("renders persisted quotes as rich read-only cards", () => {
+  const key = "session-rich-quote-render";
+  clearDraft(key);
+  setDraft(key, { value: "", images: [], quotes: [{ id: "q1", markdown: "**Bold** and `code`" }] });
+  const html = renderToStaticMarkup(
+    React.createElement(I18nProvider, null, React.createElement(ChatInput, {
+      onSend() {}, onAbort() {}, isStreaming: false, draftKey: key,
+    })),
+  );
+  assert.match(html, /aria-label="Quoted sections"/);
+  assert.match(html, /<strong>Bold<\/strong>/);
+  assert.match(html, /<code[^>]*>code<\/code>/);
+
+  clearDraft(key);
+  setDraft(key, { value: "", images: [], quotes: [{ id: "q2", markdown: "```xml\n<root />\n```" }] });
+  const codeHtml = renderToStaticMarkup(
+    React.createElement(I18nProvider, null, React.createElement(ChatInput, {
+      onSend() {}, onAbort() {}, isStreaming: false, draftKey: key,
+    })),
+  );
+  assert.match(codeHtml, /class="markdown-code-block"/);
+  assert.match(codeHtml, />xml</);
+  assert.match(codeHtml, /&lt;/);
+  assert.match(codeHtml, /root/);
+  assert.match(codeHtml, /\/&gt;/);
+  assert.match(html, /aria-label="Remove quote"/);
+  clearDraft(key);
 });
 
 test("renders compact errors above the input as a wrapping alert", () => {

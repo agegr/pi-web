@@ -188,6 +188,8 @@ interface Props {
   onNavigate?: (entryId: string) => void;
   prevAssistantEntryId?: string;
   onEditContent?: (message: UserMessage) => void;
+  /** Insert selected assistant text into the main composer as a quoted reply. */
+  onQuote?: (text: string) => void;
   showTimestamp?: boolean;
   prevTimestamp?: number;
   sessionId?: string;
@@ -246,12 +248,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, writtenFiles }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, onQuote, showTimestamp, prevTimestamp, sessionId, writtenFiles }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} writtenFiles={writtenFiles} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} onQuote={isStreaming ? undefined : onQuote} writtenFiles={writtenFiles} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -280,6 +282,7 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.onNavigate === next.onNavigate
     && prev.prevAssistantEntryId === next.prevAssistantEntryId
     && prev.onEditContent === next.onEditContent
+    && prev.onQuote === next.onQuote
     && prev.showTimestamp === next.showTimestamp
     && prev.prevTimestamp === next.prevTimestamp
     && prev.sessionId === next.sessionId;
@@ -577,6 +580,7 @@ function AssistantMessageView({
   prevTimestamp,
   sessionId,
   entryId,
+  onQuote,
   writtenFiles,
 }: {
   message: AssistantMessage;
@@ -589,6 +593,7 @@ function AssistantMessageView({
   prevTimestamp?: number;
   sessionId?: string;
   entryId?: string;
+  onQuote?: (text: string) => void;
   writtenFiles?: WrittenFile[];
 }) {
   const { t } = useI18n();
@@ -652,10 +657,11 @@ function AssistantMessageView({
     return map;
   }, [toolResults, message.timestamp]);
 
-  const textContent = blocks
-    .filter((b): b is TextContent => b.type === "text")
-    .map((b) => b.text)
-    .join("\n");
+  const textBlocks = blocks.filter((b): b is TextContent => b.type === "text");
+  const textContent = textBlocks.map((b) => b.text).join("\n");
+  // Keep the original Markdown for a full-response quote so formatting and
+  // fenced text/XML/code blocks render identically in the quote card.
+  const quoteContent = textBlocks.map((b) => b.text).join("\n\n");
 
   const copyContent = () => {
     copyText(textContent).then(() => {
@@ -767,7 +773,7 @@ function AssistantMessageView({
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {blockItems.map(({ block, originalIndex }) => (
-          <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
+          <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} onQuote={onQuote} />
         ))}
       </div>
 
@@ -803,6 +809,22 @@ function AssistantMessageView({
           <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
             {formatUsage(message.usage)}
           </div>
+        )}
+        {textContent && !isStreaming && onQuote && (
+          <button
+            onClick={() => onQuote(quoteContent)}
+            title={t("i18n.quoteResponse")}
+            style={{
+              display: "flex", alignItems: "center", gap: 4,
+              padding: "3px 8px", height: 22,
+              background: "none", border: "none", borderRadius: 5,
+              color: "var(--text-dim)", cursor: "pointer", fontSize: 11,
+              opacity: hovered ? 1 : 0, pointerEvents: hovered ? "auto" : "none",
+              transition: "opacity 0.12s, color 0.12s",
+            }}
+          >
+            <span aria-hidden="true">↩</span> {t("i18n.quoteResponse")}
+          </button>
         )}
         {textContent && !isStreaming && (
           <button
@@ -845,9 +867,9 @@ function AssistantMessageView({
   );
 }
 
-function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCallDurations, cwd, onOpenFile, sessionId, entryId, blockIndex }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {
+function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCallDurations, cwd, onOpenFile, sessionId, entryId, blockIndex, onQuote }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string) => void; sessionId?: string; entryId?: string; blockIndex: number; onQuote?: (text: string) => void }) {
   if (block.type === "text") {
-    return <TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} />;
+    return <TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} onQuote={onQuote} />;
   }
   if (block.type === "thinking") {
     return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} />;
@@ -861,8 +883,155 @@ function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCal
   return null;
 }
 
-function TextBlock({ block, isStreaming, cwd, onOpenFile }: { block: TextContent; isStreaming?: boolean; cwd?: string; onOpenFile?: (filePath: string) => void }) {
-  return <SafeMarkdownBody isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile}>{block.text}</SafeMarkdownBody>;
+function selectionNodeToMarkdown(node: Node): string {
+  if (node.nodeType === 3) return node.textContent ?? "";
+  const element = node as HTMLElement;
+  // SyntaxHighlighter renders line numbers as selectable spans. They are UI
+  // chrome, not part of the source and must not leak into a quote.
+  if (element.classList?.contains("linenumber")) return "";
+  // A selection can start in a paragraph and end after a code block. In that
+  // case the range is not contained by one pre, so handle the code block while
+  // walking the cloned fragment instead of flattening its header and lines.
+  if (element.classList?.contains("markdown-code-block")) {
+    const pre = element.querySelector("pre");
+    const source = pre?.querySelector("code") ?? pre;
+    const code = source
+      ? Array.from(source.childNodes).map(selectionNodeToMarkdown).join("").trim()
+      : "";
+    if (!code) return "";
+    const language = element.querySelector(".markdown-code-lang")?.textContent ?? "text";
+    return `${formatSelectedCodeQuote(code, language)}\n\n`;
+  }
+  // The header and action controls are presentation-only. This also covers a
+  // partial clone where the wrapper class is not present.
+  if (
+    element.classList?.contains("markdown-code-header")
+    || element.classList?.contains("markdown-code-actions")
+    || element.classList?.contains("markdown-code-lang")
+    || element.classList?.contains("markdown-code-action")
+  ) return "";
+  const content = Array.from(node.childNodes).map(selectionNodeToMarkdown).join("");
+  switch (element.tagName?.toLowerCase()) {
+    case "br": return "\n";
+    // Range cloning can omit the code-block wrapper when the selection starts
+    // or ends inside <pre>. Still preserve the code region, using text as the
+    // safe fallback language when the header is outside the cloned range.
+    case "pre": {
+      const source = element.querySelector("code") ?? element;
+      const code = Array.from(source.childNodes).map(selectionNodeToMarkdown).join("").trim();
+      return code ? `${formatSelectedCodeQuote(code, "text")}\n\n` : "";
+    }
+    case "strong": case "b": return `**${content}**`;
+    case "em": case "i": return `*${content}*`;
+    case "code": return `\`${content}\``;
+    case "a": return `[${content}](${element.getAttribute("href") ?? ""})`;
+    case "li": return `- ${content.trim()}\n`;
+    case "p": case "div": case "h1": case "h2": case "h3": case "h4": case "blockquote":
+      return `${content.trim()}\n\n`;
+    default: return content;
+  }
+}
+
+export function getListItemMarker(listTag: string, start: number, itemIndex: number, itemValue?: number): string {
+  if (listTag.toLowerCase() !== "ol") return "- ";
+  return `${itemValue ?? (start + itemIndex)}. `;
+}
+
+function selectedListMarker(range: Range): string {
+  const startNode = range.startContainer.nodeType === 3 ? range.startContainer.parentElement : range.startContainer as Element;
+  const endNode = range.endContainer.nodeType === 3 ? range.endContainer.parentElement : range.endContainer as Element;
+  const item = startNode?.closest("li");
+  if (!item || !endNode || !item.contains(endNode)) return "";
+  const list = item.parentElement;
+  if (!list || (list.tagName !== "OL" && list.tagName !== "UL")) return "";
+  const items = Array.from(list.children).filter((child) => child.tagName === "LI");
+  const itemIndex = Math.max(0, items.indexOf(item));
+  const start = list.tagName === "OL" ? Number.parseInt(list.getAttribute("start") ?? "1", 10) || 1 : 1;
+  const itemValueAttribute = item.getAttribute("value");
+  const itemValue = itemValueAttribute === null ? undefined : Number.parseInt(itemValueAttribute, 10);
+  return getListItemMarker(list.tagName, start, itemIndex, Number.isFinite(itemValue) ? itemValue : undefined);
+}
+
+export function formatSelectedCodeQuote(code: string, language: string): string {
+  const normalizedLanguage = language.trim().replace(/[^a-zA-Z0-9_+-]/g, "");
+  const fence = code.includes("```") ? "````" : "```";
+  return `${fence}${normalizedLanguage}\n${code.trim()}\n${fence}`;
+}
+
+function selectedCodeBlock(range: Range): { code: string; language: string } | null {
+  const startElement = range.startContainer.nodeType === 3 ? range.startContainer.parentElement : range.startContainer as Element;
+  const endElement = range.endContainer.nodeType === 3 ? range.endContainer.parentElement : range.endContainer as Element;
+  const startBlock = startElement?.closest(".markdown-code-block");
+  const endBlock = endElement?.closest(".markdown-code-block");
+  if (!startBlock || startBlock !== endBlock) return null;
+  const startPre = startElement?.closest("pre");
+  const endPre = endElement?.closest("pre");
+  if (!startPre || startPre !== endPre) return null;
+
+  const fragment = range.cloneContents();
+  const code = Array.from(fragment.childNodes).map(selectionNodeToMarkdown).join("").trim();
+  if (!code) return null;
+  const language = startBlock.querySelector(".markdown-code-lang")?.textContent ?? "text";
+  return { code, language };
+}
+
+function selectedMarkdown(selection: Selection): string {
+  const range = selection.getRangeAt(0);
+  const codeBlock = selectedCodeBlock(range);
+  if (codeBlock) return formatSelectedCodeQuote(codeBlock.code, codeBlock.language);
+  const fragment = range.cloneContents();
+  const markdown = Array.from(fragment.childNodes).map(selectionNodeToMarkdown).join("").trim();
+  const marker = selectedListMarker(range);
+  return marker && !/^(?:[-*+] |\d+[.)] )/.test(markdown) ? marker + markdown : markdown;
+}
+
+function TextBlock({ block, isStreaming, cwd, onOpenFile, onQuote }: { block: TextContent; isStreaming?: boolean; cwd?: string; onOpenFile?: (filePath: string) => void; onQuote?: (text: string) => void }) {
+  const { t } = useI18n();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [quoteAction, setQuoteAction] = useState<{ text: string; left: number; top: number } | null>(null);
+
+  const captureSelection = () => {
+    if (!onQuote || !containerRef.current) return;
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+      setQuoteAction(null);
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    const ancestor = range.commonAncestorContainer;
+    if (!containerRef.current.contains(ancestor.nodeType === Node.TEXT_NODE ? ancestor.parentNode : ancestor)) return;
+    const text = selectedMarkdown(selection) || selection.toString().trim();
+    if (!text) return;
+    const rect = range.getBoundingClientRect();
+    const containerRect = containerRef.current.getBoundingClientRect();
+    setQuoteAction({
+      text,
+      left: Math.max(4, Math.min(rect.left - containerRect.left, containerRect.width - 130)),
+      top: Math.max(0, rect.bottom - containerRect.top + 4),
+    });
+  };
+
+  return (
+    <div ref={containerRef} onMouseUp={captureSelection} style={{ position: "relative" }}>
+      <SafeMarkdownBody isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile}>{block.text}</SafeMarkdownBody>
+      {quoteAction && (
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => { onQuote?.(quoteAction.text); setQuoteAction(null); window.getSelection()?.removeAllRanges(); }}
+          title={t("i18n.quoteSelectionTitle")}
+          style={{
+            position: "absolute", zIndex: 4, left: quoteAction.left, top: quoteAction.top,
+            padding: "4px 8px", border: "1px solid var(--border)", borderRadius: 6,
+            background: "var(--bg-panel)", color: "var(--accent)", boxShadow: "0 3px 10px rgba(0,0,0,0.18)",
+            cursor: "pointer", fontSize: 11, whiteSpace: "nowrap",
+          }}
+        >
+          ↩ {t("i18n.quoteSelection")}
+        </button>
+      )}
+    </div>
+  );
 }
 
 function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {

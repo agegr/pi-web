@@ -8,9 +8,16 @@ export interface ChatDraftImage {
   mimeType: string;
 }
 
+export interface ChatDraftQuote {
+  id: string;
+  /** Markdown captured from the rendered assistant response. */
+  markdown: string;
+}
+
 export interface ChatDraft {
   value: string;
   images: ChatDraftImage[];
+  quotes?: ChatDraftQuote[];
 }
 
 const drafts = new Map<string, ChatDraft>();
@@ -19,11 +26,12 @@ function cloneDraft(draft: ChatDraft): ChatDraft {
   return {
     value: draft.value,
     images: draft.images.map((image) => ({ ...image })),
+    ...(draft.quotes?.length ? { quotes: draft.quotes.map((quote) => ({ ...quote })) } : {}),
   };
 }
 
 function isEmptyDraft(draft: ChatDraft): boolean {
-  return !draft.value && draft.images.length === 0;
+  return !draft.value && draft.images.length === 0 && !draft.quotes?.length;
 }
 
 export function getDraft(key: string): ChatDraft | null {
@@ -78,6 +86,7 @@ export function restoreDraftSubmission(
     current.value,
     current.images,
   );
+  restored.quotes = current.quotes;
   setDraft(key, restored);
   return restored;
 }
@@ -98,7 +107,10 @@ export function rekeyDraft(
   if (!previous) return next;
 
   const merged = next
-    ? mergeRestoredSubmissionDraft(next.value, next.images, previous.value, previous.images)
+    ? {
+        ...mergeRestoredSubmissionDraft(next.value, next.images, previous.value, previous.images),
+        quotes: [...(next.quotes ?? []), ...(previous.quotes ?? [])],
+      }
     : previous;
   setDraft(nextKey, merged);
   return cloneDraft(merged);

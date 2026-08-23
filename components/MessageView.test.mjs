@@ -12,6 +12,8 @@ const {
   MessageView,
   getTokenEstimateText,
   getToolCallInputText,
+  getListItemMarker,
+  formatSelectedCodeQuote,
   replaceUserMessageText,
 } = await jiti.import("./MessageView.tsx");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
@@ -55,6 +57,30 @@ Review the supplied files.
 </skill>
 
 src/main.ts`;
+
+test("formats selected text and XML code as fenced quote cards", () => {
+  assert.equal(formatSelectedCodeQuote("<root>\n  <item />\n</root>", "xml"), "```xml\n<root>\n  <item />\n</root>\n```");
+  assert.equal(formatSelectedCodeQuote("a ``` marker", "text"), "````text\na ``` marker\n````");
+});
+
+test("preserves ordered and unordered list markers in quoted selections", () => {
+  assert.equal(getListItemMarker("ol", 1, 0), "1. ");
+  assert.equal(getListItemMarker("ol", 4, 2), "6. ");
+  assert.equal(getListItemMarker("ol", 1, 2, 9), "9. ");
+  assert.equal(getListItemMarker("ul", 1, 0), "- ");
+});
+
+test("offers quoting for a complete assistant response", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "openai",
+    model: "gpt-test",
+    content: [{ type: "text", text: "A detailed answer" }],
+  }, { onQuote() {} });
+
+  assert.match(html, /Quote response/);
+  assert.match(html, /A detailed answer/);
+});
 
 test("renders a provider error when the assistant message has no content", () => {
   const html = renderMessage({
