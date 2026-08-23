@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import React from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
+const React = await jiti.import("react");
+const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const {
   DEFAULT_EXPANDED_WIDGET_LINES,
   ExtensionWidgets,
@@ -16,7 +16,7 @@ const {
   getUpdatedExtensionWidgetKeys,
   snapshotExtensionWidgetContents,
 } = await jiti.import("./ExtensionWidgets.tsx");
-const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
+const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 
 function renderWidgets(props) {
   return renderToStaticMarkup(
