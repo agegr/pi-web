@@ -3,7 +3,7 @@
 [English](./README.md)
 
 待办、日历、链接收藏，全部由 pi 驱动。数据是 `~/.pi/robin` 下的普通 JSON 文件，
-而能碰这些数据的 agent 被限制在八个工具内——没有 shell，没有文件系统。
+而能碰这些数据的 agent 被限制在固定工具白名单内——没有 shell，没有文件系统。
 
 - **仪表盘** 在 `/dashboard` —— 助手输入框、日历（议程 / 周 / 月）、待办、链接。
 - **agent 工具** 在仪表盘、`pi` CLI 和 Telegram 里都能用。
@@ -52,7 +52,7 @@ Google 和 Telegram 在 **/dashboard/settings** 里配置，不放 `.env.local`�
 
 ## agent 能做什么
 
-八个工具，注册在 `index.ts`，清单在 `tools.ts`：
+工具白名单在 `tools.ts`；注册逻辑按领域拆在 `*-tools.ts` 模块里，由 `index.ts` 组合：
 
 | 工具 | 你可以这样说 |
 | --- | --- |
@@ -63,7 +63,16 @@ Google 和 Telegram 在 **/dashboard/settings** 里配置，不放 `.env.local`�
 | `calendar_list_events` | 「今天有什么安排」 |
 | `link_add` | 直接粘一个网址 |
 | `link_list` | 「我存过哪些链接」 |
+| `gmail_list` | 「今天有什么重要邮件」 |
+| `gmail_get` | 「读一下那封面试邮件」 |
+| `gmail_review` | 邮件检查回合用它保存分类结果 |
 | `provider_usage` | 「OpenAI 和 Anthropic 额度还剩多少，何时重置」 |
+| `job_profile` | 评分前读取 CV 和求职规则 |
+| `job_pending` | 列出待评分职位 |
+| `job_score` | 给一个职位打匹配分 |
+| `job_list` | 「看看最好的职位线索」 |
+| `job_status` | 标记 shortlist / applied / dropped |
+| `job_scan` | 扫描配置过的职位源 |
 
 几个值得知道的行为：
 
@@ -79,7 +88,7 @@ Google 和 Telegram 在 **/dashboard/settings** 里配置，不放 `.env.local`�
 
 ### 刻意做不到的
 
-- **没有 shell，没有文件系统。** 助手会话只激活上面八个工具，pi 自带的 `bash`、
+- **没有 shell，没有文件系统。** 助手会话只激活工具白名单，pi 自带的 `bash`、
   `read`、`write`、`edit` 全部不激活。这是工具注册层面的边界，不是提示词约束。
 - **不写 Google。** 只读接入：能看到你的 Google 日程，但加不了、改不了、删不了。
 - **不能删除。** 没有注册删除类工具。删待办、日程或链接要在仪表盘上点。远程删除
@@ -217,6 +226,8 @@ npm run telegram
 | `layout.ts` | 是 | 重叠分列、跨天条泳道 |
 | `links.ts` | 是 | 链接模型、URL 规范化、分组 |
 | `tools.ts` | 是 | 助手的工具白名单 |
+| `*-tools.ts` | **否** | 服务端工具注册模块 |
+| `toolkit.ts` | **否** | 共享工具返回值辅助函数 |
 | `store.ts` | **否** | 文件读写 |
 | `paths.ts` | **否** | 数据目录与原子 JSON 读写 |
 | `settings.ts` | **否** | 凭据存储 |

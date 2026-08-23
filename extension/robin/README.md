@@ -58,7 +58,8 @@ characters. The server does not send secrets back to the browser.
 
 ## What the agent can do
 
-The tools are registered in `index.ts` and listed in `tools.ts`:
+The tool allow-list is in `tools.ts`; registrations are split by domain in
+`*-tools.ts` modules and composed by `index.ts`:
 
 | Tool | Say something like |
 | --- | --- |
@@ -71,7 +72,14 @@ The tools are registered in `index.ts` and listed in `tools.ts`:
 | `link_list` | "what did I save?" |
 | `gmail_list` | "any important email today?" |
 | `gmail_get` | "read me that interview email" |
+| `gmail_review` | used by the mail-review turn to persist categories |
 | `provider_usage` | "how much OpenAI and Anthropic quota is left?" |
+| `job_profile` | read the CV and scoring rubric before scoring jobs |
+| `job_pending` | list unscored jobs |
+| `job_score` | score one discovered job |
+| `job_list` | "show my best job leads" |
+| `job_status` | shortlist, apply, or drop a job |
+| `job_scan` | scan configured job boards |
 
 Details worth knowing:
 
@@ -91,7 +99,7 @@ Details worth knowing:
 ### What it deliberately cannot do
 
 - **No shell, no filesystem.** The assistant session activates only the
-  allow-list above; pi's `bash`, `read`, `write`, and `edit` stay inactive. This
+  allow-list; pi's `bash`, `read`, `write`, and `edit` stay inactive. This
   is a tool-registration boundary, not a prompt instruction.
 - **No writing to Google.** The integration is read-only: it can show your Google
   events but cannot create, change, or delete them.
@@ -257,6 +265,8 @@ fails the build rather than warning.
 | `layout.ts` | yes | overlap columns, multi-day bar lanes |
 | `links.ts` | yes | link model, URL normalisation, grouping |
 | `tools.ts` | yes | the assistant's tool allow-list |
+| `*-tools.ts` | **no** | server-only tool registration modules |
+| `toolkit.ts` | **no** | shared tool-result helpers |
 | `store.ts` | **no** | file-backed reads and writes |
 | `paths.ts` | **no** | data directory and atomic JSON I/O |
 | `settings.ts` | **no** | credential storage |
