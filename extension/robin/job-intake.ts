@@ -128,11 +128,16 @@ function roleKey(posting: { company: string; title: string; location: string }):
 /**
  * Merge fresh postings into the existing store.
  *
+ * Implementation, not interface: `absorb` is the only caller and the only way
+ * in. Exporting it so a test could reach it directly is what let a mutant that
+ * deleted retention from `absorb` pass all 973 tests — the tests proved the
+ * function worked and said nothing about whether anything ran it.
+ *
  * A posting already known keeps its row untouched — its score, its status and
  * its `notifiedAt` are the whole point of having a store, and re-discovering a
  * job you dropped must not resurrect it.
  */
-export function mergePostings(
+function mergePostings(
   existing: Job[],
   postings: ScannedPosting[],
   now: string = new Date().toISOString(),
@@ -180,8 +185,8 @@ export function mergePostings(
   return { jobs: [...existing, ...added], added: added.length };
 }
 
-/** Drop stale rows you never acted on; keep everything you did. */
-export function pruneJobs(jobs: Job[], now: number = Date.now()): Job[] {
+/** Drop stale rows you never acted on; keep everything you did. Internal. */
+function pruneJobs(jobs: Job[], now: number = Date.now()): Job[] {
   const cutoff = new Date(now - RETENTION_DAYS * 86_400_000).toISOString();
   return jobs.filter((job) =>
     job.status === "shortlist" || job.status === "applied" || (job.discoveredAt ?? "") >= cutoff);

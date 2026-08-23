@@ -4,14 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { DEFAULT_JOB_PROFILE } from "./jobs.ts";
-import {
-  absorb,
-  admitPostings,
-  compileAdmission,
-  freshnessCutoff,
-  mergePostings,
-  pruneJobs,
-} from "./job-intake.ts";
+import { absorb, admitPostings, compileAdmission, freshnessCutoff } from "./job-intake.ts";
 import { readJobs, writeJobs } from "./store.ts";
 
 // `absorb` persists through ./store.ts, which resolves its directory per call
@@ -34,6 +27,31 @@ const posting = (over = {}) => ({
 });
 
 const days = (n) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+
+/** A ctx that fails loudly, for the paths that must not touch the network. */
+const offline = {
+  async fetchJson() { throw new Error("no request should have been made"); },
+  async fetchText() { throw new Error("no request should have been made"); },
+};
+
+/** Seed the store, run one intake, and hand back what is in there afterwards. */
+async function intake(existing, postings, ctx = offline, set = rules()) {
+  writeJobs(existing);
+  const { added } = await absorb(postings, set, ctx);
+  return { added, jobs: readJobs() };
+}
+
+const stored = (over = {}) => ({
+  id: "seeded",
+  url: "https://boards.example.com/acme/jobs/1",
+  company: "Acme",
+  title: "Senior AI Engineer",
+  location: "Remote (US)",
+  source: "greenhouse",
+  discoveredAt: "2026-08-01T00:00:00.000Z",
+  status: "new",
+  ...over,
+});
 
 /* ── admission ── */
 
@@ -90,27 +108,17 @@ test("the compiled predicate and the list helper agree", () => {
   assert.deepEqual(admitPostings(batch, set), batch.filter(admits));
 });
 
-/* ── dedupe and retention ── */
+/* ── dedupe, retention and persistence, through the only way in ── */
 
-test("merging never resurrects or overwrites a job you already acted on", () => {
-  const existing = [{
-    id: "old",
-    url: "https://boards.example.com/acme/jobs/1",
-    company: "Acme",
-    title: "Senior AI Engineer",
-    location: "Remote (US)",
-    source: "greenhouse",
-    discoveredAt: "2026-08-01T00:00:00.000Z",
-    status: "dropped",
-    score: 2.1,
-    notifiedAt: "2026-08-01T08:00:00.000Z",
-  }];
-
-  const { jobs, added } = mergePostings(existing, [
-    posting(),                                   // same URL, different casing below
-    posting({ url: "https://BOARDS.example.com/acme/jobs/1/" }),
-    posting({ url: "https://boards.example.com/acme/jobs/2", title: "Staff Engineer" }),
-  ]);
+test("a job you already acted on is never resurrected or overwritten", async () => {
+  const { jobs, added } = await intake(
+    [stored({ id: "old", status: "dropped", score: 2.1, notifiedAt: "2026-08-01T08:00:00.000Z" })],
+    [
+      posting(),                                   // the same URL, already known
+      posting({ url: "https://BOARDS.example.com/acme/jobs/1/" }),   // and again, spelled differently
+      posting({ url: "https://boards.example.com/acme/jobs/2", title: "Staff Engineer" }),
+    ],
+  );
 
   assert.equal(added, 1, "the two spellings of job 1 are one job, and it was already known");
   assert.equal(jobs.length, 2);
@@ -121,11 +129,11 @@ test("merging never resurrects or overwrites a job you already acted on", () => 
   assert.equal(jobs[1].status, "new");
 });
 
-test("one opening posted under several ids fills one slot, not four", () => {
+test("one opening posted under several ids fills one slot, not four", async () => {
   // Observed: an employer listed the same role under six Ashby posting ids and
   // four of them landed in a ten-job digest. The URLs genuinely differ, so
   // only company, title and location together can catch it.
-  const { added } = mergePostings([], [
+  const { added } = await intake([], [
     posting({ url: "https://x/a", company: "Heliux", title: "SWE, Core Platform", location: "HQ (SF)" }),
     posting({ url: "https://x/b", company: "Heliux", title: "SWE, Core Platform", location: "HQ (SF)" }),
     posting({ url: "https://x/c", company: "heliux", title: "swe,  core   platform", location: "hq (sf)" }),
@@ -133,16 +141,16 @@ test("one opening posted under several ids fills one slot, not four", () => {
   assert.equal(added, 1);
 });
 
-test("the same title at the same employer in two cities is two jobs", () => {
-  const { added } = mergePostings([], [
+test("the same title at the same employer in two cities is two jobs", async () => {
+  const { added } = await intake([], [
     posting({ url: "https://x/sf", company: "Acme", title: "Backend Engineer", location: "San Francisco" }),
     posting({ url: "https://x/ny", company: "Acme", title: "Backend Engineer", location: "New York" }),
   ]);
   assert.equal(added, 2);
 });
 
-test("merging drops a posting whose URL is not safe to render", () => {
-  const { jobs, added } = mergePostings([], [
+test("a posting whose URL is not safe to render never reaches the store", async () => {
+  const { jobs, added } = await intake([], [
     posting({ url: "javascript:alert(1)" }),
     posting({ url: "not a url" }),
     posting({ url: "https://ok.example/1" }),
@@ -151,55 +159,54 @@ test("merging drops a posting whose URL is not safe to render", () => {
   assert.equal(jobs[0].url, "https://ok.example/1");
 });
 
-test("a years figure is read off the description once, at merge time", () => {
-  const { jobs } = mergePostings([], [
-    posting({ url: "https://x/1", description: "Requirements: 5+ years of professional experience." }),
-    posting({ url: "https://x/2", title: "New Grad SWE", description: "A degree and a pulse." }),
-    posting({ url: "https://x/3", title: "Other SWE" }),
-  ]);
-  assert.equal(jobs[0].yearsRequired, 5);
-  assert.equal(jobs[1].yearsRequired, undefined, "a posting that states no figure carries none");
-  assert.equal(jobs[2].yearsRequired, undefined);
+test("taking anything in also expires what you never acted on", async () => {
+  // Retention runs as part of intake or it does not run at all. Asserting it
+  // here rather than against the pruning function is the difference between a
+  // test that proves the policy is implemented and one that proves it is
+  // applied — a mutant that dropped the call from intake passed the latter.
+  const ancient = "2020-01-01T00:00:00.000Z";
+  const { jobs } = await intake([
+    stored({ id: "old-new", status: "new", discoveredAt: ancient }),
+    stored({ id: "old-shortlist", status: "shortlist", discoveredAt: ancient, url: "https://x/s" }),
+    stored({ id: "old-applied", status: "applied", discoveredAt: ancient, url: "https://x/a" }),
+  ], [posting({ url: "https://x/fresh", title: "New Grad Engineer" })]);
+
+  assert.deepEqual(
+    jobs.map((job) => job.id).filter((id) => id.startsWith("old-")),
+    ["old-shortlist", "old-applied"],
+    "an untouched row past the retention window goes; anything you acted on stays",
+  );
+  assert.equal(jobs.length, 3);
 });
 
-test("pruning keeps anything you shortlisted or applied to, however old", () => {
-  const now = Date.parse("2026-08-18T00:00:00.000Z");
-  const stale = "2026-01-01T00:00:00.000Z";
-  const kept = pruneJobs([
-    { id: "old-new", status: "new", discoveredAt: stale },
-    { id: "old-shortlist", status: "shortlist", discoveredAt: stale },
-    { id: "old-applied", status: "applied", discoveredAt: stale },
-    { id: "recent", status: "new", discoveredAt: "2026-08-17T00:00:00.000Z" },
-  ], now);
-
-  assert.deepEqual(kept.map((entry) => entry.id), ["old-shortlist", "old-applied", "recent"]);
-});
-
-/* ── the whole tail, through one interface ── */
-
-test("absorb hydrates, dedupes and persists in one step", async () => {
-  writeJobs([]);
+test("descriptions are fetched before the years figure is read off them", async () => {
   const ctx = {
     async fetchJson() { return { content: "<p>Requires 4+ years of industry experience.</p>" }; },
     async fetchText() { throw new Error("not this path"); },
   };
-  const { added } = await absorb([
-    { ...posting({ url: "https://job-boards.greenhouse.io/acme/jobs/42" }), source: "greenhouse", ref: { board: "acme", id: "42" } },
-  ], rules(), ctx);
+  const { added, jobs } = await intake([], [
+    { ...posting({ url: "https://job-boards.greenhouse.io/acme/jobs/42" }), ref: { board: "acme", id: "42" } },
+  ], ctx);
 
   assert.equal(added, 1);
-  const [stored] = readJobs();
-  assert.match(stored.description, /4\+ years of industry experience/);
-  // Hydration feeds the years figure, so the order of the two matters.
-  assert.equal(stored.yearsRequired, 4);
+  assert.match(jobs[0].description, /4\+ years of industry experience/);
+  // Ordering is the point: a years figure read before hydration is always null.
+  assert.equal(jobs[0].yearsRequired, 4);
 });
 
-test("absorb on an empty batch touches neither the network nor the store", async () => {
-  writeJobs([{ id: "keep", url: "https://x/1", company: "A", title: "T", location: "", source: "s", discoveredAt: "2026-08-01T00:00:00.000Z", status: "new" }]);
-  const ctx = {
-    async fetchJson() { throw new Error("should not be called"); },
-    async fetchText() { throw new Error("should not be called"); },
-  };
-  assert.deepEqual(await absorb([], rules(), ctx), { added: 0 });
+test("a posting that states no years requirement carries none", async () => {
+  const { jobs } = await intake([], [
+    posting({ url: "https://x/1", title: "New Grad SWE", description: "A degree and a pulse." }),
+    posting({ url: "https://x/2", title: "Other SWE" }),
+  ]);
+  assert.equal(jobs[0].yearsRequired, undefined);
+  assert.equal(jobs[1].yearsRequired, undefined);
+});
+
+test("an empty batch touches neither the network nor the store", async () => {
+  const seeded = [stored({ id: "keep" })];
+  writeJobs(seeded);
+  assert.deepEqual(await absorb([], rules(), offline), { added: 0 });
   assert.equal(readJobs().length, 1);
+  assert.equal(readJobs()[0].id, "keep", "not even a retention pass runs on nothing");
 });
