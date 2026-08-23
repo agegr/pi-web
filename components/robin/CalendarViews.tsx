@@ -21,7 +21,7 @@ export type CalendarView = "agenda" | "week" | "month";
 interface ViewProps {
   events: DashboardEvent[];
   today: string;
-  onDelete: (event: DashboardEvent) => void;
+  onSelectEvent: (event: DashboardEvent) => void;
 }
 
 interface AgendaViewProps extends ViewProps {
@@ -50,15 +50,18 @@ function weekdayLabel(date: string, locale: string): string {
   return parseLocalDate(date).toLocaleDateString(locale, { weekday: "short" });
 }
 
-/** A timed event in a month cell. Read-only here whatever its calendar — the
- *  cell itself is the click target, and a ✕ does not fit the width. */
-function EventChip({ event, t }: {
+/** A timed event in a month cell. */
+function EventChip({ event, onSelect, t }: {
   event: DashboardEvent;
+  onSelect: (event: DashboardEvent) => void;
   t: (key: string) => string;
 }) {
   return (
-    <div
-      className="flex items-baseline gap-1.5 py-0.5 pl-1 pr-1.5"
+    <button
+      type="button"
+      onClick={() => onSelect(event)}
+      aria-haspopup="dialog"
+      className="pointer-events-auto flex w-full items-baseline gap-1.5 py-0.5 pl-1 pr-1.5 text-left"
       style={timedSurface(event)}
       title={`${formatEventTime(event)} ${event.title}${event.calendar ? ` — ${event.calendar}` : ""}`}
     >
@@ -71,7 +74,7 @@ function EventChip({ event, t }: {
       <span className="min-w-0 flex-1 truncate" style={{ color: "var(--text)", fontSize: 13 }}>
         {event.title}
       </span>
-    </div>
+    </button>
   );
 }
 
@@ -82,7 +85,7 @@ export function AgendaView({
   events,
   todos,
   today,
-  onDelete,
+  onSelectEvent,
   onCompleteTodo,
 }: AgendaViewProps) {
   const { t, locale } = useI18n();
@@ -147,9 +150,12 @@ export function AgendaView({
             </label>
           ))}
           {dayEvents.map((event) => (
-            <div
+            <button
               key={event.id}
-              className="group flex items-center gap-3 px-2 py-1"
+              type="button"
+              onClick={() => onSelectEvent(event)}
+              aria-haspopup="dialog"
+              className="flex min-h-8 w-full items-center gap-3 px-2 py-1 text-left"
               // Same two-axis colouring as the grids: hue for the kind of
               // thing, weight for whether it is yours. Which day it is under
               // is the heading's job, not the row's.
@@ -168,18 +174,7 @@ export function AgendaView({
                   <span style={{ color: "var(--text-dim)" }}> · {event.calendar ?? "Google"}</span>
                 )}
               </span>
-              {!isReadOnlyEvent(event) && (
-                <button
-                  type="button"
-                  onClick={() => onDelete(event)}
-                  aria-label={t("robin.calendar.deleteEvent", { title: event.title })}
-                  className="shrink-0 px-1 text-xs opacity-0 transition-opacity group-hover:opacity-100"
-                  style={{ color: "var(--text-dim)" }}
-                >
-                  ✕
-                </button>
-              )}
-            </div>
+            </button>
           ))}
         </div>
       ))}
@@ -194,11 +189,23 @@ export function AgendaView({
               <span className="shrink-0 font-mono" style={{ color: "var(--text-muted)", minWidth: "4.5rem" }}>
                 {parseLocalDate(date).toLocaleDateString(locale, { weekday: "short", day: "numeric" })}
               </span>
-              <span className="min-w-0 flex-1 truncate" style={{ color: "var(--text-dim)" }}>
-                {[
-                  ...dayEvents.map((event) => event.title),
-                  ...dayTodos.map((todo) => `${t("robin.todos.title")}: ${todo.title}`),
-                ].join("、")}
+              <span className="flex min-w-0 flex-1 items-baseline gap-2 overflow-hidden" style={{ color: "var(--text-dim)" }}>
+                {dayEvents.map((event) => (
+                  <button
+                    key={event.id}
+                    type="button"
+                    onClick={() => onSelectEvent(event)}
+                    aria-haspopup="dialog"
+                    className="min-w-0 truncate underline-offset-2 hover:underline"
+                  >
+                    {event.title}
+                  </button>
+                ))}
+                {dayTodos.map((todo) => (
+                  <span key={todo.id} className="min-w-0 truncate">
+                    {t("robin.todos.title")}: {todo.title}
+                  </span>
+                ))}
               </span>
               <span className="shrink-0 font-mono tabular-nums" style={{ color: "var(--text-dim)" }}>
                 {dayEvents.length + dayTodos.length}
@@ -228,12 +235,14 @@ function MonthWeekRow({
   events,
   today,
   onSelectDay,
+  onSelectEvent,
   t,
 }: {
   days: string[];
   events: DashboardEvent[];
   today: string;
   onSelectDay: (date: string) => void;
+  onSelectEvent: (event: DashboardEvent) => void;
   t: (key: string, params?: Record<string, string>) => string;
 }) {
   const { bars, lanes } = layoutSpanBars(events, days);
@@ -263,33 +272,36 @@ function MonthWeekRow({
           // is the part of the week already behind you.
           const past = date < today;
           return (
-            <button
-              key={date}
-              type="button"
-              data-date={date}
-              onClick={() => onSelectDay(date)}
-              title={t("robin.calendar.dayTooltip", { date, count: String(chips.length + spanning) })}
-              className="flex min-h-32 flex-col gap-0.5 p-1 text-left"
-              style={{
-                // The one cell in another hue, ringed twice over: the inset
-                // shadow doubles the border without moving the cell, which a
-                // 2px border in a hairline grid would.
-                background: isToday ? "var(--today-wash)" : "transparent",
-                border: `1px solid ${isToday ? "var(--today-mark)" : "var(--border)"}`,
-                boxShadow: isToday ? "inset 0 0 0 1px var(--today-mark)" : undefined,
-                opacity: past ? 0.5 : 1,
-                paddingTop: DAY_NUMBER_HEIGHT + barsHeight + 2,
-              }}
-            >
-              {chips.slice(0, MONTH_CHIP_LIMIT).map((event) => (
-                <EventChip key={event.id} event={event} t={t} />
-              ))}
-              {chips.length > MONTH_CHIP_LIMIT && (
-                <span className="px-1 text-xs" style={{ color: "var(--text-dim)" }}>
-                  {t("robin.calendar.more", { count: String(chips.length - MONTH_CHIP_LIMIT) })}
-                </span>
-              )}
-            </button>
+            <div key={date} data-date={date} className="relative min-h-32">
+              <button
+                type="button"
+                onClick={() => onSelectDay(date)}
+                aria-label={t("robin.calendar.dayTooltip", { date, count: String(chips.length + spanning) })}
+                className="absolute inset-0 w-full text-left"
+                style={{
+                  // The one cell in another hue, ringed twice over: the inset
+                  // shadow doubles the border without moving the cell, which a
+                  // 2px border in a hairline grid would.
+                  background: isToday ? "var(--today-wash)" : "transparent",
+                  border: `1px solid ${isToday ? "var(--today-mark)" : "var(--border)"}`,
+                  boxShadow: isToday ? "inset 0 0 0 1px var(--today-mark)" : undefined,
+                  opacity: past ? 0.5 : 1,
+                }}
+              />
+              <div
+                className="pointer-events-none relative flex min-h-32 flex-col gap-0.5 p-1"
+                style={{ paddingTop: DAY_NUMBER_HEIGHT + barsHeight + 2, opacity: past ? 0.5 : 1 }}
+              >
+                {chips.slice(0, MONTH_CHIP_LIMIT).map((event) => (
+                  <EventChip key={event.id} event={event} onSelect={onSelectEvent} t={t} />
+                ))}
+                {chips.length > MONTH_CHIP_LIMIT && (
+                  <span className="px-1 text-xs" style={{ color: "var(--text-dim)" }}>
+                    {t("robin.calendar.more", { count: String(chips.length - MONTH_CHIP_LIMIT) })}
+                  </span>
+                )}
+              </div>
+            </div>
           );
         })}
       </div>
@@ -316,7 +328,8 @@ function MonthWeekRow({
         <button
           key={bar.event.id}
           type="button"
-          onClick={() => onSelectDay(bar.event.date)}
+          onClick={() => onSelectEvent(bar.event)}
+          aria-haspopup="dialog"
           title={`${bar.event.title}${bar.event.calendar ? ` — ${bar.event.calendar}` : ""}`}
           className="absolute truncate px-1.5 text-left leading-4"
           style={{
@@ -345,7 +358,8 @@ export function MonthView({
   today,
   days: grid,
   onSelectDay,
-}: Omit<ViewProps, "onDelete"> & { days: string[]; onSelectDay: (date: string) => void }) {
+  onSelectEvent,
+}: ViewProps & { days: string[]; onSelectDay: (date: string) => void }) {
   const { t, locale } = useI18n();
   const scrollerRef = useTodayInView(grid[0] ?? "", today);
   const weeks = Array.from(
@@ -383,6 +397,7 @@ export function MonthView({
             events={events}
             today={today}
             onSelectDay={onSelectDay}
+            onSelectEvent={onSelectEvent}
             t={t}
           />
         ))}

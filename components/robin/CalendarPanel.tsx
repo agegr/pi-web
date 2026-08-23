@@ -14,6 +14,7 @@ import type { Todo } from "@/extension/robin/store";
 import { AgendaView, MonthView, type CalendarView } from "./CalendarViews";
 import { WeekGrid } from "./WeekGrid";
 import { GoogleConnect } from "./GoogleConnect";
+import { EventDetailsDialog } from "./EventDetailsDialog";
 import { requestRefresh } from "./refreshBus";
 import { mutate, usePolledResource } from "./usePolledResource";
 
@@ -66,6 +67,7 @@ export function CalendarPanel() {
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<DashboardEvent | null>(null);
 
   useEffect(() => setView(readStoredView()), []);
 
@@ -121,13 +123,15 @@ export function CalendarPanel() {
     return `${format(from, false)} – ${format(to, true)}`;
   }, [view, activeAnchor, range, t, locale]);
 
-  async function run(action: () => Promise<void>) {
+  async function run(action: () => Promise<void>): Promise<boolean> {
     try {
       setActionError(null);
       await action();
       await refresh();
+      return true;
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : String(caught));
+      return false;
     }
   }
 
@@ -157,7 +161,7 @@ export function CalendarPanel() {
   };
 
   const deleteEvent = (event: DashboardEvent) =>
-    void run(() => mutate("/api/robin/events", "DELETE", { id: event.id }));
+    run(() => mutate("/api/robin/events", "DELETE", { id: event.id }));
 
   const completeTodo = (todo: Todo) => {
     void (async () => {
@@ -308,12 +312,17 @@ export function CalendarPanel() {
           events={visible}
           todos={visibleTodos}
           today={today}
-          onDelete={deleteEvent}
+          onSelectEvent={setSelectedEvent}
           onCompleteTodo={completeTodo}
         />
       )}
       {today && view === "week" && (
-        <WeekGrid events={visible} today={today} anchor={activeAnchor} onDelete={deleteEvent} />
+        <WeekGrid
+          events={visible}
+          today={today}
+          anchor={activeAnchor}
+          onSelectEvent={setSelectedEvent}
+        />
       )}
       {today && view === "month" && (
         <MonthView
@@ -324,10 +333,19 @@ export function CalendarPanel() {
             setAnchor(day);
             chooseView("week");
           }}
+          onSelectEvent={setSelectedEvent}
         />
       )}
 
       <GoogleConnect status={data?.google} onChanged={refresh} />
+
+      {selectedEvent && (
+        <EventDetailsDialog
+          event={selectedEvent}
+          onClose={() => setSelectedEvent(null)}
+          onDelete={deleteEvent}
+        />
+      )}
     </section>
   );
 }

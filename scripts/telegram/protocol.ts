@@ -171,6 +171,8 @@ export function resolveLocale(languageCode: string | undefined): BridgeLocale {
 const TOOL_LABELS: Record<BridgeLocale, Record<string, string>> = {
   en: {
     todo_add: "added a todo",
+    todo_update: "updated a todo",
+    todo_delete: "deleted a todo",
     todo_complete: "completed a todo",
     todo_list: "read your todos",
     calendar_create_event: "added an event",
@@ -180,6 +182,8 @@ const TOOL_LABELS: Record<BridgeLocale, Record<string, string>> = {
   },
   zh: {
     todo_add: "记了待办",
+    todo_update: "改了待办",
+    todo_delete: "删了待办",
     todo_complete: "完成了待办",
     todo_list: "查了待办",
     calendar_create_event: "加了日程",

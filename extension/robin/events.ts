@@ -42,6 +42,14 @@ export interface CalendarEvent {
   /** Local wall-clock end, HH:MM (24h). Only meaningful alongside `start`. */
   end?: string;
   location?: string;
+  /** Plain-text notes supplied by the calendar provider. */
+  description?: string;
+  /** Canonical page for the event, such as Google Calendar's event page. */
+  url?: string;
+  /** Direct video-call URL when the provider exposes one. */
+  meetingUrl?: string;
+  /** Display name or email address of the event organizer. */
+  organizer?: string;
   /** UTC instant, ISO 8601. */
   createdAt: string;
 }

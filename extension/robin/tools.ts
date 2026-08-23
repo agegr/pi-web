@@ -13,6 +13,8 @@
 export const ROBIN_TOOL_NAMES = [
   "todo_add",
   "todo_list",
+  "todo_update",
+  "todo_delete",
   "todo_complete",
   "calendar_create_event",
   "calendar_list_events",

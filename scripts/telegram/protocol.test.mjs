@@ -110,6 +110,7 @@ test("resolveLocale maps every Chinese tag to zh and everything else to en", () 
 
 test("replies follow the sender's language", () => {
   assert.equal(formatReply("好的", ["todo_add"], "zh"), "好的\n\n— 记了待办");
+  assert.equal(formatReply("好的", ["todo_update", "todo_delete"], "zh"), "好的\n\n— 改了待办、删了待办");
   assert.equal(formatReply("好的", ["todo_list", "todo_add"], "zh"), "好的\n\n— 查了待办、记了待办");
   assert.equal(formatReply("   ", ["todo_add"], "zh"), "（没有回复内容）\n\n— 记了待办");
   assert.match(errorMessage("boom", "zh"), /出错了：boom/);

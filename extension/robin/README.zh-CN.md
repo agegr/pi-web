@@ -57,6 +57,8 @@ Google 和 Telegram 在 **/dashboard/settings** 里配置，不放 `.env.local`�
 | 工具 | 你可以这样说 |
 | --- | --- |
 | `todo_add` | 「明天要交房租」 |
+| `todo_update` | 「把交房租改到周五」 |
+| `todo_delete` | 「删掉交房租」 |
 | `todo_complete` | 「洗车那个做完了」 |
 | `todo_list` | 「还有什么没做」 |
 | `calendar_create_event` | 「周四下午3点到4点设计评审，在会议室B」 |

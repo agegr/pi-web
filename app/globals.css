@@ -1579,6 +1579,33 @@ pre, code {
   background: rgba(0, 0, 0, 0.72);
 }
 
+.calendar-event-dialog {
+  width: min(36rem, calc(100vw - 2rem));
+  max-width: none;
+  max-height: calc(100dvh - 2rem);
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+  background: var(--bg-panel);
+  color: var(--text);
+  box-shadow: var(--overlay-shadow);
+}
+.calendar-event-dialog::backdrop {
+  background: rgb(0 0 0 / 0.42);
+}
+@media (max-width: 640px) {
+  .calendar-event-dialog {
+    width: 100vw;
+    max-height: calc(100dvh - max(12px, env(safe-area-inset-top)));
+    margin: auto 0 0;
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+  }
+}
+
 .image-preview-image {
   display: block;
   max-width: 100%;

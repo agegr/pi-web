@@ -19,6 +19,8 @@ interface AssistantResponse {
 /** Tool names map to message keys so the summary follows the chosen language. */
 const TOOL_KEYS: Record<string, string> = {
   todo_add: "robin.tool.todoAdd",
+  todo_update: "robin.tool.todoUpdate",
+  todo_delete: "robin.tool.todoDelete",
   todo_complete: "robin.tool.todoComplete",
   todo_list: "robin.tool.todoList",
   calendar_create_event: "robin.tool.eventAdd",

@@ -5,7 +5,6 @@ import { useI18n } from "@/hooks/useI18n";
 import { parseLocalDate, weekDays } from "@/extension/robin/dates";
 import {
   formatEventTime,
-  isReadOnlyEvent,
   occursOn,
   type DashboardEvent,
 } from "@/extension/robin/events";
@@ -71,12 +70,12 @@ export function WeekGrid({
   events,
   today,
   anchor,
-  onDelete,
+  onSelectEvent,
 }: {
   events: DashboardEvent[];
   today: string;
   anchor: string;
-  onDelete: (event: DashboardEvent) => void;
+  onSelectEvent: (event: DashboardEvent) => void;
 }) {
   const { t, locale } = useI18n();
   const days = weekDays(anchor);
@@ -152,7 +151,8 @@ export function WeekGrid({
                 <button
                   key={bar.event.id}
                   type="button"
-                  onClick={() => !isReadOnlyEvent(bar.event) && onDelete(bar.event)}
+                  onClick={() => onSelectEvent(bar.event)}
+                  aria-haspopup="dialog"
                   title={`${bar.event.title}${bar.event.calendar ? ` — ${bar.event.calendar}` : ""}`}
                   className="absolute truncate px-1.5 text-left leading-5"
                   style={{
@@ -240,7 +240,6 @@ export function WeekGrid({
                   )}
 
                   {placed.map(({ event, startMinutes, endMinutes, column, columns }) => {
-                    const readOnly = isReadOnlyEvent(event);
                     const height = Math.max((endMinutes - startMinutes) * PX_PER_MINUTE - 2, 16);
                     // A half-hour block is 22px: two lines do not fit in it, and
                     // the clipped second line is what made short events unreadable.
@@ -251,7 +250,8 @@ export function WeekGrid({
                       <button
                         key={event.id}
                         type="button"
-                        onClick={() => !readOnly && onDelete(event)}
+                        onClick={() => onSelectEvent(event)}
+                        aria-haspopup="dialog"
                         title={`${formatEventTime(event)} ${event.title}${event.location ? ` @ ${event.location}` : ""}`}
                         // A button centres its content vertically, so a long
                         // block floated its title in the middle of itself

@@ -38,8 +38,6 @@ const BUCKET_COLOR: Partial<Record<DueBucket, string>> = {
 export function TodoPanel() {
   const { t } = useI18n();
   const { data, error, loading, refresh } = usePolledResource<TodosResponse>("/api/robin/todos");
-  const [title, setTitle] = useState("");
-  const [due, setDue] = useState("");
   const [showDone, setShowDone] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -69,16 +67,6 @@ export function TodoPanel() {
     }
   }
 
-  const addTodo = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!title.trim()) return;
-    void run(async () => {
-      await mutate("/api/robin/todos", "POST", { title, ...(due ? { due } : {}) });
-      setTitle("");
-      setDue("");
-    });
-  };
-
   return (
     <section
       className="pi-card flex flex-col gap-3 p-4"
@@ -89,29 +77,6 @@ export function TodoPanel() {
           {loading ? t("robin.common.loading") : t("robin.todos.open", { count: String(open.length) })}
         </span>
       </header>
-
-      <form onSubmit={addTodo} className="flex flex-wrap gap-2">
-        <input
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-          placeholder={t("robin.todos.placeholder")}
-          className="min-w-0 flex-1 rounded px-2 py-1 text-sm outline-none"
-        />
-        <input
-          type="date"
-          value={due}
-          onChange={(event) => setDue(event.target.value)}
-          className="rounded px-2 py-1 text-sm outline-none"
-        />
-        <button
-          type="submit"
-          disabled={!title.trim()}
-          className="ui-action ui-action--outline pi-bracket px-3 disabled:opacity-40"
-          data-state="accent"
-        >
-          {t("robin.todos.addButton")}
-        </button>
-      </form>
 
       {(error || actionError) && (
         <p className="text-xs" style={{ color: "var(--accent)" }}>{actionError ?? error}</p>

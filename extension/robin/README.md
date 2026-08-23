@@ -64,6 +64,8 @@ The tool allow-list is in `tools.ts`; registrations are split by domain in
 | Tool | Say something like |
 | --- | --- |
 | `todo_add` | "remember to pay rent tomorrow" |
+| `todo_update` | "move the rent todo to Friday" |
+| `todo_delete` | "delete the rent todo" |
 | `todo_complete` | "I finished washing the car" |
 | `todo_list` | "what's left to do?" |
 | `calendar_create_event` | "design review Thursday 3–4pm in room B" |

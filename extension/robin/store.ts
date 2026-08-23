@@ -61,6 +61,7 @@ const JOB_SCAN_FILE = "job-scan.json";
 const JOB_DIGEST_STATE_FILE = "job-digest-state.json";
 const GMAIL_DIGEST_STATE_FILE = "gmail-digest-state.json";
 const MAIL_REVIEW_FILE = "mail-review.json";
+const COMPLETED_TODO_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 
 /**
  * Which chats have already received which run, per digest.
@@ -92,8 +93,20 @@ export function todosPath(): string {
   return dataPath(TODOS_FILE);
 }
 
+export function pruneCompletedTodos(todos: Todo[], now = Date.now()): Todo[] {
+  const cutoff = now - COMPLETED_TODO_RETENTION_MS;
+  return todos.filter((todo) => {
+    if (!todo.done) return true;
+    const completed = Date.parse(todo.completedAt ?? todo.createdAt);
+    return !Number.isFinite(completed) || completed > cutoff;
+  });
+}
+
 export function readTodos(): Todo[] {
-  return readJsonArray<Todo>(TODOS_FILE);
+  const todos = readJsonArray<Todo>(TODOS_FILE);
+  const retained = pruneCompletedTodos(todos);
+  if (retained.length !== todos.length) writeJsonArray(TODOS_FILE, retained);
+  return retained;
 }
 
 export function writeTodos(todos: Todo[]): void {

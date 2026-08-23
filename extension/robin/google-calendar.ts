@@ -224,10 +224,44 @@ export interface GoogleEvent {
   id?: string;
   summary?: string;
   location?: string;
+  description?: string;
+  htmlLink?: string;
+  hangoutLink?: string;
+  conferenceData?: {
+    entryPoints?: { entryPointType?: string; uri?: string }[];
+  };
+  organizer?: { displayName?: string; email?: string };
   status?: string;
   colorId?: string;
   start?: GoogleEventTime;
   end?: GoogleEventTime;
+}
+
+function httpUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Google descriptions may contain small HTML fragments; the dashboard treats
+ * provider copy as plain text and linkifies safe URLs itself. */
+function descriptionText(value: string | undefined): string | undefined {
+  if (!value?.trim()) return undefined;
+  const text = value
+    .replace(/<br\s*\/?\s*>/gi, "\n")
+    .replace(/<\/(?:p|div|li)>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
+    .trim();
+  return text || undefined;
 }
 
 /**
@@ -262,6 +296,11 @@ export function mapGoogleEvent(item: GoogleEvent, calendar: string): DashboardEv
     : undefined;
 
   const colorKey = googleColorKey(item.colorId);
+  const meetingUrl = httpUrl(item.hangoutLink)
+    ?? httpUrl(item.conferenceData?.entryPoints?.find((entry) => entry.entryPointType === "video")?.uri);
+  const url = httpUrl(item.htmlLink);
+  const organizer = item.organizer?.displayName?.trim() || item.organizer?.email?.trim();
+  const description = descriptionText(item.description);
 
   return {
     id: `google:${item.id ?? crypto.randomUUID()}`,
@@ -271,6 +310,10 @@ export function mapGoogleEvent(item: GoogleEvent, calendar: string): DashboardEv
     ...(startParts.start ? { start: startParts.start } : {}),
     ...(end ? { end } : {}),
     ...(item.location?.trim() ? { location: item.location.trim() } : {}),
+    ...(description ? { description } : {}),
+    ...(url ? { url } : {}),
+    ...(meetingUrl ? { meetingUrl } : {}),
+    ...(organizer ? { organizer } : {}),
     ...(colorKey ? { colorKey } : {}),
     createdAt: "",
     source: "google",
@@ -296,6 +339,7 @@ export async function fetchEvents(from: string, to: string): Promise<DashboardEv
     singleEvents: "true", // expand recurring events into occurrences
     orderBy: "startTime",
     maxResults: "250",
+    conferenceDataVersion: "1",
   });
 
   const controller = new AbortController();

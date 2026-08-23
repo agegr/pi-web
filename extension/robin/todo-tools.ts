@@ -1,5 +1,5 @@
 /**
- * The todo tools: add, list, complete.
+ * The todo tools: add, list, update, delete, complete.
  *
  * Server-only (loaded by the extension). Each registration reads and writes the
  * todo store through store.ts; the store itself stays testable without pi.
@@ -83,6 +83,71 @@ export function registerTodoTools(pi: ExtensionAPI): void {
         return text(`${header}\n${params.includeDone ? "No todos." : "No open todos."}`);
       }
       return text(`${header}\n${visible.map((t) => formatTodo(t, today)).join("\n")}`);
+    },
+  });
+
+  pi.registerTool({
+    name: "todo_update",
+    label: "Update todo",
+    description:
+      "Edit a todo's title or due date. Identify it by id (from todo_list) or by a distinctive part of its current title.",
+    promptSnippet: "todo_update — edit a todo on the user's todo list",
+    parameters: Type.Object({
+      id: Type.Optional(Type.String({ description: "Todo id from todo_list" })),
+      title: Type.Optional(Type.String({ description: "Part of the current todo title, if the id is unknown" })),
+      newTitle: Type.Optional(Type.String({ description: "Replacement title" })),
+      due: Type.Optional(
+        Type.String({ description: "Replacement due date as YYYY-MM-DD, or an empty string to remove it" }),
+      ),
+    }),
+    async execute(_toolCallId, params) {
+      if (params.newTitle === undefined && params.due === undefined) {
+        return text("Provide a newTitle or due date to update.");
+      }
+
+      const todos = readTodos();
+      const found = findTodo(todos, params);
+      if ("error" in found) return text(found.error);
+
+      if (params.newTitle !== undefined) {
+        const title = params.newTitle.trim();
+        if (!title) return text("newTitle cannot be empty.");
+        found.todo.title = title;
+      }
+      if (params.due !== undefined) {
+        try {
+          if (params.due.trim()) found.todo.due = normalizeDue(params.due);
+          else delete found.todo.due;
+        } catch (error) {
+          return text(error instanceof Error ? error.message : String(error));
+        }
+      }
+
+      writeTodos(todos);
+      return text(`Updated ${formatTodo(found.todo)}`);
+    },
+  });
+
+  pi.registerTool({
+    name: "todo_delete",
+    label: "Delete todo",
+    description:
+      "Permanently delete a todo. Identify it by id (from todo_list) or by a distinctive part of its title.",
+    promptSnippet: "todo_delete — permanently remove a todo from the user's todo list",
+    promptGuidelines: [
+      "Only delete a todo when the user explicitly asks to delete or remove it. Completing a todo is not deletion.",
+    ],
+    parameters: Type.Object({
+      id: Type.Optional(Type.String({ description: "Todo id from todo_list" })),
+      title: Type.Optional(Type.String({ description: "Part of the todo title, if the id is unknown" })),
+    }),
+    async execute(_toolCallId, params) {
+      const todos = readTodos();
+      const found = findTodo(todos, params);
+      if ("error" in found) return text(found.error);
+
+      writeTodos(todos.filter((todo) => todo.id !== found.todo.id));
+      return text(`Deleted "${found.todo.title}".`);
     },
   });
 

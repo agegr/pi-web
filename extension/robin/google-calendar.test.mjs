@@ -94,6 +94,40 @@ test("location is carried through when present", () => {
   assert.equal(map({ id: "l", summary: "x", location: "  ", start: { date: "2026-08-17" } }).location, undefined);
 });
 
+test("event details carry safe calendar and meeting links", () => {
+  const event = map({
+    id: "details",
+    summary: "Design review",
+    description: "<b>Bring the latest draft.</b><br><a href=\"https://docs.example/draft\">https://docs.example/draft</a>",
+    htmlLink: "https://calendar.google.com/event?eid=abc",
+    hangoutLink: "https://meet.google.com/abc-defg-hij",
+    organizer: { displayName: "  Ada  ", email: "ada@example.com" },
+    start: { date: "2026-08-17" },
+  });
+  assert.equal(event.description, "Bring the latest draft.\nhttps://docs.example/draft");
+  assert.equal(event.url, "https://calendar.google.com/event?eid=abc");
+  assert.equal(event.meetingUrl, "https://meet.google.com/abc-defg-hij");
+  assert.equal(event.organizer, "Ada");
+});
+
+test("unsafe links are dropped and a video conference entry is used as fallback", () => {
+  const event = map({
+    id: "links",
+    summary: "Call",
+    htmlLink: "javascript:alert(1)",
+    hangoutLink: "data:text/html,nope",
+    conferenceData: {
+      entryPoints: [
+        { entryPointType: "phone", uri: "tel:+15551234567" },
+        { entryPointType: "video", uri: "https://zoom.us/j/123" },
+      ],
+    },
+    start: { date: "2026-08-17" },
+  });
+  assert.equal(event.url, undefined);
+  assert.equal(event.meetingUrl, "https://zoom.us/j/123");
+});
+
 test("a standard google colourId maps to a palette key; a custom one is dropped", () => {
   assert.equal(map({ id: "m", summary: "Standup", start: { dateTime: "2026-08-17T15:00:00Z" }, colorId: "7" }).colorKey, "teal");
   assert.equal(map({ id: "n", summary: "Custom", start: { date: "2026-08-17" }, end: { date: "2026-08-18" }, colorId: "zz" }).colorKey, undefined);
