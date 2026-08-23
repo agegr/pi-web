@@ -10,6 +10,7 @@ import {
   formatTodo,
   localDate,
   normalizeDue,
+  normalizeTodoColor,
   parseLocalDate,
   pruneCompletedTodos,
 } from "./store.ts";
@@ -55,6 +56,12 @@ test("normalizeDue keeps calendar dates and resolves timestamps locally", () => 
   // Same instant as the regression above: UTC says the 15th, the user meant the 14th.
   assert.equal(normalizeDue("2026-08-15T04:19:00.000Z"), "2026-08-14");
   assert.throws(() => normalizeDue("next thursday"));
+});
+
+test("todo colours reuse the calendar palette", () => {
+  assert.equal(normalizeTodoColor("  Plum "), "plum");
+  assert.throws(() => normalizeTodoColor("red"), /Unknown todo colour/);
+  assert.throws(() => normalizeTodoColor("#a1b2c3"), /Unknown todo colour/);
 });
 
 test("dueBucket classifies against the supplied local today", () => {

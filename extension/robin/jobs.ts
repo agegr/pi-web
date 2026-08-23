@@ -41,6 +41,21 @@ export interface JobProfile {
   companies: TrackedCompany[];
   /** Ids of company-less aggregator feeds, e.g. "remoteok". */
   boards: string[];
+  /**
+   * Read job descriptions off careers pages that no provider owns.
+   *
+   * Roughly half the early-career market sits on an employer's own portal
+   * rather than an ATS with a public API, and those postings otherwise reach
+   * the scorer as a title and a city. Turning this on recovers most of them.
+   *
+   * It is a setting rather than a default because it is the one place this
+   * scanner gives up its host allow-list: every other request goes to a host
+   * checked before the fetch, and this one goes wherever a posting's link
+   * points. The narrower guarantees that replace it are documented on
+   * `readUnknownBoard` in ./job-providers.ts, and they hold — but swapping an
+   * allow-list for a rule set should be somebody's decision.
+   */
+  readUnknownBoards: boolean;
   /** Employers to never surface, matched case-insensitively. */
   blacklist: string[];
   /** Freshness window in days; 0 keeps postings with no date at all. */
@@ -187,6 +202,7 @@ export const DEFAULT_JOB_PROFILE: JobProfile = {
   // only sources here that reach employers on Workday, iCIMS and in-house
   // portals, and the only ones that say whether a posting is still open.
   boards: ["remoteok", "remotive", "simplify", "newgradlist"],
+  readUnknownBoards: false,
   blacklist: [],
   // Short on purpose: the scan runs twice a day and remembers what it has
   // already shown you, so a wide window only re-surfaces postings you passed on.
@@ -828,5 +844,22 @@ export function cleanDescription(raw: string, limit = 2500): string {
     .replace(/&gt;/g, ">")
     .replace(/\s+/g, " ")
     .trim();
-  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+  if (text.length <= limit) return text;
+
+  // Over budget: keep the opening AND the requirements, rather than the
+  // opening twice as much of it.
+  //
+  // A long posting spends its first two thousand characters on the company and
+  // the team, and only then says what it wants. Measured on real TikTok and
+  // ByteDance postings, "Qualifications" lands between 1,900 and 2,600
+  // characters in — which a plain truncation at 2,500 either clips or misses
+  // entirely, throwing away the single most decision-relevant paragraph and
+  // keeping the boilerplate that reads the same on every posting.
+  const heading = /\b(?:minimum |basic |preferred )?(?:qualification|requirement|what (?:we|you)(?:'re| are)? (?:looking for|bring)|who you are|about you|skills? (?:and|&) experience)/i;
+  const head = Math.floor(limit * 0.45);
+  const found = text.slice(head).search(heading);
+  if (found === -1) return `${text.slice(0, limit)}…`;
+
+  const start = head + found;
+  return `${text.slice(0, head).trim()} … ${text.slice(start, start + (limit - head))}…`;
 }

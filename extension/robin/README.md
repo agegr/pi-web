@@ -10,7 +10,8 @@ a fixed allow-list — no shell, no filesystem.
 - **Agent tools** usable from the dashboard, the `pi` CLI, and Telegram.
 - **Google Calendar** read-only, merged into the calendar views.
 - **Gmail** read-only: `/dashboard/gmail` shows the inbox, and a daily email digest goes to Telegram.
-- **Telegram bridge** so the same assistant works when you are away from the machine.
+- **Telegram bridge** so the same assistant works when you are away from the machine —
+  commands, inline buttons, voice notes, and four kinds of push.
 
 ---
 
@@ -202,28 +203,103 @@ npm run telegram
 **The allow-list is the only gate.** Bot usernames are searchable, so anyone can
 find your bot; a message from an unlisted chat produces no agent call and no
 reply at all — silence rather than an error, which would confirm the bot exists.
+A button press is authorized through the same gate.
 
-Other properties:
+### What you can send
+
+- **A sentence** — the full tool set, in the conversational session.
+- **A photo** — read by the model, with the caption as the prompt.
+- **A voice note** — transcribed, echoed back so you can see what it heard, then
+  acted on. Off until you set a key under **Settings → Telegram → Voice notes**;
+  it is billed per minute of audio and so is opt-in rather than assumed.
+- **A command** — answered without the model wherever the answer is already in
+  the store:
+
+  | Command | What it does | Model turn |
+  | --- | --- | --- |
+  | `/today` | today's calendar and open todos, each with a **done** button | no |
+  | `/jobs` | the best job leads waiting, with triage buttons | no |
+  | `/mail` | read and file today's email | yes |
+  | `/usage` | OpenAI and Anthropic quota windows | yes |
+  | `/status` | bridge uptime, and whether pi-web is reachable | no |
+  | `/reset` | start a fresh conversation, forgetting the current context | no |
+  | `/help` | the list above | no |
+
+  `/today` used to be a two-minute agent turn to answer a question two GETs
+  away. Anything that is not a recognised command falls through to the model, so
+  a sentence that happens to start with a slash still works.
+
+### Buttons
+
+The job digest, `/jobs` and `/today` carry inline buttons — shortlist / applied /
+drop for a job, done for a todo. A press never reaches the model: the payload is
+one the bridge wrote, so acting on it is a lookup and a `PATCH`, not an
+interpretation. `parseCallback` accepts exactly the payloads the buttons produce
+and refuses everything else.
+
+A pressed button is removed from the message; a link button next to it stays,
+because the moment you mark something applied is exactly when you might want to
+open it. The keyboard is remembered in memory only — after a restart a stale
+button still works, because every action behind one is idempotent.
+
+### Pushes
+
+All four are configured under **Settings → Telegram**, and all four record
+delivery per chat, so restarting the bridge or retrying a partial broadcast does
+not send duplicates.
+
+- **Daily briefing** — today's agenda and open todos at a set time, with a
+  **done** button per todo.
+- **Email digest** — the agent reads recent mail, files it, creates the todos and
+  events it finds, and reports. When Google is not connected the day is skipped
+  rather than retried hourly.
+- **Job digest** — twice a day: scan, score the backlog, push the best of it with
+  numbered triage buttons. A nightly sweep walks the whole ATS directory.
+- **Event reminders** — a nudge a configurable number of minutes before something
+  starts, Google events included. Not tied to a time of day: it rides the poll
+  cycle, which comes round every thirty seconds. Strictly forward-looking, so
+  restarting at ten in the morning does not replay the morning.
+
+### Properties worth knowing
 
 - **Long polling, never webhooks.** Nothing listens on a public port; no
   certificate or tunnel is involved.
 - The bridge talks to pi-web over HTTP and reuses `/api/robin/assistant`, so it
   inherits the same tool boundary rather than defining a second one.
 - Replies follow the sender's Telegram client language.
-- **Daily briefings.** Configure a machine-local send time and language in
-  **Settings → Telegram**. Delivery state is persisted per chat, so restarting
-  the bridge or retrying a partial broadcast does not send duplicates.
-- **Email digest.** Also under **Settings → Telegram**: the agent reads recent
-  mail via `gmail_list` and sends a separate message for documents / OA /
-  interviews / deliveries / deadlines. When Google is not connected the day is
-  skipped rather than retried hourly.
+- **Markdown is rendered.** The model writes Markdown and Telegram renders a
+  small HTML subset; `format.ts` converts between them and chunks the result so
+  a code block never straddles a message boundary. A message Telegram refuses to
+  parse is re-sent as plain text rather than dropped.
+- **A turn shows a typing indicator**, refreshed every four seconds, because a
+  two-minute turn with no feedback is indistinguishable from a dead bot.
+- **Settings are re-read every poll cycle.** Changing a send time or the
+  allow-list on the dashboard takes effect within the poll window. The one
+  exception is the bot token: it is the address the bridge long-polls on, so
+  changing it still needs a restart.
+- **Polling and scheduling run side by side.** A job digest that scans, scores,
+  and waits for the scorer can take twenty minutes; it no longer holds the
+  poller shut while it does.
+- **Rate limited per chat** — a token bucket, five in a burst and twelve a
+  minute. The allow-list keeps strangers out, so this is a cost ceiling rather
+  than a security control.
 - **pi-web must be running.** The bridge is its client; if pi-web is down, every
-  message answers with an error.
-- Changing Telegram settings requires restarting the bridge — it reads them at
-  startup.
+  message answers with an error. `/status` reports both.
 
-Known gap: there is no rate limiting. The allow-list keeps strangers out, so this
-is a cost concern for rapid messages rather than an exposure.
+### Keeping it running
+
+A bridge that dies takes every reminder, digest and reply with it, and says
+nothing about having done so. On macOS:
+
+```bash
+scripts/telegram/launchd/install.sh
+```
+
+That installs a `KeepAlive` launchd **user agent** — not a daemon: it runs as
+you, needs your home directory, and has no business starting before you log in.
+Logs land in `~/.pi/robin/logs/`. Pass `--with-pi-web` to supervise pi-web too
+(via the published CLI, not `npm run dev` — a supervised service should not be a
+dev server), and `--uninstall` to remove both.
 
 ---
 
@@ -238,10 +314,11 @@ Everything is in `~/.pi/robin` (override with `ROBIN_DATA_DIR`):
 | `links.json` | saved links |
 | `assistant.json` | pi session ids for the interactive and read-only briefing assistants |
 | `telegram-state.json` | successful daily-briefing deliveries for the current date |
-| `secrets.json` | Google and Telegram credentials plus Telegram settings — **mode 0600** |
+| `secrets.json` | Google, Telegram and transcription credentials plus Telegram settings — **mode 0600** |
 | `google.json` | Google refresh token — **a long-lived credential, mode 0600** |
 | `gmail-digest-state.json` | which chats got the email digest on which day |
 | `mail-review.json` | today's categorised email review |
+| `reminder-state.json` | which events have already been reminded about |
 
 The first five are plain JSON on purpose: `grep` them, put them in git, back them
 up like any other file.
@@ -277,6 +354,26 @@ fails the build rather than warning.
 | `gmail.ts` | **no** | read-only Gmail list / detail fetch |
 
 Importing a *type* from a server-only module is fine — type imports are erased.
+
+### The bridge's modules
+
+`scripts/telegram` is a second, smaller module boundary. Nothing there imports
+`bridge.ts`, so the handlers it composes can be tested without it:
+
+| Module | Contains |
+| --- | --- |
+| `bridge.ts` | composition: the poll loop, the schedules, and what a message means |
+| `protocol.ts` | Telegram's wire shapes → the bridge's own. Pure |
+| `format.ts` | Markdown → Telegram HTML, and chunking that survives it. Pure |
+| `telegram-api.ts` | the Telegram client: send, edit, typing, file download |
+| `pi-web.ts` | the pi-web client, including one assistant turn |
+| `commands.ts` | slash commands |
+| `callbacks.ts` | the button vocabulary, and what a press does |
+| `reminders.ts` | which events are about to start |
+| `ratelimit.ts` | the per-chat token bucket. Pure |
+| `transcribe.ts` | voice notes → text |
+| `schedule.ts` | which digests are due, for which chats. Pure |
+| `launchd/` | user-agent templates and their installer |
 
 ### Time
 

@@ -278,7 +278,7 @@ export async function runJobScan(options: { fetchImpl?: typeof fetch; profile?: 
   // the years of experience a posting asks for, and boards that only serve one
   // per-posting are affordable exactly once the list is down to the handful
   // that will actually be scored.
-  await hydrateDescriptions(matched, ctx);
+  await hydrateDescriptions(matched, ctx, { readUnknownBoards: profile.readUnknownBoards });
   const merged = mergePostings(pruneJobs(readJobs()), matched);
   writeJobs(merged.jobs);
 

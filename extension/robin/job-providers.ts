@@ -56,6 +56,20 @@ export interface FetchRequest {
    * sends a POST that changes anything on the far side.
    */
   body?: unknown;
+  /**
+   * Follow up to this many redirects, re-checking every hop.
+   *
+   * The default everywhere else is `redirect: "error"`, because a 302 must not
+   * be able to walk a request onto a host the allow-list never saw. This opts
+   * into following one — and only with `allowHost`, which is re-run on each
+   * Location before the next request goes out. That is the same guarantee,
+   * enforced per hop instead of by refusing to move.
+   */
+  redirects?: number;
+  /** Required whenever `redirects` is set: vets the host of every hop. */
+  allowHost?: (hostname: string) => boolean;
+  /** Stop reading after this many bytes. A page is not allowed to be a download. */
+  maxBytes?: number;
 }
 
 export interface FetchContext {
@@ -110,26 +124,63 @@ export function makeFetchContext(fetchImpl: typeof fetch = fetch): FetchContext 
   const send = async (url: string, accept: string, options: FetchRequest) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    const hops = options.redirects ?? 0;
     try {
-      const response = await fetchImpl(url, {
-        signal: controller.signal,
-        // A server-side redirect would land on a host the allow-list never
-        // saw. Refusing to follow it is what keeps that check meaningful.
-        redirect: "error",
-        ...(options.body === undefined
-          ? {}
-          : { method: "POST", body: JSON.stringify(options.body) }),
-        headers: {
-          Accept: accept,
-          "User-Agent": USER_AGENT,
-          ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
-        },
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return response;
+      let target = url;
+      for (let hop = 0; ; hop += 1) {
+        const response = await fetchImpl(target, {
+          signal: controller.signal,
+          // A server-side redirect would land on a host the allow-list never
+          // saw. Refusing to follow it is what keeps that check meaningful;
+          // "manual" plus the re-check below is the same promise, kept a hop
+          // at a time.
+          redirect: hops > 0 ? "manual" : "error",
+          ...(options.body === undefined
+            ? {}
+            : { method: "POST", body: JSON.stringify(options.body) }),
+          headers: {
+            Accept: accept,
+            "User-Agent": USER_AGENT,
+            ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
+          },
+        });
+
+        const location = response.status >= 300 && response.status < 400
+          ? response.headers.get("location")
+          : null;
+        if (!location || hop >= hops) {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          return response;
+        }
+
+        const next = new URL(location, target);
+        if (next.protocol !== "https:") throw new Error(`redirect left HTTPS: ${next.href}`);
+        if (!options.allowHost?.(next.hostname)) {
+          throw new Error(`redirect to untrusted host "${next.hostname}"`);
+        }
+        target = next.toString();
+      }
     } finally {
       clearTimeout(timer);
     }
+  };
+
+  /** Read a body, refusing to keep going past `maxBytes`. */
+  const readCapped = async (response: Response, maxBytes: number | undefined): Promise<string> => {
+    if (!maxBytes || !response.body) return response.text();
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let out = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      out += decoder.decode(value, { stream: true });
+      if (out.length >= maxBytes) {
+        await reader.cancel();
+        break;
+      }
+    }
+    return out;
   };
 
   return {
@@ -137,7 +188,8 @@ export function makeFetchContext(fetchImpl: typeof fetch = fetch): FetchContext 
       return (await send(url, "application/json", options)).json();
     },
     async fetchText(url, options = {}) {
-      return (await send(url, "text/markdown, text/plain, */*", options)).text();
+      const response = await send(url, "text/html, text/markdown, text/plain, */*", options);
+      return readCapped(response, options.maxBytes);
     },
   };
 }
@@ -1179,6 +1231,216 @@ const ibm: Provider = {
   },
 };
 
+/* ────────────────── reading a board nobody here owns ────────────────── */
+
+/**
+ * Read a job description off a careers page that has no API.
+ *
+ * Every other reader in this file talks to an endpoint whose host was on an
+ * allow-list before the request went out. This one cannot: the whole point is
+ * the postings that live on an employer's own portal — TikTok, ByteDance,
+ * Oracle's hosted CX, a hundred one-off sites — which is where roughly half of
+ * the early-career market actually sits.
+ *
+ * So the allow-list is replaced by a narrower set of promises, and they are
+ * the reason this is safe enough to ship:
+ *
+ *   - it only ever runs on a URL that a provider already parsed out of a
+ *     response we validated, and only AFTER the title/location/freshness
+ *     filters — never on something a user typed, never during discovery,
+ *   - HTTPS only, and private, loopback and link-local addresses are refused,
+ *     so a redirect cannot turn this into a probe of the machine it runs on,
+ *   - GET only; no provider here has any business sending a POST to a host it
+ *     does not know,
+ *   - at most one redirect, and the hop is re-checked against the same rules,
+ *   - the body is capped, the request is timed out, and nothing in the
+ *     response is ever executed — it is parsed as text and handed to the
+ *     scorer inside <<untrusted-posting>> markers like every other description.
+ *
+ * Off unless the profile turns it on. Trading a host allow-list for a set of
+ * rules is a real reduction in the guarantee, and that should be a decision
+ * somebody made rather than a default they inherited.
+ */
+const UNKNOWN_BOARD_TIMEOUT_MS = 20_000;
+const UNKNOWN_BOARD_MAX_BYTES = 2_000_000;
+
+/** Hosts that must never be reachable from a URL we did not choose. */
+const PRIVATE_HOST = /^(?:localhost|.*\.local|.*\.internal|\[?::1\]?|0\.0\.0\.0)$/i;
+const PRIVATE_IPV4 = /^(?:10|127)\.|^169\.254\.|^192\.168\.|^172\.(?:1[6-9]|2\d|3[01])\./;
+
+export function isPublicWebHost(hostname: string): boolean {
+  const host = hostname.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  if (!host || PRIVATE_HOST.test(host) || PRIVATE_IPV4.test(host)) return false;
+  // Unique-local and link-local IPv6, plus anything with no dot at all — a
+  // bare hostname resolves through the local search domain.
+  if (host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80:")) return false;
+  return host.includes(".");
+}
+
+function unentity(text: string): string {
+  return text
+    .replace(/&#(\d+);/g, (_unused, code: string) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_unused, code: string) => String.fromCharCode(parseInt(code, 16)))
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+}
+
+function detag(html: string): string {
+  return unentity(html.replace(/<[^>]+>/g, " ")).replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
+}
+
+/**
+ * How much of this reads like prose rather than a serialized blob.
+ *
+ * Career pages routinely inline their whole theme config as HTML-escaped JSON,
+ * and a naive text extraction happily returns two hundred kilobytes of CSS
+ * variables. Scoring candidates instead of trusting the first one is what
+ * keeps that out of the model's context.
+ */
+export function proseRatio(text: string): number {
+  const junk = (text.match(/[{}[\]|\\^~`=]|":/g) ?? []).length;
+  const words = (text.match(/[A-Za-z]{3,}/g) ?? []).length;
+  if (words === 0) return 0;
+  return Math.max(0, 1 - (junk * 6) / (words + junk * 6));
+}
+
+/**
+ * Does this read like a job posting, or merely like text?
+ *
+ * The failure that makes this necessary: a client-rendered careers page ships
+ * no description at all, the extractor dutifully returns the largest prose
+ * block it can find, and the scorer ends up judging a machine-learning role
+ * against two press releases about a robotaxi launch. Prose-likeness cannot
+ * catch that — those headlines are perfectly good prose.
+ *
+ * A wrong description is worse than none: none leaves the posting scored on
+ * its title, which is honest, while a wrong one is confidently misleading. So
+ * the bar is a handful of the words every real posting contains somewhere.
+ */
+const JOB_VOCABULARY = [
+  /\bresponsibilit/i, /\bqualificat/i, /\brequirement/i, /\bexperience\b/i,
+  /\byou will\b/i, /\bwe(?:'re| are) looking for\b/i, /\byour role\b/i,
+  /\bskills?\b/i, /\bpreferred\b/i, /\bminimum\b/i, /\bbachelor/i, /\bdegree\b/i,
+  /\bthe role\b/i, /\bthis role\b/i, /\bcandidate/i, /\bapply\b/i,
+  /\bcompensation\b/i, /\bbenefits\b/i, /\bteam\b/i, /\bproficien/i,
+];
+
+export function looksLikeJobDescription(text: string): boolean {
+  return JOB_VOCABULARY.filter((pattern) => pattern.test(text)).length >= 3;
+}
+
+/** JSON-LD is the one standard here, so it wins when a page bothers to emit it. */
+function fromJsonLd(html: string): string | null {
+  for (const match of html.matchAll(/<script[^>]*application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(match[1] ?? "");
+    } catch {
+      continue;
+    }
+    const walk = (node: unknown): string | null => {
+      if (!node || typeof node !== "object") return null;
+      if (Array.isArray(node)) {
+        for (const entry of node) {
+          const found = walk(entry);
+          if (found) return found;
+        }
+        return null;
+      }
+      const record = node as Record<string, unknown>;
+      if (record["@type"] === "JobPosting" && typeof record.description === "string") {
+        return record.description;
+      }
+      for (const value of Object.values(record)) {
+        const found = walk(value);
+        if (found) return found;
+      }
+      return null;
+    };
+    const found = walk(parsed);
+    if (found) return detag(found);
+  }
+  return null;
+}
+
+/**
+ * The visible prose, with the page furniture dropped.
+ *
+ * Navigation is many short fragments and a job description is a few long ones,
+ * so keeping only substantial blocks removes the header, the footer and the
+ * cookie banner without needing a DOM. On a real TikTok posting this is the
+ * difference between starting at "Diversity & Inclusion Our Philosophy Hear
+ * From Our Leader" and starting at the first line of the actual role.
+ */
+function fromBody(html: string): string {
+  const body = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
+    .replace(/<(nav|header|footer)[\s\S]*?<\/\1>/gi, " ");
+  const blocks = body.split(/<\/(?:p|div|li|section|article|h[1-6]|td)>/i).map(detag).filter(Boolean);
+  const substantial = blocks.filter((block) => block.length >= 180);
+  return (substantial.length > 0 ? substantial : blocks.filter((block) => block.length >= 60)).join("\n");
+}
+
+/** Description-shaped string values in whatever JSON the page inlined. */
+function fromEmbeddedJson(html: string): string[] {
+  const pattern = /"(?:description|jobDescription|job_description|descriptionHtml|jobDescriptionText)"\s*:\s*"((?:[^"\\]|\\.)*)"/gi;
+  const found: string[] = [];
+  // Once raw and once decoded: some sites inline JSON inside an HTML
+  // attribute, where every quote arrives as &#34;.
+  for (const source of [html, unentity(html)]) {
+    for (const match of source.matchAll(pattern)) {
+      const value = detag((match[1] ?? "")
+        .replace(/\\n/g, "\n").replace(/\\t/g, " ").replace(/\\"/g, '"')
+        .replace(/\\u003c/gi, "<").replace(/\\u003e/gi, ">").replace(/\\\//g, "/"));
+      if (value.length > 200) found.push(value);
+    }
+  }
+  return found;
+}
+
+/**
+ * Best-effort description for one posting on a board this file does not own.
+ *
+ * Returns null rather than throwing on anything at all — a page that will not
+ * give up its text leaves the posting exactly as it was, scored on its title
+ * the way it is today.
+ */
+export async function readUnknownBoard(url: string, ctx: FetchContext): Promise<string | null> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:" || !isPublicWebHost(parsed.hostname)) return null;
+
+  let html: string;
+  try {
+    html = await ctx.fetchText(parsed.toString(), {
+      timeoutMs: UNKNOWN_BOARD_TIMEOUT_MS,
+      maxBytes: UNKNOWN_BOARD_MAX_BYTES,
+      redirects: 1,
+      allowHost: isPublicWebHost,
+    });
+  } catch {
+    return null;
+  }
+
+  const candidates = [fromJsonLd(html), ...fromEmbeddedJson(html), fromBody(html)]
+    .filter((entry): entry is string => Boolean(entry) && entry!.length > 200);
+  if (candidates.length === 0) return null;
+  // Longest wins, but only after being discounted for looking like a blob.
+  const best = candidates.reduce((winner, entry) =>
+    Math.min(entry.length, 6000) * proseRatio(entry) > Math.min(winner.length, 6000) * proseRatio(winner)
+      ? entry
+      : winner);
+  if (proseRatio(best) <= 0.6 || !looksLikeJobDescription(best)) return null;
+  return cleanDescription(best);
+}
+
 /* ───────────────────────────── registry ───────────────────────────── */
 
 /** Alphabetical, so detect() precedence is the same on every machine. */
@@ -1229,9 +1491,18 @@ export function providerById(id: string): Provider | undefined {
  * description costs accuracy on one posting; throwing here would cost the
  * whole run.
  */
+export interface HydrateOptions {
+  /**
+   * Also read careers pages on hosts no provider owns. Off by default — see
+   * `readUnknownBoard` for what that trades away.
+   */
+  readUnknownBoards?: boolean;
+}
+
 export async function hydrateDescriptions(
   postings: readonly (RawPosting & { source: string })[],
   ctx: FetchContext,
+  options: HydrateOptions = {},
 ): Promise<void> {
   const bySource = new Map<string, RawPosting[]>();
   for (const posting of postings) {
@@ -1250,7 +1521,7 @@ export async function hydrateDescriptions(
     // The source has no description of its own — a community list, say, which
     // carries an apply link and nothing else. Route each posting to whichever
     // provider owns the ATS the link points at.
-    await hydrateByUrl(group, ctx);
+    await hydrateByUrl(group, ctx, options);
   }));
 }
 
@@ -1262,22 +1533,42 @@ export async function hydrateDescriptions(
  * description from it participate, so a link into an ATS nobody here reads is
  * left alone rather than guessed at.
  */
-async function hydrateByUrl(postings: RawPosting[], ctx: FetchContext): Promise<void> {
+async function hydrateByUrl(
+  postings: RawPosting[],
+  ctx: FetchContext,
+  options: HydrateOptions,
+): Promise<void> {
   const byProvider = new Map<Provider, RawPosting[]>();
+  const unclaimed: RawPosting[] = [];
   for (const posting of postings) {
-    for (const provider of PROVIDERS) {
-      if (!provider.hydrate || !provider.refFromUrl) continue;
+    const owner = PROVIDERS.find((provider) => {
+      if (!provider.hydrate || !provider.refFromUrl) return false;
       const ref = provider.refFromUrl(posting.url);
-      if (!ref) continue;
+      if (!ref) return false;
       posting.ref = ref;
-      const group = byProvider.get(provider);
-      if (group) group.push(posting);
-      else byProvider.set(provider, [posting]);
-      break;
+      return true;
+    });
+    if (!owner) {
+      unclaimed.push(posting);
+      continue;
     }
+    const group = byProvider.get(owner);
+    if (group) group.push(posting);
+    else byProvider.set(owner, [posting]);
   }
-  await Promise.all([...byProvider].map(([provider, group]) =>
-    provider.hydrate!(group, ctx).catch(() => {})));
+
+  await Promise.all([
+    ...[...byProvider].map(([provider, group]) => provider.hydrate!(group, ctx).catch(() => {})),
+    // Whatever is left sits on an employer's own portal. Reading those is the
+    // difference between scoring a TikTok new-grad posting on its title and
+    // scoring it on what the posting actually asks for.
+    options.readUnknownBoards === true
+      ? eachLimited(unclaimed, HYDRATE_CONCURRENCY, async (posting) => {
+        const description = await readUnknownBoard(posting.url, ctx);
+        if (description) posting.description = description;
+      })
+      : Promise.resolve(),
+  ]);
 }
 
 export function resolveProvider(company: TrackedCompany): Provider | null {

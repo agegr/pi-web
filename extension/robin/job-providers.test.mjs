@@ -10,8 +10,12 @@ import {
   hydrateDescriptions,
   makeFetchContext,
   markdownRows,
+  isPublicWebHost,
+  looksLikeJobDescription,
   parseListings,
+  proseRatio,
   providerById,
+  readUnknownBoard,
   resolveProvider,
   smartRecruitersPublicUrl,
   workdayPostedAt,
@@ -328,4 +332,120 @@ test("a board that will not serve a description costs the scan nothing", async (
   const posting = { title: "SWE", url: "https://job-boards.greenhouse.io/acme/jobs/1", company: "Acme", location: "SF", source: "greenhouse", ref: { board: "acme", id: "1" } };
   await hydrateDescriptions([posting], ctx);
   assert.equal(posting.description, undefined);
+});
+
+/* ── reading a board nobody here owns ── */
+
+test("only public HTTPS hosts are reachable from a link we did not choose", () => {
+  for (const host of [
+    "localhost", "127.0.0.1", "10.0.0.5", "192.168.1.1", "172.16.0.1", "172.31.255.255",
+    "169.254.169.254", "0.0.0.0", "printer.local", "vault.internal", "::1", "fd00::1", "intranet",
+  ]) {
+    assert.equal(isPublicWebHost(host), false, host);
+  }
+  for (const host of ["lifeattiktok.com", "jobs.example.co.uk", "WWW.Example.COM", "172.15.0.1", "172.32.0.1"]) {
+    assert.equal(isPublicWebHost(host), true, host);
+  }
+});
+
+test("a serialized blob never outscores prose", () => {
+  const prose = "We are looking for a backend engineer to build and operate our payments platform.";
+  const blob = '{"themeOptions":{"customTheme":{"varTheme":{"primary-color":"#3253dc"}}}}';
+  assert.ok(proseRatio(prose) > 0.9);
+  assert.ok(proseRatio(blob) < 0.3);
+});
+
+test("a careers page yields its description, preferring JSON-LD over page furniture", async () => {
+  const html = `<html><head>
+    <script type="application/ld+json">${JSON.stringify({
+      "@type": "JobPosting",
+      description: "<p>About the role: you will build data pipelines and own them in production. "
+        + "Qualifications: a degree in computer science and experience with distributed systems. "
+        + "Preferred skills: Python, Kafka. The team ships weekly.</p>".repeat(3),
+    })}</script></head>
+    <body><nav>Home About Careers Blog</nav><div>Cookie notice</div></body></html>`;
+  const ctx = { async fetchJson() { return {}; }, async fetchText() { return html; } };
+  const out = await readUnknownBoard("https://careers.example.com/jobs/1", ctx);
+  assert.match(out, /build data pipelines/);
+  assert.ok(!out.includes("Cookie notice"));
+});
+
+test("page furniture is dropped in favour of the one block that is actually the posting", async () => {
+  const nav = Array.from({ length: 30 }, (_unused, i) => `<li>Nav link ${i}</li>`).join("");
+  const jd = `<div>${"Requirements: we need someone with 5+ years of professional backend experience. "
+    + "Preferred qualifications include Go and Kubernetes skills. You will join a small team. ".repeat(3)}</div>`;
+  const ctx = { async fetchJson() { return {}; }, async fetchText() { return `<html><body><ul>${nav}</ul>${jd}</body></html>`; } };
+  const out = await readUnknownBoard("https://careers.example.com/jobs/2", ctx);
+  assert.match(out, /5\+ years of professional backend experience/);
+  assert.ok(!out.includes("Nav link"), out.slice(0, 80));
+});
+
+test("an unreadable page costs the posting nothing", async () => {
+  const cases = [
+    { async fetchJson() { return {}; }, async fetchText() { throw new Error("HTTP 403"); } },
+    { async fetchJson() { return {}; }, async fetchText() { return "<html><body><p>Short.</p></body></html>"; } },
+    { async fetchJson() { return {}; }, async fetchText() { return `<html><body><div>${'{"a":1,"b":2},'.repeat(400)}</div></body></html>`; } },
+  ];
+  for (const ctx of cases) {
+    assert.equal(await readUnknownBoard("https://careers.example.com/jobs/3", ctx), null);
+  }
+});
+
+test("a link into a private address is never fetched at all", async () => {
+  const ctx = {
+    async fetchJson() { throw new Error("should not be called"); },
+    async fetchText() { throw new Error("should not be called"); },
+  };
+  for (const url of [
+    "https://169.254.169.254/latest/meta-data/",
+    "https://localhost:8080/jobs/1",
+    "http://careers.example.com/jobs/1",
+    "file:///etc/passwd",
+  ]) {
+    assert.equal(await readUnknownBoard(url, ctx), null, url);
+  }
+});
+
+test("unknown boards stay unread unless the profile asks for them", async () => {
+  let called = 0;
+  const ctx = {
+    async fetchJson() { return {}; },
+    async fetchText() {
+      called += 1;
+      return "<html><body><div>"
+        + "About the role: you will own the ingestion service. Requirements: a degree and "
+        + "three years of experience. Preferred skills include Rust. ".repeat(6)
+        + "</div></body></html>";
+    },
+  };
+  const posting = () => ({ title: "SWE", url: "https://careers.example.com/jobs/9", company: "X", location: "SF", source: "simplify" });
+
+  const off = posting();
+  await hydrateDescriptions([off], ctx);
+  assert.equal(called, 0);
+  assert.equal(off.description, undefined);
+
+  const on = posting();
+  await hydrateDescriptions([on], ctx, { readUnknownBoards: true });
+  assert.equal(called, 1);
+  assert.match(on.description, /own the ingestion service/);
+});
+
+test("prose that is not a job posting is refused rather than handed to the scorer", async () => {
+  // The real failure this guards: a client-rendered careers page ships no
+  // description, and the extractor happily returns the press releases in the
+  // page chrome. Scoring an ML role against a robotaxi launch is worse than
+  // scoring it on its title alone.
+  const news = "Uber, Nuro, and Lucid to Bring Robotaxi Service to Houston in 2027. "
+    + "Nuro Expands to Germany, Establishing a European Base for Its Universal Autonomy Platform. ";
+  const ctx = {
+    async fetchJson() { return {}; },
+    async fetchText() { return `<html><body><div>${news.repeat(8)}</div></body></html>`; },
+  };
+  assert.equal(await readUnknownBoard("https://careers.example.com/jobs/4", ctx), null);
+  assert.equal(looksLikeJobDescription(news.repeat(8)), false);
+  assert.equal(
+    looksLikeJobDescription("Requirements: a degree, three years of experience, and strong skills."),
+    true,
+  );
 });

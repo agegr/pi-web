@@ -310,7 +310,7 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
       // Only the survivors get a description fetched. Doing this during the
       // walk instead would mean one request per posting across a quarter of a
       // million of them.
-      await hydrateDescriptions(batch, ctx);
+      await hydrateDescriptions(batch, ctx, { readUnknownBoards: profile.readUnknownBoards });
       const merged = mergePostings(pruneJobs(readJobs()), batch);
       writeJobs(merged.jobs);
       state.added += merged.added;

@@ -12,6 +12,7 @@
  */
 import { dueBucket, localDate, type DueBucket } from "./dates.ts";
 import type { CalendarEvent } from "./events.ts";
+import { EVENT_COLOR_KEYS, type EventColorKey } from "./eventColors.ts";
 import type { MailReview } from "./mail.ts";
 import { DEFAULT_JOB_PROFILE, type Job, type JobProfile } from "./jobs.ts";
 import type { Link } from "./links.ts";
@@ -61,18 +62,25 @@ const JOB_SCAN_FILE = "job-scan.json";
 const JOB_DIGEST_STATE_FILE = "job-digest-state.json";
 const GMAIL_DIGEST_STATE_FILE = "gmail-digest-state.json";
 const MAIL_REVIEW_FILE = "mail-review.json";
+const REMINDER_STATE_FILE = "reminder-state.json";
 const COMPLETED_TODO_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 
 /**
- * Which chats have already received which run, per digest.
+ * Which chats have already received which run, per feed.
  *
- * One shape for all three: the daily agenda, the job digest (morning/evening/
- * sweep share one ledger), and the email digest. The bridge and its tests
- * build in-memory adapters of the same `DeliveryLedger` interface.
+ * One shape for all four: the daily agenda, the job digest (morning/evening/
+ * sweep share one ledger), the email digest, and event reminders. The bridge
+ * and its tests build in-memory adapters of the same `DeliveryLedger`
+ * interface.
+ *
+ * The reminder ledger is keyed by event rather than by time of day, so its
+ * history turns over much faster than the others — see the trimming in
+ * delivery-ledger.ts, which keeps only the most recent keys.
  */
 export const dailyAgendaLedger = createDeliveryLedger(TELEGRAM_STATE_FILE);
 export const jobLedger = createDeliveryLedger(JOB_DIGEST_STATE_FILE);
 export const gmailLedger = createDeliveryLedger(GMAIL_DIGEST_STATE_FILE);
+export const reminderLedger = createDeliveryLedger(REMINDER_STATE_FILE);
 const JOB_SWEEP_FILE = "job-sweep.json";
 const JOB_SCORING_FILE = "job-scoring.json";
 
@@ -83,6 +91,8 @@ export interface Todo {
   done: boolean;
   /** Local calendar date, YYYY-MM-DD. Never a timestamp. */
   due?: string;
+  /** User-selected title hue keyed to the calendar palette. */
+  color?: EventColorKey;
   /** UTC instant, ISO 8601. */
   createdAt: string;
   /** UTC instant, ISO 8601. */
@@ -91,6 +101,14 @@ export interface Todo {
 
 export function todosPath(): string {
   return dataPath(TODOS_FILE);
+}
+
+export function normalizeTodoColor(value: string): EventColorKey {
+  const color = value.trim().toLowerCase();
+  if (!(EVENT_COLOR_KEYS as readonly string[]).includes(color)) {
+    throw new Error(`Unknown todo colour: ${value}`);
+  }
+  return color as EventColorKey;
 }
 
 export function pruneCompletedTodos(todos: Todo[], now = Date.now()): Todo[] {
@@ -200,6 +218,36 @@ export function readMailReviewSessionId(): string | null {
 
 export function writeMailReviewSessionId(mailReviewSessionId: string): void {
   writeAssistantState({ mailReviewSessionId });
+}
+
+/** The assistant sessions a caller may ask to start over. */
+export const ASSISTANT_SESSION_KINDS = ["default", "readOnly", "scoring", "mail"] as const;
+
+export type AssistantSessionKind = (typeof ASSISTANT_SESSION_KINDS)[number];
+
+const SESSION_FIELDS: Record<AssistantSessionKind, keyof AssistantState> = {
+  default: "sessionId",
+  readOnly: "dailyAgendaSessionId",
+  scoring: "jobScorerSessionId",
+  mail: "mailReviewSessionId",
+};
+
+/**
+ * Forget a remembered session id, so the next turn of that mode starts fresh.
+ *
+ * The session file itself is left alone: this is "start a new conversation",
+ * not "delete the old one", and the transcript is still worth having. What it
+ * buys is a way out of a context that has drifted or grown expensive without
+ * reaching for the filesystem from a chat message.
+ */
+export function clearAssistantSession(kind: AssistantSessionKind): boolean {
+  const field = SESSION_FIELDS[kind];
+  const state = readAssistantState();
+  if (state[field] === undefined) return false;
+  const { [field]: _dropped, ...rest } = state;
+  void _dropped;
+  writeJsonObject(ASSISTANT_FILE, { ...rest, updatedAt: new Date().toISOString() });
+  return true;
 }
 
 /* ──────────────────────────── jobs ──────────────────────────── */

@@ -177,6 +177,7 @@ export async function PUT(req: Request) {
       locationBlock: stringList(body.locationBlock, "locationBlock"),
       companies: companies(body.companies),
       boards: boards(body.boards),
+      readUnknownBoards: body.readUnknownBoards === true,
       blacklist: stringList(body.blacklist, "blacklist"),
       sinceDays: number(body.sinceDays, "sinceDays", DEFAULT_JOB_PROFILE.sinceDays, 0, 365),
       minScore: number(body.minScore, "minScore", DEFAULT_JOB_PROFILE.minScore, 1, 5),
