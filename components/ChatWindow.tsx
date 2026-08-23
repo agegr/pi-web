@@ -20,7 +20,6 @@ import type { AppUpdateResponse } from "@/lib/api-types";
 import {
   captureScrollDistance,
   getNextVisibleCount,
-  getPromptAnchorSpacerHeight,
   getVisibleRenderWindow,
   restoreScrollTop,
   VISIBLE_PAGE_SIZE,
@@ -241,13 +240,19 @@ function LiveProcessPanel({ messageCount, toolCallCount, children, t }: { messag
           followLatestRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 32;
         }}
         style={{
-          maxHeight: "50vh",
+          // dvh, not vh: the app sizes itself with 100dvh/--app-viewport-height,
+          // so a vh cap overshoots while a mobile URL bar is showing.
+          maxHeight: "50dvh",
           overflowY: "auto",
           overflowX: "hidden",
-          overscrollBehavior: "contain",
+          // No overscroll containment: the panel sits mid-conversation, so a
+          // wheel gesture that reaches its end must keep scrolling the chat.
           scrollbarGutter: "stable",
-          padding: "2px 8px 2px 10px",
-          borderLeft: "2px solid var(--border)",
+          scrollbarWidth: "thin",
+          padding: "8px 10px",
+          border: "1px solid var(--border)",
+          borderRadius: 8,
+          background: "var(--bg-panel)",
         }}
       >
         {children}
@@ -341,12 +346,11 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     attachState, attachConflict, attachError,
     attach, detach,
     sessionIdRef, messagesEndRef, scrollContainerRef,
-    lastUserMsgRef, promptAnchorActive,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, scrollUserMsgToTop,
+    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands,
   } = useAgentSession({
     session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, onSessionSwitched,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsPanelOpen,
@@ -488,104 +492,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
   const hasStreamingContent = Boolean(streamState.streamingMessage?.content.length);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
-  const messageContentRef = useRef<HTMLDivElement | null>(null);
-  const promptAnchorSpacerRef = useRef<HTMLDivElement | null>(null);
-  const promptAnchorSpacerHeightRef = useRef(0);
-  const promptAnchorMeasureFrameRef = useRef<number | null>(null);
-  const promptAnchorAdjustmentDoneRef = useRef(false);
-  const promptAnchorUpdateRef = useRef<(() => void) | null>(null);
-
-  useLayoutEffect(() => {
-    const spacer = promptAnchorSpacerRef.current;
-    if (!agentRunning || !promptAnchorActive) {
-      promptAnchorUpdateRef.current = null;
-      promptAnchorSpacerHeightRef.current = 0;
-      promptAnchorAdjustmentDoneRef.current = false;
-      if (spacer) spacer.style.height = "";
-      return;
-    }
-
-    const container = scrollContainerRef.current;
-    const messageContent = messageContentRef.current;
-    const userMessage = lastUserMsgRef.current;
-    if (!container || !messageContent || !userMessage || !spacer) return;
-
-    let disposed = false;
-    const updatePromptAnchorSpacer = () => {
-      if (
-        disposed
-        || scrollContainerRef.current !== container
-        || messageContentRef.current !== messageContent
-        || lastUserMsgRef.current !== userMessage
-        || promptAnchorSpacerRef.current !== spacer
-      ) return;
-
-      const containerTop = container.getBoundingClientRect().top;
-      const userMessageTop = userMessage.getBoundingClientRect().top
-        - containerTop
-        + container.scrollTop;
-      const targetTop = Math.max(0, userMessageTop - 16);
-      const contentEnd = spacer.getBoundingClientRect().top
-        - containerTop
-        + container.scrollTop;
-      const nextPromptAnchorSpacerHeight = getPromptAnchorSpacerHeight(
-        targetTop,
-        contentEnd,
-        container.clientHeight,
-      );
-
-      const isInitialMeasurement = !promptAnchorAdjustmentDoneRef.current;
-      const needsInitialAdjustment = isInitialMeasurement
-        && nextPromptAnchorSpacerHeight > 0;
-      if (isInitialMeasurement) promptAnchorAdjustmentDoneRef.current = true;
-      if (nextPromptAnchorSpacerHeight === promptAnchorSpacerHeightRef.current) return;
-
-      promptAnchorSpacerHeightRef.current = nextPromptAnchorSpacerHeight;
-      spacer.style.height = nextPromptAnchorSpacerHeight > 0
-        ? `${nextPromptAnchorSpacerHeight}px`
-        : "";
-      if (needsInitialAdjustment) scrollUserMsgToTop();
-    };
-
-    promptAnchorUpdateRef.current = updatePromptAnchorSpacer;
-    const schedulePromptAnchorMeasure = () => {
-      if (disposed || promptAnchorMeasureFrameRef.current !== null) return;
-      promptAnchorMeasureFrameRef.current = requestAnimationFrame(() => {
-        promptAnchorMeasureFrameRef.current = null;
-        updatePromptAnchorSpacer();
-      });
-    };
-
-    updatePromptAnchorSpacer();
-    const observer = typeof ResizeObserver === "undefined"
-      ? null
-      : new ResizeObserver(schedulePromptAnchorMeasure);
-    observer?.observe(container);
-    observer?.observe(messageContent);
-    observer?.observe(userMessage);
-    return () => {
-      disposed = true;
-      if (promptAnchorUpdateRef.current === updatePromptAnchorSpacer) {
-        promptAnchorUpdateRef.current = null;
-      }
-      observer?.disconnect();
-      if (promptAnchorMeasureFrameRef.current !== null) {
-        cancelAnimationFrame(promptAnchorMeasureFrameRef.current);
-        promptAnchorMeasureFrameRef.current = null;
-      }
-    };
-  }, [
-    agentRunning,
-    lastUserMsgRef,
-    messages.length,
-    promptAnchorActive,
-    scrollContainerRef,
-    scrollUserMsgToTop,
-  ]);
-
-  useLayoutEffect(() => {
-    promptAnchorUpdateRef.current?.();
-  }, [streamState.streamingMessage]);
 
   // Attaching loads extensions, so the composer only appears once the working
   // directory is claimed; focus it then so typing can continue immediately.
@@ -680,6 +586,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       break;
     }
   }
+  // Only agent work streams into the live panel. A user bash run is not part
+  // of the turn, so it must not re-expand an already-finished turn.
   const showLiveProcessPanel = (agentRunning || streamState.isStreaming) && latestLiveAnchorIdx >= 0;
 
   return (
@@ -791,17 +699,10 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       <div className="relative flex min-w-0 flex-1 overflow-hidden">
         <div ref={scrollContainerRef} className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-width:none]">
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
-            <div ref={messageContentRef} style={{ width: "100%", minWidth: 0, maxWidth: CHAT_CONTENT_MAX_WIDTH, margin: "0 auto" }}>
+            <div style={{ width: "100%", minWidth: 0, maxWidth: CHAT_CONTENT_MAX_WIDTH, margin: "0 auto" }}>
             {(() => {
-              let lastUserIdx = -1;
-              for (let i = messages.length - 1; i >= 0; i--) {
-                if (messages[i].role === "user") { lastUserIdx = i; break; }
-              }
               // Anchor for live-tail detection: the last user message, or a
               // compaction summary when compaction has replaced it mid-turn.
-              // Computed independently from lastUserIdx (which is kept for the
-              // scroll-to-user ref) because a compaction summary can sit after
-              // the last user message and anchor the still-streaming segment.
               let lastAnchorIdx = -1;
               for (let i = messages.length - 1; i >= 0; i--) {
                 if (isGroupAnchor(messages[i])) { lastAnchorIdx = i; break; }
@@ -815,9 +716,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 }
               });
 
-              const attachVisibleRef = (idx: number, refIndex: number) => (el: HTMLDivElement | null) => {
+              const attachVisibleRef = (refIndex: number) => (el: HTMLDivElement | null) => {
                 messageRefs.current[refIndex] = el;
-                if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
               };
 
               const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[]; processingState?: "active" | "complete" } = {}): ReactNode => {
@@ -869,7 +769,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 );
                 if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;
                 return (
-                  <div key={`${keyPrefix}-${idx}`} ref={attachVisibleRef(idx, currentRefIdx)}>
+                  <div key={`${keyPrefix}-${idx}`} ref={attachVisibleRef(currentRefIdx)}>
                     {view}
                   </div>
                 );
@@ -909,9 +809,18 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                   const liveMessageCount = liveProcessIndices.length + (hasStreamingContent ? 1 : 0);
 
                   if (liveMessageCount > 0 || currentPhaseLabel) {
+                    // The minimap indexes visible messages by ref. The panel
+                    // renders them without their own wrappers, so it stands in
+                    // for the first of them, exactly like ProcessDetailsGroup.
+                    const liveRefIdx = liveProcessIndices
+                      .map((processIdx) => visibleRefIndexByMessage.get(processIdx))
+                      .find((value): value is number => typeof value === "number");
                     rendered.push(
-                      <LiveProcessPanel
+                      <div
                         key={`live-process-${userIdx}`}
+                        ref={liveRefIdx === undefined ? undefined : (el) => { messageRefs.current[liveRefIdx] = el; }}
+                      >
+                      <LiveProcessPanel
                         messageCount={liveMessageCount}
                         toolCallCount={countToolCalls(messages, liveProcessIndices) + countToolCallBlocks(streamingBlocks)}
                         t={t}
@@ -939,7 +848,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                             <span className="animate-[pulse_1.5s_infinite]">{currentPhaseLabel}</span>
                           </div>
                         )}
-                      </LiveProcessPanel>,
+                      </LiveProcessPanel>
+                      </div>,
                     );
                   }
                   idx = endIdx;
@@ -1056,8 +966,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 sessionId={session?.id ?? sessionIdRef.current ?? undefined}
               />
             )}
-
-            <div ref={promptAnchorSpacerRef} aria-hidden="true" />
 
             <div ref={messagesEndRef} />
             </div>
