@@ -50,6 +50,27 @@ test("keeps streamed tool input out of collapsed markup while counting it", () =
   assert.equal(getTokenEstimateText(block), block.rawInput);
 });
 
+test("shows active process details and collapses them after completion", () => {
+  const message = {
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [{
+      type: "toolCall",
+      toolCallId: "call-read-1",
+      toolName: "read",
+      input: { path: "/tmp/private-detail.txt", detail: "expanded-only-detail" },
+    }],
+  };
+
+  const active = renderMessage(message, { processingState: "active" });
+  const complete = renderMessage(message, { processingState: "complete" });
+
+  assert.match(active, /expanded-only-detail/);
+  assert.doesNotMatch(complete, /expanded-only-detail/);
+  assert.match(complete, /\/tmp\/private-detail\.txt/);
+});
+
 const COMPLETE_SKILL_EXPANSION = `<skill name="review" location="/skills/review/SKILL.md">
 References are relative to /skills/review.
 

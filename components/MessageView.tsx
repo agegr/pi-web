@@ -178,6 +178,8 @@ function loadThinkingContent(sessionId: string, entryId: string, blockIndex: num
 interface Props {
   message: AgentMessage;
   isStreaming?: boolean;
+  /** Renders assistant work inside the bounded live-processing panel. */
+  processingState?: "active" | "complete";
   toolResults?: Map<string, ToolResultMessage>;
   modelNames?: Record<string, string>;
   cwd?: string;
@@ -251,12 +253,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenChangedFile, onOpenUrl, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, onQuote, showTimestamp, prevTimestamp, sessionId, writtenFiles }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, processingState, toolResults, modelNames, cwd, onOpenFile, onOpenChangedFile, onOpenUrl, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, onQuote, showTimestamp, prevTimestamp, sessionId, writtenFiles }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} onOpenUrl={onOpenUrl} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenChangedFile={onOpenChangedFile} onOpenUrl={onOpenUrl} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} onQuote={isStreaming ? undefined : onQuote} writtenFiles={writtenFiles} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} processingState={processingState} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenChangedFile={onOpenChangedFile} onOpenUrl={onOpenUrl} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} onQuote={isStreaming ? undefined : onQuote} writtenFiles={writtenFiles} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -275,6 +277,7 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
 }, (prev, next) => {
   return prev.message === next.message
     && prev.isStreaming === next.isStreaming
+    && prev.processingState === next.processingState
     && haveSameRelevantToolResults(prev.message, prev.toolResults, next.toolResults)
     && prev.modelNames === next.modelNames
     && prev.cwd === next.cwd
@@ -578,6 +581,7 @@ function UserMessageView({ message, cwd, onOpenFile, onOpenUrl, entryId, onFork,
 function AssistantMessageView({
   message,
   isStreaming,
+  processingState,
   toolResults,
   modelNames,
   cwd,
@@ -593,6 +597,7 @@ function AssistantMessageView({
 }: {
   message: AssistantMessage;
   isStreaming?: boolean;
+  processingState?: "active" | "complete";
   toolResults?: Map<string, ToolResultMessage>;
   modelNames?: Record<string, string>;
   cwd?: string;
@@ -735,7 +740,7 @@ function AssistantMessageView({
 
   return (
     <div
-      style={{ marginBottom: 16 }}
+      style={{ marginBottom: processingState ? 4 : 16 }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -745,7 +750,7 @@ function AssistantMessageView({
           fontSize: 11,
           color: "var(--text-dim)",
           marginBottom: 4,
-          display: "flex",
+          display: processingState === "complete" ? "none" : "flex",
           alignItems: "center",
           gap: 6,
         }}
@@ -781,9 +786,25 @@ function AssistantMessageView({
         })()}
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {blockItems.map(({ block, originalIndex }) => (
-          <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} onOpenUrl={onOpenUrl} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} onQuote={onQuote} />
+      <div style={{ display: "flex", flexDirection: "column", gap: processingState ? 4 : 8 }}>
+        {blockItems.map(({ block, originalIndex }, itemIndex) => (
+          <BlockView
+            key={`${entryId ?? "stream"}-${originalIndex}`}
+            block={block}
+            toolResults={toolResults}
+            isStreaming={isStreaming}
+            processingCompact={Boolean(processingState)}
+            processingActive={processingState === "active" && itemIndex === blockItems.length - 1}
+            streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)}
+            toolCallDurations={toolCallDurations}
+            cwd={cwd}
+            onOpenFile={onOpenFile}
+            onOpenUrl={onOpenUrl}
+            sessionId={sessionId}
+            entryId={entryId}
+            blockIndex={originalIndex}
+            onQuote={onQuote}
+          />
         ))}
       </div>
 
@@ -812,7 +833,7 @@ function AssistantMessageView({
         <TurnWrittenFiles files={writtenFiles} onOpenFile={onOpenChangedFile ?? onOpenFile} />
       )}
 
-      <div style={{
+      {!processingState && <div style={{
         display: "flex", alignItems: "center", gap: 8, marginTop: 4,
       }}>
         {message.usage && !isStreaming && (
@@ -872,23 +893,26 @@ function AssistantMessageView({
         {time && !isStreaming && (
           <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>
         )}
-      </div>
+      </div>}
     </div>
   );
 }
 
-function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCallDurations, cwd, onOpenFile, onOpenUrl, sessionId, entryId, blockIndex, onQuote }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string) => void; onOpenUrl?: (url: string) => void; sessionId?: string; entryId?: string; blockIndex: number; onQuote?: (text: string) => void }) {
+function BlockView({ block, toolResults, isStreaming, processingCompact, processingActive, streamingDuration, toolCallDurations, cwd, onOpenFile, onOpenUrl, sessionId, entryId, blockIndex, onQuote }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; processingCompact?: boolean; processingActive?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string) => void; onOpenUrl?: (url: string) => void; sessionId?: string; entryId?: string; blockIndex: number; onQuote?: (text: string) => void }) {
   if (block.type === "text") {
+    if (processingCompact) {
+      return <ProcessingTextBlock block={block as TextContent} active={Boolean(processingActive)} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} onOpenUrl={onOpenUrl} />;
+    }
     return <TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} onOpenUrl={onOpenUrl} onQuote={onQuote} />;
   }
   if (block.type === "thinking") {
-    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} />;
+    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} active={Boolean(processingActive)} />;
   }
   if (block.type === "toolCall") {
     const tc = block as ToolCallContent;
     const result = toolResults?.get(tc.toolCallId);
     const duration = toolCallDurations?.get(tc.toolCallId);
-    return <ToolCallBlock block={tc} result={result} duration={duration} />;
+    return <ToolCallBlock block={tc} result={result} duration={duration} active={Boolean(processingActive)} />;
   }
   return null;
 }
@@ -995,6 +1019,41 @@ function selectedMarkdown(selection: Selection): string {
   return marker && !/^(?:[-*+] |\d+[.)] )/.test(markdown) ? marker + markdown : markdown;
 }
 
+function ProcessingTextBlock({ block, active, isStreaming, cwd, onOpenFile, onOpenUrl }: { block: TextContent; active: boolean; isStreaming?: boolean; cwd?: string; onOpenFile?: (filePath: string) => void; onOpenUrl?: (url: string) => void }) {
+  const [expanded, setExpanded] = useState(active);
+  useEffect(() => setExpanded(active), [active]);
+
+  if (active) {
+    return (
+      <div style={{ padding: "7px 10px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-panel)", minWidth: 0 }}>
+        <TextBlock block={block} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} onOpenUrl={onOpenUrl} />
+      </div>
+    );
+  }
+
+  const preview = block.text.replace(/\s+/g, " ").trim() || "…";
+  return (
+    <div style={{ border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden", minWidth: 0 }}>
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        style={{
+          display: "flex", alignItems: "center", width: "100%", minWidth: 0,
+          padding: "6px 10px", border: "none", background: "var(--bg-panel)",
+          color: "var(--text-muted)", cursor: "pointer", fontSize: 12, textAlign: "left",
+        }}
+      >
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{preview}</span>
+      </button>
+      {expanded && (
+        <div style={{ padding: "8px 10px", borderTop: "1px solid var(--border)", background: "var(--bg-panel)" }}>
+          <TextBlock block={block} cwd={cwd} onOpenFile={onOpenFile} onOpenUrl={onOpenUrl} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TextBlock({ block, isStreaming, cwd, onOpenFile, onOpenUrl, onQuote }: { block: TextContent; isStreaming?: boolean; cwd?: string; onOpenFile?: (filePath: string) => void; onOpenUrl?: (url: string) => void; onQuote?: (text: string) => void }) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1044,15 +1103,17 @@ function TextBlock({ block, isStreaming, cwd, onOpenFile, onOpenUrl, onQuote }: 
   );
 }
 
-function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
+function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, active = false }: {
   block: ThinkingContent;
   duration?: number;
   sessionId?: string;
   entryId?: string;
   blockIndex: number;
+  active?: boolean;
 }) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(active);
+  useEffect(() => setExpanded(active), [active]);
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1127,9 +1188,10 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
 }
 
 
-function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number }) {
+function ToolCallBlock({ block, result, duration, active = false }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; active?: boolean }) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(active);
+  useEffect(() => setExpanded(active), [active]);
   const inputStr = getToolCallInputText(block);
   const isStreamingInput = block.rawInput !== undefined;
   const isEditTool = isEditToolName(block.toolName);

@@ -216,6 +216,46 @@ function withAssistantBlocks(
   return next;
 }
 
+function LiveProcessPanel({ messageCount, toolCallCount, children, t }: { messageCount: number; toolCallCount: number; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const followLatestRef = useRef(true);
+  const parts = [t("chat.processDetails"), `${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`];
+  if (toolCallCount > 0) parts.push(`${toolCallCount} ${t(toolCallCount === 1 ? "chat.toolCall" : "chat.toolCalls")}`);
+
+  // Keep the active operation at the bottom while allowing a user who scrolls
+  // upward to inspect earlier work without being pulled back on every token.
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (element && followLatestRef.current) element.scrollTop = element.scrollHeight;
+  }, [children]);
+
+  return (
+    <section style={{ marginBottom: 14 }} aria-label={t("chat.processDetails")}>
+      <div style={{ marginBottom: 6, color: "var(--text-muted)", fontSize: 12 }}>
+        {parts.join(" · ")}
+      </div>
+      <div
+        ref={scrollRef}
+        onScroll={(event) => {
+          const element = event.currentTarget;
+          followLatestRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 32;
+        }}
+        style={{
+          maxHeight: "50vh",
+          overflowY: "auto",
+          overflowX: "hidden",
+          overscrollBehavior: "contain",
+          scrollbarGutter: "stable",
+          padding: "2px 8px 2px 10px",
+          borderLeft: "2px solid var(--border)",
+        }}
+      >
+        {children}
+      </div>
+    </section>
+  );
+}
+
 function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = false, children, t }: { messageCount: number; toolCallCount: number; defaultExpanded?: boolean; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const parts = [t("chat.processDetails"), `${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`];
@@ -633,6 +673,15 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     );
   }
 
+  let latestLiveAnchorIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (isGroupAnchor(messages[i])) {
+      latestLiveAnchorIdx = i;
+      break;
+    }
+  }
+  const showLiveProcessPanel = (agentRunning || streamState.isStreaming) && latestLiveAnchorIdx >= 0;
+
   return (
     <div
       className="relative flex h-full min-w-0 flex-col overflow-hidden"
@@ -771,7 +820,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
               };
 
-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[] } = {}): ReactNode => {
+              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[]; processingState?: "active" | "complete" } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
                 const prevAssistantEntryId =
                   msg.role === "user" && idx > 0 && messages[idx - 1].role === "assistant"
@@ -798,6 +847,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                   <MessageView
                     key={`${keyPrefix}-view-${idx}`}
                     message={msg}
+                    processingState={options.processingState}
                     toolResults={toolResultsMap}
                     modelNames={modelNames}
                     cwd={messageCwd}
@@ -839,17 +889,64 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 while (endIdx < messages.length && !isGroupAnchor(messages[endIdx])) endIdx += 1;
 
                 const finalAssistantIdx = findFinalAssistantIndex(messages, userIdx, endIdx);
+                const isLiveTail = showLiveProcessPanel && endIdx === messages.length && userIdx === lastAnchorIdx;
 
-                if (finalAssistantIdx === -1) {
-                  for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
-                    rendered.push(renderMessage(renderIdx));
+                if (isLiveTail) {
+                  rendered.push(renderMessage(userIdx));
+                  const liveProcessIndices: number[] = [];
+                  for (let processIdx = userIdx + 1; processIdx < endIdx; processIdx++) {
+                    if (hasDisplayableProcessMessage(messages[processIdx])) liveProcessIndices.push(processIdx);
+                  }
+                  const streamingBlocks = hasStreamingContent && streamState.streamingMessage
+                    ? getDisplayableAssistantBlocks(streamState.streamingMessage, { isStreaming: true })
+                    : [];
+                  const activeCompletedIdx = !hasStreamingContent && agentPhase?.kind === "running_tools"
+                    ? liveProcessIndices.findLast((processIdx) => messages[processIdx]?.role === "assistant")
+                    : undefined;
+                  const currentPhaseLabel = agentRunning && !hasStreamingContent && agentPhase
+                    ? phaseLabel(agentPhase, t)
+                    : null;
+                  const liveMessageCount = liveProcessIndices.length + (hasStreamingContent ? 1 : 0);
+
+                  if (liveMessageCount > 0 || currentPhaseLabel) {
+                    rendered.push(
+                      <LiveProcessPanel
+                        key={`live-process-${userIdx}`}
+                        messageCount={liveMessageCount}
+                        toolCallCount={countToolCalls(messages, liveProcessIndices) + countToolCallBlocks(streamingBlocks)}
+                        t={t}
+                      >
+                        {liveProcessIndices.map((processIdx) => renderMessage(processIdx, {
+                          attachRef: false,
+                          keyPrefix: "live-process",
+                          processingState: processIdx === activeCompletedIdx ? "active" : "complete",
+                          showTimestamp: false,
+                        }))}
+                        {hasStreamingContent && streamState.streamingMessage && (
+                          <MessageView
+                            message={streamState.streamingMessage as AgentMessage}
+                            isStreaming
+                            processingState="active"
+                            toolResults={toolResultsMap}
+                            modelNames={modelNames}
+                            cwd={messageCwd}
+                            onOpenFile={onOpenFile}
+                            onOpenUrl={onOpenUrl}
+                          />
+                        )}
+                        {currentPhaseLabel && (
+                          <div className="break-words py-2 text-[13px] text-text-muted">
+                            <span className="animate-[pulse_1.5s_infinite]">{currentPhaseLabel}</span>
+                          </div>
+                        )}
+                      </LiveProcessPanel>,
+                    );
                   }
                   idx = endIdx;
                   continue;
                 }
 
-                const isLiveTail = (sessionBusy || streamState.isStreaming) && endIdx === messages.length && userIdx === lastAnchorIdx;
-                if (isLiveTail) {
+                if (finalAssistantIdx === -1) {
                   for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
                     rendered.push(renderMessage(renderIdx));
                   }
@@ -932,11 +1029,11 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 </>
               );
             })()}
-            {streamState.isStreaming && hasStreamingContent && streamState.streamingMessage && (
+            {!showLiveProcessPanel && streamState.isStreaming && hasStreamingContent && streamState.streamingMessage && (
               <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenUrl={onOpenUrl} />
             )}
 
-            {agentRunning && !hasStreamingContent && agentPhase && (
+            {!showLiveProcessPanel && agentRunning && !hasStreamingContent && agentPhase && (
               <div className="break-words py-2 text-[13px] text-text-muted">
                 <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t)}</span>
               </div>
