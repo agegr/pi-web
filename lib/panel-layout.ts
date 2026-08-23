@@ -9,6 +9,19 @@ export const RIGHT_PANEL_FALLBACK_WIDTH = 560;
 export const RIGHT_PANEL_MIN_WIDTH = 300;
 export const RIGHT_PANEL_MAX_WIDTH = 1200;
 
+// File Explorer section inside the sidebar (a vertical split with the session
+// list above it).
+export const EXPLORER_DEFAULT_HEIGHT = 240;
+export const EXPLORER_MIN_HEIGHT = 120;
+// The session list above the Explorer must keep at least this much room, so the
+// splitter cannot swallow it whole.
+export const SESSION_LIST_MIN_HEIGHT = 120;
+
+/** Largest the Explorer may grow to, leaving the session list its minimum. */
+export function getExplorerMaxHeight(sidebarHeight: number): number {
+  return Math.max(EXPLORER_MIN_HEIGHT, sidebarHeight - SESSION_LIST_MIN_HEIGHT);
+}
+
 const COMPACT_CHAT_MIN_WIDTH = 320;
 const DESKTOP_CHAT_MIN_WIDTH = 420;
 

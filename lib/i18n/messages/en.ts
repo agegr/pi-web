@@ -158,6 +158,7 @@ export const enLocale: LocalePlugin = {
     "files.loading": "Loading files...",
     "files.noFiles": "No files found",
     "files.explorer": "Explorer",
+    "files.resizeExplorer": "Resize Explorer",
     "files.changedCount": "{count} files",
     "files.changeStats": "{count} changed files, {additions} lines added, {deletions} lines deleted",
     "files.conflictSummary": "{count} file{countSuffix} already exist: {files}",

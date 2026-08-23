@@ -3,6 +3,8 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
+import { useResizablePanel } from "@/hooks/useResizablePanel";
+import { EXPLORER_DEFAULT_HEIGHT, EXPLORER_MIN_HEIGHT, getExplorerMaxHeight } from "@/lib/panel-layout";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
@@ -435,6 +437,29 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
+  const sidebarColumnRef = useRef<HTMLDivElement>(null);
+  const explorerHeightRef = useRef<number>(EXPLORER_DEFAULT_HEIGHT);
+  const explorerVisible = explorerOpen && Boolean(selectedCwdProp || selectedCwd);
+  const explorerResizer = useResizablePanel({
+    ariaLabel: t("files.resizeExplorer"),
+    cssVariable: "--explorer-height",
+    defaultWidth: EXPLORER_DEFAULT_HEIGHT,
+    getMaxWidth: () => getExplorerMaxHeight(sidebarColumnRef.current?.clientHeight ?? 0),
+    growthDirection: "up",
+    maxWidth: 100000,
+    minWidth: EXPLORER_MIN_HEIGHT,
+    storageKey: "pi-explorer-height",
+    widthRef: explorerHeightRef,
+  });
+  const reclampExplorerHeight = explorerResizer.reclampWidth;
+  // Keep the Explorer within bounds when the sidebar itself is resized.
+  useEffect(() => {
+    const column = sidebarColumnRef.current;
+    if (!column || !explorerVisible || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => reclampExplorerHeight());
+    observer.observe(column);
+    return () => observer.disconnect();
+  }, [explorerVisible, reclampExplorerHeight]);
 
   const loadSessions = useCallback(async (showLoading = false, force = false) => {
     try {
@@ -956,7 +981,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const sessionTree = buildSessionTree(filteredSessions);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+    <div ref={sidebarColumnRef} style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       {customPathOpen && (
         <DirectoryPicker
           busy={customPathValidating}
@@ -1619,7 +1644,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       </div>
 
       {/* Session list */}
-      <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}>
+      <div style={{ flex: "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}>
         {loading && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
             {t("sidebar.loading")}
@@ -1653,17 +1678,33 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         ))}
       </div>
 
+      {/* Splitter between the session list and the Explorer. Only meaningful
+          when the Explorer is expanded and has a fixed height to resize. */}
+      {explorerVisible && (
+        <div
+          {...explorerResizer.separatorProps}
+          className={`panel-resize-handle-horizontal${explorerResizer.isResizing ? " is-resizing" : ""}`}
+          data-resize-handle="explorer"
+          title={`${t("files.resizeExplorer")}: ${t("layout.resizeHint")}`}
+        />
+      )}
+
       {/* File Explorer section */}
       {(selectedCwdProp || selectedCwd) && (
         <div
+          ref={explorerResizer.panelRef}
           style={{
+            // State seeds the height (restored from storage); the drag handler
+            // overrides this var live for smoothness. Mirrors the sidebar panel.
+            "--explorer-height": `${explorerResizer.width}px`,
             borderTop: "1px solid var(--border)",
             display: "flex",
             flexDirection: "column",
-            flex: explorerOpen ? "1 1 0" : "0 0 auto",
+            flex: "0 0 auto",
+            height: explorerOpen ? "var(--explorer-height)" : undefined,
             minHeight: 0,
             overflow: "hidden",
-          }}
+          } as React.CSSProperties}
         >
           <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
             <button

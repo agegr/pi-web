@@ -1242,6 +1242,54 @@ span.token.table {
 .panel-resize-handle.is-resizing::after {
   background: color-mix(in srgb, var(--text-muted) 70%, var(--border));
 }
+
+/* Horizontal splitter: same idea rotated 90deg, for a vertical (height) resize. */
+.panel-resize-handle-horizontal {
+  position: relative;
+  z-index: 5;
+  height: 12px;
+  margin: -6px 0;
+  flex: 0 0 12px;
+  cursor: row-resize;
+  touch-action: none;
+  outline: none;
+}
+.panel-resize-handle-horizontal::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 4px;
+  height: 4px;
+  width: 34px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  pointer-events: none;
+  background: var(--text-dim);
+  opacity: 0.45;
+  transition: opacity 0.12s ease, width 0.12s ease;
+}
+.panel-resize-handle-horizontal:hover::before,
+.panel-resize-handle-horizontal:focus-visible::before,
+.panel-resize-handle-horizontal.is-resizing::before {
+  opacity: 0.9;
+  width: 48px;
+}
+.panel-resize-handle-horizontal::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 5px;
+  height: 2px;
+  pointer-events: none;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+.panel-resize-handle-horizontal:hover::after,
+.panel-resize-handle-horizontal:focus-visible::after,
+.panel-resize-handle-horizontal.is-resizing::after {
+  background: color-mix(in srgb, var(--text-muted) 70%, var(--border));
+}
 .right-panel-overlay-backdrop {
   display: none;
 }
