@@ -145,7 +145,7 @@ export function AssistantBar() {
 
   return (
     <section
-      className="pi-card flex flex-col gap-2 p-4"
+      className="robin-assistant-bar pi-card flex flex-col gap-2 p-4"
     >
       <form onSubmit={submit} className="flex gap-2">
         <input

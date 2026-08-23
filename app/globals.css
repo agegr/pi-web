@@ -700,6 +700,13 @@ body {
   background: var(--dashboard-ground);
 }
 
+/* Keep dashboard search available while the document scrolls. Only the search
+   card is painted, so the sticky surface stays as narrow and light as the
+   control itself. */
+.robin-dashboard .robin-dashboard-header .robin-assistant-bar {
+  padding: 0;
+}
+
 /* Opaque and lifted, unlike the chat shell's panels. The chat surface is one
    continuous document and stays flat; the dashboard is a stack of separate
    sheets, and without a real step against the ground they dissolve into it. */
