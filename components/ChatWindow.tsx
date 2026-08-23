@@ -345,6 +345,12 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     return () => observer.disconnect();
   }, [entryIds, session, activeLeafId, loadContext, sessionIdRef, scrollContainerRef]);
 
+  // Keep the rendered window at least as large as what's loaded, so prepended
+  // (older) pages stay visible instead of being sliced off the top.
+  useEffect(() => {
+    setVisibleCount((current) => Math.max(current, messages.length));
+  }, [messages.length]);
+
   // After visibleCount increases (more messages prepended), restore the
   // scroll position so the viewport doesn't jump.
   useEffect(() => {
@@ -884,7 +890,10 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 }
                 idx = endIdx;
               }
-              const { startIndex, hasMore } = getVisibleRenderWindow(rendered.length, visibleCount);
+              // Show the sentinel when the window is full: the initial tail is a
+              // truncation, and after prepending there may still be older history.
+              const { startIndex } = getVisibleRenderWindow(rendered.length, visibleCount);
+              const hasMore = startIndex > 0 || rendered.length >= visibleCount;
               return (
                 <>
                   {hasMore && (

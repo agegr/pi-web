@@ -138,4 +138,13 @@ test("hasBranch reports false for a linear chain (no branching) and true otherwi
     { entry: { type: "message", id: "b2", parentId: "e2", timestamp: "t", message: { role: "user", content: "y" } }, children: [] },
   ];
   assert.equal(hasBranch([root]), true);
+  assert.equal(hasBranch([root]), true);
+});
+
+test("hasBranch reports true for multiple root nodes (a branch from the first message)", () => {
+  // Each root has a single child, so no node.children.length > 1 — only the
+  // multiple-root shape makes this a branch.
+  const r1 = { entry: { type: "message", id: "r1", parentId: null, timestamp: "t", message: { role: "user", content: "a" } }, children: [] };
+  const r2 = { entry: { type: "message", id: "r2", parentId: null, timestamp: "t", message: { role: "user", content: "b" } }, children: [] };
+  assert.equal(hasBranch([r1, r2]), true);
 });

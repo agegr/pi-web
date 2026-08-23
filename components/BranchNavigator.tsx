@@ -104,6 +104,8 @@ function getLabel(entry: SessionEntry): string {
 // Does the tree have any branching at all? Iterative: a linear chain has no
 // branching but recursing over it would overflow the stack, so walk with a stack.
 export function hasBranch(nodes: SessionTreeNode[]): boolean {
+  // Sessions branched from the very first message have multiple root nodes.
+  if (nodes.length > 1) return true;
   const stack: SessionTreeNode[] = [...nodes];
   while (stack.length > 0) {
     const node = stack.pop()!;
