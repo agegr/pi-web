@@ -1556,6 +1556,27 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [onSessionForked]);
 
+  const handleStartSubchat = useCallback(async (entryId: string, selection: string): Promise<string | undefined> => {
+    if (bashRunningRef.current || !selection.trim()) return undefined;
+    const sid = sessionIdRef.current;
+    if (!sid) return undefined;
+    const result = await sendAgentCommand<{ cancelled?: boolean; newSessionId?: string }>(sid, {
+      type: "fork",
+      entryId,
+      includeEntry: true,
+      keepSourceAlive: true,
+    });
+    const subchatId = result?.newSessionId;
+    if (!result?.cancelled && subchatId) {
+      await sendAgentCommand(subchatId, {
+        type: "prompt",
+        message: `Discuss the selected text below as a focused subtask. Keep this discussion independent from the main conversation; provide a clear result when asked.\n\n--- Selected text ---\n${selection.trim()}`,
+      });
+      return subchatId;
+    }
+    return undefined;
+  }, []);
+
   const handleNavigate = useCallback(async (entryId: string) => {
     if (bashRunningRef.current) return;
     const sid = sessionIdRef.current;
@@ -2069,7 +2090,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     sessionIdRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
     // Actions
-    handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
+    handleSend, handleAbort, handleFork, handleStartSubchat, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
