@@ -125,7 +125,7 @@ test("fresh sessions restore the preferred tool preset without overriding existi
   );
   const changeSource = source.slice(
     source.indexOf("  const handleToolPresetChange = useCallback"),
-    source.indexOf("  const scrollUserMsgToTop"),
+    source.indexOf("  const handleScrollPositionChange"),
   );
 
   assert.match(
@@ -366,74 +366,27 @@ test("keeps live following cancellable when the user scrolls away from the tail"
   assert.doesNotMatch(source, /SCROLL_BOTTOM_THRESHOLD|completionScrollAllowedRef|ignoreProgrammaticScrollUntilRef/);
 });
 
-test("keeps a newly sent user message at the top while its response starts", () => {
+test("always follows the tail on send and keeps the prompt in context", () => {
   const streamUpdateSource = source.slice(
     source.indexOf('case "message_start"'),
     source.indexOf('case "message_end"'),
-  );
-  const userScrollSource = source.slice(
-    source.indexOf("const scrollUserMsgToTop"),
-    source.indexOf("const handleScrollPositionChange"),
   );
   const scrollEffectSource = source.slice(
     source.indexOf("useLayoutEffect(() => {\n    if (messages.length > 0)"),
     source.indexOf("// Load model list"),
   );
 
-  assert.match(streamUpdateSource, /!pendingScrollToUserRef\.current && isNearBottomRef\.current/);
-  assert.match(source, /const \[promptAnchorActive, setPromptAnchorActive\] = useState\(false\)/);
-  assert.match(source, /pendingScrollToUserRef\.current = true;\s*setPromptAnchorActive\(true\)/);
-  assert.match(userScrollSource, /const targetTop = Math\.min\(Math\.max\(0, elAbsTop - 16\), maxScrollTop\)/);
-  assert.match(userScrollSource, /cancelAnimationFrame\(liveFollowFrameRef\.current\)/);
-  assert.match(userScrollSource, /isNearBottomRef\.current = true/);
-  assert.match(userScrollSource, /previousScrollTopRef\.current = targetTop/);
-  assert.match(userScrollSource, /container\.scrollTo\(\{ top: targetTop, behavior: "auto" \}\)/);
-  assert.match(scrollEffectSource, /pendingScrollToUserRef\.current = false;[\s\S]*?scrollUserMsgToTop\(\)/);
-  assert.match(chatWindowSource, /const contentEnd = spacer\.getBoundingClientRect\(\)\.top[\s\S]*?getPromptAnchorSpacerHeight\([\s\S]*?targetTop,[\s\S]*?contentEnd,[\s\S]*?container\.clientHeight/);
-  assert.match(chatWindowSource, /<div ref=\{promptAnchorSpacerRef\} aria-hidden="true" \/>/);
-  assert.match(chatWindowSource, /const promptAnchorAdjustmentDoneRef = useRef\(false\)/);
-  assert.match(chatWindowSource, /promptAnchorAdjustmentDoneRef\.current = false/);
-  assert.match(chatWindowSource, /const isInitialMeasurement = !promptAnchorAdjustmentDoneRef\.current;[\s\S]*?promptAnchorAdjustmentDoneRef\.current = true;[\s\S]*?if \(needsInitialAdjustment\) scrollUserMsgToTop\(\)/);
+  assert.match(source, /const pendingScrollToTailRef = useRef\(false\)/);
+  assert.match(source, /pendingScrollToTailRef\.current = true/);
+  assert.match(streamUpdateSource, /!pendingScrollToTailRef\.current && isNearBottomRef\.current/);
+  assert.match(scrollEffectSource, /pendingScrollToTailRef\.current = false;[\s\S]*?isNearBottomRef\.current = true;\s*scrollToBottom\("auto"\)/);
+  assert.doesNotMatch(source, /scrollUserMsgToTop|promptAnchorActive|pendingScrollToUserRef/);
 });
 
-test("keeps prompt anchor measurement outside the React update cycle", () => {
-  const anchorEffectStart = chatWindowSource.indexOf(
-    "useLayoutEffect(() => {\n    const spacer = promptAnchorSpacerRef.current;",
-  );
-  assert.notEqual(anchorEffectStart, -1);
-  const syncEffectStart = chatWindowSource.indexOf(
-    "useLayoutEffect(() => {\n    promptAnchorUpdateRef.current?.();",
-    anchorEffectStart,
-  );
-  assert.notEqual(syncEffectStart, -1);
-  const anchorLifecycleEffectSource = chatWindowSource.slice(
-    anchorEffectStart,
-    syncEffectStart,
-  );
-  const anchorSyncEffectSource = chatWindowSource.slice(
-    syncEffectStart,
-    chatWindowSource.indexOf("const availableThinkingLevels"),
-  );
-
-  assert.doesNotMatch(anchorLifecycleEffectSource, /\bset[A-Z][A-Za-z0-9]*\s*\(/);
-  assert.doesNotMatch(anchorSyncEffectSource, /\bset[A-Z][A-Za-z0-9]*\s*\(/);
-  assert.doesNotMatch(chatWindowSource, /setPromptAnchorSpacer|useState[^\n]*promptAnchorSpacer/);
-  assert.doesNotMatch(anchorLifecycleEffectSource, /streamState\.streamingMessage/);
-  assert.match(anchorLifecycleEffectSource, /spacer\.style\.height = nextPromptAnchorSpacerHeight > 0/);
-  assert.match(anchorLifecycleEffectSource, /promptAnchorUpdateRef\.current = updatePromptAnchorSpacer/);
-  assert.match(anchorLifecycleEffectSource, /new ResizeObserver\(schedulePromptAnchorMeasure\)/);
-  assert.match(anchorLifecycleEffectSource, /observer\?\.observe\(messageContent\)/);
-  assert.match(anchorLifecycleEffectSource, /if \(disposed \|\| promptAnchorMeasureFrameRef\.current !== null\) return/);
-  assert.match(anchorLifecycleEffectSource, /promptAnchorMeasureFrameRef\.current = requestAnimationFrame\(\(\) => \{\s*promptAnchorMeasureFrameRef\.current = null;\s*updatePromptAnchorSpacer\(\)/);
-  assert.match(anchorLifecycleEffectSource, /disposed = true;[\s\S]*?promptAnchorUpdateRef\.current === updatePromptAnchorSpacer[\s\S]*?cancelAnimationFrame\(promptAnchorMeasureFrameRef\.current\)/);
-  assert.match(anchorSyncEffectSource, /promptAnchorUpdateRef\.current\?\.\(\);\s*\}, \[streamState\.streamingMessage\]\)/);
-  assert.match(chatWindowSource, /<div ref=\{messageContentRef\} style=\{\{/);
-});
-
-test("uses the prompt anchor as the only trailing message spacer", () => {
-  assert.match(chatWindowSource, /<div ref=\{promptAnchorSpacerRef\} aria-hidden="true" \/>[\s\S]*?<div ref=\{messagesEndRef\} \/>/);
+test("uses the natural message tail without a synthetic prompt spacer", () => {
+  assert.match(chatWindowSource, /<div ref=\{messagesEndRef\} \/>/);
+  assert.doesNotMatch(chatWindowSource, /promptAnchor|messageContentRef|getPromptAnchorSpacerHeight/);
   assert.doesNotMatch(chatWindowSource, /bottomComposer(?:Ref|Height|ScrollFrameRef)/);
-  assert.doesNotMatch(chatWindowSource, /new ResizeObserver\(updateBottomComposerHeight\)/);
 });
 
 test("keeps a detached viewport in place when streaming completes", () => {
