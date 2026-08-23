@@ -6,6 +6,7 @@ import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { FileViewer } from "./FileViewer";
+import { WebViewer } from "./WebViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState } from "./file-tab-state";
 import { ModelsConfig } from "./ModelsConfig";
@@ -22,6 +23,7 @@ import { useAudio } from "@/hooks/useAudio";
 import type { AttachState } from "@/hooks/useAgentSession";
 import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
+import { getWebUrlLabel } from "@/lib/web-url";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import {
   claimExtensionAttentionNotification,
@@ -364,7 +366,7 @@ export function AppShell() {
     return () => ro.disconnect();
   }, [activeTopPanel, isMobile]);
 
-  // Right panel — file tabs only
+  // Right panel — file and web tabs
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
 
@@ -822,6 +824,55 @@ export function AppShell() {
   const handleOpenLinkedFile = useCallback((filePath: string) => {
     handleOpenFile(filePath, getFileName(filePath), { sourceSessionId: selectedSession?.id ?? null });
   }, [handleOpenFile, selectedSession?.id]);
+
+  // Files listed below a completed response came from successful write/edit
+  // calls, so open their review-oriented diff rather than the source by default.
+  const handleOpenChangedFile = useCallback((filePath: string) => {
+    const tabId = `file:${filePath}`;
+    // A repeat click is navigation, not a request to recreate the viewer. Keep
+    // its loaded data/diff and current mode intact; the first click still opens
+    // a fresh changed-file tab in diff mode.
+    const sourceSessionId = selectedSession?.id ?? null;
+    setFileTabs((tabs) => {
+      const existing = tabs.find((tab) => tab.id === tabId);
+      if (existing?.sourceSessionId === sourceSessionId) return tabs;
+      return openFileTab(tabs, {
+        fileName: getFileName(filePath),
+        filePath,
+        modeHint: "diff",
+        sourceSessionId,
+        tabId,
+      });
+    });
+    setActiveFileTabId(tabId);
+    setRightPanelOpen(true);
+    if (isMobile) setSidebarOpen(false);
+  }, [isMobile, selectedSession?.id]);
+
+  const handleOpenWebUrl = useCallback((url: string) => {
+    const id = typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    const tabId = `web:${id}`;
+    setFileTabs((tabs) => [...tabs, {
+      id: tabId,
+      label: url ? getWebUrlLabel(url) : translate("web.newTab"),
+      filePath: "",
+      kind: "web",
+      url,
+    }]);
+    setActiveFileTabId(tabId);
+    setRightPanelOpen(true);
+    if (isMobile) setSidebarOpen(false);
+  }, [isMobile, translate]);
+
+  const handleNewWebTab = useCallback(() => handleOpenWebUrl(""), [handleOpenWebUrl]);
+
+  const handleWebNavigate = useCallback((tabId: string, url: string, label: string) => {
+    setFileTabs((tabs) => tabs.map((tab) => (
+      tab.id === tabId ? { ...tab, url, label } : tab
+    )));
+  }, []);
 
   const handleCloseFileTab = useCallback((tabId: string) => {
     setFileTabs((prev) => {
@@ -2173,6 +2224,8 @@ export function AppShell() {
               onAttachStateChange={handleAttachStateChange}
               onDetachHandlerChange={handleDetachHandlerChange}
               onOpenFile={handleOpenLinkedFile}
+              onOpenChangedFile={handleOpenChangedFile}
+              onOpenUrl={handleOpenWebUrl}
               soundEnabled={soundEnabled}
               onSoundToggle={onSoundToggle}
               playDoneSound={playDoneSound}
@@ -2237,7 +2290,7 @@ export function AppShell() {
         />
       )}
 
-      {/* Right panel: file viewer — always mounted, width animated via CSS */}
+      {/* Right panel: file and web viewers — always mounted, width animated via CSS */}
       <div
         ref={rightPanelResizer.panelRef}
         id="file-panel"
@@ -2270,6 +2323,24 @@ export function AppShell() {
           </div>
           <button
             type="button"
+            onClick={handleNewWebTab}
+            title={translate("web.openUrl")}
+            aria-label={translate("web.openUrl")}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+              background: "transparent", border: "none", borderLeft: "1px solid var(--border)",
+              color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
+            }}
+            onMouseEnter={(event) => { event.currentTarget.style.color = "var(--accent)"; }}
+            onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text-muted)"; }}
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+            </svg>
+          </button>
+          <button
+            type="button"
             onClick={() => setRightPanelOpen(false)}
             aria-controls="file-panel"
             aria-expanded={rightPanelOpen}
@@ -2290,9 +2361,15 @@ export function AppShell() {
           </button>
         </div>
 
-        {/* Only the active viewer is mounted. Lightweight per-tab state is restored on activation. */}
+        {/* Only the active viewer is mounted. File-tab state is restored on activation. */}
         <div style={{ flex: 1, overflow: "hidden", paddingBottom: "env(safe-area-inset-bottom)" }}>
-          {activeFileTab?.filePath ? (
+          {activeFileTab?.kind === "web" ? (
+            <WebViewer
+              key={activeFileTab.id}
+              url={activeFileTab.url ?? ""}
+              onNavigate={(url, label) => handleWebNavigate(activeFileTab.id, url, label)}
+            />
+          ) : activeFileTab?.filePath ? (
             <FileViewer
               key={`${activeFileTab.id}:${activeFileTab.viewerRevision ?? 0}`}
               filePath={activeFileTab.filePath}
@@ -2316,8 +2393,15 @@ export function AppShell() {
               )}
             />
           ) : (
-            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
-               {translate("files.noneOpen")}
+            <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, color: "var(--text-dim)", fontSize: 12 }}>
+              <span>{translate("files.noneOpen")}</span>
+              <button
+                type="button"
+                onClick={handleNewWebTab}
+                style={{ padding: "6px 10px", border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-panel)", color: "var(--text-muted)", cursor: "pointer", fontSize: 12 }}
+              >
+                {translate("web.openUrl")}
+              </button>
             </div>
           )}
         </div>

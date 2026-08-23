@@ -55,6 +55,41 @@ interface FileData {
   size: number;
 }
 
+interface FileViewerCacheEntry {
+  data?: FileData;
+  gitDiff?: GitFileDiffResponse | null;
+  gitDiffResolved: boolean;
+}
+
+// Only the active viewer is mounted, so keep a small in-memory snapshot for
+// inactive tabs. Returning to one then restores its content/diff immediately
+// instead of repeating the initial read and git-diff requests.
+const FILE_VIEWER_CACHE_LIMIT = 24;
+const fileViewerCache = new Map<string, FileViewerCacheEntry>();
+
+function fileViewerCacheKey(filePath: string, cwd?: string, sourceSessionId?: string | null): string {
+  return `${cwd ?? ""}\u0000${sourceSessionId ?? ""}\u0000${filePath}`;
+}
+
+function getCachedFileViewer(key: string): FileViewerCacheEntry | undefined {
+  const entry = fileViewerCache.get(key);
+  if (!entry) return undefined;
+  // Map insertion order doubles as a compact LRU list.
+  fileViewerCache.delete(key);
+  fileViewerCache.set(key, entry);
+  return entry;
+}
+
+function updateCachedFileViewer(key: string, update: Partial<FileViewerCacheEntry>): void {
+  const current = fileViewerCache.get(key) ?? { gitDiffResolved: false };
+  fileViewerCache.delete(key);
+  fileViewerCache.set(key, { ...current, ...update });
+  if (fileViewerCache.size > FILE_VIEWER_CACHE_LIMIT) {
+    const oldestKey = fileViewerCache.keys().next().value;
+    if (oldestKey) fileViewerCache.delete(oldestKey);
+  }
+}
+
 const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
   source: "Source",
   preview: "Preview",
@@ -973,11 +1008,15 @@ function TextFileViewer({
 }: Props) {
   const { isDark } = useTheme();
   const { t } = useI18n();
-  const [data, setData] = useState<FileData | null>(null);
-  const [gitDiff, setGitDiff] = useState<GitFileDiffResponse | null>(null);
-  const [gitDiffLoading, setGitDiffLoading] = useState(false);
-  const [gitDiffResolved, setGitDiffResolved] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const cacheKey = fileViewerCacheKey(filePath, cwd, sourceSessionId);
+  const initialCacheRef = useRef(getCachedFileViewer(cacheKey));
+  const gitRefreshKeyRef = useRef(gitRefreshKey);
+  const initialCache = initialCacheRef.current;
+  const initialDeletedDiff = initialCache?.gitDiff?.supported === true && initialCache.gitDiff.status === "deleted";
+  const [data, setData] = useState<FileData | null>(() => initialCache?.data ?? null);
+  const [gitDiff, setGitDiff] = useState<GitFileDiffResponse | null>(() => initialCache?.gitDiff ?? null);
+  const [gitDiffResolved, setGitDiffResolved] = useState(() => initialCache?.gitDiffResolved ?? false);
+  const [loading, setLoading] = useState(() => !initialCache?.data && !initialDeletedDiff);
   const [error, setError] = useState<string | null>(null);
   const requestedInitialDisplayMode = resolveInitialFileDisplayMode(initialState, initialDisplayMode);
   const initialWrapLines = initialState?.wrapLines ?? false;
@@ -1057,6 +1096,7 @@ function TextFileViewer({
         }
         setError(null);
         setData(d);
+        updateCachedFileViewer(cacheKey, { data: d });
         return d;
       })
       .catch((e) => {
@@ -1064,15 +1104,14 @@ function TextFileViewer({
         setError(String(e));
         return null;
       });
-  }, [sourceSessionId]);
+  }, [cacheKey, sourceSessionId]);
 
   const fetchGitDiff = useCallback(async (targetPath: string) => {
     const requestId = ++gitDiffRequestRef.current;
-    setGitDiffLoading(true);
     if (!cwd) {
       setGitDiff(null);
-      setGitDiffLoading(false);
       setGitDiffResolved(true);
+      updateCachedFileViewer(cacheKey, { gitDiff: null, gitDiffResolved: true });
       return;
     }
 
@@ -1081,20 +1120,36 @@ function TextFileViewer({
       const response = await fetch(`/api/git/diff?${params.toString()}`);
       const next = await response.json() as GitFileDiffResponse & { error?: string };
       if (requestId !== gitDiffRequestRef.current) return;
-      setGitDiff(response.ok && next.supported && typeof next.patch === "string" ? next : null);
+      const resolvedDiff = response.ok && next.supported && typeof next.patch === "string" ? next : null;
+      setGitDiff(resolvedDiff);
+      updateCachedFileViewer(cacheKey, { gitDiff: resolvedDiff });
     } catch {
-      if (requestId === gitDiffRequestRef.current) setGitDiff(null);
+      if (requestId === gitDiffRequestRef.current) {
+        setGitDiff(null);
+        updateCachedFileViewer(cacheKey, { gitDiff: null });
+      }
     } finally {
       if (requestId === gitDiffRequestRef.current) {
-        setGitDiffLoading(false);
         setGitDiffResolved(true);
+        updateCachedFileViewer(cacheKey, { gitDiffResolved: true });
       }
     }
-  }, [cwd]);
+  }, [cacheKey, cwd]);
 
   // Reset and load the file itself when its identity changes. Live watching is
   // managed separately so pausing it never clears the displayed content.
   useEffect(() => {
+    const cached = getCachedFileViewer(cacheKey);
+    if (cached?.data || (cached?.gitDiff?.supported === true && cached.gitDiff.status === "deleted")) {
+      setError(null);
+      setData(cached.data ?? null);
+      setGitDiff(cached.gitDiff ?? null);
+      setGitDiffResolved(cached.gitDiffResolved);
+      setLoading(false);
+      setWatching(false);
+      return;
+    }
+
     let active = true;
     setLoading(true);
     setError(null);
@@ -1110,7 +1165,7 @@ function TextFileViewer({
     return () => {
       active = false;
     };
-  }, [filePath, fetchContent, sourceSessionId]);
+  }, [cacheKey, filePath, fetchContent, sourceSessionId]);
 
   useEffect(() => {
     setWatching(false);
@@ -1132,9 +1187,10 @@ function TextFileViewer({
 
     es.addEventListener("connected", () => {
       setWatching(true);
-      // The server emits connected only after its watcher exists. Reading now
-      // closes the gap between the last snapshot and live events.
-      synchronize();
+      // A cached tab already has the snapshot from its last active view. The
+      // watcher covers subsequent changes, so avoid repeating both requests
+      // merely because the user switched back to its tab.
+      if (!initialCacheRef.current) synchronize();
     });
 
     es.addEventListener("change", synchronize);
@@ -1152,8 +1208,11 @@ function TextFileViewer({
   }, [filePath, fetchContent, fetchGitDiff, sourceSessionId, watchEnabled]);
 
   useEffect(() => {
+    const refreshRequested = gitRefreshKeyRef.current !== gitRefreshKey;
+    gitRefreshKeyRef.current = gitRefreshKey;
+    if (!refreshRequested && getCachedFileViewer(cacheKey)?.gitDiffResolved) return;
     void fetchGitDiff(filePath);
-  }, [fetchGitDiff, filePath, gitRefreshKey]);
+  }, [cacheKey, fetchGitDiff, filePath, gitRefreshKey]);
 
   useEffect(() => {
     // HTML gets the same rendered-first treatment as markdown: a generated page
@@ -1265,7 +1324,10 @@ function TextFileViewer({
     requestedInitialDisplayMode,
   ]);
 
-  if (loading || (requestedInitialDisplayMode === "diff" && gitDiffLoading && !data)) {
+  // Show the file as soon as its contents arrive. Diff retrieval can be
+  // slower than a file read, so keeping source visible is more useful than
+  // leaving the panel on a blank loading state while it completes.
+  if (loading) {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 13 }}>
         {t("i18n.loading")}

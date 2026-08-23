@@ -6,6 +6,7 @@ import { resolveLocalFileHref } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
 import { markdownRehypePlugins, markdownRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
+import { normalizeWebUrl } from "@/lib/web-url";
 
 interface MarkdownBodyProps {
   children: string;
@@ -13,9 +14,16 @@ interface MarkdownBodyProps {
   isStreaming?: boolean;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
+  /** Opens an external HTTP(S) link in the app's web panel. */
+  onOpenUrl?: (url: string) => void;
 }
 
-export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile }: MarkdownBodyProps) {
+function getExternalWebUrl(href: string | undefined): string | null {
+  if (!href || !(/^(?:https?:)?\/\//i.test(href) || /^www\./i.test(href))) return null;
+  return normalizeWebUrl(href.startsWith("//") ? `https:${href}` : href);
+}
+
+export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, onOpenUrl }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
   // Stable renderer identities keep stateful blocks mounted across message hover updates.
   const components = useMemo<Components>(() => ({
@@ -45,8 +53,9 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
       // `node` is react-markdown metadata, not a DOM attribute.
       delete props.node;
       const filePath = onOpenFile ? resolveLocalFileHref(href, cwd) : null;
+      const webUrl = onOpenUrl ? getExternalWebUrl(href) : null;
       const openFile = onOpenFile;
-      if (!filePath || !openFile) {
+      if ((!filePath || !openFile) && (!webUrl || !onOpenUrl)) {
         return (
           <a href={href} {...props} target="_blank" rel="noopener noreferrer">
             {children}
@@ -60,14 +69,11 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
         const target = event.currentTarget.getAttribute("target");
         if (target && target !== "_self") return;
         event.preventDefault();
-        openFile(filePath);
+        if (filePath && openFile) openFile(filePath);
+        else if (webUrl && onOpenUrl) onOpenUrl(webUrl);
       };
 
-      return (
-        <a href={href} {...props} onClick={handleClick}>
-          {children}
-        </a>
-      );
+      return <a href={href} {...props} onClick={handleClick}>{children}</a>;
     },
     img({ src, alt, ...props }) {
       delete props.node;
@@ -86,7 +92,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
         </div>
       );
     },
-  }), [cwd, isStreaming, onOpenFile]);
+  }), [cwd, isStreaming, onOpenFile, onOpenUrl]);
 
   return (
     <div className={["markdown-body", className].filter(Boolean).join(" ")}>

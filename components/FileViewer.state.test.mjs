@@ -53,6 +53,19 @@ test("TextFileViewer snapshots and restores lightweight tab state", () => {
   assert.match(block, /content\.scrollLeft = viewerStateRef\.current\.scrollLeft/);
 });
 
+test("TextFileViewer restores cached content and diffs for inactive tabs", () => {
+  const block = functionBlock("TextFileViewer", null);
+  assert.match(block, /initialCacheRef = useRef\(getCachedFileViewer\(cacheKey\)\)/);
+  assert.match(block, /updateCachedFileViewer\(cacheKey, \{ data: d \}\)/);
+  assert.match(block, /if \(!initialCacheRef\.current\) synchronize\(\)/);
+  assert.match(block, /if \(!refreshRequested && getCachedFileViewer\(cacheKey\)\?\.gitDiffResolved\) return/);
+});
+
+test("TextFileViewer renders file contents while a requested diff is loading", () => {
+  const block = functionBlock("TextFileViewer", null);
+  assert.match(block, /keeping source visible is more useful[\s\S]*?if \(loading\) \{/);
+});
+
 test("TextFileViewer keeps first-mount preview eligibility across Strict Effects cleanup", () => {
   const block = functionBlock("TextFileViewer", null);
   assert.match(block, /defaultPreviewEligibleRef = useRef\(/);

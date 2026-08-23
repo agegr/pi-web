@@ -3,6 +3,7 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createJiti } from "jiti";
+import { readFile } from "node:fs/promises";
 
 const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
@@ -28,6 +29,14 @@ test("opens non-file markdown links in a safe new tab", () => {
     /<a (?=[^>]*href="https:\/\/example\.com\/docs")(?=[^>]*target="_blank")(?=[^>]*rel="noopener noreferrer")[^>]*>docs<\/a>/,
   );
   assert.doesNotMatch(html, /\snode=/);
+});
+
+test("routes HTTP(S) links through the supplied right-panel callback", async () => {
+  const source = await readFile(new URL("./MarkdownBody.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /onOpenUrl\?: \(url: string\) => void/);
+  assert.match(source, /getExternalWebUrl\(href\)/);
+  assert.match(source, /else if \(webUrl && onOpenUrl\) onOpenUrl\(webUrl\)/);
 });
 
 test("keeps local file markdown links in the app", () => {

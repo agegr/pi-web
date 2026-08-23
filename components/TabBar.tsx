@@ -9,6 +9,9 @@ export interface Tab {
   id: string;
   label: string;
   filePath: string;
+  /** Missing means a file tab, retained for existing saved tab state. */
+  kind?: "file" | "web";
+  url?: string;
   sourceSessionId?: string | null;
   initialDisplayMode?: FileViewerDisplayMode;
   viewerState?: FileViewerState;
@@ -20,6 +23,14 @@ interface Props {
   activeTabId: string;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
+}
+
+function WebIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+    </svg>
+  );
 }
 
 export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
@@ -73,7 +84,7 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
             }}
           >
             <span style={{ flexShrink: 0, opacity: isActive ? 1 : 0.7, display: "flex", alignItems: "center" }}>
-              {getFileIcon(tab.label, 13)}
+              {tab.kind === "web" ? <WebIcon /> : getFileIcon(tab.label, 13)}
             </span>
             <span
               style={{
@@ -82,7 +93,7 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
                 flex: 1,
                 fontWeight: isActive ? 500 : 400,
               }}
-              title={tab.filePath}
+              title={tab.kind === "web" ? tab.url : tab.filePath}
             >
               {tab.label}
             </span>
