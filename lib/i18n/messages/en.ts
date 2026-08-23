@@ -313,6 +313,8 @@ export const enLocale: LocalePlugin = {
     "robin.jobs.sinceDays": "Days back",
     "robin.jobs.minScore": "Push floor",
     "robin.jobs.maxYears": "Max years asked",
+    "robin.jobs.readUnknownBoards": "Read careers pages with no API",
+    "robin.jobs.readUnknownBoardsHint": "About half of early-career postings sit on an employer's own portal rather than an ATS, and reach the scorer as a title and a city without this. It is the one place the scanner fetches a host it did not check against a list first — it still refuses anything but HTTPS, refuses private addresses, follows at most one redirect, and never runs what it reads.",
     "robin.jobs.digestSize": "Per push",
     "robin.jobs.notes": "What matters to you",
     "robin.jobs.notesHint": "Anything the CV does not say: work authorization, salary floor, team size, what you are done with. The scorer reads this.",

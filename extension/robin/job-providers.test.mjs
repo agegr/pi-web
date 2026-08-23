@@ -344,8 +344,22 @@ test("only public HTTPS hosts are reachable from a link we did not choose", () =
   ]) {
     assert.equal(isPublicWebHost(host), false, host);
   }
-  for (const host of ["lifeattiktok.com", "jobs.example.co.uk", "WWW.Example.COM", "172.15.0.1", "172.32.0.1"]) {
+  for (const host of ["lifeattiktok.com", "jobs.example.co.uk", "WWW.Example.COM", "careers.a-b.io"]) {
     assert.equal(isPublicWebHost(host), true, host);
+  }
+});
+
+test("an address cannot reach the fetcher by dressing up as a hostname", () => {
+  // An IPv4 address has more spellings than the dotted-decimal one, and the
+  // hex and octal forms below both reach 127.0.0.1 through inet_aton while
+  // looking nothing like "127.". Requiring an alphabetic last label refuses
+  // every encoding at once, and refuses public bare IPs too — which is right,
+  // because a job posting lives at a hostname.
+  for (const host of [
+    "0x7f.0.0.1", "0177.0.0.1", "2130706433", "0x7f000001",
+    "127.000.000.001", "8.8.8.8", "172.15.0.1", "[2001:db8::1]",
+  ]) {
+    assert.equal(isPublicWebHost(host), false, host);
   }
 });
 

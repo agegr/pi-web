@@ -499,6 +499,16 @@ export function JobFilterDialog({
                   </Field>
                 </div>
                 <p className="text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.jobs.deliveryHint")}</p>
+                <label className="flex min-h-11 items-center gap-2 text-sm" style={{ color: "var(--text)" }}>
+                  <input
+                    type="checkbox"
+                    checked={profile.readUnknownBoards}
+                    onChange={(event) => patch({ readUnknownBoards: event.target.checked })}
+                    className="shrink-0 cursor-pointer"
+                  />
+                  {t("robin.jobs.readUnknownBoards")}
+                </label>
+                <p className="text-xs" style={{ color: "var(--text-dim)" }}>{t("robin.jobs.readUnknownBoardsHint")}</p>
 
                 <Field label={t("robin.jobs.scoreModel")} hint={t("robin.jobs.scoreModelHint")}>
                   <select

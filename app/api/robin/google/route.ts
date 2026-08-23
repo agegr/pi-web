@@ -1,34 +1,11 @@
 import { NextResponse } from "next/server";
-import { randomBytes } from "node:crypto";
 import { authorizeUrl, disconnect, isConnected, readCredentials } from "@/extension/robin/google-calendar";
+// Next asserts that a route file exports nothing but handlers and a few config
+// keys, so the handshake helpers this and the callback both need live outside.
+import { issueState, redirectUriFor } from "@/lib/google-oauth-state";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
-
-/**
- * The OAuth `state` nonce, held in memory only.
- *
- * globalThis rather than a module constant so it survives Next's dev hot
- * reload, matching how pi-web keeps its own cross-reload state.
- */
-const stateStore = ((globalThis as { __robinGoogleStates?: Set<string> }).__robinGoogleStates ??= new Set<string>());
-
-export function issueState(): string {
-  const state = randomBytes(16).toString("hex");
-  stateStore.add(state);
-  // Abandoned attempts should not accumulate.
-  setTimeout(() => stateStore.delete(state), 10 * 60_000).unref?.();
-  return state;
-}
-
-export function consumeState(state: string): boolean {
-  return stateStore.delete(state);
-}
-
-/** The redirect must match what is registered in the Google client exactly. */
-export function redirectUriFor(req: Request): string {
-  return new URL("/api/robin/google/callback", new URL(req.url).origin).toString();
-}
 
 export async function GET(req: Request) {
   if (!isApiRequestAllowed(req)) {

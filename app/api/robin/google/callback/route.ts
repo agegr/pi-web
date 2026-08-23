@@ -1,5 +1,5 @@
 import { exchangeCode } from "@/extension/robin/google-calendar";
-import { consumeState, redirectUriFor } from "../route";
+import { consumeState, redirectUriFor } from "@/lib/google-oauth-state";
 
 export const dynamic = "force-dynamic";
 

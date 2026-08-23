@@ -871,5 +871,11 @@ export function cleanDescription(raw: string, limit = 2500): string {
   if (found === -1) return `${text.slice(0, limit)}…`;
 
   const start = head + found;
-  return `${text.slice(0, head).trim()} … ${text.slice(start, start + (limit - head))}…`;
+  const tail = text.slice(start, start + (limit - head));
+  // A short requirements section leaves budget unspent, and the opening is
+  // what that budget is for — without this a posting whose qualifications run
+  // to two lines came back at 1,167 characters of an allowed 2,500, having
+  // thrown away the half of the role summary it had room for.
+  const opening = text.slice(0, Math.min(limit - tail.length, start)).trim();
+  return `${opening} … ${tail}…`;
 }

@@ -313,6 +313,8 @@ export const zhCNLocale: LocalePlugin = {
     "robin.jobs.sinceDays": "回溯天数",
     "robin.jobs.minScore": "推送门槛",
     "robin.jobs.maxYears": "年限上限",
+    "robin.jobs.readUnknownBoards": "读取没有 API 的招聘页",
+    "robin.jobs.readUnknownBoardsHint": "大约一半的初级岗位挂在雇主自建门户上而不是 ATS，不开这项它们到打分器手里只有标题和城市。这是扫描器唯一一处会去访问未经白名单校验的主机 —— 但仍然只走 HTTPS、拒绝私有地址、最多跟一次跳转，并且绝不执行读到的任何东西。",
     "robin.jobs.digestSize": "每次推送",
     "robin.jobs.notes": "你在意什么",
     "robin.jobs.notesHint": "简历里没写的：工作许可、薪资底线、团队规模、不想再做的事。打分时会读这里。",
