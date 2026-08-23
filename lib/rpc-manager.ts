@@ -625,8 +625,6 @@ export class AgentSessionWrapper {
           throw new Error("Cannot fork while a shell command is running");
         }
         const entryId = command.entryId as string;
-        const includeEntry = command.includeEntry === true;
-        const keepSourceAlive = command.keepSourceAlive === true;
         const sessionManager = this.inner.sessionManager;
         const currentSessionFile = this.inner.sessionFile;
 
@@ -639,16 +637,15 @@ export class AgentSessionWrapper {
         const sessionDir = sessionManager.getSessionDir();
         let newSessionFile: string;
 
-        if (!entry.parentId && !includeEntry) {
-          // Fork before the first message: create an empty session linked to this one.
+        if (!entry.parentId) {
+          // Fork before the first message: create an empty session linked to this one
           const newManager = SessionManager.create(sessionManager.getCwd(), sessionDir);
           newManager.newSession({ parentSession: currentSessionFile });
           newSessionFile = newManager.getSessionFile() as string;
         } else {
-          // A selected-text subchat includes its assistant response as context;
-          // the existing user-message fork deliberately excludes its prompt.
+          // Fork after some history: copy path up to (but not including) the fork point
           const sourceManager = SessionManager.open(currentSessionFile, sessionDir);
-          const forkedPath = sourceManager.createBranchedSession(includeEntry ? entryId : entry.parentId!);
+          const forkedPath = sourceManager.createBranchedSession(entry.parentId);
           if (!forkedPath) throw new Error("Failed to create forked session");
           newSessionFile = forkedPath;
         }
@@ -656,9 +653,7 @@ export class AgentSessionWrapper {
         const newSessionId = SessionManager.open(newSessionFile, sessionDir).getSessionId();
         cacheSessionPath(newSessionId, newSessionFile);
         invalidateSessionListCache();
-        // Subchats run beside their source session; normal forks retain their
-        // historical behavior of tearing down the source wrapper first.
-        if (!keepSourceAlive) await this.shutdown();
+        await this.shutdown();
         return { cancelled: false, newSessionId };
       }
 
