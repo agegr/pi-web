@@ -70,7 +70,12 @@ export function registerJobTools(pi: ExtensionAPI): void {
       const entries = waiting.map((job) => {
         const head = `${job.id}  ${job.company} — ${job.title}`
           + `${job.location ? ` (${job.location})` : ""}`
-          + `${job.postedAt ? `  posted ${job.postedAt}` : ""}`;
+          + `${job.postedAt ? `  posted ${job.postedAt}` : ""}`
+          // Pulled out of the description by regex at merge time and stated
+          // plainly, because the rubric's level cap turns on this number and
+          // a model hunting for it in two thousand characters of prose will
+          // sometimes miss it. Reading it here is not optional judgement.
+          + `${job.yearsRequired === undefined ? "" : `  requires ${job.yearsRequired}+ yrs`}`;
         if (!job.description) return head;
         return `${head}\n  <<untrusted-posting>> ${job.description} <</untrusted-posting>>`;
       });

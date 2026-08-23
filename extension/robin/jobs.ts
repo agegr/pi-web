@@ -47,6 +47,17 @@ export interface JobProfile {
   sinceDays: number;
   /** Jobs below this score are never pushed. */
   minScore: number;
+  /**
+   * Hard ceiling on a posting's stated years of experience. 0 disables it.
+   *
+   * A separate gate from `minScore` because it answers a different question.
+   * The score says how well the role fits; this says whether applying is worth
+   * the stamp at all. They are not interchangeable: a role can be a perfect
+   * archetype match, score 4.5 on every other axis, and still want seven years
+   * from someone who has one — and a model asked to fold that into a single
+   * number will keep finding reasons not to.
+   */
+  maxYears: number;
   /** How many jobs one Telegram digest carries. */
   digestSize: number;
   /**
@@ -99,6 +110,17 @@ export interface Job {
   source: string;
   /** Untrusted employer-authored text, truncated. Absent unless free to fetch. */
   description?: string;
+  /**
+   * Smallest years-of-experience figure the posting states, when it states one.
+   *
+   * Read off the description by regex at merge time, not asked of the model.
+   * "Does this posting say five years" is a lookup, and a lookup that a model
+   * performs a few hundred times a night is a lookup that will silently be
+   * wrong some of the time — whereas the rubric's level cap is only as good as
+   * this number being right. Absent means the posting did not say, which is
+   * different from zero.
+   */
+  yearsRequired?: number;
   /** UTC instant, ISO 8601. */
   discoveredAt: string;
 
@@ -156,16 +178,28 @@ export const DEFAULT_JOB_PROFILE: JobProfile = {
   locationAllow: ["Remote", "United States", "San Francisco", "Bay Area"],
   locationBlock: [],
   companies: [],
-  // Two public, no-auth aggregator feeds are on from the start so the very
-  // first [SCAN] returns real postings with zero setup. Without them a fresh
-  // profile has no sources at all, and the button reports a successful scan of
-  // nothing — which is indistinguishable from the feature being broken.
-  boards: ["remoteok", "remotive"],
+  // Four public, no-auth feeds are on from the start so the very first [SCAN]
+  // returns real postings with zero setup. Without them a fresh profile has no
+  // sources at all, and the button reports a successful scan of nothing —
+  // which is indistinguishable from the feature being broken.
+  //
+  // The two community new-grad lists earn their place separately: they are the
+  // only sources here that reach employers on Workday, iCIMS and in-house
+  // portals, and the only ones that say whether a posting is still open.
+  boards: ["remoteok", "remotive", "simplify", "newgradlist"],
   blacklist: [],
   // Short on purpose: the scan runs twice a day and remembers what it has
   // already shown you, so a wide window only re-surfaces postings you passed on.
   sinceDays: 3,
-  minScore: 3.5,
+  // 4.0, not 3.5. The rubric calls 3.5–3.9 "plausible, but only with a specific
+  // reason" — the band a scorer lands on when it is not sure. Setting the push
+  // floor to the bottom of that band turns every "not sure" into a push, and in
+  // practice that is where a third of all scores pile up.
+  minScore: 4.0,
+  // Off by default: it depends entirely on where the candidate is in their
+  // career, and a shipped default would silently hide senior roles from senior
+  // people. The settings panel is where this gets a number.
+  maxYears: 0,
   digestSize: 10,
   scoreBatch: 40,
   rubricLocale: "en",
@@ -228,6 +262,17 @@ export const STARTER_COMPANIES: readonly { name: string; url: string }[] = [
   { name: "Vercel", url: "https://job-boards.greenhouse.io/vercel" },
   { name: "Linear", url: "https://jobs.ashbyhq.com/linear" },
   { name: "Ramp", url: "https://jobs.ashbyhq.com/ramp" },
+
+  // Workday tenants. Kept to a short list on purpose: Workday's public
+  // endpoint answers in about three seconds a page and pages twenty rows at a
+  // time, so one large employer costs half a minute of a scan where a
+  // Greenhouse board costs a fraction of a second. These five were chosen for
+  // Bay Area engineering volume and each returned a live board.
+  { name: "NVIDIA", url: "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite" },
+  { name: "Salesforce", url: "https://salesforce.wd12.myworkdayjobs.com/External_Career_Site" },
+  { name: "Adobe", url: "https://adobe.wd5.myworkdayjobs.com/external_experienced" },
+  { name: "Autodesk", url: "https://autodesk.wd1.myworkdayjobs.com/Ext" },
+  { name: "Workday", url: "https://workday.wd5.myworkdayjobs.com/Workday" },
 ];
 
 /* ─────────────────────────── presets ─────────────────────────── */
@@ -541,14 +586,25 @@ export function sortJobs(jobs: Job[]): Job[] {
   });
 }
 
-/** Jobs eligible for a push: scored at or above the floor, still new, not yet sent. */
+/**
+ * Jobs eligible for a push: scored at or above the floor, still new, not yet
+ * sent, and not asking for more years than the profile allows.
+ *
+ * The years check runs here rather than in the scorer because it is the last
+ * gate before a phone buzzes, and because it must hold even when the model
+ * scored the job before a description was available. A posting whose stated
+ * requirement the candidate cannot meet is not a 3.9 — it is not a push.
+ */
 export function digestCandidates(jobs: Job[], profile: JobProfile): Job[] {
+  const maxYears = profile.maxYears > 0 ? profile.maxYears : null;
   return sortJobs(
     jobs.filter((job) =>
       job.status === "new"
       && !job.notifiedAt
       && typeof job.score === "number"
-      && job.score >= profile.minScore),
+      && job.score >= profile.minScore
+      // Absent means the posting never said, which is not a reason to drop it.
+      && (maxYears === null || job.yearsRequired === undefined || job.yearsRequired <= maxYears)),
   );
 }
 
@@ -561,6 +617,108 @@ export function appliedJobs(jobs: Job[]): Job[] {
   return jobs
     .filter((job) => job.status === "applied")
     .sort((a, b) => (b.appliedAt ?? "").localeCompare(a.appliedAt ?? ""));
+}
+
+/* ────────────────── years of experience ────────────────── */
+
+/**
+ * Phrases that make a number nearby mean "experience wanted" rather than
+ * anything else a job ad counts in years.
+ */
+const EXPERIENCE_CONTEXT =
+  /experience|expertise|background|industry|professional|working|worked|build|building|develop|engineering|software|track record|hands[- ]on|relevant|similar role|in the field/i;
+
+/**
+ * Phrases that make the same number mean something else entirely.
+ *
+ * "Founded in the last 3 years", "doubled revenue over the past 5 years",
+ * "in 2 years you will own the platform" — all common in the company
+ * boilerplate that sits directly above the requirements, and all good for a
+ * confident, wrong number.
+ */
+const NOT_A_REQUIREMENT = /\b(?:last|past|next|ago|within|since|over the|founded|history|first)\s*$/i;
+
+/**
+ * A nested sub-requirement, which is a slice of the bar rather than the bar.
+ *
+ * "8+ years of engineering experience, including 2+ years managing" states one
+ * requirement, not two, and the 2 is the part that is already inside the 8.
+ */
+const NESTED = /\b(?:includ\w+|of which|with)\s*$/i;
+
+/** Wishlist framing. A number here is not something the candidate must clear. */
+const OPTIONAL = /\b(?:preferred|a plus|bonus|nice[- ]to[- ]have|ideally|desirable|advantageous|would be great)\b/i;
+
+/**
+ * A heading that reopens the hard requirements after a wishlist section.
+ *
+ * Without it, a posting laid out as "Preferred qualifications … Requirements:
+ * 3+ years" loses its real bar to the heading two paragraphs above it.
+ */
+const REQUIRED_AGAIN = /\b(?:required|requirements|must have|minimum qualification|basic qualification)\b/i;
+
+/** Index just past the last match of `pattern`, or 0 when there is none. */
+function lastMatchEnd(text: string, pattern: RegExp): number {
+  const scan = new RegExp(pattern.source, `${pattern.flags.replace("g", "")}g`);
+  let end = 0;
+  for (let match = scan.exec(text); match; match = scan.exec(text)) end = match.index + match[0].length;
+  return end;
+}
+
+/** Text up to the first clause break — where a trailing "preferred" stops applying. */
+function firstClause(text: string): string {
+  return text.split(/[;.\n•]|\s[-–]\s/)[0]?.slice(0, 60) ?? "";
+}
+
+/**
+ * The years of experience a posting actually requires, or null.
+ *
+ * The MAXIMUM of the required figures, not the minimum — a candidate has to
+ * clear every bar the posting sets, so a role wanting "5 years of engineering"
+ * and "2 years in payments" wants five, and reporting two would wave through
+ * exactly the applications this number exists to stop. Preferred-qualification
+ * figures are excluded for the mirror-image reason: "3+ required, 7+
+ * preferred" wants three.
+ *
+ * Ranges read as their lower bound ("2-4 years" → 2), because that is the
+ * number the employer will actually screen on.
+ *
+ * Deliberately conservative: it returns null rather than a shaky number,
+ * because null hands the judgement back to the scorer while a wrong number
+ * silently gates a job out. Every match must sit next to a word from
+ * EXPERIENCE_CONTEXT and must survive all three exclusions.
+ */
+export function extractYearsRequired(description: string): number | null {
+  if (!description) return null;
+  const pattern = /(\d{1,2})\s*(?:\+|plus)?\s*(?:-|–|—|to)?\s*(\d{1,2})?\s*\+?\s*(?:years?|yrs?)\b/gi;
+  let found: number | null = null;
+
+  for (let match = pattern.exec(description); match; match = pattern.exec(description)) {
+    const before = description.slice(Math.max(0, match.index - 24), match.index);
+    if (NOT_A_REQUIREMENT.test(before) || NESTED.test(before)) continue;
+
+    // A window either side: "5+ years of professional experience" puts the
+    // keyword after, "experience: 5+ years" puts it before.
+    const after = description.slice(match.index + match[0].length, match.index + match[0].length + 90);
+    if (!EXPERIENCE_CONTEXT.test(`${before} ${after}`)) continue;
+    // A trailing "preferred" only governs its own clause: in "2+ years
+    // required; 5+ years preferred" it must disqualify the 5 and leave the 2.
+    if (OPTIONAL.test(firstClause(after))) continue;
+    // Look further back for a section heading — "Preferred qualifications:" can
+    // sit a clause or two above the bullet it governs. The nearest heading is
+    // the one that governs, so anything before a later "Requirements:" is
+    // superseded and must not disqualify what follows it.
+    const behind = description.slice(Math.max(0, match.index - 140), match.index);
+    const governing = behind.slice(lastMatchEnd(behind, REQUIRED_AGAIN));
+    if (OPTIONAL.test(governing)) continue;
+
+    const low = Number(match[1]);
+    // 0 is not a requirement, and past 20 it is a typo or a company's age.
+    if (!Number.isFinite(low) || low < 1 || low > 20) continue;
+    if (found === null || low > found) found = low;
+  }
+
+  return found;
 }
 
 /** Jobs the scorer has not looked at yet, oldest first so nothing starves. */
@@ -653,8 +811,15 @@ export function describeFilters(profile: JobProfile): string[] {
  * This text is untrusted — it reaches the scorer as data. Flattening it is not
  * a security control (the tool output labels it instead); the cap is, because
  * an unbounded description would let one posting fill the model's context.
+ *
+ * 2500, not 1200. The requirements block — where "5+ years of professional
+ * experience" lives, and with it the only thing that can trigger the rubric's
+ * level cap — sits after the company boilerplate and the role summary, and a
+ * 1200-character window routinely stops short of it. Forty postings at this
+ * size is roughly 25k tokens, which at flash-model rates is a fraction of a
+ * cent per scoring round.
  */
-export function cleanDescription(raw: string, limit = 1200): string {
+export function cleanDescription(raw: string, limit = 2500): string {
   const text = raw
     .replace(/<[^>]*>/g, " ")
     .replace(/&nbsp;/g, " ")

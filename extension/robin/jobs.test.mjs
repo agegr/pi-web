@@ -9,6 +9,7 @@ import {
   buildTitleFilter,
   cleanDescription,
   digestCandidates,
+  extractYearsRequired,
   formatJobDigest,
   isBlacklisted,
   isPresetActive,
@@ -257,4 +258,85 @@ test("scoring throughput is configured apart from push size", () => {
 
 test("the scoring model is unset by default, so nothing is pinned behind your back", () => {
   assert.equal(DEFAULT_JOB_PROFILE.scoreModel, null);
+});
+
+/* ── years of experience ── */
+
+test("the years extractor reads the bar a posting actually sets", () => {
+  assert.equal(extractYearsRequired("5+ years of professional software engineering experience"), 5);
+  assert.equal(extractYearsRequired("Minimum of 4 years of relevant industry experience"), 4);
+  assert.equal(extractYearsRequired("At least 1 year of hands-on experience with Python"), 1);
+  // A range screens on its lower bound — that is the number the recruiter uses.
+  assert.equal(extractYearsRequired("You have 3-5 years of experience building distributed systems"), 3);
+  assert.equal(extractYearsRequired("2 to 4 years of professional experience"), 2);
+});
+
+test("a candidate must clear every bar, so the binding requirement is the largest", () => {
+  // Two separate requirements: engineering seniority AND domain depth.
+  assert.equal(
+    extractYearsRequired("Have at least 5 years of software engineering experience, and 2 years experience in fraud analysis"),
+    5,
+  );
+});
+
+test("a nested sub-requirement is part of the bar, not a second one", () => {
+  // The 2 is already inside the 8 — reporting it would wave through exactly
+  // the applications this number exists to stop.
+  assert.equal(
+    extractYearsRequired("Bring 8+ years of engineering experience, including 2+ years managing engineers"),
+    8,
+  );
+  assert.equal(
+    extractYearsRequired("Have 5+ years of experience in engineering, of which 3+ years in infrastructure"),
+    5,
+  );
+});
+
+test("a preferred figure is not a requirement, and only governs its own clause", () => {
+  assert.equal(extractYearsRequired("2+ years of experience required; 5+ years preferred"), 2);
+  assert.equal(extractYearsRequired("Preferred qualifications: 7+ years of industry experience"), null);
+  // A heading that reopens the hard requirements has to win over the one above it.
+  assert.equal(
+    extractYearsRequired("Preferred qualifications: strong Go. Requirements: 3+ years of professional experience"),
+    3,
+  );
+});
+
+test("years counted in a company's story are not years asked of the candidate", () => {
+  for (const text of [
+    "Founded in the last 3 years, we have grown fast",
+    "Revenue doubled over the past 5 years",
+    "We shipped this 2 years ago and never looked back",
+    "In the first 2 years you will own the platform end to end",
+    "Our team has 30 years of combined history as a company",
+  ]) {
+    assert.equal(extractYearsRequired(text), null, text);
+  }
+});
+
+test("a number with no experience wording nearby is not a requirement", () => {
+  assert.equal(extractYearsRequired("The lease runs 5 years"), null);
+  assert.equal(extractYearsRequired(""), null);
+  // Out of range: 0 is not a bar and 30 is a company's age, not a career.
+  assert.equal(extractYearsRequired("0 years of experience required"), null);
+  assert.equal(extractYearsRequired("30 years of engineering experience"), null);
+});
+
+test("the push gate drops postings asking for more years than the profile allows", () => {
+  const profile = { ...DEFAULT_JOB_PROFILE, minScore: 4, maxYears: 3 };
+  const base = { status: "new", score: 4.5, url: "https://x/1", company: "A", title: "T", location: "", source: "s", discoveredAt: "2026-01-01" };
+  const jobs = [
+    { ...base, id: "fits", yearsRequired: 3 },
+    { ...base, id: "over", yearsRequired: 5 },
+    // Silent postings stay in: not saying is not the same as asking for seven.
+    { ...base, id: "silent" },
+  ];
+  assert.deepEqual(digestCandidates(jobs, profile).map((job) => job.id).sort(), ["fits", "silent"]);
+  // Zero is the off switch, not a ceiling of zero.
+  assert.equal(digestCandidates(jobs, { ...profile, maxYears: 0 }).length, 3);
+});
+
+test("the shipped push floor sits above the band a scorer lands on when unsure", () => {
+  // The rubric calls 3.5-3.9 "plausible, but only with a specific reason".
+  assert.ok(DEFAULT_JOB_PROFILE.minScore >= 4);
 });

@@ -440,7 +440,7 @@ export function JobFilterDialog({
 
             {section === "delivery" && (
               <>
-                <div className="grid grid-cols-2 gap-3 split:grid-cols-4">
+                <div className="grid grid-cols-2 gap-3 split:grid-cols-5">
                   <Field label={t("robin.jobs.sinceDays")}>
                     <input
                       type="number"
@@ -460,6 +460,17 @@ export function JobFilterDialog({
                       step={0.1}
                       value={profile.minScore}
                       onChange={(event) => patch({ minScore: Number(event.target.value) })}
+                      className="rounded px-2 py-1 text-sm tabular-nums outline-none"
+                      style={inputStyle}
+                    />
+                  </Field>
+                  <Field label={t("robin.jobs.maxYears")}>
+                    <input
+                      type="number"
+                      min={0}
+                      max={20}
+                      value={profile.maxYears}
+                      onChange={(event) => patch({ maxYears: Number(event.target.value) })}
                       className="rounded px-2 py-1 text-sm tabular-nums outline-none"
                       style={inputStyle}
                     />

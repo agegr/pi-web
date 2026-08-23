@@ -180,6 +180,8 @@ export async function PUT(req: Request) {
       blacklist: stringList(body.blacklist, "blacklist"),
       sinceDays: number(body.sinceDays, "sinceDays", DEFAULT_JOB_PROFILE.sinceDays, 0, 365),
       minScore: number(body.minScore, "minScore", DEFAULT_JOB_PROFILE.minScore, 1, 5),
+      // 0 is the off switch, so the floor is 0 rather than 1.
+      maxYears: number(body.maxYears, "maxYears", DEFAULT_JOB_PROFILE.maxYears, 0, 20),
       digestSize: number(body.digestSize, "digestSize", DEFAULT_JOB_PROFILE.digestSize, 1, 50),
       scoreBatch: number(body.scoreBatch, "scoreBatch", DEFAULT_JOB_PROFILE.scoreBatch, 1, 40),
       rubricLocale: body.rubricLocale === "zh" ? "zh" : "en",

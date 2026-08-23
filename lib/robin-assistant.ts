@@ -73,6 +73,20 @@ export const MODES = {
     read: readJobScorerSessionId,
     write: writeJobScorerSessionId,
     timeoutMs: SCORING_TIMEOUT_MS,
+    /**
+     * Every scoring round starts from nothing.
+     *
+     * Scoring is stateless by nature — read the rubric, read the CV, read
+     * forty postings, emit forty numbers — and resuming the previous round
+     * buys nothing while costing everything: the session grew from 1.3k
+     * tokens to 163k over five nights, re-reading every posting ever scored
+     * on every subsequent turn, and descriptions make that grow several times
+     * faster. It also undoes the isolation this mode exists for, since a
+     * posting's text would otherwise sit in the history of the next round.
+     *
+     * The last session id is still recorded, so a bad batch can be traced.
+     */
+    stateless: true,
   },
   mail: {
     toolNames: [...ROBIN_MAIL_TOOL_NAMES],
@@ -242,9 +256,10 @@ export async function runAssistantTurn(
   images: Array<{ type: "image"; data: string; mimeType: string }> = [],
 ): Promise<{ reply: string; usedTools: string[]; sessionId: string }> {
   const mode = MODES[modeName];
+  const stateless = "stateless" in mode && mode.stateless === true;
   const { session, sessionId } = await acquireSession(
     [...mode.toolNames],
-    mode.read(),
+    stateless ? null : mode.read(),
     mode.write,
     modeName === "scoring" ? readJobProfile().scoreModel : null,
   );

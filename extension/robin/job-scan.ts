@@ -13,6 +13,7 @@ import {
   assertJobUrl,
   buildLocationFilter,
   buildTitleFilter,
+  extractYearsRequired,
   isBlacklisted,
   jobKey,
   type Job,
@@ -20,6 +21,7 @@ import {
   type TrackedCompany,
 } from "./jobs.ts";
 import {
+  hydrateDescriptions,
   makeFetchContext,
   resolveProvider,
   providerById,
@@ -127,6 +129,7 @@ export function mergePostings(
   now: string = new Date().toISOString(),
 ): { jobs: Job[]; added: number } {
   const seen = new Set(existing.map((job) => jobKey(job.url)));
+  const sameRole = new Set(existing.map(roleKey));
   const added: Job[] = [];
 
   for (const posting of postings) {
@@ -138,7 +141,15 @@ export function mergePostings(
     }
     const key = jobKey(url);
     if (seen.has(key)) continue;
+    // Employers re-post one opening under several posting ids — one seen here
+    // filled four slots in a ten-job digest, and the scorer's own reason line
+    // read "duplicate of its twin". The URL key cannot catch that because the
+    // ids genuinely differ; company, title and location together can.
+    const role = roleKey(posting);
+    if (sameRole.has(role)) continue;
     seen.add(key);
+    sameRole.add(role);
+    const years = posting.description ? extractYearsRequired(posting.description) : null;
     added.push({
       id: newId(),
       url,
@@ -148,12 +159,29 @@ export function mergePostings(
       ...(posting.postedAt ? { postedAt: posting.postedAt } : {}),
       source: posting.source,
       ...(posting.description ? { description: posting.description } : {}),
+      // Read once, here, rather than every time something wants to know. The
+      // description is capped, so this is the only place the full text and the
+      // number are guaranteed to agree.
+      ...(years === null ? {} : { yearsRequired: years }),
       discoveredAt: now,
       status: "new",
     });
   }
 
   return { jobs: [...existing, ...added], added: added.length };
+}
+
+/**
+ * Identity of the ROLE rather than the posting.
+ *
+ * Location is part of it deliberately: the same title at the same employer in
+ * two cities is two jobs a candidate would choose between, and collapsing
+ * those would hide one of them for good. Only an exact triple repeat is
+ * treated as the same opening posted twice.
+ */
+function roleKey(posting: { company: string; title: string; location: string }): string {
+  const flat = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+  return `${flat(posting.company)}\u0000${flat(posting.title)}\u0000${flat(posting.location)}`;
 }
 
 /** Drop stale rows you never acted on; keep everything you did. */
@@ -183,7 +211,7 @@ function enabledSources(profile: JobProfile): ScanSource[] {
         run: async () => {
           throw new Error(
             `No provider recognises ${company.url}. Supported boards: Greenhouse, Lever, Ashby, `
-            + "SmartRecruiters, Recruitee.",
+            + "SmartRecruiters, Recruitee, Workday, Workable.",
           );
         },
       });
@@ -246,6 +274,11 @@ export async function runJobScan(options: { fetchImpl?: typeof fetch; profile?: 
 
   const postings = results.flatMap((entry) => entry.postings);
   const matched = filterPostings(postings, profile);
+  // After the filters, never before. A description is what lets the scorer see
+  // the years of experience a posting asks for, and boards that only serve one
+  // per-posting are affordable exactly once the list is down to the handful
+  // that will actually be scored.
+  await hydrateDescriptions(matched, ctx);
   const merged = mergePostings(pruneJobs(readJobs()), matched);
   writeJobs(merged.jobs);
 

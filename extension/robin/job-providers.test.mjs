@@ -4,10 +4,18 @@ import { STARTER_COMPANIES } from "./jobs.ts";
 import {
   BOARD_PROVIDERS,
   COMPANY_PROVIDERS,
+  ageToDate,
+  cellLink,
+  cellText,
+  hydrateDescriptions,
   makeFetchContext,
+  markdownRows,
+  parseListings,
   providerById,
   resolveProvider,
   smartRecruitersPublicUrl,
+  workdayPostedAt,
+  workdaySite,
 } from "./job-providers.ts";
 
 const company = (over = {}) => ({ id: "c1", name: "Acme", url: "", enabled: true, ...over });
@@ -33,6 +41,9 @@ test("each supported board is recognised from its public URL", () => {
     ["https://jobs.ashbyhq.com/acme", "ashby"],
     ["https://careers.smartrecruiters.com/Acme", "smartrecruiters"],
     ["https://acme.recruitee.com/", "recruitee"],
+    ["https://acme.wd5.myworkdayjobs.com/AcmeCareers", "workday"],
+    ["https://acme.wd103.myworkdayjobs.com/en-US/AcmeCareers", "workday"],
+    ["https://apply.workable.com/acme", "workable"],
   ];
   for (const [url, expected] of cases) {
     assert.equal(resolveProvider(company({ url }))?.id, expected, url);
@@ -180,4 +191,141 @@ test("every shipped starter board routes to a provider", () => {
     assert.ok(provider, `${entry.name}: ${entry.url} routes to no provider`);
   }
   assert.ok(STARTER_COMPANIES.length >= 20, "a starter set this small would not fix the empty-scan problem");
+});
+
+/* ── Workday ── */
+
+test("a Workday careers URL yields its CXS coordinates, locale segment and all", () => {
+  assert.deepEqual(workdaySite("https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite"), {
+    origin: "https://nvidia.wd5.myworkdayjobs.com",
+    tenant: "nvidia",
+    site: "NVIDIAExternalCareerSite",
+  });
+  // A locale in front of the site id is the difference between the board and a 404.
+  assert.equal(workdaySite("https://acme.wd1.myworkdayjobs.com/en-US/External")?.site, "External");
+  assert.equal(workdaySite("https://acme.myworkdayjobs.com/External"), null);
+  assert.equal(workdaySite("http://acme.wd1.myworkdayjobs.com/External"), null);
+  assert.equal(workdaySite("https://evil.example/acme.wd1.myworkdayjobs.com/External"), null);
+});
+
+test("Workday's relative posting label becomes a date, except when it is unbounded", () => {
+  const now = Date.parse("2026-08-23T00:00:00Z");
+  assert.equal(workdayPostedAt("Posted Today", now), "2026-08-23");
+  assert.equal(workdayPostedAt("Posted Yesterday", now), "2026-08-22");
+  assert.equal(workdayPostedAt("Posted 5 Days Ago", now), "2026-08-18");
+  // "30+" is open-ended: dating it exactly 30 days back would sail a stale
+  // posting through a freshness window it should not clear.
+  assert.equal(workdayPostedAt("Posted 30+ Days Ago", now), undefined);
+  assert.equal(workdayPostedAt("", now), undefined);
+});
+
+test("a Workday posting URL round-trips back into the ref its detail endpoint wants", () => {
+  const ref = providerById("workday")?.refFromUrl?.(
+    "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Engineer_JR123",
+  );
+  assert.deepEqual(ref, { board: "nvidia/NVIDIAExternalCareerSite", id: "/job/US-CA-Santa-Clara/Engineer_JR123" });
+});
+
+/* ── markdown feeds ── */
+
+test("markdown rows are split so a pipe inside a cell cannot shift the columns", () => {
+  // Workable really does emit a department called "EU - Sales | Tech Sales".
+  const rows = markdownRows([
+    "| Title | Department | Location | Type | Salary | Posted | Details |",
+    "|-------|-----------|----------|------|--------|--------|---------|",
+    "| Engineer | EU - Sales | Tech Sales | Ely, UK | Full-time | — | 2026-07-10 | [View](https://apply.workable.com/a/jobs/view/X.md) |",
+  ].join("\n"));
+  // The header comes back too; callers drop it by requiring a link.
+  assert.equal(rows.length, 2);
+  const cells = rows[1];
+  assert.equal(cells[0], "Engineer");
+  // Counted from the right, the tail columns survive the extra pipe.
+  assert.equal(cells[cells.length - 2], "2026-07-10");
+  assert.equal(cells[cells.length - 5], "Ely, UK");
+});
+
+test("a cell gives up its link and its plain text separately", () => {
+  assert.equal(cellLink("[View](https://x.test/a.md)"), "https://x.test/a.md");
+  assert.equal(cellLink('<a href="https://x.test/b"><img src="i.png"/></a>'), "https://x.test/b");
+  assert.equal(cellLink("no link here"), "");
+  assert.equal(cellText('<a href="https://x.test"><strong>GitHub</strong></a>'), "GitHub");
+  assert.equal(cellText("[Software Engineer](https://x.test)"), "Software Engineer");
+});
+
+test("an age column becomes a date", () => {
+  const now = Date.parse("2026-08-23T12:00:00Z");
+  assert.equal(ageToDate("3d", now), "2026-08-20");
+  assert.equal(ageToDate("14h", now), "2026-08-22");
+  assert.equal(ageToDate("2w", now), "2026-08-09");
+  assert.equal(ageToDate("—", now), undefined);
+  assert.equal(ageToDate("", now), undefined);
+});
+
+/* ── community listings ── */
+
+test("a community listing keeps only rows its maintainers still call open", () => {
+  const postings = parseListings([
+    { company_name: "Acme", title: "SWE New Grad", url: "https://job-boards.greenhouse.io/acme/jobs/1", locations: ["SF", "SF"], active: true, date_posted: 1767841111 },
+    { company_name: "Dead", title: "SWE", url: "https://x.test/2", locations: ["NY"], active: false, date_posted: 1767841111 },
+    { company_name: "Hidden", title: "SWE", url: "https://x.test/3", locations: [], active: true, is_visible: false },
+  ], "Fallback");
+  assert.equal(postings.length, 1);
+  assert.equal(postings[0].company, "Acme");
+  // Duplicated locations are folded, not repeated.
+  assert.equal(postings[0].location, "SF");
+  // The epoch is in seconds — read as milliseconds this lands in 1970.
+  assert.equal(postings[0].postedAt, "2026-01-08");
+});
+
+test("a listing row with no company falls back to the feed's own name", () => {
+  const postings = parseListings(
+    [{ title: "SWE", url: "https://x.test/1", locations: ["Remote"], active: true }],
+    "SimplifyJobs",
+  );
+  assert.equal(postings[0].company, "SimplifyJobs");
+  assert.equal(postings[0].postedAt, undefined);
+});
+
+/* ── hydrate ── */
+
+test("a posting from a list with no descriptions is routed to whoever owns its ATS", async () => {
+  const asked = [];
+  const ctx = {
+    async fetchJson(url) {
+      asked.push(url);
+      return { content: "<p>5+ years of professional experience</p>" };
+    },
+    async fetchText() { return ""; },
+  };
+  const posting = {
+    title: "SWE",
+    url: "https://job-boards.greenhouse.io/acme/jobs/4461450008",
+    company: "Acme",
+    location: "SF",
+    source: "simplify",
+  };
+  await hydrateDescriptions([posting], ctx);
+  assert.equal(asked.length, 1);
+  assert.ok(asked[0].endsWith("/v1/boards/acme/jobs/4461450008"), asked[0]);
+  assert.match(posting.description, /5\+ years of professional experience/);
+});
+
+test("a posting on an ATS nobody here reads is left exactly as it arrived", async () => {
+  const ctx = {
+    async fetchJson() { throw new Error("should not be called"); },
+    async fetchText() { throw new Error("should not be called"); },
+  };
+  const posting = { title: "SWE", url: "https://careers.acme.example/jobs/7", company: "Acme", location: "SF", source: "simplify" };
+  await hydrateDescriptions([posting], ctx);
+  assert.equal(posting.description, undefined);
+});
+
+test("a board that will not serve a description costs the scan nothing", async () => {
+  const ctx = {
+    async fetchJson() { throw new Error("HTTP 503"); },
+    async fetchText() { throw new Error("HTTP 503"); },
+  };
+  const posting = { title: "SWE", url: "https://job-boards.greenhouse.io/acme/jobs/1", company: "Acme", location: "SF", source: "greenhouse", ref: { board: "acme", id: "1" } };
+  await hydrateDescriptions([posting], ctx);
+  assert.equal(posting.description, undefined);
 });

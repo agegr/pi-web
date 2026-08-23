@@ -31,7 +31,7 @@ import {
   type JobProfile,
   type TrackedCompany,
 } from "./jobs.ts";
-import { makeFetchContext, providerById, type FetchContext, type RawPosting } from "./job-providers.ts";
+import { hydrateDescriptions, makeFetchContext, providerById, type FetchContext, type RawPosting } from "./job-providers.ts";
 import { mergePostings, pruneJobs, type ScannedPosting } from "./job-scan.ts";
 import { readJobSweepState, readJobs, writeJobs, writeJobSweepState, type JobSweepState } from "./store.ts";
 
@@ -290,12 +290,35 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
   // milestone, so the same state was written six times. Track the last flush
   // instead: six identical writes are six times the disk churn for one update.
   let flushedAt = 0;
-  const flush = () => {
-    if (pending.length === 0) return;
-    const merged = mergePostings(pruneJobs(readJobs()), pending);
-    writeJobs(merged.jobs);
-    state.added += merged.added;
+  /**
+   * Flushes run one at a time.
+   *
+   * A flush now awaits a network round trip (the description pass), so two of
+   * them can interleave where the old synchronous version could not — and two
+   * interleaved flushes both read the store, both write it, and the second
+   * silently drops the first one's rows. Chaining them costs nothing here: a
+   * flush covers 250 boards and those yield a handful of matches, not a batch
+   * worth parallelising.
+   */
+  let flushing: Promise<void> = Promise.resolve();
+  const flush = (): Promise<void> => {
+    if (pending.length === 0) return flushing;
+    // Claim the batch before yielding — five other workers are still pushing.
+    const batch = pending;
     pending = [];
+    flushing = flushing.then(async () => {
+      // Only the survivors get a description fetched. Doing this during the
+      // walk instead would mean one request per posting across a quarter of a
+      // million of them.
+      await hydrateDescriptions(batch, ctx);
+      const merged = mergePostings(pruneJobs(readJobs()), batch);
+      writeJobs(merged.jobs);
+      state.added += merged.added;
+    }).catch((error) => {
+      // A failed flush loses its batch, not the sweep. The next one still runs.
+      state.error = error instanceof Error ? error.message : String(error);
+    });
+    return flushing;
   };
 
   try {
@@ -341,7 +364,7 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
           if (state.boardsDone - flushedAt >= FLUSH_EVERY) {
             const advanced = state.boardsDone - flushedAt;
             flushedAt = state.boardsDone;
-            flush();
+            await flush();
             state.cursors[plan.directory.id] = (state.cursors[plan.directory.id] ?? 0) + advanced;
             publish();
           }
@@ -353,7 +376,7 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
     state.error = error instanceof Error ? error.message : String(error);
   }
 
-  flush();
+  await flush();
   state.running = false;
   state.finishedAt = new Date().toISOString();
   publish();
