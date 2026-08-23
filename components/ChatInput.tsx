@@ -13,6 +13,7 @@ import {
   rekeyDraft as rekeyStoredDraft,
   setDraft,
   type ChatDraftImage,
+  type ChatDraftQuote,
 } from "@/lib/draft-store";
 import {
   MAX_ATTACHED_IMAGE_BYTES,
@@ -27,6 +28,7 @@ import { FolderIcon, getFileIcon } from "./FileIcons";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import type { ToolPreset } from "@/lib/tool-presets";
+import { MarkdownBody } from "./MarkdownBody";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -83,6 +85,24 @@ interface Props {
   cwd?: string | null;
 }
 
+export function formatQuotedText(text: string): string {
+  return text.trim().split("\n").map((line) => `> ${line}`).join("\n");
+}
+
+export function serializeQuotedReply(quotes: ChatDraftQuote[], comment: string): string {
+  const quoted = quotes
+    .map((quote) => formatQuotedText(quote.markdown))
+    .filter(Boolean)
+    .join("\n\n");
+  return [quoted, comment.trim()].filter(Boolean).join("\n\n");
+}
+
+function createQuoteId(): string {
+  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `quote-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export interface ChatInputHandle {
   /** Focus the editor without altering its contents or the caret. */
   focus: () => void;
@@ -90,6 +110,8 @@ export interface ChatInputHandle {
   insertIfEmpty: (text: string) => void;
   replaceMessage: (message: UserMessage) => void;
   prependText: (text: string) => void;
+  /** Attach a read-only rich quote card to the current draft. */
+  addQuote: (markdown: string) => void;
   addImages: (files: File[]) => void;
   rekeyDraft: (previousKey: string, nextKey: string) => void;
   restoreSubmission: (text: string, images?: ChatDraftImage[], targetDraftKey?: string) => void;
@@ -256,8 +278,9 @@ export function canRestoreUserMessage(
   value: string,
   attachedImageCount: number,
   pendingImageCount: number,
+  quoteCount = 0,
 ): boolean {
-  return !value.trim() && attachedImageCount === 0 && pendingImageCount === 0;
+  return !value.trim() && attachedImageCount === 0 && pendingImageCount === 0 && quoteCount === 0;
 }
 
 export function getUserMessageText(message: UserMessage): string {
@@ -408,8 +431,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
   ));
+  const [quotes, setQuotes] = useState<ChatDraftQuote[]>(() => (
+    draftKey ? getDraft(draftKey)?.quotes ?? [] : []
+  ));
   const trimmedValue = value.trimStart();
-  const bashMode = attachedImages.length === 0 && trimmedValue.startsWith("!");
+  const bashMode = attachedImages.length === 0 && quotes.length === 0 && trimmedValue.startsWith("!");
   const bashExcluded = bashMode && trimmedValue.startsWith("!!");
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [slashActiveIndex, setSlashActiveIndex] = useState(0);
@@ -450,9 +476,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const draftKeyRef = useRef(draftKey);
   const valueRef = useRef(value);
   const attachedImagesRef = useRef(attachedImages);
+  const quotesRef = useRef(quotes);
   const pendingImageCountRef = useRef(0);
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
+  quotesRef.current = quotes;
 
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
@@ -472,7 +500,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     replaceMessage(message: UserMessage) {
       const ta = textareaRef.current;
       const current = ta ? ta.value : value;
-      if (!canRestoreUserMessage(current, attachedImagesRef.current.length, pendingImageCountRef.current)) return;
+      if (!canRestoreUserMessage(current, attachedImagesRef.current.length, pendingImageCountRef.current, quotesRef.current.length)) return;
 
       const restoredText = getUserMessageText(message);
       const restoredImages = draftImagesToAttachedImages(getUserMessageDraftImages(message));
@@ -510,6 +538,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
     },
+    addQuote(markdown: string) {
+      const normalized = markdown.trim();
+      if (!normalized) return;
+      const next = [...quotesRef.current, { id: createQuoteId(), markdown: normalized }];
+      quotesRef.current = next;
+      setQuotes(next);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    },
     rekeyDraft(previousKey: string, nextKey: string) {
       if (previousKey === nextKey) return;
       if (draftKeyRef.current !== previousKey) {
@@ -520,6 +556,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       const currentDraft = {
         value: valueRef.current,
         images: attachedImagesRef.current.map(imageToDraftImage),
+        quotes: quotesRef.current,
       };
       const moved = rekeyStoredDraft(previousKey, nextKey, currentDraft) ?? { value: "", images: [] };
       const unchanged = moved.value === currentDraft.value
@@ -527,6 +564,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         && moved.images.every((image, index) => (
           image.data === currentDraft.images[index]?.data
           && image.mimeType === currentDraft.images[index]?.mimeType
+        ))
+        && (moved.quotes?.length ?? 0) === currentDraft.quotes.length
+        && (moved.quotes ?? []).every((quote, index) => (
+          quote.id === currentDraft.quotes[index]?.id
+          && quote.markdown === currentDraft.quotes[index]?.markdown
         ));
       draftKeyRef.current = nextKey;
       if (unchanged) return;
@@ -534,7 +576,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       const movedImages = draftImagesToAttachedImages(moved.images);
       valueRef.current = moved.value;
       attachedImagesRef.current = movedImages;
+      quotesRef.current = moved.quotes ?? [];
       setValue(moved.value);
+      setQuotes(moved.quotes ?? []);
       setAttachedImages((current) => {
         current.forEach(revokeImagePreview);
         return movedImages;
@@ -562,6 +606,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           ? attachedImagesRef.current.map(imageToDraftImage)
           : (storedDraft?.images ?? []),
       );
+      restoredDraft.quotes = targetsCurrentComposer ? quotesRef.current : storedDraft?.quotes;
       // The first optimistic message switches ChatWindow out of its empty-state
       // layout and remounts this component. Persist synchronously so recovery is
       // not lost if this instance is the one being unmounted.
@@ -695,9 +740,26 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     });
   }, []);
 
+  const removeQuote = useCallback((id: string) => {
+    const next = quotesRef.current.filter((quote) => quote.id !== id);
+    quotesRef.current = next;
+    setQuotes(next);
+  }, []);
+
+  const moveQuote = useCallback((index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= quotesRef.current.length) return;
+    const next = [...quotesRef.current];
+    [next[index], next[target]] = [next[target], next[index]];
+    quotesRef.current = next;
+    setQuotes(next);
+  }, []);
+
   const clearInput = useCallback(() => {
     valueRef.current = "";
+    quotesRef.current = [];
     setValue("");
+    setQuotes([]);
     setAtQuery(null);
     setHistoryMenuOpen(false);
     if (draftKey) clearDraft(draftKey);
@@ -713,8 +775,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     setDraft(draftKey, {
       value,
       images: attachedImages.map(imageToDraftImage),
+      quotes,
     });
-  }, [attachedImages, draftKey, value]);
+  }, [attachedImages, draftKey, quotes, value]);
 
   useEffect(() => {
     const previousDraftKey = draftKeyRef.current;
@@ -724,6 +787,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       setDraft(previousDraftKey, {
         value: valueRef.current,
         images: attachedImagesRef.current.map(imageToDraftImage),
+        quotes: quotesRef.current,
       });
     }
 
@@ -731,9 +795,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     draftKeyRef.current = draftKey;
     const nextValue = draft?.value ?? "";
     const nextImages = draftImagesToAttachedImages(draft?.images);
+    const nextQuotes = draft?.quotes ?? [];
     valueRef.current = nextValue;
     attachedImagesRef.current = nextImages;
+    quotesRef.current = nextQuotes;
     setValue(nextValue);
+    setQuotes(nextQuotes);
     setAtQuery(null);
     setHistoryMenuOpen(false);
     setAttachedImages((prev) => {
@@ -756,7 +823,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, []);
 
   const handleSend = useCallback(async () => {
-    const msg = value.trim();
+    const msg = serializeQuotedReply(quotes, value);
     if (!msg && !attachedImages.length) return;
     if (isStreaming) return;
     onAudioUnlock?.();
@@ -769,7 +836,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
     clearInput();
     onSend(msg, attachedImages.length ? attachedImages : undefined);
-  }, [value, attachedImages, isStreaming, onBuiltinCommand, onSend, clearInput, onAudioUnlock]);
+  }, [value, quotes, attachedImages, isStreaming, onBuiltinCommand, onSend, clearInput, onAudioUnlock]);
 
   const slashQuery = value.startsWith("/") && !/\s/.test(value.slice(1))
     ? value.slice(1).toLowerCase()
@@ -800,7 +867,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const slashCommandCountLabel = filteredSlashCommands.length === 1
     ? t(slashQuery ? "chat.match" : "chat.command")
     : t(slashQuery ? "chat.matches" : "chat.commands", { count: filteredSlashCommands.length });
-  const hasInputText = Boolean(value.trim());
+  const hasInputText = Boolean(value.trim()) || quotes.length > 0;
   const canQueueStreamingMessage = hasInputText || attachedImages.length > 0;
 
   // ── @ file autocomplete ──────────────────────────────────────────────────
@@ -986,7 +1053,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, []);
 
   const sendQueued = useCallback((mode: "steer" | "followup") => {
-    const msg = value.trim();
+    const msg = serializeQuotedReply(quotes, value);
     if (!msg && !attachedImages.length) return;
     onAudioUnlock?.();
     const streamingBehavior = mode === "steer" ? "steer" : "followUp";
@@ -1001,7 +1068,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     } else if (mode === "followup" && onFollowUp) {
       onFollowUp(msg, attachedImages.length ? attachedImages : undefined);
     }
-  }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock]);
+  }, [value, quotes, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = displayedSlashCommands.length - 1;
@@ -1534,6 +1601,25 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           </div>
         )}
 
+        {/* Read-only rich quote attachments. The textarea stays plain and
+            reliable; quotes retain the response's rendered Markdown here. */}
+        {quotes.length > 0 && (
+          <div aria-label={t("chat.quotedSections")} style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 7 }}>
+            {quotes.map((quote, index) => (
+              <div key={quote.id} style={{ display: "flex", gap: 7, padding: "7px 8px 7px 10px", border: "1px solid var(--border)", borderLeft: "3px solid var(--accent)", borderRadius: 7, background: "var(--bg-panel)", maxHeight: 150, overflow: "auto" }}>
+                <div style={{ minWidth: 0, flex: 1, fontSize: 12, lineHeight: 1.45 }}>
+                  <MarkdownBody cwd={cwd ?? undefined}>{quote.markdown}</MarkdownBody>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", flexShrink: 0, gap: 2 }}>
+                  <button type="button" onClick={() => moveQuote(index, -1)} disabled={index === 0} title={t("chat.moveQuoteUp")} aria-label={t("chat.moveQuoteUp")} style={{ width: 22, height: 20, border: 0, borderRadius: 4, background: "transparent", color: "var(--text-dim)", cursor: index === 0 ? "default" : "pointer", opacity: index === 0 ? 0.3 : 1 }}>↑</button>
+                  <button type="button" onClick={() => moveQuote(index, 1)} disabled={index === quotes.length - 1} title={t("chat.moveQuoteDown")} aria-label={t("chat.moveQuoteDown")} style={{ width: 22, height: 20, border: 0, borderRadius: 4, background: "transparent", color: "var(--text-dim)", cursor: index === quotes.length - 1 ? "default" : "pointer", opacity: index === quotes.length - 1 ? 0.3 : 1 }}>↓</button>
+                  <button type="button" onClick={() => removeQuote(quote.id)} title={t("chat.removeQuote")} aria-label={t("chat.removeQuote")} style={{ width: 22, height: 20, border: 0, borderRadius: 4, background: "transparent", color: "var(--text-dim)", cursor: "pointer" }}>×</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Main input */}
         <div style={{ position: "relative", minWidth: 0 }}>
           {historyMenuOpen && inputHistory.length > 0 && (
@@ -1916,6 +2002,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               isStreaming && (onSteer || onFollowUp)
                 ? t("chat.steerPlaceholder")
                 : isStreaming ? t("chat.agentPlaceholder")
+                : quotes.length > 0 ? t("chat.quoteCommentPlaceholder")
                 : t("chat.messagePlaceholder")
             }
             rows={1}
@@ -1990,21 +2077,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           ) : (
             <button
               onClick={handleSend}
-              disabled={!value.trim() && !attachedImages.length}
+              disabled={!hasInputText && !attachedImages.length}
               style={{
                 flexShrink: 0,
                 alignSelf: "flex-end",
                 display: "flex", alignItems: "center", gap: 6,
                 padding: "7px 14px",
-                background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
+                background: (hasInputText || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
                 border: "none",
                 borderRadius: 8,
-                color: (value.trim() || attachedImages.length) ? "#fff" : "var(--text-dim)",
-                cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
+                color: (hasInputText || attachedImages.length) ? "#fff" : "var(--text-dim)",
+                cursor: (hasInputText || attachedImages.length) ? "pointer" : "not-allowed",
                 fontSize: 13,
                 fontWeight: 600,
                 letterSpacing: "-0.01em",
-                boxShadow: (value.trim() || attachedImages.length) ? "0 1px 3px rgba(37,99,235,0.25)" : "none",
+                boxShadow: (hasInputText || attachedImages.length) ? "0 1px 3px rgba(37,99,235,0.25)" : "none",
                 transition: "background 0.15s, box-shadow 0.15s",
               }}
             >
