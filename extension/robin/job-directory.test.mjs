@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DIRECTORIES, directoryById, prettifySlug, withinWindow } from "./job-directory.ts";
+import { DIRECTORIES, directoryById, prettifySlug } from "./job-directory.ts";
 
 test("dataset slugs are refused unless they are safe to put in a URL", () => {
   // The board list is third-party crowd-sourced input that ends up
@@ -59,16 +59,6 @@ test("only the directory whose tenants are separate hosts runs wider than the sh
     if (directory.id === "workday") assert.ok((directory.concurrency ?? 0) > 6, directory.id);
     else assert.equal(directory.concurrency, undefined, directory.id);
   }
-});
-
-test("a reverse sweep drops undated postings, unlike the forward scan", () => {
-  // The forward scan keeps them — a board that omits dates omits them for
-  // every row. Here the whole question is "what appeared recently", so an
-  // undated backlog across 15,000 boards would bury the answer.
-  assert.equal(withinWindow({ postedAt: "2026-08-17" }, "2026-08-11"), true);
-  assert.equal(withinWindow({ postedAt: "2026-08-01" }, "2026-08-11"), false);
-  assert.equal(withinWindow({ postedAt: undefined }, "2026-08-11"), false);
-  assert.equal(withinWindow({ postedAt: undefined }, null), true, "no window means no date gate");
 });
 
 test("board slugs are tidied for display without pretending to be real names", () => {

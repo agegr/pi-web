@@ -6,6 +6,12 @@
  * what I do" — and it is the only one of the two that can surface an employer
  * you had never heard of.
  *
+ * Only the discovery half lives here: walking the directories, resuming from a
+ * cursor, budgeting a night's work and reporting progress. What happens to a
+ * posting once a board hands it over — admission, descriptions, dedupe,
+ * retention, persistence — is ./job-intake.ts, shared with the forward scan so
+ * the two cannot drift.
+ *
  * Ported from career-ops's `scan-ats-full.mjs` (MIT, github.com/santifer/
  * career-ops), including the part that makes it possible at all: neither
  * Greenhouse nor Lever nor Ashby publishes a list of its customers, so the
@@ -19,21 +25,21 @@
  * ATS's own hostname. A tampered dataset can therefore name boards that do not
  * exist — it cannot point this scanner at another host.
  *
- * Server-only: reaches node:fs through ./store.ts and ./paths.ts.
+ * Server-only: reaches node:fs through ./job-intake.ts, ./store.ts and
+ * ./paths.ts.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { dataDir } from "./paths.ts";
+import { type JobProfile, type TrackedCompany } from "./jobs.ts";
 import {
-  buildLocationFilter,
-  buildTitleFilter,
-  isBlacklisted,
-  type JobProfile,
-  type TrackedCompany,
-} from "./jobs.ts";
-import { hydrateDescriptions, makeFetchContext, providerById, type FetchContext, type RawPosting } from "./job-providers.ts";
-import { mergePostings, pruneJobs, type ScannedPosting } from "./job-scan.ts";
-import { readJobSweepState, readJobs, writeJobs, writeJobSweepState, type JobSweepState } from "./store.ts";
+  absorb,
+  compileAdmission,
+  freshnessCutoff,
+  type ScannedPosting,
+} from "./job-intake.ts";
+import { makeFetchContext, providerById, type FetchContext } from "./job-providers.ts";
+import { readJobSweepState, writeJobSweepState, type JobSweepState } from "./store.ts";
 
 const DATASET_BASE = "https://raw.githubusercontent.com/Feashliaa/job-board-aggregator/main/data";
 
@@ -246,20 +252,6 @@ export async function loadDirectory(
   return { slugs: [], status: "empty" };
 }
 
-/**
- * A reverse sweep keeps only postings it can date.
- *
- * The forward scan keeps undated ones, because a board that omits dates omits
- * them for every row and dropping them would switch that company off entirely.
- * Here the logic inverts: the whole point is "what appeared recently", and
- * fifteen thousand boards' worth of undated backlog would bury it.
- */
-export function withinWindow(posting: RawPosting, cutoff: string | null): boolean {
-  if (!cutoff) return true;
-  if (!posting.postedAt) return false;
-  return posting.postedAt >= cutoff;
-}
-
 export interface SweepOptions {
   profile: JobProfile;
   /** Directory ids to walk. Defaults to all of them. */
@@ -291,15 +283,12 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
   } = options;
 
   const ctx: FetchContext = makeFetchContext(fetchImpl);
-  const matchesTitle = buildTitleFilter(profile.titles, profile.excludeTitles);
-  const matchesLocation = buildLocationFilter({
-    always: profile.locationAlways,
-    allow: profile.locationAllow,
-    block: profile.locationBlock,
-  });
-  const cutoff = profile.sinceDays > 0
-    ? new Date(Date.now() - profile.sinceDays * 86_400_000).toISOString().slice(0, 10)
-    : null;
+  // "drop": here the question is "what appeared recently", and twenty thousand
+  // boards' worth of undated backlog would bury the answer. The forward scan
+  // passes "keep" for the opposite and equally good reason.
+  const rules = { profile, undated: "drop" as const };
+  const admits = compileAdmission(rules);
+  const cutoff = freshnessCutoff(profile.sinceDays);
 
   const state: JobSweepState = {
     startedAt: new Date().toISOString(),
@@ -367,13 +356,7 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
     const batch = pending;
     pending = [];
     flushing = flushing.then(async () => {
-      // Only the survivors get a description fetched. Doing this during the
-      // walk instead would mean one request per posting across a quarter of a
-      // million of them.
-      await hydrateDescriptions(batch, ctx, { readUnknownBoards: profile.readUnknownBoards });
-      const merged = mergePostings(pruneJobs(readJobs()), batch);
-      writeJobs(merged.jobs);
-      state.added += merged.added;
+      state.added += (await absorb(batch, rules, ctx)).added;
     }).catch((error) => {
       // A failed flush loses its batch, not the sweep. The next one still runs.
       state.error = error instanceof Error ? error.message : String(error);
@@ -409,10 +392,7 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
               const postings = await provider.fetch(company, ctx);
               state.scanned += postings.length;
               for (const posting of postings) {
-                if (!withinWindow(posting, cutoff)) continue;
-                if (matchesTitle(posting.title) === null) continue;
-                if (!matchesLocation(posting.location)) continue;
-                if (isBlacklisted(posting.company, profile.blacklist)) continue;
+                if (!admits(posting)) continue;
                 pending.push({ ...posting, source: provider.id });
                 state.matched += 1;
                 record.matched += 1;

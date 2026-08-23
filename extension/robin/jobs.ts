@@ -4,8 +4,9 @@
  * Pure logic only, no node builtins: the jobs page and the dashboard panel
  * import `sortJobs`, `describeFilters` and the types directly, and a `node:fs`
  * anywhere in this module's graph fails the browser bundle. Network access
- * lives in ./job-providers.ts, orchestration in ./job-scan.ts, and persistence
- * in ./store.ts.
+ * lives in ./job-providers.ts, discovery in ./job-scan.ts and
+ * ./job-directory.ts, everything between discovery and the store in
+ * ./job-intake.ts, and persistence in ./store.ts.
  *
  * The filter semantics are ported from career-ops (MIT, github.com/santifer/
  * career-ops) — `scan.mjs`'s title/location filters. Two behaviours are worth

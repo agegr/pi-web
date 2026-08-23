@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { DEFAULT_JOB_PROFILE } from "./jobs.ts";
-import { filterPostings, mergePostings, pruneJobs, runJobScan } from "./job-scan.ts";
+import { runJobScan } from "./job-scan.ts";
+
+// Admission, dedupe, retention and persistence are shared with the directory
+// sweep and are tested once, against ./job-intake.ts. What is left here is
+// what only this module does: turning a profile into sources, and reporting
+// what each of them did.
 
 // runJobScan persists through ./store.ts, which resolves its directory per
 // call from ROBIN_DATA_DIR. Without this the suite writes into the developer's
@@ -16,102 +21,6 @@ after(() => rmSync(dataDir, { recursive: true, force: true }));
 
 const profile = (over = {}) => ({ ...DEFAULT_JOB_PROFILE, ...over });
 
-const posting = (over = {}) => ({
-  title: "Senior AI Engineer",
-  url: "https://boards.example.com/acme/jobs/1",
-  company: "Acme",
-  location: "Remote (US)",
-  source: "greenhouse",
-  ...over,
-});
-
-const days = (n) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
-
-test("filterPostings applies title, location, blacklist and freshness together", () => {
-  const kept = filterPostings([
-    posting({ title: "Senior AI Engineer" }),
-    posting({ title: "Sales Development Rep", url: "https://x/2" }),
-    posting({ title: "AI Engineer", location: "Pune, India", url: "https://x/3" }),
-    posting({ title: "AI Engineer", company: "Ghostly Inc", url: "https://x/4" }),
-    posting({ title: "AI Engineer", url: "https://x/5", postedAt: days(90) }),
-    posting({ title: "AI Engineer", url: "https://x/6", postedAt: days(2) }),
-  ], profile({
-    titles: ["engineer"],
-    locationBlock: ["India"],
-    blacklist: ["Ghostly"],
-    sinceDays: 14,
-  }));
-
-  assert.deepEqual(kept.map((entry) => entry.url), [
-    "https://boards.example.com/acme/jobs/1",
-    "https://x/6",
-  ]);
-});
-
-test("a posting with no date survives the freshness window", () => {
-  // Boards that omit the date omit it for every row, so dropping undated
-  // postings would silently switch those sources off entirely.
-  const kept = filterPostings([posting({ postedAt: undefined })], profile({ sinceDays: 1 }));
-  assert.equal(kept.length, 1);
-});
-
-test("sinceDays 0 turns the freshness window off", () => {
-  const kept = filterPostings([posting({ postedAt: "2019-01-01" })], profile({ sinceDays: 0 }));
-  assert.equal(kept.length, 1);
-});
-
-test("merging never resurrects or overwrites a job you already acted on", () => {
-  const existing = [{
-    id: "old",
-    url: "https://boards.example.com/acme/jobs/1",
-    company: "Acme",
-    title: "Senior AI Engineer",
-    location: "Remote (US)",
-    source: "greenhouse",
-    discoveredAt: "2026-08-01T00:00:00.000Z",
-    status: "dropped",
-    score: 2.1,
-    notifiedAt: "2026-08-01T08:00:00.000Z",
-  }];
-
-  const { jobs, added } = mergePostings(existing, [
-    posting(),                                   // same URL, different casing below
-    posting({ url: "https://BOARDS.example.com/acme/jobs/1/" }),
-    posting({ url: "https://boards.example.com/acme/jobs/2", title: "Staff Engineer" }),
-  ]);
-
-  assert.equal(added, 1, "the two spellings of job 1 are one job, and it was already known");
-  assert.equal(jobs.length, 2);
-  assert.deepEqual(
-    { status: jobs[0].status, score: jobs[0].score, notifiedAt: jobs[0].notifiedAt },
-    { status: "dropped", score: 2.1, notifiedAt: "2026-08-01T08:00:00.000Z" },
-  );
-  assert.equal(jobs[1].status, "new");
-});
-
-test("merging drops a posting whose URL is not safe to render", () => {
-  const { jobs, added } = mergePostings([], [
-    posting({ url: "javascript:alert(1)" }),
-    posting({ url: "not a url" }),
-    posting({ url: "https://ok.example/1" }),
-  ]);
-  assert.equal(added, 1);
-  assert.equal(jobs[0].url, "https://ok.example/1");
-});
-
-test("pruning keeps anything you shortlisted or applied to, however old", () => {
-  const now = Date.parse("2026-08-18T00:00:00.000Z");
-  const stale = "2026-01-01T00:00:00.000Z";
-  const kept = pruneJobs([
-    { id: "old-new", status: "new", discoveredAt: stale },
-    { id: "old-shortlist", status: "shortlist", discoveredAt: stale },
-    { id: "old-applied", status: "applied", discoveredAt: stale },
-    { id: "recent", status: "new", discoveredAt: "2026-08-17T00:00:00.000Z" },
-  ], now);
-
-  assert.deepEqual(kept.map((entry) => entry.id), ["old-shortlist", "old-applied", "recent"]);
-});
-
 test("a profile with no sources scans nothing and says so through its source list", async () => {
   // The failure mode this guards: zero sources finishes in milliseconds and
   // reports 0/0/0, which on screen is indistinguishable from "nothing new
@@ -122,6 +31,51 @@ test("a profile with no sources scans nothing and says so through its source lis
   });
   assert.deepEqual(result.sources, []);
   assert.equal(result.scanned, 0);
+});
+
+test("a company on a board nobody recognises fails alone, by name", async () => {
+  const result = await runJobScan({
+    profile: profile({
+      companies: [{ id: "c1", name: "Acme", url: "https://careers.acme.example", enabled: true }],
+      boards: [],
+    }),
+    fetchImpl: async () => { throw new Error("no request should have been made"); },
+  });
+  assert.equal(result.sources.length, 1);
+  assert.equal(result.sources[0].name, "Acme");
+  assert.match(result.sources[0].error, /No provider recognises/);
+  assert.equal(result.scanned, 0);
+});
+
+test("one board being down does not cost you the others", async () => {
+  const result = await runJobScan({
+    profile: profile({
+      companies: [
+        { id: "up", name: "Up", url: "https://job-boards.greenhouse.io/up", enabled: true },
+        { id: "down", name: "Down", url: "https://job-boards.greenhouse.io/down", enabled: true },
+        // Disabled companies are not sources at all, not failed ones.
+        { id: "off", name: "Off", url: "https://job-boards.greenhouse.io/off", enabled: false },
+      ],
+      boards: [],
+      titles: [],
+      sinceDays: 0,
+    }),
+    fetchImpl: async (url) => {
+      if (String(url).includes("/down/")) return { ok: false, status: 503, json: async () => ({}) };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ jobs: [{ id: 7, title: "AI Engineer", absolute_url: "https://x/7", location: { name: "Remote" } }] }),
+      };
+    },
+  });
+
+  const byName = Object.fromEntries(result.sources.map((source) => [source.name, source]));
+  assert.equal(Object.keys(byName).length, 2, "a disabled company is not a source");
+  assert.equal(byName.Up.count, 1);
+  assert.equal(byName.Down.count, 0);
+  assert.match(byName.Down.error, /503/);
+  assert.equal(result.scanned, 1);
 });
 
 test("the shipped defaults come with sources, so the first scan is not a no-op", () => {
