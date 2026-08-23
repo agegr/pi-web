@@ -36,7 +36,9 @@ export async function GET(
     const searchParams = new URL(req.url).searchParams;
     const deferThinking = searchParams.has("deferThinking");
     const deferToolResultImages = searchParams.has("deferMedia");
-    const context = buildSessionContext(entries as never, leafId, { deferThinking, deferToolResultImages });
+    const rawTail = Number(searchParams.get("tail"));
+    const tail = Number.isFinite(rawTail) && rawTail > 0 ? Math.min(rawTail, 1000) : 50;
+    const context = buildSessionContext(entries as never, leafId, { deferThinking, deferToolResultImages, tail });
     const totalActiveMs = computeSessionTotalActiveMs(entries);
 
     const header = sm.getHeader();
