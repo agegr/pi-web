@@ -8,10 +8,12 @@ import {
   secretsPath,
   setDailyAgenda,
   setGmailDigest,
-  setJobDigest,
   setGoogleCredentials,
+  setJobDigest,
+  setReminders,
   setTelegramChatIds,
   setTelegramToken,
+  setTranscription,
   telegramSettings,
 } from "@/extension/robin/settings";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
@@ -67,6 +69,8 @@ export async function POST(req: Request) {
       dailyAgenda?: unknown;
       jobDigest?: unknown;
       gmailDigest?: unknown;
+      reminders?: unknown;
+      transcription?: unknown;
     };
 
     if (body.section === "google") {
@@ -125,6 +129,33 @@ export async function POST(req: Request) {
               : [],
           query: typeof digest.query === "string" ? digest.query.trim() : "",
         });
+      }
+      if (typeof body.reminders === "object" && body.reminders !== null) {
+        const reminders = body.reminders as Record<string, unknown>;
+        setReminders({
+          enabled: reminders.enabled === true,
+          lead: Number(reminders.lead),
+          locale: reminders.locale === "zh" ? "zh" : "en",
+          chatIds: typeof reminders.chatIds === "string"
+            ? parseChatIds(reminders.chatIds)
+            : Array.isArray(reminders.chatIds)
+              ? reminders.chatIds.filter((id): id is number => Number.isInteger(id))
+              : [],
+        });
+      }
+      if (typeof body.transcription === "object" && body.transcription !== null) {
+        const transcription = body.transcription as Record<string, unknown>;
+        // An absent key means "leave the stored one alone", matching how the
+        // bot token behaves; an empty string is an explicit clear.
+        const apiKey = typeof transcription.apiKey === "string" ? transcription.apiKey : undefined;
+        setTranscription(
+          {
+            enabled: transcription.enabled === true,
+            baseUrl: typeof transcription.baseUrl === "string" ? transcription.baseUrl : "",
+            model: typeof transcription.model === "string" ? transcription.model : "",
+          },
+          apiKey,
+        );
       }
       return NextResponse.json({ telegram: describeTelegram() });
     }

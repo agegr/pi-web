@@ -66,6 +66,25 @@ export interface Directory {
   dataset: string;
   /** Turn a dataset entry into a company, or null if it is not usable. */
   toCompany: (entry: string) => TrackedCompany | null;
+  /**
+   * In-flight requests for this directory. Defaults to the shared, cautious
+   * number, which exists because Greenhouse, Lever and Ashby each serve their
+   * whole customer base from one hostname.
+   */
+  concurrency?: number;
+  /**
+   * Boards to read per unattended run, when the caller names no limit.
+   *
+   * A budget, not a cap on coverage: the run resumes from a cursor, so
+   * successive nights walk successive slices and the whole directory is still
+   * read — just over several nights instead of one. That is only sound
+   * because the freshness window is wider than the rotation: a posting stays
+   * eligible for days, so a board visited every third night cannot hide one.
+   *
+   * Absent means "the whole directory every night", which is right for the
+   * three that finish in minutes.
+   */
+  nightlyLimit?: number;
 }
 
 /**
@@ -125,6 +144,44 @@ export const DIRECTORIES: readonly Directory[] = [
     toCompany: (slug) => (SLUG_RE.test(slug)
       ? onHost(slug, `https://jobs.ashbyhq.com/${slug}`, (host) => host === "jobs.ashbyhq.com")
       : null),
+  },
+  {
+    // The largest of the four by a distance: on a sample of three thousand
+    // active early-career postings, Workday carried more than Greenhouse,
+    // Ashby and Lever combined. Its entries are "tenant|instance|site"
+    // triples rather than bare slugs, and each tenant is its own hostname —
+    // which is also why it is the one directory that may run wider than the
+    // shared limit. About half the triples are stale and answer 422; that is
+    // the dataset's age showing, and it is counted as unreachable like any
+    // other dead board.
+    id: "workday",
+    label: "Workday",
+    providerId: "workday",
+    dataset: `${DATASET_BASE}/workday_companies.json`,
+    concurrency: 12,
+    // Twelve thousand tenants at roughly two hundred milliseconds each is
+    // three quarters of an hour, against ten minutes for the other three
+    // directories combined — and Workday's yield per board is lower, because
+    // most of its tenants are not software employers. A third a night keeps
+    // the nightly run near a quarter of an hour and still sees every board
+    // inside a seven-day freshness window.
+    nightlyLimit: 4500,
+    toCompany: (entry) => {
+      const parts = entry.split("|");
+      // Exactly three, not at least three. A malformed entry is a reason to
+      // skip a board, never to quietly use the first three fields of it.
+      if (parts.length !== 3) return null;
+      const [tenant, instance, site] = parts;
+      if (!tenant || !instance || !site) return null;
+      // Tighter than SLUG_RE, which permits dots: a tenant or instance
+      // carrying one produces "acme.evil.com.wd5.myworkdayjobs.com", still
+      // locked to Workday but not a board that exists. The provider's own host
+      // check rejects it on arrival — this just declines to spend the request.
+      if (![tenant, instance].every((part) => /^[A-Za-z0-9][A-Za-z0-9-]*$/.test(part))) return null;
+      if (!SLUG_RE.test(site)) return null;
+      const host = `${tenant}.${instance}.myworkdayjobs.com`;
+      return onHost(tenant, `https://${host}/${site}`, (hostname) => hostname === host);
+    },
   },
 ];
 
@@ -272,7 +329,10 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
     // rather than silently scanning nothing.
     const cursor = previous[directory.id] ?? 0;
     const start = cursor >= slugs.length ? 0 : cursor;
-    const window = slugs.slice(start, start + (limit === Infinity ? slugs.length : limit));
+    // An explicit limit is the caller's business; otherwise the directory's
+    // own nightly budget applies, and the cursor carries the rest to tomorrow.
+    const budget = limit === Infinity ? directory.nightlyLimit ?? slugs.length : limit;
+    const window = slugs.slice(start, start + budget);
     plans.push({ directory, slugs: window });
     state.cursors[directory.id] = start;
     state.directories.push({ id: directory.id, label: directory.label, status, boards: window.length, matched: 0 });
@@ -328,7 +388,8 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
       if (!provider || !record) continue;
 
       let next = 0;
-      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, plan.slugs.length) }, async () => {
+      const inFlight = Math.min(plan.directory.concurrency ?? CONCURRENCY, plan.slugs.length);
+      await Promise.all(Array.from({ length: inFlight }, async () => {
         for (;;) {
           if (signal?.aborted) return;
           const index = next;
@@ -336,7 +397,10 @@ export async function runDirectorySweep(options: SweepOptions): Promise<JobSweep
           const slug = plan.slugs[index];
           if (slug === undefined) return;
 
-          const company = plan.directory.toCompany(slug);
+          const base = plan.directory.toCompany(slug);
+          // Providers that page in date order can stop early with this; the
+          // rest ignore it and are filtered downstream exactly as before.
+          const company = base && cutoff ? { ...base, since: cutoff } : base;
           state.boardsDone += 1;
           if (!company) {
             state.unreachable += 1;

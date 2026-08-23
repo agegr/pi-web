@@ -21,6 +21,15 @@ export interface TrackedCompany {
   url: string;
   /** Skip URL-based detection and force this provider id. */
   provider?: string;
+  /**
+   * Sweep-mode hint: nothing published before this date (YYYY-MM-DD) is wanted.
+   *
+   * Only providers that page a board in date order can act on it, and only
+   * Workday does — but for Workday it is the difference between reading two
+   * thousand postings from one employer and reading the twenty that are new.
+   * Everyone else ignores it; the real freshness filter still runs downstream.
+   */
+  since?: string;
   enabled: boolean;
 }
 

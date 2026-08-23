@@ -3,6 +3,7 @@ import {
   localDate,
   newId,
   normalizeDue,
+  normalizeTodoColor,
   readTodos,
   writeTodos,
   type Todo,
@@ -71,7 +72,13 @@ export async function PATCH(req: Request) {
   const blocked = guard(req, true);
   if (blocked) return blocked;
   try {
-    const body = await req.json() as { id?: unknown; done?: unknown; title?: unknown; due?: unknown };
+    const body = await req.json() as {
+      id?: unknown;
+      done?: unknown;
+      title?: unknown;
+      due?: unknown;
+      color?: unknown;
+    };
     if (typeof body.id !== "string") return fail(new Error("id is required"));
 
     const todos = readTodos();
@@ -87,6 +94,10 @@ export async function PATCH(req: Request) {
     if (typeof body.due === "string") {
       if (body.due.trim()) todo.due = normalizeDue(body.due);
       else delete todo.due;
+    }
+    if (typeof body.color === "string") {
+      if (body.color.trim()) todo.color = normalizeTodoColor(body.color);
+      else delete todo.color;
     }
 
     writeTodos(todos);

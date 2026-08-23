@@ -9,6 +9,7 @@ import {
   writeJobs,
   type Job,
 } from "@/extension/robin/store";
+import { findDeadPostings, makeFetchContext } from "@/extension/robin/job-providers";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +36,50 @@ export const dynamic = "force-dynamic";
  * batch was never claimed, so the next slot offers the same jobs again rather
  * than silently skipping ten of them.
  */
+/**
+ * How many rounds of "drop the dead ones and pull in replacements".
+ *
+ * Two. If a third of a batch is dead the boards are having a bad day, and
+ * grinding through the whole backlog looking for ten live links is a worse
+ * outcome than sending eight.
+ */
+const REFILL_ROUNDS = 2;
+
+/**
+ * The next `limit` candidates, minus the ones whose postings have closed.
+ *
+ * Checked here rather than during the scan because this is the only moment it
+ * matters: a stale row in the store costs nothing until it becomes a
+ * notification someone taps and lands on a 404, and four of the first
+ * sixty-five pushes this feature sent were already dead when they went out.
+ *
+ * A posting confirmed gone is marked `dropped`, so the next push does not
+ * spend a slot rediscovering it. Only confirmed verdicts count — a board that
+ * timed out leaves its posting exactly where it was.
+ */
+async function liveBatch(jobs: Job[], candidates: Job[], limit: number): Promise<Job[]> {
+  const ctx = makeFetchContext();
+  const live: Job[] = [];
+  const closed = new Set<string>();
+  let cursor = 0;
+
+  for (let round = 0; round < REFILL_ROUNDS && live.length < limit && cursor < candidates.length; round += 1) {
+    const attempt = candidates.slice(cursor, cursor + (limit - live.length));
+    cursor += attempt.length;
+    const dead = await findDeadPostings(attempt.map((job) => job.url), ctx).catch(() => new Set<string>());
+    for (const job of attempt) {
+      if (dead.has(job.url)) closed.add(job.id);
+      else live.push(job);
+    }
+  }
+
+  if (closed.size > 0) {
+    for (const job of jobs) if (closed.has(job.id)) job.status = "dropped";
+    writeJobs(jobs);
+  }
+  return live;
+}
+
 export async function POST(req: Request) {
   if (!isApiRequestAllowed(req)) {
     return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
@@ -72,7 +117,7 @@ export async function POST(req: Request) {
     const locale = body.locale === "zh" ? "zh" as const : "en" as const;
 
     const jobs = readJobs();
-    const batch = digestCandidates(jobs, profile).slice(0, limit);
+    const batch = await liveBatch(jobs, digestCandidates(jobs, profile), limit);
 
     if (body.preview !== true && batch.length > 0) {
       const now = new Date().toISOString();

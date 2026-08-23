@@ -110,6 +110,20 @@ export interface Provider {
    * Workday. Returns null for a URL this provider does not own.
    */
   refFromUrl?: (url: string) => { board: string; id: string } | null;
+  /**
+   * Is this posting still open?
+   *
+   * Separate from a plain HTTP check because the public page routinely cannot
+   * answer. An Ashby posting that was taken down still serves 200 and a
+   * one-kilobyte JavaScript shell — identical to a live one but for the
+   * `<title>` — so the only honest oracle is the board API that produced the
+   * posting in the first place.
+   *
+   * "unknown" is a real answer and the safe one: a timeout, a 403 or a 500 is
+   * a fact about the network, not about the job, and dropping a good posting
+   * over one is worse than showing a stale link.
+   */
+  probe?: (urls: readonly string[], ctx: FetchContext) => Promise<Map<string, "live" | "dead">>;
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -323,6 +337,13 @@ const greenhouse: Provider = {
     })));
   },
 
+  probe: (urls, ctx) => probeBySingleFetch(urls, ctx, (url) => {
+    const ref = greenhouse.refFromUrl?.(url);
+    return ref
+      ? `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(ref.board)}/jobs/${encodeURIComponent(ref.id)}`
+      : null;
+  }),
+
   /**
    * One request per posting, against `/v1/boards/{slug}/jobs/{id}`.
    *
@@ -389,6 +410,14 @@ const lever: Provider = {
     const host = parsed.hostname === "jobs.eu.lever.co" ? "api.eu.lever.co" : "api.lever.co";
     return slug && id ? { board: `${host}/${slug}`, id } : null;
   },
+  probe: (urls, ctx) => probeBySingleFetch(urls, ctx, (url) => {
+    const ref = lever.refFromUrl?.(url);
+    if (!ref) return null;
+    const [host, slug] = ref.board.split("/");
+    return host && slug
+      ? `https://${host}/v0/postings/${encodeURIComponent(slug)}/${encodeURIComponent(ref.id)}`
+      : null;
+  }),
   async hydrate(postings, ctx) {
     const targets = postings.filter((posting) => posting.ref);
     await eachLimited(targets, HYDRATE_CONCURRENCY, async (posting) => {
@@ -451,6 +480,38 @@ const ashby: Provider = {
     // `/{slug}/{id}/application` is the apply link the community lists carry;
     // the id is in the same position either way.
     return slug && id ? { board: slug, id } : null;
+  },
+
+  /**
+   * Ashby's board is the only thing that knows. The posting page answers 200
+   * for a role that was pulled down weeks ago, so absence from the board is
+   * the sole honest signal — and it is definitive, because the board is
+   * exactly what listed the posting to begin with.
+   */
+  async probe(urls, ctx) {
+    const verdicts = new Map<string, "live" | "dead">();
+    const boards = new Map<string, { url: string; id: string }[]>();
+    for (const url of urls) {
+      const ref = ashby.refFromUrl?.(url);
+      if (!ref) continue;
+      const group = boards.get(ref.board);
+      if (group) group.push({ url, id: ref.id });
+      else boards.set(ref.board, [{ url, id: ref.id }]);
+    }
+    await eachLimited([...boards], HYDRATE_CONCURRENCY, async ([slug, group]) => {
+      const api = assertHost(
+        `https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(slug)}`,
+        (host) => host === "api.ashbyhq.com",
+        "ashby",
+      );
+      const json = await ctx.fetchJson(api, { timeoutMs: 30_000 });
+      const open = new Set(rows(json, "jobs").map((job) => str(job.id)));
+      // Only meaningful when the board answered with something; an empty board
+      // is far more likely to be a bad slug than every role closing at once.
+      if (open.size === 0) return;
+      for (const entry of group) verdicts.set(entry.url, open.has(entry.id) ? "live" : "dead");
+    });
+    return verdicts;
   },
 
   /**
@@ -726,21 +787,36 @@ const workday: Provider = {
       "jobPostings",
     );
 
-    // Twenty rows per request and a big employer runs to four figures, so
-    // walking the pages one at a time takes twenty seconds. The first response
-    // carries `total`, which is enough to ask for the rest at once.
     const first = await ctx.fetchJson(api, {
       body: { limit: WORKDAY_PAGE, offset: 0, searchText: "", appliedFacets: {} },
     }) as Record<string, unknown>;
     const total = typeof first.total === "number" ? first.total : 0;
     const batches: Record<string, unknown>[][] = [rows(first, "jobPostings")];
-    const remaining = Array.from(
-      { length: Math.max(0, Math.min(Math.ceil(total / WORKDAY_PAGE), WORKDAY_MAX_PAGES) - 1) },
-      (_unused, index) => index + 1,
-    );
-    await eachLimited(remaining, WORKDAY_CONCURRENCY, async (index) => {
-      batches.push(await page(index));
-    });
+    const pages = Math.min(Math.ceil(total / WORKDAY_PAGE), WORKDAY_MAX_PAGES);
+
+    if (company.since) {
+      // Workday returns newest first — verified against three large tenants,
+      // whose first page is all "Posted Today" / "Posted Yesterday". That
+      // ordering is what makes a directory sweep affordable: read pages until
+      // one falls entirely outside the freshness window and stop, so a small
+      // employer costs one request and only a genuinely busy one costs more.
+      const stale = (batch: Record<string, unknown>[]) => batch.every((job) => {
+        const posted = workdayPostedAt(str(job.postedOn));
+        // No date means the unbounded "30+ Days Ago" form: old by definition.
+        return posted === undefined || posted < company.since!;
+      });
+      for (let index = 1; index < pages && !stale(batches[batches.length - 1]!); index += 1) {
+        batches.push(await page(index));
+      }
+    } else {
+      // Whole-board read, for a company the user named. Twenty rows per
+      // request and a big employer runs to four figures, so the pages after
+      // the first are fetched together.
+      const remaining = Array.from({ length: Math.max(0, pages - 1) }, (_unused, index) => index + 1);
+      await eachLimited(remaining, WORKDAY_CONCURRENCY, async (index) => {
+        batches.push(await page(index));
+      });
+    }
 
     const postings: RawPosting[] = [];
     for (const job of batches.flat()) {
@@ -758,6 +834,18 @@ const workday: Provider = {
     }
     return usable(postings);
   },
+
+  probe: (urls, ctx) => probeBySingleFetch(urls, ctx, (url) => {
+    const ref = workday.refFromUrl?.(url);
+    if (!ref) return null;
+    const [tenant, site] = ref.board.split("/");
+    if (!tenant || !site) return null;
+    try {
+      return `${new URL(url).origin}/wday/cxs/${encodeURIComponent(tenant)}/${encodeURIComponent(site)}${ref.id}`;
+    } catch {
+      return null;
+    }
+  }),
 
   /**
    * The per-posting endpoint carries both the description and `startDate` —
@@ -1231,6 +1319,33 @@ const ibm: Provider = {
   },
 };
 
+/**
+ * Probe by asking the endpoint that serves one posting.
+ *
+ * A 404 is the board saying the posting is gone. Every other failure is the
+ * network having an opinion about something else, and is reported as unknown.
+ */
+async function probeBySingleFetch(
+  urls: readonly string[],
+  ctx: FetchContext,
+  endpoint: (url: string) => string | null,
+): Promise<Map<string, "live" | "dead">> {
+  const verdicts = new Map<string, "live" | "dead">();
+  await eachLimited([...urls], HYDRATE_CONCURRENCY, async (url) => {
+    const api = endpoint(url);
+    if (!api) return;
+    try {
+      await ctx.fetchJson(api);
+      verdicts.set(url, "live");
+    } catch (error) {
+      if (/HTTP 40[04]|HTTP 410/.test(error instanceof Error ? error.message : "")) {
+        verdicts.set(url, "dead");
+      }
+    }
+  });
+  return verdicts;
+}
+
 /* ────────────────── reading a board nobody here owns ────────────────── */
 
 /**
@@ -1439,6 +1554,39 @@ export async function readUnknownBoard(url: string, ctx: FetchContext): Promise<
       : winner);
   if (proseRatio(best) <= 0.6 || !looksLikeJobDescription(best)) return null;
   return cleanDescription(best);
+}
+
+/**
+ * Which of these postings are no longer open.
+ *
+ * Runs on a digest batch — ten links, twice a day — not on the store, because
+ * that is the only moment the answer matters: a stale row costs nothing until
+ * it becomes a notification the user taps and lands on a 404. Four of the
+ * first sixty-five pushes this feature sent were already dead on arrival.
+ *
+ * Only definite "dead" verdicts come back. A board that timed out, refused the
+ * request or answered with a shrug leaves its posting alone, because the
+ * failure mode to avoid is dropping a good job over a bad minute.
+ */
+export async function findDeadPostings(
+  urls: readonly string[],
+  ctx: FetchContext,
+): Promise<Set<string>> {
+  const byProvider = new Map<Provider, string[]>();
+  for (const url of urls) {
+    const owner = PROVIDERS.find((provider) => provider.probe && provider.refFromUrl?.(url));
+    if (!owner) continue;
+    const group = byProvider.get(owner);
+    if (group) group.push(url);
+    else byProvider.set(owner, [url]);
+  }
+
+  const dead = new Set<string>();
+  await Promise.all([...byProvider].map(async ([provider, group]) => {
+    const verdicts = await provider.probe!(group, ctx).catch(() => new Map());
+    for (const [url, verdict] of verdicts) if (verdict === "dead") dead.add(url);
+  }));
+  return dead;
 }
 
 /* ───────────────────────────── registry ───────────────────────────── */

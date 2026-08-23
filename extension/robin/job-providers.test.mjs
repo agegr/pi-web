@@ -7,6 +7,7 @@ import {
   ageToDate,
   cellLink,
   cellText,
+  findDeadPostings,
   hydrateDescriptions,
   makeFetchContext,
   markdownRows,
@@ -448,4 +449,61 @@ test("prose that is not a job posting is refused rather than handed to the score
     looksLikeJobDescription("Requirements: a degree, three years of experience, and strong skills."),
     true,
   );
+});
+
+/* ── liveness ── */
+
+test("an Ashby posting is dead when its board no longer lists it", async () => {
+  // The posting page cannot answer this: a pulled Ashby role still serves 200
+  // and a one-kilobyte JavaScript shell, identical to a live one.
+  const ctx = {
+    async fetchJson() { return { jobs: [{ id: "still-open" }, { id: "also-open" }] }; },
+    async fetchText() { throw new Error("should not be called"); },
+  };
+  const gone = "https://jobs.ashbyhq.com/acme/pulled-down";
+  const open = "https://jobs.ashbyhq.com/acme/still-open";
+  const dead = await findDeadPostings([gone, open], ctx);
+  assert.deepEqual([...dead], [gone]);
+});
+
+test("an empty Ashby board is a bad slug, not every role closing at once", async () => {
+  const ctx = { async fetchJson() { return { jobs: [] }; }, async fetchText() { throw new Error("no"); } };
+  const dead = await findDeadPostings(["https://jobs.ashbyhq.com/acme/anything"], ctx);
+  assert.equal(dead.size, 0);
+});
+
+test("a 404 from a single-posting endpoint is the board saying it is gone", async () => {
+  const ctx = {
+    async fetchJson(url) {
+      if (url.endsWith("/404404")) throw new Error("HTTP 404");
+      return { content: "still hiring" };
+    },
+    async fetchText() { throw new Error("no"); },
+  };
+  const gone = "https://job-boards.greenhouse.io/acme/jobs/404404";
+  const open = "https://job-boards.greenhouse.io/acme/jobs/111111";
+  assert.deepEqual([...await findDeadPostings([gone, open], ctx)], [gone]);
+});
+
+test("a bad minute never costs a good posting", async () => {
+  // Timeouts, 403s and 500s are facts about the network, not about the job.
+  for (const boom of ["HTTP 403", "HTTP 500", "The operation was aborted"]) {
+    const ctx = {
+      async fetchJson() { throw new Error(boom); },
+      async fetchText() { throw new Error(boom); },
+    };
+    const dead = await findDeadPostings([
+      "https://job-boards.greenhouse.io/acme/jobs/1",
+      "https://jobs.ashbyhq.com/acme/2",
+    ], ctx);
+    assert.equal(dead.size, 0, boom);
+  }
+});
+
+test("a posting on a board with no probe is left alone rather than guessed at", async () => {
+  const ctx = {
+    async fetchJson() { throw new Error("should not be called"); },
+    async fetchText() { throw new Error("should not be called"); },
+  };
+  assert.equal((await findDeadPostings(["https://lifeattiktok.com/search/123"], ctx)).size, 0);
 });

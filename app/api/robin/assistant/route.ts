@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { attachMailReport } from "@/extension/robin/store";
+import {
+  ASSISTANT_SESSION_KINDS,
+  attachMailReport,
+  clearAssistantSession,
+  type AssistantSessionKind,
+} from "@/extension/robin/store";
 import { runAssistantTurn, resolveMode } from "@/lib/robin-assistant";
 import { validateAgentImages } from "@/lib/image-attachments";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
@@ -39,6 +44,44 @@ export async function POST(req: Request) {
     // reach the dashboard's review store, not just the chat that asked for it.
     if (mode === "mail") attachMailReport(reply);
     return NextResponse.json({ reply, usedTools, sessionId });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : String(error) },
+      { status: 500 },
+    );
+  }
+}
+
+/**
+ * Start a mode's conversation over.
+ *
+ * The remembered session id is dropped, so the next turn opens a fresh one. The
+ * session file stays where it is — this is "new conversation", not "delete the
+ * transcript", and the old one is still worth being able to read.
+ *
+ * Exists because the assistant session is long-lived by design: it is the same
+ * conversation from the dashboard and from Telegram, for weeks. That is what
+ * makes it useful and also what makes a way out of a drifted or expensive
+ * context necessary.
+ */
+export async function DELETE(req: Request) {
+  if (!isApiRequestAllowed(req)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+  if (!hasJsonContentType(req)) {
+    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+  }
+  try {
+    const body = await req.json().catch(() => ({})) as { mode?: unknown };
+    const mode = typeof body.mode === "string" ? body.mode : "default";
+    if (!ASSISTANT_SESSION_KINDS.includes(mode as AssistantSessionKind)) {
+      return NextResponse.json(
+        { error: `mode must be one of: ${ASSISTANT_SESSION_KINDS.join(", ")}` },
+        { status: 400 },
+      );
+    }
+    const cleared = clearAssistantSession(mode as AssistantSessionKind);
+    return NextResponse.json({ cleared, mode });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },
