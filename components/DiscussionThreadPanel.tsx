@@ -141,7 +141,7 @@ export function DiscussionThreadPanel({
       </button>
 
       {expanded && (
-        <div style={{ padding: "6px 10px 8px", border: "1px solid var(--border)", borderRadius: 7, background: "var(--bg-panel)" }}>
+        <div style={{ padding: "6px 10px 8px", border: "1px solid var(--border)", borderRadius: 7, background: "var(--bg)" }}>
           {loadError ? (
             <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{t("chat.threadLoadFailed")}</div>
           ) : !context && !active ? (
