@@ -389,7 +389,7 @@ function UserMessageView({ message, cwd, onOpenFile, onOpenUrl, entryId, onFork,
 
   return (
     <div
-      style={{ marginBottom: 16, display: "flex", flexDirection: "column", alignItems: "flex-end" }}
+      style={{ marginBottom: 4, display: "flex", flexDirection: "column", alignItems: "flex-end" }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -629,6 +629,9 @@ function AssistantMessageView({
 }) {
   const { t } = useI18n();
   const time = showTimestamp ? formatTime(message.timestamp) : null;
+  const modelName = message.provider
+    ? (modelNames?.[`${message.provider}:${message.model}`] ?? modelNames?.[message.model] ?? message.model)
+    : null;
   const blockItems = useMemo(() => (message.content ?? [])
     .map((block, originalIndex) => ({ block, originalIndex }))
     .filter(({ block }) => !isEmptyThinkingBlock(block, { isStreaming })), [message.content, isStreaming]);
@@ -760,47 +763,27 @@ function AssistantMessageView({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Model label */}
-      <div
-        style={{
-          fontSize: 11,
-          color: "var(--text-dim)",
-          marginBottom: 4,
-          display: processingState === "complete" ? "none" : "flex",
-          alignItems: "center",
-          gap: 6,
-        }}
-      >
-        {message.provider && (
-          <span>{modelNames?.[`${message.provider}:${message.model}`] ?? modelNames?.[message.model] ?? message.model}</span>
-        )}
-        {isStreaming && (() => {
-          const est = Math.round(estimatedTokens);
-          return (
-            <>
-
-              {est > 0 && (
-                <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text)" }} title={t("i18n.estimatedTokens")}>
-                  <span style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 11, fontWeight: 400 }}>
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
-                    </svg>
-                    {est}
-                  </span>
-                  {tps !== null && (() => {
-                    const bg = tps >= 50 ? "#53b3cb" : tps >= 30 ? "#9bc53d" : tps >= 15 ? "#f9c22e" : "#e01a4f";
-                    return (
-                      <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, background: bg, color: "#fff", fontSize: 11, fontWeight: 400 }}>
-                        {tps.toFixed(1)} t/s
-                      </span>
-                    );
-                  })()}
+      {isStreaming && estimatedTokens > 0 && (() => {
+        const est = Math.round(estimatedTokens);
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4, fontSize: 11, color: "var(--text)" }} title={t("i18n.estimatedTokens")}>
+            <span style={{ display: "flex", alignItems: "center", gap: 2, fontWeight: 400 }}>
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
+              </svg>
+              {est}
+            </span>
+            {tps !== null && (() => {
+              const bg = tps >= 50 ? "#53b3cb" : tps >= 30 ? "#9bc53d" : tps >= 15 ? "#f9c22e" : "#e01a4f";
+              return (
+                <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, background: bg, color: "#fff", fontSize: 11, fontWeight: 400 }}>
+                  {tps.toFixed(1)} t/s
                 </span>
-              )}
-            </>
-          );
-        })()}
-      </div>
+              );
+            })()}
+          </div>
+        );
+      })()}
 
       <div style={{ display: "flex", flexDirection: "column", gap: processingState ? 4 : 8 }}>
         {blockItems.map(({ block, originalIndex }, itemIndex) => (
@@ -852,10 +835,27 @@ function AssistantMessageView({
       )}
 
       {!processingState && <div style={{
-        display: "flex", alignItems: "center", gap: 8, marginTop: 4,
+        display: "flex", alignItems: "center", gap: 8, marginTop: 4, minWidth: 0,
       }}>
+        {modelName && (
+          <div
+            title={modelName}
+            style={{
+              flex: "0 1 auto",
+              minWidth: 0,
+              maxWidth: "45%",
+              overflow: "hidden",
+              color: "var(--text-dim)",
+              fontSize: 11,
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {modelName}
+          </div>
+        )}
         {message.usage && !isStreaming && (
-          <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
+          <div style={{ minWidth: 0, overflow: "hidden", fontSize: 11, color: "var(--text-dim)", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {formatUsage(message.usage)}
           </div>
         )}

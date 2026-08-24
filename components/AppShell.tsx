@@ -372,10 +372,20 @@ export function AppShell() {
   useEffect(() => {
     if (!settingsMenuOpen) return;
     const dismiss = (event: PointerEvent) => {
-      if (!settingsMenuRef.current?.contains(event.target as Node)) setSettingsMenuOpen(false);
+      const menu = settingsMenuRef.current;
+      if (menu && !event.composedPath().includes(menu)) setSettingsMenuOpen(false);
     };
-    document.addEventListener("pointerdown", dismiss);
-    return () => document.removeEventListener("pointerdown", dismiss);
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSettingsMenuOpen(false);
+    };
+    // Capture outside interactions so controls that stop propagation cannot
+    // leave the menu open.
+    document.addEventListener("pointerdown", dismiss, true);
+    document.addEventListener("keydown", dismissOnEscape, true);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss, true);
+      document.removeEventListener("keydown", dismissOnEscape, true);
+    };
   }, [settingsMenuOpen]);
 
   useEffect(() => {
@@ -1025,10 +1035,11 @@ export function AppShell() {
         onBackgroundTaskDone={handleBackgroundTaskDone}
         onRunningSessionIdsChange={handleRunningSessionIdsChange}
       />
-      <div ref={settingsMenuRef} style={{ padding: "4px 6px", flexShrink: 0, display: "flex", justifyContent: "flex-end", position: "relative", borderTop: "1px solid var(--border)" }}>
+      <div style={{ padding: "4px 6px", flexShrink: 0, display: "flex", justifyContent: "flex-start", borderTop: "1px solid var(--border)" }}>
+        <div ref={settingsMenuRef} style={{ display: "flex", position: "relative" }}>
         {settingsMenuOpen && (
           <div role="menu" aria-label="Settings" style={{
-            position: "absolute", right: 6, bottom: 40, zIndex: 300, minWidth: 190,
+            position: "absolute", left: 0, bottom: 42, zIndex: 300, minWidth: 190,
             padding: 4, border: "1px solid var(--border)", borderRadius: 8,
             background: "var(--bg-panel)", boxShadow: "0 8px 24px rgba(0,0,0,0.16)",
           }}>
@@ -1060,11 +1071,12 @@ export function AppShell() {
           </div>
         )}
         <button type="button" onClick={() => setSettingsMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={settingsMenuOpen} title="Settings" aria-label="Settings" style={{
-          display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, padding: 0,
+          display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, padding: 0,
           border: "none", borderRadius: 9, background: settingsMenuOpen ? "var(--bg-selected)" : "none", color: "var(--text-muted)", cursor: "pointer",
         }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.04 1.56V20.3h-3v-.08a1.7 1.7 0 0 0-1.04-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.56-1.04h-.08v-3h.08A1.7 1.7 0 0 0 7 9.92a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.12-2.12.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1.04-1.56v-.08h3v.08a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.12 2.12-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.04h.08v3h-.08A1.7 1.7 0 0 0 19.4 15Z" /></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.04 1.56V20.3h-3v-.08a1.7 1.7 0 0 0-1.04-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.56-1.04h-.08v-3h.08A1.7 1.7 0 0 0 7 9.92a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.12-2.12.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1.04-1.56v-.08h3v.08a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.12 2.12-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.04h.08v3h-.08A1.7 1.7 0 0 0 19.4 15Z" /></svg>
         </button>
+        </div>
       </div>
     </>
   );

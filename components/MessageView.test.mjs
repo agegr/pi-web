@@ -103,6 +103,19 @@ test("offers quoting for a complete assistant response", () => {
   assert.match(html, /A detailed answer/);
 });
 
+test("places the model at the start of the response telemetry footer", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "openai",
+    model: "gpt-test",
+    content: [{ type: "text", text: "The response body" }],
+    usage: { input: 120, output: 45, cost: { total: 0.0012 } },
+  }, { modelNames: { "openai:gpt-test": "Friendly model" } });
+
+  assert.ok(html.indexOf("The response body") < html.indexOf("Friendly model"));
+  assert.ok(html.indexOf("Friendly model") < html.indexOf("120 in"));
+});
+
 test("places a persisted thread panel directly after its Markdown anchor", () => {
   const html = renderMessage({
     role: "assistant",
