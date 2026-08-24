@@ -80,7 +80,12 @@ function latestDescendantId(root: SessionTreeNode): string {
 
 function subtreeContainsEntry(root: SessionTreeNode, entryId: string | null): boolean {
   if (!entryId) return false;
-  const stack = [root];
+  // `compressedEntryIds` lists entries contracted *above* a node, so the root's
+  // own list is made of ancestors and must not count as thread membership.
+  // Without this, a linear session contracts the whole main conversation into
+  // the thread node and every main leaf looks like it is inside the thread.
+  if (root.entry.id === entryId) return true;
+  const stack = [...root.children];
   while (stack.length > 0) {
     const node = stack.pop()!;
     if (node.entry.id === entryId || node.compressedEntryIds?.includes(entryId)) return true;
@@ -123,12 +128,16 @@ export function findActiveDiscussionThread(
 
 function findNode(tree: SessionTreeNode[], entryId: string): SessionTreeNode | null {
   const stack = [...tree];
+  let contracted: SessionTreeNode | null = null;
   while (stack.length > 0) {
     const node = stack.pop()!;
-    if (node.entry.id === entryId || node.compressedEntryIds?.includes(entryId)) return node;
+    if (node.entry.id === entryId) return node;
+    // A contracted match means the entry was folded into the path above this
+    // node, so it is only a fallback: prefer a node that really is the entry.
+    if (!contracted && node.compressedEntryIds?.includes(entryId)) contracted = node;
     stack.push(...node.children);
   }
-  return null;
+  return contracted;
 }
 
 function isThreadNode(node: SessionTreeNode): boolean {
@@ -150,7 +159,9 @@ export function resolveThreadMainLeafId(
   thread: DiscussionThreadDescriptor,
 ): string | null {
   const source = findNode(tree, thread.sourceEntryId);
-  if (!source) return thread.hostLeafId ?? thread.sourceEntryId;
+  // A contracted lookup can land on the thread node itself. Walking down from
+  // there would stay inside the thread, so treat that as "no main branch".
+  if (!source || isThreadNode(source)) return thread.hostLeafId ?? thread.sourceEntryId;
 
   let node: SessionTreeNode = source;
   const seen = new Set<SessionTreeNode>();

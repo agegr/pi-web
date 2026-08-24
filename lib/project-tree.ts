@@ -92,7 +92,11 @@ export function projectTreeForResponse<T extends ProjectableTreeNode<T>>(
     if (
       roots.has(node) ||
       node.children.length !== 1 ||
-      (node.entry.type === "custom" && node.entry.customType === "pi-web.thread")
+      (node.entry.type === "custom" && node.entry.customType === "pi-web.thread") ||
+      // Keep a thread's parent too: contracting it would fold the source (and
+      // the whole main prefix) into the thread node, making the main
+      // conversation indistinguishable from thread content.
+      node.children.some((child) => child.entry.type === "custom" && child.entry.customType === "pi-web.thread")
     ) {
       keep.add(node);
     }
