@@ -241,6 +241,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.discussSelection": "在线程中讨论",
     "chat.discussSelectionTitle": "围绕所选内容开始专题讨论",
     "chat.threads": "线程",
+    "chat.thread": "线程",
     "chat.continueThread": "继续线程",
     "chat.activeThread": "活动中",
     "chat.returnToMain": "返回主对话",

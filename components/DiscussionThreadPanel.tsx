@@ -152,7 +152,10 @@ export function DiscussionThreadPanel({
             cursor: "pointer", textAlign: "left", fontSize: 11,
           }}
         >
-          <span aria-hidden="true" style={{ transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.12s" }}>▸</span>
+          <span style={{ padding: "1px 5px", borderRadius: 4, background: "var(--bg-hover)", color: "var(--text-muted)", fontSize: 10, fontWeight: 600, lineHeight: 1.4 }}>
+            {t("chat.thread")}
+          </span>
+          <span aria-hidden="true" style={{ color: "var(--text-dim)", fontSize: 14, lineHeight: 1, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.12s" }}>›</span>
           <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: active ? "var(--text)" : "var(--text-muted)" }}>{thread.title}</span>
           {active && <span style={{ color: "var(--accent)", fontSize: 10 }}>· {t("chat.activeThread")}</span>}
           {!active && visibleCount > 0 && <span style={{ color: "var(--text-dim)", fontSize: 10 }}>· {visibleCount}</span>}

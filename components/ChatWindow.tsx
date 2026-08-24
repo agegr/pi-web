@@ -917,22 +917,23 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 const sourceThreads = msg.role === "assistant" && entryIds[idx]
                   ? threadsBySource.get(entryIds[idx]) ?? []
                   : [];
-                const renderThreadPanel = (thread: DiscussionThreadDescriptor, inline = false) => {
+                const renderThreadPanel = (thread: DiscussionThreadDescriptor, inline = false, overview = false) => {
                   const isActiveThread = activeThread?.id === thread.id;
+                  const panelActive = isActiveThread && !overview;
                   return (
                     <DiscussionThreadPanel
                       key={thread.id}
                       sessionId={session?.id ?? sessionIdRef.current ?? ""}
                       thread={thread}
-                      active={isActiveThread}
+                      active={panelActive}
                       inline={inline}
                       open={inline ? isActiveThread || expandedInlineThreadId === thread.id : undefined}
-                      activeContext={isActiveThread ? { messages: activeMessages, entryIds: activeEntryIds } : undefined}
-                      isRunning={isActiveThread && sessionBusy}
-                      streamingMessage={isActiveThread ? streamState.streamingMessage as AssistantMessage | null : null}
-                      phase={isActiveThread ? agentPhase : null}
-                      bashRunning={isActiveThread && bashRunning}
-                      pendingBash={isActiveThread ? pendingBash : null}
+                      activeContext={panelActive ? { messages: activeMessages, entryIds: activeEntryIds } : undefined}
+                      isRunning={panelActive && sessionBusy}
+                      streamingMessage={panelActive ? streamState.streamingMessage as AssistantMessage | null : null}
+                      phase={panelActive ? agentPhase : null}
+                      bashRunning={panelActive && bashRunning}
+                      pendingBash={panelActive ? pendingBash : null}
                       modelNames={modelNames}
                       cwd={messageCwd}
                       onOpenFile={onOpenFile}
@@ -940,7 +941,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                       onOpenUrl={onOpenUrl}
                       onContinue={() => { void handleContinueThread(thread); }}
                       onReturnToMain={() => { void handleReturnToMain(); }}
-                      endRef={isActiveThread ? messagesEndRef : undefined}
+                      endRef={panelActive ? messagesEndRef : undefined}
                     />
                   );
                 };
@@ -963,21 +964,25 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                     anchorKey,
                     panel: renderThreadPanel(thread, true),
                     control: (
-                      <button
-                        key={`thread-control-${thread.id}`}
-                        type="button"
-                        onClick={() => setExpandedInlineThreadId((current) => current === thread.id ? null : thread.id)}
-                        aria-expanded={isOpen}
-                        title={t("chat.continueThread")}
-                        style={{
-                          display: "inline-flex", alignItems: "center", justifyContent: "center",
-                          marginLeft: 6, padding: "1px 5px", border: "1px solid var(--border)", borderRadius: 999,
-                          background: isOpen ? "var(--bg-selected)" : "var(--bg)", color: isOpen ? "var(--accent)" : "var(--text-dim)",
-                          cursor: "pointer", fontSize: 10, lineHeight: 1.25, verticalAlign: "middle",
-                        }}
-                      >
-                        ↳
-                      </button>
+                      <span key={`thread-control-${thread.id}`} style={{ display: "inline-flex", alignItems: "center", gap: 3, marginLeft: 6, verticalAlign: "middle" }}>
+                        <span style={{ padding: "1px 5px", borderRadius: 4, background: "var(--bg-hover)", color: "var(--text-muted)", fontSize: 10, fontWeight: 600, lineHeight: 1.4 }}>
+                          {t("chat.thread")}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setExpandedInlineThreadId((current) => current === thread.id ? null : thread.id)}
+                          aria-expanded={isOpen}
+                          title={t("chat.thread")}
+                          style={{
+                            display: "inline-flex", alignItems: "center", justifyContent: "center",
+                            width: 17, height: 17, padding: 0, border: "1px solid var(--border)", borderRadius: 4,
+                            background: isOpen ? "var(--bg-selected)" : "var(--bg)", color: isOpen ? "var(--accent)" : "var(--text-dim)",
+                            cursor: "pointer", fontSize: 12, lineHeight: 1, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.12s",
+                          }}
+                        >
+                          ›
+                        </button>
+                      </span>
                     ),
                   }];
                 });
@@ -1021,21 +1026,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                         {t("chat.threads")} ({sourceThreads.length})
                       </summary>
                       <div style={{ paddingTop: 4 }}>
-                        {sourceThreads.map((thread) => {
-                          const isActiveThread = activeThread?.id === thread.id;
-                          return (
-                            <div key={thread.id} style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 24, padding: "0 6px", fontSize: 11 }}>
-                              <span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{thread.title}</span>
-                              {isActiveThread ? (
-                                <span style={{ color: "var(--accent)", fontSize: 10 }}>{t("chat.activeThread")}</span>
-                              ) : (
-                                <button type="button" onClick={() => { void handleContinueThread(thread); }} style={{ padding: "2px 6px", border: 0, borderRadius: 4, background: "transparent", color: "var(--accent)", cursor: "pointer", fontSize: 11 }}>
-                                  {t("chat.continueThread")}
-                                </button>
-                              )}
-                            </div>
-                          );
-                        })}
+                        {sourceThreads.map((thread) => renderThreadPanel(thread, false, true))}
                       </div>
                     </details>
                     {activeUnanchoredThread ? renderThreadPanel(activeUnanchoredThread) : null}

@@ -241,6 +241,7 @@ export const enLocale: LocalePlugin = {
     "chat.discussSelection": "Discuss in thread",
     "chat.discussSelectionTitle": "Start a focused discussion from the selected text",
     "chat.threads": "Threads",
+    "chat.thread": "Thread",
     "chat.continueThread": "Continue thread",
     "chat.activeThread": "active",
     "chat.returnToMain": "Return to main",
