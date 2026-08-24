@@ -349,6 +349,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     title: string;
   } | null>(null);
   const [activeThreadHint, setActiveThreadHint] = useState<string | null>(null);
+  const [expandedInlineThreadId, setExpandedInlineThreadId] = useState<string | null>(null);
   const [threadHostSnapshot, setThreadHostSnapshot] = useState<{
     threadId: string;
     messages: AgentMessage[];
@@ -399,6 +400,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   useEffect(() => {
     setPendingThread(null);
     setActiveThreadHint(null);
+    setExpandedInlineThreadId(null);
     setThreadHostSnapshot(null);
     setLoadedThreadHost(null);
   }, [session?.id, newSessionDraftKey]);
@@ -452,6 +454,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       const returned = await handleLeafChange(activeThread.hostLeafId);
       if (!returned) return;
       setActiveThreadHint(null);
+      setExpandedInlineThreadId(null);
       setThreadHostSnapshot(null);
       setLoadedThreadHost(null);
     }
@@ -485,6 +488,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       entryIds: hostEntryIds,
     });
     setActiveThreadHint(result.threadEntryId);
+    setExpandedInlineThreadId(result.threadEntryId);
     setPendingThread(null);
     await handleSend(message, images);
   }, [activeEntryIds, activeMessages, chatInputRef, handleSend, handleStartThread, pendingThread]);
@@ -496,6 +500,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     setThreadHostSnapshot({ threadId: thread.id, messages, entryIds });
     setLoadedThreadHost(null);
     setActiveThreadHint(thread.id);
+    setExpandedInlineThreadId(thread.id);
   }, [entryIds, handleLeafChange, messages, sessionBusy]);
 
   const handleReturnToMain = useCallback(async () => {
@@ -503,6 +508,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     const returned = await handleLeafChange(activeThread.hostLeafId);
     if (!returned) return;
     setActiveThreadHint(null);
+    setExpandedInlineThreadId(null);
     setThreadHostSnapshot(null);
     setLoadedThreadHost(null);
   }, [activeThread, handleLeafChange, sessionBusy]);
@@ -911,7 +917,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 const sourceThreads = msg.role === "assistant" && entryIds[idx]
                   ? threadsBySource.get(entryIds[idx]) ?? []
                   : [];
-                const renderThreadPanel = (thread: DiscussionThreadDescriptor) => {
+                const renderThreadPanel = (thread: DiscussionThreadDescriptor, inline = false) => {
                   const isActiveThread = activeThread?.id === thread.id;
                   return (
                     <DiscussionThreadPanel
@@ -919,6 +925,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                       sessionId={session?.id ?? sessionIdRef.current ?? ""}
                       thread={thread}
                       active={isActiveThread}
+                      inline={inline}
+                      open={inline ? isActiveThread || expandedInlineThreadId === thread.id : undefined}
                       activeContext={isActiveThread ? { messages: activeMessages, entryIds: activeEntryIds } : undefined}
                       isRunning={isActiveThread && sessionBusy}
                       streamingMessage={isActiveThread ? streamState.streamingMessage as AssistantMessage | null : null}
@@ -948,9 +956,31 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                   }
                   return { thread, anchorKey: undefined };
                 });
-                const inlineThreadPanels = resolvedSourceThreads.flatMap(({ thread, anchorKey }) => (
-                  anchorKey ? [{ anchorKey, panel: renderThreadPanel(thread) }] : []
-                ));
+                const inlineThreadPanels = resolvedSourceThreads.flatMap(({ thread, anchorKey }) => {
+                  if (!anchorKey) return [];
+                  const isOpen = activeThread?.id === thread.id || expandedInlineThreadId === thread.id;
+                  return [{
+                    anchorKey,
+                    panel: renderThreadPanel(thread, true),
+                    control: (
+                      <button
+                        key={`thread-control-${thread.id}`}
+                        type="button"
+                        onClick={() => setExpandedInlineThreadId((current) => current === thread.id ? null : thread.id)}
+                        aria-expanded={isOpen}
+                        title={t("chat.continueThread")}
+                        style={{
+                          display: "inline-flex", alignItems: "center", justifyContent: "center",
+                          marginLeft: 6, padding: "1px 5px", border: "1px solid var(--border)", borderRadius: 999,
+                          background: isOpen ? "var(--bg-selected)" : "var(--bg)", color: isOpen ? "var(--accent)" : "var(--text-dim)",
+                          cursor: "pointer", fontSize: 10, lineHeight: 1.25, verticalAlign: "middle",
+                        }}
+                      >
+                        ↳
+                      </button>
+                    ),
+                  }];
+                });
                 const activeUnanchoredThread = resolvedSourceThreads.find(({ thread, anchorKey }) => (
                   !anchorKey && activeThread?.id === thread.id
                 ))?.thread;

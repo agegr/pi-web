@@ -42,6 +42,26 @@ const thread = {
   },
 };
 
+test("inline panels omit the repeated thread title", () => {
+  const html = renderToStaticMarkup(React.createElement(
+    I18nProvider,
+    null,
+    React.createElement(DiscussionThreadPanel, {
+      sessionId: "session",
+      thread,
+      active: true,
+      inline: true,
+      open: true,
+      activeContext: { messages: [source, question], entryIds: ["source-entry", "question-entry"] },
+      onContinue() {},
+      onReturnToMain() {},
+    }),
+  ));
+
+  assert.doesNotMatch(html, /Selected point<\/span>/);
+  assert.match(html, /Why\?/);
+});
+
 test("renders active thread messages after the source and exposes the single-composer return action", () => {
   const html = renderToStaticMarkup(React.createElement(
     I18nProvider,

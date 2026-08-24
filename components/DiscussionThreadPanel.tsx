@@ -16,6 +16,9 @@ interface Props {
   sessionId: string;
   thread: DiscussionThreadDescriptor;
   active: boolean;
+  /** Inline panels use an external end-of-line disclosure instead of a title row. */
+  inline?: boolean;
+  open?: boolean;
   activeContext?: ThreadContext;
   isRunning?: boolean;
   streamingMessage?: AssistantMessage | null;
@@ -67,6 +70,8 @@ export function DiscussionThreadPanel({
   sessionId,
   thread,
   active,
+  inline = false,
+  open,
   activeContext,
   isRunning,
   streamingMessage,
@@ -83,12 +88,13 @@ export function DiscussionThreadPanel({
   endRef,
 }: Props) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState(active);
+  const [expandedInternal, setExpandedInternal] = useState(active);
+  const expanded = open ?? expandedInternal;
   const [loadedContext, setLoadedContext] = useState<{ leafId: string; context: ThreadContext } | null>(null);
   const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
-    if (active) setExpanded(true);
+    if (active) setExpandedInternal(true);
   }, [active]);
 
   useEffect(() => {
@@ -134,22 +140,24 @@ export function DiscussionThreadPanel({
     : delta.entryIds.slice(0, liveUserIndex + 1);
 
   return (
-    <section style={{ margin: "8px 0 12px 18px", borderLeft: `2px solid ${active ? "var(--accent)" : "var(--border)"}`, paddingLeft: 10 }}>
-      <button
-        type="button"
-        onClick={() => setExpanded((value) => !value)}
-        aria-expanded={expanded}
-        style={{
-          display: "flex", alignItems: "center", width: "100%", gap: 6,
-          padding: "5px 0", border: 0, background: "transparent", color: "var(--text-muted)",
-          cursor: "pointer", textAlign: "left", fontSize: 11,
-        }}
-      >
-        <span aria-hidden="true" style={{ transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.12s" }}>▸</span>
-        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: active ? "var(--text)" : "var(--text-muted)" }}>{thread.title}</span>
-        {active && <span style={{ color: "var(--accent)", fontSize: 10 }}>· {t("chat.activeThread")}</span>}
-        {!active && visibleCount > 0 && <span style={{ color: "var(--text-dim)", fontSize: 10 }}>· {visibleCount}</span>}
-      </button>
+    <section style={{ margin: inline ? "5px 0 8px 2px" : "8px 0 12px 18px", borderLeft: `2px solid ${active ? "var(--accent)" : "var(--border)"}`, paddingLeft: inline ? 8 : 10 }}>
+      {!inline && (
+        <button
+          type="button"
+          onClick={() => setExpandedInternal((value) => !value)}
+          aria-expanded={expanded}
+          style={{
+            display: "flex", alignItems: "center", width: "100%", gap: 6,
+            padding: "5px 0", border: 0, background: "transparent", color: "var(--text-muted)",
+            cursor: "pointer", textAlign: "left", fontSize: 11,
+          }}
+        >
+          <span aria-hidden="true" style={{ transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.12s" }}>▸</span>
+          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: active ? "var(--text)" : "var(--text-muted)" }}>{thread.title}</span>
+          {active && <span style={{ color: "var(--accent)", fontSize: 10 }}>· {t("chat.activeThread")}</span>}
+          {!active && visibleCount > 0 && <span style={{ color: "var(--text-dim)", fontSize: 10 }}>· {visibleCount}</span>}
+        </button>
+      )}
 
       {expanded && (
         <div style={{ padding: "6px 10px 8px", border: "1px solid var(--border)", borderRadius: 7, background: "var(--bg)" }}>

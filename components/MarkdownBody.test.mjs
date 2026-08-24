@@ -33,6 +33,17 @@ test("anchors discussion panels after addressable Markdown blocks", () => {
   assert.match(html, /<aside>inline thread<\/aside>/);
 });
 
+test("renders a compact thread control inside its source block", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(MarkdownBody, {
+      blockKeyPrefix: "0",
+      threadControls: new Map([["0:li:0", React.createElement("button", null, "↳")]]),
+    }, "- Rotate tokens"),
+  );
+
+  assert.match(html, /<li[^>]*data-thread-anchor="0:li:0"[^>]*>Rotate tokens<button[^>]*>↳<\/button><\/li>/);
+});
+
 test("opens non-file markdown links in a safe new tab", () => {
   const html = renderMarkdown("[docs](https://example.com/docs)");
 

@@ -179,6 +179,7 @@ function loadThinkingContent(sessionId: string, entryId: string, blockIndex: num
 export interface DiscussionThreadInlinePanel {
   anchorKey?: string;
   panel: ReactNode;
+  control?: ReactNode;
 }
 
 interface Props {
@@ -1075,18 +1076,25 @@ function TextBlock({ block, isStreaming, cwd, onOpenFile, onOpenUrl, onQuote, on
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const [quoteAction, setQuoteAction] = useState<{ text: string; left: number; top: number; anchorKey?: string } | null>(null);
-  const threadPanelsByAnchor = useMemo(() => {
-    const grouped = new Map<string, ReactNode[]>();
+  const threadContentByAnchor = useMemo(() => {
+    const panels = new Map<string, ReactNode[]>();
+    const controls = new Map<string, ReactNode[]>();
     for (const item of discussionThreadPanels ?? []) {
       if (!item.anchorKey) continue;
-      const panels = grouped.get(item.anchorKey) ?? [];
-      panels.push(item.panel);
-      grouped.set(item.anchorKey, panels);
+      const anchorPanels = panels.get(item.anchorKey) ?? [];
+      anchorPanels.push(item.panel);
+      panels.set(item.anchorKey, anchorPanels);
+      if (item.control) {
+        const anchorControls = controls.get(item.anchorKey) ?? [];
+        anchorControls.push(item.control);
+        controls.set(item.anchorKey, anchorControls);
+      }
     }
-    return new Map([...grouped].map(([anchorKey, panels]) => [
+    const asNodes = (items: Map<string, ReactNode[]>) => new Map([...items].map(([anchorKey, nodes]) => [
       anchorKey,
-      <Fragment key={anchorKey}>{panels.map((panel, index) => <Fragment key={index}>{panel}</Fragment>)}</Fragment>,
+      <Fragment key={anchorKey}>{nodes.map((node, index) => <Fragment key={index}>{node}</Fragment>)}</Fragment>,
     ]));
+    return { panels: asNodes(panels), controls: asNodes(controls) };
   }, [discussionThreadPanels]);
 
   const captureSelection = () => {
@@ -1104,8 +1112,19 @@ function TextBlock({ block, isStreaming, cwd, onOpenFile, onOpenUrl, onQuote, on
     const startElement = range.startContainer.nodeType === Node.TEXT_NODE
       ? range.startContainer.parentElement
       : range.startContainer as Element;
-    const anchorKey = startElement?.closest<HTMLElement>("[data-thread-anchor]")?.dataset.threadAnchor
-      ?? (blockKeyPrefix ? findMarkdownThreadAnchor(block.text, text, blockKeyPrefix) : undefined);
+    const endElement = range.endContainer.nodeType === Node.TEXT_NODE
+      ? range.endContainer.parentElement
+      : range.endContainer as Element;
+    const startAnchorKey = startElement?.closest<HTMLElement>("[data-thread-anchor]")?.dataset.threadAnchor;
+    const endAnchorKey = endElement?.closest<HTMLElement>("[data-thread-anchor]")?.dataset.threadAnchor;
+    // A thread can sit naturally at the end of exactly one Markdown block.
+    // Cross-block selections deliberately remain in the response-level overview
+    // until range anchors have a dedicated UX.
+    const anchorKey = startAnchorKey && startAnchorKey === endAnchorKey
+      ? startAnchorKey
+      : (!startAnchorKey && !endAnchorKey && blockKeyPrefix
+        ? findMarkdownThreadAnchor(block.text, text, blockKeyPrefix)
+        : undefined);
     const rect = range.getBoundingClientRect();
     const containerRect = containerRef.current.getBoundingClientRect();
     setQuoteAction({
@@ -1118,7 +1137,7 @@ function TextBlock({ block, isStreaming, cwd, onOpenFile, onOpenUrl, onQuote, on
 
   return (
     <div ref={containerRef} onMouseUp={captureSelection} style={{ position: "relative" }}>
-      <SafeMarkdownBody isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} onOpenUrl={onOpenUrl} blockKeyPrefix={blockKeyPrefix} threadPanels={threadPanelsByAnchor}>{block.text}</SafeMarkdownBody>
+      <SafeMarkdownBody isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} onOpenUrl={onOpenUrl} blockKeyPrefix={blockKeyPrefix} threadPanels={threadContentByAnchor.panels} threadControls={threadContentByAnchor.controls}>{block.text}</SafeMarkdownBody>
       {quoteAction && (
         <div style={{
           position: "absolute", zIndex: 4, left: quoteAction.left, top: quoteAction.top,
