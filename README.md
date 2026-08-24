@@ -27,6 +27,19 @@ The CLI opens a browser after the server is ready. If it does not, open [http://
 
 If no model provider is configured yet, open the **Models** panel to sign in or add an API key.
 
+### Desktop preview
+
+The source checkout includes an Electron desktop preview. It serves the same Pi Web UI on a loopback-only ephemeral port, but web-page tabs use an Electron native webview instead of an iframe. Sites such as GitHub that prohibit framing can therefore render in the panel.
+
+```bash
+npm install
+npm run desktop:dev
+```
+
+For the production Next.js server, run `npm run build` and then `npm run desktop`. This preview is not packaged, signed, or published yet.
+
+The Electron webview has a persistent **separate** login profile (`persist:pi-web-web`); it does not read or copy cookies from Chrome. Sign in to GitHub once in the web-page tab and that session persists across desktop-app restarts. The browser version retains its iframe fallback.
+
 To install the `pi-web` command globally:
 
 ```bash

@@ -11,8 +11,13 @@ test("web viewer validates and normalizes user-entered addresses before framing 
   assert.match(source, /type="text"/);
 });
 
-test("web viewer restricts framed content and provides an external fallback", () => {
+test("web viewer uses a native Electron webview when available and preserves the iframe fallback", () => {
+  assert.match(source, /createElement\("webview"/);
+  assert.match(source, /partition: "persist:pi-web-web"/);
+  assert.match(source, /expectedUrlRef\.current = currentUrl/);
+  assert.match(source, /if \(currentUrl !== url\) webview\.src = url/);
+  assert.match(source, /desktop \? \(/);
   assert.match(source, /<iframe/);
-  assert.match(source, /sandbox="allow-downloads allow-forms allow-popups allow-same-origin allow-scripts"/);
+  assert.match(source, /sandbox="allow-downloads allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts allow-storage-access-by-user-activation"/);
   assert.match(source, /window\.open\(url, "_blank", "noopener,noreferrer"\)/);
 });

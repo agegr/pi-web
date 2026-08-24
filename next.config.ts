@@ -12,7 +12,13 @@ try {
 } catch { /* package not found, use default */ }
 
 const nextConfig: NextConfig = {
+  // The Electron development server needs its own Next lock and cache so it
+  // can run alongside `npm run dev` without touching that server's .next/dev.
+  distDir: process.env.PI_WEB_NEXT_DIST_DIR || ".next",
   outputFileTracingRoot: configDir,
+  // This repository already has maintained agent guidance; do not let Next
+  // mutate AGENTS.md whenever the isolated Electron dev server starts.
+  agentRules: false,
   serverExternalPackages: [
     "undici",
     "@earendil-works/pi-coding-agent",
