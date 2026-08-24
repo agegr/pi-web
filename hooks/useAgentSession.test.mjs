@@ -81,6 +81,9 @@ test("explicit tree navigation wins over a late background session reload", () =
   );
 
   assert.match(source, /const navigationGenerationRef = useRef\(0\)/);
+  assert.match(source, /const sessionLoadRequestIdRef = useRef\(0\)/);
+  assert.match(loadSessionSource, /const requestId = \+\+sessionLoadRequestIdRef\.current/);
+  assert.match(loadSessionSource, /sessionLoadRequestIdRef\.current !== requestId/);
   assert.match(loadSessionSource, /navigationGenerationRef\.current === navigationGeneration/);
   assert.match(navigationSource, /\+\+navigationGenerationRef\.current/);
   assert.match(navigationSource, /await sendAgentCommand<\{ cancelled\?: boolean \}>\(sid, \{ type: "navigate_tree"/);

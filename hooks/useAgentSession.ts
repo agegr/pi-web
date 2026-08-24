@@ -372,6 +372,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // Prevent a slow background/session reload from replacing an explicit tree
   // navigation that completed while the request was in flight.
   const navigationGenerationRef = useRef(0);
+  const sessionLoadRequestIdRef = useRef(0);
 
   sessionPropIdRef.current = session?.id ?? null;
   sessionRunningRef.current = Boolean(sessionRunning);
@@ -490,6 +491,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [messages, sessionStatsOverride, contextUsage, data?.filePath, data?.totalActiveMs, session?.id, session?.name]);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
+    const requestId = ++sessionLoadRequestIdRef.current;
     const navigationGeneration = navigationGenerationRef.current;
     let messagesLoaded = false;
     try {
@@ -507,7 +509,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as SessionData;
-      if (sessionIdRef.current !== sid) return null;
+      if (sessionIdRef.current !== sid || sessionLoadRequestIdRef.current !== requestId) return null;
       const persistedMessages = d.context.messages;
       setData(d);
       if (navigationGenerationRef.current === navigationGeneration) {
