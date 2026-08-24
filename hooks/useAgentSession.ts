@@ -369,6 +369,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const modelSwitchPendingRef = useRef(false);
   const draftKeyAliasesRef = useRef(new Map<string, string>());
   const sessionHookMountedRef = useRef(true);
+  // Prevent a slow background/session reload from replacing an explicit tree
+  // navigation that completed while the request was in flight.
+  const navigationGenerationRef = useRef(0);
 
   sessionPropIdRef.current = session?.id ?? null;
   sessionRunningRef.current = Boolean(sessionRunning);
@@ -487,6 +490,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [messages, sessionStatsOverride, contextUsage, data?.filePath, data?.totalActiveMs, session?.id, session?.name]);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
+    const navigationGeneration = navigationGenerationRef.current;
     let messagesLoaded = false;
     try {
       if (showLoading) setLoading(true);
@@ -506,14 +510,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (sessionIdRef.current !== sid) return null;
       const persistedMessages = d.context.messages;
       setData(d);
-      setActiveLeafId(d.leafId);
-      setMessages(persistedMessages);
-      setEntryIds(d.context.entryIds ?? []);
-      setCurrentModelOverride((current) => modelSwitchPendingRef.current ? current : null);
-      setError(null);
-      if (d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
-        setThinkingLevel(d.context.thinkingLevel as ThinkingLevelOption);
+      if (navigationGenerationRef.current === navigationGeneration) {
+        setActiveLeafId(d.leafId);
+        setMessages(persistedMessages);
+        setEntryIds(d.context.entryIds ?? []);
+        setCurrentModelOverride((current) => modelSwitchPendingRef.current ? current : null);
+        if (d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
+          setThinkingLevel(d.context.thinkingLevel as ThinkingLevelOption);
+        }
       }
+      setError(null);
 
       messagesLoaded = true;
       if (showLoading) setLoading(false);
@@ -561,7 +567,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, []);
 
-  const loadContext = useCallback(async (sid: string, leafId: string | null) => {
+  const loadContext = useCallback(async (sid: string, leafId: string | null, navigationGeneration = navigationGenerationRef.current) => {
     try {
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
       if (leafId) params.set("leafId", leafId);
@@ -569,6 +575,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[] } };
+      if (navigationGenerationRef.current !== navigationGeneration || sessionIdRef.current !== sid) return;
       setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
     } catch (e) {
@@ -1561,19 +1568,60 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (bashRunningRef.current) return;
     const sid = sessionIdRef.current;
     if (!sid) return;
-    sendAgentCommand(sid, { type: "navigate_tree", targetId: entryId }).catch(() => {});
-    setActiveLeafId(entryId);
-    await loadContext(sid, entryId);
+    const navigationGeneration = ++navigationGenerationRef.current;
+    try {
+      const result = await sendAgentCommand<{ cancelled?: boolean }>(sid, { type: "navigate_tree", targetId: entryId });
+      if (result?.cancelled || navigationGenerationRef.current !== navigationGeneration) return;
+      setActiveLeafId(entryId);
+      await loadContext(sid, entryId, navigationGeneration);
+    } catch (e) {
+      console.error("Failed to navigate session tree:", e);
+    }
   }, [loadContext]);
 
-  const handleLeafChange = useCallback(async (leafId: string | null) => {
-    if (bashRunningRef.current) return;
-    setActiveLeafId(leafId);
+  const handleStartThread = useCallback(async (sourceEntryId: string, selectedMarkdown: string) => {
+    if (agentRunningRef.current || bashRunningRef.current) return null;
+    if (!isNew && attachStateRef.current !== "attached" && !(await attach())) return null;
     const sid = sessionIdRef.current;
-    if (!sid) return;
-    await loadContext(sid, leafId);
-    if (leafId) {
-      sendAgentCommand(sid, { type: "navigate_tree", targetId: leafId }).catch(() => {});
+    if (!sid) return null;
+    const navigationGeneration = ++navigationGenerationRef.current;
+    try {
+      const result = await sendAgentCommand<{
+        cancelled?: boolean;
+        threadEntryId?: string;
+        hostLeafId?: string | null;
+      }>(sid, {
+        type: "start_thread",
+        sourceEntryId,
+        selectedMarkdown,
+      });
+      if (result?.cancelled || !result?.threadEntryId || navigationGenerationRef.current !== navigationGeneration) return null;
+      await loadSession(sid);
+      return {
+        threadEntryId: result.threadEntryId,
+        hostLeafId: result.hostLeafId ?? null,
+      };
+    } catch (e) {
+      console.error("Failed to start discussion thread:", e);
+      addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+      return null;
+    }
+  }, [addNotice, attach, isNew, loadSession]);
+
+  const handleLeafChange = useCallback(async (leafId: string | null) => {
+    if (bashRunningRef.current) return false;
+    const sid = sessionIdRef.current;
+    if (!sid || !leafId) return false;
+    const navigationGeneration = ++navigationGenerationRef.current;
+    try {
+      const result = await sendAgentCommand<{ cancelled?: boolean }>(sid, { type: "navigate_tree", targetId: leafId });
+      if (result?.cancelled || navigationGenerationRef.current !== navigationGeneration) return false;
+      setActiveLeafId(leafId);
+      await loadContext(sid, leafId, navigationGeneration);
+      return true;
+    } catch (e) {
+      console.error("Failed to navigate session tree:", e);
+      return false;
     }
   }, [loadContext]);
 
@@ -2050,7 +2098,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // Refs
     sessionIdRef, messagesEndRef, scrollContainerRef,
     // Actions
-    handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
+    handleSend, handleAbort, handleFork, handleNavigate, handleStartThread, handleLeafChange, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,

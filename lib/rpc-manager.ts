@@ -25,6 +25,7 @@ import type {
   SessionMessageEntry,
 } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
+import { DISCUSSION_THREAD_CUSTOM_TYPE, threadTitleFromMarkdown } from "./discussion-threads";
 
 // ============================================================================
 // Types
@@ -663,6 +664,49 @@ export class AgentSessionWrapper {
         }
         const result = await this.inner.navigateTree(command.targetId as string, {});
         return { cancelled: result.cancelled };
+      }
+
+      case "start_thread": {
+        if (this.inner.isBashRunning || this.inner.isStreaming || this.pendingPromptCount > 0) {
+          throw new Error("Cannot start a discussion thread while the session is busy");
+        }
+        const sourceEntryId = command.sourceEntryId as string;
+        const selectedMarkdown = typeof command.selectedMarkdown === "string"
+          ? command.selectedMarkdown.trim()
+          : "";
+        if (!sourceEntryId || !selectedMarkdown) {
+          throw new Error("A source response and selected text are required");
+        }
+        if (selectedMarkdown.length > 50_000) {
+          throw new Error("The selected text is too large for a discussion thread");
+        }
+
+        const sessionManager = this.inner.sessionManager;
+        const sourceEntry = sessionManager.getEntry(sourceEntryId);
+        if (sourceEntry?.type !== "message" || sourceEntry.message.role !== "assistant") {
+          throw new Error("Discussion threads must start from an assistant response");
+        }
+        const hostLeafId = sessionManager.getLeafId();
+        if (hostLeafId && !sessionManager.getBranch(hostLeafId).some((entry) => entry.id === sourceEntryId)) {
+          throw new Error("The source response is not on the active conversation path");
+        }
+
+        const navigation = await this.inner.navigateTree(sourceEntryId, {});
+        if (navigation.cancelled) return { cancelled: true };
+
+        const threadEntryId = sessionManager.appendCustomEntry(DISCUSSION_THREAD_CUSTOM_TYPE, {
+          version: 1,
+          sourceEntryId,
+          hostLeafId,
+          selectedMarkdown,
+          title: threadTitleFromMarkdown(selectedMarkdown),
+          status: "open",
+        });
+        if (this.inner.agent.state) {
+          this.inner.agent.state.messages = sessionManager.buildSessionContext().messages;
+        }
+        invalidateSessionListCache();
+        return { cancelled: false, threadEntryId, hostLeafId };
       }
 
       case "set_thinking_level": {

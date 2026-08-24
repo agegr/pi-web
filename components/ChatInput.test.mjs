@@ -20,6 +20,25 @@ test("formats selected response text as a markdown quoted reply", () => {
   ], "My question"), "> **First** quote\n\n> 2. second quote\n\nMy question");
 });
 
+test("shows the single composer target for a discussion thread", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        isStreaming: false,
+        conversationTarget: { label: "Authentication", active: true },
+        onConversationTargetClear() {},
+      }),
+    ),
+  );
+
+  assert.match(html, /Replying in thread: Authentication/);
+  assert.match(html, /Return to main/);
+});
+
 test("renders the upstream model error", () => {
   const html = renderToStaticMarkup(
     React.createElement(ModelErrorBanner, {
