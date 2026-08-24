@@ -951,9 +951,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 const inlineThreadPanels = resolvedSourceThreads.flatMap(({ thread, anchorKey }) => (
                   anchorKey ? [{ anchorKey, panel: renderThreadPanel(thread) }] : []
                 ));
-                const unanchoredThreads = resolvedSourceThreads
-                  .filter((item) => !item.anchorKey)
-                  .map((item) => item.thread);
                 const view = (
                   <MessageView
                     key={`${keyPrefix}-view-${idx}`}
@@ -985,23 +982,27 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                     {view}
                     <details
                       aria-label={t("chat.threads")}
-                      open={unanchoredThreads.some((thread) => activeThread?.id === thread.id)}
                       style={{ margin: "-6px 0 12px 18px", color: "var(--text-muted)" }}
                     >
                       <summary style={{ cursor: "pointer", width: "fit-content", color: "var(--text-dim)", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                         {t("chat.threads")} ({sourceThreads.length})
                       </summary>
                       <div style={{ paddingTop: 4 }}>
-                        {sourceThreads.map((thread) => (
-                          thread.metadata.anchorKey ? (
+                        {sourceThreads.map((thread) => {
+                          const isActiveThread = activeThread?.id === thread.id;
+                          return (
                             <div key={thread.id} style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 24, padding: "0 6px", fontSize: 11 }}>
                               <span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{thread.title}</span>
-                              <button type="button" onClick={() => { void handleContinueThread(thread); }} style={{ padding: "2px 6px", border: 0, borderRadius: 4, background: "transparent", color: "var(--accent)", cursor: "pointer", fontSize: 11 }}>
-                                {t("chat.continueThread")}
-                              </button>
+                              {isActiveThread ? (
+                                <span style={{ color: "var(--accent)", fontSize: 10 }}>{t("chat.activeThread")}</span>
+                              ) : (
+                                <button type="button" onClick={() => { void handleContinueThread(thread); }} style={{ padding: "2px 6px", border: 0, borderRadius: 4, background: "transparent", color: "var(--accent)", cursor: "pointer", fontSize: 11 }}>
+                                  {t("chat.continueThread")}
+                                </button>
+                              )}
                             </div>
-                          ) : renderThreadPanel(thread)
-                        ))}
+                          );
+                        })}
                       </div>
                     </details>
                   </div>
