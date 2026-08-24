@@ -52,6 +52,8 @@ interface Props {
   onSystemPromptLoaderChange?: (loader: (() => Promise<void>) | null) => void;
   onSessionStatsChange?: (stats: SessionStatsInfo | null) => void;
   onSessionStatsPanelOpen?: () => void;
+  /** Token, cost, and context summary rendered in the composer footer. */
+  sessionStatusControl?: ReactNode;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
   /** Reports whether this session owns its working directory, for the top bar. */
   onAttachStateChange?: (state: AttachState) => void;
@@ -313,7 +315,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, onSessionSwitched, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onAttachStateChange, onDetachHandlerChange, onOpenFile, onOpenChangedFile, onOpenUrl, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, onSessionSwitched, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, sessionStatusControl, onContextUsageChange, onAttachStateChange, onDetachHandlerChange, onOpenFile, onOpenChangedFile, onOpenUrl, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
 
@@ -718,6 +720,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       soundEnabled={soundEnabled}
       onSoundToggle={onSoundToggle}
       onAudioUnlock={unlockAudio}
+      sessionStatusControl={sessionStatusControl}
       conversationTarget={pendingThread
         ? { label: pendingThread.title, active: false }
         : activeThread

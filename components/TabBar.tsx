@@ -10,8 +10,9 @@ export interface Tab {
   label: string;
   filePath: string;
   /** Missing means a file tab, retained for existing saved tab state. */
-  kind?: "file" | "web";
+  kind?: "file" | "web" | "system";
   url?: string;
+  content?: string | null;
   sourceSessionId?: string | null;
   initialDisplayMode?: FileViewerDisplayMode;
   viewerState?: FileViewerState;

@@ -275,7 +275,9 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
 
   const handleSelect = useCallback((id: string) => {
     onLeafChange(id);
-  }, [onLeafChange]);
+    if (onToggle) onToggle();
+    else setOpenInternal(false);
+  }, [onLeafChange, onToggle]);
 
   const noBranchReason = !hasSession
     ? t("i18n.noActiveSession")
@@ -334,6 +336,12 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
            {!compact && <span>{t("i18n.branches")}</span>}
         </button>
         {open && dropdownPos && (
+          <>
+          <div
+            aria-hidden="true"
+            onClick={() => onToggle ? onToggle() : setOpenInternal(false)}
+            style={{ position: "fixed", inset: 0, zIndex: 499 }}
+          />
           <div style={{
             position: "fixed",
             top: dropdownPos.top,
@@ -363,6 +371,7 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
               </div>
             )}
           </div>
+          </>
         )}
       </div>
     );

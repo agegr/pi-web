@@ -72,6 +72,7 @@ export function AppShell() {
   const themeLabelKey =
     preference === "light" ? "theme.light" : preference === "dark" ? "theme.dark" : "theme.auto";
   const { locale, setLocale, t: translate, supportedLocales } = useI18n();
+  const themeMenuLabel = translate(themeLabelKey).replace(/\s*\([^)]*\)\s*$/, "");
   const isMobile = useIsMobile();
   useViewportHeight();
   // Audio ownership lives here (not in ChatWindow) so the completion tone can
@@ -105,6 +106,10 @@ export function AppShell() {
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [pluginsConfigOpen, setPluginsConfigOpen] = useState(false);
+  const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
+  const [settingsLanguageOpen, setSettingsLanguageOpen] = useState(false);
+  const settingsMenuRef = useRef<HTMLDivElement>(null);
+  const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
   const [projectTrustBusy, setProjectTrustBusy] = useState(false);
@@ -216,7 +221,7 @@ export function AppShell() {
     setSystemPromptLoading(false);
   }, []);
 
-  // Session stats (tokens + cost) — populated by ChatWindow, displayed in top bar
+  // Session stats (tokens + cost) — populated by ChatWindow, displayed in the composer footer
   const [sessionStats, setSessionStats] = useState<SessionStatsInfo | null>(null);
   const [autoNameStatus, setAutoNameStatus] = useState<AutoNameStatus>({ kind: "idle" });
   const autoNameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -242,7 +247,7 @@ export function AppShell() {
     };
   }, []);
 
-  // Context usage — populated by ChatWindow, displayed in top bar
+  // Context usage — populated by ChatWindow, displayed in the composer footer
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
   const handleContextUsageChange = useCallback((usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => {
     setContextUsage(usage);
@@ -269,11 +274,24 @@ export function AppShell() {
     if (isMobile && keepMobileToolbarOpen) setMobileToolbarMoreOpen(true);
   }, [isMobile]);
 
-  const handleSystemPromptToggle = useCallback((keepMobileToolbarOpen = false) => {
-    const opening = activeTopPanel !== "system";
-    toggleTopPanel("system", keepMobileToolbarOpen);
-    if (!opening || systemPromptLoading) return;
+  const handleOpenSystemPrompt = useCallback(() => {
+    const tabId = "system-prompt";
+    setFileTabs((tabs) => {
+      const next = tabs.filter((tab) => tab.id !== tabId);
+      return [...next, {
+        id: tabId,
+        label: translate("system.prompt"),
+        filePath: "",
+        kind: "system",
+        content: systemPrompt,
+      }];
+    });
+    setActiveFileTabId(tabId);
+    setRightPanelOpen(true);
+    setSettingsMenuOpen(false);
+    if (isMobile) setSidebarOpen(false);
 
+    if (systemPromptLoading) return;
     const load = systemPromptLoaderRef.current;
     if (!load) return;
     const loadId = ++systemPromptLoadIdRef.current;
@@ -281,11 +299,15 @@ export function AppShell() {
     void load().catch((error) => {
       console.error("Failed to load system prompt:", error);
     }).finally(() => {
-      if (systemPromptLoadIdRef.current === loadId) {
-        setSystemPromptLoading(false);
-      }
+      if (systemPromptLoadIdRef.current === loadId) setSystemPromptLoading(false);
     });
-  }, [activeTopPanel, systemPromptLoading, toggleTopPanel]);
+  }, [isMobile, systemPrompt, systemPromptLoading, translate]);
+
+  // Retained as the mobile-toolbar action entry point; System now opens in the
+  // file panel rather than in a top-bar popover.
+  const handleSystemPromptToggle = useCallback((_keepMobileToolbarOpen = false) => {
+    handleOpenSystemPrompt();
+  }, [handleOpenSystemPrompt]);
 
   const openSessionStatsPanel = useCallback(() => {
     if (isMobile) setSidebarOpen(false);
@@ -342,6 +364,19 @@ export function AppShell() {
   useEffect(() => {
     setMobileToolbarMoreOpen(false);
   }, [isMobile, selectedSession?.id, newSessionDraftId]);
+
+  useEffect(() => {
+    if (!settingsMenuOpen) setSettingsLanguageOpen(false);
+  }, [settingsMenuOpen]);
+
+  useEffect(() => {
+    if (!settingsMenuOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      if (!settingsMenuRef.current?.contains(event.target as Node)) setSettingsMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, [settingsMenuOpen]);
 
   useEffect(() => {
     if (!activeTopPanel || !topBarRef.current) return;
@@ -990,67 +1025,46 @@ export function AppShell() {
         onBackgroundTaskDone={handleBackgroundTaskDone}
         onRunningSessionIdsChange={handleRunningSessionIdsChange}
       />
-      <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
-        {([
-          {
-             label: translate("common.models"),
-            onClick: () => setModelsConfigOpen(true),
-            disabled: false,
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" />
-                <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
-                <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
-                <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
-                <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
-              </svg>
-            ),
-          },
-          {
-             label: translate("common.skills"),
-            onClick: () => setSkillsConfigOpen(true),
-            disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                <path d="M2 17l10 5 10-5" />
-                <path d="M2 12l10 5 10-5" />
-              </svg>
-            ),
-          },
-          {
-             label: translate("common.plugins"),
-            onClick: () => setPluginsConfigOpen(true),
-            disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 7V2" />
-                <path d="M15 7V2" />
-                <path d="M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0Z" />
-                <path d="M12 19v3" />
-              </svg>
-            ),
-          },
-        ] as { label: string; onClick: () => void; disabled: boolean; icon: React.ReactNode }[]).map(({ label, onClick, disabled, icon }) => (
-          <button
-            key={label}
-            onClick={onClick}
-            disabled={disabled}
-            title={label}
-            style={{
-              flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-              height: 32, padding: 0, background: "none", border: "none",
-              borderRadius: 9, color: "var(--text-muted)", cursor: disabled ? "default" : "pointer",
-              fontSize: 12, opacity: disabled ? 0.35 : 1,
-              transition: "background 0.12s, color 0.12s",
-            }}
-            onMouseEnter={(e) => { if (!disabled) { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text)"; } }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "var(--text-muted)"; }}
-          >
-            {icon}
-            {label}
-          </button>
-        ))}
+      <div ref={settingsMenuRef} style={{ padding: "4px 6px", flexShrink: 0, display: "flex", justifyContent: "flex-end", position: "relative", borderTop: "1px solid var(--border)" }}>
+        {settingsMenuOpen && (
+          <div role="menu" aria-label="Settings" style={{
+            position: "absolute", right: 6, bottom: 40, zIndex: 300, minWidth: 190,
+            padding: 4, border: "1px solid var(--border)", borderRadius: 8,
+            background: "var(--bg-panel)", boxShadow: "0 8px 24px rgba(0,0,0,0.16)",
+          }}>
+            {[
+              { label: themeMenuLabel, onClick: (event: React.MouseEvent<HTMLButtonElement>) => { const rect = event.currentTarget.getBoundingClientRect(); toggleTheme({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }); }, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="12" cy="12" r="5" /><path d="M12 1v2m0 18v2M4.2 4.2l1.4 1.4m12.8 12.8 1.4 1.4M1 12h2m18 0h2M4.2 19.8l1.4-1.4m12.8-12.8 1.4-1.4" /></svg> },
+              { label: translate("system.prompt"), onClick: handleOpenSystemPrompt, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="8" y1="13" x2="16" y2="13" /><line x1="8" y1="17" x2="13" y2="17" /></svg> },
+              { label: translate("common.models"), onClick: () => setModelsConfigOpen(true), icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><path d="M9 1v3m6-3v3m-6 16v3m6-3v3m5-14h3m-3 5h3M1 9h3m-3 5h3" /></svg> },
+              { label: translate("common.skills"), onClick: () => setSkillsConfigOpen(true), disabled: !projectTrustCwd, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5M2 12l10 5 10-5" /></svg> },
+              { label: translate("common.plugins"), onClick: () => setPluginsConfigOpen(true), disabled: !projectTrustCwd, icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 7V2m6 5V2M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0Z" /><path d="M12 19v3" /></svg> },
+            ].map(({ label, onClick, disabled, icon }) => (
+              <button key={label} type="button" role="menuitem" disabled={disabled} onClick={(event) => { onClick(event); setSettingsMenuOpen(false); }} style={{
+                display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 9px", border: "none", borderRadius: 5,
+                background: "none", color: "var(--text-muted)", cursor: disabled ? "not-allowed" : "pointer",
+                opacity: disabled ? 0.45 : 1, fontSize: 12, textAlign: "left",
+              }} onMouseEnter={(event) => { if (!disabled) event.currentTarget.style.background = "var(--bg-hover)"; }} onMouseLeave={(event) => { event.currentTarget.style.background = "none"; }}>
+                {icon}{label}
+              </button>
+            ))}
+            <div style={{ margin: "4px 0", borderTop: "1px solid var(--border)" }} />
+            <button type="button" role="menuitem" onClick={() => setSettingsLanguageOpen((open) => !open)} aria-expanded={settingsLanguageOpen} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 9px", border: "none", borderRadius: 5, background: settingsLanguageOpen ? "var(--bg-selected)" : "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 12, textAlign: "left" }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M2 5h12M7 2h1m-4 12 6-6m-6 0 6 6m7 8-5-10-5 10m2-4h6" /></svg>{translate("common.language")}<span style={{ marginLeft: "auto", fontSize: 10 }}>{settingsLanguageOpen ? "▾" : "▸"}</span></button>
+            {settingsLanguageOpen && supportedLocales.map((plugin) => (
+              <button key={plugin.id} type="button" role="menuitem" onClick={() => { setLocale(plugin.id as typeof locale); setSettingsMenuOpen(false); }} style={{
+                display: "flex", width: "100%", padding: "7px 9px 7px 31px", border: "none", borderRadius: 5,
+                background: locale === plugin.id ? "var(--bg-selected)" : "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 12, textAlign: "left",
+              }}>
+                {plugin.label}
+              </button>
+            ))}
+          </div>
+        )}
+        <button type="button" onClick={() => setSettingsMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={settingsMenuOpen} title="Settings" aria-label="Settings" style={{
+          display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, padding: 0,
+          border: "none", borderRadius: 9, background: settingsMenuOpen ? "var(--bg-selected)" : "none", color: "var(--text-muted)", cursor: "pointer",
+        }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.04 1.56V20.3h-3v-.08a1.7 1.7 0 0 0-1.04-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.56-1.04h-.08v-3h.08A1.7 1.7 0 0 0 7 9.92a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.12-2.12.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1.04-1.56v-.08h3v.08a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.12 2.12-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.04h.08v3h-.08A1.7 1.7 0 0 0 19.4 15Z" /></svg>
+        </button>
       </div>
     </>
   );
@@ -1259,7 +1273,6 @@ export function AppShell() {
     if (!mobile && !showChat) return null;
     return (
       <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
-        {renderAttachChip(mobile)}
         <button
           type="button"
           onClick={() => {
@@ -1477,6 +1490,34 @@ export function AppShell() {
         </button>
         {mobile && renderThemeButton(true)}
         {mobile && renderLanguageButton(true)}
+      </div>
+    );
+  };
+
+  const renderSessionMenuButton = () => {
+    const hasMessages = Boolean(
+      selectedSession && ((sessionStats?.userMessages ?? 0) > 0 || selectedSession.messageCount > 0),
+    );
+    const titleDisabled = !selectedSession || selectedSession.transient || !hasMessages || autoNameStatus.kind === "naming";
+    const itemStyle = {
+      display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 5,
+      background: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 12, textAlign: "left" as const,
+    };
+    return (
+      <div style={{ position: "relative", height: "100%" }}>
+        <button type="button" onClick={() => setSessionMenuOpen((open) => !open)} disabled={!showChat}
+          aria-haspopup="menu" aria-expanded={sessionMenuOpen} title="Session" aria-label="Session"
+          style={{ display: "flex", alignItems: "center", gap: 5, height: "100%", padding: "0 12px", border: "none", borderRight: "1px solid var(--border)", background: sessionMenuOpen ? "var(--bg-selected)" : "none", color: "var(--text-muted)", cursor: showChat ? "pointer" : "not-allowed", opacity: showChat ? 1 : 0.45, fontSize: 11 }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" /><path d="M7 8h10M7 12h10M7 16h6" /></svg>
+          {!isMobile && <span>Session</span>}
+        </button>
+        {sessionMenuOpen && (
+          <div role="menu" aria-label="Session" style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 400, minWidth: 180, padding: 4, border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg-panel)", boxShadow: "0 8px 24px rgba(0,0,0,0.16)" }}>
+            <button type="button" role="menuitem" disabled={!selectedSession} onClick={() => { handleViewFullHistory(); setSessionMenuOpen(false); }} style={{ ...itemStyle, opacity: selectedSession ? 1 : 0.45, cursor: selectedSession ? "pointer" : "not-allowed" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5M12 7v5l3 2" /></svg>{translate("history.label")}</button>
+            <button type="button" role="menuitem" disabled={titleDisabled} onClick={() => { void handleAutoName(); setSessionMenuOpen(false); }} style={{ ...itemStyle, opacity: titleDisabled ? 0.45 : 1, cursor: titleDisabled ? "not-allowed" : "pointer" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 4 5 5L7 22l-5-5Z" /><path d="m14 5 5 5M6 4V2M5 3H3M19 19v3M17.5 20.5h3" /></svg>{translate("title.generate")}</button>
+            <button type="button" role="menuitem" onClick={() => { toggleTopPanel("branches"); setSessionMenuOpen(false); }} style={itemStyle}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>{translate("i18n.branches")}</button>
+          </div>
+        )}
       </div>
     );
   };
@@ -1870,7 +1911,7 @@ export function AppShell() {
                 style={{
                   position: "relative",
                   zIndex: mobileToolbarMoreOpen ? 21 : undefined,
-                  display: "flex", alignItems: "center", justifyContent: "center",
+                  display: "none", alignItems: "center", justifyContent: "center",
                   width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
                   background: mobileToolbarMoreOpen ? "var(--bg-selected)" : "none",
                   border: "none", borderRight: "1px solid var(--border)",
@@ -1889,8 +1930,9 @@ export function AppShell() {
                 )}
               </button>
               {renderSessionStatsButton(true)}
+              {renderSessionMenuButton()}
               {renderMainFileToggle(true)}
-              {mobileToolbarMoreOpen && (
+              {false && (
                 <div
                   id="mobile-toolbar-actions"
                   role="toolbar"
@@ -1915,30 +1957,25 @@ export function AppShell() {
               )}
             </div>
           )}
+          {!isMobile && renderProjectTrustWarning(false)}
           {!isMobile && (
-            <>
-              {renderThemeButton(false)}
-              {renderLanguageButton(false)}
-              {renderProjectTrustWarning(false)}
-              {renderChatToolbarActions(false)}
-              {renderSessionStatsButton(false)}
-            </>
+            <div style={{ marginLeft: "auto", display: "flex", alignItems: "stretch", height: "100%" }}>
+              {renderSessionMenuButton()}
+              {renderMainFileToggle(false)}
+            </div>
           )}
-          {!isMobile && renderMainFileToggle(false)}
-          {isMobile && (
-            <BranchNavigator
-              tree={branchTree}
-              activeLeafId={branchActiveLeafId}
-              onLeafChange={handleBranchLeafChange}
-              inline
-              compact
-              containerRef={topBarRef}
-              open={activeTopPanel === "branches"}
-              onToggle={() => toggleTopPanel("branches")}
-              hasSession={showChat}
-              hideInlineButton
-            />
-          )}
+          <BranchNavigator
+            tree={branchTree}
+            activeLeafId={branchActiveLeafId}
+            onLeafChange={handleBranchLeafChange}
+            inline
+            compact
+            containerRef={topBarRef}
+            open={activeTopPanel === "branches"}
+            onToggle={() => toggleTopPanel("branches")}
+            hasSession={showChat}
+            hideInlineButton
+          />
           {/* Top panel dropdown — shared, only one active at a time */}
           {activeTopPanel && topPanelPos && (
             <div style={{
@@ -1991,35 +2028,6 @@ export function AppShell() {
                       <span>{plugin.label}</span>
                     </button>
                   ))}
-                </div>
-              )}
-              {activeTopPanel === "system" && (
-                <div style={{
-                  background: "var(--bg-panel)",
-                  borderBottom: "1px solid var(--border)",
-                }}>
-                  {systemPrompt ? (
-                    <div style={{
-                      maxHeight: "min(600px, 75vh)",
-                      overflowY: "auto",
-                      padding: "12px 16px",
-                      color: "var(--text-muted)",
-                      fontSize: 12,
-                      lineHeight: 1.6,
-                      whiteSpace: "pre-wrap",
-                      fontFamily: "var(--font-mono)",
-                    }}>
-                      {systemPrompt}
-                    </div>
-                  ) : systemPrompt === "" ? (
-                    <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-                       {translate("system.empty")}
-                    </div>
-                  ) : (
-                    <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-                       {systemPromptLoading ? translate("system.loading") : translate("system.load")}
-                    </div>
-                  )}
                 </div>
               )}
               {activeTopPanel === "session" && (
@@ -2220,6 +2228,7 @@ export function AppShell() {
               onSystemPromptLoaderChange={handleSystemPromptLoaderChange}
               onSessionStatsChange={handleSessionStatsChange}
               onSessionStatsPanelOpen={openSessionStatsPanel}
+              sessionStatusControl={!isMobile ? renderSessionStatsButton(false) : undefined}
               onContextUsageChange={handleContextUsageChange}
               onAttachStateChange={handleAttachStateChange}
               onDetachHandlerChange={handleDetachHandlerChange}
@@ -2363,7 +2372,12 @@ export function AppShell() {
 
         {/* Only the active viewer is mounted. File-tab state is restored on activation. */}
         <div style={{ flex: 1, overflow: "hidden", paddingBottom: "env(safe-area-inset-bottom)" }}>
-          {activeFileTab?.kind === "web" ? (
+          {activeFileTab?.kind === "system" ? (
+            <div style={{ height: "100%", overflowY: "auto", padding: "14px 16px", color: "var(--text-muted)", fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap", fontFamily: "var(--font-mono)" }}>
+              {systemPrompt ?? (systemPromptLoading ? translate("system.loading") : translate("system.load"))}
+              {systemPrompt === "" && translate("system.empty")}
+            </div>
+          ) : activeFileTab?.kind === "web" ? (
             <WebViewer
               key={activeFileTab.id}
               url={activeFileTab.url ?? ""}

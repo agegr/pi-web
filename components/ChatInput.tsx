@@ -80,6 +80,8 @@ interface Props {
   soundEnabled?: boolean;
   onSoundToggle?: () => void;
   onAudioUnlock?: () => void;
+  /** Session token, cost, and context status supplied by the application shell. */
+  sessionStatusControl?: React.ReactNode;
   conversationTarget?: { label: string; active: boolean } | null;
   onConversationTargetClear?: () => void;
   draftKey?: string;
@@ -416,7 +418,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
-  soundEnabled, onSoundToggle, onAudioUnlock,
+  soundEnabled, onSoundToggle, onAudioUnlock, sessionStatusControl,
   conversationTarget, onConversationTargetClear,
   onPromptWithStreamingBehavior,
   draftKey,
@@ -2344,17 +2346,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             )}
           </div>
 
-          {/* spacer */}
-          {!isMobile && <div style={{ flex: 1 }} />}
-
-          {/* RIGHT: thinking + tools preset + compact + sound (idle) | Stop + sound (streaming) */}
+          {/* Composer controls follow the model selector. */}
           <div ref={controlsMenuRef} style={{
             flex: "0 0 auto",
             display: "flex",
             alignItems: "center",
             justifyContent: "flex-end",
             position: "relative",
-            marginLeft: isMobile ? 0 : "auto",
+            marginLeft: 0,
           }}>
             {isMobile && (
               <button
@@ -2749,6 +2748,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             )}
             </div>
           </div>
+
+          {/* Keep usage and cost information at the far right of the composer bar. */}
+          {!isMobile && sessionStatusControl && (
+            <div style={{ marginLeft: "auto", height: 32, display: "flex", alignItems: "center" }}>
+              {sessionStatusControl}
+            </div>
+          )}
 
         </div>
       </div>
