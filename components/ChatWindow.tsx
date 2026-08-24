@@ -951,6 +951,9 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 const inlineThreadPanels = resolvedSourceThreads.flatMap(({ thread, anchorKey }) => (
                   anchorKey ? [{ anchorKey, panel: renderThreadPanel(thread) }] : []
                 ));
+                const activeUnanchoredThread = resolvedSourceThreads.find(({ thread, anchorKey }) => (
+                  !anchorKey && activeThread?.id === thread.id
+                ))?.thread;
                 const view = (
                   <MessageView
                     key={`${keyPrefix}-view-${idx}`}
@@ -1005,6 +1008,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                         })}
                       </div>
                     </details>
+                    {activeUnanchoredThread ? renderThreadPanel(activeUnanchoredThread) : null}
                   </div>
                 ) : view;
                 if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return content;
