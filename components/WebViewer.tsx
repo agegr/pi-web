@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { createElement, useEffect, useRef, useState } from "react";
+import { isDesktopApp } from "@/lib/desktop";
 import { useI18n } from "@/hooks/useI18n";
 import { getWebUrlLabel, normalizeWebUrl } from "@/lib/web-url";
 
@@ -9,12 +10,81 @@ interface Props {
   onNavigate: (url: string, label: string) => void;
 }
 
+interface NativeWebViewElement extends HTMLElement {
+  getURL(): string;
+  reload(): void;
+  src: string;
+}
+
+interface NativeWebPanelProps extends Props {
+  webviewRef: React.RefObject<NativeWebViewElement | null>;
+}
+
+/**
+ * An Electron webview is a separate top-level browsing context, rather than an
+ * iframe. That permits sites such as GitHub that send X-Frame-Options: DENY
+ * and lets their first-party Electron cookie partition retain login state.
+ */
+function NativeWebPanel({ url, onNavigate, webviewRef }: NativeWebPanelProps) {
+  // `src` must not be controlled directly by React. A guest navigation updates
+  // the tab URL through onNavigate; reflecting that update straight back to a
+  // <webview src=…> issues a second load and interrupts multi-step SSO redirects.
+  const initialUrlRef = useRef(url);
+  const expectedUrlRef = useRef(url);
+
+  useEffect(() => {
+    const webview = webviewRef.current;
+    if (!webview || url === expectedUrlRef.current) return;
+
+    expectedUrlRef.current = url;
+    const currentUrl = normalizeWebUrl(webview.getURL());
+    if (currentUrl !== url) webview.src = url;
+  }, [url, webviewRef]);
+
+  useEffect(() => {
+    const webview = webviewRef.current;
+    if (!webview) return;
+
+    const syncLocation = () => {
+      const currentUrl = normalizeWebUrl(webview.getURL());
+      if (!currentUrl) return;
+      expectedUrlRef.current = currentUrl;
+      onNavigate(currentUrl, getWebUrlLabel(currentUrl));
+    };
+    webview.addEventListener("did-navigate", syncLocation);
+    webview.addEventListener("did-navigate-in-page", syncLocation);
+    return () => {
+      webview.removeEventListener("did-navigate", syncLocation);
+      webview.removeEventListener("did-navigate-in-page", syncLocation);
+    };
+  }, [onNavigate, webviewRef]);
+
+  // React's DOM types intentionally do not include Electron's <webview> tag.
+  // createElement keeps the custom element contained to this desktop-only path.
+  return createElement("webview", {
+    ref: webviewRef,
+    src: initialUrlRef.current,
+    partition: "persist:pi-web-web",
+    allowpopups: "true",
+    "aria-label": getWebUrlLabel(url),
+    style: { flex: 1, minHeight: 0, width: "100%", border: "none", background: "white" },
+  });
+}
+
 export function WebViewer({ url, onNavigate }: Props) {
   const { t } = useI18n();
   const [input, setInput] = useState(url);
   const [error, setError] = useState<string | null>(null);
   const [frameKey, setFrameKey] = useState(0);
+  // Start false for server/client hydration parity. The Electron preload makes
+  // this true immediately after mount, replacing only the framed page.
+  const [desktop, setDesktop] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const webviewRef = useRef<NativeWebViewElement>(null);
+
+  useEffect(() => {
+    setDesktop(isDesktopApp());
+  }, []);
 
   useEffect(() => {
     setInput(url);
@@ -31,6 +101,14 @@ export function WebViewer({ url, onNavigate }: Props) {
     setInput(nextUrl);
     setError(null);
     onNavigate(nextUrl, getWebUrlLabel(nextUrl));
+  };
+
+  const reload = () => {
+    if (desktop && webviewRef.current) {
+      webviewRef.current.reload();
+      return;
+    }
+    setFrameKey((key) => key + 1);
   };
 
   const openExternal = () => {
@@ -74,7 +152,7 @@ export function WebViewer({ url, onNavigate }: Props) {
         </button>
         <button
           type="button"
-          onClick={() => setFrameKey((key) => key + 1)}
+          onClick={reload}
           disabled={!url}
           title={t("web.reload")}
           aria-label={t("web.reload")}
@@ -99,19 +177,27 @@ export function WebViewer({ url, onNavigate }: Props) {
       </form>
       {error && <div role="alert" style={{ padding: "6px 10px", color: "#dc2626", fontSize: 12, borderBottom: "1px solid var(--border)" }}>{error}</div>}
       {url ? (
-        <iframe
-          key={`${url}:${frameKey}`}
-          src={url}
-          title={getWebUrlLabel(url)}
-          sandbox="allow-downloads allow-forms allow-popups allow-same-origin allow-scripts"
-          style={{ flex: 1, minHeight: 0, width: "100%", border: "none", background: "white" }}
-        />
+        desktop ? (
+          <NativeWebPanel url={url} onNavigate={onNavigate} webviewRef={webviewRef} />
+        ) : (
+          <iframe
+            key={`${url}:${frameKey}`}
+            src={url}
+            title={getWebUrlLabel(url)}
+            // Cross-origin frames already cannot touch this origin, so a tight sandbox buys
+            // little security but does break sign-in: popups inherit the sandbox (OAuth/SSO
+            // windows come up crippled) and the Storage Access API is unavailable, so
+            // SameSite=Lax session cookies from other Chrome tabs are never sent.
+            sandbox="allow-downloads allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts allow-storage-access-by-user-activation"
+            style={{ flex: 1, minHeight: 0, width: "100%", border: "none", background: "white" }}
+          />
+        )
       ) : (
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, color: "var(--text-muted)", fontSize: 12, textAlign: "center" }}>
           {t("web.enterAddress")}
         </div>
       )}
-      {url && (
+      {url && !desktop && (
         <div style={{ padding: "5px 10px", borderTop: "1px solid var(--border)", color: "var(--text-dim)", fontSize: 11 }}>
           {t("web.embedNotice")}
         </div>
