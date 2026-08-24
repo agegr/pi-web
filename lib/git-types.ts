@@ -22,6 +22,14 @@ export interface GitStatusResponse {
   deletions: number;
 }
 
+/** Lightweight repository identity used by the workspace footer. */
+export interface GitWorkspaceResponse {
+  isGitRepository: boolean;
+  repositoryRoot: string | null;
+  /** Null for non-repositories and detached HEADs. */
+  branch: string | null;
+}
+
 export interface GitFileDiffResponse {
   supported: boolean;
   status?: GitFileStatusKind;

@@ -89,6 +89,58 @@ interface Props {
   cwd?: string | null;
 }
 
+function WorkspaceStatus({ cwd, isMobile }: { cwd?: string | null; isMobile: boolean }) {
+  const [branch, setBranch] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!cwd) {
+      setBranch(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    setBranch(null);
+    void fetch(`/api/git/workspace?cwd=${encodeURIComponent(cwd)}`, { signal: controller.signal })
+      .then((response) => response.ok ? response.json() as Promise<{ branch?: string | null }> : null)
+      .then((workspace) => {
+        if (!controller.signal.aborted) setBranch(workspace?.branch ?? null);
+      })
+      .catch(() => {
+        // The directory remains useful even when Git is unavailable.
+      });
+
+    return () => controller.abort();
+  }, [cwd]);
+
+  if (!cwd) return null;
+  const label = branch ? `${cwd} · ${branch}` : cwd;
+
+  return (
+    <div
+      role="status"
+      aria-label={`Working directory: ${label}`}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        flex: isMobile ? "1 1 100%" : "1 1 160px",
+        gridColumn: isMobile ? "1 / -1" : undefined,
+        minWidth: 0,
+        height: 32,
+        marginLeft: isMobile ? 0 : 6,
+        padding: isMobile ? "0 6px" : "0 8px",
+        overflow: "hidden",
+        color: "var(--text-dim)",
+        fontFamily: "var(--font-mono)",
+        fontSize: 11,
+      }}
+    >
+      <span title={label} style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {label}
+      </span>
+    </div>
+  );
+}
+
 export function formatQuotedText(text: string): string {
   return text.trim().split("\n").map((line) => `> ${line}`).join("\n");
 }
@@ -2748,6 +2800,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             )}
             </div>
           </div>
+
+          <WorkspaceStatus cwd={cwd} isMobile={isMobile} />
 
           {/* Keep usage and cost information at the far right of the composer bar. */}
           {!isMobile && sessionStatusControl && (

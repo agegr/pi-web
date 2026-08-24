@@ -7,6 +7,7 @@ import type {
   GitFileDiffResponse,
   GitFileStatus,
   GitStatusResponse,
+  GitWorkspaceResponse,
 } from "./git-types";
 import {
   classifyGitStatus,
@@ -33,6 +34,29 @@ async function findRepositoryRoot(cwd: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+async function findBranch(repositoryRoot: string): Promise<string | null> {
+  try {
+    // This intentionally has no detached-HEAD fallback: a commit SHA is not a
+    // branch name, and callers only display this field when a branch exists.
+    return (await git(repositoryRoot, ["branch", "--show-current"])).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getGitWorkspace(cwd: string): Promise<GitWorkspaceResponse> {
+  const repositoryRoot = await findRepositoryRoot(cwd);
+  if (!repositoryRoot) {
+    return { isGitRepository: false, repositoryRoot: null, branch: null };
+  }
+
+  return {
+    isGitRepository: true,
+    repositoryRoot,
+    branch: await findBranch(repositoryRoot),
+  };
 }
 
 function isWithinPath(parent: string, target: string): boolean {
