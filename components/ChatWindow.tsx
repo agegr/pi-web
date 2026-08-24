@@ -30,6 +30,7 @@ import {
   collectDiscussionThreads,
   findActiveDiscussionThread,
   groupDiscussionThreadsBySource,
+  resolveThreadMainLeafId,
   threadTitleFromMarkdown,
   type DiscussionThreadDescriptor,
 } from "@/lib/discussion-threads";
@@ -396,7 +397,11 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     ?? (activeThreadHint ? discussionThreads.find((thread) => thread.id === activeThreadHint) ?? null : null);
 
   useEffect(() => {
-    if (activeThreadHint && activeThreadFromTree?.id === activeThreadHint) setActiveThreadHint(null);
+    if (!activeThreadHint) return;
+    // The tree is authoritative once it has caught up with the navigation that
+    // set this hint. Clearing only on a match would strand the composer in
+    // thread mode forever after returning to the main conversation.
+    if (activeThreadFromTree?.id !== activeThreadHint) setActiveThreadHint(null);
   }, [activeThreadFromTree?.id, activeThreadHint]);
 
   useEffect(() => {
@@ -408,13 +413,14 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   }, [session?.id, newSessionDraftKey]);
 
   useEffect(() => {
-    if (!activeThread || !session?.id || activeThread.hostLeafId === null) {
+    const hostLeafId = activeThread ? resolveThreadMainLeafId(data?.tree ?? [], activeThread) : null;
+    if (!activeThread || !session?.id || !hostLeafId) {
       setLoadedThreadHost(null);
       return;
     }
     if (threadHostSnapshot?.threadId === activeThread.id || loadedThreadHost?.threadId === activeThread.id) return;
     const controller = new AbortController();
-    const params = new URLSearchParams({ leafId: activeThread.hostLeafId, deferThinking: "1", deferMedia: "1" });
+    const params = new URLSearchParams({ leafId: hostLeafId, deferThinking: "1", deferMedia: "1" });
     void fetch(`/api/sessions/${encodeURIComponent(session.id)}/context?${params}`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -431,7 +437,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
         }
       });
     return () => controller.abort();
-  }, [activeThread, loadedThreadHost?.threadId, session?.id, threadHostSnapshot?.threadId]);
+  }, [activeThread, data?.tree, loadedThreadHost?.threadId, session?.id, threadHostSnapshot?.threadId]);
 
   const activeHostContext = activeThread
     ? threadHostSnapshot?.threadId === activeThread.id
@@ -443,23 +449,41 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const sourceIndexInActiveContext = activeThread
     ? activeEntryIds.indexOf(activeThread.sourceEntryId)
     : -1;
+  // A thread view hides the main tail below its source. When the source is not
+  // on the active path yet, fall back to the whole context instead of blanking
+  // the transcript.
+  const threadHostFallback = sourceIndexInActiveContext === -1
+    ? { messages: activeMessages, entryIds: activeEntryIds }
+    : {
+      messages: activeMessages.slice(0, sourceIndexInActiveContext + 1),
+      entryIds: activeEntryIds.slice(0, sourceIndexInActiveContext + 1),
+    };
   const messages = activeThread
-    ? activeHostContext?.messages ?? activeMessages.slice(0, sourceIndexInActiveContext + 1)
+    ? activeHostContext?.messages ?? threadHostFallback.messages
     : activeMessages;
   const entryIds = activeThread
-    ? activeHostContext?.entryIds ?? activeEntryIds.slice(0, sourceIndexInActiveContext + 1)
+    ? activeHostContext?.entryIds ?? threadHostFallback.entryIds
     : activeEntryIds;
+
+  const clearThreadViewState = useCallback(() => {
+    setActiveThreadHint(null);
+    setExpandedInlineThreadId(null);
+    setThreadHostSnapshot(null);
+    setLoadedThreadHost(null);
+  }, []);
+
+  const leaveActiveThread = useCallback(async (thread: DiscussionThreadDescriptor) => {
+    const target = resolveThreadMainLeafId(data?.tree ?? [], thread);
+    const returned = target ? await handleLeafChange(target) : false;
+    // Always drop the local thread view, otherwise a failed navigation strands
+    // the composer in thread mode with no way back.
+    clearThreadViewState();
+    return returned;
+  }, [clearThreadViewState, data?.tree, handleLeafChange]);
 
   const handleDiscuss = useCallback(async (sourceEntryId: string, selectedMarkdown: string, anchorKey?: string) => {
     if (sessionBusy || isNew || pendingThread) return;
-    if (activeThread) {
-      const returned = await handleLeafChange(activeThread.hostLeafId);
-      if (!returned) return;
-      setActiveThreadHint(null);
-      setExpandedInlineThreadId(null);
-      setThreadHostSnapshot(null);
-      setLoadedThreadHost(null);
-    }
+    if (activeThread && !(await leaveActiveThread(activeThread))) return;
     setPendingThread({
       sourceEntryId,
       selectedMarkdown,
@@ -468,7 +492,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     });
     chatInputRef?.current?.addQuote(selectedMarkdown);
     requestAnimationFrame(() => chatInputRef?.current?.focus());
-  }, [activeThread, chatInputRef, handleLeafChange, isNew, pendingThread, sessionBusy]);
+  }, [activeThread, chatInputRef, isNew, leaveActiveThread, pendingThread, sessionBusy]);
 
   const handleConversationSend = useCallback(async (message: string, images?: AttachedImage[]) => {
     if (!pendingThread) {
@@ -507,13 +531,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
 
   const handleReturnToMain = useCallback(async () => {
     if (!activeThread || sessionBusy) return;
-    const returned = await handleLeafChange(activeThread.hostLeafId);
-    if (!returned) return;
-    setActiveThreadHint(null);
-    setExpandedInlineThreadId(null);
-    setThreadHostSnapshot(null);
-    setLoadedThreadHost(null);
-  }, [activeThread, handleLeafChange, sessionBusy]);
+    await leaveActiveThread(activeThread);
+  }, [activeThread, leaveActiveThread, sessionBusy]);
 
   useEffect(() => {
     if (!extensionDialog || soundedExtensionDialogIdRef.current === extensionDialog.id) return;

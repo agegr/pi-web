@@ -121,6 +121,51 @@ export function findActiveDiscussionThread(
   return threads.find((thread) => subtreeContainsEntry(thread.node, activeLeafId)) ?? null;
 }
 
+function findNode(tree: SessionTreeNode[], entryId: string): SessionTreeNode | null {
+  const stack = [...tree];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if (node.entry.id === entryId || node.compressedEntryIds?.includes(entryId)) return node;
+    stack.push(...node.children);
+  }
+  return null;
+}
+
+function isThreadNode(node: SessionTreeNode): boolean {
+  return node.entry.type === "custom"
+    && node.entry.customType === DISCUSSION_THREAD_CUSTOM_TYPE
+    && parseDiscussionThreadMetadata(node.entry.data) !== null;
+}
+
+/**
+ * Resolve where "return to main" should land.
+ *
+ * `hostLeafId` records the leaf at creation time, which is usually the source
+ * response itself. Navigating back to it would discard everything the main
+ * conversation appended afterwards, so walk the newest non-thread descendants
+ * of the source instead and only fall back to the recorded metadata.
+ */
+export function resolveThreadMainLeafId(
+  tree: SessionTreeNode[],
+  thread: DiscussionThreadDescriptor,
+): string | null {
+  const source = findNode(tree, thread.sourceEntryId);
+  if (!source) return thread.hostLeafId ?? thread.sourceEntryId;
+
+  let node: SessionTreeNode = source;
+  const seen = new Set<SessionTreeNode>();
+  for (;;) {
+    if (seen.has(node)) break;
+    seen.add(node);
+    const candidates: SessionTreeNode[] = node.children.filter((child) => !isThreadNode(child));
+    if (candidates.length === 0) break;
+    node = candidates.reduce((newest: SessionTreeNode, child: SessionTreeNode) => (
+      Date.parse(child.entry.timestamp) >= Date.parse(newest.entry.timestamp) ? child : newest
+    ));
+  }
+  return node.entry.id;
+}
+
 export function groupDiscussionThreadsBySource(
   threads: DiscussionThreadDescriptor[],
 ): Map<string, DiscussionThreadDescriptor[]> {
