@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type Ref } from "react";
+import { useEffect, useMemo, useState, type ReactNode, type Ref } from "react";
 import type { AgentMessage, AssistantMessage, BashExecutionMessage, ToolResultMessage } from "@/lib/types";
 import type { AgentPhase } from "@/hooks/useAgentSession";
 import type { DiscussionThreadDescriptor } from "@/lib/discussion-threads";
@@ -40,6 +40,17 @@ function phaseText(phase: AgentPhase, t: (key: string, params?: Record<string, s
     return latest ? t("chat.runningNamedTool", { name: latest.name }) : t("chat.runningTool");
   }
   return null;
+}
+
+function ThreadProcessDetails({ count, children, t }: { count: number; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
+  return (
+    <details style={{ margin: "4px 0 10px", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden", background: "var(--bg)" }}>
+      <summary style={{ padding: "6px 9px", color: "var(--text-muted)", cursor: "pointer", fontSize: 11 }}>
+        {t("chat.processDetails")} · {count} {t(count === 1 ? "chat.message" : "chat.messages")}
+      </summary>
+      <div style={{ padding: "7px 9px", borderTop: "1px solid var(--border)" }}>{children}</div>
+    </details>
+  );
 }
 
 function threadDelta(context: ThreadContext | null, sourceEntryId: string): ThreadContext {
@@ -150,22 +161,62 @@ export function DiscussionThreadPanel({
             <div style={{ color: "var(--text-dim)", fontSize: 12, fontStyle: "italic" }}>{t("chat.threadEmpty")}</div>
           ) : (
             <>
-              {settledMessages.map((message, index) => (
-                <MessageView
-                  key={settledEntryIds[index] ?? `thread-message-${index}`}
-                  message={message}
-                  toolResults={toolResults}
-                  modelNames={modelNames}
-                  cwd={cwd}
-                  onOpenFile={onOpenFile}
-                  onOpenChangedFile={onOpenChangedFile}
-                  onOpenUrl={onOpenUrl}
-                  entryId={settledEntryIds[index]}
-                  showTimestamp={message.role === "assistant"}
-                  prevTimestamp={index > 0 ? (settledMessages[index - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
-                  sessionId={sessionId}
-                />
-              ))}
+              {(() => {
+                const renderMessage = (message: AgentMessage, index: number, processingState?: "complete") => (
+                  <MessageView
+                    key={settledEntryIds[index] ?? `thread-message-${index}`}
+                    message={message}
+                    processingState={processingState}
+                    toolResults={toolResults}
+                    modelNames={modelNames}
+                    cwd={cwd}
+                    onOpenFile={onOpenFile}
+                    onOpenChangedFile={onOpenChangedFile}
+                    onOpenUrl={onOpenUrl}
+                    entryId={settledEntryIds[index]}
+                    showTimestamp={message.role === "assistant" && !processingState}
+                    prevTimestamp={index > 0 ? (settledMessages[index - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
+                    sessionId={sessionId}
+                  />
+                );
+                const rendered: ReactNode[] = [];
+                for (let start = 0; start < settledMessages.length;) {
+                  const message = settledMessages[start];
+                  if (message.role !== "user") {
+                    rendered.push(renderMessage(message, start));
+                    start += 1;
+                    continue;
+                  }
+                  let end = start + 1;
+                  while (end < settledMessages.length && settledMessages[end].role !== "user") end += 1;
+                  let finalAssistant = -1;
+                  for (let candidate = end - 1; candidate > start; candidate -= 1) {
+                    if (settledMessages[candidate].role === "assistant") {
+                      finalAssistant = candidate;
+                      break;
+                    }
+                  }
+                  if (finalAssistant === -1) {
+                    for (let index = start; index < end; index += 1) rendered.push(renderMessage(settledMessages[index], index));
+                    start = end;
+                    continue;
+                  }
+                  rendered.push(renderMessage(message, start));
+                  const processIndexes = Array.from({ length: Math.max(0, finalAssistant - start - 1) }, (_, offset) => start + 1 + offset)
+                    .filter((index) => settledMessages[index].role === "assistant" || settledMessages[index].role === "custom");
+                  if (processIndexes.length > 0) {
+                    rendered.push(
+                      <ThreadProcessDetails key={`thread-process-${settledEntryIds[start] ?? start}`} count={processIndexes.length} t={t}>
+                        {processIndexes.map((index) => renderMessage(settledMessages[index], index, "complete"))}
+                      </ThreadProcessDetails>,
+                    );
+                  }
+                  rendered.push(renderMessage(settledMessages[finalAssistant], finalAssistant));
+                  for (let index = finalAssistant + 1; index < end; index += 1) rendered.push(renderMessage(settledMessages[index], index));
+                  start = end;
+                }
+                return rendered;
+              })()}
               {(liveMessages.length > 0 || streamingMessage || livePhase) && (
                 <div style={{ marginBottom: 10, padding: "8px 10px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)" }}>
                   <div style={{ marginBottom: 6, color: "var(--text-muted)", fontSize: 11 }}>{t("chat.processDetails")}</div>

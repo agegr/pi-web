@@ -18,6 +18,8 @@ const source = {
   content: [{ type: "text", text: "Source answer" }],
 };
 const question = { role: "user", content: "> Selected point\n\nWhy?" };
+const process = { role: "assistant", provider: "test", model: "test", content: [{ type: "toolCall", toolCallId: "call-1", toolName: "read", input: { path: "README.md" } }] };
+const answer = { role: "assistant", provider: "test", model: "test", content: [{ type: "text", text: "Because tokens expire." }] };
 
 const thread = {
   id: "thread-entry",
@@ -49,8 +51,8 @@ test("renders active thread messages after the source and exposes the single-com
       thread,
       active: true,
       activeContext: {
-        messages: [source, question],
-        entryIds: ["source-entry", "question-entry"],
+        messages: [source, question, process, answer],
+        entryIds: ["source-entry", "question-entry", "process-entry", "answer-entry"],
       },
       onContinue() {},
       onReturnToMain() {},
@@ -59,6 +61,8 @@ test("renders active thread messages after the source and exposes the single-com
 
   assert.match(html, /Selected point/);
   assert.match(html, /Why\?/);
+  assert.match(html, /Process details/);
+  assert.match(html, /Because tokens expire/);
   assert.match(html, /Return to main/);
   assert.doesNotMatch(html, /Source answer/);
 });
