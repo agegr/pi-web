@@ -1090,11 +1090,11 @@ function TextBlock({ block, isStreaming, cwd, onOpenFile, onOpenUrl, onQuote, on
         controls.set(item.anchorKey, anchorControls);
       }
     }
-    const asNodes = (items: Map<string, ReactNode[]>) => new Map([...items].map(([anchorKey, nodes]) => [
+    const asNodes = (items: Map<string, ReactNode[]>, kind: "panel" | "control") => new Map([...items].map(([anchorKey, nodes]) => [
       anchorKey,
-      <Fragment key={anchorKey}>{nodes.map((node, index) => <Fragment key={index}>{node}</Fragment>)}</Fragment>,
+      <Fragment key={`${kind}:${anchorKey}`}>{nodes.map((node, index) => <Fragment key={`${kind}:${index}`}>{node}</Fragment>)}</Fragment>,
     ]));
-    return { panels: asNodes(panels), controls: asNodes(controls) };
+    return { panels: asNodes(panels, "panel"), controls: asNodes(controls, "control") };
   }, [discussionThreadPanels]);
 
   const captureSelection = () => {

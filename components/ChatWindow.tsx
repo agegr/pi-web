@@ -964,25 +964,21 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                     anchorKey,
                     panel: renderThreadPanel(thread, true),
                     control: (
-                      <span key={`thread-control-${thread.id}`} style={{ display: "inline-flex", alignItems: "center", gap: 3, marginLeft: 6, verticalAlign: "middle" }}>
-                        <span style={{ padding: "1px 5px", borderRadius: 4, background: "var(--bg-hover)", color: "var(--text-muted)", fontSize: 10, fontWeight: 600, lineHeight: 1.4 }}>
-                          {t("chat.thread")}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setExpandedInlineThreadId((current) => current === thread.id ? null : thread.id)}
-                          aria-expanded={isOpen}
-                          title={t("chat.thread")}
-                          style={{
-                            display: "inline-flex", alignItems: "center", justifyContent: "center",
-                            width: 17, height: 17, padding: 0, border: "1px solid var(--border)", borderRadius: 4,
-                            background: isOpen ? "var(--bg-selected)" : "var(--bg)", color: isOpen ? "var(--accent)" : "var(--text-dim)",
-                            cursor: "pointer", fontSize: 12, lineHeight: 1, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.12s",
-                          }}
-                        >
-                          ›
-                        </button>
-                      </span>
+                      <button
+                        key={`thread-control-${thread.id}`}
+                        type="button"
+                        onClick={() => setExpandedInlineThreadId((current) => current === thread.id ? null : thread.id)}
+                        aria-expanded={isOpen}
+                        title={t("chat.thread")}
+                        style={{
+                          display: "inline-flex", alignItems: "center", gap: 4, marginLeft: 6, padding: "1px 6px",
+                          border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-hover)", color: isOpen ? "var(--accent)" : "var(--text-muted)",
+                          cursor: "pointer", fontSize: 10, fontWeight: 600, lineHeight: 1.4, verticalAlign: "middle",
+                        }}
+                      >
+                        {t("chat.thread")}
+                        <span aria-hidden="true" style={{ fontSize: 13, lineHeight: 1, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.12s" }}>›</span>
+                      </button>
                     ),
                   }];
                 });
