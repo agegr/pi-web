@@ -12,7 +12,7 @@ import { ReviewingComposer } from "./ReviewingComposer";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { useI18n } from "@/hooks/useI18n";
-import { useAgentSession, type AgentPhase, type AttachState, type NoticeItem } from "@/hooks/useAgentSession";
+import { useAgentSession, type AgentPhase, type AttachedImage, type AttachState, type NoticeItem } from "@/hooks/useAgentSession";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -25,6 +25,15 @@ import {
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
 import { CHAT_CONTENT_MAX_WIDTH } from "@/lib/chat-layout";
+import { findMarkdownThreadAnchor } from "@/lib/markdown-thread-anchor";
+import {
+  collectDiscussionThreads,
+  findActiveDiscussionThread,
+  groupDiscussionThreadsBySource,
+  threadTitleFromMarkdown,
+  type DiscussionThreadDescriptor,
+} from "@/lib/discussion-threads";
+import { DiscussionThreadPanel } from "./DiscussionThreadPanel";
 
 interface Props {
   session: SessionInfo | null;
@@ -333,8 +342,27 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     chatInputRef?.current?.addQuote(text);
   }, [chatInputRef]);
 
+  const [pendingThread, setPendingThread] = useState<{
+    sourceEntryId: string;
+    selectedMarkdown: string;
+    anchorKey?: string;
+    title: string;
+  } | null>(null);
+  const [activeThreadHint, setActiveThreadHint] = useState<string | null>(null);
+  const [expandedInlineThreadId, setExpandedInlineThreadId] = useState<string | null>(null);
+  const [threadHostSnapshot, setThreadHostSnapshot] = useState<{
+    threadId: string;
+    messages: AgentMessage[];
+    entryIds: string[];
+  } | null>(null);
+  const [loadedThreadHost, setLoadedThreadHost] = useState<{
+    threadId: string;
+    messages: AgentMessage[];
+    entryIds: string[];
+  } | null>(null);
+
   const {
-    loading, error, messages, entryIds, streamState,
+    data, loading, error, activeLeafId, messages: activeMessages, entryIds: activeEntryIds, streamState,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
@@ -346,7 +374,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     attachState, attachConflict, attachError,
     attach, detach,
     sessionIdRef, messagesEndRef, scrollContainerRef,
-    handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
+    handleSend, handleAbort, handleFork, handleNavigate, handleStartThread, handleLeafChange, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
@@ -356,6 +384,134 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsPanelOpen,
   });
   const sessionBusy = agentRunning || bashRunning;
+  const discussionThreads = useMemo(() => collectDiscussionThreads(data?.tree ?? []), [data?.tree]);
+  const threadsBySource = useMemo(() => groupDiscussionThreadsBySource(discussionThreads), [discussionThreads]);
+  const activeThreadFromTree = useMemo(
+    () => findActiveDiscussionThread(discussionThreads, activeLeafId),
+    [activeLeafId, discussionThreads],
+  );
+  const activeThread = activeThreadFromTree
+    ?? (activeThreadHint ? discussionThreads.find((thread) => thread.id === activeThreadHint) ?? null : null);
+
+  useEffect(() => {
+    if (activeThreadHint && activeThreadFromTree?.id === activeThreadHint) setActiveThreadHint(null);
+  }, [activeThreadFromTree?.id, activeThreadHint]);
+
+  useEffect(() => {
+    setPendingThread(null);
+    setActiveThreadHint(null);
+    setExpandedInlineThreadId(null);
+    setThreadHostSnapshot(null);
+    setLoadedThreadHost(null);
+  }, [session?.id, newSessionDraftKey]);
+
+  useEffect(() => {
+    if (!activeThread || !session?.id || activeThread.hostLeafId === null) {
+      setLoadedThreadHost(null);
+      return;
+    }
+    if (threadHostSnapshot?.threadId === activeThread.id || loadedThreadHost?.threadId === activeThread.id) return;
+    const controller = new AbortController();
+    const params = new URLSearchParams({ leafId: activeThread.hostLeafId, deferThinking: "1", deferMedia: "1" });
+    void fetch(`/api/sessions/${encodeURIComponent(session.id)}/context?${params}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<{ context: { messages: AgentMessage[]; entryIds: string[] } }>;
+      })
+      .then((result) => setLoadedThreadHost({
+        threadId: activeThread.id,
+        messages: result.context.messages,
+        entryIds: result.context.entryIds,
+      }))
+      .catch((error) => {
+        if ((error as { name?: string }).name !== "AbortError") {
+          console.error("Failed to load the thread's main conversation:", error);
+        }
+      });
+    return () => controller.abort();
+  }, [activeThread, loadedThreadHost?.threadId, session?.id, threadHostSnapshot?.threadId]);
+
+  const activeHostContext = activeThread
+    ? threadHostSnapshot?.threadId === activeThread.id
+      ? threadHostSnapshot
+      : loadedThreadHost?.threadId === activeThread.id
+        ? loadedThreadHost
+        : null
+    : null;
+  const sourceIndexInActiveContext = activeThread
+    ? activeEntryIds.indexOf(activeThread.sourceEntryId)
+    : -1;
+  const messages = activeThread
+    ? activeHostContext?.messages ?? activeMessages.slice(0, sourceIndexInActiveContext + 1)
+    : activeMessages;
+  const entryIds = activeThread
+    ? activeHostContext?.entryIds ?? activeEntryIds.slice(0, sourceIndexInActiveContext + 1)
+    : activeEntryIds;
+
+  const handleDiscuss = useCallback(async (sourceEntryId: string, selectedMarkdown: string, anchorKey?: string) => {
+    if (sessionBusy || isNew || pendingThread) return;
+    if (activeThread) {
+      const returned = await handleLeafChange(activeThread.hostLeafId);
+      if (!returned) return;
+      setActiveThreadHint(null);
+      setExpandedInlineThreadId(null);
+      setThreadHostSnapshot(null);
+      setLoadedThreadHost(null);
+    }
+    setPendingThread({
+      sourceEntryId,
+      selectedMarkdown,
+      ...(anchorKey ? { anchorKey } : {}),
+      title: threadTitleFromMarkdown(selectedMarkdown),
+    });
+    chatInputRef?.current?.addQuote(selectedMarkdown);
+    requestAnimationFrame(() => chatInputRef?.current?.focus());
+  }, [activeThread, chatInputRef, handleLeafChange, isNew, pendingThread, sessionBusy]);
+
+  const handleConversationSend = useCallback(async (message: string, images?: AttachedImage[]) => {
+    if (!pendingThread) {
+      await handleSend(message, images);
+      return;
+    }
+
+    const hostMessages = activeMessages;
+    const hostEntryIds = activeEntryIds;
+    const result = await handleStartThread(pendingThread.sourceEntryId, pendingThread.selectedMarkdown, pendingThread.anchorKey);
+    if (!result) {
+      chatInputRef?.current?.restoreSubmission(message, images);
+      return;
+    }
+
+    setThreadHostSnapshot({
+      threadId: result.threadEntryId,
+      messages: hostMessages,
+      entryIds: hostEntryIds,
+    });
+    setActiveThreadHint(result.threadEntryId);
+    setExpandedInlineThreadId(result.threadEntryId);
+    setPendingThread(null);
+    await handleSend(message, images);
+  }, [activeEntryIds, activeMessages, chatInputRef, handleSend, handleStartThread, pendingThread]);
+
+  const handleContinueThread = useCallback(async (thread: DiscussionThreadDescriptor) => {
+    if (sessionBusy) return;
+    const switched = await handleLeafChange(thread.latestLeafId);
+    if (!switched) return;
+    setThreadHostSnapshot({ threadId: thread.id, messages, entryIds });
+    setLoadedThreadHost(null);
+    setActiveThreadHint(thread.id);
+    setExpandedInlineThreadId(thread.id);
+  }, [entryIds, handleLeafChange, messages, sessionBusy]);
+
+  const handleReturnToMain = useCallback(async () => {
+    if (!activeThread || sessionBusy) return;
+    const returned = await handleLeafChange(activeThread.hostLeafId);
+    if (!returned) return;
+    setActiveThreadHint(null);
+    setExpandedInlineThreadId(null);
+    setThreadHostSnapshot(null);
+    setLoadedThreadHost(null);
+  }, [activeThread, handleLeafChange, sessionBusy]);
 
   useEffect(() => {
     if (!extensionDialog || soundedExtensionDialogIdRef.current === extensionDialog.id) return;
@@ -374,6 +530,10 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const [visibleCount, setVisibleCount] = useState(VISIBLE_PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const prevScrollDistanceRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (activeThread) setVisibleCount((current) => Math.max(current, messages.length * 2));
+  }, [activeThread, messages.length]);
 
   // IntersectionObserver on the sentinel div at the top of the message list.
   // When it becomes visible, load the next page of older messages.
@@ -475,15 +635,15 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const inputHistory = useMemo(() => {
     const seen = new Set<string>();
     const history: string[] = [];
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const text = getUserInputText(messages[i]);
+    for (let i = activeMessages.length - 1; i >= 0; i -= 1) {
+      const text = getUserInputText(activeMessages[i]);
       if (!text || seen.has(text)) continue;
       seen.add(text);
       history.push(text);
       if (history.length >= 50) break;
     }
     return history.reverse();
-  }, [messages]);
+  }, [activeMessages]);
   const messageRefs = useMessageRefs(visibleMessages.length);
   const revealHistoryForMinimap = useCallback(() => {
     setVisibleCount((current) => Math.max(current, messages.length * 2));
@@ -522,7 +682,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   ) : (
     <ChatInput
       ref={chatInputRef}
-      onSend={handleSend}
+      onSend={handleConversationSend}
       onAbort={handleAbort}
       onSteer={agentRunning ? handleSteer : undefined}
       onFollowUp={agentRunning ? handleFollowUp : undefined}
@@ -558,6 +718,16 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       soundEnabled={soundEnabled}
       onSoundToggle={onSoundToggle}
       onAudioUnlock={unlockAudio}
+      conversationTarget={pendingThread
+        ? { label: pendingThread.title, active: false }
+        : activeThread
+          ? { label: activeThread.title, active: true }
+          : null}
+      onConversationTargetClear={pendingThread
+        ? () => setPendingThread(null)
+        : activeThread
+          ? () => { void handleReturnToMain(); }
+          : undefined}
       draftKey={session?.id ?? newSessionDraftKey ?? undefined}
       cwd={session?.cwd ?? newSessionCwd}
     />
@@ -580,8 +750,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   }
 
   let latestLiveAnchorIdx = -1;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (isGroupAnchor(messages[i])) {
+  for (let i = activeMessages.length - 1; i >= 0; i--) {
+    if (isGroupAnchor(activeMessages[i])) {
       latestLiveAnchorIdx = i;
       break;
     }
@@ -589,6 +759,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   // Only agent work streams into the live panel. A user bash run is not part
   // of the turn, so it must not re-expand an already-finished turn.
   const showLiveProcessPanel = (agentRunning || streamState.isStreaming) && latestLiveAnchorIdx >= 0;
+  const showMainLiveProcessPanel = !activeThread && showLiveProcessPanel;
 
   return (
     <div
@@ -743,6 +914,77 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                   }
                 }
                 if (options.showTimestamp !== undefined) showTimestamp = options.showTimestamp;
+                const sourceThreads = msg.role === "assistant" && entryIds[idx]
+                  ? threadsBySource.get(entryIds[idx]) ?? []
+                  : [];
+                const renderThreadPanel = (thread: DiscussionThreadDescriptor, inline = false, overview = false) => {
+                  const isActiveThread = activeThread?.id === thread.id;
+                  const panelActive = isActiveThread && !overview;
+                  return (
+                    <DiscussionThreadPanel
+                      key={thread.id}
+                      sessionId={session?.id ?? sessionIdRef.current ?? ""}
+                      thread={thread}
+                      active={panelActive}
+                      inline={inline}
+                      open={inline ? isActiveThread || expandedInlineThreadId === thread.id : undefined}
+                      activeContext={panelActive ? { messages: activeMessages, entryIds: activeEntryIds } : undefined}
+                      isRunning={panelActive && sessionBusy}
+                      streamingMessage={panelActive ? streamState.streamingMessage as AssistantMessage | null : null}
+                      phase={panelActive ? agentPhase : null}
+                      bashRunning={panelActive && bashRunning}
+                      pendingBash={panelActive ? pendingBash : null}
+                      modelNames={modelNames}
+                      cwd={messageCwd}
+                      onOpenFile={onOpenFile}
+                      onOpenChangedFile={onOpenChangedFile}
+                      onOpenUrl={onOpenUrl}
+                      onContinue={() => { void handleContinueThread(thread); }}
+                      onReturnToMain={() => { void handleReturnToMain(); }}
+                      endRef={panelActive ? messagesEndRef : undefined}
+                    />
+                  );
+                };
+                const resolvedSourceThreads = sourceThreads.map((thread) => {
+                  if (thread.metadata.anchorKey || msg.role !== "assistant") {
+                    return { thread, anchorKey: thread.metadata.anchorKey };
+                  }
+                  for (let blockIndex = 0; blockIndex < msg.content.length; blockIndex++) {
+                    const block = msg.content[blockIndex];
+                    if (block.type !== "text") continue;
+                    const anchorKey = findMarkdownThreadAnchor(block.text, thread.selectedMarkdown, `${blockIndex}`);
+                    if (anchorKey) return { thread, anchorKey };
+                  }
+                  return { thread, anchorKey: undefined };
+                });
+                const inlineThreadPanels = resolvedSourceThreads.flatMap(({ thread, anchorKey }) => {
+                  if (!anchorKey) return [];
+                  const isOpen = activeThread?.id === thread.id || expandedInlineThreadId === thread.id;
+                  return [{
+                    anchorKey,
+                    panel: renderThreadPanel(thread, true),
+                    control: (
+                      <button
+                        key={`thread-control-${thread.id}`}
+                        type="button"
+                        onClick={() => setExpandedInlineThreadId((current) => current === thread.id ? null : thread.id)}
+                        aria-expanded={isOpen}
+                        title={t("chat.thread")}
+                        style={{
+                          display: "inline-flex", alignItems: "center", gap: 4, marginLeft: 6, padding: "1px 6px",
+                          border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-hover)", color: isOpen ? "var(--accent)" : "var(--text-muted)",
+                          cursor: "pointer", fontSize: 10, fontWeight: 600, lineHeight: 1.4, verticalAlign: "middle",
+                        }}
+                      >
+                        {t("chat.thread")}
+                        <span aria-hidden="true" style={{ fontSize: 13, lineHeight: 1, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.12s" }}>›</span>
+                      </button>
+                    ),
+                  }];
+                });
+                const activeUnanchoredThread = resolvedSourceThreads.find(({ thread, anchorKey }) => (
+                  !anchorKey && activeThread?.id === thread.id
+                ))?.thread;
                 const view = (
                   <MessageView
                     key={`${keyPrefix}-view-${idx}`}
@@ -761,16 +1003,35 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                     prevAssistantEntryId={sessionBusy ? undefined : prevAssistantEntryId}
                     onEditContent={handleEditContent}
                     onQuote={sessionBusy || attachState !== "attached" ? undefined : handleQuote}
+                    onDiscuss={sessionBusy || isNew || pendingThread || attachState !== "attached" ? undefined : handleDiscuss}
+                    discussionThreadPanels={inlineThreadPanels}
                     showTimestamp={showTimestamp}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
                     writtenFiles={options.writtenFiles}
                   />
                 );
-                if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;
+                const content = sourceThreads.length > 0 ? (
+                  <div key={`${keyPrefix}-thread-host-${idx}`}>
+                    {view}
+                    <details
+                      aria-label={t("chat.threads")}
+                      style={{ margin: "-6px 0 12px 18px", color: "var(--text-muted)" }}
+                    >
+                      <summary style={{ cursor: "pointer", width: "fit-content", color: "var(--text-dim)", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        {t("chat.threads")} ({sourceThreads.length})
+                      </summary>
+                      <div style={{ paddingTop: 4 }}>
+                        {sourceThreads.map((thread) => renderThreadPanel(thread, false, true))}
+                      </div>
+                    </details>
+                    {activeUnanchoredThread ? renderThreadPanel(activeUnanchoredThread) : null}
+                  </div>
+                ) : view;
+                if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return content;
                 return (
                   <div key={`${keyPrefix}-${idx}`} ref={attachVisibleRef(currentRefIdx)}>
-                    {view}
+                    {content}
                   </div>
                 );
               };
@@ -789,7 +1050,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 while (endIdx < messages.length && !isGroupAnchor(messages[endIdx])) endIdx += 1;
 
                 const finalAssistantIdx = findFinalAssistantIndex(messages, userIdx, endIdx);
-                const isLiveTail = showLiveProcessPanel && endIdx === messages.length && userIdx === lastAnchorIdx;
+                const isLiveTail = showMainLiveProcessPanel && endIdx === messages.length && userIdx === lastAnchorIdx;
 
                 if (isLiveTail) {
                   rendered.push(renderMessage(userIdx));
@@ -939,23 +1200,23 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 </>
               );
             })()}
-            {!showLiveProcessPanel && streamState.isStreaming && hasStreamingContent && streamState.streamingMessage && (
+            {!activeThread && !showMainLiveProcessPanel && streamState.isStreaming && hasStreamingContent && streamState.streamingMessage && (
               <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenUrl={onOpenUrl} />
             )}
 
-            {!showLiveProcessPanel && agentRunning && !hasStreamingContent && agentPhase && (
+            {!activeThread && !showMainLiveProcessPanel && agentRunning && !hasStreamingContent && agentPhase && (
               <div className="break-words py-2 text-[13px] text-text-muted">
                 <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t)}</span>
               </div>
             )}
 
-            {bashRunning && !pendingBash && (
+            {!activeThread && bashRunning && !pendingBash && (
               <div className="py-2 text-[13px] text-text-muted">
                  <span className="animate-[pulse_1.5s_infinite]">{t("chat.runningCommand")}</span>
               </div>
             )}
 
-            {pendingBash && (
+            {!activeThread && pendingBash && (
               <MessageView
                 message={{
                   role: "bashExecution",
@@ -967,7 +1228,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               />
             )}
 
-            <div ref={messagesEndRef} />
+            {!activeThread && <div ref={messagesEndRef} />}
             </div>
           </div>
         </div>

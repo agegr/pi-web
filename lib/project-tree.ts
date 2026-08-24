@@ -8,6 +8,7 @@ type ProjectableEntry = {
   id: string;
   type: string;
   message?: unknown;
+  customType?: string;
 };
 
 type ProjectableTreeNode<T> = {
@@ -90,7 +91,8 @@ export function projectTreeForResponse<T extends ProjectableTreeNode<T>>(
 
     if (
       roots.has(node) ||
-      node.children.length !== 1
+      node.children.length !== 1 ||
+      (node.entry.type === "custom" && node.entry.customType === "pi-web.thread")
     ) {
       keep.add(node);
     }

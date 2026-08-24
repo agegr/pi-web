@@ -80,6 +80,8 @@ interface Props {
   soundEnabled?: boolean;
   onSoundToggle?: () => void;
   onAudioUnlock?: () => void;
+  conversationTarget?: { label: string; active: boolean } | null;
+  onConversationTargetClear?: () => void;
   draftKey?: string;
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
@@ -415,6 +417,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
   soundEnabled, onSoundToggle, onAudioUnlock,
+  conversationTarget, onConversationTargetClear,
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
@@ -1571,6 +1574,29 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {compactError}
           </div>
         )}
+        {conversationTarget && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 8, marginBottom: 7,
+            padding: "6px 8px", border: "1px solid color-mix(in srgb, var(--accent) 35%, var(--border))",
+            borderRadius: 7, background: "color-mix(in srgb, var(--accent) 7%, var(--bg-panel))",
+            color: "var(--text-muted)", fontSize: 11,
+          }}>
+            <span aria-hidden="true" style={{ color: "var(--accent)" }}>↳</span>
+            <span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {t(conversationTarget.active ? "chat.replyingInThread" : "chat.startingThread", { title: conversationTarget.label })}
+            </span>
+            {onConversationTargetClear && !isStreaming && (
+              <button
+                type="button"
+                onClick={onConversationTargetClear}
+                style={{ padding: "2px 6px", border: 0, borderRadius: 4, background: "transparent", color: "var(--text-dim)", cursor: "pointer", fontSize: 11 }}
+              >
+                {t(conversationTarget.active ? "chat.returnToMain" : "chat.replyInMain")}
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Image previews */}
         {attachedImages.length > 0 && (
           <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>

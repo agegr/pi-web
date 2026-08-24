@@ -70,6 +70,26 @@ test("a rejected submission preserves a different run reported by the server", (
   assert.match(reconcileSource, /if \(!agentRunningRef\.current\) return;[\s\S]*?finishPromptWithoutStream/);
 });
 
+test("explicit tree navigation wins over a late background session reload", () => {
+  const loadSessionSource = source.slice(
+    source.indexOf("  const loadSession = useCallback"),
+    source.indexOf("  const loadTools = useCallback"),
+  );
+  const navigationSource = source.slice(
+    source.indexOf("  const handleNavigate = useCallback"),
+    source.indexOf("  const handleModelChange = useCallback"),
+  );
+
+  assert.match(source, /const navigationGenerationRef = useRef\(0\)/);
+  assert.match(source, /const sessionLoadRequestIdRef = useRef\(0\)/);
+  assert.match(loadSessionSource, /const requestId = \+\+sessionLoadRequestIdRef\.current/);
+  assert.match(loadSessionSource, /sessionLoadRequestIdRef\.current !== requestId/);
+  assert.match(loadSessionSource, /navigationGenerationRef\.current === navigationGeneration/);
+  assert.match(navigationSource, /\+\+navigationGenerationRef\.current/);
+  assert.match(navigationSource, /await sendAgentCommand<\{ cancelled\?: boolean \}>\(sid, \{ type: "navigate_tree"/);
+  assert.match(navigationSource, /await loadSession\(sid\)/);
+});
+
 test("opening System lazily starts a dormant session without sending a prompt", () => {
   const loadSystemPromptSource = source.slice(
     source.indexOf("  const loadSystemPrompt = useCallback"),
