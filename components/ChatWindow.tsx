@@ -994,7 +994,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                         title={t("chat.thread")}
                         style={{
                           display: "inline-flex", alignItems: "center", gap: 4, marginLeft: 6, padding: "1px 6px",
-                          border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-hover)", color: isOpen ? "var(--accent)" : "var(--text-muted)",
+                          border: "1px solid rgba(59,130,246,0.2)", borderRadius: 4, background: "var(--user-bg)", color: isOpen ? "var(--accent)" : "var(--text-muted)",
                           cursor: "pointer", fontSize: 10, fontWeight: 600, lineHeight: 1.4, verticalAlign: "middle",
                         }}
                       >
