@@ -1579,7 +1579,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [loadContext]);
 
-  const handleStartThread = useCallback(async (sourceEntryId: string, selectedMarkdown: string) => {
+  const handleStartThread = useCallback(async (sourceEntryId: string, selectedMarkdown: string, anchorKey?: string) => {
     if (agentRunningRef.current || bashRunningRef.current) return null;
     if (!isNew && attachStateRef.current !== "attached" && !(await attach())) return null;
     const sid = sessionIdRef.current;
@@ -1594,6 +1594,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         type: "start_thread",
         sourceEntryId,
         selectedMarkdown,
+        ...(anchorKey ? { anchorKey } : {}),
       });
       if (result?.cancelled || !result?.threadEntryId || navigationGenerationRef.current !== navigationGeneration) return null;
       await loadSession(sid);

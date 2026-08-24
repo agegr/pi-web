@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState, useRef, useEffect, useMemo } from "react";
+import { Fragment, memo, useState, useRef, useEffect, useMemo, type ReactNode } from "react";
 import { MarkdownBody } from "./MarkdownBody";
 import { ImagePreview } from "./ImagePreview";
 import { copyText } from "@/lib/clipboard";
@@ -175,6 +175,11 @@ function loadThinkingContent(sessionId: string, entryId: string, blockIndex: num
   return request;
 }
 
+export interface DiscussionThreadInlinePanel {
+  anchorKey?: string;
+  panel: ReactNode;
+}
+
 interface Props {
   message: AgentMessage;
   isStreaming?: boolean;
@@ -196,7 +201,8 @@ interface Props {
   /** Insert selected assistant text into the main composer as a quoted reply. */
   onQuote?: (text: string) => void;
   /** Start an in-session discussion branch from selected assistant text. */
-  onDiscuss?: (entryId: string, text: string) => void;
+  onDiscuss?: (entryId: string, text: string, anchorKey?: string) => void;
+  discussionThreadPanels?: DiscussionThreadInlinePanel[];
   showTimestamp?: boolean;
   prevTimestamp?: number;
   sessionId?: string;
@@ -255,12 +261,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, processingState, toolResults, modelNames, cwd, onOpenFile, onOpenChangedFile, onOpenUrl, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, onQuote, onDiscuss, showTimestamp, prevTimestamp, sessionId, writtenFiles }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, processingState, toolResults, modelNames, cwd, onOpenFile, onOpenChangedFile, onOpenUrl, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, onQuote, onDiscuss, discussionThreadPanels, showTimestamp, prevTimestamp, sessionId, writtenFiles }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} onOpenUrl={onOpenUrl} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} processingState={processingState} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenChangedFile={onOpenChangedFile} onOpenUrl={onOpenUrl} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} onQuote={isStreaming ? undefined : onQuote} onDiscuss={isStreaming ? undefined : onDiscuss} writtenFiles={writtenFiles} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} processingState={processingState} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenChangedFile={onOpenChangedFile} onOpenUrl={onOpenUrl} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} onQuote={isStreaming ? undefined : onQuote} onDiscuss={isStreaming ? undefined : onDiscuss} discussionThreadPanels={discussionThreadPanels} writtenFiles={writtenFiles} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -294,6 +300,7 @@ export const MessageView = memo(function MessageView({ message, isStreaming, pro
     && prev.onEditContent === next.onEditContent
     && prev.onQuote === next.onQuote
     && prev.onDiscuss === next.onDiscuss
+    && prev.discussionThreadPanels === next.discussionThreadPanels
     && prev.showTimestamp === next.showTimestamp
     && prev.prevTimestamp === next.prevTimestamp
     && prev.sessionId === next.sessionId;
@@ -597,6 +604,7 @@ function AssistantMessageView({
   entryId,
   onQuote,
   onDiscuss,
+  discussionThreadPanels,
   writtenFiles,
 }: {
   message: AssistantMessage;
@@ -613,7 +621,8 @@ function AssistantMessageView({
   sessionId?: string;
   entryId?: string;
   onQuote?: (text: string) => void;
-  onDiscuss?: (entryId: string, text: string) => void;
+  onDiscuss?: (entryId: string, text: string, anchorKey?: string) => void;
+  discussionThreadPanels?: DiscussionThreadInlinePanel[];
   writtenFiles?: WrittenFile[];
 }) {
   const { t } = useI18n();
@@ -809,7 +818,8 @@ function AssistantMessageView({
             entryId={entryId}
             blockIndex={originalIndex}
             onQuote={onQuote}
-            onDiscuss={entryId && onDiscuss ? (text) => onDiscuss(entryId, text) : undefined}
+            onDiscuss={entryId && onDiscuss ? (text, anchorKey) => onDiscuss(entryId, text, anchorKey) : undefined}
+            discussionThreadPanels={discussionThreadPanels}
           />
         ))}
       </div>
@@ -904,12 +914,12 @@ function AssistantMessageView({
   );
 }
 
-function BlockView({ block, toolResults, isStreaming, processingCompact, processingActive, streamingDuration, toolCallDurations, cwd, onOpenFile, onOpenUrl, sessionId, entryId, blockIndex, onQuote, onDiscuss }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; processingCompact?: boolean; processingActive?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string) => void; onOpenUrl?: (url: string) => void; sessionId?: string; entryId?: string; blockIndex: number; onQuote?: (text: string) => void; onDiscuss?: (text: string) => void }) {
+function BlockView({ block, toolResults, isStreaming, processingCompact, processingActive, streamingDuration, toolCallDurations, cwd, onOpenFile, onOpenUrl, sessionId, entryId, blockIndex, onQuote, onDiscuss, discussionThreadPanels }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; processingCompact?: boolean; processingActive?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string) => void; onOpenUrl?: (url: string) => void; sessionId?: string; entryId?: string; blockIndex: number; onQuote?: (text: string) => void; onDiscuss?: (text: string, anchorKey?: string) => void; discussionThreadPanels?: DiscussionThreadInlinePanel[] }) {
   if (block.type === "text") {
     if (processingCompact) {
       return <ProcessingTextBlock block={block as TextContent} active={Boolean(processingActive)} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} onOpenUrl={onOpenUrl} />;
     }
-    return <TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} onOpenUrl={onOpenUrl} onQuote={onQuote} onDiscuss={onDiscuss} />;
+    return <TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} onOpenUrl={onOpenUrl} onQuote={onQuote} onDiscuss={onDiscuss} blockKeyPrefix={`${blockIndex}`} discussionThreadPanels={discussionThreadPanels} />;
   }
   if (block.type === "thinking") {
     return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} active={Boolean(processingActive)} />;
@@ -1060,10 +1070,23 @@ function ProcessingTextBlock({ block, active, isStreaming, cwd, onOpenFile, onOp
   );
 }
 
-function TextBlock({ block, isStreaming, cwd, onOpenFile, onOpenUrl, onQuote, onDiscuss }: { block: TextContent; isStreaming?: boolean; cwd?: string; onOpenFile?: (filePath: string) => void; onOpenUrl?: (url: string) => void; onQuote?: (text: string) => void; onDiscuss?: (text: string) => void }) {
+function TextBlock({ block, isStreaming, cwd, onOpenFile, onOpenUrl, onQuote, onDiscuss, blockKeyPrefix, discussionThreadPanels }: { block: TextContent; isStreaming?: boolean; cwd?: string; onOpenFile?: (filePath: string) => void; onOpenUrl?: (url: string) => void; onQuote?: (text: string) => void; onDiscuss?: (text: string, anchorKey?: string) => void; blockKeyPrefix?: string; discussionThreadPanels?: DiscussionThreadInlinePanel[] }) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
-  const [quoteAction, setQuoteAction] = useState<{ text: string; left: number; top: number } | null>(null);
+  const [quoteAction, setQuoteAction] = useState<{ text: string; left: number; top: number; anchorKey?: string } | null>(null);
+  const threadPanelsByAnchor = useMemo(() => {
+    const grouped = new Map<string, ReactNode[]>();
+    for (const item of discussionThreadPanels ?? []) {
+      if (!item.anchorKey) continue;
+      const panels = grouped.get(item.anchorKey) ?? [];
+      panels.push(item.panel);
+      grouped.set(item.anchorKey, panels);
+    }
+    return new Map([...grouped].map(([anchorKey, panels]) => [
+      anchorKey,
+      <Fragment key={anchorKey}>{panels.map((panel, index) => <Fragment key={index}>{panel}</Fragment>)}</Fragment>,
+    ]));
+  }, [discussionThreadPanels]);
 
   const captureSelection = () => {
     if ((!onQuote && !onDiscuss) || !containerRef.current) return;
@@ -1077,18 +1100,23 @@ function TextBlock({ block, isStreaming, cwd, onOpenFile, onOpenUrl, onQuote, on
     if (!containerRef.current.contains(ancestor.nodeType === Node.TEXT_NODE ? ancestor.parentNode : ancestor)) return;
     const text = selectedMarkdown(selection) || selection.toString().trim();
     if (!text) return;
+    const startElement = range.startContainer.nodeType === Node.TEXT_NODE
+      ? range.startContainer.parentElement
+      : range.startContainer as Element;
+    const anchorKey = startElement?.closest<HTMLElement>("[data-thread-anchor]")?.dataset.threadAnchor;
     const rect = range.getBoundingClientRect();
     const containerRect = containerRef.current.getBoundingClientRect();
     setQuoteAction({
       text,
       left: Math.max(4, Math.min(rect.left - containerRect.left, containerRect.width - (onDiscuss ? 280 : 130))),
       top: Math.max(0, rect.bottom - containerRect.top + 4),
+      anchorKey,
     });
   };
 
   return (
     <div ref={containerRef} onMouseUp={captureSelection} style={{ position: "relative" }}>
-      <SafeMarkdownBody isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} onOpenUrl={onOpenUrl}>{block.text}</SafeMarkdownBody>
+      <SafeMarkdownBody isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} onOpenUrl={onOpenUrl} blockKeyPrefix={blockKeyPrefix} threadPanels={threadPanelsByAnchor}>{block.text}</SafeMarkdownBody>
       {quoteAction && (
         <div style={{
           position: "absolute", zIndex: 4, left: quoteAction.left, top: quoteAction.top,
@@ -1110,7 +1138,7 @@ function TextBlock({ block, isStreaming, cwd, onOpenFile, onOpenUrl, onQuote, on
             <button
               type="button"
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => { onDiscuss(quoteAction.text); setQuoteAction(null); window.getSelection()?.removeAllRanges(); }}
+              onClick={() => { onDiscuss(quoteAction.text, quoteAction.anchorKey); setQuoteAction(null); window.getSelection()?.removeAllRanges(); }}
               title={t("chat.discussSelectionTitle")}
               style={{ padding: "4px 8px", border: 0, borderLeft: onQuote ? "1px solid var(--border)" : 0, background: "transparent", color: "var(--accent)", cursor: "pointer", fontSize: 11, whiteSpace: "nowrap" }}
             >

@@ -344,6 +344,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const [pendingThread, setPendingThread] = useState<{
     sourceEntryId: string;
     selectedMarkdown: string;
+    anchorKey?: string;
     title: string;
   } | null>(null);
   const [activeThreadHint, setActiveThreadHint] = useState<string | null>(null);
@@ -444,7 +445,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     ? activeHostContext?.entryIds ?? activeEntryIds.slice(0, sourceIndexInActiveContext + 1)
     : activeEntryIds;
 
-  const handleDiscuss = useCallback(async (sourceEntryId: string, selectedMarkdown: string) => {
+  const handleDiscuss = useCallback(async (sourceEntryId: string, selectedMarkdown: string, anchorKey?: string) => {
     if (sessionBusy || isNew || pendingThread) return;
     if (activeThread) {
       const returned = await handleLeafChange(activeThread.hostLeafId);
@@ -456,6 +457,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     setPendingThread({
       sourceEntryId,
       selectedMarkdown,
+      ...(anchorKey ? { anchorKey } : {}),
       title: threadTitleFromMarkdown(selectedMarkdown),
     });
     chatInputRef?.current?.addQuote(selectedMarkdown);
@@ -470,7 +472,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
 
     const hostMessages = activeMessages;
     const hostEntryIds = activeEntryIds;
-    const result = await handleStartThread(pendingThread.sourceEntryId, pendingThread.selectedMarkdown);
+    const result = await handleStartThread(pendingThread.sourceEntryId, pendingThread.selectedMarkdown, pendingThread.anchorKey);
     if (!result) {
       chatInputRef?.current?.restoreSubmission(message, images);
       return;
@@ -905,6 +907,38 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                   }
                 }
                 if (options.showTimestamp !== undefined) showTimestamp = options.showTimestamp;
+                const sourceThreads = msg.role === "assistant" && entryIds[idx]
+                  ? threadsBySource.get(entryIds[idx]) ?? []
+                  : [];
+                const renderThreadPanel = (thread: DiscussionThreadDescriptor) => {
+                  const isActiveThread = activeThread?.id === thread.id;
+                  return (
+                    <DiscussionThreadPanel
+                      key={thread.id}
+                      sessionId={session?.id ?? sessionIdRef.current ?? ""}
+                      thread={thread}
+                      active={isActiveThread}
+                      activeContext={isActiveThread ? { messages: activeMessages, entryIds: activeEntryIds } : undefined}
+                      isRunning={isActiveThread && sessionBusy}
+                      streamingMessage={isActiveThread ? streamState.streamingMessage as AssistantMessage | null : null}
+                      phase={isActiveThread ? agentPhase : null}
+                      bashRunning={isActiveThread && bashRunning}
+                      pendingBash={isActiveThread ? pendingBash : null}
+                      modelNames={modelNames}
+                      cwd={messageCwd}
+                      onOpenFile={onOpenFile}
+                      onOpenChangedFile={onOpenChangedFile}
+                      onOpenUrl={onOpenUrl}
+                      onContinue={() => { void handleContinueThread(thread); }}
+                      onReturnToMain={() => { void handleReturnToMain(); }}
+                      endRef={isActiveThread ? messagesEndRef : undefined}
+                    />
+                  );
+                };
+                const inlineThreadPanels = sourceThreads
+                  .filter((thread) => Boolean(thread.metadata.anchorKey))
+                  .map((thread) => ({ anchorKey: thread.metadata.anchorKey, panel: renderThreadPanel(thread) }));
+                const unanchoredThreads = sourceThreads.filter((thread) => !thread.metadata.anchorKey);
                 const view = (
                   <MessageView
                     key={`${keyPrefix}-view-${idx}`}
@@ -924,48 +958,37 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                     onEditContent={handleEditContent}
                     onQuote={sessionBusy || attachState !== "attached" ? undefined : handleQuote}
                     onDiscuss={sessionBusy || isNew || pendingThread || attachState !== "attached" ? undefined : handleDiscuss}
+                    discussionThreadPanels={inlineThreadPanels}
                     showTimestamp={showTimestamp}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
                     writtenFiles={options.writtenFiles}
                   />
                 );
-                const sourceThreads = msg.role === "assistant" && entryIds[idx]
-                  ? threadsBySource.get(entryIds[idx]) ?? []
-                  : [];
                 const content = sourceThreads.length > 0 ? (
                   <div key={`${keyPrefix}-thread-host-${idx}`}>
                     {view}
-                    <div aria-label={t("chat.threads")} style={{ marginTop: -8, marginBottom: 12 }}>
-                      <div style={{ marginLeft: 18, color: "var(--text-dim)", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                    <details
+                      aria-label={t("chat.threads")}
+                      open={unanchoredThreads.some((thread) => activeThread?.id === thread.id)}
+                      style={{ margin: "-6px 0 12px 18px", color: "var(--text-muted)" }}
+                    >
+                      <summary style={{ cursor: "pointer", width: "fit-content", color: "var(--text-dim)", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                         {t("chat.threads")} ({sourceThreads.length})
+                      </summary>
+                      <div style={{ paddingTop: 4 }}>
+                        {sourceThreads.map((thread) => (
+                          thread.metadata.anchorKey ? (
+                            <div key={thread.id} style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 24, padding: "0 6px", fontSize: 11 }}>
+                              <span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{thread.title}</span>
+                              <button type="button" onClick={() => { void handleContinueThread(thread); }} style={{ padding: "2px 6px", border: 0, borderRadius: 4, background: "transparent", color: "var(--accent)", cursor: "pointer", fontSize: 11 }}>
+                                {t("chat.continueThread")}
+                              </button>
+                            </div>
+                          ) : renderThreadPanel(thread)
+                        ))}
                       </div>
-                      {sourceThreads.map((thread) => {
-                        const isActiveThread = activeThread?.id === thread.id;
-                        return (
-                          <DiscussionThreadPanel
-                            key={thread.id}
-                            sessionId={session?.id ?? sessionIdRef.current ?? ""}
-                            thread={thread}
-                            active={isActiveThread}
-                            activeContext={isActiveThread ? { messages: activeMessages, entryIds: activeEntryIds } : undefined}
-                            isRunning={isActiveThread && sessionBusy}
-                            streamingMessage={isActiveThread ? streamState.streamingMessage as AssistantMessage | null : null}
-                            phase={isActiveThread ? agentPhase : null}
-                            bashRunning={isActiveThread && bashRunning}
-                            pendingBash={isActiveThread ? pendingBash : null}
-                            modelNames={modelNames}
-                            cwd={messageCwd}
-                            onOpenFile={onOpenFile}
-                            onOpenChangedFile={onOpenChangedFile}
-                            onOpenUrl={onOpenUrl}
-                            onContinue={() => { void handleContinueThread(thread); }}
-                            onReturnToMain={() => { void handleReturnToMain(); }}
-                            endRef={isActiveThread ? messagesEndRef : undefined}
-                          />
-                        );
-                      })}
-                    </div>
+                    </details>
                   </div>
                 ) : view;
                 if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return content;

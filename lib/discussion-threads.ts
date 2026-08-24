@@ -7,6 +7,8 @@ export interface DiscussionThreadMetadata {
   sourceEntryId: string;
   hostLeafId: string | null;
   selectedMarkdown: string;
+  /** Stable rendered Markdown block ID, when the selection was inside one. */
+  anchorKey?: string;
   title: string;
   status: "open";
 }
@@ -51,6 +53,9 @@ export function parseDiscussionThreadMetadata(value: unknown): DiscussionThreadM
     sourceEntryId: value.sourceEntryId,
     hostLeafId: value.hostLeafId,
     selectedMarkdown: value.selectedMarkdown,
+    ...(typeof value.anchorKey === "string" && value.anchorKey.trim()
+      ? { anchorKey: value.anchorKey.trim() }
+      : {}),
     title: typeof value.title === "string" && value.title.trim()
       ? value.title.trim()
       : threadTitleFromMarkdown(value.selectedMarkdown),

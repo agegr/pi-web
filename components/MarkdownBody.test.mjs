@@ -21,6 +21,18 @@ function renderMarkdown(markdown) {
   );
 }
 
+test("anchors discussion panels after addressable Markdown blocks", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(MarkdownBody, {
+      blockKeyPrefix: "0",
+      threadPanels: new Map([["0:h2:0", React.createElement("aside", null, "inline thread")]]),
+    }, "## Authentication\n\n- Rotate tokens"),
+  );
+
+  assert.match(html, /data-thread-anchor="0:h2:0"/);
+  assert.match(html, /<aside>inline thread<\/aside>/);
+});
+
 test("opens non-file markdown links in a safe new tab", () => {
   const html = renderMarkdown("[docs](https://example.com/docs)");
 

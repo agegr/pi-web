@@ -674,6 +674,9 @@ export class AgentSessionWrapper {
         const selectedMarkdown = typeof command.selectedMarkdown === "string"
           ? command.selectedMarkdown.trim()
           : "";
+        const anchorKey = typeof command.anchorKey === "string"
+          ? command.anchorKey.trim().slice(0, 200)
+          : undefined;
         if (!sourceEntryId || !selectedMarkdown) {
           throw new Error("A source response and selected text are required");
         }
@@ -699,6 +702,7 @@ export class AgentSessionWrapper {
           sourceEntryId,
           hostLeafId,
           selectedMarkdown,
+          ...(anchorKey ? { anchorKey } : {}),
           title: threadTitleFromMarkdown(selectedMarkdown),
           status: "open",
         });

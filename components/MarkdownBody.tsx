@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type MouseEvent } from "react";
+import { useMemo, type MouseEvent, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { resolveLocalFileHref } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
@@ -16,6 +16,10 @@ interface MarkdownBodyProps {
   onOpenFile?: (filePath: string) => void;
   /** Opens an external HTTP(S) link in the app's web panel. */
   onOpenUrl?: (url: string) => void;
+  /** Inline content appended after addressable Markdown blocks. */
+  threadPanels?: ReadonlyMap<string, ReactNode>;
+  /** Prefix that makes Markdown block anchors unique within an assistant entry. */
+  blockKeyPrefix?: string;
 }
 
 function getExternalWebUrl(href: string | undefined): string | null {
@@ -23,7 +27,14 @@ function getExternalWebUrl(href: string | undefined): string | null {
   return normalizeWebUrl(href.startsWith("//") ? `https:${href}` : href);
 }
 
-export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, onOpenUrl }: MarkdownBodyProps) {
+function blockAnchorKey(prefix: string | undefined, kind: string, node: unknown): string | undefined {
+  if (!prefix || !node || typeof node !== "object") return undefined;
+  const position = (node as { position?: { start?: { offset?: unknown } } }).position;
+  const offset = position?.start?.offset;
+  return typeof offset === "number" ? `${prefix}:${kind}:${offset}` : undefined;
+}
+
+export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, onOpenUrl, threadPanels, blockKeyPrefix }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
   // Stable renderer identities keep stateful blocks mounted across message hover updates.
   const components = useMemo<Components>(() => ({
@@ -92,7 +103,39 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
         </div>
       );
     },
-  }), [cwd, isStreaming, onOpenFile, onOpenUrl]);
+    h1({ node, children, ...props }) {
+      const anchorKey = blockAnchorKey(blockKeyPrefix, "h1", node);
+      return <><h1 {...props} {...(anchorKey ? { "data-thread-anchor": anchorKey } : {})}>{children}</h1>{anchorKey ? threadPanels?.get(anchorKey) : null}</>;
+    },
+    h2({ node, children, ...props }) {
+      const anchorKey = blockAnchorKey(blockKeyPrefix, "h2", node);
+      return <><h2 {...props} {...(anchorKey ? { "data-thread-anchor": anchorKey } : {})}>{children}</h2>{anchorKey ? threadPanels?.get(anchorKey) : null}</>;
+    },
+    h3({ node, children, ...props }) {
+      const anchorKey = blockAnchorKey(blockKeyPrefix, "h3", node);
+      return <><h3 {...props} {...(anchorKey ? { "data-thread-anchor": anchorKey } : {})}>{children}</h3>{anchorKey ? threadPanels?.get(anchorKey) : null}</>;
+    },
+    h4({ node, children, ...props }) {
+      const anchorKey = blockAnchorKey(blockKeyPrefix, "h4", node);
+      return <><h4 {...props} {...(anchorKey ? { "data-thread-anchor": anchorKey } : {})}>{children}</h4>{anchorKey ? threadPanels?.get(anchorKey) : null}</>;
+    },
+    h5({ node, children, ...props }) {
+      const anchorKey = blockAnchorKey(blockKeyPrefix, "h5", node);
+      return <><h5 {...props} {...(anchorKey ? { "data-thread-anchor": anchorKey } : {})}>{children}</h5>{anchorKey ? threadPanels?.get(anchorKey) : null}</>;
+    },
+    h6({ node, children, ...props }) {
+      const anchorKey = blockAnchorKey(blockKeyPrefix, "h6", node);
+      return <><h6 {...props} {...(anchorKey ? { "data-thread-anchor": anchorKey } : {})}>{children}</h6>{anchorKey ? threadPanels?.get(anchorKey) : null}</>;
+    },
+    p({ node, children, ...props }) {
+      const anchorKey = blockAnchorKey(blockKeyPrefix, "p", node);
+      return <><p {...props} {...(anchorKey ? { "data-thread-anchor": anchorKey } : {})}>{children}</p>{anchorKey ? threadPanels?.get(anchorKey) : null}</>;
+    },
+    li({ node, children, ...props }) {
+      const anchorKey = blockAnchorKey(blockKeyPrefix, "li", node);
+      return <><li {...props} {...(anchorKey ? { "data-thread-anchor": anchorKey } : {})}>{children}</li>{anchorKey ? threadPanels?.get(anchorKey) : null}</>;
+    },
+  }), [blockKeyPrefix, cwd, isStreaming, onOpenFile, onOpenUrl, threadPanels]);
 
   return (
     <div className={["markdown-body", className].filter(Boolean).join(" ")}>

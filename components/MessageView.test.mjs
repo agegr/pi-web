@@ -103,6 +103,24 @@ test("offers quoting for a complete assistant response", () => {
   assert.match(html, /A detailed answer/);
 });
 
+test("places a persisted thread panel directly after its Markdown anchor", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "openai",
+    model: "gpt-test",
+    content: [{ type: "text", text: "## Authentication\n\nRotate tokens." }],
+  }, {
+    entryId: "assistant-entry",
+    discussionThreadPanels: [{
+      anchorKey: "0:h2:0",
+      panel: React.createElement("aside", null, "Authentication thread"),
+    }],
+  });
+
+  assert.match(html, /data-thread-anchor="0:h2:0"/);
+  assert.match(html, /<aside>Authentication thread<\/aside>/);
+});
+
 test("renders a provider error when the assistant message has no content", () => {
   const html = renderMessage({
     role: "assistant",
