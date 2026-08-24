@@ -567,22 +567,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, []);
 
-  const loadContext = useCallback(async (sid: string, leafId: string | null, navigationGeneration = navigationGenerationRef.current) => {
-    try {
-      const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
-      if (leafId) params.set("leafId", leafId);
-      const url = `/api/sessions/${encodeURIComponent(sid)}/context?${params}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[] } };
-      if (navigationGenerationRef.current !== navigationGeneration || sessionIdRef.current !== sid) return;
-      setMessages(d.context.messages);
-      setEntryIds(d.context.entryIds ?? []);
-    } catch (e) {
-      console.error("Failed to load context:", e);
-    }
-  }, []);
-
   const loadTools = useCallback(async (sid: string) => {
     try {
       const tools = await sendAgentCommand<ToolEntry[]>(sid, { type: "get_tools" });
@@ -1572,12 +1556,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       const result = await sendAgentCommand<{ cancelled?: boolean }>(sid, { type: "navigate_tree", targetId: entryId });
       if (result?.cancelled || navigationGenerationRef.current !== navigationGeneration) return;
-      setActiveLeafId(entryId);
-      await loadContext(sid, entryId, navigationGeneration);
+      await loadSession(sid);
     } catch (e) {
       console.error("Failed to navigate session tree:", e);
     }
-  }, [loadContext]);
+  }, [loadSession]);
 
   const handleStartThread = useCallback(async (sourceEntryId: string, selectedMarkdown: string, anchorKey?: string) => {
     if (agentRunningRef.current || bashRunningRef.current) return null;
@@ -1617,14 +1600,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       const result = await sendAgentCommand<{ cancelled?: boolean }>(sid, { type: "navigate_tree", targetId: leafId });
       if (result?.cancelled || navigationGenerationRef.current !== navigationGeneration) return false;
-      setActiveLeafId(leafId);
-      await loadContext(sid, leafId, navigationGeneration);
-      return true;
+      await loadSession(sid);
+      return navigationGenerationRef.current === navigationGeneration;
     } catch (e) {
       console.error("Failed to navigate session tree:", e);
       return false;
     }
-  }, [loadContext]);
+  }, [loadSession]);
 
   const handleModelChange = useCallback(async (provider: string, modelId: string) => {
     if (isNew) {

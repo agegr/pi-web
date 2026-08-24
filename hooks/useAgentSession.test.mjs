@@ -73,7 +73,7 @@ test("a rejected submission preserves a different run reported by the server", (
 test("explicit tree navigation wins over a late background session reload", () => {
   const loadSessionSource = source.slice(
     source.indexOf("  const loadSession = useCallback"),
-    source.indexOf("  const loadContext = useCallback"),
+    source.indexOf("  const loadTools = useCallback"),
   );
   const navigationSource = source.slice(
     source.indexOf("  const handleNavigate = useCallback"),
@@ -84,7 +84,7 @@ test("explicit tree navigation wins over a late background session reload", () =
   assert.match(loadSessionSource, /navigationGenerationRef\.current === navigationGeneration/);
   assert.match(navigationSource, /\+\+navigationGenerationRef\.current/);
   assert.match(navigationSource, /await sendAgentCommand<\{ cancelled\?: boolean \}>\(sid, \{ type: "navigate_tree"/);
-  assert.match(navigationSource, /await loadContext\(sid, leafId, navigationGeneration\)/);
+  assert.match(navigationSource, /await loadSession\(sid\)/);
 });
 
 test("opening System lazily starts a dormant session without sending a prompt", () => {

@@ -25,6 +25,7 @@ import {
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
 import { CHAT_CONTENT_MAX_WIDTH } from "@/lib/chat-layout";
+import { findMarkdownThreadAnchor } from "@/lib/markdown-thread-anchor";
 import {
   collectDiscussionThreads,
   findActiveDiscussionThread,
@@ -935,10 +936,24 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                     />
                   );
                 };
-                const inlineThreadPanels = sourceThreads
-                  .filter((thread) => Boolean(thread.metadata.anchorKey))
-                  .map((thread) => ({ anchorKey: thread.metadata.anchorKey, panel: renderThreadPanel(thread) }));
-                const unanchoredThreads = sourceThreads.filter((thread) => !thread.metadata.anchorKey);
+                const resolvedSourceThreads = sourceThreads.map((thread) => {
+                  if (thread.metadata.anchorKey || msg.role !== "assistant") {
+                    return { thread, anchorKey: thread.metadata.anchorKey };
+                  }
+                  for (let blockIndex = 0; blockIndex < msg.content.length; blockIndex++) {
+                    const block = msg.content[blockIndex];
+                    if (block.type !== "text") continue;
+                    const anchorKey = findMarkdownThreadAnchor(block.text, thread.selectedMarkdown, `${blockIndex}`);
+                    if (anchorKey) return { thread, anchorKey };
+                  }
+                  return { thread, anchorKey: undefined };
+                });
+                const inlineThreadPanels = resolvedSourceThreads.flatMap(({ thread, anchorKey }) => (
+                  anchorKey ? [{ anchorKey, panel: renderThreadPanel(thread) }] : []
+                ));
+                const unanchoredThreads = resolvedSourceThreads
+                  .filter((item) => !item.anchorKey)
+                  .map((item) => item.thread);
                 const view = (
                   <MessageView
                     key={`${keyPrefix}-view-${idx}`}

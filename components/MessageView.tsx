@@ -12,6 +12,7 @@ import { isEditToolName } from "@/lib/tool-names";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import type { WrittenFile } from "@/lib/turn-written-files";
 import { skillExpansionToCommand } from "@/lib/slash-display";
+import { findMarkdownThreadAnchor } from "@/lib/markdown-thread-anchor";
 import type {
   AgentMessage,
   UserMessage,
@@ -1103,7 +1104,8 @@ function TextBlock({ block, isStreaming, cwd, onOpenFile, onOpenUrl, onQuote, on
     const startElement = range.startContainer.nodeType === Node.TEXT_NODE
       ? range.startContainer.parentElement
       : range.startContainer as Element;
-    const anchorKey = startElement?.closest<HTMLElement>("[data-thread-anchor]")?.dataset.threadAnchor;
+    const anchorKey = startElement?.closest<HTMLElement>("[data-thread-anchor]")?.dataset.threadAnchor
+      ?? (blockKeyPrefix ? findMarkdownThreadAnchor(block.text, text, blockKeyPrefix) : undefined);
     const rect = range.getBoundingClientRect();
     const containerRect = containerRef.current.getBoundingClientRect();
     setQuoteAction({

@@ -133,7 +133,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
     },
     li({ node, children, ...props }) {
       const anchorKey = blockAnchorKey(blockKeyPrefix, "li", node);
-      return <><li {...props} {...(anchorKey ? { "data-thread-anchor": anchorKey } : {})}>{children}</li>{anchorKey ? threadPanels?.get(anchorKey) : null}</>;
+      return <li {...props} {...(anchorKey ? { "data-thread-anchor": anchorKey } : {})}>{children}{anchorKey ? threadPanels?.get(anchorKey) : null}</li>;
     },
   }), [blockKeyPrefix, cwd, isStreaming, onOpenFile, onOpenUrl, threadPanels]);
 
