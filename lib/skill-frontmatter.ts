@@ -1,6 +1,7 @@
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 
 const KEY = "disable-model-invocation";
+const KEY_LINE = `[ \\t]*(?:${KEY}|"${KEY}"|'${KEY}')[ \\t]*:`;
 
 /**
  * Toggle the `disable-model-invocation` frontmatter key with a surgical line
@@ -24,9 +25,11 @@ export function setDisableModelInvocation(content: string, disable: boolean): st
 
   if (disable) {
     if (hasKey) {
-      return head.replace(new RegExp(`^${KEY}[ \\t]*:[^\\n]*`, "m"), `${KEY}: true`) + tail;
+      const keyLine = new RegExp(`^(${KEY_LINE})[^\\r\\n]*(\\r?)$`, "m");
+      if (!keyLine.test(head)) throw new Error(`Cannot edit ${KEY}: unsupported frontmatter formatting`);
+      return head.replace(keyLine, "$1 true$2") + tail;
     }
-    const withKey = head.replace(/^---\r?\n/, `---\n${KEY}: true\n`);
+    const withKey = head.replace(/^---(\r?\n)/, `---$1${KEY}: true$1`);
     if (withKey === head) {
       // No frontmatter block at all — create one.
       return `---\n${KEY}: true\n---\n${content}`;
@@ -36,5 +39,7 @@ export function setDisableModelInvocation(content: string, disable: boolean): st
 
   // Drop the line together with its preceding newline so no blank line is
   // left behind; the key is never the first line of the frontmatter block.
-  return head.replace(new RegExp(`\\n${KEY}[ \\t]*:[^\\n]*`), "") + tail;
+  const keyLine = new RegExp(`\\n${KEY_LINE}[^\\n]*`);
+  if (!keyLine.test(head)) throw new Error(`Cannot edit ${KEY}: unsupported frontmatter formatting`);
+  return head.replace(keyLine, "") + tail;
 }
