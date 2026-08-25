@@ -52,6 +52,17 @@ html.dark {
   --bg-subtle: rgba(255,255,255,0.04);
 }
 
+/* WebKit reports dvh/innerHeight without the status-bar strip for installed
+   home-screen apps even though the layout still starts at the screen's top.
+   In standalone mode there is no browser toolbar to make vh unstable, and vh
+   includes that missing strip. The keyboard hook temporarily overrides this
+   custom property with visualViewport.height while an editor is focused. */
+@media (display-mode: standalone) {
+  :root {
+    --app-viewport-height: 100vh;
+  }
+}
+
 .catppuccin-file-icon {
   display: block;
   flex-shrink: 0;
@@ -126,6 +137,7 @@ body {
   background: var(--border);
   border-radius: 2px;
 }
+
 
 .extension-status-shelf {
   display: flex;
@@ -312,20 +324,25 @@ button.extension-widget-trigger:focus-visible {
 .extension-status-line {
   display: flex;
   flex: 1 1 0;
-  align-items: center;
+  align-items: flex-start;
   min-width: 0;
-  height: 35px;
-  padding: 0 12px;
+  min-height: 35px;
+  max-height: min(144px, 18dvh);
+  padding: 8px 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .extension-status-text {
+  flex: 1;
   min-width: 0;
-  overflow: hidden;
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-dim);
@@ -1202,17 +1219,6 @@ span.token.table {
   .notice-shelf-item {
     animation-duration: 0.001ms !important;
   }
-}
-
-@keyframes saved-pop {
-  0%   { transform: scale(1); box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.55); }
-  40%  { transform: scale(1.08); box-shadow: 0 0 0 6px rgba(74, 222, 128, 0.25); }
-  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
-}
-
-@keyframes saved-check-draw {
-  from { stroke-dashoffset: 18; opacity: 0; }
-  to   { stroke-dashoffset: 0;  opacity: 1; }
 }
 
 /* Keep the panel border as the idle separator; this element only expands the hit target. */

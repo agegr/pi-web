@@ -6,8 +6,10 @@ import { ExtensionWidgets } from "./ExtensionWidgets";
 
 export function sanitizeExtensionStatusText(text: string): string {
   return text
-    .replace(/[\r\n\t]/g, " ")
-    .replace(/ +/g, " ")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/\t/g, " ").replace(/ +/g, " ").trim())
+    .join("\n")
     .trim();
 }
 

@@ -6,7 +6,12 @@ import type {
   SlashCommandInfo,
   Theme,
 } from "@earendil-works/pi-coding-agent";
-import type { AgentMessage as PiAgentMessage } from "@earendil-works/pi-agent-core";
+import type {
+  AgentLoopTurnUpdate,
+  AgentMessage as PiAgentMessage,
+  PrepareNextTurnContext,
+} from "@earendil-works/pi-agent-core";
+import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 
 export interface ContextUsage {
   percent: number | null;
@@ -22,6 +27,9 @@ export interface ModelLike {
 export interface ToolInfo {
   name: string;
   description: string;
+  parameters?: unknown;
+  promptGuidelines?: string[];
+  sourceInfo?: unknown;
 }
 
 export interface NavigateTreeResult {
@@ -66,6 +74,7 @@ interface SkillLike {
 
 interface ResourceLoaderLike {
   getSkills(): { skills: SkillLike[] };
+  getAgentsFiles(): { agentsFiles: Array<{ path: string; content: string }> };
 }
 
 interface ExtensionRunnerLike {
@@ -138,6 +147,10 @@ export interface AgentSessionLike {
       thinkingLevel?: string;
       streamingMessage?: PiAgentMessage;
     };
+    prepareNextTurnWithContext?: (
+      context: PrepareNextTurnContext,
+      signal?: AbortSignal,
+    ) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
   };
   readonly extensionRunner: ExtensionRunnerLike;
   readonly promptTemplates: readonly PromptTemplateLike[];
@@ -152,6 +165,15 @@ export interface AgentSessionLike {
     streamingBehavior?: "steer" | "followUp";
     source?: "interactive" | "rpc";
     preflightResult?: (success: boolean) => void;
+  }): Promise<void>;
+  sendCustomMessage<T = unknown>(message: {
+    customType: string;
+    content: string | (TextContent | ImageContent)[];
+    display: boolean;
+    details?: T;
+  }, options?: {
+    triggerTurn?: boolean;
+    deliverAs?: "steer" | "followUp" | "nextTurn";
   }): Promise<void>;
   abort(): Promise<void>;
   executeBash(command: string, onChunk?: (chunk: string) => void, options?: {

@@ -8,7 +8,8 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canRestoreUserMessage, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, shouldCompressImageFile } = await jiti.import("./ChatInput.tsx");
+const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("@/lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 
@@ -80,6 +81,25 @@ test("renders the read-only tool preset as the active selection", () => {
   assert.match(html, />read-only<\/span>/);
 });
 
+test("renders the empty tool preset as Chat only", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        onToolPresetChange() {},
+        isStreaming: false,
+        toolPreset: "none",
+      }),
+    ),
+  );
+
+  assert.match(html, /title="Change tool preset: Chat only"/);
+  assert.match(html, />Chat only<\/span>/);
+});
+
 test("shows and locks the optimistic model while a switch is pending", () => {
   const html = renderToStaticMarkup(
     React.createElement(
@@ -119,9 +139,106 @@ test("filters model options by name and id", () => {
   assert.equal(filterModelOptions(options, "  "), options);
 });
 
+test("renders the shared field model selector as a disabled gray control", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ModelSelector, {
+        options: [{ provider: "openai", modelId: "gpt-5.6-sol", name: "GPT-5.6 Sol" }],
+        value: null,
+        onChange() {},
+        onClear() {},
+        emptyLabel: "Parent default",
+        ariaLabel: "Model override",
+        disabled: true,
+        variant: "field",
+      }),
+    ),
+  );
+
+  assert.match(html, /aria-label="Model override"/);
+  assert.match(html, /disabled=""/);
+  assert.match(html, /background:var\(--bg-panel\)/);
+  assert.match(html, />Parent default</);
+});
+
 test("caps an upward menu to the visible space above its anchor", () => {
   assert.equal(getUpwardMenuMaxHeight(343, 36), 299);
   assert.equal(getUpwardMenuMaxHeight(40, 36), 0);
+});
+
+test("compresses large images while preserving small images and GIFs", async () => {
+  assert.equal(shouldCompressImageFile({ size: 1024 * 1024, type: "image/png" }), false);
+  assert.equal(shouldCompressImageFile({ size: 1024 * 1024 + 1, type: "image/png" }), true);
+  assert.equal(shouldCompressImageFile({ size: 2 * 1024 * 1024, type: "image/gif" }), false);
+
+  const originals = {
+    FileReader: globalThis.FileReader,
+    createImageBitmap: globalThis.createImageBitmap,
+    document: globalThis.document,
+  };
+  let bitmapCalls = 0;
+  let closed = false;
+  const canvas = {
+    width: 0,
+    height: 0,
+    getContext: () => ({ fillStyle: "", fillRect() {}, drawImage() {} }),
+    toDataURL: () => "data:image/jpeg;base64,COMPRESSED",
+  };
+
+  globalThis.FileReader = class {
+    readAsDataURL() {
+      this.result = "data:image/png;base64,ORIGINAL";
+      this.onload();
+    }
+  };
+  globalThis.createImageBitmap = async () => {
+    bitmapCalls += 1;
+    return { width: 2048, height: 1024, close() { closed = true; } };
+  };
+  globalThis.document = { createElement: () => canvas };
+
+  try {
+    assert.deepEqual(await compressImageFile({ size: 1024, type: "image/png" }), {
+      data: "ORIGINAL",
+      mimeType: "image/png",
+    });
+    assert.deepEqual(await compressImageFile({ size: 2 * 1024 * 1024, type: "image/png" }), {
+      data: "COMPRESSED",
+      mimeType: "image/jpeg",
+    });
+    assert.equal(bitmapCalls, 1);
+    assert.equal(canvas.width, 1024);
+    assert.equal(canvas.height, 512);
+    assert.equal(closed, true);
+  } finally {
+    globalThis.FileReader = originals.FileReader;
+    globalThis.createImageBitmap = originals.createImageBitmap;
+    globalThis.document = originals.document;
+  }
+});
+
+test("recognizes exact slash commands for one-Enter submission", () => {
+  const builtin = { name: "copy", description: "", source: "builtin" };
+  assert.equal(isExactSlashCommand("/copy", builtin), true);
+  assert.equal(isExactSlashCommand("  /copy  ", builtin), true);
+  assert.equal(isExactSlashCommand("/co", builtin), false);
+  assert.equal(isExactSlashCommand("/copy extra", builtin), false);
+  assert.equal(isExactSlashCommand("/copy", { ...builtin, source: "extension" }), false);
+});
+
+test("clears a completed built-in only while its submitted input is unchanged", () => {
+  assert.equal(canClearBuiltinCommandInput("/copy", 0, "/copy"), true);
+  assert.equal(canClearBuiltinCommandInput("new follow-up", 0, "/copy"), false);
+  assert.equal(canClearBuiltinCommandInput("/copy", 1, "/copy"), false);
+});
+
+test("keeps only read-only built-ins available while a run is active", () => {
+  assert.equal(canRunBuiltinSlashCommandWhileStreaming("/copy"), true);
+  assert.equal(canRunBuiltinSlashCommandWhileStreaming("/session"), true);
+  assert.equal(canRunBuiltinSlashCommandWhileStreaming("/compact"), false);
+  assert.equal(canRunBuiltinSlashCommandWhileStreaming("/reload"), false);
 });
 
 test("restores text and base64 images when editing a user message", () => {

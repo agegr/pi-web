@@ -69,6 +69,15 @@ P(\lambda)=o_b+\lambda r_b
   assert.match(oneLineHtml, /class="katex-display"/);
 });
 
+test("renders model-emitted bracket-only formula lines as display math", () => {
+  const html = renderMarkdown(String.raw`平均一致性：
+
+[ C(x) = \frac{2}{T(T-1)} \sum_{i<j} S(\hat{y}^{(i)}, \hat{y}^{(j)}) ]`);
+
+  assert.match(html, /class="katex-display"/);
+  assert.match(html, /\\sum/);
+});
+
 test("leaves an unmatched LaTeX bracket delimiter unchanged", () => {
   const markdown = String.raw`before
 \[
