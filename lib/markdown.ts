@@ -329,14 +329,7 @@ function normalizeInlineLatexMath(line: string): string {
 }
 
 function isLikelyMathExpression(value: string): boolean {
-  if (!value || value.length < 3) return false;
-  if (/]\s*\(/.test(value) || /\b(?:https?|file|mailto):/i.test(value)) return false;
-  return (
-    /\\[A-Za-z]+/.test(value) ||
-    /[_^{}=<>|]/.test(value) ||
-    /[A-Za-z]\s*\([^)]*\)/.test(value) ||
-    /(?:\\)?[A-Za-z]+\s*[+\-*/]\s*(?:\\)?[A-Za-z0-9]/.test(value)
-  );
+  return /\\[A-Za-z]+/.test(value) && !/\b(?:https?|file|mailto):|\b[A-Za-z]:\\|^\\\\/i.test(value);
 }
 
 // Parse YAML frontmatter into a `yaml` node before the math/GFM plugins run, so
