@@ -62,3 +62,4 @@ jobs:
           node e2e/j3-model-agent.spec.mjs
           node e2e/j4-files-project.spec.mjs
           node e2e/j5-settings-ops.spec.mjs
+          node e2e/j6-api-health.spec.mjs

@@ -184,3 +184,30 @@ export async function waitForText(page, text, timeout = 30_000) {
 export function resultLog(result) {
 	console.log(JSON.stringify(result, null, 2));
 }
+
+// Assert an API endpoint returns 2xx and parseable JSON; any 5xx fails hard.
+export async function assertApiOk(url) {
+	const res = await fetch(url);
+	if (res.status >= 500) {
+		throw new Error(`API 500 at ${url}: ${(await res.text()).slice(0, 300)}`);
+	}
+	if (!res.ok) {
+		throw new Error(`API ${res.status} at ${url}`);
+	}
+	try {
+		return await res.json();
+	} catch {
+		throw new Error(`API non-JSON response at ${url}`);
+	}
+}
+
+// Assert an endpoint does NOT 500 (4xx/2xx both acceptable for negative cases).
+export async function assertApiNot500(url) {
+	const res = await fetch(url);
+	if (res.status >= 500) {
+		throw new Error(
+			`API 500 (expected 4xx/2xx) at ${url}: ${(await res.text()).slice(0, 300)}`,
+		);
+	}
+	return { status: res.status };
+}
