@@ -1898,9 +1898,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     return () => clearTimeout(t);
   }, [compactResult]);
 
-  // Pause notice expiry while hovered: no countdown runs when hoveredNoticeId is set.
+  // Pause notice expiry while hovered or focused.
   // The remainingMs/startedAt/oldestId refs implement a true pause-and-resume instead of resetting the 5s timer.
-  const [hoveredNoticeId, setHoveredNoticeId] = useState<string | null>(null);
+  const [pausedNoticeId, setPausedNoticeId] = useState<string | null>(null);
   const noticeRemainingMsRef = useRef(NOTICE_VISIBLE_MS);
   const noticeTimerStartedAtRef = useRef<number | null>(null);
   const noticeOldestIdRef = useRef<string | null>(null);
@@ -1924,8 +1924,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       noticeOldestIdRef.current = oldest.id;
       noticeRemainingMsRef.current = NOTICE_VISIBLE_MS;
     }
-    // Hovered: countdown paused
-    if (hoveredNoticeId !== null) return;
+    if (noticeState.visible.some((notice) => notice.id === pausedNoticeId)) return;
     noticeTimerStartedAtRef.current = Date.now();
     const t = setTimeout(() => {
       dispatchNotice({ type: "mark_oldest_exiting" });
@@ -1941,7 +1940,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         noticeTimerStartedAtRef.current = null;
       }
     };
-  }, [noticeState.visible, hoveredNoticeId]);
+  }, [noticeState.visible, pausedNoticeId]);
 
   useEffect(() => {
     setSessionStatsOverride(null);
@@ -1967,7 +1966,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    setNoticeHover: setHoveredNoticeId,
+    setNoticePaused: setPausedNoticeId,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
     scrollToBottom, scrollUserMsgToTop,
     dispatch, setAgentRunning, setForkingEntryId,

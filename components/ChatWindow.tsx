@@ -281,7 +281,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, setNoticeHover,
+    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, setNoticePaused,
     isAutoModelSelection,
     agentPhase,
     isNew,
@@ -660,7 +660,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
           pointerEvents: "none",
         }}
       >
-        <NoticeShelf notices={notices} floating onHoverChange={setNoticeHover} />
+        <NoticeShelf notices={notices} floating onPauseChange={setNoticePaused} />
       </div>
 
       {isEmptyNew ? (
@@ -947,7 +947,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
 const NOTICE_MAX_HEIGHT_PX = 500;
 const NOTICE_TEXT_MAX_HEIGHT_PX = NOTICE_MAX_HEIGHT_PX - 30;
 
-function NoticeShelf({ notices, floating = false, onHoverChange }: { notices: NoticeItem[]; floating?: boolean; onHoverChange?: (id: string | null) => void }) {
+function NoticeShelf({ notices, floating = false, onPauseChange }: { notices: NoticeItem[]; floating?: boolean; onPauseChange?: (id: string | null) => void }) {
   if (notices.length === 0) return null;
   return (
     <div
@@ -971,9 +971,14 @@ function NoticeShelf({ notices, floating = false, onHoverChange }: { notices: No
           <div
             key={notice.id}
             className="notice-shelf-item"
-            // Hover only pauses the dismiss timer (via onHoverChange); it no longer drives layout
-            onMouseEnter={() => onHoverChange?.(notice.id)}
-            onMouseLeave={() => onHoverChange?.(null)}
+            onMouseEnter={() => onPauseChange?.(notice.id)}
+            onMouseLeave={(event) => {
+              if (!event.currentTarget.contains(document.activeElement)) onPauseChange?.(null);
+            }}
+            onFocus={() => onPauseChange?.(notice.id)}
+            onBlur={(event) => {
+              if (!event.currentTarget.matches(":hover")) onPauseChange?.(null);
+            }}
             style={{
               display: "flex",
               // Top-align children so the type dot sits by the first line on multi-line toasts
@@ -1025,7 +1030,10 @@ function NoticeShelf({ notices, floating = false, onHoverChange }: { notices: No
             {/* Full text by default: pre-line preserves \n (nowrap/normal collapse
                 newlines into spaces) and long lines wrap instead of truncating;
                 content taller than the cap scrolls inside the text area */}
-            <span style={{ padding: "14px 0", minWidth: 0, maxWidth: "100%", maxHeight: NOTICE_TEXT_MAX_HEIGHT_PX, overflowY: "auto", scrollbarWidth: "thin", whiteSpace: "pre-line", wordBreak: "break-word" }}>
+            <span
+              tabIndex={0}
+              style={{ padding: "14px 0", minWidth: 0, maxWidth: "100%", maxHeight: NOTICE_TEXT_MAX_HEIGHT_PX, overflowY: "auto", scrollbarWidth: "thin", whiteSpace: "pre-line", wordBreak: "break-word" }}
+            >
               {notice.message}
             </span>
           </div>
