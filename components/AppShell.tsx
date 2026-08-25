@@ -978,7 +978,18 @@ export function AppShell() {
 
   const activeFileTab = fileTabs.find((tab) => tab.id === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
-  const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
+  const selectedSessionName = useMemo(() => {
+    if (!selectedSession) return undefined;
+    const latest = sessionCatalog.find((session) => session.id === selectedSession.id);
+    return latest?.name ?? selectedSession.name;
+  }, [selectedSession, sessionCatalog]);
+  const windowTitle = selectedSessionName
+    ? activeCwdName
+      ? `${selectedSessionName} - ${activeCwdName} - Pi Web`
+      : `${selectedSessionName} - Pi Web`
+    : activeCwdName
+      ? `${activeCwdName} - Pi Web`
+      : "Pi Web";
 
   useEffect(() => {
     const syncWindowTitle = () => {
