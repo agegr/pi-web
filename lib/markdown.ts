@@ -89,6 +89,19 @@ export function normalizeDisplayMath(markdown: string): string {
       }
     }
 
+    const looseBracketDisplayOneLine = line.match(/^([ ]{0,3})\[[ \t]*(.+?)[ \t]*\][ \t]*$/);
+    if (looseBracketDisplayOneLine) {
+      const math = looseBracketDisplayOneLine[2].trim();
+      if (isLikelyMathExpression(math)) {
+        normalized.push(
+          `${looseBracketDisplayOneLine[1]}$$`,
+          `${looseBracketDisplayOneLine[1]}${math}`,
+          `${looseBracketDisplayOneLine[1]}$$`,
+        );
+        continue;
+      }
+    }
+
     const bracketDisplayStart = line.match(/^([ ]{0,3})\\\[[ \t]*$/);
     if (bracketDisplayStart) {
       const closingIndex = findBracketDisplayClose(lines, index + 1);
@@ -312,6 +325,17 @@ function normalizeInlineLatexMath(line: string): string {
   return line.replace(
     /(?<!\\)\\\(([^`\r\n$]+?)(?<!\\)\\\)/g,
     (match, math: string) => (math.trim() ? `$${math}$` : match),
+  );
+}
+
+function isLikelyMathExpression(value: string): boolean {
+  if (!value || value.length < 3) return false;
+  if (/]\s*\(/.test(value) || /\b(?:https?|file|mailto):/i.test(value)) return false;
+  return (
+    /\\[A-Za-z]+/.test(value) ||
+    /[_^{}=<>|]/.test(value) ||
+    /[A-Za-z]\s*\([^)]*\)/.test(value) ||
+    /(?:\\)?[A-Za-z]+\s*[+\-*/]\s*(?:\\)?[A-Za-z0-9]/.test(value)
   );
 }
 
