@@ -67,6 +67,7 @@
     "katex": "^0.16.47",
     "mammoth": "^1.12.0",
     "mermaid": "^11.16.1",
+    "playwright": "^1.48.0",
     "postcss": "^8.5.26",
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.1",
@@ -75,6 +76,7 @@
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
+    "tailwindcss": "^4.2.2",
     "tailwindcss": "^4.2.2",
     "typescript": "^5"
   }
