@@ -7,7 +7,7 @@
 //
 // CI wires this with: `npm run dev &` then `node e2e/run.mjs`.
 import { chromium } from "playwright";
-import { writeFileSync, rmSync } from "node:fs";
+import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -33,6 +33,9 @@ function writeLongSession() {
   }
   writeFileSync(sessionFile, lines.join("\n") + "\n", "utf8");
 }
+
+// Ensure the session directory exists (fresh CI runners have no ~/.pi tree).
+mkdirSync(sessionDir, { recursive: true });
 
 const result = { passed: false, steps: [] };
 const consoleErrors = [];
