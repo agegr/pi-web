@@ -214,6 +214,18 @@ test("streaming submissions cannot be stranded in an idle direct queue", () => {
   assert.doesNotMatch(queueSource, /type: "follow_up"/);
 });
 
+test("built-in clone switches to the independent child session", () => {
+  const builtinSource = source.slice(
+    source.indexOf("  const handleBuiltinSlashCommand"),
+    source.indexOf("  // Let AgentSession.prompt decide atomically"),
+  );
+
+  assert.match(builtinSource, /case "clone"/);
+  assert.match(builtinSource, /type: "clone",\s+leafId: activeLeafId/);
+  assert.match(builtinSource, /agentRunningRef\.current \|\| bashRunningRef\.current/);
+  assert.match(builtinSource, /onSessionForked\?\.\(result\.newSessionId\)/);
+});
+
 test("post-accept prompt errors do not duplicate the user submission", () => {
   const promptErrorSource = source.slice(
     source.indexOf('case "prompt_error"'),
@@ -243,6 +255,22 @@ test("delegates event stream readiness and hides an empty agent phase", () => {
 test("uses one absolute agent-readiness deadline instead of a five-second transport deadline", () => {
   assert.match(source, /EVENT_STREAM_READY_TIMEOUT_MS = 60_000/);
   assert.doesNotMatch(source, /EVENT_STREAM_OPEN_TIMEOUT_MS/);
+});
+
+test("uses server pagination state instead of guessing from rendered rows", () => {
+  const loadContextSource = source.slice(
+    source.indexOf("const loadContext = useCallback"),
+    source.indexOf("const loadTools = useCallback"),
+  );
+  assert.match(source, /const \[hasEarlierMessages, setHasEarlierMessages\] = useState\(false\)/);
+  assert.match(source, /setHasEarlierMessages\(d\.context\.hasMore\)/);
+  assert.match(source, /setHistoryCursor\(d\.context\.oldestEntryId\)/);
+  assert.match(loadContextSource, /setData\(\(prev\) => \{[\s\S]*messages: \[\.\.\.d\.context\.messages, \.\.\.prev\.context\.messages\]/);
+  assert.match(chatWindowSource, /const oldestId = historyCursor/);
+  assert.doesNotMatch(chatWindowSource, /const oldestId = entryIds\[0\]/);
+  assert.match(chatWindowSource, /if \(!hasEarlierMessages\) return/);
+  assert.match(chatWindowSource, /const hasMore = startIndex > 0 \|\| hasEarlierMessages/);
+  assert.doesNotMatch(chatWindowSource, /rendered\.length >= visibleCount/);
 });
 
 test("connects a selected session when another browser reports it running", () => {
@@ -331,6 +359,8 @@ test("routes blocking extension requests through deduplicated browser attention 
   );
   assert.match(chatWindowSource, /onAttentionNeeded, onSessionCreated/);
   assert.match(completionSource, /if \(!shouldShowBrowserNotification\(\)\) return/);
+  assert.doesNotMatch(completionSource, /pushActive/);
+  assert.match(completionSource, /tag: targetSession \? `pi-session-complete:\$\{targetSession\.id\}`/);
   assert.doesNotMatch(completionSource, /document\.visibilityState === "visible"/);
   assert.match(attentionSource, /shouldShowBrowserNotification\(\)/);
   assert.match(attentionSource, /claimExtensionAttentionNotification\(request, notifiedAttentionRequestIdsRef\.current\)/);

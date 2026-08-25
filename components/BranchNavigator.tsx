@@ -25,21 +25,23 @@ interface Props {
 }
 
 // Find the visible entry IDs on the path from root to activeLeafId.
-function buildActivePath(nodes: SessionTreeNode[], targetId: string | null): Set<string> {
+// Iterative DFS: a linear session degrades into a chain whose depth equals the
+// entry count, so a recursive search overflows the call stack. Walk with an
+// explicit stack instead (paths accumulate depth, not the call stack).
+export function buildActivePath(nodes: SessionTreeNode[], targetId: string | null): Set<string> {
   if (!targetId) return new Set();
   const target = targetId;
-  function search(nodes: SessionTreeNode[], path: string[]): string[] | null {
-    for (const node of nodes) {
-      const next = [...path, node.entry.id];
-      if (node.entry.id === target || node.compressedEntryIds?.includes(target)) {
-        return next;
-      }
-      const found = search(node.children, next);
-      if (found) return found;
+  const stack: { node: SessionTreeNode; path: string[] }[] = nodes.map((n) => ({ node: n, path: [n.entry.id] }));
+  while (stack.length > 0) {
+    const { node, path } = stack.pop()!;
+    if (node.entry.id === target || node.compressedEntryIds?.includes(target)) {
+      return new Set(path);
     }
-    return null;
+    for (const child of node.children) {
+      stack.push({ node: child, path: [...path, child.entry.id] });
+    }
   }
-  return new Set(search(nodes, []) ?? []);
+  return new Set();
 }
 
 function isMessageEntry(entry: SessionEntry): boolean {
@@ -99,12 +101,16 @@ function getLabel(entry: SessionEntry): string {
   return entry.type;
 }
 
-// Does the tree have any branching at all?
-function hasBranch(nodes: SessionTreeNode[]): boolean {
+// Does the tree have any branching at all? Iterative: a linear chain has no
+// branching but recursing over it would overflow the stack, so walk with a stack.
+export function hasBranch(nodes: SessionTreeNode[]): boolean {
+  // Sessions branched from the very first message have multiple root nodes.
   if (nodes.length > 1) return true;
-  for (const node of nodes) {
+  const stack: SessionTreeNode[] = [...nodes];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
     if (node.children.length > 1) return true;
-    if (hasBranch(node.children)) return true;
+    for (const child of node.children) stack.push(child);
   }
   return false;
 }
