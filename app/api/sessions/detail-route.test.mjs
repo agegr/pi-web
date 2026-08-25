@@ -21,6 +21,9 @@ test("detail route parses ?tail: default 50, NaN-safe, capped at 1000", () => {
   assert.match(routeSrc, /Math\.min\(rawTail, 1000\)/);
   assert.match(routeSrc, /Number\.isFinite\(rawTail\) && rawTail > 0 \? Math\.min\(rawTail, 1000\) : 50/);
   assert.match(routeSrc, /buildSessionContext\(entries as never, leafId, \{[^}]*tail \}\)/);
+  assert.match(routeSrc, /computeSessionStats\(entries as never\)/);
+  assert.match(routeSrc, /messageCount: stats\.totalMessages/);
+  assert.match(routeSrc, /stats,/);
 });
 
 test("detail route bounds history to the tail window (default 50 over 5000 entries)", () => {

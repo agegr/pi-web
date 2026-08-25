@@ -275,7 +275,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   }, [chatInputRef]);
 
   const {
-    loading, error, messages, entryIds, streamState,
+    loading, error, messages, entryIds, historyCursor, hasEarlierMessages, streamState,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
@@ -329,7 +329,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
         // and prepend it (loadContext handles prepend + scroll anchoring).
         // Skip while a page is already loading or nothing older exists.
         if (loadingOlderRef.current) return;
-        const oldestId = entryIds[0];
+        if (!hasEarlierMessages) return;
+        const oldestId = historyCursor;
         if (!oldestId) return;
         const sid = session?.id ?? sessionIdRef.current;
         if (!sid) return;
@@ -343,7 +344,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [entryIds, session, activeLeafId, loadContext, sessionIdRef, scrollContainerRef]);
+  }, [historyCursor, hasEarlierMessages, session, activeLeafId, loadContext, sessionIdRef, scrollContainerRef]);
 
   // Keep the rendered window at least as large as what's loaded, so prepended
   // (older) pages stay visible instead of being sliced off the top.
@@ -890,15 +891,13 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 }
                 idx = endIdx;
               }
-              // Show the sentinel when the window is full: the initial tail is a
-              // truncation, and after prepending there may still be older history.
               const { startIndex } = getVisibleRenderWindow(rendered.length, visibleCount);
-              const hasMore = startIndex > 0 || rendered.length >= visibleCount;
+              const hasMore = startIndex > 0 || hasEarlierMessages;
               return (
                 <>
                   {hasMore && (
                      <div ref={sentinelRef} className="py-3 text-center text-xs text-text-muted">
-                       {t("chat.loadEarlier", { count: startIndex })}
+                       {t("chat.loadEarlier")}
                     </div>
                   )}
                   {rendered.slice(startIndex)}

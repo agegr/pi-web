@@ -35,3 +35,12 @@ test("context route: ?before pages upward without duplicating the boundary", () 
   assert.ok(!page2.includes(oldest), "boundary `before` must not be duplicated");
   assert.ok(page1.every((id) => !page2.includes(id)), "adjacent pages share no entry");
 });
+
+test("context route data reports when pagination reaches the root", () => {
+  const entries = [
+    { id: "e0", parentId: null, type: "message", timestamp: new Date(1000).toISOString(), message: { role: "user", content: "root" } },
+  ];
+  const page = buildSessionContext(entries, "e0", { tail: 50, excludeLeaf: true });
+  assert.deepEqual(page.entryIds, []);
+  assert.equal(page.hasMore, false);
+});

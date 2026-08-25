@@ -38,9 +38,12 @@ export interface SessionData {
   totalActiveMs: number;
   tree: SessionTreeNode[];
   leafId: string | null;
+  stats: SessionStatsInfo;
   context: {
     messages: AgentMessage[];
     entryIds: string[];
+    oldestEntryId: string | null;
+    hasMore: boolean;
     thinkingLevel: string;
     model: { provider: string; modelId: string } | null;
   };
@@ -275,6 +278,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [activeLeafId, setActiveLeafId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [entryIds, setEntryIds] = useState<string[]>([]);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const [hasEarlierMessages, setHasEarlierMessages] = useState(false);
   const [streamState, dispatch] = useReducer(streamReducer, INITIAL_STREAMING_STATE);
   const [agentRunning, setAgentRunning] = useState(false);
   const [bashRunning, setBashRunning] = useState(false);
@@ -419,8 +424,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [newSessionDraftKey, opts.chatInputRef, resolveComposerDraftKey]);
 
   const sessionStats = useMemo(() => {
-    if (sessionStatsOverride) {
-      return { ...sessionStatsOverride, totalActiveMs: data?.totalActiveMs };
+    const storedStats = sessionStatsOverride ?? data?.stats;
+    if (storedStats) {
+      return {
+        ...storedStats,
+        totalActiveMs: data?.totalActiveMs,
+        ...(contextUsage ? { contextUsage } : {}),
+      };
     }
     const tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
     let cost = 0;
@@ -434,7 +444,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (msg.role !== "assistant") continue;
       assistantMessages += 1;
       const u = (msg as import("@/lib/types").AssistantMessage).usage;
-      toolCalls += (msg as import("@/lib/types").AssistantMessage).content.filter((c) => c.type === "toolCall").length;
+      const content = (msg as import("@/lib/types").AssistantMessage).content;
+      if (Array.isArray(content)) toolCalls += content.filter((c) => c.type === "toolCall").length;
       if (!u) continue;
       tokens.input += u.input ?? 0;
       tokens.output += u.output ?? 0;
@@ -458,7 +469,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       totalActiveMs: data?.totalActiveMs,
       ...(contextUsage ? { contextUsage } : {}),
     } satisfies SessionStatsInfo;
-  }, [messages, sessionStatsOverride, contextUsage, data?.filePath, data?.totalActiveMs, session?.id, session?.name]);
+  }, [messages, sessionStatsOverride, contextUsage, data?.stats, data?.filePath, data?.totalActiveMs, session?.id, session?.name]);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
     let messagesLoaded = false;
@@ -471,6 +482,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           setData(null);
           setActiveLeafId(null);
           setMessages([]);
+          setEntryIds([]);
+          setHistoryCursor(null);
+          setHasEarlierMessages(false);
           setError(null);
         }
         return null;
@@ -483,6 +497,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setActiveLeafId(d.leafId);
       setMessages(persistedMessages);
       setEntryIds(d.context.entryIds ?? []);
+      setHistoryCursor(d.context.oldestEntryId);
+      setHasEarlierMessages(d.context.hasMore);
       setCurrentModelOverride((current) => modelSwitchPendingRef.current ? current : null);
       setError(null);
       if (d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
@@ -533,7 +549,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const url = `/api/sessions/${encodeURIComponent(sid)}/context?${params}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[] } };
+      const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[]; oldestEntryId: string | null; hasMore: boolean } };
+      if (sessionIdRef.current !== sid) return;
+      setHistoryCursor(d.context.oldestEntryId);
+      setHasEarlierMessages(d.context.hasMore);
       if (before) {
         // Older page: prepend so scroll position stays anchored.
         setMessages((prev) => [...d.context.messages, ...prev]);
@@ -1930,7 +1949,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   return {
     // State
-    data, loading, error, activeLeafId, messages, entryIds, streamState,
+    data, loading, error, activeLeafId, messages, entryIds, historyCursor, hasEarlierMessages, streamState,
     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats,

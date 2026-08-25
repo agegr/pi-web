@@ -245,6 +245,17 @@ test("uses one absolute agent-readiness deadline instead of a five-second transp
   assert.doesNotMatch(source, /EVENT_STREAM_OPEN_TIMEOUT_MS/);
 });
 
+test("uses server pagination state instead of guessing from rendered rows", () => {
+  assert.match(source, /const \[hasEarlierMessages, setHasEarlierMessages\] = useState\(false\)/);
+  assert.match(source, /setHasEarlierMessages\(d\.context\.hasMore\)/);
+  assert.match(source, /setHistoryCursor\(d\.context\.oldestEntryId\)/);
+  assert.match(chatWindowSource, /const oldestId = historyCursor/);
+  assert.doesNotMatch(chatWindowSource, /const oldestId = entryIds\[0\]/);
+  assert.match(chatWindowSource, /if \(!hasEarlierMessages\) return/);
+  assert.match(chatWindowSource, /const hasMore = startIndex > 0 \|\| hasEarlierMessages/);
+  assert.doesNotMatch(chatWindowSource, /rendered\.length >= visibleCount/);
+});
+
 test("connects a selected session when another browser reports it running", () => {
   assert.match(source, /sessionRunning\?: boolean/);
   assert.match(

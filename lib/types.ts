@@ -323,6 +323,8 @@ export interface SessionInfo {
 export interface SessionContext {
   messages: AgentMessage[];
   entryIds: string[]; // parallel to messages — the session entry id for each message
+  oldestEntryId: string | null;
+  hasMore: boolean;
   thinkingLevel: string;
   model: { provider: string; modelId: string } | null;
 }

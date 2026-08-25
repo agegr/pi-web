@@ -1,7 +1,6 @@
 import {
   SessionManager,
   buildContextEntries as piBuildContextEntries,
-  buildSessionContext as piBuildSessionContext,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import { closeSync, openSync, readSync } from "fs";
@@ -226,23 +225,92 @@ export function getSessionEntries(filePath: string): SessionEntry[] {
   return entries as unknown as SessionEntry[];
 }
 
+function getSessionSettings(entries: SessionEntry[], leafId?: string | null): Pick<SessionContext, "thinkingLevel" | "model"> {
+  if (leafId === null) return { thinkingLevel: "off", model: null };
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  let current = leafId ? byId.get(leafId) : undefined;
+  current ??= entries[entries.length - 1];
+  let thinkingLevel: string | undefined;
+  let model: SessionContext["model"] | undefined;
+
+  while (current && (thinkingLevel === undefined || model === undefined)) {
+    if (thinkingLevel === undefined && current.type === "thinking_level_change") {
+      thinkingLevel = current.thinkingLevel;
+    }
+    if (model === undefined && current.type === "model_change") {
+      model = { provider: current.provider, modelId: current.modelId };
+    } else if (model === undefined && current.type === "message" && current.message.role === "assistant") {
+      const message = current.message as { provider?: unknown; model?: unknown };
+      if (typeof message.provider === "string" && typeof message.model === "string") {
+        model = { provider: message.provider, modelId: message.model };
+      }
+    }
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+
+  return { thinkingLevel: thinkingLevel ?? "off", model: model ?? null };
+}
+
+type UsageLike = {
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  cost?: { total?: number };
+};
+
+export function computeSessionStats(entries: SessionEntry[]) {
+  const tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
+  let cost = 0;
+  let userMessages = 0;
+  let assistantMessages = 0;
+  let toolCalls = 0;
+  let toolResults = 0;
+  let totalMessages = 0;
+  const addUsage = (usage?: UsageLike) => {
+    if (!usage) return;
+    tokens.input += usage.input ?? 0;
+    tokens.output += usage.output ?? 0;
+    tokens.cacheRead += usage.cacheRead ?? 0;
+    tokens.cacheWrite += usage.cacheWrite ?? 0;
+    cost += usage.cost?.total ?? 0;
+  };
+
+  for (const entry of entries) {
+    if (entry.type === "compaction" || entry.type === "branch_summary") {
+      addUsage((entry as SessionEntry & { usage?: UsageLike }).usage);
+    }
+    if (entry.type !== "message") continue;
+    totalMessages += 1;
+    const message = entry.message;
+    if (message.role === "user") userMessages += 1;
+    if (message.role === "toolResult") {
+      toolResults += 1;
+      addUsage((message as typeof message & { usage?: UsageLike }).usage);
+    }
+    if (message.role !== "assistant") continue;
+    assistantMessages += 1;
+    const content = (message as { content: unknown }).content;
+    if (Array.isArray(content)) toolCalls += content.filter((block) => isRecord(block) && block.type === "toolCall").length;
+    addUsage(message.usage);
+  }
+  tokens.total = tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite;
+  return { userMessages, assistantMessages, toolCalls, toolResults, totalMessages, tokens, cost };
+}
+
 export function buildSessionContext(
   entries: SessionEntry[],
   leafId?: string | null,
   options: { deferThinking?: boolean; deferToolResultImages?: boolean; tail?: number; excludeLeaf?: boolean } = {},
 ): SessionContext {
   const { tail, excludeLeaf } = options;
-  // Restrict the input to the active leaf's ancestor chain, capped at `tail`.
-  // SDK buildSessionContext only consumes this chain, so feeding it the full
-  // forest forces O(n) work and, for a linear session, O(n) recursion depth in
-  // any caller that rebuilds the path. Slicing here bounds both to O(tail).
+  // Restrict SDK conversion and the response payload to the requested page.
   const sliced = tail && tail > 0 ? sliceActiveBranch(entries, leafId ?? null, tail, excludeLeaf) : entries;
+  const hasMore = Boolean(tail && tail > 0 && sliced[0]?.parentId);
   const byId = new Map<string, SessionEntry>();
   for (const e of sliced) byId.set(e.id, e);
 
   const piEntries = sliced as unknown as PiSessionEntry[];
-  const piCtx = piBuildSessionContext(piEntries, leafId, byId as unknown as Map<string, PiSessionEntry>);
-
   const contextEntries = piBuildContextEntries(
     piEntries,
     leafId,
@@ -265,8 +333,9 @@ export function buildSessionContext(
   return {
     messages,
     entryIds,
-    thinkingLevel: piCtx.thinkingLevel,
-    model: piCtx.model,
+    oldestEntryId: sliced[0]?.id ?? null,
+    hasMore,
+    ...getSessionSettings(entries, leafId),
   };
 }
 
@@ -290,7 +359,7 @@ export function sliceActiveBranch(
   let leaf = leafId ? byId.get(leafId) : entries[entries.length - 1];
   // Pagination: `before` is the oldest entry already loaded, so the next page
   // must start at its parent to avoid duplicating `before` when prepended.
-  if (excludeLeaf && leaf?.parentId) leaf = byId.get(leaf.parentId);
+  if (excludeLeaf) leaf = leaf?.parentId ? byId.get(leaf.parentId) : undefined;
   if (!leaf) return [];
   const chain: SessionEntry[] = [];
   let current: SessionEntry | undefined = leaf;
@@ -365,14 +434,15 @@ function entryToUiMessage(
   // normalizeToolCalls is a secondary guard (returns non-assistant messages as-is).
   switch (entry.type) {
     case "message": {
-      const message = options.deferToolResultImages
+      let message = options.deferToolResultImages
         ? omitToolResultBase64Images(normalizeToolCalls(entry.message))
         : normalizeToolCalls(entry.message);
+      const legacyContent = message.role === "assistant" ? (message as { content: unknown }).content : undefined;
+      if (typeof legacyContent === "string") {
+        message = { ...message, content: [{ type: "text", text: legacyContent }] } as AgentMessage;
+      }
       if (!options.deferThinking || message.role !== "assistant") return message;
-      // Real sessions may store assistant content as a string (not a block array),
-      // so guard the block-level transform instead of assuming an array.
       const content = message.content;
-      if (!Array.isArray(content)) return message;
       return {
         ...message,
         content: content.map((block) => (
