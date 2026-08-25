@@ -1098,3 +1098,21 @@
   from { stroke-dashoffset: 18; opacity: 0; }
   to   { stroke-dashoffset: 0;  opacity: 1; }
 }
+
+/* iOS standalone: env(safe-area-inset-top) can report 0 and vh includes the
+   status-bar strip, so centered dialog headers end up under the clock and
+   Dynamic Island. Pad the backdrops with a hard fallback strip and cap the
+   dialog surfaces to the padded box so 84vh/vh sizing cannot push them back
+   under the status bar. */
+@media (display-mode: standalone) {
+  .settings-dialog-backdrop,
+  .config-panel-root.is-modal {
+    padding-top: max(59px, env(safe-area-inset-top));
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+  }
+
+  .settings-dialog-surface,
+  .config-panel-root.is-modal > .config-panel-surface {
+    max-height: 100%;
+  }
+}
