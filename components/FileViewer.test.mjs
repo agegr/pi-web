@@ -15,7 +15,8 @@ test("large source previews bypass the per-line syntax highlighter", () => {
 
   const lightweightSource = source.slice(lightweightStart, syntaxStart);
   assert.match(lightweightSource, /className="file-source-view is-lightweight"/);
-  assert.match(lightweightSource, /className="file-source-plain-content"/);
-  assert.match(lightweightSource, /<pre[\s\S]*?\{content\}[\s\S]*?<\/pre>/);
-  assert.match(source, /function getSelectedPlainTextLineRange\(/);
+  assert.match(lightweightSource, /lines\.map\(\(line, lineIndex\) =>/);
+  assert.match(lightweightSource, /className="file-source-line"/);
+  assert.match(lightweightSource, /className="file-source-line-content"/);
+  assert.match(lightweightSource, /style=\{FILE_LINE_NUMBER_STYLE\}/);
 });
