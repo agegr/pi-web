@@ -8,7 +8,7 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand } = await jiti.import("./ChatInput.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("../lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
@@ -125,10 +125,18 @@ test("caps an upward menu to the visible space above its anchor", () => {
 });
 
 test("recognizes exact slash commands for one-Enter submission", () => {
-  assert.equal(isExactSlashCommand("/copy", "copy"), true);
-  assert.equal(isExactSlashCommand("  /copy  ", "copy"), true);
-  assert.equal(isExactSlashCommand("/co", "copy"), false);
-  assert.equal(isExactSlashCommand("/copy extra", "copy"), false);
+  const builtin = { name: "copy", description: "", source: "builtin" };
+  assert.equal(isExactSlashCommand("/copy", builtin), true);
+  assert.equal(isExactSlashCommand("  /copy  ", builtin), true);
+  assert.equal(isExactSlashCommand("/co", builtin), false);
+  assert.equal(isExactSlashCommand("/copy extra", builtin), false);
+  assert.equal(isExactSlashCommand("/copy", { ...builtin, source: "extension" }), false);
+});
+
+test("clears a completed built-in only while its submitted input is unchanged", () => {
+  assert.equal(canClearBuiltinCommandInput("/copy", 0, "/copy"), true);
+  assert.equal(canClearBuiltinCommandInput("new follow-up", 0, "/copy"), false);
+  assert.equal(canClearBuiltinCommandInput("/copy", 1, "/copy"), false);
 });
 
 test("keeps only read-only built-ins available while a run is active", () => {

@@ -180,8 +180,12 @@ export function canRunBuiltinSlashCommandWhileStreaming(message: string): boolea
   return getBuiltinSlashCommand(message)?.availableWhileStreaming === true;
 }
 
-export function isExactSlashCommand(message: string, commandName: string): boolean {
-  return message.trim() === `/${commandName}`;
+export function isExactSlashCommand(message: string, command: SlashCommandPaletteItem): boolean {
+  return command.source === "builtin" && message.trim() === `/${command.name}`;
+}
+
+export function canClearBuiltinCommandInput(message: string, imageCount: number, submittedMessage: string): boolean {
+  return imageCount === 0 && message.trim() === submittedMessage;
 }
 
 const SLASH_SOURCES: SlashCommandSource[] = ["builtin", "extension", "prompt", "skill"];
@@ -770,7 +774,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (attachedImages.length || !msg.startsWith("/") || !onBuiltinCommand) return false;
     const result = await onBuiltinCommand(msg);
     if (!result.handled) return false;
-    if (!result.error) clearInput();
+    if (!result.error && canClearBuiltinCommandInput(valueRef.current, attachedImagesRef.current.length, msg)) clearInput();
     return true;
   }, [attachedImages.length, clearInput, onBuiltinCommand]);
 
@@ -1141,7 +1145,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           e.preventDefault();
           const canSubmitNow = !isStreaming
             || (selectedCommand.source === "builtin" && selectedCommand.availableWhileStreaming === true);
-          if (canSubmitNow && isExactSlashCommand(value, selectedCommand.name)) {
+          if (canSubmitNow && isExactSlashCommand(value, selectedCommand)) {
             setSlashMenuOpen(false);
             void handleSend();
           } else {
