@@ -10,6 +10,7 @@ import { chromium } from "playwright";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { assertTailWindow } from "./helpers.mjs";
 
 const BASE = process.env.E2E_BASE || "http://127.0.0.1:3100";
 const SESSION_ID = "e2e-ci-long-session-0001";
@@ -53,17 +54,17 @@ try {
 
   await page.goto(`${BASE}/?session=${SESSION_ID}`, { waitUntil: "domcontentloaded" });
 
-  await page.waitForFunction(() => (document.body.innerText || "").includes("E2E message 4990"), null, { timeout: 30_000 });
+	await page.waitForFunction(() => (document.body.innerText || "").includes("E2E message 4990"), null, { timeout: 30_000 });
   result.steps.push("rendered tail (around message 4990)");
 
-  // Wait for the sentinel: it only appears once truncation/virtualization has
-  // settled, so the oldest-message check below isn't racing initial render.
+  // Wait for the sentinel: it only appears once truncation has settled.
   await page.waitForFunction(() => /load earlier/i.test(document.body.innerText || ""), null, { timeout: 30_000 });
   result.steps.push("showed the 'load earlier' sentinel");
 
-  const hasOldest = await page.evaluate(() => (document.body.innerText || "").includes("E2E message 0"));
-  if (hasOldest) throw new Error("full 5000-message history was rendered instead of a tail window");
-  result.steps.push("did not render the whole 5000-message forest");
+  // Deterministic #555 transport guard via API (sidebar previews the first
+  // message, so body.innerText would always contain "E2E message 0").
+  await assertTailWindow({ sessionId: SESSION_ID, tail: 50, forbiddenText: "E2E message 0" });
+  result.steps.push("tail window enforced via API");
 
   result.pageErrors = pageErrors;
   result.consoleErrors = consoleErrors.filter((e) => !/favicon|404/i.test(e));

@@ -181,6 +181,29 @@ export async function waitForText(page, text, timeout = 30_000) {
 	);
 }
 
+// Assert the context endpoint returns a bounded tail window (#555 transport
+// guard) and optionally that forbidden content (e.g. the oldest message) is
+// not part of it.
+export async function assertTailWindow({ sessionId, tail = 50, forbiddenText }) {
+	const body = await assertApiOk(
+		`${BASE}/api/sessions/${sessionId}/context?tail=${tail}`,
+	);
+	const msgs = body?.context?.messages;
+	if (!Array.isArray(msgs)) {
+		throw new Error("context response missing context.messages array");
+	}
+	if (msgs.length > tail) {
+		throw new Error(`context returned ${msgs.length} messages > tail=${tail}`);
+	}
+	if (forbiddenText) {
+		const hit = msgs.some((m) => JSON.stringify(m).includes(forbiddenText));
+		if (hit) {
+			throw new Error(`tail window contains forbidden content: ${forbiddenText}`);
+		}
+	}
+	return msgs;
+}
+
 export function resultLog(result) {
 	console.log(JSON.stringify(result, null, 2));
 }

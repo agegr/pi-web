@@ -8,6 +8,7 @@ import {
 	launchPage,
 	waitForText,
 	assertNoBrowserErrors,
+	assertTailWindow,
 	resultLog,
 } from "./helpers.mjs";
 
@@ -36,11 +37,10 @@ try {
 		{ timeout: 30_000 },
 	);
 	result.steps.push("sentinel present");
-	const hasOldest = await page.evaluate(() =>
-		(document.body.innerText || "").includes("E2E message 0"),
-	);
-	if (hasOldest) throw new Error("full history rendered instead of tail");
-	result.steps.push("tail window enforced");
+	// Deterministic #555 transport guard via API (sidebar previews the first
+	// message, so body.innerText would always contain "E2E message 0").
+	await assertTailWindow({ sessionId: LONG, tail: 50, forbiddenText: "E2E message 0" });
+	result.steps.push("tail window enforced via API");
 	// Branch session: open and see branch base
 	await page.goto(`${BASE}/?session=${BRANCH}`, {
 		waitUntil: "domcontentloaded",
