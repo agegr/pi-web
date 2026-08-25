@@ -72,7 +72,6 @@ export function AppShell() {
   const { locale, setLocale, t: translate, supportedLocales } = useI18n();
   const isMobile = useIsMobile();
   useViewportHeight();
-  const [pushActive, setPushActive] = useState(false);
 
   // Once the user has granted notification permission, register a Web Push
   // subscription so the server can notify backgrounded PWAs (notably iOS,
@@ -80,7 +79,7 @@ export function AppShell() {
   useEffect(() => {
     if (typeof window === "undefined" || !("Notification" in window)) return;
     if (Notification.permission !== "granted") return;
-    void setupPushSubscription(locale).then(setPushActive);
+    void setupPushSubscription(locale);
   }, [locale]);
   // Audio ownership lives here (not in ChatWindow) so the completion tone can
   // also fire for tasks finishing in a non-active workspace whose ChatWindow
@@ -682,12 +681,12 @@ export function AppShell() {
 
     if (Notification.permission === "granted") {
       fire();
-      void setupPushSubscription(locale).then(setPushActive);
+      void setupPushSubscription(locale);
     } else if (Notification.permission === "default") {
       void Notification.requestPermission().then((p) => {
         if (p === "granted") {
           fire();
-          void setupPushSubscription(locale).then(setPushActive);
+          void setupPushSubscription(locale);
         }
       });
     }
@@ -698,15 +697,15 @@ export function AppShell() {
     setExplorerRefreshKey((k) => k + 1);
     if (selectedSession) hydrateSelectedSession(selectedSession.id);
 
-    if (pushActive) return; // The service worker delivers a push notification instead.
     if (!shouldShowBrowserNotification()) return;
     const targetSession = selectedSession;
     deliverSessionNotification({
       targetSession,
       title: targetSession?.name ?? translate("i18n.sessionComplete"),
       body: translate("i18n.taskFinished"),
+      tag: targetSession ? `pi-session-complete:${targetSession.id}` : "pi-session-complete",
     });
-  }, [deliverSessionNotification, hydrateSelectedSession, pushActive, selectedSession, translate]);
+  }, [deliverSessionNotification, hydrateSelectedSession, selectedSession, translate]);
 
   const handleAttentionNeeded = useCallback((request: BlockingExtensionUiRequest) => {
     if (!shouldShowBrowserNotification()) return;

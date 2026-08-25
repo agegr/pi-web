@@ -1,7 +1,6 @@
 import { createAgentEventStream } from "@/lib/agent-event-stream";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
-import { notifyAgentEnd } from "@/lib/web-push";
 
 export const dynamic = "force-dynamic";
 
@@ -27,11 +26,7 @@ export async function GET(
     sessionPromise = startRpcSession(id, filePath, undefined).then((result) => result.session);
   }
 
-  const stream = createAgentEventStream(req, id, sessionPromise, {
-    onAgentEnd: (sessionId) => {
-      void notifyAgentEnd(sessionId);
-    },
-  });
+  const stream = createAgentEventStream(req, id, sessionPromise);
 
   return new Response(stream, {
     headers: {

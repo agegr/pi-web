@@ -70,7 +70,7 @@ self.addEventListener("push", (event) => {
   } catch {
     // Ignore malformed or missing push payloads.
   }
-  const { title, body, url } = payload;
+  const { title, body, url, tag } = payload;
   if (typeof title !== "string" || !title || typeof body !== "string" || !body) return;
 
   // The in-page notification path handles the visible case (and plays the
@@ -82,6 +82,7 @@ self.addEventListener("push", (event) => {
       return self.registration.showNotification(title, {
         body,
         data: { url: typeof url === "string" && url ? url : "/" },
+        ...(typeof tag === "string" && tag ? { tag } : {}),
       });
     }),
   );

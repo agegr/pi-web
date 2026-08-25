@@ -45,7 +45,12 @@ function dispatchPush(payload, clients) {
 
 test("push shows a notification when no window is visible", async () => {
   const event = dispatchPush(
-    { title: "Session complete", body: "Task finished.", url: "/?session=session-1" },
+    {
+      title: "Session complete",
+      body: "Task finished.",
+      url: "/?session=session-1",
+      tag: "pi-session-complete:session-1",
+    },
     [{ url: "https://pi.test/?session=other", visibilityState: "hidden" }],
   );
   await event.pending;
@@ -55,6 +60,7 @@ test("push shows a notification when no window is visible", async () => {
     options: {
       body: "Task finished.",
       data: { url: "/?session=session-1" },
+      tag: "pi-session-complete:session-1",
     },
   }]);
 });

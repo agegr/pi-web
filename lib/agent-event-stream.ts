@@ -12,11 +12,6 @@ export interface AgentEventStreamSession {
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
-export interface AgentEventStreamOptions {
-  /** Invoked (fire-and-forget) whenever an `agent_end` event is seen. */
-  onAgentEnd?: (sessionId: string) => void;
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -29,7 +24,6 @@ export function createAgentEventStream(
   req: Request,
   sessionId: string,
   sessionPromise: Promise<AgentEventStreamSession>,
-  options: AgentEventStreamOptions = {},
 ): ReadableStream<Uint8Array> {
   let cancelStream: (closeController: boolean) => void = () => {};
 
@@ -79,7 +73,6 @@ export function createAgentEventStream(
           const bufferedEvents: AgentEventLike[] = [];
           let snapshotPublished = false;
           const handleEvent = (event: AgentEventLike) => {
-            if (event.type === "agent_end") options.onAgentEnd?.(sessionId);
             if (!snapshotPublished) {
               bufferedEvents.push(event);
               return;

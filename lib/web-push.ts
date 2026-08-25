@@ -19,17 +19,15 @@ interface PushStateFile {
 }
 
 interface WebPushEnvironment {
-  /** Send one push payload. Returns the push service status code. */
   send: (
     subscription: PushSubscriptionRecord,
     payload: string,
     vapidKeys: PushStateFile["vapidKeys"],
-  ) => Promise<{ statusCode: number }>;
+  ) => Promise<void>;
   loadState: () => PushStateFile | null;
   saveState: (state: PushStateFile) => void;
   generateVapidKeys: () => PushStateFile["vapidKeys"];
   listSessionNames: () => Promise<Map<string, string>>;
-  now: () => number;
 }
 
 export interface WebPushNotifier {
@@ -39,8 +37,6 @@ export interface WebPushNotifier {
   notifySessionComplete: (sessionId: string) => Promise<void>;
 }
 
-const DEDUP_WINDOW_MS = 5_000;
-
 function stateFilePath(): string {
   return join(getAgentDir(), "web-push.json");
 }
@@ -48,7 +44,7 @@ function stateFilePath(): string {
 function getDefaultEnvironment(): WebPushEnvironment {
   return {
     async send(subscription, payload, vapidKeys) {
-      const result = await webpush.sendNotification(
+      await webpush.sendNotification(
         { endpoint: subscription.endpoint, keys: subscription.keys },
         payload,
         {
@@ -59,7 +55,6 @@ function getDefaultEnvironment(): WebPushEnvironment {
           },
         },
       );
-      return { statusCode: result.statusCode };
     },
     loadState() {
       const path = stateFilePath();
@@ -87,8 +82,13 @@ function getDefaultEnvironment(): WebPushEnvironment {
       }
       return names;
     },
-    now: () => Date.now(),
   };
+}
+
+function pushStatusCode(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null || !("statusCode" in error)) return undefined;
+  const statusCode = (error as { statusCode?: unknown }).statusCode;
+  return typeof statusCode === "number" ? statusCode : undefined;
 }
 
 /**
@@ -114,11 +114,6 @@ export function createWebPushNotifier(environment: WebPushEnvironment): WebPushN
     environment.saveState(state);
   };
 
-  // ponytail: per-session in-memory dedup, collapses duplicate agent_end
-  // events from parallel SSE connections; separate runs of the same session
-  // finish minutes apart so the 5s window never swallows a real completion.
-  const lastPushBySession = new Map<string, number>();
-
   return {
     getVapidPublicKey() {
       saveState();
@@ -136,34 +131,29 @@ export function createWebPushNotifier(environment: WebPushEnvironment): WebPushN
       saveState();
     },
     async notifySessionComplete(sessionId) {
-      const lastPush = lastPushBySession.get(sessionId) ?? Number.NEGATIVE_INFINITY;
-      if (environment.now() - lastPush < DEDUP_WINDOW_MS) return;
-      lastPushBySession.set(sessionId, environment.now());
-
       if (state.subscriptions.length === 0) return;
       const sessionName = (await environment.listSessionNames()).get(sessionId);
       const payloadFor = (locale: string) => ({
         title: sessionName ?? localeText(locale, "sessionComplete"),
         body: localeText(locale, "taskFinished"),
         url: `/?session=${encodeURIComponent(sessionId)}`,
+        tag: `pi-session-complete:${sessionId}`,
       });
 
       let pruned = false;
       for (const subscription of [...state.subscriptions]) {
         try {
-          const { statusCode } = await environment.send(
+          await environment.send(
             subscription,
             JSON.stringify(payloadFor(subscription.locale)),
             state.vapidKeys,
           );
-          // 404/410 mean the push service dropped the subscription; remove it
-          // so future sends don't keep failing against a dead endpoint.
+        } catch (error) {
+          const statusCode = pushStatusCode(error);
           if (statusCode === 404 || statusCode === 410) {
             state.subscriptions = state.subscriptions.filter((s) => s.endpoint !== subscription.endpoint);
             pruned = true;
           }
-        } catch {
-          // Delivery is best-effort; a dead push service must not break the agent stream.
         }
       }
       if (pruned) saveState();
@@ -171,13 +161,15 @@ export function createWebPushNotifier(environment: WebPushEnvironment): WebPushN
   };
 }
 
-let notifierPromise: Promise<WebPushNotifier> | undefined;
+declare global {
+  var __piWebPushNotifier: Promise<WebPushNotifier> | undefined;
+}
 
 function getNotifier(): Promise<WebPushNotifier> {
-  if (!notifierPromise) {
-    notifierPromise = Promise.resolve().then(() => createWebPushNotifier(getDefaultEnvironment()));
+  if (!globalThis.__piWebPushNotifier) {
+    globalThis.__piWebPushNotifier = Promise.resolve().then(() => createWebPushNotifier(getDefaultEnvironment()));
   }
-  return notifierPromise;
+  return globalThis.__piWebPushNotifier;
 }
 
 export function getVapidPublicKey(): Promise<string> {
@@ -192,8 +184,7 @@ export function removeSubscription(endpoint: string): Promise<void> {
   return getNotifier().then((notifier) => notifier.removeSubscription(endpoint));
 }
 
-/** Fire when the agent ends so backgrounded PWAs (notably iOS) still notify. */
-export async function notifyAgentEnd(sessionId: string): Promise<void> {
+export async function notifySessionComplete(sessionId: string): Promise<void> {
   const notifier = await getNotifier();
   await notifier.notifySessionComplete(sessionId);
 }
