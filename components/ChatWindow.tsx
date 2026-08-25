@@ -281,7 +281,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, setNoticePaused,
     isAutoModelSelection,
     agentPhase,
     isNew,
@@ -654,12 +654,13 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
           right: isMobile ? 0 : CHAT_MINIMAP_WIDTH,
           zIndex: 40,
           display: "flex",
-          justifyContent: "center",
+          // Toasts live in the top-right corner
+          justifyContent: "flex-end",
           padding: `0 ${CHAT_COLUMN_PADDING}px`,
           pointerEvents: "none",
         }}
       >
-        <NoticeShelf notices={notices} floating />
+        <NoticeShelf notices={notices} floating onPauseChange={setNoticePaused} />
       </div>
 
       {isEmptyNew ? (
@@ -942,14 +943,19 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   );
 }
 
-function NoticeShelf({ notices, floating = false }: { notices: NoticeItem[]; floating?: boolean }) {
+// Toast 整体高度上限；文本区高度上限 = 整体上限 - 上下 padding(14*2) - 上下边框(1*2)
+const NOTICE_MAX_HEIGHT_PX = 500;
+const NOTICE_TEXT_MAX_HEIGHT_PX = NOTICE_MAX_HEIGHT_PX - 30;
+
+function NoticeShelf({ notices, floating = false, onPauseChange }: { notices: NoticeItem[]; floating?: boolean; onPauseChange?: (id: string | null) => void }) {
   if (notices.length === 0) return null;
   return (
     <div
       style={{
         display: "flex",
         flexDirection: "column",
-        alignItems: "center",
+        // Right-anchored: every toast's right edge aligns here, widths extend leftward
+        alignItems: "flex-end",
         marginBottom: floating ? 0 : 10,
       }}
     >
@@ -965,13 +971,27 @@ function NoticeShelf({ notices, floating = false }: { notices: NoticeItem[]; flo
           <div
             key={notice.id}
             className="notice-shelf-item"
+            onMouseEnter={() => onPauseChange?.(notice.id)}
+            onMouseLeave={(event) => {
+              if (!event.currentTarget.contains(document.activeElement)) onPauseChange?.(null);
+            }}
+            onFocus={() => onPauseChange?.(notice.id)}
+            onBlur={(event) => {
+              if (!event.currentTarget.matches(":hover")) onPauseChange?.(null);
+            }}
             style={{
               display: "flex",
-              alignItems: "center",
+              // Top-align children so the type dot sits by the first line on multi-line toasts
+              alignItems: "flex-start",
               gap: 10,
               minHeight: 60,
-              height: 60,
-              maxHeight: 60,
+              height: "auto",
+              // 整体高度上限：超出后由文本区内部滚动承担（见下方 span 的 overflowY），
+              // 容器自身保持 hidden，小圆点固定在顶部不随文本滚动
+              maxHeight: NOTICE_MAX_HEIGHT_PX,
+              // The floating wrapper is pointerEvents:"none" (click-through by design),
+              // so the toast itself must opt back into interactivity or hover events never reach it
+              pointerEvents: "auto",
               marginBottom: index === notices.length - 1 ? 0 : 6,
               overflow: "hidden",
               borderRadius: 14,
@@ -983,12 +1003,15 @@ function NoticeShelf({ notices, floating = false }: { notices: NoticeItem[]; flo
               boxShadow: floating
                 ? "0 1px 2px rgba(15,23,42,0.05), 0 10px 28px -14px rgba(15,23,42,0.24)"
                 : "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
-              fontSize: 18,
-              lineHeight: 1.45,
-              transformOrigin: "top center",
+              fontSize: 14,
+              lineHeight: 1.5,
+              transformOrigin: "top right",
+              // Use backwards fill for the entrance animation so height styles return to
+              // inline styles once it finishes; otherwise the keyframe's fixed 60px would
+              // stick around in fill mode and permanently clamp the expanded toast
               animation: notice.exiting
                 ? "notice-shelf-out 0.18s ease-in forwards"
-                : "notice-shelf-in 0.18s ease-out both",
+                : "notice-shelf-in 0.18s ease-out backwards",
               padding: "0 12px",
             }}
           >
@@ -999,9 +1022,18 @@ function NoticeShelf({ notices, floating = false }: { notices: NoticeItem[]; flo
                 borderRadius: "50%",
                 background: color,
                 flexShrink: 0,
+                // Align with the optical center of the first text line: 14px vertical
+                // padding + (21px line box - 7px dot) / 2
+                marginTop: 21,
               }}
             />
-            <span style={{ padding: "14px 0", minWidth: 0, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {/* Full text by default: pre-line preserves \n (nowrap/normal collapse
+                newlines into spaces) and long lines wrap instead of truncating;
+                content taller than the cap scrolls inside the text area */}
+            <span
+              tabIndex={0}
+              style={{ padding: "14px 0", minWidth: 0, maxWidth: "100%", maxHeight: NOTICE_TEXT_MAX_HEIGHT_PX, overflowY: "auto", scrollbarWidth: "thin", whiteSpace: "pre-line", wordBreak: "break-word" }}
+            >
               {notice.message}
             </span>
           </div>

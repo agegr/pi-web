@@ -214,6 +214,18 @@ test("streaming submissions cannot be stranded in an idle direct queue", () => {
   assert.doesNotMatch(queueSource, /type: "follow_up"/);
 });
 
+test("built-in clone switches to the independent child session", () => {
+  const builtinSource = source.slice(
+    source.indexOf("  const handleBuiltinSlashCommand"),
+    source.indexOf("  // Let AgentSession.prompt decide atomically"),
+  );
+
+  assert.match(builtinSource, /case "clone"/);
+  assert.match(builtinSource, /type: "clone",\s+leafId: activeLeafId/);
+  assert.match(builtinSource, /agentRunningRef\.current \|\| bashRunningRef\.current/);
+  assert.match(builtinSource, /onSessionForked\?\.\(result\.newSessionId\)/);
+});
+
 test("post-accept prompt errors do not duplicate the user submission", () => {
   const promptErrorSource = source.slice(
     source.indexOf('case "prompt_error"'),
@@ -331,6 +343,8 @@ test("routes blocking extension requests through deduplicated browser attention 
   );
   assert.match(chatWindowSource, /onAttentionNeeded, onSessionCreated/);
   assert.match(completionSource, /if \(!shouldShowBrowserNotification\(\)\) return/);
+  assert.doesNotMatch(completionSource, /pushActive/);
+  assert.match(completionSource, /tag: targetSession \? `pi-session-complete:\$\{targetSession\.id\}`/);
   assert.doesNotMatch(completionSource, /document\.visibilityState === "visible"/);
   assert.match(attentionSource, /shouldShowBrowserNotification\(\)/);
   assert.match(attentionSource, /claimExtensionAttentionNotification\(request, notifiedAttentionRequestIdsRef\.current\)/);

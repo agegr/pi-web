@@ -105,7 +105,7 @@ export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }
 
   const expandedWidget = widgets.find((widget) => (
     widget.key === expandedWidgetKey
-    && widget.lines.length > 1
+    && widget.lines.length > 0
   ));
 
   const toggleWidget = (widget: ExtensionWidgetItem) => {
@@ -139,7 +139,7 @@ export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }
       )}
       <div className="extension-widget-triggers" aria-label={t("chat.extensionWidgets")}>
         {widgets.map((widget, index) => {
-          const expandable = widget.lines.length > 1;
+          const expandable = widget.lines.length > 0;
           const expanded = expandable && widget.key === expandedWidget?.key;
           const updating = updatingWidgetKeys.has(widget.key);
           const lineCountLabel = t(
