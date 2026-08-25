@@ -8,6 +8,7 @@ import {
 	waitForText,
 	assertNoBrowserErrors,
 	resultLog,
+	waitForSessionListed,
 } from "./helpers.mjs";
 
 const dir = e2eDir("e2e-j3");
@@ -16,6 +17,7 @@ const result = { journey: "J3 model/agent", passed: false, steps: [] };
 let browser;
 try {
 	writeLinearSession({ dir, sessionId: SID, n: 10 });
+	await waitForSessionListed(SID);
 	const ctx = await launchPage();
 	browser = ctx.browser;
 	const { page, consoleErrors, pageErrors } = ctx;

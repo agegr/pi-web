@@ -8,6 +8,7 @@ import {
 	waitForText,
 	assertNoBrowserErrors,
 	resultLog,
+	waitForSessionListed,
 } from "./helpers.mjs";
 
 const dir = e2eDir("e2e-j2");
@@ -17,6 +18,7 @@ let browser;
 try {
 	writeRichSession({ dir, sessionId: SID });
 	result.steps.push("rich session written");
+	await waitForSessionListed(SID);
 	const ctx = await launchPage();
 	browser = ctx.browser;
 	const { page, consoleErrors, pageErrors } = ctx;

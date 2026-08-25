@@ -204,6 +204,33 @@ export async function assertTailWindow({ sessionId, tail = 50, forbiddenText }) 
 	return msgs;
 }
 
+// Poll /api/sessions until the freshly-written session shows up. The server
+// caches the list for 30s, and `?session=` restore waits on that list first,
+// so navigating immediately makes the page hang on stale data.
+export async function waitForSessionListed(sessionId, timeoutMs = 120_000) {
+	const deadline = Date.now() + timeoutMs;
+	let lastCount = -1;
+	while (Date.now() < deadline) {
+		try {
+			const res = await fetch(`${BASE}/api/sessions`, {
+				signal: AbortSignal.timeout(15_000),
+			});
+			if (res.ok) {
+				const body = await res.json();
+				const arr = Array.isArray(body) ? body : body?.sessions;
+				if (Array.isArray(arr)) {
+					lastCount = arr.length;
+					if (arr.some((s) => s?.id === sessionId)) return true;
+				}
+			}
+		} catch {}
+		await new Promise((r) => setTimeout(r, 2_000));
+	}
+	throw new Error(
+		`session ${sessionId} not in /api/sessions after ${timeoutMs}ms (last count ${lastCount})`,
+	);
+}
+
 export function resultLog(result) {
 	console.log(JSON.stringify(result, null, 2));
 }

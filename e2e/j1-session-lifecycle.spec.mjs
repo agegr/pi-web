@@ -10,6 +10,7 @@ import {
 	assertNoBrowserErrors,
 	assertTailWindow,
 	resultLog,
+	waitForSessionListed,
 } from "./helpers.mjs";
 
 const dir = e2eDir("e2e-j1");
@@ -21,6 +22,8 @@ try {
 	writeLinearSession({ dir, sessionId: LONG, n: 5000 });
 	writeBranchedSession({ dir, sessionId: BRANCH });
 	result.steps.push("sessions written");
+	await waitForSessionListed(LONG);
+	await waitForSessionListed(BRANCH);
 	const ctx = await launchPage();
 	browser = ctx.browser;
 	const { page, consoleErrors, pageErrors } = ctx;
