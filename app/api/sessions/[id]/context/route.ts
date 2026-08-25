@@ -25,6 +25,7 @@ export async function GET(
     const context = buildSessionContext(sm.getEntries() as never, leafId, {
       deferThinking,
       deferToolResultImages,
+      sessionId: id,
     });
 
     return NextResponse.json({ context });

@@ -63,6 +63,31 @@ self.addEventListener("fetch", (event) => {
   }
 });
 
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    // Ignore malformed or missing push payloads.
+  }
+  const { title, body, url, tag } = payload;
+  if (typeof title !== "string" || !title || typeof body !== "string" || !body) return;
+
+  // The in-page notification path handles the visible case (and plays the
+  // completion sound). Only surface a system notification when no window for
+  // this app is visible — e.g. a backgrounded iOS PWA.
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      if (clients.some((client) => client.visibilityState === "visible")) return;
+      return self.registration.showNotification(title, {
+        body,
+        data: { url: typeof url === "string" && url ? url : "/" },
+        ...(typeof tag === "string" && tag ? { tag } : {}),
+      });
+    }),
+  );
+});
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 

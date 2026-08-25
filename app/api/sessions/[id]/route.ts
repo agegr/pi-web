@@ -36,7 +36,11 @@ export async function GET(
     const searchParams = new URL(req.url).searchParams;
     const deferThinking = searchParams.has("deferThinking");
     const deferToolResultImages = searchParams.has("deferMedia");
-    const context = buildSessionContext(entries as never, leafId, { deferThinking, deferToolResultImages });
+    const context = buildSessionContext(entries as never, leafId, {
+      deferThinking,
+      deferToolResultImages,
+      sessionId: id, // local: lazy URLs for historical tool-result images
+    });
     const totalActiveMs = computeSessionTotalActiveMs(entries);
 
     const header = sm.getHeader();
