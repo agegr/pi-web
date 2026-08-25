@@ -18,7 +18,7 @@ import { clearDraft, rekeyDraft, restoreDraftSubmission } from "@/lib/draft-stor
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
 import { getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
-import type { SessionFileStats } from "@/lib/session-stats";
+import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { AgentEventConnection } from "@/lib/agent-event-connection";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
@@ -425,60 +425,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (sessionStatsOverride) {
       return { ...sessionStatsOverride, totalActiveMs: data?.totalActiveMs };
     }
-    const tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
-    let cost = 0;
-    let userMessages = 0;
-    let assistantMessages = 0;
-    let toolResults = 0;
-    let toolCalls = 0;
-    for (const msg of messages) {
-      if (msg.role === "user") userMessages += 1;
-      if (msg.role === "toolResult") toolResults += 1;
-      if (msg.role !== "assistant") continue;
-      assistantMessages += 1;
-      const u = (msg as import("@/lib/types").AssistantMessage).usage;
-      toolCalls += (msg as import("@/lib/types").AssistantMessage).content.filter((c) => c.type === "toolCall").length;
-      if (!u) continue;
-      tokens.input += u.input ?? 0;
-      tokens.output += u.output ?? 0;
-      tokens.cacheRead += u.cacheRead ?? 0;
-      tokens.cacheWrite += u.cacheWrite ?? 0;
-      cost += u.cost?.total ?? 0;
-    }
-    // The file stats span the ENTIRE session file — including history that
-    // compaction summarized away — while `messages` only covers the current
-    // (post-compaction) context. Merge per-field with max() so token/cost
-    // counters keep increasing after compaction and survive page reloads;
-    // session entries are only ever appended, never removed.
     const fileStats = data?.stats;
-    if (fileStats) {
-      tokens.input = Math.max(tokens.input, fileStats.tokens.input);
-      tokens.output = Math.max(tokens.output, fileStats.tokens.output);
-      tokens.cacheRead = Math.max(tokens.cacheRead, fileStats.tokens.cacheRead);
-      tokens.cacheWrite = Math.max(tokens.cacheWrite, fileStats.tokens.cacheWrite);
-      cost = Math.max(cost, fileStats.cost);
-      userMessages = Math.max(userMessages, fileStats.userMessages);
-      assistantMessages = Math.max(assistantMessages, fileStats.assistantMessages);
-      toolResults = Math.max(toolResults, fileStats.toolResults);
-      toolCalls = Math.max(toolCalls, fileStats.toolCalls);
-    }
-    tokens.total = tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite;
-    if (tokens.total === 0 && messages.length === 0 && !fileStats) return null;
+    const stats = mergeSessionStats(fileStats, data?.context.messages ?? [], messages);
+    if (stats.tokens.total === 0 && messages.length === 0 && !fileStats) return null;
     return {
       sessionFile: data?.filePath || undefined,
       sessionId: sessionIdRef.current ?? session?.id ?? "",
       sessionName: session?.name,
-      userMessages,
-      assistantMessages,
-      toolCalls,
-      toolResults,
-      totalMessages: fileStats ? Math.max(messages.length, fileStats.totalMessages) : messages.length,
-      tokens,
-      cost,
+      ...stats,
       totalActiveMs: data?.totalActiveMs,
       ...(contextUsage ? { contextUsage } : {}),
     } satisfies SessionStatsInfo;
-  }, [messages, sessionStatsOverride, contextUsage, data?.filePath, data?.totalActiveMs, data?.stats, session?.id, session?.name]);
+  }, [messages, sessionStatsOverride, contextUsage, data?.context.messages, data?.filePath, data?.totalActiveMs, data?.stats, session?.id, session?.name]);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
     let messagesLoaded = false;
