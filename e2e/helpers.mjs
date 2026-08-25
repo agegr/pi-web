@@ -187,7 +187,7 @@ export function resultLog(result) {
 
 // Assert an API endpoint returns 2xx and parseable JSON; any 5xx fails hard.
 export async function assertApiOk(url) {
-	const res = await fetch(url);
+	const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
 	if (res.status >= 500) {
 		throw new Error(`API 500 at ${url}: ${(await res.text()).slice(0, 300)}`);
 	}
@@ -203,7 +203,7 @@ export async function assertApiOk(url) {
 
 // Assert an endpoint does NOT 500 (4xx/2xx both acceptable for negative cases).
 export async function assertApiNot500(url) {
-	const res = await fetch(url);
+	const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
 	if (res.status >= 500) {
 		throw new Error(
 			`API 500 (expected 4xx/2xx) at ${url}: ${(await res.text()).slice(0, 300)}`,

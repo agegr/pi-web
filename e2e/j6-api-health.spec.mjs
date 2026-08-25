@@ -30,8 +30,8 @@ try {
 	const ctxBody = await assertApiOk(
 		`${BASE}/api/sessions/${SID}/context?tail=50`,
 	);
-	if (!Array.isArray(ctxBody?.messages)) {
-		throw new Error("context response missing messages array");
+	if (!Array.isArray(ctxBody?.context?.messages)) {
+		throw new Error("context response missing context.messages array");
 	}
 	result.steps.push("context 200 + messages array");
 

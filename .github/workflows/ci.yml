@@ -48,7 +48,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx playwright install chromium
+      - run: npx playwright install --with-deps chromium
       - name: Start dev server
         run: npm run dev -- -H 127.0.0.1 -p 3100 &
       - name: Wait for server
