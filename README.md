@@ -45,6 +45,7 @@ For port and hostname, command-line options override the corresponding environme
 | `--port <port>`, `-p <port>`, or `PORT` | Server port | `30141` |
 | `--hostname <host>`, `-H <host>`, or `PI_WEB_HOSTNAME` | Bind hostname | `127.0.0.1` |
 | `--no-open` or `PI_WEB_NO_OPEN=1` | Do not open a browser automatically | Browser opens |
+| `PI_WEB_SKIP_VERSION_CHECK=1` | Disable Pi Web update checks | Unset |
 | `PI_WEB_ALLOWED_HOSTS` | Additional exact proxy or custom hostnames, comma-separated | Unset |
 | `PI_WEB_PASSWORD` | Enable HTTP Basic Auth; the username is always `pi` | Authentication disabled |
 
