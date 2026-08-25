@@ -44,11 +44,13 @@ try {
 	// message, so body.innerText would always contain "E2E message 0").
 	await assertTailWindow({ sessionId: LONG, tail: 50, forbiddenText: "E2E message 0" });
 	result.steps.push("tail window enforced via API");
-	// Branch session: open and see branch base
+	// Branch session: active branch is a1<-a0<-e5<-(e4..e0), so fork-base
+	// messages 6-9 are NOT in it; assert on content that must be present.
 	await page.goto(`${BASE}/?session=${BRANCH}`, {
 		waitUntil: "domcontentloaded",
 	});
-	await waitForText(page, "branch-base 9");
+	await waitForText(page, "branch-a 1");
+	await waitForText(page, "branch-base 5");
 	result.steps.push("branched session rendered");
 	await assertNoBrowserErrors(consoleErrors, pageErrors);
 	result.passed = true;
