@@ -13,3 +13,8 @@ test("renders temporary notices once at the top center of the chat column", () =
     /position: "absolute",\s*top: 12,\s*left: 0,\s*right: isMobile \? 0 : CHAT_MINIMAP_WIDTH,[\s\S]*?justifyContent: "center",[\s\S]*?<NoticeShelf notices=\{notices\} floating \/>/,
   );
 });
+
+test("renders multi-line notices (e.g. /acp status panel) with pre-wrap monospace instead of truncating to one line", () => {
+  assert.match(source, /const isMultiLine = notice\.message\.includes\("\\n"\);/);
+  assert.match(source, /whiteSpace: "pre-wrap", fontFamily: "var\(--font-mono\)"/);
+});

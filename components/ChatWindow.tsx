@@ -961,17 +961,17 @@ function NoticeShelf({ notices, floating = false }: { notices: NoticeItem[]; flo
             : notice.type === "success"
               ? "#10b981"
               : "var(--accent)";
+        const isMultiLine = notice.message.includes("\n");
         return (
           <div
             key={notice.id}
             className="notice-shelf-item"
             style={{
               display: "flex",
-              alignItems: "center",
+              alignItems: isMultiLine ? "flex-start" : "center",
               gap: 10,
               minHeight: 60,
-              height: 60,
-              maxHeight: 60,
+              ...(isMultiLine ? { maxHeight: 420 } : { height: 60, maxHeight: 60 }),
               marginBottom: index === notices.length - 1 ? 0 : 6,
               overflow: "hidden",
               borderRadius: 14,
@@ -983,13 +983,13 @@ function NoticeShelf({ notices, floating = false }: { notices: NoticeItem[]; flo
               boxShadow: floating
                 ? "0 1px 2px rgba(15,23,42,0.05), 0 10px 28px -14px rgba(15,23,42,0.24)"
                 : "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
-              fontSize: 18,
+              fontSize: isMultiLine ? 12 : 18,
               lineHeight: 1.45,
               transformOrigin: "top center",
               animation: notice.exiting
                 ? "notice-shelf-out 0.18s ease-in forwards"
                 : "notice-shelf-in 0.18s ease-out both",
-              padding: "0 12px",
+              padding: isMultiLine ? "12px 14px" : "0 12px",
             }}
           >
             <span
@@ -999,9 +999,16 @@ function NoticeShelf({ notices, floating = false }: { notices: NoticeItem[]; flo
                 borderRadius: "50%",
                 background: color,
                 flexShrink: 0,
+                marginTop: isMultiLine ? 7 : 0,
               }}
             />
-            <span style={{ padding: "14px 0", minWidth: 0, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <span
+              style={
+                isMultiLine
+                  ? { padding: 0, minWidth: 0, maxWidth: "100%", whiteSpace: "pre-wrap", fontFamily: "var(--font-mono)", overflowY: "auto" }
+                  : { padding: "14px 0", minWidth: 0, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
+              }
+            >
               {notice.message}
             </span>
           </div>

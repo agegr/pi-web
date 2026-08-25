@@ -91,6 +91,7 @@ export type NoticeItem = {
   message: string;
   type: NoticeType;
   exiting?: boolean;
+  visibleMs?: number;
 };
 
 type NoticeState = {
@@ -163,6 +164,7 @@ const EVENT_STREAM_READY_TIMEOUT_MS = 60_000;
 const EVENT_STREAM_RECONNECT_DELAY_MS = 1_000;
 const MAX_NOTICES = 5;
 const NOTICE_VISIBLE_MS = 5000;
+const MULTI_LINE_NOTICE_VISIBLE_MS = 30000;
 const NOTICE_EXIT_ANIMATION_MS = 180;
 function createNoticeId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -743,6 +745,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         id: notice.id ?? createNoticeId(),
         message,
         type: notice.type ?? "info",
+        visibleMs: message.includes("\n") ? MULTI_LINE_NOTICE_VISIBLE_MS : undefined,
       },
     });
   }, []);
@@ -1911,7 +1914,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (!oldest) return;
     const t = setTimeout(() => {
       dispatchNotice({ type: "mark_oldest_exiting" });
-    }, NOTICE_VISIBLE_MS);
+    }, oldest.visibleMs ?? NOTICE_VISIBLE_MS);
     return () => clearTimeout(t);
   }, [noticeState.visible]);
 
