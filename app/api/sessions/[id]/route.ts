@@ -8,13 +8,14 @@ import {
   invalidateSessionPathCache,
   invalidateSessionListCache,
   buildSessionContext,
-  computeSessionStats,
   readSessionHeader,
 } from "@/lib/session-reader";
 import { sessionPathKey } from "@/lib/session-path";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { projectTreeForResponse } from "@/lib/project-tree";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
+import { computeSessionStats } from "@/lib/session-stats";
+import type { SessionEntry } from "@/lib/types";
 
 export async function GET(
   req: Request,
@@ -39,16 +40,18 @@ export async function GET(
     const deferToolResultImages = searchParams.has("deferMedia");
     const rawTail = Number(searchParams.get("tail"));
     const tail = Number.isFinite(rawTail) && rawTail > 0 ? Math.min(rawTail, 1000) : 50;
-    const context = buildSessionContext(entries as never, leafId, { deferThinking, deferToolResultImages, tail });
+    const context = buildSessionContext(entries as never, leafId, {
+      deferThinking,
+      deferToolResultImages,
+      tail,
+      sessionId: id, // local: lazy URLs for historical tool-result images
+    });
     const totalActiveMs = computeSessionTotalActiveMs(entries);
+    // Cumulative usage over ALL entries, including history compacted away —
+    // the same aggregation the SDK's getSessionStats() uses. Lets the client
+    // keep monotonic token/cost counters across compaction and page reloads.
+    const stats = computeSessionStats(entries as unknown as SessionEntry[]);
     const sessionName = sm.getSessionName();
-    const stats = {
-      ...computeSessionStats(entries as never),
-      sessionFile: filePath,
-      sessionId: id,
-      sessionName,
-      totalActiveMs,
-    };
     const firstUserEntry = entries.find((entry) => entry.type === "message" && entry.message.role === "user");
     const firstUserMessage = firstUserEntry?.type === "message" ? firstUserEntry.message : undefined;
 

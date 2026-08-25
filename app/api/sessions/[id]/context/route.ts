@@ -35,6 +35,7 @@ export async function GET(
       deferToolResultImages,
       tail,
       excludeLeaf: Boolean(before),
+      sessionId: id,
     });
 
     return NextResponse.json({ context, tail, before: before ?? null });

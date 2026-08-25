@@ -1,5 +1,5 @@
 /** 内置的可用界面语言。 */
-export type Locale = "en" | "zh-CN";
+export type Locale = "en" | "zh-CN" | "zh-TW";
 
 /** 翻译字符串使用的简单插值参数。 */
 export type TranslationParams = Record<string, string | number>;

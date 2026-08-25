@@ -48,7 +48,8 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "remark-frontmatter": "^5.0.0",
-    "undici": "8.10.0"
+    "undici": "8.10.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@lobehub/icons": "^5.6.0",
@@ -59,6 +60,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "@types/web-push": "^3.6.4",
     "eslint": "^9",
     "eslint-config-next": "16.3.1",
     "jiti": "^2.7.0",
