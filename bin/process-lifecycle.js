@@ -11,10 +11,6 @@ function getSignalExitCode(signal) {
   return typeof signalNumber === "number" ? 128 + signalNumber : 1;
 }
 
-function describeExit(code, signal) {
-  return signal ? `signal ${signal}` : `code ${code}`;
-}
-
 function wireChildProcessLifecycle(
   child,
   parentProcess = process,
@@ -29,12 +25,25 @@ function wireChildProcessLifecycle(
 
   const forceKill = () => child.kill("SIGKILL");
 
-  const unwire = () => {
+  function unwire() {
     if (shutdownTimer) clearTimeout(shutdownTimer);
     for (const [forwardedSignal, handler] of signalHandlers) {
       parentProcess.removeListener(forwardedSignal, handler);
     }
-  };
+    child.removeListener("error", handleError);
+  }
+
+  function handleError(error) {
+    const failedToSpawn = child.pid === undefined;
+    log(
+      `[pi-web] ${failedToSpawn ? "could not run the Next.js process" : "Next.js process error"}: ${error.message}`,
+    );
+
+    if (failedToSpawn) {
+      unwire();
+      parentProcess.exit(1);
+    }
+  }
 
   for (const signal of forwardedSignals) {
     const handler = () => {
@@ -52,21 +61,17 @@ function wireChildProcessLifecycle(
     parentProcess.on(signal, handler);
   }
 
-  // Without a listener an 'error' event is fatal to the wrapper itself, so a
-  // spawn failure surfaced as a bare stack trace rather than a reason.
-  child.once("error", (error) => {
-    unwire();
-    log(`[pi-web] could not run the Next.js process: ${error.message}`);
-    parentProcess.exit(1);
-  });
+  child.on("error", handleError);
 
   child.once("exit", (code, signal) => {
     unwire();
 
     // A shutdown the user asked for needs no explanation; anything else left
     // the window closing with no stated reason.
-    if (!shuttingDown && (signal || (code ?? 0) !== 0)) {
-      log(`[pi-web] Next.js exited unexpectedly (${describeExit(code, signal)})`);
+    if (!shuttingDown) {
+      log(
+        `[pi-web] Next.js exited unexpectedly (${signal ? `signal ${signal}` : `code ${code}`})`,
+      );
     }
 
     parentProcess.exit(code ?? getSignalExitCode(signal));
