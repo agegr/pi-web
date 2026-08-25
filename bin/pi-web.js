@@ -24,12 +24,15 @@ let launchOptions;
 try {
   launchOptions = parseLaunchOptions();
 } catch (error) {
-  console.error(error instanceof Error ? error.message : error);
+  fs.writeSync(
+    process.stderr.fd,
+    `${error instanceof Error ? error.message : String(error)}\n`,
+  );
   process.exit(1);
 }
 
 if (launchOptions.help) {
-  console.log(getHelpText());
+  fs.writeSync(process.stdout.fd, getHelpText());
   process.exit(0);
 }
 
