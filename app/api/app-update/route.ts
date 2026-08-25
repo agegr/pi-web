@@ -8,6 +8,7 @@ const CURRENT_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0";
 const NPM_LATEST_URL = "https://registry.npmjs.org/@agegr%2Fpi-web/latest";
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 5_000;
+const SKIP_VERSION_CHECK = process.env.PI_WEB_SKIP_VERSION_CHECK === "1";
 
 interface AppUpdateCache {
   value?: AppUpdateResponse;
@@ -66,6 +67,14 @@ async function loadUpdateStatus(): Promise<AppUpdateResponse> {
 }
 
 export async function GET() {
+  if (SKIP_VERSION_CHECK) {
+    return NextResponse.json({
+      currentVersion: CURRENT_VERSION,
+      latestVersion: CURRENT_VERSION,
+      updateAvailable: false,
+      releaseUrl: "",
+    } satisfies AppUpdateResponse);
+  }
   try {
     return NextResponse.json(await loadUpdateStatus());
   } catch (error) {

@@ -15,6 +15,7 @@ import {
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
+import { notifySessionComplete } from "./web-push";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
 import type {
@@ -36,6 +37,7 @@ export interface AgentEvent {
 }
 
 type EventListener = (event: AgentEvent) => void;
+type AgentRunCompleteListener = (sessionId: string) => void;
 
 type PendingUiResponse = {
   resolve: (response: ExtensionUiResponse) => void;
@@ -185,6 +187,7 @@ export class AgentSessionWrapper {
   private pendingPromptCount = 0;
   private activeMutatingCommands = 0;
   private sessionReplacement: "fork" | "clone" | null = null;
+  private agentRunNeedsCompletion = false;
   private promptAdmissionTail: Promise<void> = Promise.resolve();
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
@@ -196,7 +199,10 @@ export class AgentSessionWrapper {
   private shutdownPromise: Promise<void> | null = null;
   private _alive = true;
 
-  constructor(public readonly inner: AgentSessionLike) {}
+  constructor(
+    public readonly inner: AgentSessionLike,
+    private readonly onAgentRunComplete?: AgentRunCompleteListener,
+  ) {}
 
   get sessionId(): string {
     return this.inner.sessionId;
@@ -228,15 +234,27 @@ export class AgentSessionWrapper {
 
   start(): void {
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
+      if (event.type === "agent_start") this.agentRunNeedsCompletion = true;
       if (event.type === "agent_end") {
         invalidateSessionListCache();
       }
       if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
       this.emit(event);
       if (RUNNING_STATE_EVENT_TYPES.has(event.type)) notifyRunningChange();
+      if (event.type === "agent_settled") this.notifyAgentRunCompleteIfIdle();
     });
     this.resetIdleTimer();
     notifyRunningChange();
+  }
+
+  private notifyAgentRunCompleteIfIdle(): void {
+    if (!this.agentRunNeedsCompletion || this.isRunning()) return;
+    this.agentRunNeedsCompletion = false;
+    try {
+      this.onAgentRunComplete?.(this.sessionId);
+    } catch (error) {
+      console.error("[pi-web] completion listener failed:", error instanceof Error ? error.message : error);
+    }
   }
 
   setForceEmptySystemPrompt(force: boolean): void {
@@ -419,9 +437,8 @@ export class AgentSessionWrapper {
     this.sessionReplacement = replacement;
     try {
       return await operation();
-    } catch (error) {
+    } finally {
       if (this._alive) this.sessionReplacement = null;
-      throw error;
     }
   }
 
@@ -488,6 +505,7 @@ export class AgentSessionWrapper {
           const preflight = new Promise<void>((resolve, reject) => {
             acceptPreflight = () => {
               preflightAccepted = true;
+              this.agentRunNeedsCompletion = true;
               if (preflightSettled) return;
               preflightSettled = true;
               resolve();
@@ -504,6 +522,7 @@ export class AgentSessionWrapper {
             this.pendingPromptCount = Math.max(0, this.pendingPromptCount - 1);
             this.resetIdleTimer();
             notifyRunningChange();
+            this.notifyAgentRunCompleteIfIdle();
           };
 
           this.pendingPromptCount += 1;
@@ -650,7 +669,7 @@ export class AgentSessionWrapper {
         }
         const sessionManager = this.inner.sessionManager;
         const currentSessionFile = this.inner.sessionFile;
-        const leafId = sessionManager.getLeafId();
+        const leafId = typeof command.leafId === "string" ? command.leafId : sessionManager.getLeafId();
         const branchHasAssistant = leafId && sessionManager.getBranch(leafId).some(
           (entry) => entry.type === "message" && entry.message.role === "assistant",
         );
@@ -1767,7 +1786,11 @@ export async function startRpcSession(
       inner.setActiveToolsByName(withExtensionTools(inner, toolNames));
     }
 
-    const wrapper = new AgentSessionWrapper(inner);
+    const wrapper = new AgentSessionWrapper(inner, (completedSessionId) => {
+      void notifySessionComplete(completedSessionId).catch((error) => {
+        console.error("[pi-web] failed to send completion push:", error instanceof Error ? error.message : error);
+      });
+    });
     // When all tools are disabled, clear the system prompt entirely.
     // pi's buildSystemPrompt always produces a non-empty prompt even with no tools;
     // keep this forced after extension resource discovery and reloads as well.

@@ -221,7 +221,7 @@ test("built-in clone switches to the independent child session", () => {
   );
 
   assert.match(builtinSource, /case "clone"/);
-  assert.match(builtinSource, /type: "clone"/);
+  assert.match(builtinSource, /type: "clone",\s+leafId: activeLeafId/);
   assert.match(builtinSource, /agentRunningRef\.current \|\| bashRunningRef\.current/);
   assert.match(builtinSource, /onSessionForked\?\.\(result\.newSessionId\)/);
 });
@@ -343,6 +343,8 @@ test("routes blocking extension requests through deduplicated browser attention 
   );
   assert.match(chatWindowSource, /onAttentionNeeded, onSessionCreated/);
   assert.match(completionSource, /if \(!shouldShowBrowserNotification\(\)\) return/);
+  assert.doesNotMatch(completionSource, /pushActive/);
+  assert.match(completionSource, /tag: targetSession \? `pi-session-complete:\$\{targetSession\.id\}`/);
   assert.doesNotMatch(completionSource, /document\.visibilityState === "visible"/);
   assert.match(attentionSource, /shouldShowBrowserNotification\(\)/);
   assert.match(attentionSource, /claimExtensionAttentionNotification\(request, notifiedAttentionRequestIdsRef\.current\)/);
