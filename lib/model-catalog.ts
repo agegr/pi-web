@@ -5,6 +5,8 @@ export interface ModelCatalogCost {
   cacheWrite?: number;
 }
 
+export type CompleteModelCatalogCost = Required<ModelCatalogCost>;
+
 export interface ModelCatalogEntry {
   key: string;
   providerId: string;
@@ -25,7 +27,7 @@ export interface ModelCatalogPreset {
   input?: string[];
   contextWindow?: number;
   maxTokens?: number;
-  cost?: ModelCatalogCost;
+  cost?: CompleteModelCatalogCost;
 }
 
 export type ModelCatalogMatchMethod = "provider" | "base-url" | "consensus" | "none";
@@ -34,7 +36,7 @@ export type ModelCatalogPriceRecommendation =
   | {
       status: "reliable";
       method: Exclude<ModelCatalogMatchMethod, "none">;
-      cost: ModelCatalogCost;
+      cost: CompleteModelCatalogCost;
       providerId?: string;
       providerName?: string;
       support: number;
@@ -57,6 +59,7 @@ export interface ModelCatalogRecommendation {
 }
 
 const CONSENSUS_MIN_SHARE = 0.6;
+const CONSENSUS_MIN_SUPPORT = 5;
 const KNOWN_PROVIDER_HOSTS: Record<string, readonly string[]> = {
   anthropic: ["api.anthropic.com"],
   google: ["generativelanguage.googleapis.com"],
@@ -224,7 +227,12 @@ function priceFromEntry(
   return {
     status: "reliable",
     method,
-    cost: entry.cost,
+    cost: {
+      input: entry.cost.input,
+      output: entry.cost.output,
+      cacheRead: entry.cost.cacheRead ?? 0,
+      cacheWrite: entry.cost.cacheWrite ?? 0,
+    },
     providerId: entry.providerId,
     providerName: entry.providerName,
     support: 1,
@@ -253,7 +261,9 @@ function consensusPrice(entries: readonly ModelCatalogEntry[]): ModelCatalogPric
   if (!winner) {
     return { status: "unreliable", reason: "no-valid-price", support: 0, total: priced.length };
   }
-  if (ranked[1]?.length === winner.length || winner.length / priced.length < CONSENSUS_MIN_SHARE) {
+  const hasConsensus = winner.length / priced.length >= CONSENSUS_MIN_SHARE
+    || winner.length >= CONSENSUS_MIN_SUPPORT;
+  if (ranked[1]?.length === winner.length || !hasConsensus) {
     return {
       status: "unreliable",
       reason: "conflict",
@@ -262,8 +272,8 @@ function consensusPrice(entries: readonly ModelCatalogEntry[]): ModelCatalogPric
     };
   }
 
-  const cacheRead = modeNumber(winner.flatMap((entry) => entry.cost.cacheRead === undefined ? [] : [entry.cost.cacheRead]));
-  const cacheWrite = modeNumber(winner.flatMap((entry) => entry.cost.cacheWrite === undefined ? [] : [entry.cost.cacheWrite]));
+  const cacheRead = modeNumber(winner.map((entry) => entry.cost.cacheRead ?? 0)) ?? 0;
+  const cacheWrite = modeNumber(winner.map((entry) => entry.cost.cacheWrite ?? 0)) ?? 0;
   return {
     status: "reliable",
     method: "consensus",

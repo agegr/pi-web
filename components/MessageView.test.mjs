@@ -8,18 +8,45 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { MessageView, replaceUserMessageText } = await jiti.import("./MessageView.tsx");
+const {
+  MessageView,
+  getTokenEstimateText,
+  getToolCallInputText,
+  replaceUserMessageText,
+} = await jiti.import("./MessageView.tsx");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
-function renderMessage(message) {
+function renderMessage(message, props = {}) {
   return renderToStaticMarkup(
     React.createElement(
       I18nProvider,
       null,
-      React.createElement(MessageView, { message }),
+      React.createElement(MessageView, { message, ...props }),
     ),
   );
 }
+
+test("keeps streamed tool input out of collapsed markup while counting it", () => {
+  const block = {
+    type: "toolCall",
+    toolCallId: "call-write-1",
+    toolName: "write",
+    input: {},
+    rawInput: '{"path":"/tmp/file","content":"secret-stream-fragment',
+  };
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [block],
+  }, { isStreaming: true });
+
+  assert.match(html, /write/);
+  assert.match(html, /Generating parameters/);
+  assert.doesNotMatch(html, /secret-stream-fragment/);
+  assert.equal(getToolCallInputText(block), block.rawInput);
+  assert.equal(getTokenEstimateText(block), block.rawInput);
+});
 
 const COMPLETE_SKILL_EXPANSION = `<skill name="review" location="/skills/review/SKILL.md">
 References are relative to /skills/review.
@@ -94,4 +121,30 @@ test("keeps attached images when restoring a compact command for editing", () =>
     { type: "text", text: "/skill:review src/main.ts" },
     image,
   ]);
+});
+
+test("renders user-message images as buttons that open a larger preview", () => {
+  const html = renderMessage({
+    role: "user",
+    content: [
+      { type: "text", text: "inspect this" },
+      { type: "image", data: "YWJj", mimeType: "image/png" },
+    ],
+    timestamp: Date.now(),
+  });
+
+  assert.match(html, /<button[^>]+aria-label="Preview image"[^>]*>/);
+  assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
+});
+
+test("renders custom-message images as buttons that open a larger preview", () => {
+  const html = renderMessage({
+    role: "custom",
+    customType: "extension",
+    content: [{ type: "image", data: "YWJj", mimeType: "image/png" }],
+    timestamp: Date.now(),
+  });
+
+  assert.match(html, /<button[^>]+aria-label="Preview image"[^>]*>/);
+  assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
 });

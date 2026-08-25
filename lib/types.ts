@@ -43,6 +43,8 @@ export interface ToolCallContent {
   toolCallId: string;
   toolName: string;
   input: Record<string, unknown>;
+  /** Client-only buffer for streamed tool input. Never persisted to session files. */
+  rawInput?: string;
 }
 
 export type AssistantContentBlock = TextContent | ImageContent | ThinkingContent | ToolCallContent;
@@ -188,6 +190,11 @@ export type ExtensionUiRequest =
       closed?: boolean;
     };
 
+export type BlockingExtensionUiRequest = Extract<
+  ExtensionUiRequest,
+  { method: "select" | "confirm" | "input" | "editor" | "custom" }
+>;
+
 export type ExtensionUiResponse =
   | { type: "extension_ui_response"; id: string; value: string }
   | { type: "extension_ui_response"; id: string; confirmed: boolean }
@@ -275,11 +282,17 @@ export type SessionEntry =
 
 export type FileEntry = SessionHeader | SessionEntry;
 
+export interface BranchPreview {
+  role?: "user" | "assistant";
+  text: string;
+}
+
 export interface SessionTreeNode {
   entry: SessionEntry;
   children: SessionTreeNode[];
   label?: string;
   compressedEntryIds?: string[];
+  branchPreview?: BranchPreview;
 }
 
 export interface SessionInfo {
@@ -296,8 +309,15 @@ export interface SessionInfo {
    *  Always set by the server; optional because the client builds transient
    *  SessionInfo objects before the first refresh. Fall back to cwd. */
   projectRoot?: string;
+  /** Stable server-computed project identity for grouping and comparison.
+   *  Unlike projectRoot, Windows keys are case- and separator-insensitive.
+   *  Internal only: use projectRoot/cwd for display and filesystem operations. */
+  projectKey?: string;
   /** Branch name when cwd is a linked git worktree (not the main checkout) */
   worktreeBranch?: string;
+  /** True while the runtime session exists only in memory and its JSONL file
+   *  has not been created yet. Disk-backed actions must wait until this clears. */
+  transient?: boolean;
 }
 
 export interface SessionContext {

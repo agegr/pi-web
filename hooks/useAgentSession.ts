@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer } from "react";
 import type {
   AgentMessage,
+  BlockingExtensionUiRequest,
   ExtensionStatusItem,
   ExtensionUiRequest,
   ExtensionWidgetItem,
@@ -10,6 +11,7 @@ import type {
   SessionTreeNode,
   UserMessage,
 } from "@/lib/types";
+import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
 import { clearDraft, rekeyDraft, restoreDraftSubmission } from "@/lib/draft-store";
@@ -18,6 +20,7 @@ import { getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/to
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { AgentEventConnection } from "@/lib/agent-event-connection";
+import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
 import {
   CHAT_SCROLL_REATTACH_TOLERANCE,
   CHAT_SCROLL_TAIL_TOLERANCE,
@@ -103,7 +106,7 @@ type NoticeAction =
 export type AgentPhase =
   | { kind: "waiting_model" }
   | { kind: "running_command" }
-  | { kind: "running_tools"; tools: { id: string; name: string }[] }
+  | { kind: "running_tools"; tools: { id: string; name: string; progress?: string }[] }
   | null;
 
 export interface CompactResultInfo {
@@ -135,12 +138,15 @@ export interface UseAgentSessionOptions {
   newSessionCwd: string | null;
   newSessionDraftKey: string | null;
   onAgentEnd?: () => void;
+  onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
   onSessionCreated?: (session: SessionInfo, sourceDraftKey: string) => void;
   onSessionForked?: (newSessionId: string) => void;
   modelsRefreshKey?: number;
   chatInputRef?: React.RefObject<ChatInputHandle | null>;
   onBranchDataChange?: (tree: SessionTreeNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void) => void;
   onSystemPromptChange?: (prompt: string | null) => void;
+  /** Registers an action that lazily starts the session and returns its system prompt. */
+  onSystemPromptLoaderChange?: (loader: (() => Promise<void>) | null) => void;
   onSessionStatsPanelOpen?: () => void;
   setToolPreset?: (preset: ToolPreset) => void;
 }
@@ -257,8 +263,8 @@ type SlashCommandsResponse = {
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
-    session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onSessionCreated, onSessionForked,
-    modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
+    session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
+    modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsPanelOpen,
   } = opts;
 
   const isNew = session === null && newSessionCwd !== null;
@@ -565,6 +571,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       modified: new Date().toISOString(),
       messageCount,
       firstMessage,
+      transient: true,
     }, provisionalDraftKey);
   }, [isNew, newSessionCwd, newSessionDraftKey, onSessionCreated, opts.chatInputRef]);
 
@@ -621,6 +628,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       ensuringNewSessionRef.current = null;
     }
   }, [isNew, newSessionCwd, toolPreset]);
+
+  // Opening the System panel is also allowed to initialize an otherwise dormant
+  // session. This is deliberately a non-prompt command: it creates no message
+  // or model run, but lets users inspect the exact prompt before sending one.
+  const loadSystemPrompt = useCallback(async () => {
+    const sid = sessionIdRef.current ?? await ensureNewSession();
+    if (!sid) return;
+
+    const state = await sendAgentCommand<AgentStateResponse>(sid, { type: "get_state" });
+    if (!sessionHookMountedRef.current || sessionIdRef.current !== sid) return;
+    setSystemPrompt(state.systemPrompt ?? "");
+  }, [ensureNewSession]);
 
   const loadSlashCommands = useCallback(async () => {
     const sid = sessionIdRef.current ?? await ensureNewSession();
@@ -729,6 +748,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, []);
 
   const handleExtensionUiRequest = useCallback((request: ExtensionUiRequest) => {
+    if (isBlockingExtensionUiRequest(request)) onAttentionNeeded?.(request);
+
     switch (request.method) {
       case "select":
       case "confirm":
@@ -777,7 +798,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         });
         break;
     }
-  }, [addNotice, opts.chatInputRef]);
+  }, [addNotice, onAttentionNeeded, opts.chatInputRef]);
 
   const settleUiStage = useCallback(() => {
     const wasRunning = agentRunningRef.current;
@@ -1161,6 +1182,25 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const tools = prev?.kind === "running_tools" ? [...prev.tools] : [];
           if (!tools.some((t) => t.id === id)) tools.push({ id, name });
           return { kind: "running_tools", tools };
+        });
+        break;
+      }
+      case "tool_execution_update": {
+        const id = event.toolCallId as string;
+        const name = event.toolName as string;
+        const progress = getToolExecutionProgress(event.partialResult);
+        setAgentPhase((prev) => {
+          const tools = prev?.kind === "running_tools" ? [...prev.tools] : [];
+          const existing = tools.find((tool) => tool.id === id);
+          const updated = {
+            id,
+            name: name || existing?.name || "tool",
+            progress: progress ?? existing?.progress,
+          };
+          return {
+            kind: "running_tools",
+            tools: [...tools.filter((tool) => tool.id !== id), updated],
+          };
         });
         break;
       }
@@ -1803,6 +1843,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   useEffect(() => {
     onSystemPromptChange?.(systemPrompt);
   }, [systemPrompt, onSystemPromptChange]);
+
+  useEffect(() => {
+    onSystemPromptLoaderChange?.(loadSystemPrompt);
+    return () => onSystemPromptLoaderChange?.(null);
+  }, [loadSystemPrompt, onSystemPromptLoaderChange]);
 
   useEffect(() => {
     if (!onBranchDataChange) return;

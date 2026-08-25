@@ -1,15 +1,29 @@
 import { NextResponse } from "next/server";
-import { listAllSessions } from "@/lib/session-reader";
-import { getRunningRpcSessionIds } from "@/lib/rpc-manager";
+import {
+  attachSessionProjectInfo,
+  listAllSessions,
+  mergeSessionLists,
+} from "@/lib/session-reader";
+import { getRpcSessionInfos, getRunningRpcSessionIds } from "@/lib/rpc-manager";
 
-export async function GET() {
+export const dynamic = "force-dynamic";
+
+export async function GET(req: Request) {
   try {
-    const sessions = await listAllSessions();
-    return NextResponse.json({ sessions, runningSessionIds: getRunningRpcSessionIds() });
+    const force = new URL(req.url).searchParams.get("force") === "1";
+    const [persistedSessions, runtimeSessions] = await Promise.all([
+      listAllSessions({ force }),
+      attachSessionProjectInfo(getRpcSessionInfos()),
+    ]);
+    const sessions = mergeSessionLists(persistedSessions, runtimeSessions);
+    return NextResponse.json(
+      { sessions, runningSessionIds: getRunningRpcSessionIds() },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (error) {
     return NextResponse.json(
       { error: String(error) },
-      { status: 500 }
+      { status: 500, headers: { "Cache-Control": "no-store" } },
     );
   }
 }

@@ -5,6 +5,17 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
 import type { DiscoveredModel } from "@/lib/model-discovery";
+import {
+  hasModelCostDraftValue,
+  modelCostToDraft,
+  parseCompleteModelCost,
+  serializeHeaderRows,
+  setCompatBool,
+  updateHeaderRow,
+  type HeaderRow,
+  type ModelCostDraft,
+  type ModelCostKey,
+} from "./models-config-helpers";
 // Color icons (have their own fill colors — no background needed)
 import AnthropicIcon from "@lobehub/icons/es/Anthropic/components/Mono";
 import OpenAIIcon from "@lobehub/icons/es/OpenAI/components/Mono";
@@ -126,7 +137,8 @@ interface ModelEntry {
   input?: string[];
   contextWindow?: number;
   maxTokens?: number;
-  cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+  cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; tiers?: unknown };
+  headers?: Record<string, string>;
   compat?: Record<string, unknown>;
 }
 
@@ -437,6 +449,16 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
         <Select value={provider.api ?? "openai-completions"} onChange={(v) => set("api", v)} options={API_OPTIONS} required />
       </Field>
 
+      <Field label="Headers">
+        <HeaderListEditor
+          headers={provider.headers}
+          onChange={(headers) => set("headers", headers)}
+        />
+        <span style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
+          Added to every request from this provider (e.g. User-Agent). Useful for gateways with bot detection.
+        </span>
+      </Field>
+
       <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
         {discoveryState.phase !== "success" && (
           <button
@@ -619,7 +641,6 @@ function ThinkingLevelMapEditor({
               border: "1px solid transparent",
             }}
           >
-            {/* Level badge */}
             <div style={{ display: "flex", alignItems: "center", gap: 5, width: 68, flexShrink: 0 }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: color, flexShrink: 0, opacity: state === "null" ? 0.3 : 1 }} />
               <span style={{
@@ -632,7 +653,6 @@ function ThinkingLevelMapEditor({
               </span>
             </div>
 
-            {/* Default + Disabled buttons */}
             <div style={{ display: "flex", borderRadius: 5, border: "1px solid var(--border)", overflow: "hidden", flexShrink: 0 }}>
               <button
                 onClick={() => setLevel(level, "omit")}
@@ -648,7 +668,6 @@ function ThinkingLevelMapEditor({
               </button>
             </div>
 
-            {/* Custom button + input fused */}
             <div style={{ display: "flex", borderRadius: 5, border: `1px solid ${state === "string" ? "var(--accent)" : "var(--border)"}`, overflow: "hidden", transition: "border-color 0.1s" }}>
               <button
                 onClick={() => setLevel(level, strVal || level)}
@@ -704,6 +723,67 @@ function setDeepseekCompat(model: ModelEntry, enabled: boolean): ModelEntry {
   return { ...model, compat: Object.keys(rest).length ? rest : undefined };
 }
 
+// Compat can be configured at the provider or model level; provider-composer
+// merges them (model wins) at runtime. The UI reads the effective value so
+// hand-edited models.json settings are reflected correctly, while toggles
+// write to the model entry so a per-model override is explicit.
+function effectiveCompat(provider: ProviderEntry, model: ModelEntry): Record<string, unknown> {
+  return { ...(provider.compat ?? {}), ...(model.compat ?? {}) };
+}
+
+// Editable key/value request-header list for a provider or model. Rows stay
+// local so a blank draft is never persisted as an invalid HTTP header name.
+function HeaderListEditor({ headers, onChange }: {
+  headers: Record<string, string> | undefined;
+  onChange: (h: Record<string, string> | undefined) => void;
+}) {
+  const [rows, setRows] = useState<HeaderRow[]>(() => Object.entries(headers ?? {}).map(
+    ([name, value], id) => ({ id, name, value }),
+  ));
+  const nextRowIdRef = useRef(rows.length);
+
+  const applyRows = (next: HeaderRow[]): void => {
+    setRows(next);
+    onChange(serializeHeaderRows(next));
+  };
+  const setEntry = (id: number, changes: Partial<Pick<HeaderRow, "name" | "value">>): void => {
+    applyRows(updateHeaderRow(rows, id, changes));
+  };
+  const removeEntry = (id: number): void => {
+    applyRows(rows.filter((row) => row.id !== id));
+  };
+  const rowBtnStyle = {
+    padding: "6px 9px",
+    background: "none",
+    border: "1px solid rgba(239,68,68,0.3)",
+    borderRadius: 4,
+    color: "#ef4444",
+    cursor: "pointer",
+    fontSize: 11,
+    lineHeight: 1,
+  } satisfies React.CSSProperties;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {rows.map((row) => (
+        <div key={row.id} style={{ display: "flex", gap: 6 }}>
+          <input value={row.name} onChange={(e) => setEntry(row.id, { name: e.target.value })}
+            placeholder="Header-Name" style={{ ...inputStyle, fontFamily: "var(--font-mono)", flex: 1 }} />
+          <input value={row.value} onChange={(e) => setEntry(row.id, { value: e.target.value })}
+            placeholder="value" style={{ ...inputStyle, fontFamily: "var(--font-mono)", flex: 1 }} />
+          <button onClick={() => removeEntry(row.id)} style={rowBtnStyle}>✕</button>
+        </div>
+      ))}
+      <button onClick={() => setRows((current) => [
+        ...current,
+        { id: nextRowIdRef.current++, name: "", value: "" },
+      ])}
+        style={{ padding: "5px 9px", background: "none", border: "1px solid var(--border)", borderRadius: 4, color: "var(--text-muted)", cursor: "pointer", fontSize: 11, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, alignSelf: "flex-start" }}>
+        + Add header
+      </button>
+    </div>
+  );
+}
+
 function fillEmptyModelFields(
   model: ModelEntry,
   preset: ModelCatalogPreset,
@@ -733,15 +813,18 @@ function fillEmptyModelFields(
 
   if (preset.cost) {
     const cost = { ...(model.cost ?? {}) };
-    let costChanged = false;
+    let filledCostCount = 0;
     for (const key of ["input", "output", "cacheRead", "cacheWrite"] as const) {
       if (cost[key] === undefined && preset.cost[key] !== undefined) {
         cost[key] = preset.cost[key];
-        costChanged = true;
-        appliedCount += 1;
+        filledCostCount += 1;
       }
     }
-    if (costChanged) next.cost = cost;
+    const completeCost = parseCompleteModelCost(modelCostToDraft(cost));
+    if (filledCostCount > 0 && completeCost) {
+      next.cost = { ...cost, ...completeCost };
+      appliedCount += filledCostCount;
+    }
   }
   return { model: next, appliedCount };
 }
@@ -762,13 +845,38 @@ function ModelDetail({
   const [testState, setTestState] = useState<ModelTestState>({ phase: "idle" });
   const { t } = useI18n();
   const [catalogState, setCatalogState] = useState<ModelCatalogState>({ phase: "idle" });
+  const [costEditing, setCostEditing] = useState(false);
+  const [costDraft, setCostDraft] = useState<ModelCostDraft>(() => modelCostToDraft(model.cost));
+  const costDraftRef = useRef(costDraft);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const catalogRequestIdRef = useRef(0);
   const catalogUndoRef = useRef<ModelEntry | null>(null);
+  const costTemplateRef = useRef(model.cost);
   const set = <K extends keyof ModelEntry>(k: K, v: ModelEntry[K]) => onChange({ ...model, [k]: v });
-  const costVal = (k: keyof NonNullable<ModelEntry["cost"]>) => model.cost?.[k] !== undefined ? String(model.cost[k]) : "";
-  const setCost = (k: keyof NonNullable<ModelEntry["cost"]>, v: string) => {
-    const n = parseFloat(v);
-    onChange({ ...model, cost: { ...(model.cost ?? {}), [k]: isNaN(n) ? undefined : n } });
+  const setCost = (key: ModelCostKey, value: string) => {
+    const nextDraft = { ...costDraftRef.current, [key]: value };
+    const completeCost = parseCompleteModelCost(nextDraft);
+    const nextModel = { ...model };
+    costDraftRef.current = nextDraft;
+    setCostDraft(nextDraft);
+    if (completeCost) {
+      nextModel.cost = { ...(costTemplateRef.current ?? {}), ...completeCost };
+      costTemplateRef.current = nextModel.cost;
+    } else {
+      delete nextModel.cost;
+    }
+    onChange(nextModel);
+  };
+  const toggleCostEditing = () => {
+    if (costEditing) {
+      setCostEditing(false);
+      return;
+    }
+    costTemplateRef.current = model.cost;
+    const nextDraft = modelCostToDraft(model.cost);
+    costDraftRef.current = nextDraft;
+    setCostDraft(nextDraft);
+    setCostEditing(true);
   };
   const testSummary = (() => {
     if (testState.phase === "idle") return null;
@@ -849,6 +957,7 @@ function ModelDetail({
         catalogUndoRef.current = model;
         onChange(filled.model);
       }
+      setCostEditing(false);
       setCatalogState({
         phase: "success",
         recommendation: data.recommendation,
@@ -898,6 +1007,43 @@ function ModelDetail({
     : catalogState.phase === "success" && catalogState.recommendation.price.status === "unreliable"
       ? "#d97706"
       : "var(--text-dim)";
+  const costFields = [
+    { key: "input", label: t("models.costInput") },
+    { key: "output", label: t("models.costOutput") },
+    { key: "cacheRead", label: t("models.costCacheRead") },
+    { key: "cacheWrite", label: t("models.costCacheWrite") },
+  ] as const;
+  const formatCost = (key: ModelCostKey): string => {
+    const value = model.cost?.[key];
+    return value === undefined ? t("models.notProvided") : `$${String(value)}`;
+  };
+  const remainingCompatKeys = new Set(Object.keys(model.compat ?? {}));
+  let compatibilityOverrideCount = 0;
+  if (hasDeepseekCompat(model)) {
+    compatibilityOverrideCount += 1;
+    remainingCompatKeys.delete("thinkingFormat");
+    remainingCompatKeys.delete("requiresReasoningContentOnAssistantMessages");
+  }
+  if (Object.prototype.hasOwnProperty.call(model.compat ?? {}, "supportsDeveloperRole")) {
+    compatibilityOverrideCount += 1;
+    remainingCompatKeys.delete("supportsDeveloperRole");
+  }
+  compatibilityOverrideCount += remainingCompatKeys.size;
+  const advancedSummaryParts = [
+    model.api ? `API: ${model.api}` : null,
+    Object.keys(model.headers ?? {}).length
+      ? t("models.headersSummary", { count: Object.keys(model.headers ?? {}).length })
+      : null,
+    compatibilityOverrideCount
+      ? t("models.compatSummary", { count: compatibilityOverrideCount })
+      : null,
+    Object.keys(model.thinkingLevelMap ?? {}).length
+      ? t("models.thinkingSummary", { count: Object.keys(model.thinkingLevelMap ?? {}).length })
+      : null,
+  ].filter((part): part is string => Boolean(part));
+  const advancedSummary = advancedSummaryParts.length
+    ? advancedSummaryParts.join(" · ")
+    : t("models.providerDefaults");
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -966,7 +1112,7 @@ function ModelDetail({
         <Field label="Name"><TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder="Display name" /></Field>
       </div>
 
-      <div style={{ padding: "10px 0", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
+      <div style={{ padding: "2px 0" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <button
             onClick={() => void handleCatalogFill()}
@@ -991,88 +1137,186 @@ function ModelDetail({
           </a>
         </div>
 
-        <div
-          aria-live="polite"
-          style={{
-            marginTop: 6, height: 20, display: "flex", alignItems: "center",
-            justifyContent: "space-between", gap: 8, color: catalogStatusColor, fontSize: 10,
-          }}
-        >
-          <span
-            title={catalogStatusText ?? undefined}
-            style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+        {catalogStatusText && (
+          <div
+            aria-live="polite"
+            style={{
+              marginTop: 8, display: "flex", alignItems: "center",
+              justifyContent: "space-between", gap: 8, color: catalogStatusColor, fontSize: 10,
+            }}
           >
-            {catalogStatusText}
-          </span>
-          {catalogUndoRef.current && (
-            <button
-              onClick={undoCatalogFill}
-              style={{ flexShrink: 0, padding: "0 2px", border: "none", background: "none", color: "var(--accent)", cursor: "pointer", fontSize: 10 }}
+            <span
+              title={catalogStatusText}
+              style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
             >
-              {t("models.catalogUndo")}
-            </button>
-          )}
-        </div>
-      </div>
-
-      <Field label="API override">
-        <Select value={model.api ?? ""} onChange={(v) => set("api", v || undefined)} options={API_OPTIONS} />
-      </Field>
-
-      <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-        <Check label="Reasoning / thinking" checked={model.reasoning ?? false} onChange={(v) => set("reasoning", v || undefined)} />
-        <Check label="Image input" checked={model.input?.includes("image") ?? false}
-          onChange={(v) => set("input", v ? ["text", "image"] : undefined)} />
-      </div>
-
-      {model.reasoning && (
-        <>
-          <Check
-            label="DeepSeek thinking compat"
-            checked={hasDeepseekCompat(model)}
-            onChange={(v) => onChange(setDeepseekCompat(model, v))}
-          />
-          <div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-              <SectionTitle>Thinking level map</SectionTitle>
-              {model.thinkingLevelMap && (
-                <button
-                  onClick={() => set("thinkingLevelMap", undefined)}
-                  style={{ fontSize: 10, padding: "2px 7px", background: "none", border: "1px solid var(--border)", borderRadius: 4, color: "var(--text-dim)", cursor: "pointer" }}
-                >
-                  clear all
-                </button>
-              )}
-            </div>
-            <ThinkingLevelMapEditor
-              value={model.thinkingLevelMap}
-              onChange={(v) => set("thinkingLevelMap", v)}
-            />
+              {catalogStatusText}
+            </span>
+            {catalogUndoRef.current && (
+              <button
+                onClick={undoCatalogFill}
+                style={{ flexShrink: 0, padding: "0 2px", border: "none", background: "none", color: "var(--accent)", cursor: "pointer", fontSize: 10 }}
+              >
+                {t("models.catalogUndo")}
+              </button>
+            )}
           </div>
-        </>
-      )}
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Field label="Context window (tokens)">
-          <NumInput value={model.contextWindow !== undefined ? String(model.contextWindow) : ""}
-            onChange={(v) => set("contextWindow", v ? parseInt(v) : undefined)} placeholder="128000" />
-        </Field>
-        <Field label="Max output tokens">
-          <NumInput value={model.maxTokens !== undefined ? String(model.maxTokens) : ""}
-            onChange={(v) => set("maxTokens", v ? parseInt(v) : undefined)} placeholder="16384" />
-        </Field>
+        )}
       </div>
 
       <div>
-        <SectionTitle>Cost (per million tokens)</SectionTitle>
-        <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
-          {(["input", "output", "cacheRead", "cacheWrite"] as const).map((k) => (
-            <Field key={k} label={k}>
-              <NumInput value={costVal(k)} onChange={(v) => setCost(k, v)} placeholder="0" />
-            </Field>
-          ))}
+        <SectionTitle>{t("models.capabilities")}</SectionTitle>
+        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 8 }}>
+          <Check label={t("models.reasoning")} checked={model.reasoning ?? false} onChange={(v) => set("reasoning", v || undefined)} />
+          <Check label={t("models.imageInput")} checked={model.input?.includes("image") ?? false}
+            onChange={(v) => set("input", v ? ["text", "image"] : undefined)} />
         </div>
       </div>
+
+      <section>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <SectionTitle>{t("models.modelSpecs")}</SectionTitle>
+          <button
+            type="button"
+            onClick={toggleCostEditing}
+            aria-expanded={costEditing}
+            style={{ padding: "2px 4px", border: "none", background: "transparent", color: "var(--accent)", cursor: "pointer", fontSize: 10 }}
+          >
+            {costEditing ? t("models.finishEditingCosts") : t("models.editCosts")}
+          </button>
+        </div>
+
+        <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
+          <Field label={t("models.contextWindow")}>
+            <NumInput value={model.contextWindow !== undefined ? String(model.contextWindow) : ""}
+              onChange={(v) => set("contextWindow", v ? parseInt(v) : undefined)} placeholder="128000" />
+          </Field>
+          <Field label={t("models.maxOutputTokens")}>
+            <NumInput value={model.maxTokens !== undefined ? String(model.maxTokens) : ""}
+              onChange={(v) => set("maxTokens", v ? parseInt(v) : undefined)} placeholder="16384" />
+          </Field>
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontSize: 10, color: "var(--text-dim)", fontWeight: 600, textTransform: "uppercase" }}>
+            {t("models.costPerMillion")}
+          </div>
+          {costEditing ? (
+            <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 8 }}>
+              {costFields.map(({ key, label }) => (
+                <Field key={key} label={label}>
+                  <NumInput value={costDraft[key]} onChange={(v) => setCost(key, v)} placeholder="0" />
+                </Field>
+              ))}
+              {hasModelCostDraftValue(costDraft) && !parseCompleteModelCost(costDraft) && (
+                <div aria-live="polite" style={{ gridColumn: "1 / -1", color: "#d97706", fontSize: 10 }}>
+                  {t("models.costAllRequired")}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(105px, 1fr))", gap: "8px 16px" }}>
+              {costFields.map(({ key, label }) => {
+                const missing = model.cost?.[key] === undefined;
+                return (
+                  <div key={key} style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 10, color: "var(--text-dim)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</div>
+                    <div style={{ marginTop: 3, color: missing ? "var(--text-dim)" : "var(--text)", fontSize: 12, fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}>
+                      {formatCost(key)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section style={{ borderTop: "1px solid var(--border)", paddingTop: 4 }}>
+        <button
+          type="button"
+          onClick={() => setAdvancedOpen((open) => !open)}
+          aria-expanded={advancedOpen}
+          aria-controls="model-advanced-settings"
+          style={{
+            width: "100%", minHeight: 48, padding: "8px 0", border: "none", background: "transparent",
+            display: "grid", gridTemplateColumns: "minmax(0, 1fr) 18px", alignItems: "center", gap: 10,
+            color: "var(--text)", cursor: "pointer", textAlign: "left",
+          }}
+        >
+          <span style={{ minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 11, fontWeight: 600 }}>{t("models.advancedSettings")}</span>
+            <span style={{ display: "block", marginTop: 3, color: "var(--text-dim)", fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {advancedSummary}
+            </span>
+          </span>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            style={{ color: "var(--text-dim)", transform: advancedOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s ease" }}
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
+
+        {advancedOpen && (
+          <div id="model-advanced-settings" style={{ display: "flex", flexDirection: "column", gap: 14, padding: "4px 0 16px" }}>
+            <Field label={t("models.apiOverride")}>
+              <Select value={model.api ?? ""} onChange={(v) => set("api", v || undefined)} options={API_OPTIONS} />
+            </Field>
+
+            <Field label={t("models.headers")}>
+              <HeaderListEditor
+                headers={model.headers}
+                onChange={(headers) => set("headers", headers)}
+              />
+              <span style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
+                {t("models.headersHelp")}
+              </span>
+            </Field>
+
+            {model.reasoning && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <SectionTitle>{t("models.compatibility")}</SectionTitle>
+                <Check
+                  label={t("models.deepSeekThinkingCompat")}
+                  checked={hasDeepseekCompat(model)}
+                  onChange={(v) => onChange(setDeepseekCompat(model, v))}
+                />
+                <Check
+                  label={t("models.developerRole")}
+                  checked={effectiveCompat(provider, model)["supportsDeveloperRole"] !== false}
+                  onChange={(v) => onChange(setCompatBool(model, "supportsDeveloperRole", v))}
+                />
+                <div style={{ marginTop: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
+                    <SectionTitle>{t("models.thinkingLevelMap")}</SectionTitle>
+                    {model.thinkingLevelMap && (
+                      <button
+                        type="button"
+                        onClick={() => set("thinkingLevelMap", undefined)}
+                        style={{ fontSize: 10, padding: "2px 5px", background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer" }}
+                      >
+                        {t("models.clearAll")}
+                      </button>
+                    )}
+                  </div>
+                  <ThinkingLevelMapEditor
+                    value={model.thinkingLevelMap}
+                    onChange={(v) => set("thinkingLevelMap", v)}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -1663,14 +1907,18 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
   const loadOAuthProviders = useCallback(() => {
     fetch("/api/auth/providers")
       .then((r) => r.json())
-      .then((d: { providers: OAuthProvider[] }) => setOauthProviders(d.providers))
+      .then((d: { providers?: OAuthProvider[] }) => {
+        if (Array.isArray(d.providers)) setOauthProviders(d.providers);
+      })
       .catch(() => {});
   }, []);
 
   const loadApiKeyProviders = useCallback(() => {
     fetch("/api/auth/all-providers")
       .then((r) => r.json())
-      .then((d: { providers: ApiKeyProvider[] }) => setApiKeyProviders(d.providers))
+      .then((d: { providers?: ApiKeyProvider[] }) => {
+        if (Array.isArray(d.providers)) setApiKeyProviders(d.providers);
+      })
       .catch(() => {});
   }, []);
 

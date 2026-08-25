@@ -1,7 +1,7 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
+import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
@@ -10,7 +10,6 @@ import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
-import { ExtensionWidgets } from "./ExtensionWidgets";
 import { useI18n } from "@/hooks/useI18n";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
 import { useDragDrop } from "@/hooks/useDragDrop";
@@ -32,12 +31,14 @@ interface Props {
   newSessionCwd: string | null;
   newSessionDraftKey: string | null;
   onAgentEnd?: () => void;
+  onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
   onSessionCreated?: (session: SessionInfo, sourceDraftKey: string) => void;
   onSessionForked?: (newSessionId: string) => void;
   modelsRefreshKey?: number;
   chatInputRef?: React.RefObject<ChatInputHandle | null>;
   onBranchDataChange?: (tree: SessionTreeNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void) => void;
   onSystemPromptChange?: (prompt: string | null) => void;
+  onSystemPromptLoaderChange?: (loader: (() => Promise<void>) | null) => void;
   onSessionStatsChange?: (stats: SessionStatsInfo | null) => void;
   onSessionStatsPanelOpen?: () => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
@@ -52,6 +53,10 @@ interface Props {
 
 function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, string | number>) => string): string | null {
   if (phase?.kind === "running_tools") {
+    const latest = phase.tools[phase.tools.length - 1];
+    if (latest?.progress) {
+      return `${t("chat.runningNamedTool", { name: latest.name })} ${latest.progress}`;
+    }
     const names = phase.tools.map((t) => t.name);
     if (names.length === 0) return t("chat.runningTool");
     if (names.length === 1) return t("chat.runningNamedTool", { name: names[0] });
@@ -65,7 +70,6 @@ function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, 
 
 const CHAT_MINIMAP_WIDTH = 36;
 const CHAT_COLUMN_PADDING = 16;
-const CHAT_INPUT_RIGHT_PADDING = CHAT_COLUMN_PADDING + CHAT_MINIMAP_WIDTH;
 
 function NewSessionUpdateLink({
   label,
@@ -203,8 +207,8 @@ function withAssistantBlocks(
   return next;
 }
 
-function ProcessDetailsGroup({ messageCount, toolCallCount, children, t }: { messageCount: number; toolCallCount: number; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
-  const [expanded, setExpanded] = useState(false);
+function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = false, children, t }: { messageCount: number; toolCallCount: number; defaultExpanded?: boolean; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const parts = [t("chat.processDetails"), `${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`];
   if (toolCallCount > 0) parts.push(`${toolCallCount} ${t(toolCallCount === 1 ? "chat.toolCall" : "chat.toolCalls")}`);
 
@@ -246,7 +250,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, children, t }: { mes
   );
 }
 
-export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
 
@@ -289,8 +293,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, scrollUserMsgToTop,
   } = useAgentSession({
-    session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onSessionCreated, onSessionForked,
-    modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
+    session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
+    modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemPromptLoaderChange, onSessionStatsPanelOpen,
   });
   const sessionBusy = agentRunning || bashRunning;
 
@@ -571,9 +575,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     />
   );
 
-  const aboveEditorWidgets = extensionWidgets.filter((widget) => widget.placement !== "belowEditor");
-  const belowEditorWidgets = extensionWidgets.filter((widget) => widget.placement === "belowEditor");
-
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center text-text-muted">
@@ -645,6 +646,22 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
         />
       )}
 
+      <div
+        style={{
+          position: "absolute",
+          top: 12,
+          left: 0,
+          right: isMobile ? 0 : CHAT_MINIMAP_WIDTH,
+          zIndex: 40,
+          display: "flex",
+          justifyContent: "center",
+          padding: `0 ${CHAT_COLUMN_PADDING}px`,
+          pointerEvents: "none",
+        }}
+      >
+        <NoticeShelf notices={notices} floating />
+      </div>
+
       {isEmptyNew ? (
         <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8">
           <div className="w-full max-w-[820px]">
@@ -674,30 +691,13 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 </span>
               </div>
             </div>
-            <NoticeShelf notices={notices} align="right" />
-            <ExtensionWidgets widgets={aboveEditorWidgets} />
             {chatInputElement}
-            <ExtensionWidgets widgets={belowEditorWidgets} />
+            <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} />
           </div>
         </div>
       ) : (
       <>
       <div className="relative flex min-w-0 flex-1 overflow-hidden">
-        <div
-          style={{
-            position: "absolute",
-            top: 12,
-            left: 0,
-            right: isMobile ? 0 : CHAT_MINIMAP_WIDTH,
-            zIndex: 40,
-            padding: `0 ${CHAT_COLUMN_PADDING}px`,
-            pointerEvents: "none",
-          }}
-        >
-          <div style={{ maxWidth: 820, margin: "0 auto" }}>
-            <NoticeShelf notices={notices} floating align="right" />
-          </div>
-        </div>
         <div ref={scrollContainerRef} className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-width:none]">
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
             <div ref={messageContentRef} style={{ width: "100%", minWidth: 0, maxWidth: 820, margin: "0 auto" }}>
@@ -836,8 +836,9 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                     ?? (finalAnswerMessage ? undefined : visibleRefIndexByMessage.get(finalAssistantIdx));
                   const processGroup = (
                     <ProcessDetailsGroup
-                       messageCount={processCount}
-                       t={t}
+                      messageCount={processCount}
+                      defaultExpanded={!finalAnswerMessage}
+                      t={t}
                       toolCallCount={countToolCalls(messages, visibleProcessIndices) + countToolCallBlocks(finalSplit.processBlocks)}
                     >
                       {visibleProcessIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }))}
@@ -891,7 +892,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
             )}
 
             {agentRunning && !hasStreamingContent && agentPhase && (
-              <div className="py-2 text-[13px] text-text-muted">
+              <div className="break-words py-2 text-[13px] text-text-muted">
                 <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t)}</span>
               </div>
             )}
@@ -932,28 +933,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       </div>
 
       <div className="relative">
-        <div
-          style={{
-            padding: `0 ${CHAT_COLUMN_PADDING}px`,
-            paddingRight: isMobile ? CHAT_COLUMN_PADDING : CHAT_INPUT_RIGHT_PADDING,
-          }}
-        >
-          <div style={{ maxWidth: 820, margin: "0 auto" }}>
-            <ExtensionWidgets widgets={aboveEditorWidgets} />
-          </div>
-        </div>
         {chatInputElement}
-        <div
-          style={{
-            padding: `0 ${CHAT_COLUMN_PADDING}px`,
-            paddingRight: isMobile ? CHAT_COLUMN_PADDING : CHAT_INPUT_RIGHT_PADDING,
-          }}
-        >
-          <div style={{ maxWidth: 820, margin: "0 auto" }}>
-            <ExtensionWidgets widgets={belowEditorWidgets} />
-          </div>
-        </div>
-        <ExtensionStatusBar statuses={extensionStatuses} />
+        <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} />
       </div>
       </>
       )}
@@ -961,14 +942,14 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   );
 }
 
-function NoticeShelf({ notices, floating = false, align = "left" }: { notices: NoticeItem[]; floating?: boolean; align?: "left" | "right" }) {
+function NoticeShelf({ notices, floating = false }: { notices: NoticeItem[]; floating?: boolean }) {
   if (notices.length === 0) return null;
   return (
     <div
       style={{
         display: "flex",
         flexDirection: "column",
-        alignItems: align === "right" ? "flex-end" : "stretch",
+        alignItems: "center",
         marginBottom: floating ? 0 : 10,
       }}
     >

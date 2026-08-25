@@ -70,6 +70,34 @@ test("a rejected submission preserves a different run reported by the server", (
   assert.match(reconcileSource, /if \(!agentRunningRef\.current\) return;[\s\S]*?finishPromptWithoutStream/);
 });
 
+test("opening System lazily starts a dormant session without sending a prompt", () => {
+  const loadSystemPromptSource = source.slice(
+    source.indexOf("  const loadSystemPrompt = useCallback"),
+    source.indexOf("  const loadSlashCommands = useCallback"),
+  );
+  const loaderEffectSource = source.slice(
+    source.indexOf("  useEffect(() => {\n    onSystemPromptLoaderChange"),
+    source.indexOf("  useEffect(() => {\n    if (!onBranchDataChange) return;"),
+  );
+
+  assert.match(loadSystemPromptSource, /sessionIdRef\.current \?\? await ensureNewSession\(\)/);
+  assert.doesNotMatch(loadSystemPromptSource, /promoteNewSession\(\)/);
+  assert.match(loadSystemPromptSource, /sendAgentCommand<AgentStateResponse>\(sid, \{ type: "get_state" \}\)/);
+  assert.doesNotMatch(loadSystemPromptSource, /type: "prompt"/);
+  assert.match(loadSystemPromptSource, /setSystemPrompt\(state\.systemPrompt \?\? ""\)/);
+  assert.match(loaderEffectSource, /onSystemPromptLoaderChange\?\.\(loadSystemPrompt\)/);
+  assert.match(loaderEffectSource, /onSystemPromptLoaderChange\?\.\(null\)/);
+  assert.match(appShellSource, /onClick=\{\(\) => handleSystemPromptToggle\(mobile\)\}/);
+  assert.match(appShellSource, /systemPromptLoaderRef\.current/);
+  assert.doesNotMatch(appShellSource, /systemPrompt !== null \|\| systemPromptLoading/);
+  assert.match(appShellSource, /const loadId = \+\+systemPromptLoadIdRef\.current/);
+  assert.match(appShellSource, /systemPromptLoadIdRef\.current === loadId/);
+  assert.match(
+    appShellSource,
+    /handleSystemPromptLoaderChange[\s\S]*?systemPromptLoadIdRef\.current \+= 1;[\s\S]*?setSystemPromptLoading\(false\)/,
+  );
+});
+
 test("new-session promotion rekeys drafts before publishing the real session", () => {
   const promoteSource = source.slice(
     source.indexOf("  const promoteNewSession = useCallback"),
@@ -261,6 +289,18 @@ test("keeps one reducer-owned assistant partial and consumes Pi JSON deltas", ()
   assert.doesNotMatch(messageEndSource, /streamState\.streamingMessage/);
 });
 
+test("shows the latest streamed tool execution progress in the running phase", () => {
+  const updateSource = source.slice(
+    source.indexOf('case "tool_execution_update"'),
+    source.indexOf('case "tool_execution_end"'),
+  );
+
+  assert.match(updateSource, /getToolExecutionProgress\(event\.partialResult\)/);
+  assert.match(updateSource, /tools: \[\.\.\.tools\.filter\([\s\S]*?, updated\]/);
+  assert.match(chatWindowSource, /if \(latest\?\.progress\)/);
+  assert.match(chatWindowSource, /chat\.runningNamedTool[\s\S]*latest\.progress/);
+});
+
 test("plays the enabled sound once for each extension dialog", () => {
   assert.match(chatWindowSource, /soundedExtensionDialogIdRef = useRef<string \| null>\(null\)/);
   assert.match(
@@ -269,6 +309,33 @@ test("plays the enabled sound once for each extension dialog", () => {
   );
   assert.match(chatWindowSource, /soundedExtensionDialogIdRef\.current = extensionDialog\.id/);
   assert.match(chatWindowSource, /playDoneSoundRef\.current\(\)/);
+});
+
+test("routes blocking extension requests through deduplicated browser attention notifications", () => {
+  const completionSource = appShellSource.slice(
+    appShellSource.indexOf("  const handleAgentEnd = useCallback"),
+    appShellSource.indexOf("  const handleAttentionNeeded = useCallback"),
+  );
+  const extensionRequestSource = source.slice(
+    source.indexOf("  const handleExtensionUiRequest = useCallback"),
+    source.indexOf("  const settleUiStage = useCallback"),
+  );
+  const attentionSource = appShellSource.slice(
+    appShellSource.indexOf("  const handleAttentionNeeded = useCallback"),
+    appShellSource.indexOf("  const handleAutoName = useCallback"),
+  );
+
+  assert.match(
+    extensionRequestSource,
+    /isBlockingExtensionUiRequest\(request\)[\s\S]*?onAttentionNeeded\?\.\(request\)/,
+  );
+  assert.match(chatWindowSource, /onAttentionNeeded, onSessionCreated/);
+  assert.match(completionSource, /if \(!shouldShowBrowserNotification\(\)\) return/);
+  assert.doesNotMatch(completionSource, /document\.visibilityState === "visible"/);
+  assert.match(attentionSource, /shouldShowBrowserNotification\(\)/);
+  assert.match(attentionSource, /claimExtensionAttentionNotification\(request, notifiedAttentionRequestIdsRef\.current\)/);
+  assert.match(attentionSource, /tag: `pi-extension-ui:\$\{request\.id\}`/);
+  assert.match(appShellSource, /onAttentionNeeded=\{handleAttentionNeeded\}/);
 });
 
 test("keeps live following cancellable when the user scrolls away from the tail", () => {

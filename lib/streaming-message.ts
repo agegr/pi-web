@@ -1,13 +1,12 @@
-import type { ClientMessageUpdateEvent } from "./agent-event-wire";
-import { normalizeToolCalls } from "./normalize";
+import type { ClientAssistantMessageEvent } from "./agent-event-wire";
+import { normalizeStreamingToolCalls } from "./normalize";
 import type {
   AgentMessage,
   AssistantContentBlock,
   AssistantMessage,
 } from "./types";
 
-export type ClientAssistantMessageEvent =
-  ClientMessageUpdateEvent["assistantMessageEvent"];
+export type { ClientAssistantMessageEvent } from "./agent-event-wire";
 
 export interface StreamingState {
   isStreaming: boolean;
@@ -80,6 +79,36 @@ function applyDelta(
         type: "thinking",
         thinking: event.content,
       }));
+    case "toolcall_start":
+      return updateContentBlock(state, event.contentIndex, (current) => {
+        if (current?.type === "toolCall") {
+          return {
+            ...current,
+            toolCallId: event.id ?? current.toolCallId,
+            toolName: event.toolName ?? current.toolName,
+            rawInput: current.rawInput ?? "",
+          };
+        }
+        if (typeof event.toolName !== "string") return null;
+        return {
+          type: "toolCall",
+          toolCallId: event.id ?? "",
+          toolName: event.toolName,
+          input: {},
+          rawInput: "",
+        };
+      });
+    case "toolcall_delta":
+      return updateContentBlock(state, event.contentIndex, (current) => (
+        current?.type === "toolCall"
+          ? {
+            ...current,
+            toolCallId: event.id || current.toolCallId,
+            toolName: event.toolName || current.toolName,
+            rawInput: (current.rawInput ?? "") + event.delta,
+          }
+          : null
+      ));
     case "toolcall_end":
       return updateContentBlock(state, event.contentIndex, () => ({
         type: "toolCall",
@@ -100,7 +129,7 @@ export function streamReducer(
     case "start":
       return { isStreaming: true, streamingMessage: null };
     case "snapshot": {
-      const message = normalizeToolCalls(action.message);
+      const message = normalizeStreamingToolCalls(action.message);
       return message.role === "assistant"
         ? { isStreaming: true, streamingMessage: message }
         : state;

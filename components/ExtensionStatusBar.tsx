@@ -1,7 +1,8 @@
 "use client";
 
 import { parseAnsiLine, stripAnsi } from "@/lib/ansi";
-import type { ExtensionStatusItem } from "@/lib/types";
+import type { ExtensionStatusItem, ExtensionWidgetItem } from "@/lib/types";
+import { ExtensionWidgets } from "./ExtensionWidgets";
 
 export function sanitizeExtensionStatusText(text: string): string {
   return text
@@ -17,43 +18,37 @@ export function formatExtensionStatusLine(statuses: ExtensionStatusItem[]): stri
     .join(" ");
 }
 
-export function ExtensionStatusBar({ statuses }: { statuses: ExtensionStatusItem[] }) {
-  if (statuses.length === 0) return null;
+export function ExtensionStatusBar({
+  statuses,
+  widgets = [],
+}: {
+  statuses: ExtensionStatusItem[];
+  widgets?: ExtensionWidgetItem[];
+}) {
+  if (statuses.length === 0 && widgets.length === 0) return null;
 
   const statusLine = formatExtensionStatusLine(statuses);
   const plainStatusLine = stripAnsi(statusLine);
 
   return (
     <div
-      role="status"
-      aria-label={plainStatusLine}
-      title={plainStatusLine}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        flexShrink: 0,
-        minWidth: 0,
-        height: 36,
-        padding: "0 12px",
-        borderTop: "1px solid var(--border)",
-        background: "transparent",
-      }}
+      className={`extension-status-shelf${widgets.length > 0 ? " has-widgets" : ""}${statuses.length > 0 ? " has-status" : ""}`}
     >
-      <span
-        style={{
-          minWidth: 0,
-          overflow: "hidden",
-          color: "var(--text-muted)",
-          fontFamily: "var(--font-mono)",
-          fontSize: 11,
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {parseAnsiLine(statusLine).map((segment, index) => (
-          <span key={index} style={segment.style}>{segment.text}</span>
-        ))}
-      </span>
+      {widgets.length > 0 && <ExtensionWidgets widgets={widgets} />}
+      {statuses.length > 0 && (
+        <div
+          role="status"
+          className="extension-status-line"
+          aria-label={plainStatusLine}
+          title={plainStatusLine}
+        >
+          <span className="extension-status-text">
+            {parseAnsiLine(statusLine).map((segment, index) => (
+              <span key={index} style={segment.style}>{segment.text}</span>
+            ))}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
