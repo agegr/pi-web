@@ -8,7 +8,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, shouldCompressImageFile } = await jiti.import("./ChatInput.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("@/lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 
@@ -122,6 +122,57 @@ test("filters model options by name and id", () => {
 test("caps an upward menu to the visible space above its anchor", () => {
   assert.equal(getUpwardMenuMaxHeight(343, 36), 299);
   assert.equal(getUpwardMenuMaxHeight(40, 36), 0);
+});
+
+test("compresses large images while preserving small images and GIFs", async () => {
+  assert.equal(shouldCompressImageFile({ size: 1024 * 1024, type: "image/png" }), false);
+  assert.equal(shouldCompressImageFile({ size: 1024 * 1024 + 1, type: "image/png" }), true);
+  assert.equal(shouldCompressImageFile({ size: 2 * 1024 * 1024, type: "image/gif" }), false);
+
+  const originals = {
+    FileReader: globalThis.FileReader,
+    createImageBitmap: globalThis.createImageBitmap,
+    document: globalThis.document,
+  };
+  let bitmapCalls = 0;
+  let closed = false;
+  const canvas = {
+    width: 0,
+    height: 0,
+    getContext: () => ({ fillStyle: "", fillRect() {}, drawImage() {} }),
+    toDataURL: () => "data:image/jpeg;base64,COMPRESSED",
+  };
+
+  globalThis.FileReader = class {
+    readAsDataURL() {
+      this.result = "data:image/png;base64,ORIGINAL";
+      this.onload();
+    }
+  };
+  globalThis.createImageBitmap = async () => {
+    bitmapCalls += 1;
+    return { width: 2048, height: 1024, close() { closed = true; } };
+  };
+  globalThis.document = { createElement: () => canvas };
+
+  try {
+    assert.deepEqual(await compressImageFile({ size: 1024, type: "image/png" }), {
+      data: "ORIGINAL",
+      mimeType: "image/png",
+    });
+    assert.deepEqual(await compressImageFile({ size: 2 * 1024 * 1024, type: "image/png" }), {
+      data: "COMPRESSED",
+      mimeType: "image/jpeg",
+    });
+    assert.equal(bitmapCalls, 1);
+    assert.equal(canvas.width, 1024);
+    assert.equal(canvas.height, 512);
+    assert.equal(closed, true);
+  } finally {
+    globalThis.FileReader = originals.FileReader;
+    globalThis.createImageBitmap = originals.createImageBitmap;
+    globalThis.document = originals.document;
+  }
 });
 
 test("recognizes exact slash commands for one-Enter submission", () => {
