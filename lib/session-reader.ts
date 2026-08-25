@@ -4,7 +4,7 @@ import {
   buildSessionContext as piBuildSessionContext,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import { closeSync, realpathSync, type Dirent, openSync, readSync } from "fs";
+import { closeSync, type Dirent, openSync, readSync } from "fs";
 import { readdir } from "fs/promises";
 import { isAbsolute, join, normalize as normalizePath, relative, resolve as resolvePath, sep } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
@@ -47,21 +47,12 @@ export function mergeSessionLists(
 }
 
 async function loadAllSessions(): Promise<SessionInfo[]> {
-  const listedSessions: PiSessionInfo[] = await SessionManager.listAll();
-  const sessionsDir = resolveDefaultSessionsDir();
-  if (!sessionsDir) return [];
-  const piSessions = listedSessions.flatMap((session) => {
-    const sessionPath = resolvePathWithinDefaultSessions(session.path, sessionsDir);
-    return sessionPath ? [{ ...session, path: sessionPath }] : [];
-  });
+  const piSessions: PiSessionInfo[] = await SessionManager.listAll();
   const pathToId = new Map<string, string>();
   for (const s of piSessions) pathToId.set(sessionPathKey(s.path), s.id);
 
   const sessions = piSessions.map((s) => {
     cacheSessionPath(s.id, s.path);
-    const parentSessionPath = s.parentSessionPath
-      ? resolvePathWithinDefaultSessions(s.parentSessionPath, sessionsDir)
-      : null;
     return {
       path: s.path,
       id: s.id,
@@ -71,9 +62,7 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
       modified: s.modified instanceof Date ? s.modified.toISOString() : String(s.modified),
       messageCount: s.messageCount,
       firstMessage: s.firstMessage || "(no messages)",
-      parentSessionId: parentSessionPath
-        ? pathToId.get(sessionPathKey(parentSessionPath))
-        : undefined,
+      parentSessionId: s.parentSessionPath ? pathToId.get(sessionPathKey(s.parentSessionPath)) : undefined,
       transient: false,
     };
   });
@@ -137,25 +126,11 @@ function defaultSessionsDir(): string {
   return join(getAgentDir(), "sessions");
 }
 
-function resolveDefaultSessionsDir(): string | null {
-  try {
-    return realpathSync(resolvePath(defaultSessionsDir()));
-  } catch {
-    return null;
-  }
-}
-
 function resolvePathWithinDefaultSessions(
   filePath: string,
-  sessionsDir = resolveDefaultSessionsDir(),
+  sessionsDir = resolvePath(defaultSessionsDir()),
 ): string | null {
-  if (!sessionsDir) return null;
-  let candidatePath: string;
-  try {
-    candidatePath = realpathSync(resolvePath(filePath));
-  } catch {
-    return null;
-  }
+  const candidatePath = resolvePath(filePath);
   const relativePath = relative(sessionsDir, candidatePath);
   return relativePath !== ""
     && relativePath !== ".."
@@ -171,7 +146,7 @@ async function findSessionPathById(sessionId: string): Promise<string | null> {
   if (!SESSION_ID_PATTERN.test(sessionId)) return null;
 
   let projectDirs: Dirent[];
-  const sessionsDir = defaultSessionsDir();
+  const sessionsDir = resolvePath(defaultSessionsDir());
   try {
     projectDirs = await readdir(sessionsDir, { withFileTypes: true });
   } catch {
@@ -179,14 +154,12 @@ async function findSessionPathById(sessionId: string): Promise<string | null> {
   }
 
   const suffix = `_${sessionId}.jsonl`;
-  const resolvedSessionsDir = resolveDefaultSessionsDir();
-  if (!resolvedSessionsDir) return null;
   let match: string | undefined;
   for (const projectDir of projectDirs) {
     if (!projectDir.isDirectory() && !projectDir.isSymbolicLink()) continue;
     const projectPath = resolvePathWithinDefaultSessions(
       join(sessionsDir, projectDir.name),
-      resolvedSessionsDir,
+      sessionsDir,
     );
     if (!projectPath) continue;
 
@@ -201,7 +174,7 @@ async function findSessionPathById(sessionId: string): Promise<string | null> {
       if (!file.endsWith(suffix)) continue;
       const candidate = resolvePathWithinDefaultSessions(
         join(projectPath, file),
-        resolvedSessionsDir,
+        sessionsDir,
       );
       if (!candidate) continue;
       try {
