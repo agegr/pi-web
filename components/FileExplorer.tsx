@@ -11,6 +11,7 @@ import {
   normalizeFilePathSlashes,
 } from "@/lib/file-paths";
 import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/git-types";
+import { buildSearchTree, type SearchTreeNode } from "@/lib/search-tree";
 import { useI18n } from "@/hooks/useI18n";
 type Translate = ReturnType<typeof useI18n>["t"];
 
@@ -39,6 +40,8 @@ interface Props {
   onUploadBusyChange?: (busy: boolean) => void;
   changesCollapsed: boolean;
   onChangesCountChange?: (count: number) => void;
+  fileSearchOpen?: boolean;
+  onFileSearchOpenChange?: (open: boolean) => void;
 }
 
 export interface FileExplorerHandle {
@@ -206,6 +209,169 @@ function DismissButton({ onClick, title }: { onClick: () => void; title: string 
         <path d="m18 6-12 12" />
       </svg>
     </button>
+  );
+}
+
+function SearchResultNode({
+  node,
+  depth,
+  cwd,
+  onOpenFile,
+  onAtMention,
+  expandedPaths,
+  onToggleExpanded,
+  t,
+}: {
+  node: SearchTreeNode;
+  depth: number;
+  cwd: string;
+  onOpenFile: (filePath: string, fileName: string, options?: OpenFileOptions) => void;
+  onAtMention?: (relativePath: string, isDir: boolean) => void;
+  expandedPaths: Set<string>;
+  onToggleExpanded: (path: string, open: boolean) => void;
+  t: Translate;
+}) {
+  const open = expandedPaths.has(node.path);
+  const [hovered, setHovered] = useState(false);
+
+  const handleClick = () => {
+    if (node.isDir) onToggleExpanded(node.path, !open);
+    else onOpenFile(joinFilePath(cwd, node.path), node.name);
+  };
+
+  return (
+    <div>
+      <div
+        onClick={handleClick}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        title={node.path}
+        style={{
+          position: "relative",
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          paddingLeft: 8 + depth * 14,
+          paddingRight: 8,
+          height: 24,
+          cursor: "pointer",
+          background: hovered ? "var(--bg-hover)" : "transparent",
+          borderRadius: 4,
+          userSelect: "none",
+        }}
+      >
+        {node.isDir ? (
+          <svg
+            width="10" height="10" viewBox="0 0 10 10" fill="none"
+            stroke="var(--text-dim)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+            style={{ flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform 0.1s" }}
+          >
+            <polyline points="3 2 7 5 3 8" />
+          </svg>
+        ) : (
+          <span style={{ width: 10, flexShrink: 0 }} />
+        )}
+        <span style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>
+          {node.isDir ? <FolderIcon size={14} open={open} /> : getFileIcon(node.name, 14)}
+        </span>
+        <span
+          style={{
+            fontSize: 12,
+            color: "var(--text)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            flex: 1,
+          }}
+        >
+          {node.name}
+        </span>
+        {onAtMention && hovered && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onAtMention(node.path, node.isDir);
+            }}
+            title={t("files.insertPath")}
+            style={{
+              position: "absolute",
+              right: !node.isDir ? 28 : 4,
+              top: "50%",
+              transform: "translateY(-50%)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 4,
+              padding: "0 8px",
+              height: 20,
+              background: "var(--bg-panel)",
+              border: "1px solid var(--border)",
+              borderRadius: 4,
+              color: "var(--accent)",
+              cursor: "pointer",
+              fontSize: 11,
+              fontWeight: 600,
+              whiteSpace: "nowrap",
+            }}
+          >
+            <MentionIcon />
+            {t("files.mention")}
+          </button>
+        )}
+        {hovered && !node.isDir && (
+          <a
+            href={`/api/files/${encodeFilePathForApi(joinFilePath(cwd, node.path))}?type=download`}
+            download
+            onClick={(e) => e.stopPropagation()}
+            title={t("files.download")}
+            style={{
+              position: "absolute",
+              right: 4,
+              top: "50%",
+              transform: "translateY(-50%)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 4,
+              padding: "0 5px",
+              height: 20,
+              background: "var(--bg-panel)",
+              border: "1px solid var(--border)",
+              borderRadius: 4,
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              fontSize: 11,
+              fontWeight: 600,
+              whiteSpace: "nowrap",
+              textDecoration: "none",
+            }}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+          </a>
+        )}
+      </div>
+      {node.isDir && open && (
+        <div>
+          {node.children.map((child) => (
+            <SearchResultNode
+              key={child.path}
+              node={child}
+              depth={depth + 1}
+              cwd={cwd}
+              onOpenFile={onOpenFile}
+              onAtMention={onAtMention}
+              expandedPaths={expandedPaths}
+              onToggleExpanded={onToggleExpanded}
+              t={t}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -523,6 +689,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   onUploadBusyChange,
   changesCollapsed,
   onChangesCountChange,
+  fileSearchOpen = false,
+  onFileSearchOpenChange,
 }, ref) {
   const { t } = useI18n();
   const [roots, setRoots] = useState<FileNode[]>([]);
@@ -538,10 +706,67 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSummary, setUploadSummary] = useState<UploadSummary | null>(null);
   const [pendingConflict, setPendingConflict] = useState<PendingConflict | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchPaths, setSearchPaths] = useState<string[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchExpanded, setSearchExpanded] = useState<Set<string>>(new Set());
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const prevCwdRef = useRef<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const refreshToken = `${refreshKey ?? 0}:${treeRefreshKey}`;
   const uploadBusy = uploadPhase !== "idle";
+  const hasSearchQuery = searchQuery.trim().length > 0;
+
+  // Debounced file-name search against the project root; aborts the in-flight
+  // request when the query changes or the explorer unmounts.
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (!query) {
+      setSearchPaths([]);
+      setSearchLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      setSearchLoading(true);
+      fetch(`/api/files/${encodeFilePathForApi(cwd)}?type=search&q=${encodeURIComponent(query)}`, { signal: controller.signal, cache: "no-store" })
+        .then((response) => response.ok ? response.json() as Promise<{ files?: string[] }> : Promise.reject(new Error("Search failed")))
+        .then((data) => setSearchPaths(data.files ?? []))
+        .catch(() => { if (!controller.signal.aborted) setSearchPaths([]); })
+        .finally(() => { if (!controller.signal.aborted) setSearchLoading(false); });
+    }, 150);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [cwd, searchQuery]);
+
+  // Focus the search input whenever the search panel opens.
+  useEffect(() => {
+    if (fileSearchOpen) searchInputRef.current?.focus();
+  }, [fileSearchOpen]);
+
+  // Results render as a tree; keep every directory that contains a match
+  // expanded, while preserving the user's manual collapses as they type.
+  useEffect(() => {
+    if (searchPaths.length === 0) return;
+    const dirs = new Set<string>();
+    for (const relative of searchPaths) {
+      const parts = relative.split("/");
+      let path = "";
+      for (let i = 0; i < parts.length - 1; i++) {
+        path = path ? `${path}/${parts[i]}` : parts[i];
+        dirs.add(path);
+      }
+    }
+    setSearchExpanded((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const dir of dirs) {
+        if (!next.has(dir)) { next.add(dir); changed = true; }
+      }
+      return changed ? next : prev;
+    });
+  }, [searchPaths]);
+
+  const searchTree = useMemo(() => buildSearchTree(searchPaths), [searchPaths]);
 
   const gitStatusByPath = useMemo(() => new Map(
     gitFiles.map((status) => [normalizeFilePathSlashes(status.filePath), status]),
@@ -847,6 +1072,69 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         </div>
       )}
 
+      {fileSearchOpen && (
+      <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ position: "relative" }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", color: "var(--text-dim)", pointerEvents: "none" }}>
+            <circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" />
+          </svg>
+          <input
+            ref={searchInputRef}
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            onKeyDown={(event) => { if (event.key === "Escape") onFileSearchOpenChange?.(false); }}
+            placeholder={t("sidebar.searchFilesPlaceholder")}
+            aria-label={t("sidebar.searchFiles")}
+            style={{ width: "100%", boxSizing: "border-box", padding: "6px 24px", border: "1px solid var(--border)", borderRadius: 5, outline: "none", background: "var(--bg)", color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: 11 }}
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              title={t("sidebar.clearSearch")}
+              aria-label={t("sidebar.clearSearch")}
+              style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", display: "flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, padding: 0, border: "none", borderRadius: 4, background: "none", color: "var(--text-dim)", cursor: "pointer" }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "var(--text-dim)"; }}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
+        {hasSearchQuery && (
+          <div style={{ paddingTop: 3 }}>
+            {searchLoading && <div role="status" style={{ padding: "6px 2px", fontSize: 10, color: "var(--text-dim)" }}>{t("sidebar.searchingFiles")}</div>}
+            {!searchLoading && searchPaths.length === 0 && <div style={{ padding: "6px 2px", fontSize: 10, color: "var(--text-dim)" }}>{t("sidebar.noMatchingFiles")}</div>}
+            {!searchLoading && searchPaths.length > 0 && (
+              <div>
+                {searchTree.map((node) => (
+                  <SearchResultNode
+                    key={node.path}
+                    node={node}
+                    depth={0}
+                    cwd={cwd}
+                    onOpenFile={onOpenFile}
+                    onAtMention={onAtMention}
+                    expandedPaths={searchExpanded}
+                    onToggleExpanded={(path, open) => {
+                      setSearchExpanded((prev) => {
+                        const next = new Set(prev);
+                        if (open) next.add(path); else next.delete(path);
+                        return next;
+                      });
+                    }}
+                    t={t}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      )}
+
       {!changesCollapsed && gitFiles.length > 0 && (
         <div style={{ padding: "0 4px 2px" }}>
           <div
@@ -869,7 +1157,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         </div>
       )}
 
-      {(changesCollapsed || gitFiles.length === 0) && (
+      {(changesCollapsed || gitFiles.length === 0) && (!fileSearchOpen || !hasSearchQuery) && (
         <div style={{ padding: "2px 4px" }}>
           {loading ? (
             <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>Loading files...</div>

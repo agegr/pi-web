@@ -27,17 +27,11 @@ import {
   validateUploadFileNames,
 } from "@/lib/file-upload";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
+import { IGNORED_NAMES, IGNORED_SUFFIXES, searchFiles } from "@/lib/file-search";
 import { samePath } from "@/lib/paths";
 
-const IGNORED_NAMES = new Set([
-  "node_modules", ".git", ".next", "dist", "build", "__pycache__",
-  ".turbo", ".cache", "coverage", ".pytest_cache", ".mypy_cache",
-  "target", "vendor", ".DS_Store", ".git",
-]);
 
-const IGNORED_SUFFIXES = [".pyc"];
-
-const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch"] as const;
+const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch", "search"] as const;
 type FileRequestType = typeof FILE_REQUEST_TYPES[number];
 const FILE_REQUEST_TYPE_SET = new Set<string>(FILE_REQUEST_TYPES);
 const MAX_UPLOAD_FILE_BYTES = 25 * 1024 * 1024;
@@ -451,6 +445,14 @@ export async function GET(
       && !isExistingFilePathAllowed(existingAuthorizationPath, allowedRoots)
     ) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    }
+
+    if (type === "search") {
+      if (!stat?.isDirectory()) {
+        return NextResponse.json({ error: "Search root is not a directory" }, { status: 400 });
+      }
+      const query = request.nextUrl.searchParams.get("q") ?? "";
+      return NextResponse.json({ files: searchFiles(filePath, query) });
     }
 
     if (type === "read") {

@@ -422,6 +422,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [explorerKey, setExplorerKey] = useState(0);
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
+  const [fileSearchOpen, setFileSearchOpen] = useState(false);
   const [changesCount, setChangesCount] = useState(0);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
@@ -1715,6 +1716,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             )}
             {explorerOpen && (
               <ToolbarIconButton
+                onClick={() => {
+                  setFileSearchOpen((open) => !open);
+                }}
+                title={t("sidebar.searchFiles")}
+                ariaPressed={fileSearchOpen}
+                color={fileSearchOpen ? "var(--accent)" : "var(--text-dim)"}
+                background={fileSearchOpen ? "var(--bg-selected)" : "none"}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" />
+                </svg>
+              </ToolbarIconButton>
+            )}
+            {explorerOpen && (
+              <ToolbarIconButton
                 onClick={() => fileExplorerRef.current?.openUploadPicker()}
                 disabled={explorerUploadBusy}
                 title={t("sidebar.uploadFilesTitle")}
@@ -1765,6 +1781,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 onUploadBusyChange={setExplorerUploadBusy}
                 changesCollapsed={changesCollapsed}
                 onChangesCountChange={setChangesCount}
+                fileSearchOpen={fileSearchOpen}
+                onFileSearchOpenChange={setFileSearchOpen}
               />
             </div>
           )}
