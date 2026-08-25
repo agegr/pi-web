@@ -182,6 +182,7 @@ export class AgentSessionWrapper {
   private onDestroyCallback: (() => void) | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private sessionShutdownEmitted = false;
+  private forceShutdownOnIdle = false;
   private _alive = true;
 
   constructor(public readonly inner: AgentSessionLike) {}
@@ -355,14 +356,12 @@ export class AgentSessionWrapper {
 
   private resetIdleTimer(): void {
     if (this.idleTimer) clearTimeout(this.idleTimer);
+    if (!this._alive) return;
+    if (!this.isRunning()) this.forceShutdownOnIdle = false;
     this.idleTimer = setTimeout(() => {
-      // Even when isRunning() is stuck true (#368), still shut down so
-      // extensions receive session_shutdown and can reap child processes (#546).
-      if (this.isRunning()) {
-        if (this.inner.isBashRunning) this.inner.abortBash();
-        void this.inner.abort().catch(() => {
-          // Ignore abort failures; shutdown still emits session_shutdown.
-        });
+      if (this.isRunning() && !this.forceShutdownOnIdle) {
+        this.resetIdleTimer();
+        return;
       }
       void this.shutdown().catch((error) => {
         console.error("[pi-web] failed to shut down idle session:", error instanceof Error ? error.message : error);
@@ -404,8 +403,9 @@ export class AgentSessionWrapper {
   }
 
   async send(command: Record<string, unknown>): Promise<unknown> {
-    this.resetIdleTimer();
     const type = command.type as string;
+    // Status reconciliation must not postpone forced cleanup after Stop.
+    if (type !== "get_state") this.resetIdleTimer();
     if (this.shouldWaitForExtensions(type)) await this.waitForExtensionsBound();
 
     if (type === "prompt" || type === "steer" || type === "follow_up") {
@@ -504,8 +504,13 @@ export class AgentSessionWrapper {
       }
 
       case "abort":
-        await this.withFinalRunningNotification(() => this.inner.abort());
-        return null;
+        this.forceShutdownOnIdle = true;
+        try {
+          await this.withFinalRunningNotification(() => this.inner.abort());
+          return null;
+        } finally {
+          if (!this.isRunning()) this.forceShutdownOnIdle = false;
+        }
 
       case "get_state": {
         const model = this.inner.model;
@@ -768,6 +773,7 @@ export class AgentSessionWrapper {
       }
 
       case "abort_bash": {
+        this.forceShutdownOnIdle = true;
         this.inner.abortBash();
         return null;
       }
@@ -816,9 +822,10 @@ export class AgentSessionWrapper {
       return;
     }
 
-    void Promise.resolve(
-      emit.call(this.inner.extensionRunner, { type: "session_shutdown", reason: "dispose" }),
-    )
+    void (async () => emit.call(
+      this.inner.extensionRunner,
+      { type: "session_shutdown", reason: "quit" },
+    ))()
       .catch((error) => {
         console.error(
           "[pi-web] session_shutdown before dispose failed:",
@@ -1414,17 +1421,16 @@ declare global {
 function getRegistry(): Map<string, AgentSessionWrapper> {
   if (!globalThis.__piSessions) {
     globalThis.__piSessions = new Map();
-    const cleanup = () => {
+    const destroy = () => globalThis.__piSessions?.forEach((session) => session.destroy());
+    const shutdown = () => {
       const sessions = Array.from(globalThis.__piSessions?.values() ?? []);
-      for (const session of sessions) {
-        void session.shutdown().catch(() => {
-          session.destroy();
-        });
-      }
+      void Promise.allSettled(sessions.map((session) => session.shutdown()));
     };
-    process.once("exit", cleanup);
-    process.once("SIGINT", cleanup);
-    process.once("SIGTERM", cleanup);
+    // Node cannot await work from an exit handler; direct destruction starts
+    // extension cleanup synchronously as a final best effort.
+    process.once("exit", destroy);
+    process.once("SIGINT", shutdown);
+    process.once("SIGTERM", shutdown);
   }
   return globalThis.__piSessions;
 }
