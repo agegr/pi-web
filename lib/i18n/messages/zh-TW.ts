@@ -551,6 +551,7 @@ export const zhTWLocale: LocalePlugin = {
     "i18n.newSession": "新增工作階段",
     "i18n.newSessionTitle": "新增工作階段，從此處建立獨立副本",
     "i18n.estimatedTokens": "串流輸出期間的估算 Token 數",
+    "i18n.firstTokenDuration": "TTFT {duration}",
     "i18n.noOutput": "（無輸出）",
     "i18n.noSummary": "（無摘要）",
     "i18n.conversationCompacted": "對話已壓縮",

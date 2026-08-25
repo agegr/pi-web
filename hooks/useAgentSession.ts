@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer } from "react";
 import type {
   AgentMessage,
+  AssistantMessage,
   BlockingExtensionUiRequest,
   ExtensionStatusItem,
   ExtensionUiRequest,
@@ -86,6 +87,30 @@ export interface QueuedMessages {
 
 function normalizeQueuedMessages(q?: { steering?: string[]; followUp?: string[] } | null): QueuedMessages {
   return { steering: q?.steering ?? [], followUp: q?.followUp ?? [] };
+}
+
+function firstTokenKey(sessionId: string | null, message: AssistantMessage): string | null {
+  return sessionId && message.timestamp !== undefined ? `${sessionId}:${message.timestamp}` : null;
+}
+
+function restoreFirstTokenSeconds(messages: AgentMessage[], stored: ReadonlyMap<string, number>, sessionId: string | null): AgentMessage[] {
+  if (stored.size === 0) return messages;
+  let changed = false;
+  const restored = messages.map((message): AgentMessage => {
+    if (message.role !== "assistant" || message.timestamp === undefined) return message;
+    const key = firstTokenKey(sessionId, message);
+    const seconds = key === null ? undefined : stored.get(key);
+    if (seconds === undefined) return message;
+    changed = true;
+    return { ...message, firstTokenSeconds: seconds };
+  });
+  return changed ? restored : messages;
+}
+
+function isFirstTokenEvent(event: ClientAssistantMessageEvent): boolean {
+  return event.type === "text_start" || event.type === "text_delta" || event.type === "text_end"
+    || event.type === "thinking_start" || event.type === "thinking_delta" || event.type === "thinking_end"
+    || event.type === "toolcall_start" || event.type === "toolcall_delta" || event.type === "toolcall_end";
 }
 
 type ExtensionUiDialogRequest = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>;
@@ -285,6 +310,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [hasEarlierMessages, setHasEarlierMessages] = useState(false);
   const [streamState, dispatch] = useReducer(streamReducer, INITIAL_STREAMING_STATE);
+  const streamStateRef = useRef(streamState);
+  streamStateRef.current = streamState;
+  const firstTokenSecondsRef = useRef<number | null>(null);
+  const firstTokenSecondsByMessageRef = useRef(new Map<string, number>());
   const [agentRunning, setAgentRunning] = useState(false);
   const [bashRunning, setBashRunning] = useState(false);
   const [pendingBash, setPendingBash] = useState<{ command: string; excludeFromContext: boolean } | null>(null);
@@ -473,7 +502,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const persistedMessages = d.context.messages;
       setData(d);
       setActiveLeafId(d.leafId);
-      setMessages(persistedMessages);
+      setMessages(restoreFirstTokenSeconds(persistedMessages, firstTokenSecondsByMessageRef.current, sid));
       setEntryIds(d.context.entryIds ?? []);
       setHistoryCursor(d.context.oldestEntryId);
       setHasEarlierMessages(d.context.hasMore);
@@ -530,25 +559,26 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as { context: SessionData["context"] };
       if (sessionIdRef.current !== sid) return;
+      const loadedMessages = restoreFirstTokenSeconds(d.context.messages, firstTokenSecondsByMessageRef.current, sid);
       setHistoryCursor(d.context.oldestEntryId);
       setHasEarlierMessages(d.context.hasMore);
       setData((prev) => {
         if (!prev || prev.sessionId !== sid) return prev;
         const context = before ? {
           ...prev.context,
-          messages: [...d.context.messages, ...prev.context.messages],
+          messages: [...loadedMessages, ...prev.context.messages],
           entryIds: [...d.context.entryIds, ...prev.context.entryIds],
           oldestEntryId: d.context.oldestEntryId,
           hasMore: d.context.hasMore,
-        } : d.context;
+        } : { ...d.context, messages: loadedMessages };
         return { ...prev, context };
       });
       if (before) {
         // Older page: prepend so scroll position stays anchored.
-        setMessages((prev) => [...d.context.messages, ...prev]);
+        setMessages((prev) => [...loadedMessages, ...prev]);
         setEntryIds((prev) => [...d.context.entryIds, ...prev]);
       } else {
-        setMessages(d.context.messages);
+        setMessages(loadedMessages);
         setEntryIds(d.context.entryIds ?? []);
       }
     } catch (e) {
@@ -1043,9 +1073,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [agentRunning]);
 
   const handleAgentEvent = useCallback((event: AgentEvent) => {
+    const captureFirstToken = () => {
+      if (firstTokenSecondsRef.current !== null) return;
+      const startedAt = streamStateRef.current.startedAt;
+      if (startedAt === null) return;
+      firstTokenSecondsRef.current = Math.max(0, (Date.now() - startedAt) / 1000);
+    };
+
     switch (event.type) {
       case "connected": {
-        dispatch({ type: "end" });
+        if (!agentRunningRef.current) dispatch({ type: "end" });
         if (event.isStreaming === true) {
           cancelEventStreamGrace();
           sdkAgentActiveRef.current = true;
@@ -1141,6 +1178,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const msg = event.message as AgentMessage | undefined;
           if (msg?.role === "user") break;
           if (msg?.role === "assistant") {
+            if (msg.content.length > 0) captureFirstToken();
             dispatch({ type: "snapshot", message: msg });
             if (msg.content.length > 0) setAgentPhase(null);
           } else if (msg) {
@@ -1149,6 +1187,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         } else {
           const delta = event.assistantMessageEvent as ClientAssistantMessageEvent | undefined;
           if (delta) {
+            if (isFirstTokenEvent(delta)) captureFirstToken();
             dispatch({ type: "delta", event: delta });
             if (delta.type !== "toolcall_start" && delta.type !== "toolcall_delta") {
               setAgentPhase(null);
@@ -1192,9 +1231,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             return [...prev, delivered];
           });
         } else if (completed) {
-          setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
+          const finished = normalizeToolCalls(completed);
+          let message = finished;
+          if (finished.role === "assistant" && firstTokenSecondsRef.current !== null) {
+            const key = firstTokenKey(sessionIdRef.current, finished);
+            if (key) firstTokenSecondsByMessageRef.current.set(key, firstTokenSecondsRef.current);
+            message = { ...finished, firstTokenSeconds: firstTokenSecondsRef.current };
+            firstTokenSecondsRef.current = null;
+          }
+          setMessages((prev) => [...prev, message]);
+          dispatch({ type: "end" });
         }
-        dispatch({ type: "end" });
         setAgentPhase({ kind: "waiting_model" });
         break;
       }
@@ -1312,6 +1359,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunningRef.current = true;
     setAgentRunning(true);
     setAgentPhase(isSlashCommandPrompt ? { kind: "running_command" } : { kind: "waiting_model" });
+    firstTokenSecondsRef.current = null;
     dispatch({ type: "start" });
     pendingScrollToUserRef.current = true;
     setPromptAnchorActive(true);

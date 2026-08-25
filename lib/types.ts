@@ -77,6 +77,7 @@ export interface AssistantMessage {
   stopReason?: string;
   errorMessage?: string;
   timestamp?: number;
+  firstTokenSeconds?: number;
   usage?: AgentUsage;
 }
 

@@ -551,6 +551,7 @@ export const enLocale: LocalePlugin = {
     "i18n.newSession": "New session",
     "i18n.newSessionTitle": "New session — creates an independent copy from here",
     "i18n.estimatedTokens": "Estimated token count while streaming",
+    "i18n.firstTokenDuration": "TTFT {duration}",
     "i18n.noOutput": "(no output)",
     "i18n.noSummary": "(no summary)",
     "i18n.conversationCompacted": "Conversation compacted",

@@ -266,6 +266,9 @@ test("delegates event stream readiness and hides an empty agent phase", () => {
   assert.match(chatWindowSource, /const hasStreamingContent = Boolean\(streamState\.streamingMessage\?\.content\.length\)/);
   assert.match(chatWindowSource, /streamState\.isStreaming && hasStreamingContent && streamState\.streamingMessage/);
   assert.match(chatWindowSource, /agentRunning && !hasStreamingContent && agentPhase/);
+  assert.match(chatWindowSource, /function WaitingFirstTokenTimer/);
+  assert.match(chatWindowSource, /setInterval\(\(\) => setNow\(Date\.now\(\)\), 100\)/);
+  assert.match(chatWindowSource, /agentPhase\.kind === "waiting_model" && streamState\.startedAt !== null/);
   assert.match(chatWindowSource, /return null;/);
 });
 
@@ -282,7 +285,7 @@ test("uses server pagination state instead of guessing from rendered rows", () =
   assert.match(source, /const \[hasEarlierMessages, setHasEarlierMessages\] = useState\(false\)/);
   assert.match(source, /setHasEarlierMessages\(d\.context\.hasMore\)/);
   assert.match(source, /setHistoryCursor\(d\.context\.oldestEntryId\)/);
-  assert.match(loadContextSource, /setData\(\(prev\) => \{[\s\S]*messages: \[\.\.\.d\.context\.messages, \.\.\.prev\.context\.messages\]/);
+  assert.match(loadContextSource, /setData\(\(prev\) => \{[\s\S]*messages: \[\.\.\.loadedMessages, \.\.\.prev\.context\.messages\]/);
   assert.match(chatWindowSource, /const oldestId = historyCursor/);
   assert.doesNotMatch(chatWindowSource, /const oldestId = entryIds\[0\]/);
   assert.match(chatWindowSource, /if \(!hasEarlierMessages\) return/);
@@ -332,6 +335,40 @@ test("keeps one reducer-owned assistant partial and consumes Pi JSON deltas", ()
   assert.match(messageEndSource, /normalizeToolCalls\(completed\)/);
   assert.match(messageEndSource, /dispatch\(\{ type: "end" \}\)/);
   assert.doesNotMatch(messageEndSource, /streamState\.streamingMessage/);
+});
+
+test("keeps the first-token clock from prompt submission", () => {
+  const connectedSource = source.slice(
+    source.indexOf('case "connected"'),
+    source.indexOf('case "agent_start"'),
+  );
+  const sendSource = source.slice(
+    source.indexOf("  const handleSend = useCallback"),
+    source.indexOf("    try {", source.indexOf("  const handleSend = useCallback")),
+  );
+  const userMessageEndStart = source.indexOf('if (completed && completed.role === "user") {');
+  const assistantMessageEndStart = source.indexOf('} else if (completed) {', userMessageEndStart);
+  const userMessageEndSource = source.slice(userMessageEndStart, assistantMessageEndStart);
+  const assistantMessageEndSource = source.slice(
+    assistantMessageEndStart,
+    source.indexOf('case "tool_execution_start"'),
+  );
+
+  const loadSessionSource = source.slice(
+    source.indexOf("  const loadSession = useCallback"),
+    source.indexOf("  const loadContext = useCallback"),
+  );
+  const loadContextSource = source.slice(
+    source.indexOf("  const loadContext = useCallback"),
+    source.indexOf("  const loadTools = useCallback"),
+  );
+  assert.match(sendSource, /timestamp: Date\.now\(\)[\s\S]*?dispatch\(\{ type: "start" \}\)/);
+  assert.match(connectedSource, /if \(!agentRunningRef\.current\) dispatch\(\{ type: "end" \}\)/);
+  assert.doesNotMatch(userMessageEndSource, /dispatch\(\{ type: "end" \}\)/);
+  assert.match(assistantMessageEndSource, /dispatch\(\{ type: "end" \}\)/);
+  assert.match(assistantMessageEndSource, /firstTokenSecondsByMessageRef\.current\.set/);
+  assert.match(loadSessionSource, /restoreFirstTokenSeconds\(persistedMessages/);
+  assert.match(loadContextSource, /restoreFirstTokenSeconds\(d\.context\.messages/);
 });
 
 test("shows the latest streamed tool execution progress in the running phase", () => {

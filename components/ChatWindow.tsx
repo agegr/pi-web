@@ -11,6 +11,7 @@ import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { useI18n } from "@/hooks/useI18n";
+import { formatFirstTokenDuration } from "@/lib/first-token-format";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -68,6 +69,22 @@ function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, 
   if (phase?.kind === "waiting_model") return t("chat.waitingModel");
   if (phase?.kind === "running_command") return t("chat.runningCommand");
   return null;
+}
+
+function WaitingFirstTokenTimer({ startedAt }: { startedAt: number }) {
+  const { t } = useI18n();
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 100);
+    return () => clearInterval(timer);
+  }, [startedAt]);
+
+  return (
+    <span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+      {t("i18n.firstTokenDuration", { duration: formatFirstTokenDuration(Math.max(0, (now - startedAt) / 1000)) })}
+    </span>
+  );
 }
 
 const CHAT_MINIMAP_WIDTH = 36;
@@ -915,12 +932,18 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               );
             })()}
             {streamState.isStreaming && hasStreamingContent && streamState.streamingMessage && (
-              <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} />
+              <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming streamStartedAt={streamState.startedAt ?? undefined} modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} />
             )}
 
             {agentRunning && !hasStreamingContent && agentPhase && (
               <div className="break-words py-2 text-[13px] text-text-muted">
                 <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t)}</span>
+                {agentPhase.kind === "waiting_model" && streamState.startedAt !== null && (
+                  <>
+                    <span> · </span>
+                    <WaitingFirstTokenTimer startedAt={streamState.startedAt} />
+                  </>
+                )}
               </div>
             )}
 
