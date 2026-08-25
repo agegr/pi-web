@@ -159,6 +159,7 @@ export function AgentsConfig({
   const [targetScope, setTargetScope] = useState<SubagentWritableScope>("global");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savedOk, setSavedOk] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [builtInEnabled, setBuiltInEnabled] = useState(false);
@@ -296,6 +297,7 @@ export function AgentsConfig({
   const save = async () => {
     setSaving(true);
     setError(null);
+    setSavedOk(false);
     try {
       const response = await fetch("/api/subagents/profiles", {
         method: "PUT",
@@ -305,6 +307,8 @@ export function AgentsConfig({
       const data = await response.json() as { profile?: SubagentProfile; error?: string };
       if (!response.ok || data.error || !data.profile) throw new Error(data.error ?? `HTTP ${response.status}`);
       await loadProfiles(profileKey(data.profile));
+      setSavedOk(true);
+      setTimeout(() => setSavedOk(false), 2000);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -597,7 +601,21 @@ export function AgentsConfig({
         </ConfigDetail>
       </ConfigSplitView>
       <ConfigFooter status={(settingsError || error) && <span role="alert" style={{ color: "#ef4444" }}>{settingsError || error}</span>}>
-        {editing && <ConfigButton variant="primary" onClick={() => void save()} disabled={saving || toggling || !draft.name.trim()}>{saving ? t("agents.saving") : t("agents.save")}</ConfigButton>}
+        {editing && (
+          <ConfigButton
+            variant="primary"
+            onClick={() => void save()}
+            disabled={saving || savedOk || toggling || !draft.name.trim()}
+            className={savedOk ? "is-success" : undefined}
+          >
+            {savedOk && (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="config-button-success-icon">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            )}
+            <span>{savedOk ? t("i18n.saved") : saving ? t("agents.saving") : t("agents.save")}</span>
+          </ConfigButton>
+        )}
       </ConfigFooter>
     </ConfigPanelShell>
   );
