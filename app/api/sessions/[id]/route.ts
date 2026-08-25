@@ -13,7 +13,9 @@ import {
 import { sessionPathKey } from "@/lib/session-path";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { projectTreeForResponse } from "@/lib/project-tree";
+import { resolveInactiveSessionLeafId } from "@/lib/discussion-threads";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
+import type { SessionTreeNode } from "@/lib/types";
 
 export async function GET(
   req: Request,
@@ -31,8 +33,12 @@ export async function GET(
     const sm = liveRpc?.inner.sessionManager ?? SessionManager.open(resolvedPath!);
     const filePath = liveRpc?.sessionFile || sm.getSessionFile() || resolvedPath || "";
     const entries = sm.getEntries();
-    const leafId = sm.getLeafId();
     const tree = projectTreeForResponse(sm.getTree());
+    // A session reopened from disk has no live navigation state. pi selects its
+    // newest leaf, which may be a side discussion; review should start on main.
+    const leafId = liveRpc
+      ? sm.getLeafId()
+      : resolveInactiveSessionLeafId(tree as unknown as SessionTreeNode[], sm.getLeafId());
     const searchParams = new URL(req.url).searchParams;
     const deferThinking = searchParams.has("deferThinking");
     const deferToolResultImages = searchParams.has("deferMedia");

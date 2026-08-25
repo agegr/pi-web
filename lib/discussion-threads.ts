@@ -126,6 +126,20 @@ export function findActiveDiscussionThread(
   return threads.find((thread) => subtreeContainsEntry(thread.node, activeLeafId)) ?? null;
 }
 
+/**
+ * An unopened session has no runtime navigation state: pi restores its newest
+ * leaf, which can be a side discussion. Open those sessions on their main
+ * conversation instead. A live session deliberately keeps its selected leaf
+ * so an explicitly opened thread remains open.
+ */
+export function resolveInactiveSessionLeafId(
+  tree: SessionTreeNode[],
+  leafId: string | null,
+): string | null {
+  const activeThread = findActiveDiscussionThread(collectDiscussionThreads(tree), leafId);
+  return activeThread ? resolveThreadMainLeafId(tree, activeThread) : leafId;
+}
+
 function findNode(tree: SessionTreeNode[], entryId: string): SessionTreeNode | null {
   const stack = [...tree];
   let contracted: SessionTreeNode | null = null;

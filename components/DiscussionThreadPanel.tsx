@@ -282,7 +282,7 @@ export function DiscussionThreadPanel({
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
             {active ? (
-              <button type="button" onClick={onReturnToMain} disabled={Boolean(isRunning)} style={{ padding: "4px 8px", border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg)", color: "var(--text-muted)", cursor: isRunning ? "not-allowed" : "pointer", fontSize: 11 }}>
+              <button type="button" onClick={onReturnToMain} disabled={Boolean(isRunning)} style={{ padding: "4px 8px", border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg)", color: "var(--accent)", cursor: isRunning ? "not-allowed" : "pointer", fontSize: 11 }}>
                 {t("chat.returnToMain")}
               </button>
             ) : (

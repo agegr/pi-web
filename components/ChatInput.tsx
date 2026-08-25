@@ -1643,7 +1643,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               <button
                 type="button"
                 onClick={onConversationTargetClear}
-                style={{ padding: "2px 6px", border: 0, borderRadius: 4, background: "transparent", color: "var(--text-dim)", cursor: "pointer", fontSize: 11 }}
+                style={{ padding: "2px 6px", border: 0, borderRadius: 4, background: "transparent", color: conversationTarget.active ? "var(--accent)" : "var(--text-dim)", cursor: "pointer", fontSize: 11 }}
               >
                 {t(conversationTarget.active ? "chat.returnToMain" : "chat.replyInMain")}
               </button>
