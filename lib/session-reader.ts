@@ -10,6 +10,7 @@ import type { AgentMessage, ImageContent, SessionEntry, SessionHeader, SessionIn
 import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } from "@earendil-works/pi-coding-agent";
 import { normalizeToolCalls } from "./normalize";
 import { sessionPathKey } from "./session-path";
+import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "./tool-result-images";
 import { resolveProject, type ProjectInfo } from "./worktree";
 
 export { getAgentDir };
@@ -311,10 +312,16 @@ function deferToolResultBase64Images(
 
     // Keep the initial history response small, but preserve an image block that
     // the browser can load only when its collapsed tool result is expanded.
-    if (sessionId) {
+    if (
+      sessionId &&
+      image.mime &&
+      TOOL_RESULT_IMAGE_MIMES.has(image.mime) &&
+      image.bytes > 0 &&
+      image.bytes <= MAX_TOOL_RESULT_IMAGE_BYTES
+    ) {
       const source: ImageContent["source"] = {
         type: "url",
-        ...(image.mime ? { media_type: image.mime } : {}),
+        media_type: image.mime,
         url: `/api/sessions/${encodeURIComponent(sessionId)}/entries/${encodeURIComponent(entryId)}/tool-result-image?blockIndex=${blockIndex}`,
       };
       return [{ type: "image", source } satisfies ImageContent];

@@ -1,15 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessionEntries, resolveSessionPath } from "@/lib/session-reader";
-
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const SAFE_IMAGE_MIMES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-  "image/gif",
-  "image/bmp",
-  "image/avif",
-]);
+import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "@/lib/tool-result-images";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -38,7 +29,7 @@ function decodeBoundedBase64(data: string): Uint8Array | null {
   // Reject malformed and obviously oversized payloads before allocating.
   if (
     data.length === 0 ||
-    data.length > Math.ceil(MAX_IMAGE_BYTES * 4 / 3) + 4 ||
+    data.length > Math.ceil(MAX_TOOL_RESULT_IMAGE_BYTES * 4 / 3) + 4 ||
     data.length % 4 !== 0 ||
     !/^[A-Za-z0-9+/]*={0,2}$/.test(data)
   ) {
@@ -46,7 +37,7 @@ function decodeBoundedBase64(data: string): Uint8Array | null {
   }
 
   const bytes = Buffer.from(data, "base64");
-  if (bytes.length === 0 || bytes.length > MAX_IMAGE_BYTES) return null;
+  if (bytes.length === 0 || bytes.length > MAX_TOOL_RESULT_IMAGE_BYTES) return null;
   return new Uint8Array(bytes);
 }
 
@@ -72,7 +63,7 @@ export async function GET(
 
     const image = readBase64Image(entry.message.content[blockIndex]);
     if (!image) return NextResponse.json({ error: "Tool result image not found" }, { status: 404 });
-    if (!SAFE_IMAGE_MIMES.has(image.mime)) {
+    if (!TOOL_RESULT_IMAGE_MIMES.has(image.mime)) {
       return NextResponse.json({ error: "Unsupported image type" }, { status: 415 });
     }
 

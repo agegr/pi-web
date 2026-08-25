@@ -7,7 +7,6 @@ import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, isEmptyThinkingBlock } from "@/lib/message-display";
-import { getToolResultImages } from "@/lib/tool-result-images";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
 import { isEditToolName } from "@/lib/tool-names";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
@@ -959,7 +958,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
   const resultText = result
     ? result.content.filter((b): b is { type: "text"; text: string } => b.type === "text").map((b) => b.text).join("\n")
     : null;
-  const resultImages = getToolResultImages(result);
+  const resultImages = getMessageImages(result?.content ?? []);
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
   const isError = result?.isError ?? false;
 
@@ -1301,18 +1300,15 @@ function PairedResult({ text, images, isEmpty, isError }: {
             const src = imageSource(image);
             if (!src) return null;
             return (
-              <a
+              <ImagePreview
                 key={`${src}-${index}`}
-                href={src}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={t("i18n.openImage")}
-                style={{ display: "block", maxWidth: "100%" }}
+                src={src}
+                style={{ maxWidth: "100%" }}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={src}
-                  alt={`Tool result image ${index + 1}`}
+                  alt=""
                   loading="lazy"
                   style={{
                     display: "block",
@@ -1323,7 +1319,7 @@ function PairedResult({ text, images, isEmpty, isError }: {
                     border: "1px solid var(--border)",
                   }}
                 />
-              </a>
+              </ImagePreview>
             );
           })}
         </div>
