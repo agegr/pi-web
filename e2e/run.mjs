@@ -56,13 +56,14 @@ try {
   await page.waitForFunction(() => (document.body.innerText || "").includes("E2E message 4990"), null, { timeout: 30_000 });
   result.steps.push("rendered tail (around message 4990)");
 
+  // Wait for the sentinel: it only appears once truncation/virtualization has
+  // settled, so the oldest-message check below isn't racing initial render.
+  await page.waitForFunction(() => /load earlier/i.test(document.body.innerText || ""), null, { timeout: 30_000 });
+  result.steps.push("showed the 'load earlier' sentinel");
+
   const hasOldest = await page.evaluate(() => (document.body.innerText || "").includes("E2E message 0"));
   if (hasOldest) throw new Error("full 5000-message history was rendered instead of a tail window");
   result.steps.push("did not render the whole 5000-message forest");
-
-  const hasLoadEarlier = await page.evaluate(() => /load earlier/i.test(document.body.innerText || ""));
-  if (!hasLoadEarlier) throw new Error("'load earlier' sentinel missing for a truncated tail");
-  result.steps.push("showed the 'load earlier' sentinel");
 
   result.pageErrors = pageErrors;
   result.consoleErrors = consoleErrors.filter((e) => !/favicon|404/i.test(e));

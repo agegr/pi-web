@@ -28,16 +28,19 @@ try {
 	});
 	await waitForText(page, "E2E message 4990");
 	result.steps.push("long tail");
+	// Wait for the sentinel first so the oldest-message check below isn't
+	// racing initial render (fast CI runners can beat virtualization).
+	await page.waitForFunction(
+		() => /load earlier/i.test(document.body.innerText || ""),
+		null,
+		{ timeout: 30_000 },
+	);
+	result.steps.push("sentinel present");
 	const hasOldest = await page.evaluate(() =>
 		(document.body.innerText || "").includes("E2E message 0"),
 	);
 	if (hasOldest) throw new Error("full history rendered instead of tail");
 	result.steps.push("tail window enforced");
-	const hasSentinel = await page.evaluate(() =>
-		/load earlier/i.test(document.body.innerText || ""),
-	);
-	if (!hasSentinel) throw new Error("load earlier sentinel missing");
-	result.steps.push("sentinel present");
 	// Branch session: open and see branch base
 	await page.goto(`${BASE}/?session=${BRANCH}`, {
 		waitUntil: "domcontentloaded",
