@@ -4,12 +4,22 @@
 
 Local browser UI for the [pi coding agent](https://github.com/earendil-works/pi). Pi Web uses the same local configuration and session files as pi, so you can browse and resume conversations, run agent turns, configure models and resources, and inspect project files from a browser.
 
-![Pi Web displaying a pi session with structured Markdown, tool calls, and project navigation](https://raw.githubusercontent.com/agegr/pi-web/main/docs/screenshot2.png)
+![Annotated Pi Web interface showing inline threads, session navigation, project files, and the built-in web browser](https://raw.githubusercontent.com/agegr/pi-web/main/docs/screenshot-annotated.png)
 
 ## Features
 
+### ✨ New
+
+- **Inline discussion threads**: start a focused side conversation from an assistant response, keep it anchored beside the relevant Markdown, and return to the main conversation without losing context.
+- **Quoted requests**: select text from an assistant response and insert it as a Markdown quote in the composer, making follow-up questions precise and easy to understand.
+- **Built-in web browser**: open websites, pull requests, documentation, and running applications in a side panel next to the conversation; browser tabs include navigation, reload, and open-external controls.
+- **Desktop app preview**: run Pi Web as an Electron desktop app with native webviews, persistent site logins, and support for sites such as GitHub that block iframe embedding.
+- **New session and branch handling**: create independent sessions from earlier messages, edit from a point inside the current session, navigate forked child sessions, and select the active Git branch from the session workspace.
+- **Revised interface**: a reorganized button layout keeps common actions close at hand, while dedicated settings and session menus provide cleaner access to configuration and conversation actions.
+
+### Existing capabilities
+
 - **Session workspace**: browse, resume, rename, export, and delete conversations grouped by project, with running state, context usage, cost, and compaction details.
-- **Two ways to branch**: **New session** creates an independent session file from an earlier message; **Edit from here** creates a branch inside the current session.
 - **Project file tools**: browse and upload files, inspect Git diffs, and preview source, Markdown, images, audio, PDFs, and DOCX files with automatic refresh.
 - **Git worktrees**: switch checkouts from the sidebar while keeping sessions from the same repository grouped together.
 - **Web-based configuration**: manage provider login and API keys, models, model tests, plugin packages, and skills without leaving Pi Web.
