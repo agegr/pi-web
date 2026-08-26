@@ -12,6 +12,8 @@ import { formatRelativeTime } from "@/lib/i18n/format";
 import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
+import { SessionSearchPanel } from "./SessionSearchPanel";
+import type { SessionSearchResult } from "@/lib/session-search";
 
 declare global {
   interface Window {
@@ -187,6 +189,12 @@ function saveUnreadSessionIds(ids: Set<string>): void {
 /** Substitute the home dir prefix with ~ (no path truncation — see PathLabel) */
 function displayCwd(cwd: string, homeDir?: string): string {
   return (homeDir && cwd.startsWith(homeDir)) ? "~" + cwd.slice(homeDir.length) : cwd;
+}
+
+/** Last path segment of a project root, for compact labels. */
+function projectDisplayName(root: string): string {
+  const segments = root.replace(/\\/g, "/").replace(/\/+$/, "").split("/");
+  return segments[segments.length - 1] || root;
 }
 
 /**
@@ -382,6 +390,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [explorerKey, setExplorerKey] = useState(0);
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
+  const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [changesCount, setChangesCount] = useState(0);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
@@ -881,6 +890,37 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onSelectSession(s);
   }, [onSelectSession]);
 
+  // A search result may belong to a project that is not currently selected, so
+  // fall back to a SessionInfo built from the result when the cached session
+  // list does not have it (stale list, or a session written after the refresh).
+  const handleSelectSearchResult = useCallback((result: SessionSearchResult) => {
+    const known = allSessions.find((session) => session.id === result.sessionId);
+    handleSelectSessionFromList(known ?? {
+      path: result.path,
+      id: result.sessionId,
+      cwd: result.cwd,
+      name: result.name,
+      created: result.modified,
+      modified: result.modified,
+      messageCount: result.messageCount,
+      firstMessage: result.firstMessage,
+      projectKey: result.projectKey,
+    });
+  }, [allSessions, handleSelectSessionFromList]);
+
+  // Ctrl/Cmd+Shift+F toggles conversation search, mirroring the editor idiom
+  // for "find in all files". Local to the sidebar so it needs no prop wiring.
+  useEffect(() => {
+    const handler = (event: KeyboardEvent): void => {
+      if (!(event.ctrlKey || event.metaKey) || !event.shiftKey) return;
+      if (event.key.toLowerCase() !== "f") return;
+      event.preventDefault();
+      setSessionSearchOpen((open) => !open);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   const handleNewSession = useCallback(() => {
     if (!selectedCwd) return;
     // Generate a temporary UUID client-side — no backend call needed.
@@ -1013,6 +1053,28 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 <line x1="1" y1="6" x2="11" y2="6" />
               </svg>
               {t("sidebar.new")}
+            </button>
+            <button
+              onClick={() => setSessionSearchOpen((open) => !open)}
+              aria-pressed={sessionSearchOpen}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: sessionSearchOpen ? "var(--bg-selected)" : "var(--bg-hover)",
+                border: `1px solid ${sessionSearchOpen ? "rgba(37,99,235,0.35)" : "var(--border)"}`,
+                color: sessionSearchOpen ? "var(--accent)" : "var(--text-muted)",
+                cursor: "pointer",
+                width: 32, height: 32,
+                borderRadius: 7,
+                padding: 0,
+                flexShrink: 0,
+                transition: "background 0.12s, color 0.12s, border-color 0.12s",
+              }}
+              title={`${t("sidebar.searchSessions")} (Ctrl+Shift+F)`}
+              aria-label={t("sidebar.searchSessions")}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" />
+              </svg>
             </button>
             <button
               onClick={() => loadSessions(false, true)}
@@ -1614,7 +1676,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         )}
       </div>
 
-      {/* Session list */}
+      {/* Session list, or full-text search over past conversations */}
+      {sessionSearchOpen ? (
+        <SessionSearchPanel
+          projectKey={selectedProject?.key ?? null}
+          projectLabel={selectedProject ? projectDisplayName(selectedProject.root) : null}
+          onSelectResult={handleSelectSearchResult}
+          onClose={() => setSessionSearchOpen(false)}
+        />
+      ) : (
       <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}>
         {loading && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
@@ -1653,6 +1723,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           );
         })}
       </div>
+      )}
 
       {/* File Explorer section */}
       {(selectedCwdProp || selectedCwd) && (

@@ -51,6 +51,7 @@ app/api/
   sessions/[id]/route.ts          GET/PATCH/DELETE session
   sessions/[id]/context/route.ts  GET ?leafId= — context for a specific leaf
   sessions/[id]/export/route.ts   GET exported HTML for a session
+  sessions/search/route.ts        GET ?q= — full-text search over stored sessions
   agent/new/route.ts              POST { cwd, message, toolNames?, provider?, modelId? }
   agent/[id]/route.ts             GET state | POST any command
   agent/[id]/events/route.ts      GET SSE stream
@@ -85,6 +86,7 @@ lib/
   pi-types.ts          local structural types for pi SDK objects
   rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
   session-reader.ts   SessionManager wrappers + path cache + buildSessionContext adapter
+  session-search.ts   bounded streaming content search over session JSONL files
   subagent-settings.ts  read/write ~/.pi/agent/agents/settings.json
   tool-presets.ts     PRESET_NONE/READ_ONLY/DEFAULT/FULL + getPresetFromTools()
   tool-preset-preference.ts  browser-persisted default for fresh sessions
@@ -95,6 +97,7 @@ lib/
 components/
   AppShell.tsx        layout + URL state + tab management
   SessionSidebar.tsx  session tree + FileExplorer
+  SessionSearchPanel.tsx  full-text conversation search (replaces the session list)
   ChatWindow.tsx      chat composition + completion sound wrapper
   ChatInput.tsx       input bar + model/thinking/tools/compact controls
   MessageView.tsx     renders one message (user/assistant/toolCall/toolResult)
@@ -138,6 +141,16 @@ hooks/
 
 ### Session files can be fully rewritten
 `parentSession` in the header is **display metadata only** — has zero effect on chat content. Safe to `writeFileSync` the entire file (pi does this itself during migrations). Used when cascade-reparenting children on delete.
+
+### Session content search is bounded, never indexed
+`lib/session-search.ts` streams the session JSONL files on every debounced
+keystroke — there is no index to keep in sync, and no session file is parsed
+into memory as a whole. Three caps keep that affordable and are all reported
+back to the UI through `stats`: `MAX_FILES_SCANNED`, `SEARCH_TIME_BUDGET_MS`,
+and the per-session hit cap. Candidate sessions come from `listAllSessions()`
+so project scoping matches the sidebar exactly and no request can name a file
+outside the sessions directory. Tool traffic (`toolCall`/`toolResult`/`bash`)
+is opt-in because it otherwise drowns out conversation hits.
 
 ### ToolCall field normalization
 Pi stores toolCall blocks as `{type:"toolCall", id, name, arguments}` but `ToolCallContent` uses `{toolCallId, toolName, input}`. `normalizeToolCalls()` in `lib/normalize.ts` handles this — called in both `session-reader.ts` (file load) and `ChatWindow.handleAgentEvent()` (streaming).
