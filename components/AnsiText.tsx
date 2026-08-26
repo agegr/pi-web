@@ -14,9 +14,7 @@ import { AnsiUp } from "ansi_up";
  * markup.
  */
 
-const ansiUp = new AnsiUp();
-
 export function AnsiText({ text }: { text: string }) {
-  const html = useMemo(() => ansiUp.ansi_to_html(text), [text]);
+  const html = useMemo(() => new AnsiUp().ansi_to_html(text), [text]);
   return <span dangerouslySetInnerHTML={{ __html: html }} />;
 }

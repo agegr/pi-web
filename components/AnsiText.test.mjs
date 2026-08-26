@@ -55,3 +55,8 @@ test("widget text cannot inject HTML (escape_html)", () => {
 test("newlines inside text are preserved", () => {
   assert.equal(toHtml("line one\nline two"), "<span>line one\nline two</span>");
 });
+
+test("styles do not leak between complete widget snapshots", () => {
+  assert.match(toHtml("\x1b[31mred"), /color:rgb\(187,0,0\)/);
+  assert.equal(toHtml("plain"), "<span>plain</span>");
+});
