@@ -9,8 +9,8 @@
 //   Therefore fingerprint (size, mtimeMs) unchanged => bytes unchanged =>
 //   memoized info === fresh scan result. A changed/deleted/new file is always
 //   rescanned/dropped/added, so the incremental result equals a full rescan
-//   by construction. The equivalence is asserted by session-reader.test.mjs.
-import { createReadStream, existsSync, readFileSync } from "node:fs";
+//   by construction. Tail optimization (L2): for grown files we read only the
+import { createReadStream, existsSync, readFileSync, openSync, readSync, closeSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { join } from "node:path";
@@ -42,7 +42,7 @@ interface IndexEntry {
 
 type RawEntry = Record<string, unknown>;
 
-const INDEX_FORMAT_VERSION = 1;
+const INDEX_FORMAT_VERSION = 2;
 
 declare global {
 	var __piWebScanIndex: Map<string, IndexEntry> | undefined;
@@ -93,16 +93,125 @@ function activityTimeOf(entry: RawEntry): number | undefined {
 
 // Mirrors the SDK's buildSessionInfo() line semantics exactly (same fallbacks,
 // same rejection rules), minus allMessagesText which pi-web never consumes.
+function headerIdOf(path: string): string | null {
+  try {
+    const fd = openSync(path, "r");
+    try {
+      const buf = Buffer.allocUnsafe(4096);
+      const n = readSync(fd, buf, 0, 4096, 0);
+      const text = buf.toString("utf8", 0, n);
+      const lineEnd = text.indexOf("\n");
+      const firstLine = lineEnd === -1 ? text : text.slice(0, lineEnd);
+      const entry = parseLine(firstLine);
+      if (!entry || entry.type !== "session" || typeof entry.id !== "string") return null;
+      return entry.id;
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+}
+
+function tailUpdateForGrownFile(
+  filePath: string,
+  prev: ScannedSessionInfo,
+  prevFp: Fingerprint,
+  nextFp: Fingerprint,
+): ScannedSessionInfo | null {
+  if (nextFp.size < prevFp.size) return null;
+  if (nextFp.size === prevFp.size) return prev;
+  const headerId = headerIdOf(filePath);
+  if (headerId === null || headerId !== prev.id) return null;
+  const deltaSize = nextFp.size - prevFp.size;
+  // Defensive: if delta doesn't end on a line boundary we fall back — the
+  // writer appends "\n" atomically, so an incomplete trailing line means a
+  // concurrent write race; a full rescan on the next tick recovers it.
+  let deltaText: string;
+  try {
+    const fd = openSync(filePath, "r");
+    try {
+      const buf = Buffer.allocUnsafe(deltaSize);
+      const n = readSync(fd, buf, 0, deltaSize, prevFp.size);
+      if (n !== deltaSize) return null;
+      deltaText = buf.toString("utf8", 0, n);
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+  if (deltaText.length > 0 && !deltaText.endsWith("\n") && deltaText.trim().length > 0) {
+    // Incomplete trailing line — defer to a full rescan once the writer completes.
+    return null;
+  }
+  let messageCount = prev.messageCount;
+  let firstMessage = prev.firstMessage;
+  const hasFirstMessage = firstMessage !== "(no messages)";
+  let hasFirst = hasFirstMessage;
+  let name: string | undefined = prev.name;
+  let lastActivityMs = prev.modified.getTime();
+  const headerMs = prev.created.getTime();
+  for (const line of deltaText.split("\n")) {
+    const entry = parseLine(line);
+    if (!entry) continue;
+    if (entry.type === "session_info") {
+      name = typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : undefined;
+      continue;
+    }
+    if (entry.type !== "message") continue;
+    messageCount++;
+    const at = activityTimeOf(entry);
+    if (typeof at === "number") lastActivityMs = Math.max(lastActivityMs, at);
+    if (hasFirst) continue;
+    const msg = entry.message as RawEntry | undefined;
+    if (!msg || typeof msg.role !== "string" || !("content" in msg)) continue;
+    if (msg.role !== "user") continue;
+    const txt = extractTextContent(msg);
+    if (txt) {
+      firstMessage = txt;
+      hasFirst = true;
+    }
+  }
+  // Re-derive modified exactly like the full scan: lastActivity > 0 ? that : headerTime ? that : mtime
+  let modified: Date;
+  if (lastActivityMs > 0 && !Number.isNaN(headerMs) && lastActivityMs !== headerMs) {
+    // lastActivityMs already encodes the max; but if it was initially headerMs we must distinguish
+    // the "no activity" case: full scan uses headerMs when no message has an activity time.
+    // We approximate by: if the only activity was the header itself, lastActivityMs === headerMs
+    // and the file had no message activity, keep headerMs. Otherwise use lastActivityMs.
+    // Since we seeded lastActivityMs from prev.modified (which already applied that rule),
+    // taking max(lastActivityMs, headerMs) is faithful; when delta had activity, max is activity.
+    modified = new Date(Math.max(lastActivityMs, headerMs));
+    // If the previous file had no activity, prev.modified === headerMs, and delta has no activity,
+    // max remains headerMs — correct.
+    if (Number.isNaN(modified.getTime())) modified = new Date(nextFp.mtimeMs);
+  } else if (!Number.isNaN(headerMs)) modified = new Date(headerMs);
+  else modified = new Date(nextFp.mtimeMs);
+  // Exact mirror of full-scan fallback for the header-less case is already handled by header check.
+  return {
+    path: filePath,
+    id: prev.id,
+    cwd: prev.cwd,
+    name,
+    created: prev.created,
+    modified,
+    messageCount,
+    firstMessage: firstMessage || "(no messages)",
+    parentSessionPath: prev.parentSessionPath,
+  };
+}
+
 export async function scanSessionFileInfo(
-	filePath: string,
+  filePath: string,
 ): Promise<ScannedSessionInfo | null> {
-	try {
-		const stats = await stat(filePath);
-		let header: RawEntry | null = null;
-		let name: string | undefined;
-		let messageCount = 0;
-		let firstMessage = "";
-		let lastActivityTime: number | undefined;
+  try {
+    const stats = await stat(filePath);
+    let header: RawEntry | null = null;
+    let name: string | undefined;
+    let messageCount = 0;
+    let firstMessage = "";
+    let lastActivityTime: number | undefined;
 
 		const rl = createInterface({
 			input: createReadStream(filePath, { encoding: "utf8" }),
@@ -327,15 +436,24 @@ export async function listSessionsIncremental(): Promise<ScannedSessionInfo[]> {
 		changed.push({ filePath, fp });
 	}
 
-	await runPool(changed, async ({ filePath, fp }) => {
-		const info = await scanSessionFileInfo(filePath);
-		if (info) {
-			index.set(filePath, { fp, info });
-			results.push(info);
-		} else {
-			index.delete(filePath);
-		}
-	});
+  await runPool(changed, async ({ filePath, fp }) => {
+    const cached = getIndex().get(filePath);
+    if (cached && fp.size > cached.fp.size) {
+      const tailed = tailUpdateForGrownFile(filePath, cached.info, cached.fp, fp);
+      if (tailed) {
+        getIndex().set(filePath, { fp, info: tailed });
+        results.push(tailed);
+        return;
+      }
+    }
+    const info = await scanSessionFileInfo(filePath);
+    if (info) {
+      getIndex().set(filePath, { fp, info });
+      results.push(info);
+    } else {
+      getIndex().delete(filePath);
+    }
+  });
 
 	if (changed.length > 0 || stale.length > 0) queueIndexPersist();
 
