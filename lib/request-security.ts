@@ -128,7 +128,60 @@ function isProxyRewrittenSameOrigin(request: Request, origin: string): boolean {
   return originAuthority !== null && originAuthority === normalizeAuthority(host);
 }
 
-/** Reject browser cross-site API requests while preserving non-browser clients. */
+/**
+ * Chromium 150+ strips the port from the `Origin` header for same-origin
+ * requests against non-default-port backends. Verified on Chrome 152.0.0.0:
+ * a browser fetch from `http://127.0.0.1:30141` sends
+ * `Origin: http://127.0.0.1` (no port) for both GET and POST in cors mode,
+ * and `Referer` strips the port the same way. The previous strict
+ * canonical-origin comparison therefore rejected every legitimate `/api/*`
+ * call against a non-default-port pi-web server.
+ *
+ * Accept such requests only when the request is genuinely same-origin,
+ * scheme + hostname match the request URL, and any port included in Origin
+ * matches the request port — the latter blocks cross-port same-site CSRF
+ * (e.g. an attacker on `myapp.com:8080` forging a request to
+ * `myapp.com:30141` with `Origin: http://myapp.com:8080`). See issue #542.
+ *
+ * Scheme is taken from `request.url` (via `getRequestOrigin`), not the Host
+ * header, so an http→https mismatch is still rejected even though the Host
+ * header itself has no scheme.
+ */
+function isChromePortStrippedSameOrigin(request: Request, origin: string): boolean {
+  if (request.headers.get("sec-fetch-site") !== "same-origin") return false;
+
+  const requestOrigin = getRequestOrigin(request);
+  if (!requestOrigin) return false;
+
+  let originUrl: URL;
+  let requestUrl: URL;
+  try {
+    originUrl = new URL(origin);
+    requestUrl = new URL(requestOrigin);
+  } catch {
+    return false;
+  }
+
+  if (originUrl.protocol !== requestUrl.protocol) return false;
+  if (originUrl.hostname !== requestUrl.hostname) return false;
+  if (originUrl.port && originUrl.port !== requestUrl.port) return false;
+
+  return true;
+}
+
+/**
+ * Reject browser cross-site API requests while preserving non-browser clients.
+ *
+ * Three accept paths:
+ *
+ * 1. Strict canonical-origin match — covers the common same-origin case.
+ * 2. Proxy rewritten Origin onto the backend authority — Azure Dev Tunnels,
+ *    Daytona, and similar relays. Requires same-origin Fetch Metadata and
+ *    an `x-forwarded-proto` header to prove a proxy is in front.
+ * 3. Chromium 150+ stripped the port from Origin — same-origin request
+ *    against a non-default-port backend. Scheme + hostname must still match
+ *    Host; the port is only checked when Origin carries one.
+ */
 export function isApiRequestOriginAllowed(request: Request): boolean {
   const origin = request.headers.get("origin");
   const fetchSite = request.headers.get("sec-fetch-site");
@@ -137,8 +190,10 @@ export function isApiRequestOriginAllowed(request: Request): boolean {
 
   const requestOrigin = getRequestOrigin(request);
   if (requestOrigin !== null && canonicalOrigin(origin) === requestOrigin) return true;
+  if (isProxyRewrittenSameOrigin(request, origin)) return true;
+  if (isChromePortStrippedSameOrigin(request, origin)) return true;
 
-  return isProxyRewrittenSameOrigin(request, origin);
+  return false;
 }
 
 export function shouldCheckApiRequestOrigin(request: Request): boolean {
