@@ -1099,20 +1099,32 @@
   to   { stroke-dashoffset: 0;  opacity: 1; }
 }
 
-/* iOS standalone: env(safe-area-inset-top) can report 0 and vh includes the
-   status-bar strip, so centered dialog headers end up under the clock and
-   Dynamic Island. Pad the backdrops with a hard fallback strip and cap the
-   dialog surfaces to the padded box so 84vh/vh sizing cannot push them back
-   under the status bar. */
-@media (display-mode: standalone) {
-  .settings-dialog-backdrop,
-  .config-panel-root.is-modal {
-    padding-top: max(59px, env(safe-area-inset-top));
-    padding-bottom: max(24px, env(safe-area-inset-bottom));
+/* iOS standalone: env() can report 0, so keep a device-sized fallback on the
+   status-bar edge and cap dialog surfaces to the resulting safe box. */
+@supports (-webkit-touch-callout: none) {
+  @media (display-mode: standalone) {
+    .settings-dialog-backdrop,
+    .config-panel-root.is-modal {
+      padding-top: max(59px, env(safe-area-inset-top));
+      padding-right: max(8px, env(safe-area-inset-right));
+      padding-bottom: max(24px, env(safe-area-inset-bottom));
+      padding-left: max(8px, env(safe-area-inset-left));
+    }
+
+    .settings-dialog-surface,
+    .config-panel-root.is-modal > .config-panel-surface {
+      max-width: 100%;
+      max-height: 100%;
+    }
   }
 
-  .settings-dialog-surface,
-  .config-panel-root.is-modal > .config-panel-surface {
-    max-height: 100%;
+  @media (display-mode: standalone) and (orientation: landscape) {
+    .settings-dialog-backdrop,
+    .config-panel-root.is-modal {
+      padding-top: max(8px, env(safe-area-inset-top));
+      padding-right: max(59px, env(safe-area-inset-right));
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
+      padding-left: max(59px, env(safe-area-inset-left));
+    }
   }
 }
