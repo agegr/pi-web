@@ -11,6 +11,7 @@ const routeSource = await readFile(
 const chatWindowSource = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 const appShellSource = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
 const globalsCss = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+const highlightSource = await readFile(new URL("../lib/text-highlight.ts", import.meta.url), "utf8");
 
 test("panel debounces conversation search and cancels superseded requests", () => {
   assert.match(panelSource, /SEARCH_DEBOUNCE_MS/);
@@ -58,16 +59,17 @@ test("search route delegates to the bounded searcher and maps bad regex to 400",
 });
 
 test("each snippet opens the session at its own message", () => {
-  assert.match(panelSource, /onSelectResult: \(result: SessionSearchResult, entryId\?: string\) => void/);
-  assert.match(panelSource, /onClick=\{\(\) => onSelectResult\(result, hit\.entryId\)\}/);
+  assert.match(panelSource, /onSelectResult: \(result: SessionSearchResult, jump: ChatJumpTarget\) => void/);
+  assert.match(panelSource, /onClick=\{\(\) => openResult\(result, hit\.entryId\)\}/);
   assert.match(panelSource, /sidebar\.searchJumpToMessage/);
   // Snippets are buttons inside the result container, not nested in one button.
   assert.doesNotMatch(panelSource, /<button[\s\S]{0,400}<HitRow/);
 });
 
-test("sidebar forwards the jump target and defaults to the first hit", () => {
-  assert.match(sidebarSource, /onSelectSession\(s, false, targetEntryId\)/);
-  assert.match(sidebarSource, /entryId \?\? result\.hits\[0\]\?\.entryId \?\? null/);
+test("the panel carries its own query into the jump so the chat highlights it", () => {
+  assert.match(panelSource, /const target = entryId \?\? result\.hits\[0\]\?\.entryId/);
+  assert.match(panelSource, /return \{ entryId: target, query: trimmed, mode: "substring", caseSensitive: false \}/);
+  assert.match(sidebarSource, /onSelectSession\(s, false, jumpTarget\)/);
 });
 
 test("chat loads the window containing the target, then scrolls and flashes it", () => {
@@ -75,7 +77,6 @@ test("chat loads the window containing the target, then scrolls and flashes it",
   assert.match(chatWindowSource, /loadContext\(sid, activeLeafId, null, targetEntryId\)/);
   assert.match(chatWindowSource, /if \(jumpRequestedRef\.current === targetEntryId\) return/);
   assert.match(chatWindowSource, /findRowIndexForEntry\(messages\.map\(\(m\) => m\.role\), entryIds, targetEntryId\)/);
-  assert.match(chatWindowSource, /element\.scrollIntoView\(\{ block: "center" \}\)/);
   assert.match(chatWindowSource, /classList\.add\("entry-jump-flash"\)/);
   assert.match(chatWindowSource, /onTargetEntryHandled\?\.\(targetEntryId, true\)/);
   // The render window grows after messages load, so the effect must re-run on it.
@@ -83,9 +84,26 @@ test("chat loads the window containing the target, then scrolls and flashes it",
   assert.match(chatWindowSource, /data-entry-id=\{entryIds\[idx\]\}/);
 });
 
+test("chat highlights the query in the matched message and scrolls to the keyword", () => {
+  assert.match(chatWindowSource, /applyTextHighlight\(\s*element,\s*buildMatcher\(jumpTarget\.query, jumpTarget\.mode \?\? "substring", jumpTarget\.caseSensitive \?\? false\),/);
+  assert.match(chatWindowSource, /const scrollTarget = matches\[0\]\?\.startContainer\.parentElement \?\? element/);
+  assert.match(chatWindowSource, /scrollTarget\.scrollIntoView\(\{ block: "center" \}\)/);
+  // A stale or invalid regex target must not break the jump itself.
+  assert.match(chatWindowSource, /\} catch \{[\s\S]{0,160}matches = \[\];/);
+  // Cleared on the next jump and on unmount, not on a timer like the flash.
+  assert.match(chatWindowSource, /clearFlash\(\);\s+clearTextHighlight\(\);/);
+  // The rule is injected at runtime and self-contained: the build CSS parser
+  // rejects the pseudo-element, and a var() that fails to resolve through the
+  // highlight inheritance chain would silently drop the background.
+  assert.match(highlightSource, /::highlight\(\$\{name\}\)/);
+  assert.match(highlightSource, /color: #111827/);
+  assert.doesNotMatch(globalsCss, /^::highlight\(/m);
+  assert.doesNotMatch(globalsCss, /--search-highlight/);
+});
+
 test("app shell keeps the jump target across a same-session click and clears it after", () => {
-  assert.match(appShellSource, /setPendingEntryId\(targetEntryId \?\? null\);[\s\S]{0,800}selectedSession\.id === session\.id/);
-  assert.match(appShellSource, /targetEntryId=\{pendingEntryId\}/);
+  assert.match(appShellSource, /setPendingJump\(jumpTarget \?\? null\);[\s\S]{0,800}selectedSession\.id === session\.id/);
+  assert.match(appShellSource, /jumpTarget=\{pendingJump\}/);
   assert.match(appShellSource, /onTargetEntryHandled=\{handleTargetEntryHandled\}/);
 });
 

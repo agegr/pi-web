@@ -12,6 +12,7 @@
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import { listAllSessions } from "./session-reader";
+import { buildMatcher, type MatchMode, type TextMatcher } from "./text-match";
 import type { SessionInfo } from "./types";
 
 export const SESSION_SEARCH_ROLES = [
@@ -30,7 +31,9 @@ export type SessionSearchRole = (typeof SESSION_SEARCH_ROLES)[number];
 /** Conversation text only. Tool traffic is opt-in because it dominates hits. */
 export const DEFAULT_SESSION_SEARCH_ROLES: SessionSearchRole[] = ["user", "assistant"];
 
-export type SessionSearchMode = "substring" | "words" | "regex";
+/** Search modes are the shared text-match modes. */
+export type SessionSearchMode = MatchMode;
+export { buildMatcher as buildSessionMatcher } from "./text-match";
 
 export const MAX_QUERY_LENGTH = 200;
 /** Hard cap on session files opened for one request. */
@@ -150,65 +153,6 @@ export function parseSessionSearchQuery(params: URLSearchParams): SessionSearchQ
 // ---------------------------------------------------------------------------
 // matching
 // ---------------------------------------------------------------------------
-
-export interface SessionMatcher {
-  /** Ascending, non-overlapping match ranges, capped at `limit`. */
-  find(text: string, limit: number): Array<{ start: number; end: number }>;
-}
-
-/**
- * Build the matcher for one query.
- * - `substring`: the whole query is one literal needle.
- * - `words`: every whitespace-separated term must appear in the same segment.
- * - `regex`: user-supplied pattern; an invalid pattern throws.
- */
-export function buildSessionMatcher(
-  query: string,
-  mode: SessionSearchMode,
-  caseSensitive: boolean,
-): SessionMatcher {
-  if (mode === "regex") {
-    // Validated once here so a bad pattern becomes a 400 instead of a 500.
-    const source = new RegExp(query, caseSensitive ? "g" : "gi");
-    return {
-      find(text, limit) {
-        source.lastIndex = 0;
-        const out: Array<{ start: number; end: number }> = [];
-        let match: RegExpExecArray | null;
-        while ((match = source.exec(text)) !== null) {
-          const length = match[0].length;
-          out.push({ start: match.index, end: match.index + Math.max(1, length) });
-          if (length === 0) source.lastIndex += 1;
-          if (out.length >= limit) break;
-        }
-        return out;
-      },
-    };
-  }
-
-  const terms = (mode === "words" ? query.split(/\s+/) : [query]).filter(Boolean);
-  const needles = caseSensitive ? terms : terms.map((term) => term.toLowerCase());
-
-  return {
-    find(text, limit) {
-      if (needles.length === 0) return [];
-      const haystack = caseSensitive ? text : text.toLowerCase();
-      if (needles.length > 1 && !needles.every((needle) => haystack.includes(needle))) {
-        return [];
-      }
-      const out: Array<{ start: number; end: number }> = [];
-      for (const needle of needles) {
-        let index = haystack.indexOf(needle);
-        while (index !== -1 && out.length < limit) {
-          out.push({ start: index, end: index + needle.length });
-          index = haystack.indexOf(needle, index + needle.length);
-        }
-        if (out.length >= limit) break;
-      }
-      return out.sort((a, b) => a.start - b.start);
-    },
-  };
-}
 
 /**
  * Build the display snippet around one match. Whitespace is collapsed so a
@@ -367,7 +311,7 @@ interface FileScan {
 
 async function scanSessionFile(
   filePath: string,
-  matcher: SessionMatcher,
+  matcher: TextMatcher,
   roles: ReadonlySet<SessionSearchRole>,
   hitsPerSession: number,
   signal?: AbortSignal,
@@ -444,7 +388,7 @@ export async function searchSessionContents(
     };
   }
 
-  const matcher = buildSessionMatcher(query, options.mode, options.caseSensitive);
+  const matcher = buildMatcher(query, options.mode, options.caseSensitive);
   const roles = new Set<SessionSearchRole>(
     options.roles.length > 0 ? options.roles : DEFAULT_SESSION_SEARCH_ROLES,
   );

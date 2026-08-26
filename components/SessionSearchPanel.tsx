@@ -10,6 +10,7 @@ import type {
   SessionSearchResponse,
   SessionSearchResult,
 } from "@/lib/session-search";
+import type { ChatJumpTarget } from "@/lib/chat-jump";
 
 /** Longer than the file search debounce: this scans session files. */
 const SEARCH_DEBOUNCE_MS = 320;
@@ -20,8 +21,8 @@ interface Props {
   projectKey: string | null;
   /** Display name of the selected project, shown on the scope toggle. */
   projectLabel: string | null;
-  /** Called with the clicked result and, for a snippet click, the entry to open at. */
-  onSelectResult: (result: SessionSearchResult, entryId?: string) => void;
+  /** Called with the clicked result and where the chat should jump to. */
+  onSelectResult: (result: SessionSearchResult, jump: ChatJumpTarget) => void;
   onClose: () => void;
 }
 
@@ -143,6 +144,18 @@ export function SessionSearchPanel({ projectKey, projectLabel, onSelectResult, o
 
   const results = response?.results ?? [];
 
+  // The panel owns the query, so it builds the jump target: the chat highlights
+  // the same keywords it matched on, with the same mode and case sensitivity.
+  const jumpTo = (result: SessionSearchResult, entryId?: string): ChatJumpTarget | null => {
+    const target = entryId ?? result.hits[0]?.entryId;
+    if (!target) return null;
+    return { entryId: target, query: trimmed, mode: "substring", caseSensitive: false };
+  };
+  const openResult = (result: SessionSearchResult, entryId?: string) => {
+    const jump = jumpTo(result, entryId);
+    if (jump) onSelectResult(result, jump);
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: 0, flex: "1 1 0" }}>
       <div style={{ padding: "8px 10px 6px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
@@ -258,7 +271,7 @@ export function SessionSearchPanel({ projectKey, projectLabel, onSelectResult, o
                     opens it at that specific message. */}
                 <button
                   type="button"
-                  onClick={() => onSelectResult(result)}
+                  onClick={() => openResult(result)}
                   title={t("sidebar.searchOpenSession")}
                   style={{
                     display: "block", width: "100%", textAlign: "left", font: "inherit",
@@ -284,7 +297,7 @@ export function SessionSearchPanel({ projectKey, projectLabel, onSelectResult, o
                     key={`${hit.entryId}:${index}`}
                     hit={hit}
                     label={t("sidebar.searchJumpToMessage")}
-                    onClick={() => onSelectResult(result, hit.entryId)}
+                    onClick={() => openResult(result, hit.entryId)}
                   />
                 ))}
                 {result.moreHits && (

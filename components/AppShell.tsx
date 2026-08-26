@@ -48,6 +48,7 @@ import {
   SIDEBAR_MIN_WIDTH,
 } from "@/lib/panel-layout";
 import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@/lib/types";
+import type { ChatJumpTarget } from "@/lib/chat-jump";
 import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -96,8 +97,8 @@ export function AppShell() {
     if (soundEnabledRef.current) playDoneSound();
   }, [playDoneSound, soundEnabledRef]);
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
-  /** Entry the chat should scroll to after loading, set by conversation search. */
-  const [pendingEntryId, setPendingEntryId] = useState<string | null>(null);
+  /** Message the chat should scroll to and highlight, set by conversation search. */
+  const [pendingJump, setPendingJump] = useState<ChatJumpTarget | null>(null);
   const [sessionCatalog, setSessionCatalog] = useState<SessionInfo[]>([]);
   const handleSessionsChange = useCallback((sessions: SessionInfo[]) => {
     setSessionCatalog(sessions);
@@ -618,13 +619,13 @@ export function AppShell() {
   const handleSelectSession = useCallback((
     session: SessionInfo,
     isRestore = false,
-    targetEntryId?: string | null,
+    jumpTarget?: ChatJumpTarget | null,
   ) => {
     invalidateWorkspaceRestore();
     activeNewSessionDraftKeyRef.current = null;
     // Set before the same-session early return below, so jumping to another
     // search hit inside the already-open session still scrolls.
-    setPendingEntryId(targetEntryId ?? null);
+    setPendingJump(jumpTarget ?? null);
     // Re-clicking the already-open session must not remount the chat and
     // re-run the full load/positioning cycle. Only skip when the effective
     // cwd context already matches — otherwise a pending cwd move still needs
@@ -663,7 +664,7 @@ export function AppShell() {
 
   /** Clear the jump target once ChatWindow has acted on it (or gave up). */
   const handleTargetEntryHandled = useCallback(() => {
-    setPendingEntryId(null);
+    setPendingJump(null);
   }, []);
 
   const handleNewSession = useCallback((sessionId: string, cwd: string) => {
@@ -2291,7 +2292,7 @@ export function AppShell() {
               onContextUsageChange={handleContextUsageChange}
               onOpenFile={handleOpenLinkedFile}
               onOpenSession={handleOpenSession}
-              targetEntryId={pendingEntryId}
+              jumpTarget={pendingJump}
               onTargetEntryHandled={handleTargetEntryHandled}
               soundEnabled={soundEnabled}
               onSoundToggle={onSoundToggle}

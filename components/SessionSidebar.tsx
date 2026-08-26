@@ -14,6 +14,7 @@ import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import { SessionSearchPanel } from "./SessionSearchPanel";
 import type { SessionSearchResult } from "@/lib/session-search";
+import type { ChatJumpTarget } from "@/lib/chat-jump";
 
 declare global {
   interface Window {
@@ -84,7 +85,7 @@ function ToolbarIconButton({
 
 interface Props {
   selectedSessionId: string | null;
-  onSelectSession: (session: SessionInfo, isRestore?: boolean, targetEntryId?: string | null) => void;
+  onSelectSession: (session: SessionInfo, isRestore?: boolean, jumpTarget?: ChatJumpTarget | null) => void;
   onNewSession?: (sessionId: string, cwd: string) => void;
   initialSessionId?: string | null;
   skipInitialProjectSelection?: boolean;
@@ -885,15 +886,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // Done on the click path (not via the selectedCwd prop sync) so it also
   // works when the prop value won't change — e.g. re-clicking the already
   // open session after manually switching worktrees.
-  const handleSelectSessionFromList = useCallback((s: SessionInfo, targetEntryId?: string | null) => {
+  const handleSelectSessionFromList = useCallback((s: SessionInfo, jumpTarget?: ChatJumpTarget | null) => {
     if (s.cwd) setSelectedCwd(s.cwd);
-    onSelectSession(s, false, targetEntryId);
+    onSelectSession(s, false, jumpTarget);
   }, [onSelectSession]);
 
   // A search result may belong to a project that is not currently selected, so
   // fall back to a SessionInfo built from the result when the cached session
   // list does not have it (stale list, or a session written after the refresh).
-  const handleSelectSearchResult = useCallback((result: SessionSearchResult, entryId?: string) => {
+  const handleSelectSearchResult = useCallback((result: SessionSearchResult, jumpTarget: ChatJumpTarget) => {
     const known = allSessions.find((session) => session.id === result.sessionId);
     handleSelectSessionFromList(known ?? {
       path: result.path,
@@ -905,7 +906,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       messageCount: result.messageCount,
       firstMessage: result.firstMessage,
       projectKey: result.projectKey,
-    }, entryId ?? result.hits[0]?.entryId ?? null);
+    }, jumpTarget);
   }, [allSessions, handleSelectSessionFromList]);
 
   // Ctrl/Cmd+Shift+F toggles conversation search, mirroring the editor idiom

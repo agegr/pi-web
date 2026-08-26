@@ -88,6 +88,8 @@ lib/
   rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
   session-reader.ts   SessionManager wrappers + path cache + buildSessionContext adapter
   session-search.ts   bounded streaming content search over session JSONL files
+  text-match.ts       substring/words/regex matcher shared by search and highlight
+  text-highlight.ts   ::highlight() ranges for the keyword highlight in the chat
   chat-jump.ts        maps a jump target entry to the chat row that can be scrolled to
   subagent-settings.ts  read/write ~/.pi/agent/agents/settings.json
   tool-presets.ts     PRESET_NONE/READ_ONLY/DEFAULT/FULL + getPresetFromTools()
@@ -167,6 +169,30 @@ state the previous one changed: fetch (`entryIds` grows) -> render window
 catches up (`visibleCount` grows) -> scroll and flash. Tool results and
 collapsed process messages have no row of their own, so `lib/chat-jump.ts`
 falls back to the nearest earlier row via `messageRefs`.
+
+### Keyword highlight uses ranges, not markup
+The jumped-to message is highlighted through the CSS Custom Highlight API
+(`lib/text-highlight.ts`, which injects its own self-contained `::highlight()`
+rule: the build CSS parser rejects that pseudo-element, and highlight
+pseudo-elements resolve custom properties through the highlight inheritance
+chain, so a `var(--theme-color)` there can silently drop just the background and
+leave a keyword underlined but unhighlighted), never by wrapping
+text in `<mark>`: that DOM belongs to React (markdown, code blocks, tool
+output), and splitting its text nodes would invalidate the node references
+React diffs against. Ranges live outside the DOM, so a re-render can only drop
+the highlight, never corrupt the message. Chrome/Edge 105+, Safari 17.2+, and
+Firefox 140+ paint it; elsewhere it degrades to the row flash alone.
+
+Text nodes are concatenated without separators before matching, like
+find-in-page, so a keyword split across inline markup still matches and a match
+may span several nodes. The chat scrolls to the first matched range instead of
+the message, because a long matched message would otherwise still have to be
+read to find the keyword.
+
+`lib/text-match.ts` exists for that highlight: `lib/session-search.ts` reaches
+`node:fs` through `session-reader`, so the matcher had to move to a module the
+browser bundle can import. A test asserts both client-side modules stay free of
+server-only imports.
 
 ### ToolCall field normalization
 Pi stores toolCall blocks as `{type:"toolCall", id, name, arguments}` but `ToolCallContent` uses `{toolCallId, toolName, input}`. `normalizeToolCalls()` in `lib/normalize.ts` handles this — called in both `session-reader.ts` (file load) and `ChatWindow.handleAgentEvent()` (streaming).

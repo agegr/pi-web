@@ -6,6 +6,17 @@
 // mapped to the nearest row at or before it, expressed as the index into
 // ChatWindow's `messageRefs` (which counts user/assistant messages in order).
 
+import type { MatchMode } from "./text-match";
+
+/** Where the chat should jump, and what to highlight once it gets there. */
+export interface ChatJumpTarget {
+  entryId: string;
+  /** Query to highlight inside the message. Omitted for a plain jump. */
+  query?: string;
+  mode?: MatchMode;
+  caseSensitive?: boolean;
+}
+
 /** Roles that ChatWindow renders as their own scrollable row. */
 export function isRenderedRow(role: string): boolean {
   return role === "user" || role === "assistant";

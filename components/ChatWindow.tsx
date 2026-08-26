@@ -25,7 +25,9 @@ import {
   restoreScrollTop,
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
-import { findRowIndexForEntry, resolveJumpElement } from "@/lib/chat-jump";
+import { findRowIndexForEntry, resolveJumpElement, type ChatJumpTarget } from "@/lib/chat-jump";
+import { applyTextHighlight, clearTextHighlight } from "@/lib/text-highlight";
+import { buildMatcher } from "@/lib/text-match";
 
 interface Props {
   session: SessionInfo | null;
@@ -47,8 +49,8 @@ interface Props {
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
   onOpenFile?: (filePath: string) => void;
   onOpenSession?: (sessionId: string) => void;
-  /** Entry to scroll to and highlight once the session is loaded (search result). */
-  targetEntryId?: string | null;
+  /** Message to scroll to, plus the query to highlight in it (search result). */
+  jumpTarget?: ChatJumpTarget | null;
   /** Called once a target has been handled, so the owner can clear it. */
   onTargetEntryHandled?: (entryId: string, located: boolean) => void;
   /** Completion sound state + controls, owned by AppShell so tasks finishing in
@@ -258,7 +260,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, targetEntryId, onTargetEntryHandled, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, jumpTarget, onTargetEntryHandled, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -454,7 +456,9 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   // --- Jump to one entry (search result) ---
   // Runs in up to three passes, each triggered by the state it waits on:
   // fetch the window containing the target -> `entryIds` grows; let the render
-  // window catch up -> `visibleCount` grows; then scroll and flash the row.
+  // window catch up -> `visibleCount` grows; then scroll, flash the row, and
+  // highlight the query inside it.
+  const targetEntryId = jumpTarget?.entryId ?? null;
   const jumpRequestedRef = useRef<string | null>(null);
   const flashedElementRef = useRef<HTMLElement | null>(null);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -464,7 +468,12 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     flashedElementRef.current?.classList.remove("entry-jump-flash");
     flashedElementRef.current = null;
   }, []);
-  useEffect(() => clearFlash, [clearFlash]);
+  // The keyword highlight outlives the flash: it is what makes a long matched
+  // message readable. It is dropped on the next jump and when the chat unmounts.
+  useEffect(() => () => {
+    clearFlash();
+    clearTextHighlight();
+  }, [clearFlash]);
 
   useEffect(() => {
     if (!targetEntryId || loading) return;
@@ -495,17 +504,32 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     if (!element) return;
 
     jumpRequestedRef.current = null;
-    element.scrollIntoView({ block: "center" });
+    clearTextHighlight();
+    let matches: Range[] = [];
+    if (jumpTarget?.query) {
+      try {
+        matches = applyTextHighlight(
+          element,
+          buildMatcher(jumpTarget.query, jumpTarget.mode ?? "substring", jumpTarget.caseSensitive ?? false),
+        );
+      } catch {
+        // An invalid regex from a stale target must not break the jump.
+        matches = [];
+      }
+    }
+    // Scroll to the keyword rather than the message when we found one: a long
+    // matched message would otherwise still have to be read to find it.
+    const scrollTarget = matches[0]?.startContainer.parentElement ?? element;
+    scrollTarget.scrollIntoView({ block: "center" });
     clearFlash();
     element.classList.add("entry-jump-flash");
     flashedElementRef.current = element;
     flashTimerRef.current = setTimeout(clearFlash, 2400);
     onTargetEntryHandled?.(targetEntryId, true);
   }, [
-    targetEntryId, loading, entryIds, messages, visibleCount, session, activeLeafId,
+    targetEntryId, jumpTarget, loading, entryIds, messages, visibleCount, session, activeLeafId,
     loadContext, onTargetEntryHandled, sessionIdRef, scrollContainerRef, messageRefs, clearFlash,
   ]);
-
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
   const hasStreamingContent = Boolean(streamState.streamingMessage?.content.length);
