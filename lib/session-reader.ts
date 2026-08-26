@@ -407,6 +407,96 @@ export function getSessionEntries(filePath: string): SessionEntry[] {
   return entries as unknown as SessionEntry[];
 }
 
+/**
+ * Reverse-stream the active branch of an append-only JSONL session.
+ *
+ * `SessionManager.open().getEntries()` parses the whole file, which costs
+ * seconds on multi-MB sessions. When the caller only needs the last `tail`
+ * entries reachable from `leafId`, we can read the file backwards, parse each
+ * line on the fly, and walk the `parentId` chain — O(tail) bytes for huge
+ * files. Falls back to the SDK loader on any structural surprise.
+ *
+ * Iterative by design: a linear session's chain length equals its entry
+ * count, so a recursive walk would overflow the call stack.
+ */
+export function loadRecentEntries(
+  filePath: string,
+  options: { leafId?: string | null; tail?: number; excludeLeaf?: boolean } = {},
+): SessionEntry[] {
+  const tail = options.tail && options.tail > 0 ? Math.min(options.tail, 1000) : 50;
+  const excludeLeaf = options.excludeLeaf === true;
+  const SCAN_CHUNK = 1 << 20; // 1 MiB forward chunks; the tail block is one
+  const fd = openSync(filePath, "r");
+  try {
+    const fileSize = fstatSync(fd).size;
+    if (fileSize === 0) return [];
+
+    // 1. Read the last chunk; it should contain the last entry (leaf) and
+    //    usually enough earlier lines to finish the parentId walk in-memory.
+    let end = fileSize;
+    let start = Math.max(0, end - SCAN_CHUNK);
+    let chunk = Buffer.allocUnsafe(end - start);
+    readSync(fd, chunk, 0, chunk.length, start);
+
+    // 2. Pull entries out of [start, end), back-to-front, until we have
+    //    `tail` ancestors of leafId (or hit the start of the file).
+    const chain: SessionEntry[] = [];
+    const byId = new Map<string, SessionEntry>();
+    let leaf: SessionEntry | undefined;
+
+    // Sliding read of the file from the right, one SCAN_CHUNK block at a time.
+    while (true) {
+      const text = chunk.toString("utf8");
+      const lines = text.split("\n");
+      if (start > 0 && text.length > 0 && !text.endsWith("\n")) lines.pop();
+      // Iterate lines in reverse so the file's last (leaf) line is first.
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const raw = lines[i].endsWith("\r") ? lines[i].slice(0, -1) : lines[i];
+        if (!raw) continue;
+        let entry: SessionEntry;
+        try { entry = JSON.parse(raw) as SessionEntry; } catch { continue; }
+        if (!entry || typeof entry.id !== "string") continue;
+        byId.set(entry.id, entry);
+        if (!leaf && (options.leafId == null || entry.id === options.leafId)) {
+          leaf = entry;
+        }
+      }
+      // Have we collected enough ancestors to satisfy the request?
+      if (leaf && countAncestors(leaf, byId) + (excludeLeaf ? 0 : 1) >= tail) break;
+      if (start === 0) break; // scanned whole file
+      end = start;
+      start = Math.max(0, end - SCAN_CHUNK);
+      const next = Buffer.allocUnsafe(end - start);
+      readSync(fd, next, 0, next.length, start);
+      // Concatenate so the next iteration sees [start, end) as a single
+      // text block; reusing the old buffer alias would leave stale tail bytes.
+      chunk = start === 0 ? next : Buffer.concat([next, chunk]);
+    }
+
+    if (!leaf) return [];
+    // 3. Walk the parent chain from leaf, collecting up to `tail` entries
+    //    (excluding leaf itself when excludeLeaf, matching sliceActiveBranch).
+    let cursor: SessionEntry | undefined = excludeLeaf
+      ? (leaf.parentId ? byId.get(leaf.parentId) : undefined)
+      : leaf;
+    while (cursor && chain.length < tail) {
+      chain.push(cursor);
+      cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
+    }
+    chain.reverse();
+    return chain;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function countAncestors(leaf: SessionEntry, byId: Map<string, SessionEntry>): number {
+  let n = 0;
+  let cur: SessionEntry | undefined = leaf.parentId ? byId.get(leaf.parentId) : undefined;
+  while (cur) { n += 1; cur = cur.parentId ? byId.get(cur.parentId) : undefined; }
+  return n;
+}
+
 function getSessionSettings(entries: SessionEntry[], leafId?: string | null): Pick<SessionContext, "thinkingLevel" | "model"> {
   if (leafId === null) return { thinkingLevel: "off", model: null };
   const byId = new Map(entries.map((entry) => [entry.id, entry]));

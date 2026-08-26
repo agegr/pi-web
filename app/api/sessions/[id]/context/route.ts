@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { resolveSessionPath, buildSessionContext } from "@/lib/session-reader";
+import { resolveSessionPath, buildSessionContext, loadRecentEntries } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-manager";
 
 export async function GET(
@@ -30,7 +30,17 @@ export async function GET(
     const sm = liveRpc?.inner.sessionManager ?? SessionManager.open(filePath!);
     // `before` is the oldest entry already on the client; fetch its ancestors
     // only (excludeLeaf) so prepending the page does not duplicate `before`.
-    const context = buildSessionContext(sm.getEntries() as never, before ?? leafId, {
+    // On-disk sessions: use the tail-aware reverse-stream reader instead of
+    // the SDK's full getEntries() — multi-MB sessions were spending seconds
+    // parsing lines we'd then throw away.
+    const entries = liveRpc
+      ? (sm.getEntries() as never)
+      : (loadRecentEntries(filePath!, {
+          leafId: leafId ?? null,
+          tail,
+          excludeLeaf: Boolean(before),
+        }) as never);
+    const context = buildSessionContext(entries, before ?? leafId, {
       deferThinking,
       deferToolResultImages,
       tail,
