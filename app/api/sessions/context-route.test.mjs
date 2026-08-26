@@ -44,3 +44,23 @@ test("context route data reports when pagination reaches the root", () => {
   assert.deepEqual(page.entryIds, []);
   assert.equal(page.hasMore, false);
 });
+
+// --- Jump target (?from) --------------------------------------------------
+
+test("context route wires ?from through and reports the anchor it loaded", () => {
+  assert.match(routeSrc, /const from = url\.searchParams\.get\("from"\)/);
+  assert.match(routeSrc, /fromEntryId: from/);
+  assert.match(routeSrc, /anchorEntryId: from && context\.entryIds\.includes\(from\) \? from : null/);
+});
+
+test("context route: ?from returns a window that still ends at the leaf", () => {
+  const entries = [];
+  for (let i = 0; i < 100; i++) {
+    entries.push({ id: `e${i}`, parentId: i === 0 ? null : `e${i - 1}`, type: "message", timestamp: new Date(1000 + i * 1000).toISOString(), message: { role: "user", content: `m${i}` } });
+  }
+  const jump = buildSessionContext(entries, "e99", { tail: 5, fromEntryId: "e40", fromLead: 2 });
+  assert.equal(jump.entryIds[0], "e38");
+  assert.equal(jump.entryIds[jump.entryIds.length - 1], "e99");
+  assert.ok(jump.entryIds.includes("e40"), "the jump target must be loaded");
+  assert.equal(jump.hasMore, true, "older history stays pageable after a jump");
+});

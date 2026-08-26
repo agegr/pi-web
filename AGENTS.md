@@ -52,6 +52,7 @@ app/api/
   sessions/[id]/context/route.ts  GET ?leafId= — context for a specific leaf
   sessions/[id]/export/route.ts   GET exported HTML for a session
   sessions/search/route.ts        GET ?q= — full-text search over stored sessions
+  sessions/[id]/context/route.ts  ...also GET ?from= — window containing a jump target
   agent/new/route.ts              POST { cwd, message, toolNames?, provider?, modelId? }
   agent/[id]/route.ts             GET state | POST any command
   agent/[id]/events/route.ts      GET SSE stream
@@ -87,6 +88,7 @@ lib/
   rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
   session-reader.ts   SessionManager wrappers + path cache + buildSessionContext adapter
   session-search.ts   bounded streaming content search over session JSONL files
+  chat-jump.ts        maps a jump target entry to the chat row that can be scrolled to
   subagent-settings.ts  read/write ~/.pi/agent/agents/settings.json
   tool-presets.ts     PRESET_NONE/READ_ONLY/DEFAULT/FULL + getPresetFromTools()
   tool-preset-preference.ts  browser-persisted default for fresh sessions
@@ -151,6 +153,20 @@ and the per-session hit cap. Candidate sessions come from `listAllSessions()`
 so project scoping matches the sidebar exactly and no request can name a file
 outside the sessions directory. Tool traffic (`toolCall`/`toolResult`/`bash`)
 is opt-in because it otherwise drowns out conversation hits.
+
+### Jumping to an old message keeps the upward-only paging model
+The chat only ever pages upward (`?before=`), so loaded messages must stay a
+contiguous run that ends at the leaf. `?from=<entryId>` therefore returns
+everything from that entry (plus a short lead-in) through the leaf — a superset
+of the normal tail page, not an isolated window — and refuses the jump
+(`anchorEntryId: null`, normal tail page returned) when the entry is unknown,
+on another branch, or farther back than `MAX_JUMP_ENTRIES`.
+
+On the client the jump completes over up to three renders, each waiting on the
+state the previous one changed: fetch (`entryIds` grows) -> render window
+catches up (`visibleCount` grows) -> scroll and flash. Tool results and
+collapsed process messages have no row of their own, so `lib/chat-jump.ts`
+falls back to the nearest earlier row via `messageRefs`.
 
 ### ToolCall field normalization
 Pi stores toolCall blocks as `{type:"toolCall", id, name, arguments}` but `ToolCallContent` uses `{toolCallId, toolName, input}`. `normalizeToolCalls()` in `lib/normalize.ts` handles this — called in both `session-reader.ts` (file load) and `ChatWindow.handleAgentEvent()` (streaming).

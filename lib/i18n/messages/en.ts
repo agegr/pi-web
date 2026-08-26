@@ -226,6 +226,8 @@ export const enLocale: LocalePlugin = {
     "sidebar.searchSummary": "{matches} matches in {sessions} conversations · scanned {scanned} · {ms}ms",
     "sidebar.searchTruncated": "stopped early, narrow the search",
     "sidebar.searchMatchCount": "{count} hits",
+    "sidebar.searchOpenSession": "Open this conversation at the first match",
+    "sidebar.searchJumpToMessage": "Jump to this message",
     "sidebar.searchMoreHits": "+{count} more matches",
     "sidebar.changedFiles": "{count} changed files",
     "sidebar.loading": "Loading...",

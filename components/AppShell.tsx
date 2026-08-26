@@ -96,6 +96,8 @@ export function AppShell() {
     if (soundEnabledRef.current) playDoneSound();
   }, [playDoneSound, soundEnabledRef]);
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
+  /** Entry the chat should scroll to after loading, set by conversation search. */
+  const [pendingEntryId, setPendingEntryId] = useState<string | null>(null);
   const [sessionCatalog, setSessionCatalog] = useState<SessionInfo[]>([]);
   const handleSessionsChange = useCallback((sessions: SessionInfo[]) => {
     setSessionCatalog(sessions);
@@ -613,9 +615,16 @@ export function AppShell() {
     router.replace("/", { scroll: false });
   }, [activeCwd, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);
 
-  const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
+  const handleSelectSession = useCallback((
+    session: SessionInfo,
+    isRestore = false,
+    targetEntryId?: string | null,
+  ) => {
     invalidateWorkspaceRestore();
     activeNewSessionDraftKeyRef.current = null;
+    // Set before the same-session early return below, so jumping to another
+    // search hit inside the already-open session still scrolls.
+    setPendingEntryId(targetEntryId ?? null);
     // Re-clicking the already-open session must not remount the chat and
     // re-run the full load/positioning cycle. Only skip when the effective
     // cwd context already matches — otherwise a pending cwd move still needs
@@ -651,6 +660,11 @@ export function AppShell() {
       router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
     }
   }, [invalidateWorkspaceRestore, router, isMobile, selectedSession]);
+
+  /** Clear the jump target once ChatWindow has acted on it (or gave up). */
+  const handleTargetEntryHandled = useCallback(() => {
+    setPendingEntryId(null);
+  }, []);
 
   const handleNewSession = useCallback((sessionId: string, cwd: string) => {
     invalidateWorkspaceRestore();
@@ -2277,6 +2291,8 @@ export function AppShell() {
               onContextUsageChange={handleContextUsageChange}
               onOpenFile={handleOpenLinkedFile}
               onOpenSession={handleOpenSession}
+              targetEntryId={pendingEntryId}
+              onTargetEntryHandled={handleTargetEntryHandled}
               soundEnabled={soundEnabled}
               onSoundToggle={onSoundToggle}
               playDoneSound={playDoneSound}

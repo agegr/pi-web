@@ -25,6 +25,7 @@ import {
   restoreScrollTop,
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
+import { findRowIndexForEntry, resolveJumpElement } from "@/lib/chat-jump";
 
 interface Props {
   session: SessionInfo | null;
@@ -46,6 +47,10 @@ interface Props {
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
   onOpenFile?: (filePath: string) => void;
   onOpenSession?: (sessionId: string) => void;
+  /** Entry to scroll to and highlight once the session is loaded (search result). */
+  targetEntryId?: string | null;
+  /** Called once a target has been handled, so the owner can clear it. */
+  onTargetEntryHandled?: (entryId: string, located: boolean) => void;
   /** Completion sound state + controls, owned by AppShell so tasks finishing in
    *  a non-active workspace can still ring. */
   soundEnabled?: boolean;
@@ -253,7 +258,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, targetEntryId, onTargetEntryHandled, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -445,6 +450,62 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const revealHistoryForMinimap = useCallback(() => {
     setVisibleCount((current) => Math.max(current, messages.length * 2));
   }, [messages.length]);
+
+  // --- Jump to one entry (search result) ---
+  // Runs in up to three passes, each triggered by the state it waits on:
+  // fetch the window containing the target -> `entryIds` grows; let the render
+  // window catch up -> `visibleCount` grows; then scroll and flash the row.
+  const jumpRequestedRef = useRef<string | null>(null);
+  const flashedElementRef = useRef<HTMLElement | null>(null);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearFlash = useCallback(() => {
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = null;
+    flashedElementRef.current?.classList.remove("entry-jump-flash");
+    flashedElementRef.current = null;
+  }, []);
+  useEffect(() => clearFlash, [clearFlash]);
+
+  useEffect(() => {
+    if (!targetEntryId || loading) return;
+    const sid = session?.id ?? sessionIdRef.current;
+    if (!sid) return;
+
+    if (!entryIds.includes(targetEntryId)) {
+      // One attempt per target: a refused jump must not retry on every render.
+      if (jumpRequestedRef.current === targetEntryId) return;
+      jumpRequestedRef.current = targetEntryId;
+      void loadContext(sid, activeLeafId, null, targetEntryId).then((anchorEntryId) => {
+        // On success `entryIds` changes and re-runs this effect; on failure the
+        // session still opened, just without a located target.
+        if (!anchorEntryId) onTargetEntryHandled?.(targetEntryId, false);
+      });
+      return;
+    }
+
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const rowIndex = findRowIndexForEntry(messages.map((m) => m.role), entryIds, targetEntryId);
+    // Entry ids are short hex strings; keep the selector free of user input.
+    const exact = /^[\w-]+$/.test(targetEntryId)
+      ? container.querySelector<HTMLElement>(`[data-entry-id="${targetEntryId}"]`)
+      : null;
+    const element = resolveJumpElement(messageRefs.current, rowIndex, exact);
+    // Not rendered yet: the visibleCount effect widens the window and re-runs us.
+    if (!element) return;
+
+    jumpRequestedRef.current = null;
+    element.scrollIntoView({ block: "center" });
+    clearFlash();
+    element.classList.add("entry-jump-flash");
+    flashedElementRef.current = element;
+    flashTimerRef.current = setTimeout(clearFlash, 2400);
+    onTargetEntryHandled?.(targetEntryId, true);
+  }, [
+    targetEntryId, loading, entryIds, messages, visibleCount, session, activeLeafId,
+    loadContext, onTargetEntryHandled, sessionIdRef, scrollContainerRef, messageRefs, clearFlash,
+  ]);
+
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
   const hasStreamingContent = Boolean(streamState.streamingMessage?.content.length);
@@ -801,7 +862,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 );
                 if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;
                 return (
-                  <div key={`${keyPrefix}-${idx}`} ref={attachVisibleRef(idx, currentRefIdx)}>
+                  <div key={`${keyPrefix}-${idx}`} data-entry-id={entryIds[idx]} ref={attachVisibleRef(idx, currentRefIdx)}>
                     {view}
                   </div>
                 );

@@ -252,6 +252,31 @@ body {
   to { opacity: 0.06; }
 }
 
+/* Flash the row a conversation-search result jumped to, so the eye can find it
+   after the scroll. Added imperatively by ChatWindow and removed on a timer. */
+.entry-jump-flash {
+  border-radius: 8px;
+  animation: entry-jump-flash 2.4s ease-out;
+}
+
+@keyframes entry-jump-flash {
+  0%, 45% {
+    background: rgba(37, 99, 235, 0.16);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.32);
+  }
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entry-jump-flash {
+    animation: none;
+    background: rgba(37, 99, 235, 0.16);
+  }
+}
+
 button.extension-widget-trigger {
   cursor: pointer;
   transition: background 0.12s, color 0.12s;

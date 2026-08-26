@@ -510,3 +510,14 @@ test("keeps a detached viewport in place when streaming completes", () => {
   assert.doesNotMatch(scrollEffectSource, /\|\|/);
   assert.match(source, /addEventListener\("scroll", handleScrollPositionChange/);
 });
+
+test("loadContext reports the jump anchor so the chat can scroll to a search hit", () => {
+  const loadContextSource = source.slice(
+    source.indexOf("const loadContext = useCallback"),
+    source.indexOf("const loadTools = useCallback"),
+  );
+  assert.match(loadContextSource, /from\?: string \| null,/);
+  assert.match(loadContextSource, /\): Promise<string \| null> => \{/);
+  assert.match(loadContextSource, /if \(from\) params\.set\("from", from\)/);
+  assert.match(loadContextSource, /return d\.anchorEntryId \?\? null/);
+});

@@ -518,18 +518,33 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [setToolPresetState]);
 
-  const loadContext = useCallback(async (sid: string, leafId: string | null, before?: string | null) => {
+  /**
+   * Load one page of the active branch.
+   *
+   * `before` pages upward (prepend the ancestors of the oldest loaded entry).
+   * `from` jumps: the server returns the window starting just before that entry
+   * and still ending at the leaf, which replaces the loaded messages. Returns
+   * the anchor entry id the server actually loaded, or null when it could not
+   * (unknown entry, other branch, or too far back).
+   */
+  const loadContext = useCallback(async (
+    sid: string,
+    leafId: string | null,
+    before?: string | null,
+    from?: string | null,
+  ): Promise<string | null> => {
     try {
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
       if (leafId) params.set("leafId", leafId);
       // Page upward: ask the server for the `tail` ancestors preceding `before`,
       // then prepend them. Omitting `before` fetches the most-recent `tail`.
       if (before) params.set("before", before);
+      if (from) params.set("from", from);
       const url = `/api/sessions/${encodeURIComponent(sid)}/context?${params}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json() as { context: SessionData["context"] };
-      if (sessionIdRef.current !== sid) return;
+      const d = await res.json() as { context: SessionData["context"]; anchorEntryId?: string | null };
+      if (sessionIdRef.current !== sid) return null;
       setHistoryCursor(d.context.oldestEntryId);
       setHasEarlierMessages(d.context.hasMore);
       setData((prev) => {
@@ -551,8 +566,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setMessages(d.context.messages);
         setEntryIds(d.context.entryIds ?? []);
       }
+      return d.anchorEntryId ?? null;
     } catch (e) {
       console.error("Failed to load context:", e);
+      return null;
     }
   }, []);
 

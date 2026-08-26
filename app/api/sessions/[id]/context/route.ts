@@ -18,6 +18,10 @@ export async function GET(
   const rawTail = Number(url.searchParams.get("tail"));
   const tail = Number.isFinite(rawTail) && rawTail > 0 ? Math.min(rawTail, 1000) : 50;
   const before = url.searchParams.get("before") ?? undefined;
+  // `from` is a jump target (search result / deep link): return the window that
+  // starts just before it and still reaches the leaf, so the client keeps its
+  // "loaded messages end at the leaf, page upward only" invariant.
+  const from = url.searchParams.get("from") ?? undefined;
 
   try {
     const rpc = getRpcSession(id);
@@ -36,9 +40,17 @@ export async function GET(
       tail,
       excludeLeaf: Boolean(before),
       sessionId: id,
+      fromEntryId: from,
     });
 
-    return NextResponse.json({ context, tail, before: before ?? null });
+    return NextResponse.json({
+      context,
+      tail,
+      before: before ?? null,
+      // Null when the target is on another branch, unknown, or too far from the
+      // leaf to ship; the response is then the normal newest page.
+      anchorEntryId: from && context.entryIds.includes(from) ? from : null,
+    });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

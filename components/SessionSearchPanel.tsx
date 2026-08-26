@@ -20,8 +20,8 @@ interface Props {
   projectKey: string | null;
   /** Display name of the selected project, shown on the scope toggle. */
   projectLabel: string | null;
-  /** Called with the clicked result; the sidebar resolves it to a session. */
-  onSelectResult: (result: SessionSearchResult) => void;
+  /** Called with the clicked result and, for a snippet click, the entry to open at. */
+  onSelectResult: (result: SessionSearchResult, entryId?: string) => void;
   onClose: () => void;
 }
 
@@ -46,17 +46,29 @@ function projectName(cwd: string): string {
   return parts[parts.length - 1] || cwd;
 }
 
-function HitRow({ hit }: { hit: SessionSearchHit }) {
+function HitRow({ hit, label, onClick }: { hit: SessionSearchHit; label: string; onClick: () => void }) {
   return (
-    <div
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
       style={{
+        display: "block",
+        width: "100%",
+        textAlign: "left",
+        font: "inherit",
         fontSize: 10.5,
         lineHeight: 1.5,
         color: "var(--text-muted)",
-        padding: "2px 0 2px 8px",
+        background: "none",
+        border: "none",
         borderLeft: "2px solid var(--border)",
+        padding: "2px 0 2px 8px",
+        cursor: "pointer",
         wordBreak: "break-word",
       }}
+      onMouseEnter={(event) => { event.currentTarget.style.borderLeftColor = "var(--accent)"; }}
+      onMouseLeave={(event) => { event.currentTarget.style.borderLeftColor = "var(--border)"; }}
     >
       <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 9.5 }}>
         {hit.tool ? `${hit.role}:${hit.tool}` : hit.role}
@@ -69,7 +81,7 @@ function HitRow({ hit }: { hit: SessionSearchHit }) {
       </mark>
       {hit.suffix}
       {hit.clippedEnd ? "…" : ""}
-    </div>
+    </button>
   );
 }
 
@@ -238,39 +250,49 @@ export function SessionSearchPanel({ projectKey, projectLabel, onSelectResult, o
               {response.stats.truncated ? ` · ${t("sidebar.searchTruncated")}` : ""}
             </div>
             {results.map((result) => (
-              <button
+              <div
                 key={result.sessionId}
-                type="button"
-                onClick={() => onSelectResult(result)}
-                style={{
-                  display: "block", width: "100%", textAlign: "left",
-                  background: "none", border: "none", borderBottom: "1px solid var(--border)",
-                  padding: "8px 12px", cursor: "pointer", color: "var(--text)",
-                }}
-                onMouseEnter={(event) => { event.currentTarget.style.background = "var(--bg-hover)"; }}
-                onMouseLeave={(event) => { event.currentTarget.style.background = "none"; }}
+                style={{ borderBottom: "1px solid var(--border)", padding: "6px 12px 8px" }}
               >
-                <div style={{ display: "flex", alignItems: "baseline", gap: 6, fontSize: 9.5, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-                  <span>{formatTime(result.modified)}</span>
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {projectName(result.cwd)}
-                  </span>
-                  <span style={{ marginLeft: "auto", flexShrink: 0 }}>
-                    {t("sidebar.searchMatchCount", { count: result.matchCount })}
-                  </span>
-                </div>
-                <div style={{ fontSize: 11.5, padding: "2px 0 4px", lineHeight: 1.4, wordBreak: "break-word" }}>
-                  {resultTitle(result)}
-                </div>
+                {/* Header opens the session at its first hit; each snippet below
+                    opens it at that specific message. */}
+                <button
+                  type="button"
+                  onClick={() => onSelectResult(result)}
+                  title={t("sidebar.searchOpenSession")}
+                  style={{
+                    display: "block", width: "100%", textAlign: "left", font: "inherit",
+                    background: "none", border: "none", padding: "2px 0 4px", cursor: "pointer",
+                    color: "var(--text)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 6, fontSize: 9.5, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+                    <span>{formatTime(result.modified)}</span>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {projectName(result.cwd)}
+                    </span>
+                    <span style={{ marginLeft: "auto", flexShrink: 0 }}>
+                      {t("sidebar.searchMatchCount", { count: result.matchCount })}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11.5, padding: "2px 0 0", lineHeight: 1.4, wordBreak: "break-word" }}>
+                    {resultTitle(result)}
+                  </div>
+                </button>
                 {result.hits.map((hit, index) => (
-                  <HitRow key={`${hit.entryId}:${index}`} hit={hit} />
+                  <HitRow
+                    key={`${hit.entryId}:${index}`}
+                    hit={hit}
+                    label={t("sidebar.searchJumpToMessage")}
+                    onClick={() => onSelectResult(result, hit.entryId)}
+                  />
                 ))}
                 {result.moreHits && (
-                  <div style={{ fontSize: 10, color: "var(--text-dim)", paddingLeft: 8, paddingTop: 2 }}>
+                  <div style={{ fontSize: 10, color: "var(--text-dim)", paddingLeft: 10, paddingTop: 2 }}>
                     {t("sidebar.searchMoreHits", { count: result.matchCount - result.hits.length })}
                   </div>
                 )}
-              </button>
+              </div>
             ))}
           </>
         )}

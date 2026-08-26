@@ -439,6 +439,70 @@ export interface BuildSessionContextOptions {
   excludeLeaf?: boolean;
   /** Session id used to build lazy URLs for historical tool-result images. */
   sessionId?: string;
+  /**
+   * Jump target: return the active-branch window that starts at this entry (plus
+   * `fromLead` ancestors for context) and runs to the leaf, instead of the
+   * newest `tail` entries. Ignored when the entry is not on the active branch
+   * or is farther from the leaf than `fromMaxEntries`.
+   */
+  fromEntryId?: string;
+  fromLead?: number;
+  fromMaxEntries?: number;
+}
+
+/** Default context entries kept before a jump target. */
+export const DEFAULT_JUMP_LEAD = 6;
+/**
+ * Upper bound on a jump window. A jump must stay contiguous with the leaf —
+ * the client only pages upward — so reaching a very old entry means shipping
+ * everything after it. Beyond this the jump is refused instead of sending a
+ * huge payload, and the caller falls back to the normal tail page.
+ */
+export const MAX_JUMP_ENTRIES = 2000;
+
+/**
+ * Extract the active-branch window ending at the leaf and starting `lead`
+ * entries before `fromId`. Returns null when `fromId` is not an ancestor of the
+ * leaf (wrong branch, or unknown id) or when the window would exceed `max`.
+ */
+export function sliceBranchFromEntry(
+  entries: SessionEntry[],
+  leafId: string | null,
+  fromId: string,
+  lead = DEFAULT_JUMP_LEAD,
+  max = MAX_JUMP_ENTRIES,
+): SessionEntry[] | null {
+  const byId = new Map<string, SessionEntry>();
+  for (const e of entries) byId.set(e.id, e);
+
+  const leaf = leafId ? byId.get(leafId) : entries[entries.length - 1];
+  if (!leaf) return null;
+
+  // Walk leaf -> root and stop at the target, so "is it on this branch" and
+  // "how far away is it" are answered in one pass.
+  const chain: SessionEntry[] = [];
+  let current: SessionEntry | undefined = leaf;
+  let found = false;
+  while (current) {
+    chain.push(current);
+    if (current.id === fromId) {
+      found = true;
+      break;
+    }
+    if (chain.length > max) return null;
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+  if (!found) return null;
+
+  // Extend past the target for lead-in context.
+  let ancestor = current?.parentId ? byId.get(current.parentId) : undefined;
+  for (let i = 0; i < lead && ancestor; i += 1) {
+    chain.push(ancestor);
+    ancestor = ancestor.parentId ? byId.get(ancestor.parentId) : undefined;
+  }
+
+  chain.reverse();
+  return chain;
 }
 
 export function buildSessionContext(
@@ -447,9 +511,21 @@ export function buildSessionContext(
   options: BuildSessionContextOptions = {},
 ): SessionContext {
   const { tail, excludeLeaf } = options;
+  // A jump window (search result, deep link) wins over the newest-page slice,
+  // but falls back to it when the target is unreachable or too far away.
+  const jumped = options.fromEntryId
+    ? sliceBranchFromEntry(
+      entries,
+      leafId ?? null,
+      options.fromEntryId,
+      options.fromLead ?? DEFAULT_JUMP_LEAD,
+      options.fromMaxEntries ?? MAX_JUMP_ENTRIES,
+    )
+    : null;
   // Restrict SDK conversion and the response payload to the requested page.
-  const sliced = tail && tail > 0 ? sliceActiveBranch(entries, leafId ?? null, tail, excludeLeaf) : entries;
-  const hasMore = Boolean(tail && tail > 0 && sliced[0]?.parentId);
+  const sliced = jumped
+    ?? (tail && tail > 0 ? sliceActiveBranch(entries, leafId ?? null, tail, excludeLeaf) : entries);
+  const hasMore = Boolean((jumped || (tail && tail > 0)) && sliced[0]?.parentId);
   const byId = new Map<string, SessionEntry>();
   for (const e of sliced) byId.set(e.id, e);
 

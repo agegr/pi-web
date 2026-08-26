@@ -226,6 +226,8 @@ export const zhCNLocale: LocalePlugin = {
     "sidebar.searchSummary": "{sessions} 个对话中命中 {matches} 处 · 已扫描 {scanned} 个 · {ms}ms",
     "sidebar.searchTruncated": "已提前结束，请缩小搜索范围",
     "sidebar.searchMatchCount": "{count} 处命中",
+    "sidebar.searchOpenSession": "打开该对话并定位到第一处命中",
+    "sidebar.searchJumpToMessage": "跳转到这条消息",
     "sidebar.searchMoreHits": "另有 {count} 处匹配",
     "sidebar.changedFiles": "{count} 个变更文件",
     "sidebar.loading": "加载中...",
