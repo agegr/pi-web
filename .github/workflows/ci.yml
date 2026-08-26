@@ -62,4 +62,24 @@ jobs:
           node e2e/j3-model-agent.spec.mjs
           node e2e/j4-files-project.spec.mjs
           node e2e/j5-settings-ops.spec.mjs
+          node e2e/j5-settings-ops.spec.mjs
           node e2e/j6-api-health.spec.mjs
+
+  perf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Start dev server
+        run: npm run dev -- -H 127.0.0.1 -p 3100 &
+      - name: Wait for server
+        run: |
+          timeout 180 bash -c 'until curl -sf http://127.0.0.1:3100; do sleep 2; done'
+          echo ready
+      - name: Performance bench (quantified load, trend not SLA)
+        run: node e2e/perf-bench.mjs
