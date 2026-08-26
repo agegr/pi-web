@@ -342,6 +342,10 @@ test("keeps the first-token clock from prompt submission", () => {
     source.indexOf('case "connected"'),
     source.indexOf('case "agent_start"'),
   );
+  const firstTokenEventSource = source.slice(
+    source.indexOf("function isFirstTokenEvent"),
+    source.indexOf("function hasModelOutput"),
+  );
   const sendSource = source.slice(
     source.indexOf("  const handleSend = useCallback"),
     source.indexOf("    try {", source.indexOf("  const handleSend = useCallback")),
@@ -362,10 +366,13 @@ test("keeps the first-token clock from prompt submission", () => {
     source.indexOf("  const loadContext = useCallback"),
     source.indexOf("  const loadTools = useCallback"),
   );
-  assert.match(sendSource, /timestamp: Date\.now\(\)[\s\S]*?dispatch\(\{ type: "start" \}\)/);
+  assert.match(sendSource, /timestamp: Date\.now\(\)[\s\S]*?firstTokenStartedAtRef\.current = Date\.now\(\)/);
+  assert.doesNotMatch(firstTokenEventSource, /toolcall/);
+  assert.match(source, /const startedAt = firstTokenStartedAtRef\.current/);
   assert.match(connectedSource, /if \(!agentRunningRef\.current\) dispatch\(\{ type: "end" \}\)/);
   assert.doesNotMatch(userMessageEndSource, /dispatch\(\{ type: "end" \}\)/);
   assert.match(assistantMessageEndSource, /dispatch\(\{ type: "end" \}\)/);
+  assert.match(assistantMessageEndSource, /hasModelOutput\(finished\)[\s\S]*firstTokenSecondsRef\.current !== null/);
   assert.match(assistantMessageEndSource, /firstTokenSecondsByMessageRef\.current\.set/);
   assert.match(loadSessionSource, /restoreFirstTokenSeconds\(persistedMessages/);
   assert.match(loadContextSource, /restoreFirstTokenSeconds\(d\.context\.messages/);

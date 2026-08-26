@@ -97,7 +97,7 @@ function restoreFirstTokenSeconds(messages: AgentMessage[], stored: ReadonlyMap<
   if (stored.size === 0) return messages;
   let changed = false;
   const restored = messages.map((message): AgentMessage => {
-    if (message.role !== "assistant" || message.timestamp === undefined) return message;
+    if (message.role !== "assistant" || message.timestamp === undefined || !hasModelOutput(message)) return message;
     const key = firstTokenKey(sessionId, message);
     const seconds = key === null ? undefined : stored.get(key);
     if (seconds === undefined) return message;
@@ -109,8 +109,11 @@ function restoreFirstTokenSeconds(messages: AgentMessage[], stored: ReadonlyMap<
 
 function isFirstTokenEvent(event: ClientAssistantMessageEvent): boolean {
   return event.type === "text_start" || event.type === "text_delta" || event.type === "text_end"
-    || event.type === "thinking_start" || event.type === "thinking_delta" || event.type === "thinking_end"
-    || event.type === "toolcall_start" || event.type === "toolcall_delta" || event.type === "toolcall_end";
+    || event.type === "thinking_start" || event.type === "thinking_delta" || event.type === "thinking_end";
+}
+
+function hasModelOutput(message: AssistantMessage): boolean {
+  return message.content.some((block) => block.type === "text" || block.type === "thinking");
 }
 
 type ExtensionUiDialogRequest = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>;
@@ -313,6 +316,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const streamStateRef = useRef(streamState);
   streamStateRef.current = streamState;
   const firstTokenSecondsRef = useRef<number | null>(null);
+  const firstTokenStartedAtRef = useRef<number | null>(null);
   const firstTokenSecondsByMessageRef = useRef(new Map<string, number>());
   const [agentRunning, setAgentRunning] = useState(false);
   const [bashRunning, setBashRunning] = useState(false);
@@ -859,6 +863,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setAgentRunning(false);
     setAgentPhase(null);
     setRetryInfo(null);
+    firstTokenSecondsRef.current = null;
+    firstTokenStartedAtRef.current = null;
     dispatch({ type: "end" });
     return wasRunning;
   }, []);
@@ -1075,7 +1081,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     const captureFirstToken = () => {
       if (firstTokenSecondsRef.current !== null) return;
-      const startedAt = streamStateRef.current.startedAt;
+      const startedAt = firstTokenStartedAtRef.current;
       if (startedAt === null) return;
       firstTokenSecondsRef.current = Math.max(0, (Date.now() - startedAt) / 1000);
     };
@@ -1233,11 +1239,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         } else if (completed) {
           const finished = normalizeToolCalls(completed);
           let message = finished;
-          if (finished.role === "assistant" && firstTokenSecondsRef.current !== null) {
+          if (finished.role === "assistant" && hasModelOutput(finished) && firstTokenSecondsRef.current !== null) {
             const key = firstTokenKey(sessionIdRef.current, finished);
             if (key) firstTokenSecondsByMessageRef.current.set(key, firstTokenSecondsRef.current);
             message = { ...finished, firstTokenSeconds: firstTokenSecondsRef.current };
             firstTokenSecondsRef.current = null;
+            firstTokenStartedAtRef.current = null;
           }
           setMessages((prev) => [...prev, message]);
           dispatch({ type: "end" });
@@ -1360,6 +1367,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setAgentRunning(true);
     setAgentPhase(isSlashCommandPrompt ? { kind: "running_command" } : { kind: "waiting_model" });
     firstTokenSecondsRef.current = null;
+    firstTokenStartedAtRef.current = Date.now();
     dispatch({ type: "start" });
     pendingScrollToUserRef.current = true;
     setPromptAnchorActive(true);

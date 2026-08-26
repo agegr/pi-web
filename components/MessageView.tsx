@@ -670,6 +670,11 @@ function AssistantMessageView({
     .filter((b): b is TextContent => b.type === "text")
     .map((b) => b.text)
     .join("\n");
+  const firstTokenText = !isStreaming
+    && message.firstTokenSeconds !== undefined
+    && message.content.some((block) => block.type === "text" || block.type === "thinking")
+    ? t("i18n.firstTokenDuration", { duration: formatFirstTokenDuration(message.firstTokenSeconds) })
+    : null;
 
   const copyContent = () => {
     copyText(textContent).then(() => {
@@ -792,9 +797,6 @@ function AssistantMessageView({
             </>
           );
         })()}
-        {!isStreaming && message.firstTokenSeconds !== undefined && (
-          <span style={{ padding: "1px 6px", borderRadius: 4, background: "var(--bg-hover)", color: "var(--text-dim)", fontSize: 11, fontWeight: 400, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{t("i18n.firstTokenDuration", { duration: formatFirstTokenDuration(message.firstTokenSeconds) })}</span>
-        )}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -831,9 +833,9 @@ function AssistantMessageView({
       <div style={{
         display: "flex", alignItems: "center", gap: 8, marginTop: 4,
       }}>
-        {message.usage && !isStreaming && (
+        {(message.usage || firstTokenText) && !isStreaming && (
           <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
-            {formatUsage(message.usage)}
+            {formatUsage(message.usage, firstTokenText)}
           </div>
         )}
         {textContent && !isStreaming && (
@@ -1717,13 +1719,16 @@ function formatUsage(usage: {
   cacheRead: number;
   cacheWrite: number;
   cost: { total: number };
-}): string {
+} | undefined, firstTokenText: string | null): string {
   const parts = [];
-  if (usage.input) parts.push(`${usage.input.toLocaleString()} in`);
-  if (usage.output) parts.push(`${usage.output.toLocaleString()} out`);
-  if (usage.cacheRead) parts.push(`${usage.cacheRead.toLocaleString()} cache R`);
-  if (usage.cacheWrite) parts.push(`${usage.cacheWrite.toLocaleString()} cache W`);
-  if (usage.cost?.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
+  if (firstTokenText) parts.push(firstTokenText);
+  if (usage) {
+    if (usage.input) parts.push(`${usage.input.toLocaleString()} in`);
+    if (usage.output) parts.push(`${usage.output.toLocaleString()} out`);
+    if (usage.cacheRead) parts.push(`${usage.cacheRead.toLocaleString()} cache R`);
+    if (usage.cacheWrite) parts.push(`${usage.cacheWrite.toLocaleString()} cache W`);
+    if (usage.cost?.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
+  }
   return parts.join(" · ");
 }
 
