@@ -103,6 +103,21 @@ export interface PluginResourceInfo {
   relativePath: string;
 }
 
+export type PluginUpdateState =
+  | "update-available"
+  | "up-to-date"
+  | "unsupported"
+  | "error";
+
+export interface PluginUpdateResult {
+  source: string;
+  scope: PluginScope;
+  displayName: string;
+  type: "npm" | "git";
+  state: PluginUpdateState;
+  message?: string;
+}
+
 export interface PluginPackageInfo {
   source: string;
   scope: PluginScope;

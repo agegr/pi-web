@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sendAgentCommand } from "@/lib/agent-client";
-import type { PluginPackageInfo, PluginsResponse } from "@/lib/api-types";
+import type { PluginPackageInfo, PluginUpdateResult, PluginsResponse } from "@/lib/api-types";
+import { isPluginSourceCheckable, pluginUpdateKey } from "@/lib/plugin-update-utils";
 import { useI18n } from "@/hooks/useI18n";
 import {
   getLastSettingsSelection,
@@ -33,7 +34,7 @@ import {
 } from "./SettingsUi";
 
 type PluginScope = PluginPackageInfo["scope"];
-type PluginAction = "install" | "remove" | "update" | "disable" | "enable";
+type PluginAction = "install" | "remove" | "update" | "update-all" | "disable" | "enable";
 
 function shortenPath(path: string): string {
   return path.replace(/^\/(?:Users|home)\/[^/]+/, "~");
@@ -414,7 +415,11 @@ function PackageDetail({
   actionError,
   actionMessage,
   sessionId,
+  updateStatus,
+  checkingUpdate,
+  updateError,
   onAction,
+  onCheckUpdate,
   onReloadSession,
 }: {
   pkg: PluginPackageInfo;
@@ -423,7 +428,11 @@ function PackageDetail({
   actionError: string | null;
   actionMessage: string | null;
   sessionId: string | null;
-  onAction: (action: PluginAction, pkg: PluginPackageInfo) => void;
+  updateStatus?: PluginUpdateResult;
+  checkingUpdate: boolean;
+  updateError: string | null;
+  onAction: (action: Exclude<PluginAction, "update-all">, pkg: PluginPackageInfo) => void;
+  onCheckUpdate: () => void;
   onReloadSession: () => void;
 }) {
   const { t } = useI18n();
@@ -431,6 +440,8 @@ function PackageDetail({
   const busy = busyKey?.endsWith(key) ?? false;
   const reloadBusy = busyKey === "reload";
   const enabled = !pkg.disabled;
+  const canCheckForUpdates = isPluginSourceCheckable(pkg.source);
+  const updateAvailable = updateStatus?.state === "update-available";
 
   return (
     <ConfigDetailStack>
@@ -479,8 +490,10 @@ function PackageDetail({
         <ConfigDetailActions>
           <ConfigButton
             size="small"
+            variant={updateAvailable ? "primary" : undefined}
             onClick={() => onAction("update", pkg)}
             disabled={busy || reloadBusy}
+            title={updateAvailable ? t("i18n.updateAvailable") : undefined}
           >
              {busyKey === `update:${key}` ? t("i18n.updating") : t("i18n.update")}
           </ConfigButton>
@@ -521,7 +534,47 @@ function PackageDetail({
         <div style={{ color: "var(--text-dim)" }}>{t("i18n.status")}</div>
         <div style={{ color: statusColor(pkg.status), textTransform: "capitalize" }}>{pkg.status}</div>
         <div style={{ color: "var(--text-dim)" }}>{t("i18n.version")}</div>
-         <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>{versionSummary(pkg, t)}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+          <div className="skill-version-row">
+            <span className="skill-version-value">{versionSummary(pkg, t)}</span>
+            {canCheckForUpdates && (
+              <ConfigButton
+                size="small"
+                onClick={onCheckUpdate}
+                disabled={checkingUpdate || busy || reloadBusy}
+              >
+                {checkingUpdate ? t("i18n.checking") : t("i18n.check")}
+              </ConfigButton>
+            )}
+            {updateAvailable && (
+              <span className="skill-version-value is-update" title={updateStatus.displayName}>
+                {t("i18n.updateAvailable")}
+              </span>
+            )}
+            {canCheckForUpdates && (checkingUpdate || (updateStatus && !updateAvailable)) && (
+              <span
+                className={`skill-update-status ${checkingUpdate
+                  ? "is-checking"
+                  : updateStatus?.state === "up-to-date"
+                    ? "is-success"
+                    : updateStatus?.state === "error"
+                      ? "is-error"
+                      : "is-muted"}`}
+              >
+                {checkingUpdate
+                  ? t("i18n.checking")
+                  : updateStatus?.state === "up-to-date"
+                    ? t("i18n.upToDate")
+                    : updateStatus?.state === "unsupported"
+                      ? t("i18n.automaticChecksUnavailable")
+                      : updateStatus?.message || t("i18n.checkFailed")}
+              </span>
+            )}
+          </div>
+          {updateError && (
+            <span style={{ fontSize: 12, color: "#ef4444" }}>{updateError}</span>
+          )}
+        </div>
         <div style={{ color: "var(--text-dim)" }}>{t("i18n.package")}</div>
         <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
           {pkg.packageName ?? t("i18n.unknown")}
@@ -587,6 +640,11 @@ export function PluginsConfig({
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [updateStatuses, setUpdateStatuses] = useState<Record<string, PluginUpdateResult>>({});
+  const [checkingUpdates, setCheckingUpdates] = useState<Set<string>>(new Set());
+  const [checkingAll, setCheckingAll] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [updatingAll, setUpdatingAll] = useState(false);
 
   const packages = useMemo(() => data?.packages ?? [], [data?.packages]);
   const selectedPackage = packages.find((pkg) => packageKey(pkg) === selected) ?? null;
@@ -619,14 +677,85 @@ export function PluginsConfig({
   }, [cwd]);
 
   useEffect(() => {
+    setUpdateStatuses({});
+    setUpdateError(null);
     void loadPlugins();
-  }, [loadPlugins]);
+  }, [cwd]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (selected) setLastSettingsSelection("plugins", selected, cwd);
   }, [cwd, selected]);
 
-  const runAction = useCallback(async (action: PluginAction, pkg: PluginPackageInfo) => {
+  const checkForUpdates = useCallback(async (pkg?: PluginPackageInfo) => {
+    const targets = pkg ? [pkg] : packages.filter((item) => isPluginSourceCheckable(item.source));
+    const keys = targets.map((item) => pluginUpdateKey(item.source, item.scope));
+    if (keys.length === 0) return;
+
+    setUpdateError(null);
+    setCheckingUpdates((current) => new Set([...current, ...keys]));
+    if (!pkg) setCheckingAll(true);
+    try {
+      const res = await fetch("/api/plugins/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cwd,
+          source: pkg?.source,
+          scope: pkg?.scope,
+        }),
+      });
+      const data = (await res.json()) as {
+        updates?: PluginUpdateResult[];
+        error?: string;
+      };
+      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setUpdateStatuses((current) => {
+        const next = { ...current };
+        for (const update of data.updates ?? []) {
+          next[pluginUpdateKey(update.source, update.scope)] = update;
+        }
+        return next;
+      });
+    } catch (err) {
+      setUpdateError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCheckingUpdates((current) => {
+        const next = new Set(current);
+        for (const key of keys) next.delete(key);
+        return next;
+      });
+      if (!pkg) setCheckingAll(false);
+    }
+  }, [cwd, packages]);
+
+  const updateAllPluginsAction = useCallback(async () => {
+    setUpdatingAll(true);
+    setActionError(null);
+    setActionMessage(null);
+    setUpdateError(null);
+    try {
+      const res = await fetch("/api/plugins", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update-all", cwd }),
+      });
+      const next = (await res.json()) as PluginsResponse & { error?: string };
+      if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
+      setData(next);
+      setUpdateStatuses({});
+      setActionMessage(t("i18n.packagesUpdated"));
+      if (sessionId) {
+        setActionMessage(`${t("i18n.packagesUpdated")} ${t("agents.reloadRequired")}`);
+      }
+      await checkForUpdates();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUpdatingAll(false);
+    }
+  }, [checkForUpdates, cwd, sessionId, t]);
+
+  const runAction = useCallback(async (action: Exclude<PluginAction, "update-all">, pkg: PluginPackageInfo) => {
     const key = packageKey(pkg);
     setBusyKey(`${action}:${key}`);
     setActionError(null);
@@ -644,21 +773,34 @@ export function PluginsConfig({
         setSelected(next.packages[0] ? packageKey(next.packages[0]) : null);
         if (next.packages.length === 0) setAddMode(true);
         setActionMessage("Package removed.");
+        setUpdateStatuses((current) => {
+          const nextStatuses = { ...current };
+          delete nextStatuses[key];
+          return nextStatuses;
+        });
       } else {
-        const messages: Record<Exclude<PluginAction, "remove">, string> = {
+        const messages: Record<Exclude<PluginAction, "remove" | "update-all">, string> = {
           install: "Package installed.",
           update: "Package updated.",
           disable: "Package disabled.",
           enable: "Package enabled.",
         };
         setActionMessage(messages[action]);
+        if (action === "update") {
+          setUpdateStatuses((current) => {
+            const nextStatuses = { ...current };
+            delete nextStatuses[key];
+            return nextStatuses;
+          });
+          void checkForUpdates(pkg);
+        }
       }
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusyKey(null);
     }
-  }, [cwd]);
+  }, [checkForUpdates, cwd]);
 
   const installPlugin = useCallback(async () => {
     const source = normalizePluginSourceInput(installSource).trim();
@@ -707,6 +849,11 @@ export function PluginsConfig({
   }, [loadPlugins, onReloaded, sessionId]);
 
   const addBusy = busyKey?.startsWith("install:") ?? false;
+  const availableUpdateCount = Object.values(updateStatuses).filter(
+    (status) => status.state === "update-available",
+  ).length;
+  const hasCheckablePackages = packages.some((pkg) => isPluginSourceCheckable(pkg.source));
+  const footerBusy = loading || busyKey !== null || checkingAll || updatingAll;
 
   return (
     <ConfigPanelShell embedded={embedded} title={t("common.plugins")} subtitle={shortenPath(cwd)} closeLabel={t("i18n.close")} onClose={onClose}>
@@ -756,6 +903,11 @@ export function PluginsConfig({
                           <ConfigSidebarText className={`is-grow${pkg.disabled ? " is-muted" : ""}`}>
                             {pkg.source}
                           </ConfigSidebarText>
+                          {updateStatuses[pluginUpdateKey(pkg.source, pkg.scope)]?.state === "update-available" && (
+                            <span title={t("i18n.updateAvailable")} className="skill-update-indicator">
+                              ↑
+                            </span>
+                          )}
                         </ConfigSidebarItem>
                       );
                     })}
@@ -798,7 +950,11 @@ export function PluginsConfig({
                 actionError={actionError}
                 actionMessage={actionMessage}
                 sessionId={sessionId}
+                updateStatus={updateStatuses[pluginUpdateKey(selectedPackage.source, selectedPackage.scope)]}
+                checkingUpdate={checkingUpdates.has(pluginUpdateKey(selectedPackage.source, selectedPackage.scope))}
+                updateError={updateError}
                 onAction={runAction}
+                onCheckUpdate={() => void checkForUpdates(selectedPackage)}
                 onReloadSession={reloadSession}
               />
               ) : (
@@ -809,7 +965,12 @@ export function PluginsConfig({
         </ConfigSplitView>
 
         <ConfigFooter status={
-            data?.diagnostics.length ? (
+            availableUpdateCount > 0 ? (
+              <span style={{ fontSize: 12, color: "#d97706" }}>
+                {availableUpdateCount}{" "}
+                {availableUpdateCount === 1 ? t("i18n.update") : t("i18n.updates")}
+              </span>
+            ) : data?.diagnostics.length ? (
               <span
                 title={data.diagnostics.map((d) => `${d.type}: ${d.source ? `${d.source}: ` : ""}${d.message}`).join("\n")}
                 style={{ color: data.diagnostics.some((d) => d.type === "error") ? "#ef4444" : "#d97706" }}
@@ -823,7 +984,26 @@ export function PluginsConfig({
             )}
         >
           {!embedded && <ConfigButton onClick={onClose}>{t("i18n.close")}</ConfigButton>}
-          <ConfigButton variant="secondary" onClick={() => void loadPlugins()} disabled={loading || busyKey !== null}>
+          {hasCheckablePackages && (
+            <ConfigButton
+              variant="secondary"
+              onClick={() => void checkForUpdates()}
+              disabled={footerBusy}
+            >
+              {checkingAll ? t("i18n.checking") : t("i18n.checkUpdates")}
+            </ConfigButton>
+          )}
+          {packages.length > 0 && (
+            <ConfigButton
+              variant={availableUpdateCount > 0 ? "primary" : "secondary"}
+              onClick={() => void updateAllPluginsAction()}
+              disabled={footerBusy}
+              title={t("i18n.updateAllPluginsHint")}
+            >
+              {updatingAll ? t("i18n.updating") : t("i18n.updateAllPlugins")}
+            </ConfigButton>
+          )}
+          <ConfigButton variant="secondary" onClick={() => void loadPlugins()} disabled={footerBusy}>
              {t("i18n.refresh")}
           </ConfigButton>
         </ConfigFooter>

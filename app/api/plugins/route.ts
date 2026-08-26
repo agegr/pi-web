@@ -12,6 +12,7 @@ import {
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getProjectTrustStatus } from "@/lib/project-trust";
+import { updateAllPlugins } from "@/lib/plugin-updates";
 import type {
   PluginDiagnostic,
   PluginPackageInfo,
@@ -24,7 +25,7 @@ import type {
 
 export const dynamic = "force-dynamic";
 
-type PluginAction = "install" | "remove" | "update" | "disable" | "enable";
+type PluginAction = "install" | "remove" | "update" | "update-all" | "disable" | "enable";
 
 function emptyCounts(): PluginResourceCounts {
   return { extensions: 0, skills: 0, prompts: 0, themes: 0 };
@@ -345,6 +346,15 @@ export async function POST(req: Request) {
       await packageManager.removeAndPersist(source, { local });
     } else if (body.action === "update") {
       await packageManager.update(source);
+    } else if (body.action === "update-all") {
+      const configuredPackages = packageManager.listConfiguredPackages();
+      if (!projectTrust.trusted && configuredPackages.some((pkg) => pkg.scope === "project")) {
+        return NextResponse.json(
+          { error: "Project resources must be trusted before updating project plugins" },
+          { status: 403 },
+        );
+      }
+      await updateAllPlugins(body.cwd);
     } else if (body.action === "disable") {
       if (!source) return NextResponse.json({ error: "source required" }, { status: 400 });
       setPackageDisabled(settingsManager, source, scope, true);
