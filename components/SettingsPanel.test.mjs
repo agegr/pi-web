@@ -10,23 +10,30 @@ const themeSource = await readFile(new URL("../hooks/useTheme.ts", import.meta.u
 const enSource = await readFile(new URL("../lib/i18n/messages/en.ts", import.meta.url), "utf8");
 const zhSource = await readFile(new URL("../lib/i18n/messages/zh-CN.ts", import.meta.url), "utf8");
 
-test("replaces the sidebar shortcuts with one settings entry", () => {
+test("opens one settings panel from direct sidebar shortcuts", () => {
   assert.match(shellSource, /<SettingsPanel/);
+  assert.match(shellSource, /setSettingsSection\(section\)/);
+  assert.match(shellSource, /initialSection=\{settingsSection\}/);
   assert.match(shellSource, /translate\("common\.settings"\)/);
+  assert.match(shellSource, /<SettingsSectionIcon section=\{section\} size=\{14\} strokeWidth=\{2\} \/>\s*<span>\{label\}<\/span>/);
+  assert.match(shellSource, /<SettingsSectionIcon section="general" size=\{14\} strokeWidth=\{2\} \/>/);
+  assert.doesNotMatch(shellSource, /\["plugins", translate\("common\.plugins"\)\]/);
   assert.doesNotMatch(shellSource, /setModelsConfigOpen|setSkillsConfigOpen|setAgentsConfigOpen|setPluginsConfigOpen/);
 });
 
-test("keeps every requested configuration surface inside the settings panel", () => {
-  for (const section of ["general", "models", "skills", "agents", "plugins"]) {
+test("keeps enabled configuration surfaces inside the settings panel", () => {
+  for (const section of ["general", "models", "skills", "plugins"]) {
     assert.match(panelSource, new RegExp(`id: "${section}"`));
   }
-  for (const component of ["ModelsConfig", "SkillsConfig", "AgentsConfig", "PluginsConfig"]) {
+  for (const component of ["ModelsConfig", "SkillsConfig", "PluginsConfig"]) {
     assert.match(panelSource, new RegExp(`<${component} embedded`));
   }
+  assert.doesNotMatch(panelSource, /id: "agents"|<AgentsConfig embedded/);
 });
 
 test("restores the settings section and each list detail selection", async () => {
-  assert.match(panelSource, /getLastSettingsSection\(cwd\)/);
+  assert.match(shellSource, /getLastSettingsSection\(projectTrustCwd\)/);
+  assert.match(panelSource, /setLastSettingsSection\(initialSection\)/);
   assert.match(panelSource, /setLastSettingsSection\(nextSection\)/);
   for (const name of ["ModelsConfig", "SkillsConfig", "AgentsConfig", "PluginsConfig"]) {
     assert.match(
@@ -52,9 +59,7 @@ test("offers direct light, dark, and system theme selection", () => {
   assert.match(themeSource, /const setThemePreference = useCallback/);
 });
 
-test("centers the sidebar settings label and keeps General free of divider rows", () => {
-  assert.match(shellSource, /position: "relative", width: "100%"[\s\S]*?display: "grid", placeItems: "center"/);
-  assert.match(shellSource, /aria-hidden="true" style=\{\{ position: "absolute", left: 10 \}\}/);
+test("keeps General free of divider rows", () => {
   assert.match(panelSource, /className="settings-dialog-header"/);
   assert.match(cssSource, /\.settings-dialog-header \{[\s\S]*?display: flex[\s\S]*?align-items: center[\s\S]*?min-height: 50px/);
   assert.doesNotMatch(panelSource, /sections\.find\(\(item\) => item\.id === section\)/);
@@ -93,4 +98,8 @@ test("uses the child-session robot glyph for the sub-agents tab", () => {
   assert.match(sidebarSource, robotGlyph);
   assert.match(panelSource, /section === "agents"[\s\S]*?className="settings-section-icon is-agent"/);
   assert.match(cssSource, /\.settings-section-icon\.is-agent \{[\s\S]*?transform: scale\(1\.25\)/);
+});
+
+test("uses the compact controls glyph for General", () => {
+  assert.match(panelSource, /section === "general"[\s\S]*?<path d="M20 7h-9M14 17H5" \/>[\s\S]*?<circle cx="7" cy="7" r="3" \/>[\s\S]*?<circle cx="17" cy="17" r="3" \/>/);
 });

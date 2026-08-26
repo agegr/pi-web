@@ -31,6 +31,7 @@ import type { SessionEntry } from "./types";
 import { buildSubagentPromptPlan } from "./subagent-prompt";
 import { appendSubagentInputFiles, loadSubagentInputFiles } from "./subagent-input";
 import { projectTrustReloadOptions } from "./project-trust";
+import { resolveShellTools } from "./powershell-settings";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 
 interface HostSession {
@@ -51,7 +52,6 @@ export interface SubagentRuntimeDependencies {
   reopenSession(sessionId: string, sessionFile: string): Promise<HostSession>;
   resolveSessionPath(sessionId: string): Promise<string | null>;
   invalidateSessionList(): void;
-  notifyRunningChange(): void;
   isBuiltInSubagentsEnabled?(): boolean;
 }
 
@@ -201,7 +201,10 @@ export function createSubagentController(
       const extensionToolNames = profile.loadExtensions
         ? services.resourceLoader.getExtensions().extensions.flatMap((extension) => [...extension.tools.keys()])
         : [];
-      const activeTools = withSubagentExtensionTools(profile.tools, extensionToolNames);
+      const activeTools = resolveShellTools(
+        withSubagentExtensionTools(profile.tools, extensionToolNames),
+        settingsManager.getDefaultTools(),
+      );
 
       const sessionManager = SessionManager.create(parent.cwd, undefined, { parentSession: parent.sessionFile });
       const createdAt = new Date().toISOString();
@@ -339,7 +342,6 @@ export function createSubagentController(
         request.onUpdate?.(result);
         getSubagentRuns().delete(initialRun.sessionId);
         dependencies.invalidateSessionList();
-        dependencies.notifyRunningChange();
         return result;
       })();
 

@@ -150,6 +150,8 @@ test("live detail and state routes work without a persisted JSONL file", async (
 
   assert.equal(detailResponse.status, 200);
   assert.equal(detail.info.transient, true);
+  assert.equal(detail.info.projectRoot, "/tmp");
+  assert.equal(typeof detail.info.projectKey, "string");
   assert.deepEqual(detail.context.messages.map((message) => message.content), ["hello live"]);
   assert.equal(stateResponse.status, 200);
   assert.deepEqual(await stateResponse.json(), {

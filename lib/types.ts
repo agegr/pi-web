@@ -337,8 +337,10 @@ export interface SessionInfo {
    *  Unlike projectRoot, Windows keys are case- and separator-insensitive.
    *  Internal only: use projectRoot/cwd for display and filesystem operations. */
   projectKey?: string;
-  /** Branch name when cwd is a linked git worktree (not the main checkout) */
-  worktreeBranch?: string;
+  /** Current git branch for any git repo (undefined for non-git or detached HEAD) */
+  branch?: string;
+  /** True when cwd is a linked git worktree (not the main checkout) */
+  isWorktree?: boolean;
   /** True while the runtime session exists only in memory and its JSONL file
    *  has not been created yet. Disk-backed actions must wait until this clears. */
   transient?: boolean;

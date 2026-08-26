@@ -68,7 +68,7 @@ export function getLastSettingsSection(
   if (!storage) return "general";
   try {
     const section = readState(storage).section;
-    if (!isSettingsSection(section)) return "general";
+    if (!isSettingsSection(section) || section === "agents") return "general";
     return PROJECT_SECTIONS.has(section) && !cwd ? "general" : section;
   } catch {
     return "general";

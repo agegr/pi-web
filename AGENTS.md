@@ -55,12 +55,10 @@ app/api/
   agent/[id]/route.ts             GET state | POST any command
   agent/[id]/events/route.ts      GET SSE stream
   agent/running/route.ts          GET currently-running session ids
-  agent/running/events/route.ts   GET SSE stream of currently-running session ids
-  auth/all-providers/route.ts     GET API-key provider list
-  auth/api-key/[provider]/route.ts GET/POST/DELETE provider API key status/storage
+  auth/api-key/[provider]/route.ts POST/DELETE provider API key storage
   auth/login/[provider]/route.ts  GET OAuth/device-code SSE | POST manual code
   auth/logout/[provider]/route.ts POST OAuth logout
-  auth/providers/route.ts         GET OAuth provider list
+  auth/providers/route.ts         GET OAuth and API-key provider lists
   cwd/validate/route.ts           POST validate/select a cwd
   default-cwd/route.ts            POST create ~/pi-cwd-YYYYMMDD
   files/[...path]/route.ts        GET file contents for viewer

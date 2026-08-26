@@ -1,5 +1,5 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { buildOAuthProviderList } from "@/lib/provider-listing";
+import { buildApiKeyProviderList, buildOAuthProviderList } from "@/lib/provider-listing";
 import { collectProviderListingInputs } from "@/lib/provider-listing-runtime";
 
 export const dynamic = "force-dynamic";
@@ -8,6 +8,8 @@ export const dynamic = "force-dynamic";
 // (Claude Pro/Max) — see lib/provider-listing.ts (#309).
 export async function GET() {
   const modelRuntime = await ModelRuntime.create();
-  const providers = buildOAuthProviderList(await collectProviderListingInputs(modelRuntime));
-  return Response.json({ providers });
+  const inputs = await collectProviderListingInputs(modelRuntime);
+  const oauthProviders = buildOAuthProviderList(inputs);
+  const apiKeyProviders = buildApiKeyProviderList(inputs);
+  return Response.json({ providers: oauthProviders, oauthProviders, apiKeyProviders });
 }

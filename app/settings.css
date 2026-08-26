@@ -1031,6 +1031,27 @@
   font-size: 10px;
 }
 
+.settings-shell-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  max-width: 420px;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 5px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.settings-general-error {
+  margin: 8px 0 0;
+  color: #ef4444;
+  font-size: 11px;
+}
+
 @media (max-width: 640px) {
   .config-panel-root.is-modal > .config-panel-surface {
     width: calc(100vw - 16px);
@@ -1097,4 +1118,34 @@
 @keyframes saved-check-draw {
   from { stroke-dashoffset: 18; opacity: 0; }
   to   { stroke-dashoffset: 0;  opacity: 1; }
+}
+
+/* iOS standalone: env() can report 0, so keep a device-sized fallback on the
+   status-bar edge and cap dialog surfaces to the resulting safe box. */
+@supports (-webkit-touch-callout: none) {
+  @media (display-mode: standalone) {
+    .settings-dialog-backdrop,
+    .config-panel-root.is-modal {
+      padding-top: max(59px, env(safe-area-inset-top));
+      padding-right: max(8px, env(safe-area-inset-right));
+      padding-bottom: max(24px, env(safe-area-inset-bottom));
+      padding-left: max(8px, env(safe-area-inset-left));
+    }
+
+    .settings-dialog-surface,
+    .config-panel-root.is-modal > .config-panel-surface {
+      max-width: 100%;
+      max-height: 100%;
+    }
+  }
+
+  @media (display-mode: standalone) and (orientation: landscape) {
+    .settings-dialog-backdrop,
+    .config-panel-root.is-modal {
+      padding-top: max(8px, env(safe-area-inset-top));
+      padding-right: max(59px, env(safe-area-inset-right));
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
+      padding-left: max(59px, env(safe-area-inset-left));
+    }
+  }
 }

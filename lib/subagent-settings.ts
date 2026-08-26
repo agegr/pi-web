@@ -32,14 +32,8 @@ export function readSubagentSettings(
   return { builtInEnabled: stored.builtInEnabled === true };
 }
 
-export function isBuiltInSubagentsEnabled(
-  settingsPath = getSubagentSettingsPath(),
-): boolean {
-  try {
-    return readSubagentSettings(settingsPath).builtInEnabled;
-  } catch {
-    return false;
-  }
+export function isBuiltInSubagentsEnabled(): boolean {
+  return false;
 }
 
 export function writeBuiltInSubagentsEnabled(
