@@ -1184,6 +1184,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const msg = event.message as AgentMessage | undefined;
           if (msg?.role === "user") break;
           if (msg?.role === "assistant") {
+            if (firstTokenStartedAtRef.current === null && firstTokenSecondsRef.current === null) firstTokenStartedAtRef.current = Date.now();
             if (msg.content.length > 0) captureFirstToken();
             dispatch({ type: "snapshot", message: msg });
             if (msg.content.length > 0) setAgentPhase(null);
@@ -1282,6 +1283,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         break;
       }
       case "tool_execution_end": {
+        firstTokenStartedAtRef.current = Date.now();
         const id = event.toolCallId as string;
         setAgentPhase((prev) => {
           if (prev?.kind !== "running_tools") return prev;

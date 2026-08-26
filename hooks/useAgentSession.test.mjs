@@ -357,6 +357,10 @@ test("keeps the first-token clock from prompt submission", () => {
     assistantMessageEndStart,
     source.indexOf('case "tool_execution_start"'),
   );
+  const toolExecutionEndSource = source.slice(
+    source.indexOf('case "tool_execution_end"'),
+    source.indexOf('case "queue_update"'),
+  );
 
   const loadSessionSource = source.slice(
     source.indexOf("  const loadSession = useCallback"),
@@ -369,6 +373,8 @@ test("keeps the first-token clock from prompt submission", () => {
   assert.match(sendSource, /timestamp: Date\.now\(\)[\s\S]*?firstTokenStartedAtRef\.current = Date\.now\(\)/);
   assert.doesNotMatch(firstTokenEventSource, /toolcall/);
   assert.match(source, /const startedAt = firstTokenStartedAtRef\.current/);
+  assert.match(source, /if \(firstTokenStartedAtRef\.current === null && firstTokenSecondsRef\.current === null\) firstTokenStartedAtRef\.current = Date\.now\(\)/);
+  assert.match(toolExecutionEndSource, /firstTokenStartedAtRef\.current = Date\.now\(\)/);
   assert.match(connectedSource, /if \(!agentRunningRef\.current\) dispatch\(\{ type: "end" \}\)/);
   assert.doesNotMatch(userMessageEndSource, /dispatch\(\{ type: "end" \}\)/);
   assert.match(assistantMessageEndSource, /dispatch\(\{ type: "end" \}\)/);
