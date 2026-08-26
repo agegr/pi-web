@@ -1112,7 +1112,7 @@ function ExtensionDialog({
         aria-modal="true"
         style={{
           width: "min(560px, 100%)",
-          maxHeight: "min(760px, calc(100vh - 40px))",
+          maxHeight: "min(760px, 100%)",
           display: "flex",
           flexDirection: "column",
           border: "1px solid var(--border)",
