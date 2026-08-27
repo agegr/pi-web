@@ -164,7 +164,16 @@ const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
 const PROMPT_SETTLE_POLL_MS = 600;
 const PROMPT_SETTLE_MAX_MS = 20_000;
 const EVENT_STREAM_IDLE_GRACE_MS = 30_000;
-const AGENT_STATE_RECONCILE_MS = 15_000;
+// Reverse proxies / WAFs that buffer text/event-stream responses can hold SSE
+// frames back, leaving prompt settlement to this poll. The default keeps the
+// historical cadence; deployments behind a buffering proxy can lower it via
+// NEXT_PUBLIC_AGENT_STATE_RECONCILE_MS (e.g. 2000) to settle within ~2s.
+const AGENT_STATE_RECONCILE_MS = Number(
+  (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_AGENT_STATE_RECONCILE_MS) || 15_000,
+) || 15_000;
+// Same class of mitigation: if the connected SSE event never arrives (buffering
+// proxy), still send the prompt after this long instead of dropping it silently.
+const SSE_CONNECT_RACE_TIMEOUT_MS = 3_000;
 const BASH_STATE_RECONCILE_MS = 1_000;
 const EVENT_STREAM_READY_TIMEOUT_MS = 60_000;
 const EVENT_STREAM_RECONNECT_DELAY_MS = 1_000;
@@ -1334,7 +1343,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             await sendAgentCommand(sid, { type: "set_model", provider: selectedModel.provider, modelId: selectedModel.modelId });
           }
         }
-        await ensureEventsConnected(sid);
+        // SSE readiness is best-effort: a buffering proxy may never deliver the
+        // connected event, so race a short timeout rather than block (and
+        // silently drop) the prompt; the reconcile poll settles the UI.
+        await Promise.race([ensureEventsConnected(sid), new Promise((r) => setTimeout(r, SSE_CONNECT_RACE_TIMEOUT_MS))]);
         promptRequestStarted = true;
         await sendAgentCommand(sid, {
           type: "prompt",
@@ -1344,7 +1356,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         promoteNewSession(1, message);
       } else if (session) {
         sentSessionId = session.id;
-        await ensureEventsConnected(session.id);
+        await Promise.race([ensureEventsConnected(session.id), new Promise((r) => setTimeout(r, SSE_CONNECT_RACE_TIMEOUT_MS))]);
         promptRequestStarted = true;
         await sendAgentCommand(session.id, {
           type: "prompt",
