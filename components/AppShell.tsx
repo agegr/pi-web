@@ -610,7 +610,7 @@ export function AppShell() {
       // the default welcome page when none is remembered.
       restoreWorkspaceContext(newProject);
     }
-    router.replace("/", { scroll: false });
+    router.replace(typeof window !== "undefined" ? window.location.pathname : "/", { scroll: false });
   }, [activeCwd, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
@@ -667,7 +667,7 @@ export function AppShell() {
     setSystemInfoLoading(false);
     setActiveTopPanel(null);
     if (isMobile) setSidebarOpen(false);
-    router.replace("/", { scroll: false });
+    router.replace(typeof window !== "undefined" ? window.location.pathname : "/", { scroll: false });
   }, [invalidateWorkspaceRestore, router, isMobile]);
 
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
@@ -867,7 +867,7 @@ export function AppShell() {
       setSystemTools(null);
       setSystemInfoLoading(false);
       setActiveTopPanel(null);
-      router.replace("/", { scroll: false });
+      router.replace(typeof window !== "undefined" ? window.location.pathname : "/", { scroll: false });
     }
   }, [invalidateWorkspaceRestore, selectedSession, router]);
 
