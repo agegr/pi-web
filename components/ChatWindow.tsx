@@ -29,9 +29,11 @@ import {
 interface Props {
   session: SessionInfo | null;
   sessionRunning?: boolean;
+  /** False when this chat is kept mounted in the background so another conversation can run. */
+  isActive?: boolean;
   newSessionCwd: string | null;
   newSessionDraftKey: string | null;
-  onAgentEnd?: () => void;
+  onAgentEnd?: (session: SessionInfo | null) => void;
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
   onSessionCreated?: (session: SessionInfo, sourceDraftKey: string) => void;
   onSessionForked?: (newSessionId: string) => void;
@@ -253,7 +255,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, sessionRunning, isActive = true, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -271,8 +273,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     if (completionNotificationsEnabled && soundEnabledRef.current) {
       playDoneSoundRef.current();
     }
-    onAgentEnd?.();
-  }, [completionNotificationsEnabled, onAgentEnd]);
+    onAgentEnd?.(session);
+  }, [completionNotificationsEnabled, onAgentEnd, session]);
 
   // 稳定化 onEditContent 引用，配合 React.memo 防止历史消息重渲染
   const handleEditContent = useCallback((message: UserMessage) => {
@@ -299,7 +301,13 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     loadContext, activeLeafId,
   } = useAgentSession({
     session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
-    modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
+    modelsRefreshKey,
+    chatInputRef: isActive ? chatInputRef : undefined,
+    onBranchDataChange: isActive ? onBranchDataChange : undefined,
+    onSystemPromptChange: isActive ? onSystemPromptChange : undefined,
+    onSystemToolsChange: isActive ? onSystemToolsChange : undefined,
+    onSystemInfoLoaderChange: isActive ? onSystemInfoLoaderChange : undefined,
+    onSessionStatsPanelOpen,
   });
   const sessionBusy = agentRunning || bashRunning;
 
@@ -313,10 +321,12 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     playDoneSoundRef.current();
   }, [completionNotificationsEnabled, extensionDialog]);
 
-  // Register the abort handler for the global Esc shortcut
+  // Esc stops only the visible conversation. Background chats keep running.
   useEffect(() => {
+    if (!isActive) return;
     registerAbortHandler(sessionBusy ? handleAbort : null);
-  }, [sessionBusy, handleAbort]);
+    return () => registerAbortHandler(null);
+  }, [isActive, sessionBusy, handleAbort]);
 
   // --- Lazy-load historical messages ---
   // Only render the last N messages initially. When the user scrolls to the
@@ -394,9 +404,10 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const sessionStatsRef = useRef(sessionStats);
   sessionStatsRef.current = sessionStats;
   useEffect(() => {
+    if (!isActive) return;
     onSessionStatsChange?.(sessionStatsRef.current);
-  }, [statsKey, onSessionStatsChange]);
-  useEffect(() => () => { onSessionStatsChange?.(null); }, [onSessionStatsChange]);
+    return () => onSessionStatsChange?.(null);
+  }, [statsKey, onSessionStatsChange, isActive]);
 
   // Push context usage up to AppShell as well.
   const ctxKey = contextUsage
@@ -405,9 +416,10 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const contextUsageRef = useRef(contextUsage);
   contextUsageRef.current = contextUsage;
   useEffect(() => {
+    if (!isActive) return;
     onContextUsageChange?.(contextUsageRef.current);
-  }, [ctxKey, onContextUsageChange]);
-  useEffect(() => () => { onContextUsageChange?.(null); }, [onContextUsageChange]);
+    return () => onContextUsageChange?.(null);
+  }, [ctxKey, onContextUsageChange, isActive]);
 
   const onDrop = useCallback((files: File[]) => {
     chatInputRef?.current?.addImages(files);

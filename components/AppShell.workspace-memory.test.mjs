@@ -40,3 +40,15 @@ test("workspace restoration remains inside the cross-project branch", () => {
     /if \(currentProject !== newProject\) \{[\s\S]*?restoreWorkspaceContext\(newProject\);[\s\S]*?\}/,
   );
 });
+
+test("selecting another conversation keeps existing chats mounted", () => {
+  const selectBody = callbackBody("handleSelectSession", "handleNewSession");
+  const newBody = callbackBody("handleNewSession", "hydrateSelectedSession");
+  assert.match(selectBody, /upsertSessionPane/);
+  assert.doesNotMatch(selectBody, /setSessionKey/);
+  assert.match(newBody, /addComposerPane/);
+  assert.doesNotMatch(newBody, /setSessionKey/);
+  assert.match(source, /openPanes\.length > 0 \? openPanes/);
+  assert.match(source, /isActive=\{active\}/);
+  assert.match(source, /ConversationTabBar/);
+});

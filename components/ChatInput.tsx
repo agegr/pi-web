@@ -27,6 +27,8 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import type { ToolPreset } from "@/lib/tool-presets";
 import { ModelSelector, type ModelSelectorOption } from "./ModelSelector";
+import { VoiceMicButton } from "./VoiceMicButton";
+import { joinTranscript } from "@/lib/wav-pcm";
 
 export { filterModelOptions } from "./ModelSelector";
 
@@ -794,6 +796,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (!result.error && canClearBuiltinCommandInput(valueRef.current, attachedImagesRef.current.length, msg)) clearInput();
     return true;
   }, [attachedImages.length, clearInput, onBuiltinCommand]);
+
+  const insertTranscript = useCallback((chunk: string) => {
+    const next = joinTranscript(valueRef.current, chunk);
+    valueRef.current = next;
+    setValue(next);
+    setHistoryMenuOpen(false);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, []);
 
   const handleSend = useCallback(async () => {
     const msg = value.trim();
@@ -1971,84 +1981,86 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             }}
           />
 
-          {isStreaming ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
-              {onSteer && (
-                <button
-                  onClick={() => sendQueued("steer")}
-                  disabled={!canQueueStreamingMessage}
-                  title="Interrupt the current run and inject this message now"
-                  style={{
-                    display: "flex", alignItems: "center", gap: 5,
-                    padding: "7px 12px",
-                    background: canQueueStreamingMessage ? "rgba(234,179,8,0.12)" : "none",
-                    border: "1px solid rgba(234,179,8,0.35)",
-                    borderRadius: 8,
-                    color: canQueueStreamingMessage ? "rgba(180,130,0,1)" : "var(--text-dim)",
-                    cursor: canQueueStreamingMessage ? "pointer" : "not-allowed",
-                    fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
-                    transition: "background 0.12s",
-                  }}
-                >
-                  <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
-                  </svg>
-                  {t("chat.steer")}
-                </button>
-              )}
-              {onFollowUp && (
-                <button
-                  onClick={() => sendQueued("followup")}
-                  disabled={!canQueueStreamingMessage}
-                  title="Queue this message after the agent finishes"
-                  style={{
-                    display: "flex", alignItems: "center", gap: 5,
-                    padding: "7px 12px",
-                    background: canQueueStreamingMessage ? "rgba(129,140,248,0.12)" : "none",
-                    border: "1px solid rgba(129,140,248,0.35)",
-                    borderRadius: 8,
-                    color: canQueueStreamingMessage ? "rgba(99,102,241,1)" : "var(--text-dim)",
-                    cursor: canQueueStreamingMessage ? "pointer" : "not-allowed",
-                    fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
-                    transition: "background 0.12s",
-                  }}
-                >
-                  <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="5" y1="1" x2="5" y2="6" /><polyline points="2.5 3.5 5 1 7.5 3.5" />
-                    <line x1="2" y1="9" x2="8" y2="9" />
-                  </svg>
-                  {t("chat.followUp")}
-                </button>
-              )}
-            </div>
-          ) : (
-            <button
-              onClick={handleSend}
-              disabled={!value.trim() && !attachedImages.length}
-              style={{
-                flexShrink: 0,
-                alignSelf: "flex-end",
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "7px 14px",
-                background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
-                border: "none",
-                borderRadius: 8,
-                color: (value.trim() || attachedImages.length) ? "#fff" : "var(--text-dim)",
-                cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
-                fontSize: 13,
-                fontWeight: 600,
-                letterSpacing: "-0.01em",
-                boxShadow: (value.trim() || attachedImages.length) ? "0 1px 3px rgba(37,99,235,0.25)" : "none",
-                transition: "background 0.15s, box-shadow 0.15s",
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="2" y1="7" x2="11" y2="7" />
-                <polyline points="7.5 3 12 7 7.5 11" />
-              </svg>
-              {t("chat.send")}
-            </button>
-          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, alignSelf: "flex-end" }}>
+            <VoiceMicButton onTranscript={insertTranscript} />
+            {isStreaming ? (
+              <>
+                {onSteer && (
+                  <button
+                    onClick={() => sendQueued("steer")}
+                    disabled={!canQueueStreamingMessage}
+                    title="Interrupt the current run and inject this message now"
+                    style={{
+                      display: "flex", alignItems: "center", gap: 5,
+                      padding: "7px 12px",
+                      background: canQueueStreamingMessage ? "rgba(234,179,8,0.12)" : "none",
+                      border: "1px solid rgba(234,179,8,0.35)",
+                      borderRadius: 8,
+                      color: canQueueStreamingMessage ? "rgba(180,130,0,1)" : "var(--text-dim)",
+                      cursor: canQueueStreamingMessage ? "pointer" : "not-allowed",
+                      fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
+                      transition: "background 0.12s",
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
+                    </svg>
+                    {t("chat.steer")}
+                  </button>
+                )}
+                {onFollowUp && (
+                  <button
+                    onClick={() => sendQueued("followup")}
+                    disabled={!canQueueStreamingMessage}
+                    title="Queue this message after the agent finishes"
+                    style={{
+                      display: "flex", alignItems: "center", gap: 5,
+                      padding: "7px 12px",
+                      background: canQueueStreamingMessage ? "rgba(129,140,248,0.12)" : "none",
+                      border: "1px solid rgba(129,140,248,0.35)",
+                      borderRadius: 8,
+                      color: canQueueStreamingMessage ? "rgba(99,102,241,1)" : "var(--text-dim)",
+                      cursor: canQueueStreamingMessage ? "pointer" : "not-allowed",
+                      fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
+                      transition: "background 0.12s",
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="5" y1="1" x2="5" y2="6" /><polyline points="2.5 3.5 5 1 7.5 3.5" />
+                      <line x1="2" y1="9" x2="8" y2="9" />
+                    </svg>
+                    {t("chat.followUp")}
+                  </button>
+                )}
+              </>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={!value.trim() && !attachedImages.length}
+                title={t("chat.send")}
+                aria-label={t("chat.send")}
+                style={{
+                  flexShrink: 0,
+                  width: 36,
+                  height: 36,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: (value.trim() || attachedImages.length) ? "var(--text)" : "var(--bg-hover)",
+                  border: "none",
+                  borderRadius: 999,
+                  color: (value.trim() || attachedImages.length) ? "var(--bg)" : "var(--text-dim)",
+                  cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
+                  transition: "background 0.15s, color 0.15s",
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 19V5" />
+                  <path d="M5 12l7-7 7 7" />
+                </svg>
+              </button>
+            )}
+          </div>
           </div>
         </div>
 

@@ -382,7 +382,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   useLayoutEffect(() => {
     if (!existingSessionId && (!isNew || sessionIdRef.current)) return;
-    setToolPresetState(getPreferredToolPreset());
+    const preferred = getPreferredToolPreset();
+    // A stored "none" (chat-only) would create sessions with tools:[], so the
+    // model cannot read or write project files. New composers start with the
+    // default coding tools; chat-only still works if the user picks it.
+    if (preferred === "none") {
+      setPreferredToolPreset("default");
+      setToolPresetState("default");
+      return;
+    }
+    setToolPresetState(preferred);
   }, [existingSessionId, isNew, setToolPresetState]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {

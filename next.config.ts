@@ -20,6 +20,12 @@ const nextConfig: NextConfig = {
     "@earendil-works/pi-agent-core",
     "@earendil-works/pi-ai",
     "@earendil-works/pi-tui",
+    "sherpa-onnx-node",
+    "sherpa-onnx-win-x64",
+    "sherpa-onnx-linux-x64",
+    "sherpa-onnx-linux-arm64",
+    "sherpa-onnx-darwin-x64",
+    "sherpa-onnx-darwin-arm64",
   ],
   // Next 16 blocks cross-origin access to dev resources by default. Allow the
   // loopback and the RFC1918 LAN ranges so the dev server stays reachable

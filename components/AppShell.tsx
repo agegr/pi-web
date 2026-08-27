@@ -7,6 +7,7 @@ import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
+import { ConversationTabBar } from "./ConversationTabBar";
 import { openFileTab, saveFileViewerState } from "./file-tab-state";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
@@ -54,6 +55,16 @@ import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { FileViewerState } from "@/lib/file-viewer-state";
 import type { ToolEntry } from "@/lib/tool-presets";
 import { getSessionFamily } from "@/lib/session-family";
+import {
+  addComposerPane,
+  bumpPaneInstance,
+  evictIdlePane,
+  paneDraftKey,
+  promoteComposerPane,
+  replacePaneSession,
+  upsertSessionPane,
+  type ChatPane,
+} from "@/lib/chat-panes";
 import { getLastSettingsSection, type SettingsSection } from "@/lib/settings-navigation";
 
 type SessionCopyField = "file" | "id" | "projectDir" | "gitBranch" | "gitWorktree";
@@ -96,6 +107,8 @@ export function AppShell() {
     if (soundEnabledRef.current) playDoneSound();
   }, [playDoneSound, soundEnabledRef]);
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
+  const [openPanes, setOpenPanes] = useState<ChatPane[]>([]);
+  const [activePaneId, setActivePaneId] = useState<string | null>(null);
   const [sessionCatalog, setSessionCatalog] = useState<SessionInfo[]>([]);
   const handleSessionsChange = useCallback((sessions: SessionInfo[]) => {
     setSessionCatalog(sessions);
@@ -128,7 +141,6 @@ export function AppShell() {
   );
   const [initialCwdError, setInitialCwdError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [sessionKey, setSessionKey] = useState(0);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
@@ -449,7 +461,7 @@ export function AppShell() {
   const activeProjectKeyRef = useRef<string | null>(null);
   // True once the initial ?session= URL param has been resolved (or confirmed absent)
   const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !initialSessionId);
-  // Suppresses sessionKey bump in handleCwdChange during the initial URL restore
+  // Suppresses a fresh composer pane during the initial URL restore
   const suppressCwdBumpRef = useRef(false);
   // Guards the async workspace restore so a slow response from an earlier
   // switch cannot resurrect a session into a project the user already left.
@@ -457,6 +469,14 @@ export function AppShell() {
 
   const invalidateWorkspaceRestore = useCallback(() => {
     workspaceRestoreTokenRef.current += 1;
+  }, []);
+
+  const applyPane = useCallback((pane: ChatPane) => {
+    setActivePaneId(pane.paneId);
+    setSelectedSession(pane.session);
+    setNewSessionCwd(pane.newSessionCwd);
+    if (pane.newSessionDraftId) setNewSessionDraftId(pane.newSessionDraftId);
+    activeNewSessionDraftKeyRef.current = paneDraftKey(pane);
   }, []);
 
   // Persist every active-session transition, including new and forked sessions
@@ -533,12 +553,15 @@ export function AppShell() {
           clearLastOpen(projectKey);
           return;
         }
-        // Selecting the session must remount the chat with the session
-        // present: useAgentSession loads content in a mount-only effect, so
-        // the null-session welcome mount from the switch would never load
-        // the restored session's messages.
+        // Keep other conversations mounted; just activate (or add) this pane.
+        setOpenPanes((prev) => {
+          const next = upsertSessionPane(prev, s);
+          setActivePaneId(next.paneId);
+          return evictIdlePane(next.panes, next.paneId, runningSessionIds);
+        });
         setSelectedSession(s);
-        setSessionKey((k) => k + 1);
+        setNewSessionCwd(null);
+        activeNewSessionDraftKeyRef.current = null;
         if (new URLSearchParams(window.location.search).get("session") !== s.id) {
           router.replace(`?session=${encodeURIComponent(s.id)}`, { scroll: false });
         }
@@ -546,7 +569,7 @@ export function AppShell() {
       .catch(() => {
         // Network hiccup: keep the remembered session for a later retry.
       });
-  }, [router]);
+  }, [router, runningSessionIds]);
 
   const handleCwdChange = useCallback((
     cwd: string | null,
@@ -581,19 +604,25 @@ export function AppShell() {
     ) {
       return;
     }
-    // Close any session that belongs to a different project — it no longer
-    // matches the selected project directory.
+    // Switching projects no longer tears down other running conversations.
+    const restoringLast = currentProject !== newProject && Boolean(getLastOpenSession(newProject));
     const draftId = typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
       : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-    setNewSessionDraftId(draftId);
-    activeNewSessionDraftKeyRef.current = `new:${draftId}:${cwd}`;
-    setSelectedSession(null);
-    setNewSessionCwd((prev) => {
-      if (prev && prev !== cwd) return null;
-      return prev;
-    });
-    setSessionKey((k) => k + 1);
+    if (!restoringLast) {
+      setNewSessionDraftId(draftId);
+      activeNewSessionDraftKeyRef.current = `new:${draftId}:${cwd}`;
+      setSelectedSession(null);
+      setNewSessionCwd((prev) => {
+        if (prev && prev !== cwd) return null;
+        return prev;
+      });
+      setOpenPanes((prev) => {
+        const added = addComposerPane(prev, cwd, draftId);
+        return evictIdlePane(added.panes, added.paneId, runningSessionIds);
+      });
+      setActivePaneId(`new:${draftId}`);
+    }
     setBranchTree([]);
     setBranchActiveLeafId(null);
     setSystemPrompt(null);
@@ -611,7 +640,7 @@ export function AppShell() {
       restoreWorkspaceContext(newProject);
     }
     router.replace("/", { scroll: false });
-  }, [activeCwd, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);
+  }, [activeCwd, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext, runningSessionIds]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
     invalidateWorkspaceRestore();
@@ -630,7 +659,11 @@ export function AppShell() {
     }
     setNewSessionCwd(null);
     setSelectedSession(session);
-    setSessionKey((k) => k + 1);
+    setOpenPanes((prev) => {
+      const next = upsertSessionPane(prev, session);
+      setActivePaneId(next.paneId);
+      return evictIdlePane(next.panes, next.paneId, runningSessionIds);
+    });
     setBranchTree([]);
     setBranchActiveLeafId(null);
     branchLeafChangeFnRef.current = null;
@@ -650,7 +683,7 @@ export function AppShell() {
     if (!isRestore) {
       router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
     }
-  }, [invalidateWorkspaceRestore, router, isMobile, selectedSession]);
+  }, [invalidateWorkspaceRestore, router, isMobile, selectedSession, runningSessionIds]);
 
   const handleNewSession = useCallback((sessionId: string, cwd: string) => {
     invalidateWorkspaceRestore();
@@ -659,7 +692,11 @@ export function AppShell() {
     setNewSessionDraftId(sessionId);
     setSelectedSession(null);
     setNewSessionCwd(cwd);
-    setSessionKey((k) => k + 1);
+    setOpenPanes((prev) => {
+      const added = addComposerPane(prev, cwd, sessionId);
+      return evictIdlePane(added.panes, added.paneId, runningSessionIds);
+    });
+    setActivePaneId(`new:${sessionId}`);
     setBranchTree([]);
     setBranchActiveLeafId(null);
     setSystemPrompt(null);
@@ -668,7 +705,7 @@ export function AppShell() {
     setActiveTopPanel(null);
     if (isMobile) setSidebarOpen(false);
     router.replace("/", { scroll: false });
-  }, [invalidateWorkspaceRestore, router, isMobile]);
+  }, [invalidateWorkspaceRestore, router, isMobile, runningSessionIds]);
 
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
   useGlobalKeyboardShortcuts({
@@ -709,6 +746,7 @@ export function AppShell() {
   // Called by ChatWindow when a new session gets its real id from pi
   const handleSessionCreated = useCallback((session: SessionInfo, sourceDraftKey: string) => {
     setRefreshKey((k) => k + 1);
+    setOpenPanes((prev) => promoteComposerPane(prev, sourceDraftKey, session));
     if (activeNewSessionDraftKeyRef.current !== sourceDraftKey) return;
     invalidateWorkspaceRestore();
     activeNewSessionDraftKeyRef.current = null;
@@ -758,14 +796,14 @@ export function AppShell() {
     }
   }, [handleSelectSession, locale]);
 
-  const handleAgentEnd = useCallback(() => {
+  const handleAgentEnd = useCallback((endedSession?: SessionInfo | null) => {
     setRefreshKey((k) => k + 1);
     setExplorerRefreshKey((k) => k + 1);
-    if (selectedSession) hydrateSelectedSession(selectedSession.id);
+    const targetSession = endedSession ?? selectedSession;
+    if (targetSession) hydrateSelectedSession(targetSession.id);
 
     if (selectedSession?.relation?.kind === "subagent") return;
     if (!shouldShowBrowserNotification()) return;
-    const targetSession = selectedSession;
     deliverSessionNotification({
       targetSession,
       title: targetSession?.name ?? translate("i18n.sessionComplete"),
@@ -833,16 +871,23 @@ export function AppShell() {
     invalidateWorkspaceRestore();
     activeNewSessionDraftKeyRef.current = null;
     setRefreshKey((k) => k + 1);
-    setSessionKey((k) => k + 1);
     setNewSessionCwd(null);
-    setSelectedSession((prev) => ({
-      ...(prev ?? { path: "", cwd: "", created: "", modified: "", messageCount: 0, firstMessage: "" }),
+    const forked: SessionInfo = {
+      ...(selectedSession ?? { path: "", cwd: "", created: "", modified: "", messageCount: 0, firstMessage: "" }),
       id: newSessionId,
       transient: false,
-    }));
+    };
+    const sourcePaneId = activePaneId ?? selectedSession?.id ?? null;
+    setOpenPanes((prev) => (
+      sourcePaneId
+        ? replacePaneSession(prev, sourcePaneId, forked)
+        : upsertSessionPane(prev, forked).panes
+    ));
+    setActivePaneId(newSessionId);
+    setSelectedSession(forked);
     hydrateSelectedSession(newSessionId);
     router.replace(`?session=${encodeURIComponent(newSessionId)}`, { scroll: false });
-  }, [invalidateWorkspaceRestore, router, hydrateSelectedSession]);
+  }, [invalidateWorkspaceRestore, router, hydrateSelectedSession, selectedSession, activePaneId]);
 
   const handleInitialRestoreDone = useCallback(() => {
     setInitialSessionRestored(true);
@@ -860,7 +905,16 @@ export function AppShell() {
       activeNewSessionDraftKeyRef.current = cwd ? `new:${draftId}:${cwd}` : null;
       setSelectedSession(null);
       setNewSessionCwd(cwd ?? null);
-      setSessionKey((k) => k + 1);
+      setOpenPanes((prev) => {
+        const remaining = prev.filter((pane) => pane.session?.id !== sessionId);
+        if (cwd) {
+          const added = addComposerPane(remaining, cwd, draftId);
+          setActivePaneId(added.paneId);
+          return added.panes;
+        }
+        setActivePaneId(remaining[remaining.length - 1]?.paneId ?? null);
+        return remaining;
+      });
       setBranchTree([]);
       setBranchActiveLeafId(null);
       setSystemPrompt(null);
@@ -918,6 +972,38 @@ export function AppShell() {
     );
   }, [selectedSession]);
 
+  const handleActivatePane = useCallback((paneId: string) => {
+    const pane = openPanes.find((item) => item.paneId === paneId);
+    if (!pane) return;
+    applyPane(pane);
+    if (pane.session) {
+      router.replace(`?session=${encodeURIComponent(pane.session.id)}`, { scroll: false });
+    } else {
+      router.replace("/", { scroll: false });
+    }
+    if (isMobile) setSidebarOpen(false);
+  }, [openPanes, applyPane, router, isMobile]);
+
+  const handleClosePane = useCallback((paneId: string) => {
+    const remaining = openPanes.filter((pane) => pane.paneId !== paneId);
+    setOpenPanes(remaining);
+    if (paneId !== activePaneId) return;
+    const fallback = remaining[remaining.length - 1];
+    if (fallback) {
+      applyPane(fallback);
+      if (fallback.session) {
+        router.replace(`?session=${encodeURIComponent(fallback.session.id)}`, { scroll: false });
+      } else {
+        router.replace("/", { scroll: false });
+      }
+      return;
+    }
+    setActivePaneId(null);
+    setSelectedSession(null);
+    setNewSessionCwd(activeCwd);
+    router.replace("/", { scroll: false });
+  }, [openPanes, activePaneId, applyPane, router, activeCwd]);
+
   // Show chat area if a session is selected, or if we have a cwd to start a new session in
   const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
   const newSessionDraftKey = selectedSession === null && effectiveNewSessionCwd
@@ -926,8 +1012,24 @@ export function AppShell() {
   useLayoutEffect(() => {
     activeNewSessionDraftKeyRef.current = newSessionDraftKey;
   }, [newSessionDraftKey]);
-  const showChat = selectedSession !== null || effectiveNewSessionCwd !== null;
+  const selectedSessionRunning = Boolean(selectedSession && runningSessionIds.has(selectedSession.id));
+  const showChat = openPanes.length > 0 || selectedSession !== null || effectiveNewSessionCwd !== null;
   const projectTrustCwd = selectedSession?.cwd ?? effectiveNewSessionCwd;
+
+  useLayoutEffect(() => {
+    if (openPanes.length > 0) return;
+    if (selectedSession) {
+      const next = upsertSessionPane([], selectedSession);
+      setOpenPanes(next.panes);
+      setActivePaneId(next.paneId);
+      return;
+    }
+    if (effectiveNewSessionCwd) {
+      const next = addComposerPane([], effectiveNewSessionCwd, newSessionDraftId);
+      setOpenPanes(next.panes);
+      setActivePaneId(next.paneId);
+    }
+  }, [openPanes.length, selectedSession, effectiveNewSessionCwd, newSessionDraftId]);
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat;
 
@@ -968,13 +1070,13 @@ export function AppShell() {
       setProjectTrust(data);
       setProjectTrustDialogOpen(false);
       setModelsRefreshKey((key) => key + 1);
-      setSessionKey((key) => key + 1);
+      setOpenPanes((prev) => (activePaneId ? bumpPaneInstance(prev, activePaneId) : prev));
     } catch (error) {
       setProjectTrustError(error instanceof Error ? error.message : String(error));
     } finally {
       setProjectTrustBusy(false);
     }
-  }, [projectTrustBusy, projectTrustCwd]);
+  }, [projectTrustBusy, projectTrustCwd, activePaneId]);
 
   const activeFileTab = fileTabs.find((tab) => tab.id === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
@@ -2256,32 +2358,70 @@ export function AppShell() {
         {/* Chat content */}
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
           {showChat ? (
-            <ChatWindow
-              key={sessionKey}
-              session={selectedSession}
-              sessionRunning={Boolean(selectedSession && runningSessionIds.has(selectedSession.id))}
-              newSessionCwd={effectiveNewSessionCwd}
-              newSessionDraftKey={newSessionDraftKey}
-              onAgentEnd={handleAgentEnd}
-              onAttentionNeeded={handleAttentionNeeded}
-              onSessionCreated={handleSessionCreated}
-              onSessionForked={handleSessionForked}
-              modelsRefreshKey={modelsRefreshKey}
-              chatInputRef={chatInputRef}
-              onBranchDataChange={handleBranchDataChange}
-              onSystemPromptChange={handleSystemPromptChange}
-              onSystemToolsChange={handleSystemToolsChange}
-              onSystemInfoLoaderChange={handleSystemInfoLoaderChange}
-              onSessionStatsChange={handleSessionStatsChange}
-              onSessionStatsPanelOpen={openSessionStatsPanel}
-              onContextUsageChange={handleContextUsageChange}
-              onOpenFile={handleOpenLinkedFile}
-              onOpenSession={handleOpenSession}
-              soundEnabled={soundEnabled}
-              onSoundToggle={onSoundToggle}
-              playDoneSound={playDoneSound}
-              unlockAudio={unlockAudio}
-            />
+            <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <ConversationTabBar
+                panes={openPanes}
+                activePaneId={activePaneId}
+                runningSessionIds={runningSessionIds}
+                onSelect={handleActivatePane}
+                onClose={handleClosePane}
+              />
+              <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+                {(openPanes.length > 0 ? openPanes : [{
+                  paneId: selectedSession?.id ?? `new:${newSessionDraftId}`,
+                  session: selectedSession,
+                  newSessionCwd: effectiveNewSessionCwd,
+                  newSessionDraftId: selectedSession ? null : newSessionDraftId,
+                  instanceKey: 0,
+                }]).map((pane) => {
+                  const active = pane.paneId === (activePaneId ?? pane.paneId);
+                  return (
+                    <div
+                      key={pane.paneId}
+                      hidden={!active}
+                      style={{
+                        display: active ? "flex" : "none",
+                        flexDirection: "column",
+                        height: "100%",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <ChatWindow
+                        key={`${pane.paneId}:${pane.instanceKey}`}
+                        isActive={active}
+                        session={pane.session}
+                        sessionRunning={
+                          pane.session?.id === selectedSession?.id
+                            ? selectedSessionRunning
+                            : Boolean(pane.session && runningSessionIds.has(pane.session.id))
+                        }
+                        newSessionCwd={pane.session ? null : (pane.newSessionCwd ?? effectiveNewSessionCwd)}
+                        newSessionDraftKey={paneDraftKey(pane)}
+                        onAgentEnd={handleAgentEnd}
+                        onAttentionNeeded={handleAttentionNeeded}
+                        onSessionCreated={handleSessionCreated}
+                        onSessionForked={handleSessionForked}
+                        modelsRefreshKey={modelsRefreshKey}
+                        chatInputRef={active ? chatInputRef : undefined}
+                        onBranchDataChange={handleBranchDataChange}
+                        onSystemPromptChange={handleSystemPromptChange}
+                        onSystemToolsChange={handleSystemToolsChange}
+                        onSystemInfoLoaderChange={handleSystemInfoLoaderChange}
+                        onSessionStatsChange={handleSessionStatsChange}
+                        onSessionStatsPanelOpen={openSessionStatsPanel}
+                        onContextUsageChange={handleContextUsageChange}
+                        onOpenFile={handleOpenLinkedFile}
+                        onOpenSession={handleOpenSession}
+                        soundEnabled={soundEnabled}
+                        onSoundToggle={onSoundToggle}
+                        playDoneSound={playDoneSound}
+                        unlockAudio={unlockAudio}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           ) : initialCwdStatus === "validating" ? (
             <div
               role="status"
@@ -2436,7 +2576,9 @@ export function AppShell() {
           setSettingsSection(null);
           setModelsRefreshKey((key) => key + 1);
         }}
-        onSessionReloaded={() => setSessionKey((key) => key + 1)}
+        onSessionReloaded={() => {
+          setOpenPanes((prev) => (activePaneId ? bumpPaneInstance(prev, activePaneId) : prev));
+        }}
       />
     )}
     {projectTrustDialogOpen && projectTrustCwd && (

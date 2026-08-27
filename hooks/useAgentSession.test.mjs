@@ -130,10 +130,9 @@ test("fresh sessions use the preference while persisted and live sessions restor
     source.indexOf("  const scrollUserMsgToTop"),
   );
 
-  assert.match(
-    preferenceSource,
-    /const existingSessionId = session\?\.id;[\s\S]*?useLayoutEffect\(\(\) => \{\s*if \(!existingSessionId && \(!isNew \|\| sessionIdRef\.current\)\) return;\s*setToolPresetState\(getPreferredToolPreset\(\)\)/,
-  );
+  assert.match(preferenceSource, /getPreferredToolPreset\(\)/);
+  assert.match(preferenceSource, /preferred === "none"/);
+  assert.match(preferenceSource, /setPreferredToolPreset\("default"\)/);
   assert.match(source, /if \(agentState\?\.running\) \{\s*loadTools\(session\.id\)/);
   assert.match(source, /d\.toolNames !== undefined \? getPresetFromToolNames\(d\.toolNames\) : "default"/);
   assert.match(changeSource, /setPreferredToolPreset\(preset\)/);
