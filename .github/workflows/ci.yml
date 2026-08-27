@@ -1,0 +1,77 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm run build
+
+  perf:
+    runs-on: ubuntu-latest
+    # Trend/regression gate. Generous on purpose: shared runners are noisy.
+    env:
+      PERF_SESSIONS: "200"
+      GATE_CONTEXT_MS: "5000"
+      GATE_WARM_LIST_MS: "10000"
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Start dev server (pristine, perf fixture as agent dir)
+        run: |
+          set -euo pipefail
+          FIXTURE_DIR=$(mktemp -d)
+          export PI_CODING_AGENT_DIR="$FIXTURE_DIR"
+          echo "PI_CODING_AGENT_DIR=$FIXTURE_DIR" >> "$GITHUB_ENV"
+          npm run dev -- -H 127.0.0.1 -p 3100 &
+          echo $! > dev.pid
+      - name: Wait for server
+        run: |
+          timeout 180 bash -c \
+            'until curl -sf http://127.0.0.1:3100; do sleep 2; done'
+          echo ready
+      - name: Performance bench (independent of e2e harness)
+        run: node e2e/perf-bench.mjs
+      - name: Stop dev server
+        if: always()
+        run: |
+          if [ -f dev.pid ]; then kill "$(cat dev.pid)" || true; fi
+          if [ -n "${PI_CODING_AGENT_DIR:-}" ] \
+              && [ -d "$PI_CODING_AGENT_DIR" ]; then
+            rm -rf "$PI_CODING_AGENT_DIR"
+          fi
