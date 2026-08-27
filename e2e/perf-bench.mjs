@@ -13,7 +13,7 @@
 //
 // Honest caveat: numbers are dev-server figures on shared CI runners. They
 // are for trend/regression detection, not absolute user-perceived latency.
-import { mkdirSync, writeFileSync, rmSync, statSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
