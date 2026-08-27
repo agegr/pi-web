@@ -4,6 +4,7 @@ import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@e
 import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
+import { getAppModelExtensions } from "./app-model-runtime";
 import { validateAgentImages } from "./image-attachments";
 import { invalidateModelsCache } from "./models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
@@ -1940,9 +1941,13 @@ export async function startRpcSession(
                 }
               : {}),
             appendSystemPrompt: subagentResources.appendSystemPrompt,
+            extensionFactories: getAppModelExtensions(),
           }
         : chatOnly
-          ? CHAT_ONLY_RESOURCE_LOADER_OPTIONS
+          ? {
+              ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS,
+              extensionFactories: getAppModelExtensions(),
+            }
         : {
             extensionFactories: [
               createProjectCommandBashExtension({
@@ -1954,6 +1959,7 @@ export async function startRpcSession(
                 () => listSubagentProfiles(sessionCwd),
                 isBuiltInSubagentsEnabled,
               ),
+              ...getAppModelExtensions(),
             ],
             extensionsOverride: (base) => preferUserBashExtension(preferPiWebSubagentExtension(base)),
           },

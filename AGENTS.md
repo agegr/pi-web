@@ -77,6 +77,8 @@ app/api/
 
 lib/
   agent-client.ts      typed fetch helper for /api/agent commands
+  app-model-runtime.ts app-facing ModelRuntime/provider bootstrap helpers
+  cursor-provider/     Cursor Pro/Ultra/Teams OAuth + Connect-RPC provider
   draft-store.ts       local draft persistence helpers
   file-access.ts       allowed file roots for /api/files and worktrees
   file-paths.ts        client/server path encoding helpers
@@ -195,7 +197,9 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - `ModelsConfig` combines models from `~/.pi/agent/models.json` with provider auth status from pi's `AuthStorage`/`ModelRegistry`.
 - Provider listing is capability-driven, never id-driven: `lib/provider-listing.ts` decides membership from `auth.apiKey.login` / `auth.oauth` plus the stored credential type, so dual-auth providers (anthropic and github-copilot today — which providers declare both changes between SDK releases, so never assume it from an id) appear exactly once and never fall through both lists (#309). `lib/provider-listing-runtime.ts` adapts `ModelRuntime` to those pure helpers.
 - auth.json holds **one** credential per provider and `ModelRuntime.logout()` deletes whichever it is. The delete routes therefore use `removeStoredCredentialIfType()` to compare and delete under the same file lock used by pi's auth storage. `ModelsConfig` also refreshes *both* provider lists after any auth change — refreshing one leaves a dual-auth provider rendered twice.
-- OAuth/device-code/manual-code flows are streamed by `GET /api/auth/login/[provider]`; manual code responses POST back with a short-lived token stored in `globalThis.__piLoginCallbacks`.
+- OAuth/device-code/manual-code flows are streamed by `GET /api/auth/login/[provider]`; manual code responses POST back with a short-lived token stored in `globalThis.__piLoginCallbacks`. Cursor uses poll OAuth (`loginMode: "poll"`): keep the login URL visible and do not ask for a callback paste.
+- Cursor is not a builtin KnownProvider. API routes depend only on the provider-neutral helpers in `lib/app-model-runtime.ts`; Cursor-specific registration stays in `lib/cursor-provider/`. Chat sessions load the same direct `streamSimple` implementation through `createCursorProviderExtension()`. Cursor Connect-RPC runs over in-process Node HTTP/2; do not add a loopback OpenAI proxy or child-process bridge. Session cleanup includes `model_select` across a Cursor provider boundary. Wire ids such as `cursor-grok-4.6-xhigh` collapse into one family plus a thinking ladder; Claude effort SKUs stay separate models.
+- Once Cursor credentials are known, model selectors must use an account-matched cache or a bounded `GetUsableModels` refresh. Never expose the bundled fallback as if it were the authenticated account's usable catalog.
 - API-key routes store and remove keys through `AuthStorage`. Status endpoints must never return the raw key.
 - The model test route is `app/api/models-config/test/route.ts`; `app/api/models/test/` is not a real route.
 

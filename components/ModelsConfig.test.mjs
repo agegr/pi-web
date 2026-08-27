@@ -15,6 +15,7 @@ const {
 
 const source = await readFile(new URL("./ModelsConfig.tsx", import.meta.url), "utf8");
 const cssSource = await readFile(new URL("../app/settings.css", import.meta.url), "utf8");
+const providerIconSource = await readFile(new URL("./ProviderIcon.tsx", import.meta.url), "utf8");
 
 test("uses shared sidebar sizing for providers and matching indented model rows", () => {
   const sidebar = source.slice(source.indexOf("<ConfigSidebar>"), source.indexOf("</ConfigSidebar>"));
@@ -24,6 +25,12 @@ test("uses shared sidebar sizing for providers and matching indented model rows"
   assert.match(sidebar, /className="models-sidebar-indented-item"/);
   assert.match(sidebar, /className="models-sidebar-indented-item models-sidebar-add-item"/);
   assert.match(cssSource, /\.models-sidebar-indented-item \{[\s\S]*?padding-left: 26px/);
+});
+
+test("Cursor poll login does not ask for a callback URL", () => {
+  assert.match(source, /loginMode === "poll"/);
+  assert.match(source, /waitingForBrowserApproval/);
+  assert.match(providerIconSource, /cursor:\s*\{\s*symbol: "cursor"/);
 });
 
 test("ignores malformed auth provider responses", () => {

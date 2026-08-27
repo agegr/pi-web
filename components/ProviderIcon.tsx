@@ -22,6 +22,7 @@ const PROVIDER_ICONS: Record<string, { symbol: string; color: boolean }> = {
   "cloudflare-workers-ai": { symbol: "cloudflare", color: true },
   "vercel-ai-gateway": { symbol: "vercel", color: false },
   "github-copilot": { symbol: "githubcopilot", color: false },
+  cursor: { symbol: "cursor", color: false },
   "amazon-bedrock": { symbol: "aws", color: true },
   "azure-openai-responses": { symbol: "azure", color: true },
   "kimi-coding": { symbol: "kimi", color: true },

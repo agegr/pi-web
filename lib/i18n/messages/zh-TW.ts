@@ -520,6 +520,7 @@ export const zhTWLocale: LocalePlugin = {
     "i18n.configured": "已設定",
     "i18n.notConfigured": "未設定",
     "i18n.openingBrowser": "正在開啟瀏覽器…",
+    "i18n.waitingForBrowserApproval": "請在瀏覽器中核准登入請求，此頁面會在核准後自動完成連線。",
     "i18n.submit": "送出",
     "i18n.login": "登入",
     "i18n.relogin": "重新登入",

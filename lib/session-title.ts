@@ -61,7 +61,7 @@ export function buildSessionTitleAgentOptions(source: Agent): AgentOptions {
     onResponse: source.onResponse,
     steeringMode: source.steeringMode,
     followUpMode: source.followUpMode,
-    sessionId: source.sessionId,
+    sessionId: undefined,
     thinkingBudgets: source.thinkingBudgets,
     transport: source.transport,
     maxRetryDelayMs: source.maxRetryDelayMs,

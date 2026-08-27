@@ -20,6 +20,7 @@ const nextConfig: NextConfig = {
     "@earendil-works/pi-agent-core",
     "@earendil-works/pi-ai",
     "@earendil-works/pi-tui",
+    "@bufbuild/protobuf",
   ],
   // Next 16 blocks cross-origin access to dev resources by default. Allow the
   // loopback and the RFC1918 LAN ranges so the dev server stays reachable

@@ -520,6 +520,7 @@ export const enLocale: LocalePlugin = {
     "i18n.configured": "configured",
     "i18n.notConfigured": "not configured",
     "i18n.openingBrowser": "Opening browser…",
+    "i18n.waitingForBrowserApproval": "Approve the login request in your browser. This page will finish connecting automatically.",
     "i18n.submit": "Submit",
     "i18n.login": "Login",
     "i18n.relogin": "Re-login",

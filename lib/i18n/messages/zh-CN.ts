@@ -520,6 +520,7 @@ export const zhCNLocale: LocalePlugin = {
     "i18n.configured": "已配置",
     "i18n.notConfigured": "未配置",
     "i18n.openingBrowser": "正在打开浏览器…",
+    "i18n.waitingForBrowserApproval": "请在浏览器中批准登录请求，此页面会在批准后自动完成连接。",
     "i18n.submit": "提交",
     "i18n.login": "登录",
     "i18n.relogin": "重新登录",

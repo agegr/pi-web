@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { createAppModelRuntime } from "./app-model-runtime";
 
 export interface ModelDiscoveryAuth {
   apiKey?: string;
@@ -35,7 +35,7 @@ export async function resolveModelDiscoveryAuth(
       },
     }, null, 2), "utf8");
 
-    const modelRuntime = await ModelRuntime.create({ modelsPath });
+    const modelRuntime = await createAppModelRuntime({ modelsPath });
     const loadError = modelRuntime.getError();
     if (loadError) throw new Error(loadError);
     const model = modelRuntime.getModel(providerName, discoveryModelId);

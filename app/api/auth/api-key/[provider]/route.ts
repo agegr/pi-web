@@ -1,5 +1,5 @@
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { NextResponse } from "next/server";
+import { createAppModelRuntime } from "@/lib/app-model-runtime";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { removeStoredCredentialIfType, storeProviderCredential } from "@/lib/provider-credential-store";
 
@@ -15,7 +15,7 @@ export async function POST(req: Request, { params }: Params) {
     if (!apiKey || typeof apiKey !== "string" || !apiKey.trim()) {
       return NextResponse.json({ error: "apiKey is required" }, { status: 400 });
     }
-    const modelRuntime = await ModelRuntime.create();
+    const modelRuntime = await createAppModelRuntime();
     const apiKeyAuth = modelRuntime.getProvider(provider)?.auth.apiKey;
     if (!apiKeyAuth?.login) {
       throw new Error(`${provider} does not support API key login`);

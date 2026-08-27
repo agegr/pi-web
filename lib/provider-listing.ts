@@ -21,7 +21,11 @@ const CUSTOM_PROVIDER_SOURCES = new Set(["models_json_key", "models_json_command
 const OAUTH_DISPLAY_NAMES: Record<string, string> = {
   "openai-codex": "ChatGPT Plus/Pro",
   "github-copilot": "GitHub Copilot",
+  cursor: "Cursor (Pro/Ultra/Teams)",
 };
+
+/** 仅控制模型面板的登录交互；列表归属仍由认证能力决定。 */
+const POLL_OAUTH_PROVIDERS = new Set(["cursor"]);
 
 export interface ProviderListingInput {
   id: string;
@@ -57,6 +61,8 @@ export interface OAuthProviderListing {
   loggedIn: boolean;
   /** True when the same provider can also be authenticated with an API key. */
   supportsApiKey: boolean;
+  /** "poll" 表示浏览器授权后自动完成，面板不应要求用户粘贴回调码。 */
+  loginMode?: "poll";
 }
 
 function dedupeById(providers: readonly ProviderListingInput[]): ProviderListingInput[] {
@@ -112,6 +118,7 @@ export function buildOAuthProviderList(
       usesCallbackServer: false,
       loggedIn: provider.credentialType === "oauth",
       supportsApiKey: provider.hasApiKeyLogin,
+      ...(POLL_OAUTH_PROVIDERS.has(provider.id) ? { loginMode: "poll" as const } : {}),
     });
   }
   return result;

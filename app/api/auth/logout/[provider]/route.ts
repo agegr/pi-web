@@ -1,4 +1,4 @@
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { createAppModelRuntime } from "@/lib/app-model-runtime";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { removeStoredCredentialIfType } from "@/lib/provider-credential-store";
 
@@ -9,7 +9,7 @@ export async function POST(
   { params }: { params: Promise<{ provider: string }> }
 ) {
   const { provider } = await params;
-  const modelRuntime = await ModelRuntime.create();
+  const modelRuntime = await createAppModelRuntime();
   if (!modelRuntime.getProvider(provider)?.auth.oauth) {
     return Response.json({ error: `Unknown provider: ${provider}` }, { status: 400 });
   }

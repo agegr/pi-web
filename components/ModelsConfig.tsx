@@ -46,6 +46,8 @@ interface OAuthProvider {
   loggedIn: boolean;
   /** Provider also accepts an API key, so it appears in both picker sections. */
   supportsApiKey?: boolean;
+  /** 浏览器授权后由服务端轮询完成，无需粘贴回调地址。 */
+  loginMode?: "poll";
 }
 
 interface ApiKeyProvider {
@@ -61,7 +63,7 @@ interface ApiKeyProvider {
 type OAuthLoginState =
   | { phase: "idle" }
   | { phase: "connecting" }
-  | { phase: "auth"; url: string; instructions: string | null; token: string }
+  | { phase: "auth"; url: string; instructions: string | null; token: string; waitMessage?: string }
   | { phase: "device_code"; userCode: string; verificationUri: string; intervalSeconds: number | null; expiresInSeconds: number | null }
   | { phase: "prompt"; message: string; placeholder: string | null; token: string }
   | { phase: "select"; message: string; options: { id: string; label: string }[]; token: string }
@@ -1300,10 +1302,10 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (loginState.phase === "auth" || loginState.phase === "prompt") {
+    if ((loginState.phase === "auth" && provider.loginMode !== "poll") || loginState.phase === "prompt") {
       setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [loginState.phase]);
+  }, [loginState, provider.loginMode]);
 
   // Reset state when provider changes
   useEffect(() => {
@@ -1333,7 +1335,12 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
         options?: { id: string; label: string }[];
       };
       if (data.type === "auth") {
-        setLoginState({ phase: "auth", url: data.url!, instructions: data.instructions ?? null, token: data.token! });
+        setLoginState({
+          phase: "auth",
+          url: data.url!,
+          instructions: data.instructions ?? null,
+          token: data.token!,
+        });
         window.open(data.url!, "_blank", "noopener,noreferrer");
       } else if (data.type === "device_code") {
         setLoginState({
@@ -1349,7 +1356,12 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
       } else if (data.type === "select_request") {
         setLoginState({ phase: "select", message: data.message!, options: data.options ?? [], token: data.token! });
       } else if (data.type === "progress") {
-        setLoginState({ phase: "progress", message: data.message! });
+        setLoginState((prev) => {
+          if (prev.phase === "auth" && provider.loginMode === "poll") {
+            return { ...prev, waitMessage: data.message };
+          }
+          return { phase: "progress", message: data.message! };
+        });
       } else if (data.type === "success") {
         es.close();
         setLoginState({ phase: "success" });
@@ -1366,7 +1378,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
       es.close();
       setLoginState((prev) => prev.phase === "success" ? prev : { phase: "error", message: "Connection lost" });
     };
-  }, [provider.id, onRefresh]);
+  }, [provider.id, provider.loginMode, onRefresh]);
 
   const handleLogout = useCallback(async () => {
     await fetch(`/api/auth/logout/${encodeURIComponent(provider.id)}`, { method: "POST" });
@@ -1460,7 +1472,9 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
               {loginState.phase === "auth"
-                ? "Complete sign-in in the browser, then copy the redirect URL from the address bar and paste it below."
+                ? (provider.loginMode === "poll"
+                  ? (loginState.waitMessage || loginState.instructions || t("i18n.waitingForBrowserApproval"))
+                  : "Complete sign-in in the browser, then copy the redirect URL from the address bar and paste it below.")
                 : loginState.message}
             </p>
             {loginState.phase === "auth" && (
@@ -1472,23 +1486,25 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
                 .
               </p>
             )}
-            <div style={{ display: "flex", gap: 6 }}>
-              <input
-                ref={inputRef}
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") submitCode(loginState.token, inputValue); }}
-                placeholder={loginState.phase === "auth" ? "http://localhost:1455/auth/callback?code=…" : (loginState.placeholder ?? "Enter value…")}
-                style={{ flex: 1, padding: "6px 9px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 5, color: "var(--text)", fontSize: 12, outline: "none", fontFamily: "var(--font-mono)", boxSizing: "border-box" }}
-              />
-              <button
-                onClick={() => submitCode(loginState.token, inputValue)}
-                disabled={!inputValue.trim()}
-                style={{ padding: "6px 12px", background: inputValue.trim() ? "var(--accent)" : "var(--bg-panel)", border: "none", borderRadius: 5, color: inputValue.trim() ? "#fff" : "var(--text-dim)", cursor: inputValue.trim() ? "pointer" : "not-allowed", fontSize: 12, fontWeight: 600, flexShrink: 0 }}
-              >
-                 {t("i18n.submit")}
-              </button>
-            </div>
+            {!(loginState.phase === "auth" && provider.loginMode === "poll") && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  ref={inputRef}
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") submitCode(loginState.token, inputValue); }}
+                  placeholder={loginState.phase === "auth" ? "http://localhost:1455/auth/callback?code=…" : (loginState.placeholder ?? "Enter value…")}
+                  style={{ flex: 1, padding: "6px 9px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 5, color: "var(--text)", fontSize: 12, outline: "none", fontFamily: "var(--font-mono)", boxSizing: "border-box" }}
+                />
+                <button
+                  onClick={() => submitCode(loginState.token, inputValue)}
+                  disabled={!inputValue.trim()}
+                  style={{ padding: "6px 12px", background: inputValue.trim() ? "var(--accent)" : "var(--bg-panel)", border: "none", borderRadius: 5, color: inputValue.trim() ? "#fff" : "var(--text-dim)", cursor: inputValue.trim() ? "pointer" : "not-allowed", fontSize: 12, fontWeight: 600, flexShrink: 0 }}
+                >
+                  {t("i18n.submit")}
+                </button>
+              </div>
+            )}
           </div>
         )}
         {loginState.phase === "device_code" && (

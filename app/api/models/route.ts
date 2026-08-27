@@ -10,6 +10,10 @@ import {
 } from "@/lib/models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
+import {
+  getAppModelExtensions,
+  refreshAppModelCatalogs,
+} from "@/lib/app-model-runtime";
 import { projectTrustReloadOptions } from "@/lib/project-trust";
 
 export const dynamic = "force-dynamic";
@@ -40,9 +44,15 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   const services = await createAgentSessionServices({
     cwd,
     agentDir,
+    resourceLoaderOptions: {
+      extensionFactories: getAppModelExtensions(),
+    },
     ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
   });
-  const modelError = services.modelRuntime.getError();
+  const catalogError = await refreshAppModelCatalogs(services.modelRuntime);
+  const modelError = [services.modelRuntime.getError(), catalogError]
+    .filter((message): message is string => Boolean(message))
+    .join("\n") || undefined;
   const settings: SettingsManager = services.settingsManager;
   // `enabledModels` supports globs and fuzzy patterns, so resolve it the same
   // way the CLI does instead of comparing pattern strings literally (#307).

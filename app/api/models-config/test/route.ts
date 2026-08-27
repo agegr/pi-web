@@ -2,8 +2,11 @@ import { NextResponse } from "next/server";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { completeSimple, type AssistantMessage } from "@earendil-works/pi-ai/compat";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
+import {
+  createAppModelRuntime,
+  refreshAppModelCatalogs,
+} from "@/lib/app-model-runtime";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
@@ -59,9 +62,12 @@ export async function POST(req: Request) {
       },
     }, null, 2), "utf8");
 
-    const modelRuntime = await ModelRuntime.create({ modelsPath });
+    const modelRuntime = await createAppModelRuntime({ modelsPath });
     const loadError = modelRuntime.getError();
     if (loadError) return NextResponse.json({ ok: false, error: loadError });
+
+    const catalogError = await refreshAppModelCatalogs(modelRuntime, providerName);
+    if (catalogError) return NextResponse.json({ ok: false, error: catalogError });
 
     const model = modelRuntime.getModel(providerName, modelId);
     if (!model) return NextResponse.json({ ok: false, error: `Model not found: ${providerName}/${modelId}` });
@@ -77,7 +83,7 @@ export async function POST(req: Request) {
     const startedAt = Date.now();
 
     try {
-      const message = await completeSimple(model, {
+      const message = await modelRuntime.completeSimple(model, {
         messages: [{
           role: "user",
           content: "Reply with OK only.",
