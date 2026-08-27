@@ -29,6 +29,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+*.log
+.dsh-dev*
+.next.bak*
+/.next.bak*/
 
 # env files (can opt-in for committing if needed)
 .env*
@@ -41,3 +45,6 @@ yarn-error.log*
 next-env.d.ts
 .factory
 e2e_*.mjs
+
+# pi extensions runtime data
+.pi-*/

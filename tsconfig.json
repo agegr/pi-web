@@ -24,6 +24,12 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@pi-web/file-context-menu": [
+        "./file-context-menu/src/index.ts"
+      ],
+      "@pi-web/file-context-menu/*": [
+        "./file-context-menu/src/*"
       ]
     },
     "target": "ES2017"

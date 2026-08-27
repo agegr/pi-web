@@ -16,6 +16,7 @@ const nextConfig: NextConfig = {
   serverExternalPackages: [
     "undici",
     "web-push",
+    "node-pty",
     "@earendil-works/pi-coding-agent",
     "@earendil-works/pi-agent-core",
     "@earendil-works/pi-ai",
@@ -46,6 +47,14 @@ const nextConfig: NextConfig = {
     "172.31.*.*",
     "192.168.*.*",
   ],
+  async rewrites() {
+    return [
+      { source: "/sidebar/api/:path*", destination: "/api/sidebar/api/:path*" },
+      { source: "/sidebar/upload", destination: "/api/sidebar/upload" },
+      { source: "/sidebar/file", destination: "/api/sidebar/file" },
+      { source: "/sidebar/html/:path*", destination: "/api/sidebar/html/:path*" },
+    ];
+  },
   async headers() {
     return [
       {

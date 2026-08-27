@@ -1,0 +1,101 @@
+/**
+ * Layout push: when a panel is open it OCCUPIES the layout instead of
+ * floating over it — the app shell (#root, the AppFrame three-column grid)
+ * gives up space. Only the center column is flexible (1fr), so the right
+ * panel's width squeeze (margin-right on #root) lands exactly on the
+ * conversation output and the input bar, like a VSCode sidebar.
+ *
+ * The width rides `calc(100% - var(...))` instead of a bare margin on a
+ * full-width box: some desktop shells (DSH Desktop, #208) set #root to
+ * width:100%, where a margin would overflow the viewport additively —
+ * the calc keeps the box at exactly 100% minus the push in every shell.
+ * Width and margin transition in lockstep (same variable, same duration
+ * and easing), so expand/collapse animates the content width exactly as
+ * the bare-margin version did.
+ *
+ * The bottom panel squeezes ONLY the center column — it must not cover the
+ * app's own left sidebar or the right panel. The anchor is the frame's
+ * center grid item via its stable data attribute ([data-pane="conversation"]
+ * on the centerCol inside [data-dsh-frame]), not a positional path: the
+ * frame's child order also contains an overlay layer and drag handles
+ * (verified against a live DSH 0.1.x page), so nth-child is brittle. A
+ * stretched grid item shrinks by its margins, so the conversation content
+ * (output + input bar) lifts without touching the sidebars.
+ *
+ * The sizes ride CSS variables updated by the Sidebar shell (0 while
+ * collapsed); expand/collapse animates both the margins and the panel
+ * slides on the same theme duration. Drags disable the transition so the
+ * layout tracks the pointer.
+ */
+#root {
+  margin-right: var(--dsh-sidebar-width, 0px);
+  width: calc(100% - var(--dsh-sidebar-width, 0px));
+  transition:
+    margin-right var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    width var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+/* The AppFrame's center column, anchored by data attributes (see above).
+   Composite selector: DSH 0.1.x versions name the center grid item
+   `[data-pane="conversation"]`, while rc.8-era shells put a
+   `[data-slot="conversation"]` child inside it — both selectors resolve to
+   the SAME element on live pages (verified), and keeping both future-proofs
+   the rule against a host rename without touching shell-specific markup. */
+#root [data-dsh-frame] > [data-pane="conversation"],
+#root :has(> [data-slot="conversation"]) {
+  margin-bottom: var(--dsh-sidebar-height, 0px);
+  /* Grid/flex items default to min-height:auto. A long unbreakable token
+     (OAuth URL) then grows this column past the viewport and clips the
+     composer + left-rail Settings row. min-height:0 lets the cell shrink;
+     overflow-wrap lets the token wrap instead of forcing its intrinsic
+     size. The host's own descendants remain responsible for scrolling. */
+  min-height: 0;
+  overflow-wrap: anywhere;
+  transition: margin-bottom var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+/* When the sidebar is collapsed, the toggle cluster reclaims the top-right
+   corner. Push the DSH session header's right padding out so its right-aligned
+   utilities (the "Session log" download capsule) yield the corner instead of
+   hiding under the cluster. The header default right-pads 28px; the 2-button
+   cluster spans right 10→70px, so 78px clears it with an 8px gap. Anchor on
+   the header's slot host wrapper ([data-slot="conversation.session.header"])
+   rather than a positional path: DSH 0.1.x nests the header several levels
+   under the center column. The Sidebar shell toggles the body attribute with
+   the panel open state. */
+body[data-dsh-sidebar-collapsed] [data-slot="conversation.session.header"] > header {
+  padding-right: 78px;
+}
+
+body[data-dsh-sidebar-dragging] #root,
+body[data-dsh-sidebar-dragging] #root [data-dsh-frame] > [data-pane="conversation"],
+body[data-dsh-sidebar-dragging] #root :has(> [data-slot="conversation"]) {
+  transition: none;
+}
+
+/* DSH 0.1.x gives external settings sections a generic gear and exposes no
+   icon field in the settings.section contract. settings-nav-icon.ts marks
+   only this plugin's localized row; render the requested Lucide
+   gallery-horizontal-end SVG as a currentColor mask so it follows the native
+   nav hover/active colors without changing the shell's 16px icon rhythm. */
+[data-dsh-better-sidebar-settings-nav] > svg:first-child {
+  display: none;
+}
+
+[data-dsh-better-sidebar-settings-nav]::before {
+  content: '';
+  flex: none;
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 7v10'/%3E%3Cpath d='M6 5v14'/%3E%3Crect width='12' height='18' x='10' y='3' rx='2'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 7v10'/%3E%3Cpath d='M6 5v14'/%3E%3Crect width='12' height='18' x='10' y='3' rx='2'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #root,
+  #root [data-dsh-frame] > [data-pane="conversation"],
+  #root :has(> [data-slot="conversation"]) {
+    transition: none;
+  }
+}

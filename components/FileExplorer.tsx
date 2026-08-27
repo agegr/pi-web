@@ -14,6 +14,8 @@ import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/
 import type { FileIndexEntry } from "@/lib/file-fuzzy";
 import { buildSearchTree, type SearchTreeNode } from "@/lib/search-tree";
 import { useI18n } from "@/hooks/useI18n";
+import { FileRowContextMenu } from "@pi-web/file-context-menu";
+import { fileContextMenuAdapter } from "@/lib/file-context/adapter";
 type Translate = ReturnType<typeof useI18n>["t"];
 
 interface FileEntry {
@@ -225,6 +227,7 @@ function TreeNode({
   highlightedPaths,
   gitStatusByPath,
   changedDirectoryPaths,
+  onRowContextMenu,
   t,
 }: {
   node: FileNode;
@@ -238,6 +241,7 @@ function TreeNode({
   highlightedPaths: Set<string>;
   gitStatusByPath: Map<string, GitFileStatus>;
   changedDirectoryPaths: Set<string>;
+  onRowContextMenu?: (e: React.MouseEvent, node: FileNode) => void;
   t: Translate;
 }) {
   const open = expandedPaths.has(node.fullPath);
@@ -290,6 +294,11 @@ function TreeNode({
         onClick={handleClick}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onRowContextMenu?.(e, node);
+        }}
         style={{
           position: "relative",
           display: "flex",
@@ -447,6 +456,7 @@ function TreeNode({
               highlightedPaths={highlightedPaths}
               gitStatusByPath={gitStatusByPath}
               changedDirectoryPaths={changedDirectoryPaths}
+              onRowContextMenu={onRowContextMenu}
               t={t}
             />
           ))}
@@ -469,11 +479,13 @@ function ChangeRow({
   status,
   cwd,
   onOpenFile,
+  onRowContextMenu,
   t,
 }: {
   status: GitFileStatus;
   cwd: string;
   onOpenFile: OpenFileHandler;
+  onRowContextMenu?: (e: React.MouseEvent, node: FileNode) => void;
   t: Translate;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -484,6 +496,20 @@ function ChangeRow({
       onClick={() => onOpenFile(status.filePath, name, { modeHint: "diff" })}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onRowContextMenu?.(e, {
+          name,
+          fullPath: status.filePath
+            ? (status.filePath.startsWith("/") || /^[a-zA-Z]:/.test(status.filePath)
+                ? status.filePath
+                : joinFilePath(cwd, status.filePath))
+            : "",
+          isDir: false,
+          size: 0,
+        });
+      }}
       title={status.filePath}
       style={{
         display: "flex",
@@ -549,6 +575,13 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState(false);
   const [searchExpanded, setSearchExpanded] = useState<Set<string>>(new Set());
+  const [rowMenu, setRowMenu] = useState<{ node: FileNode; x: number; y: number } | null>(null);
+  const handleRowContextMenu = useCallback((e: React.MouseEvent, node: FileNode): void => {
+    e.preventDefault();
+    e.stopPropagation();
+    setRowMenu({ node, x: e.clientX, y: e.clientY });
+  }, []);
+  const closeRowMenu = useCallback(() => setRowMenu(null), []);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const prevCwdRef = useRef<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -985,6 +1018,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                     highlightedPaths={highlightedPaths}
                     gitStatusByPath={gitStatusByPath}
                     changedDirectoryPaths={changedDirectoryPaths}
+                    onRowContextMenu={handleRowContextMenu}
                     t={t}
                   />
                 ))}
@@ -1012,7 +1046,14 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
             <span style={{ color: GIT_STATUS_COLORS.deleted, fontFamily: "var(--font-mono)" }}>-{gitLineStats.deletions}</span>
           </div>
           {gitFiles.map((status) => (
-            <ChangeRow key={status.filePath} status={status} cwd={cwd} onOpenFile={onOpenFile} t={t} />
+            <ChangeRow
+              key={status.filePath}
+              status={status}
+              cwd={cwd}
+              onOpenFile={onOpenFile}
+              onRowContextMenu={handleRowContextMenu}
+              t={t}
+            />
           ))}
         </div>
       )}
@@ -1038,6 +1079,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                 highlightedPaths={highlightedPaths}
                 gitStatusByPath={gitStatusByPath}
                 changedDirectoryPaths={changedDirectoryPaths}
+                onRowContextMenu={handleRowContextMenu}
                 t={t}
               />
             ))
@@ -1048,6 +1090,17 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
             </div>
           )}
         </div>
+      )}
+      {rowMenu !== null && (
+        <FileRowContextMenu
+          node={rowMenu.node}
+          x={rowMenu.x}
+          y={rowMenu.y}
+          cwd={cwd}
+          onOpen={() => onOpenFile(rowMenu.node.fullPath, rowMenu.node.name)}
+          onClose={closeRowMenu}
+          adapter={fileContextMenuAdapter(t)}
+        />
       )}
     </div>
   );

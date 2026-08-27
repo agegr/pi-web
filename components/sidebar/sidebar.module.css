@@ -1,0 +1,3011 @@
+/**
+ * Sidebar styles. Per the DSH web-styling rules every visual value rides the
+ * theme: --dsw-alias-* semantic tokens for colors, --dsw-font-* typography
+ * roles (size paired with line-height), and --ds-* for motion. The chrome
+ * mirrors the native DSH sidebar: flat (NO box-shadows anywhere), the
+ * sidebar fill surface, hairline borders, and the 28/36px circular icon
+ * controls with hover fills. No static palette values, no color literals, no
+ * theme selectors — light/dark adaptation is the theme package's job.
+ */
+
+/* ── Shell ─────────────────────────────────────────────────────────────── */
+
+/* Skinning contract (token-driven): every surface here consumes DSH's
+   generic tokens (`--dsw-alias-*`), NEVER `--dsw-specific-sidebar-fill` —
+   skin systems override that token to restyle the APP's own left-nav column
+   (dsh-web-ui skins make it translucent glass or theme colors, Aqua makes it
+   transparent), and a panel consuming it would lose its fill or clash with
+   the label tokens. The panels use the generic card surface
+   `--dsw-alias-bg-layer-1`, which every dsh-web-ui skin overrides — so
+   switching skins in the dsh-web-ui skin center re-skins the sidebar panels
+   automatically (see AGENTS.md §8). */
+
+/* The unified panel host: a fixed, viewport-sized, click-transparent
+   containing block for every panel element. Panels are ABSOLUTE within it
+   (not fixed), so a desktop shell's intermediate wrapper transform can
+   never hijack their containing block — the host itself is the only fixed
+   element, appended directly to document.body. The layer sits at z-index 25:
+   above the app's shell overlay (AppFrame overlayLayer, 20) and in-flow
+   content, below DSH's ui-cordis dynamic-plugin panel (fixed, 30 — the
+   inventory/surfacing surface must never be hidden behind the workbench),
+   and below the app's overlay stack at 100+; each panel re-enables pointer
+   events on itself. Degraded mode ([data-dsh-panel-host-degraded]) covers
+   the rare shell that transforms <html>/<body> itself: the host becomes
+   absolute and the mount self-check pins it to the viewport every frame. */
+:global([data-dsh-panel-host]) {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+  /* Clip at the viewport edge: collapsed panels slide off-screen with
+     `transform: translate(102%)`, and a transformed element still
+     contributes to its ancestors' scrollable overflow — without this the
+     hidden panels extended the document's scrollable area, making the whole
+     page draggable left-right and up-down while any panel was collapsed.
+     The host is exactly viewport-sized (inset: 0), so the clip is invisible
+     until a panel slides in from the edge; internal scroll containers and
+     the app's fixed overlay stack are unaffected. */
+  overflow: hidden;
+}
+
+:global([data-dsh-panel-host][data-dsh-panel-host-degraded]) {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+/* The persistent expand/collapse cluster at the top-right corner: two rail
+   controls side by side (bottom panel's glyph LEFT of the right panel's).
+   Always pinned to the viewport corner — inside the right panel's top-right
+   while it is open, sitting flush in the 34px tab strip (28px buttons at
+   top: 3) whose right end it really squeezes. Host-internal z-index 45
+   (above the panels' 40); the host's global layer is z-index 25, so the
+   whole cluster stays below DSH's ui-cordis dynamic-plugin panel (30) and
+   the app's overlay stack (menus/tooltips/modals sit at 100+), so a cordis
+   approval popup is never hidden behind the workbench (issue #52). Absolute
+   within the panel host (the host's inset: 0 makes viewport coordinates
+   identical). */
+.toggleCluster {
+  position: absolute;
+  /* env() resolves to 0 on devices without a top inset (desktops). */
+  top: calc(3px + env(safe-area-inset-top));
+  right: 10px;
+  z-index: 45;
+  display: flex;
+  flex-direction: row;
+  gap: 4px;
+  pointer-events: auto;
+}
+
+/* The tab strip of the OPEN right panel reserves the cluster's width at its
+   right end, so the tabs and the + menu genuinely yield space to the cluster
+   (never hiding under it). */
+.panel:not(.panelHidden) .tabBar {
+  padding-right: 72px;
+}
+
+/* The closed-state affordance is the native rail icon control: a plain
+   28px circle (the app's icon-button size — the cluster must stay inside
+   the 34px tab-strip band so it never covers the pane headers below),
+   transparent fill, secondary ink; hover raises the fill. No border, no
+   shadow — the icon alone is the affordance. */
+.toggleButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  transition:
+    background var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    color var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+.toggleButton:hover:not(:disabled):not([aria-disabled='true']) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.toggleButton:disabled,
+.toggleButton[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.panel {
+  box-sizing: border-box;
+  position: absolute;
+  top: 0;
+  right: 0;
+  /* Full height: the bottom panel squeezes only the center column, so the
+     right panel never gives up any vertical position. */
+  bottom: 0;
+  /* Host-internal z-index 40 (sibling of the bottom panel's 40; the two
+     never overlap — the bottom panel's right edge is this panel's left
+     edge — and both sit below the toggle cluster's 45). The absolute
+     global layer comes from the host ([data-dsh-panel-host], 25) — the
+     whole stack stays above the app's in-flow content and below DSH's
+     ui-cordis dynamic-plugin panel (30) and the app's overlay stack (100+),
+     so menus/tooltips/modals always win over the panels (issue #52). The
+     corner handle is a child and stacks within the panel. */
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  /* Re-enable interaction inside the click-transparent panel host. */
+  pointer-events: auto;
+  /* The generic card surface (see the root contract above). Never
+     `--dsw-specific-sidebar-fill` — skin plugins restyle that token for the
+     app's own left nav and a panel consuming it loses its fill or clashes
+     with labels (#60/#105/#106). */
+  background: var(--dsw-alias-bg-layer-1);
+  border-left: 1px solid var(--dsw-alias-border-l2);
+  /* Bottom safe-area (notched phones): the drawer's bottom content clears
+     the home indicator; 0 on desktops. */
+  padding-bottom: env(safe-area-inset-bottom);
+  /* Expand/collapse slides the panel; fullscreen animates the width. */
+  transition:
+    transform var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    width var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+/* Collapsed: slid off-screen, interactive nothing, hidden after the slide. */
+.panelHidden {
+  transform: translateX(102%);
+  pointer-events: none;
+  visibility: hidden;
+  transition:
+    transform var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    width var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    visibility 0s linear var(--ds-transition-duration-slow);
+}
+
+/* Width drags write at pointer cadence; easing would detach the edge. */
+.panel[data-dragging] {
+  transition: none;
+}
+
+.panelResize {
+  position: absolute;
+  /* Centered on the panel edge (an 8px hit strip straddling the border, the
+     same pattern as the host's own frame handles). */
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 2;
+  touch-action: none;
+}
+
+.panelResizeActive {
+  background: var(--dsw-alias-interactive-bg-hover-accent);
+}
+
+.panelBody {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+
+/* ── Bottom panel ──────────────────────────────────────────────────────── */
+
+/* The bottom panel: an independent workbench at the bottom of the CENTER
+   column only (the Sidebar shell writes left/right inline: from the app's
+   own left sidebar to the right panel's left edge) — the sidebars never
+   give up any position. Same surface as the right panel, with a top
+   hairline instead of the left one. Host-internal z-index 40 mirrors the
+   right panel; the absolute global layer comes from the host (25), below
+   DSH's ui-cordis dynamic-plugin panel (30) so the cordis inventory
+   surface floats above the workbench, and below the app's overlay stack
+   (100+) so popups win over the workbench (issue #52). */
+.bottomPanel {
+  position: absolute;
+  bottom: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  background: var(--dsw-alias-bg-layer-1);
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  /* Re-enable interaction inside the click-transparent panel host. */
+  pointer-events: auto;
+  /* Bottom safe-area (notched phones); 0 on desktops. */
+  padding-bottom: env(safe-area-inset-bottom);
+  /* Expand/collapse slides the panel; height drags animate the height. */
+  transition:
+    transform var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    height var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+/* Collapsed: slid off-screen, interactive nothing, hidden after the slide. */
+.bottomPanelHidden {
+  transform: translateY(102%);
+  pointer-events: none;
+  visibility: hidden;
+  transition:
+    transform var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    height var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    visibility 0s linear var(--ds-transition-duration-slow);
+}
+
+/* Height drags write at pointer cadence; easing would detach the edge. */
+.bottomPanel[data-dragging] {
+  transition: none;
+}
+
+/* Layout isolation: panel-internal reflows (tabs, editors, terminals) never
+   leak into the app shell's layout, and the app shell's layout changes
+   never cascade through the panel subtree — the drag stays confined.
+   will-change: transform is only live while a drag is (the body attribute
+   toggles with the drag state), promoting the panels to their own layer
+   without paying the compositing cost at rest. */
+.panel,
+.bottomPanel {
+  contain: layout style;
+}
+
+body[data-dsh-sidebar-dragging] .panel,
+body[data-dsh-sidebar-dragging] .bottomPanel {
+  will-change: transform;
+}
+
+/* The bottom panel's height drag: the top edge strip (mirror of the right
+   panel's width strip), centered on the border like the width strip. */
+.bottomResize {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -4px;
+  height: 8px;
+  cursor: row-resize;
+  z-index: 2;
+  touch-action: none;
+}
+
+.bottomResizeActive {
+  background: var(--dsw-alias-interactive-bg-hover-accent);
+}
+
+/* The bottom panel's close control: the app's icon-button pattern (28px
+   circle), pinned to the tab strip's right end — one tap collapses the
+   panel. The tab strips below reserve its width so the + menu never hides
+   under it. */
+.bottomClose {
+  position: absolute;
+  top: 3px;
+  right: 6px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  flex: none;
+}
+
+.bottomClose:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* The bottom panel's tab strips reserve the close control's width at their
+   right end, so the + menu never hides under it. */
+.bottomPanel .tabBar {
+  padding-right: 40px;
+}
+
+/* ── Free windows ──────────────────────────────────────────────────────── */
+
+/* One floating tab: the same card surface as the panels, at viewport
+   coordinates inside the panel host (immune to shell transforms). z-index
+   42: above the panels (40) so a window drags across them, below the
+   toggle cluster (45) and the app's overlay stack (100+, issue #52).
+   Stacking among windows is the floats array order (siblings share the
+   z-index; DOM order wins). Deliberately NO box transition — the header/
+   resize drags write left/top/width/height per frame. Elevated surface,
+   so unlike the flat panels it earns a shadow token. */
+.floatWindow {
+  position: absolute;
+  z-index: 42;
+  display: flex;
+  flex-direction: column;
+  /* Re-enable interaction inside the click-transparent panel host. */
+  pointer-events: auto;
+  background: var(--dsw-alias-bg-layer-1);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  box-shadow: var(--dsw-shadow-lv3);
+  overflow: hidden;
+  contain: layout style;
+}
+
+.floatWindowDragging {
+  will-change: left, top, width, height;
+}
+
+/* The header: the move/dock-back drag handle, mirroring the tab strip's
+   chrome (34px, hairline bottom, secondary label). */
+.floatHeader {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 4px 0 10px;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-1);
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  cursor: grab;
+  user-select: none;
+}
+
+.floatWindowDragging .floatHeader {
+  cursor: grabbing;
+}
+
+.floatTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Mirrors .tabClose. */
+.floatClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  flex: none;
+}
+
+.floatClose:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Mirrors .paneContent's column-flex contract: the tab cell must hand its
+   child a definite WIDTH via align-stretch. A row flex (the default) sizes
+   the main axis (width) from content — intrinsic-zero hosts (e.g. a plugin
+   tab UI) collapse to a 0px-wide sliver and paint nothing (the blank
+   whale-report window). */
+.floatContent {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* The SE resize corner (mirror of .cornerHandle). */
+.floatResize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  z-index: 2;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+.floatResize:hover {
+  background: var(--dsw-alias-interactive-bg-hover-accent);
+}
+
+/* A pane highlighted as the dock target while a float header drag hovers it
+   (the attribute is written directly by the drag at pointer cadence;
+   skin-addressable via [data-dsh-pane][data-dsh-float-dock-over]). */
+.pane[data-dsh-float-dock-over] {
+  outline: 2px dashed var(--dsw-alias-interactive-bg-hover-accent);
+  outline-offset: -2px;
+}
+
+/* The drag-out hint over the conversation column: a dashed frame marking
+   the drop zone, pointer-transparent so it never disturbs the drag it
+   describes. z-index 46: above the windows (42) for unambiguous feedback,
+   still below the app's overlay stack. */
+.floatDropHint {
+  position: absolute;
+  z-index: 46;
+  pointer-events: none;
+  border: 2px dashed var(--dsw-alias-interactive-bg-hover-accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 12%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.floatDropHintLabel {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-1);
+  border: 1px solid var(--dsw-alias-border-l2);
+}
+
+/* ── Desktop drag-region opt-out ──────────────────────────────────────── */
+
+/* Frameless desktop shells make the top strip of the web content draggable
+   (Electron `-webkit-app-region: drag`); pointer events over that strip are
+   swallowed as window drags unless the interactive element opts out
+   (issues #103/#111). The plugin's viewport-corner chrome must declare
+   `no-drag` itself — some shells (Tauri, older desktop builds, third-party
+   wrappers) have no blanket button rule. The property is a no-op in plain
+   browsers and in shells without drag regions — safe everywhere. */
+.toggleCluster,
+.toggleButton,
+.tabBar,
+.floatHeader {
+  -webkit-app-region: no-drag;
+}
+
+/* ── Position compatibility mode (Windows native title bar) ────────────── */
+
+/* Windows frameless / hidden-title-bar windows draw the native caption
+   strip (minimize / maximize / close) at the window's top-right corner,
+   OVER the web content. When the user enables the "position compatibility"
+   pref, the sidebar yields the strip: the toggle cluster drops below it and
+   the right panel's content starts below it — the panel's surface still
+   spans the full height, so the caption buttons float over empty sidebar
+   fill (the VSCode hidden-title-bar look). The strip height is user-tunable
+   (`--dsh-title-bar-strip`, written by the Sidebar shell from
+   `titleBarStripPx`; 40px fallback). The bottom panel is unaffected: it
+   sits at the window's bottom, never under the top strip. */
+:global(body[data-dsh-title-bar-compat]) .toggleCluster {
+  top: calc(var(--dsh-title-bar-strip, 40px) + 3px);
+}
+
+:global(body[data-dsh-title-bar-compat]) .panel {
+  /* The caption strip is drawn over the panel's own top edge: keep the
+     surface full-height and push the content (the tab strip) below the
+     strip instead. .panelResize is absolutely positioned and unaffected. */
+  padding-top: var(--dsh-title-bar-strip, 40px);
+}
+
+/* The shared corner (both panels open): the intersection of the right
+   panel's left edge and the bottom panel's top edge. Horizontal drags
+   resize the width, vertical drags the height — the two panels drag
+   against each other. Rendered INSIDE the right panel and positioned
+   relative to it (left edge + the bottom panel's height from the layout
+   variable), so no JS-written viewport coordinates are involved. The
+   z-index is panel-local (above the panel's content; the panel itself sits
+   at 40, below the app's overlay stack). */
+.cornerHandle {
+  position: absolute;
+  left: -6px;
+  bottom: calc(var(--dsh-sidebar-height, 0px) + 6px);
+  width: 12px;
+  height: 12px;
+  z-index: 2;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+.cornerHandle:hover,
+.cornerHandle[data-dragging] {
+  background: var(--dsw-alias-interactive-bg-hover-accent);
+}
+
+/* Icon button: the app's own icon-button pattern (ui-workspace) — a 28px
+   circle, secondary label, hover fill; no border so the icon alone is the
+   affordance. */
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  flex: none;
+}
+
+.iconButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.iconButton:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ── Workbench / split panes ───────────────────────────────────────────── */
+
+.workbench {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.split {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.splitRow {
+  flex-direction: row;
+}
+
+.splitCol {
+  flex-direction: column;
+}
+
+.splitChild {
+  position: relative;
+  display: flex;
+  overflow: hidden;
+}
+
+.divider {
+  position: relative;
+  flex: none;
+  z-index: 3;
+  touch-action: none;
+}
+
+/* The hit area stays 7px wide enough to grab, but the visual is a 1px
+   hairline centered in it — a divider line, not a thick band. */
+.dividerRow::after,
+.dividerCol::after {
+  content: '';
+  position: absolute;
+  background: var(--dsw-alias-border-l2);
+  transition: background var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+.dividerRow {
+  width: 7px;
+  margin: 0 -2px;
+  cursor: col-resize;
+}
+
+.dividerRow::after {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+}
+
+.dividerCol {
+  height: 7px;
+  margin: -2px 0;
+  cursor: row-resize;
+}
+
+.dividerCol::after {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-50%);
+}
+
+.divider:hover::after,
+.dividerActive::after {
+  background: var(--dsw-alias-interactive-bg-hover-accent);
+}
+
+.pane {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--dsw-alias-bg-base);
+}
+
+.paneDrop {
+  outline: 1px solid var(--dsw-alias-interactive-bg-hover-accent);
+  outline-offset: -1px;
+}
+
+/* VSCode-style drag-to-edge drop zones (25% edges, 50% center). */
+.dropOverlay {
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+  background: var(--dsw-alias-interactive-bg-hover-accent);
+  opacity: 0.5;
+}
+
+.dropLeft {
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 25%;
+}
+
+.dropRight {
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 25%;
+}
+
+.dropUp {
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 25%;
+}
+
+.dropDown {
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 25%;
+}
+
+.dropCenter {
+  left: 25%;
+  right: 25%;
+  top: 25%;
+  bottom: 25%;
+  background: transparent;
+  outline: 2px dashed var(--dsw-alias-interactive-bg-hover-accent);
+  outline-offset: -2px;
+}
+
+.paneContent {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* One tab's mounted content; inactive tabs stay mounted but hidden so
+   switching never tears down terminals/editors (state survives). */
+.paneTab {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.paneTabHidden {
+  display: none;
+}
+
+/* An empty pane's welcome cards: a responsive grid of compact cards — as
+   many per row as the pane width allows; rows that cannot fit the pane
+   height are clipped (never scrolled or squeezed smaller). */
+.paneEmptyCards {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  align-content: start;
+  gap: 8px;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.paneCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxs-strong-12);
+  cursor: pointer;
+  text-align: center;
+}
+
+.paneCard:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.paneCard:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ── Tab strip ─────────────────────────────────────────────────────────── */
+
+.tabBar {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  height: 34px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.tabBarDrop {
+  outline: 1px dashed var(--dsw-alias-interactive-bg-hover-accent);
+  outline-offset: -1px;
+}
+
+.tabList {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabList::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  flex: none;
+  max-width: 160px;
+  min-width: 64px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px 0 10px;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-secondary);
+  border-right: 1px solid var(--dsw-alias-border-l1);
+  background: transparent;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tab:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.tabActive {
+  color: var(--dsw-alias-label-primary);
+  /* Native selected fill (Rows .sessionRow.selected) — no underline, no shadow. */
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.tabTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* One tab's descriptor badge (a count capped at 99+, or a short text). */
+.tabBadge {
+  flex: none;
+  min-width: 16px;
+  height: 15px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font: var(--dsw-font-xxxs-strong-11);
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-brand-primary);
+}
+
+.tabClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  flex: none;
+}
+
+.tabClose:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.tabBarPlus {
+  flex: none;
+  align-self: center;
+  /* Adjacent to the rightmost tab; sticky so overflowing tab rows keep it
+     visible at the right edge of the scrollport. */
+  position: sticky;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: 0 6px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.tabBarPlus:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* ── Pinned-terminal tab (v0.17.0+) ───────────────────────────────────── */
+
+/* Pinned virtual tabs (injected from other sessions) render inline in the
+   tab bar with a pin icon and a subtle tint to distinguish them from the
+   session's own tabs. Token-driven so skins follow. */
+.pinnedTab {
+  color: var(--dsw-alias-label-tertiary);
+  font-style: italic;
+}
+
+.pinnedTab:hover {
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* ── Explorer ──────────────────────────────────────────────────────────── */
+
+.explorer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.explorerHeader {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 36px;
+  padding: 0 8px 0 12px;
+}
+
+.explorerRoot {
+  font: var(--dsw-font-s-14);
+  color: var(--dsw-alias-label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.explorerBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* Deep trees truncate their labels instead of scrolling horizontally. */
+  overflow-x: hidden;
+  padding: 4px 8px 8px;
+}
+
+/* One tree row: the app's session-row cell (34px, radius 8, inset, hover
+   fill, 22px indent step, 14px ink) with a mount fade so expanding a
+   directory reveals its children gently (stable keys keep existing rows from
+   replaying it). */
+.explorerRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* border-box keeps the inline indent padding (depth * 22 + 6) INSIDE the
+     row's 100% width — without it deep rows overflow and force a horizontal
+     scrollbar on the tree body. */
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  height: 34px;
+  padding: 0 8px;
+  border: none;
+  background: transparent;
+  font: var(--dsw-font-s-14);
+  color: var(--dsw-alias-label-primary);
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  border-radius: 8px;
+  animation: dsh-row-in 150ms var(--ds-ease-in-out);
+}
+
+.explorerRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* A "Show in folder" reveal highlight: the target row stays tinted until
+   the transient reveal set is cleared (a reload starts unhighlighted). */
+.explorerRowRevealed {
+  background: color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 18%, transparent);
+  box-shadow: inset 2px 0 0 var(--dsw-alias-interactive-bg-hover-accent);
+}
+
+.explorerDir {
+  font: var(--dsw-font-s-strong-14);
+}
+
+.explorerHidden {
+  opacity: 0.45;
+}
+
+/* The link badge on symlink rows (folder and file rows alike). */
+.explorerSymlink {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* A symlink whose target is missing: error ink on the name (the row stays
+   clickable — the editor surfaces the read failure). */
+.explorerBroken .explorerName {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.explorerName {
+  /* min-width: 0 lets the flex item shrink below its content so the label
+     truncates with an ellipsis instead of widening the row. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The hover-revealed @-reference button at the row's far right (and the
+   transient "copied" label that replaces it after a copy). Hidden rows
+   keep the name at full width; hovering or focusing the row reveals it. */
+.explorerRef {
+  flex: none;
+  display: none;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxxs-strong-11);
+  cursor: pointer;
+}
+
+.explorerRef:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.explorerRow:hover .explorerRef,
+.explorerRow:focus-within .explorerRef {
+  display: inline-flex;
+}
+
+.explorerCopied {
+  flex: none;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.explorerError {
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-state-error-primary);
+  cursor: default;
+}
+
+/* Mount fade for tree rows (the app's session-row reveal). */
+@keyframes dsh-row-in {
+  from { opacity: 0; }
+}
+
+.explorerEmpty {
+  padding: 16px;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+  text-align: center;
+}
+
+/* Drag a file/folder over a tree row: the target directory row gets a filled
+   highlight (drops land inside it; file rows target their parent directory).
+   The zone frame around the whole tree is the portaled .uploadDropZone. */
+.explorerRowDropTarget {
+  background: var(--dsw-alias-interactive-bg-hover);
+  outline: 1px dashed var(--dsw-alias-interactive-bg-hover-accent);
+  outline-offset: -1px;
+}
+
+/* The sidebar's drop surface: a pointer-inert frame portaled to
+   document.body, fixed over the explorer body's viewport rect at z-1001 —
+   above DSH's own whole-page drop mask (z-1000, see InputBar's
+   document-level intake). The giant box-shadow spread IS the full-viewport
+   mask (same token DSH uses for its drop mask): everything dims except the
+   zone rect, teaching the zone split — the dimmed conversation column still
+   takes drops into the chat natively, the clear frame marks the tree as the
+   workspace-upload zone. Deliberate exception to the "panel stays below the
+   DSH float stack" rule: transient and pointer-events none, so the drop
+   always lands on the row beneath. The hint pill docks at the TOP edge of
+   the zone (right under the search row, the first thing the eye meets),
+   leaving the rows — the actual drop targets — aimable. */
+.uploadDropZone {
+  position: fixed;
+  z-index: 1001;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12px;
+  border: 2px dashed var(--dsw-alias-interactive-bg-hover-accent);
+  border-radius: 10px;
+  box-shadow: 0 0 0 200vmax var(--dsw-alias-bg-mask-drop);
+  animation: dsh-row-in 150ms var(--ds-ease-in-out);
+}
+
+/* The zone's drop hero, docked at the TOP edge (right under the search
+   row, the first thing the eye meets): the colorful tray illustration over
+   the hint pill — stacked so the rows below stay aimable. */
+.uploadDropHero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  padding-top: 8px;
+}
+
+.uploadDropZonePill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-shadow-lv2);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-strong-12);
+}
+
+.uploadDropZoneText {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The left zone's invitation: centered in the viewport space beside the
+   tree (inline width = the zone's left edge), telling the user the dimmed
+   conversation column still accepts drops — into the chat, natively. */
+.uploadDropChatHint {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 1002;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: dsh-row-in 150ms var(--ds-ease-in-out);
+}
+
+/* The invitation's content: the colorful photo-cards illustration over the
+   label — the drop overlay is this flow's one brand moment, so it gets the
+   color the rest of the UI never does (palette borrowed from DSH's native
+   drop illustration so the two zones read as one family). */
+.uploadDropChatCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 100%;
+  text-align: center;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-s-strong-14);
+}
+
+/* Full-window upload progress: blurred scrim + card (same mask/backdrop
+   tokens as the repo's Modal primitive; absolute within the tree panel so it
+   never covers the conversation column). */
+.uploadOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--dsw-alias-bg-mask-1);
+  backdrop-filter: var(--dsw-mask-blur);
+  animation: dsh-row-in 150ms var(--ds-ease-in-out);
+}
+
+.uploadOverlayCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 280px;
+  max-width: min(420px, calc(100% - 48px));
+  padding: 20px 24px;
+  border: 1px solid var(--dsw-alias-border-inverted);
+  border-radius: 24px;
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-shadow-lv3);
+}
+
+.uploadOverlayTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: var(--dsw-font-s-strong-14);
+  color: var(--dsw-alias-label-primary);
+}
+
+.uploadOverlayTitle > svg {
+  flex: none;
+}
+
+.uploadOverlayTitle > span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.uploadOverlayProgress {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--dsw-alias-border-l2);
+  overflow: hidden;
+}
+
+.uploadOverlayProgressFill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--dsw-alias-interactive-bg-hover-accent);
+  transition: width 150ms var(--ds-ease-in-out);
+}
+
+.uploadOverlayStatus {
+  min-height: 1em;
+  font: var(--dsw-font-xxs-12);
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.uploadOverlayCancel {
+  align-self: flex-end;
+  height: 28px;
+  padding: 0 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-strong-12);
+  cursor: pointer;
+}
+
+.uploadOverlayCancel:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.uploadOverlayCancel:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ── Editor ────────────────────────────────────────────────────────────── */
+
+.editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.editorHeader {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+.editorTitle {
+  flex: 1;
+  min-width: 0;
+  font: var(--dsw-font-xxs-strong-12);
+  color: var(--dsw-alias-label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Merged mode (the editorExplorer pref): the header's path input replaces
+   the plain title, and a toggleable file tree docks at the tab's right edge. */
+.editorPathInput {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-12);
+}
+
+.editorPathInput:focus {
+  outline: none;
+  border-color: var(--dsw-alias-border-l2);
+}
+
+/* The tree-panel toggle in the header: active = panel open (the selected
+   fill of the tab strip). */
+.editorTreeToggleActive {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.editorBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.editorMain {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The docked file tree: the wrapper owns the (drag-adjustable) width and
+   the hairline separation; the resize handle is a wider invisible strip on
+   its left edge with a hover affordance. */
+.editorTreeDock {
+  position: relative;
+  flex: none;
+  min-height: 0;
+  display: flex;
+  border-left: 1px solid var(--dsw-alias-border-l1);
+}
+
+.editorTreeResize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* Inside the dock (left edge): pointer capture on the handle keeps the
+     drag alive even when the pointer leaves the strip. */
+  left: 0;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 3;
+}
+
+.editorTreeResize:hover {
+  background: var(--dsw-alias-border-l2);
+}
+
+.editorTreePanel {
+  /* Relative so the upload overlay and drop pill can cover the tree exactly. */
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The tree panel's full-window form (the `full` prop): fill the tab body. */
+.editorTreePanelFull {
+  flex: 1;
+}
+
+.editorTreeSearch {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+.editorSearchInput {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-12);
+}
+
+.editorSearchInput:focus {
+  outline: none;
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.editorSearchHint {
+  padding: 8px 12px;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.editorSearchResult {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-12);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editorSearchResult:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.editorStatus {
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.editorStatusError {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.dirtyDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-warn-primary);
+  flex: none;
+}
+
+.editorPlaceholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+  padding: 16px;
+  text-align: center;
+}
+
+/* The unregistered tab type shown by the orphaned-tab placeholder. */
+.orphanedType {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  opacity: 0.7;
+  overflow-wrap: anywhere;
+}
+
+/* Binary / download-only files (legacy OLE .doc/.xls/.ppt, unknown binaries):
+   a centered notice plus a download link — the user always gets the file. */
+.editorBinary {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.editorBinaryNotice {
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.editorDownloadLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-strong-12);
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    border-color var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+.editorDownloadLink:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.editorError {
+  padding: 12px 16px;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.editorBanner {
+  flex: none;
+  padding: 4px 8px;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-state-warn-label);
+  background: var(--dsw-alias-state-warn-tertiary);
+}
+
+/* Live sandbox status row (HTML preview / browser tab): GREEN while the
+   sandbox is on (with the one-tap temporary unlock), RED while it is off
+   (global setting or temporary unlock) — the red state is the persistent
+   warning that the page runs on the GUI's own origin. */
+.sandboxStatus {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  font: var(--dsw-font-xxxs-11);
+}
+
+.sandboxStatusOn {
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-1);
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+.sandboxStatusOff {
+  color: var(--dsw-alias-state-error-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent);
+}
+
+.sandboxDot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.sandboxStatusOff .sandboxDot {
+  background: var(--dsw-alias-state-error-primary);
+}
+
+.sandboxStatusText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sandboxAction {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.sandboxAction:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* The HTML preview iframe: fills the editor body. Route-src (never srcdoc)
+   so the frame is cross-origin by construction even if the sandbox
+   attribute is ever dropped; sandboxed by default (see TextEditor). */
+.editorHtml {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: none;
+  background: var(--dsw-alias-bg-base);
+}
+
+/* ── Browser tab ──────────────────────────────────────────────────────── */
+
+.browser {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.browserBar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+.browserInput {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-12);
+}
+
+.browserInput:focus {
+  outline: none;
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.browserMessage {
+  flex: none;
+  padding: 4px 12px;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-state-warn-label);
+  background: var(--dsw-alias-state-warn-tertiary);
+}
+
+.browserFrame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: none;
+  background: var(--dsw-alias-bg-base);
+}
+
+.browserStart {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  text-align: center;
+  font: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* Embed-refusal panel (X-Frame-Options / frame-ancestors): replaces the
+   blank refused iframe with the reason + open-in-browser actions. */
+.browserBlocked {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.browserBlockedTitle {
+  font: var(--dsw-font-xxs-strong-12);
+  color: var(--dsw-alias-label-primary);
+}
+
+.browserBlockedDesc {
+  max-width: 280px;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.browserBlockedActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.browserBlockedButton {
+  padding: 4px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxxs-11);
+  cursor: pointer;
+}
+
+.browserBlockedButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.editorCm {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.editorCmHidden {
+  display: none;
+}
+
+/* CodeMirror fills the pane; the theme supplies its own token palette
+   (a designed dark theme, same policy as the xterm palette). */
+.editorCm :global(.cm-editor) {
+  height: 100%;
+}
+
+/* Code lines get the same 12/16 inset as the markdown preview, so toggling
+   preview/edit never jumps the text's resting position. */
+.editorCm :global(.cm-scroller) {
+  padding: 12px 16px;
+}
+
+.editorCm :global(.cm-editor.cm-focused) {
+  outline: none;
+}
+
+/* Preview / edit segmented toggle (markdown and other previewable files). */
+.editorModeToggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.editorModeButton {
+  padding: 2px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxxs-11);
+  cursor: pointer;
+}
+
+.editorModeButton:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.editorModeActive {
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+}
+
+.editorImageWrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 12px;
+}
+
+.editorImage {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.editorMd {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 16px;
+  font: var(--dsw-font-xs-13);
+}
+
+/* ── Mermaid diagram block (markdown preview, mermaid lazy chunk) ────────
+   Mirrors the md-code-block chrome the DSH CodeBlock renders, so a diagram
+   reads as a peer of the surrounding fences: hairline border, layer-2
+   header with the info string + copy action, layer-1 body. The SVG body is
+   static (no bindFunctions) and sanitized (no foreignObject/script/@attrs/
+   hrefs), so it carries no event surface beyond the copy button; the body
+   click opens the zoom modal on a sanitized clone. */
+
+.mermaidWrap {
+  margin: 6px 0;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+  overflow: hidden;
+}
+
+.mermaidHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.mermaidInfo {
+  font: var(--dsw-font-xxxs-strong-11);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.mermaidCopy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxxs-11);
+  cursor: pointer;
+}
+
+.mermaidCopy:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.mermaidBody {
+  display: flex;
+  justify-content: center;
+  padding: 10px;
+  overflow: auto;
+  cursor: zoom-in;
+}
+
+.mermaidBody :global(svg) {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaidError {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-state-error-primary);
+  font: var(--dsw-font-xxxs-11);
+}
+
+/* The diagram source shown under a render error (helps fixing the fence). */
+.mermaidCode {
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  font: var(--dsw-font-xxxs-11);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* The mermaid markdown container (single MarkdownText pass): a swapped
+   code block keeps its React-managed .md-code-block wrapper in the tree
+   (reconciliation safety), but the wrapper's own box is suppressed so only
+   the diagram chrome renders; the swapped-in host div flows as a block. */
+.mermaidMarkdown :global(.md-code-block[data-mermaid-processed]) {
+  display: contents;
+}
+
+/* ── Mermaid zoom modal (click-to-enlarge; portalled to document.body) ──
+   Fixed overlay above the DSH overlay stack (1000+), token-driven surface.
+   The stage centers the (sanitized, cloned) svg and the modal owns the
+   transform; the drag/zoom listeners live in the component, nothing here
+   targets global class names. */
+
+.mermaidModal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--dsw-alias-bg-mask-1);
+  backdrop-filter: blur(2px);
+}
+
+.mermaidModalToolbar {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  gap: 8px;
+  z-index: 10;
+}
+
+.mermaidModalButton {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xs-strong-13);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mermaidModalButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.mermaidModalStage {
+  width: 90vw;
+  height: 80vh;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mermaidModalStage :global(svg) {
+  max-width: none;
+  max-height: none;
+  cursor: grab;
+  transform-origin: center center;
+  user-select: none;
+  -webkit-user-drag: none;
+  background: var(--dsw-alias-bg-layer-1);
+  padding: 16px;
+  border-radius: 12px;
+}
+
+.mermaidModalStage :global(svg):active {
+  cursor: grabbing;
+}
+
+.mermaidModalHint {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxxs-11);
+  pointer-events: none;
+}
+
+/* The floating "add to conversation" button anchored above a text
+   selection in the preview/code viewers. Portalled to document.body and
+   position:fixed, so the editor's overflow clips cannot crop it; flat
+   chrome like the rest of the sidebar (hairline border, layer-2 fill,
+   hover fill — no shadow). */
+.selectionPopup {
+  position: fixed;
+  z-index: 60;
+  transform: translate(-50%, calc(-100% - 8px));
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxxs-strong-11);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.selectionPopup:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.editorPdf {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--dsw-alias-bg-base);
+}
+
+.editorPdfToolbar {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+.editorPdfStage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.editorPdfFrame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: none;
+  background: var(--dsw-alias-bg-base);
+}
+
+.editorPdfFrameBlocked {
+  pointer-events: none;
+}
+
+.editorPdfDragShield {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  background: transparent;
+}
+
+.editorPdfDragShieldActive {
+  pointer-events: auto;
+}
+
+/* Tab drag must switch iframe hit-testing before the pointer can enter the
+   Chromium PDF browsing context. The body flag is set synchronously by the
+   drag source, avoiding React render timing entirely. */
+:global(body[data-dsh-tab-dragging]) .editorPdfFrame {
+  pointer-events: none !important;
+}
+
+:global(body[data-dsh-tab-dragging]) .editorPdfDragShield {
+  pointer-events: auto !important;
+}
+
+/* ── Terminal ──────────────────────────────────────────────────────────── */
+
+.terminalWrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--dsw-alias-bg-base);
+}
+
+.terminal {
+  flex: 1;
+  min-height: 0;
+  padding: 6px 4px 6px 8px;
+}
+
+.terminal :global(.xterm) {
+  height: 100%;
+}
+
+.terminalBanner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 3px 10px;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-state-warn-label);
+  background: var(--dsw-alias-state-warn-tertiary);
+}
+
+/* The attempted ws URL, shown when the connection failed (diagnosis). */
+.terminalBannerUrl {
+  flex-basis: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+  opacity: 0.85;
+}
+
+.boundaryError {
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 16px;
+  background: var(--dsw-alias-bg-layer-1);
+  border-left: 1px solid var(--dsw-alias-border-l2);
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-state-error-primary);
+  overflow: auto;
+}
+
+.terminalRetry {
+  flex: none;
+  padding: 1px 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxxs-strong-11);
+  cursor: pointer;
+}
+
+.terminalRetry:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* The node-pty dependency failure banner (issue #140): a taller warn block
+   carrying the pasteable repair command (bash / cmd / PowerShell). */
+.terminalDepsBanner {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-state-warn-label);
+  background: var(--dsw-alias-state-warn-tertiary);
+}
+
+.terminalDepsTitle {
+  font: var(--dsw-font-xxs-strong-12);
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.terminalDepsHint {
+  opacity: 0.9;
+}
+
+.terminalDepsCommandRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* The command the user pastes into a terminal / cmd. Selectable, wrapping,
+   and scrollable when long (Windows paths can get very long). */
+.terminalRepairCommand {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 6px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 4px;
+  max-height: 160px;
+  overflow: auto;
+}
+
+.terminalDepsNote {
+  opacity: 0.85;
+}
+
+.terminalDepsActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The PER-TAB error strip: fills one tab's content area (unlike
+   .boundaryError, the full-height fixed rail for shell-level crashes), so a
+   crashing viewer/editor never hides the toggle cluster or the other tabs. */
+.tabBoundaryError {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 12px 16px;
+  overflow: auto;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* ── Git ───────────────────────────────────────────────────────────────── */
+
+.git {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  /* Tab pages never scroll horizontally: content wraps or truncates to the
+     panel width instead of panning sideways. */
+  overflow-x: hidden;
+}
+
+.gitHeader {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 8px 0 12px;
+}
+
+.gitWorktreeRow {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 0 12px;
+}
+
+.gitWorktreeLabel {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xxxs-11);
+}
+
+.gitBranchSelect {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-12);
+}
+
+.gitSection {
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}
+
+.gitSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px 4px;
+  font: var(--dsw-font-xxxs-strong-11);
+  color: var(--dsw-alias-label-tertiary);
+  text-transform: uppercase;
+}
+
+.gitLink {
+  border: none;
+  background: transparent;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-brand-primary);
+  cursor: pointer;
+  padding: 0;
+}
+
+.gitLink:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.gitLink:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.gitRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  margin: 0 6px;
+  padding: 0 8px;
+  border-radius: 8px;
+  animation: dsh-row-in 150ms var(--ds-ease-in-out);
+}
+
+.gitRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.gitRowSelected {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.gitRowMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  padding: 3px 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.gitBadge {
+  flex: none;
+  width: 20px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  font: var(--dsw-font-xxxs-strong-11);
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.gitName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--dsw-font-s-14);
+  color: var(--dsw-alias-label-primary);
+}
+
+.gitEmpty {
+  padding: 4px 12px 8px;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.gitPlaceholder {
+  padding: 16px;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+  text-align: center;
+}
+
+.gitError {
+  padding: 8px 12px;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-state-error-primary);
+  white-space: pre-wrap;
+}
+
+.gitDiff {
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  padding: 8px;
+}
+
+/* The diff tab (a change opened from the git panel, like VSCode's diff
+   editor): header + scrollable diff body, no horizontal panning. */
+.gitDiffTab {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.gitDiffTabHeader {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+.gitDiffTabTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--dsw-font-xxs-strong-12);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* One changed file's section: path header, hunk headers, aligned lines. */
+.gitDiffFile {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 8px 2px 2px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.gitDiffFile:disabled {
+  cursor: default;
+}
+
+.gitDiffFile:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.gitDiffFileChevron {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  transform: rotate(0deg);
+}
+
+.gitDiffFileChevronExpanded {
+  transform: rotate(90deg);
+}
+
+.gitDiffFilePath {
+  font: var(--dsw-font-xxs-strong-12);
+  color: var(--dsw-alias-label-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gitDiffFileOld {
+  flex: none;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+
+.gitDiffFileTag {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  font: var(--dsw-font-xxxs-strong-11);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.gitDiffHunk {
+  display: flex;
+  gap: 8px;
+  padding: 3px 2px;
+  font: var(--dsw-font-markdown-code-block-small);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.gitDiffHunkHeader {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.gitDiffHunkSection {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* One aligned diff line: old gutter / new gutter / code. Lines WRAP instead
+   of scrolling horizontally (the tab-page rule: fill the width adaptively),
+   with the long-token fallback breaking anywhere a space never comes. */
+.gitDiffLine {
+  display: flex;
+  align-items: stretch;
+  font: var(--dsw-font-markdown-code-block-small);
+  line-height: 20px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.gitDiffNum {
+  flex: none;
+  width: 36px;
+  padding-right: 8px;
+  text-align: right;
+  color: var(--dsw-alias-label-tertiary);
+  user-select: none;
+}
+
+.gitDiffCode {
+  flex: 1;
+  min-width: 0;
+  overflow: visible;
+}
+
+.gitDiffCtx {
+  color: var(--dsw-alias-label-primary);
+}
+
+.gitDiffDel {
+  color: var(--dsw-alias-state-error-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);
+}
+
+.gitDiffAdd {
+  color: var(--dsw-alias-state-success-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent);
+}
+
+.gitDiffMeta {
+  padding-left: 2px;
+}
+
+.gitDiffMetaText {
+  font: var(--dsw-font-xxxs-11);
+  font-style: italic;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.gitDiffExpand {
+  display: block;
+  width: 100%;
+  margin: 4px 0;
+  border: none;
+  background: transparent;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-brand-primary);
+  cursor: pointer;
+  text-align: center;
+}
+
+.gitDiffExpand:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.gitConfirmDesc {
+  margin: 0;
+  font: var(--dsw-font-s-14);
+  color: var(--dsw-alias-label-primary);
+  white-space: pre-wrap;
+}
+
+.gitCommit {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  align-items: center;
+}
+
+.gitCommitInput {
+  flex: 1;
+  min-width: 0;
+}
+
+.gitCommitButton {
+  flex: none;
+  height: 26px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 6px;
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-inverted);
+  font: var(--dsw-font-xxs-strong-12);
+  cursor: pointer;
+}
+
+.gitCommitButton:hover:not(:disabled) {
+  background: var(--dsw-alias-button-primary-hover);
+}
+
+.gitCommitButton:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* A history row: line 1 = hash + subject, line 2 = ref badges + author/date
+   (badges live on the second line so they never crowd the subject). */
+.gitLogRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 12px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.gitLogRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.gitLogLine1 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gitLogHash {
+  flex: none;
+  font: var(--dsw-font-markdown-code-block-small);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.gitLogLine2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.gitLogRef {
+  flex: none;
+  padding: 0 5px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  font: var(--dsw-font-xxxs-strong-11);
+  color: var(--dsw-alias-brand-primary);
+  white-space: nowrap;
+}
+
+.gitLogSubject {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--dsw-font-s-14);
+  color: var(--dsw-alias-label-primary);
+}
+
+.gitLogMeta {
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.gitLogMore {
+  display: block;
+  width: calc(100% - 24px);
+  margin: 4px 12px 8px;
+  padding: 6px 0;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: transparent;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.gitLogMore:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.gitLogMore:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── Intercepted produced-files row ────────────────────────────────────── */
+
+.producedRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px 0;
+}
+
+.producedLabel {
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.producedChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 200px;
+  padding: 2px 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxs-12);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.producedChip:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.producedChip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.producedMore {
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* ── Shared interaction rules ──────────────────────────────────────────── */
+
+/* Keyboard focus stays visible on every interactive control (the styling
+   policy requires focus visibility; the accent token doubles as the ring). */
+.toggleButton:focus-visible,
+.bottomClose:focus-visible,
+.iconButton:focus-visible,
+.tab:focus-visible,
+.tabClose:focus-visible,
+.tabBarPlus:focus-visible,
+.paneCard:focus-visible,
+.explorerRow:focus-visible,
+.explorerRef:focus-visible,
+.gitRowMain:focus-visible,
+.gitLink:focus-visible,
+.gitCommitButton:focus-visible,
+.gitLogRow:focus-visible,
+.gitLogMore:focus-visible,
+.gitDiffFile:focus-visible,
+.gitDiffExpand:focus-visible,
+.terminalRetry:focus-visible,
+.editorModeButton:focus-visible,
+.editorDownloadLink:focus-visible,
+.editorPptxButton:focus-visible,
+.editorDocxZoomRange:focus-visible {
+  outline: 2px solid var(--dsw-alias-interactive-bg-hover-accent);
+  outline-offset: -1px;
+}
+
+/* Reduced motion: no slides, fades or color transitions. */
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .panelHidden,
+  .bottomPanel,
+  .bottomPanelHidden,
+  .toggleCluster,
+  .toggleButton,
+  .tab,
+  .tabBarPlus,
+  .paneCard,
+  .explorerRow,
+  .gitRow,
+  .divider,
+  .dividerRow::after,
+  .dividerCol::after {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* ── Narrow (mobile) viewport ──────────────────────────────────────────── */
+
+/* Pairs with NARROW_MAX_WIDTH = 768 in src/client/breakpoints.ts: widths
+   strictly below 768px (i.e. max-width: 767px) switch the sidebar to the
+   mobile layout — one full-screen drawer (the bottom panel's tabs were
+   migrated into the right tree), one toggle button. The structural
+   switches (which panels render, the migration) are JS-driven via
+   useNarrowViewport; this block only adapts the pure style details. */
+@media (max-width: 767px) {
+  /* The toggle cluster holds a single button on narrow viewports (the
+     bottom panel button is not rendered), so the open panel's tab strip
+     reserves 40px instead of the desktop 72px — the tabs and + menu still
+     yield space to the one remaining control. */
+  .panel:not(.panelHidden) .tabBar {
+    padding-right: 40px;
+  }
+
+  /* Narrower tabs: a phone-width drawer fits more open tabs before the
+     strip scrolls. */
+  .tab {
+    min-width: 48px;
+    max-width: 128px;
+  }
+}
+
+/* The file tree "open with" menu rows: the label area is a BLOCK-level flex
+   row that fills the primitives `.itemLabel` span (which is itself `flex: 1`
+   inside the row), so the trailing control — the pushpin on submenu rows,
+   the chevron on the submenu parent — docks at the row's far right, exactly
+   like the trailing check on selected rows of every other menu. */
+.openWithLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.openWithName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The trailing "expands into a submenu" chevron on the open-with parent row
+   (the primitives Menu renders no arrow for submenu parents). */
+.openWithChevron {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* The pushpin toggle on an "open with" submenu row: brand ink once the
+   target is pinned to the menu's top level. */
+.openWithPin {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.openWithPin:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.openWithPinActive {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+/* ── Markdown preview: raw-HTML runs + table of contents ─────────────────
+   The HTML runs lifted out of the markdown source (MarkdownHtml.tsx) render
+   as sanitized block leaves; the TOC is a zero-height sticky bar keeping the
+   outline button pinned at the preview's top-right without consuming layout.
+   All visuals ride the alias tokens (skin system follows automatically). */
+
+/* A sanitized HTML run leaf (block-level box; content is DOMPurify output). */
+.editorHtmlBlock {
+  margin: 8px 0;
+}
+
+.editorHtmlBlock img,
+.editorHtmlBlock video {
+  max-width: 100%;
+}
+
+.editorHtmlBlock details {
+  margin: 4px 0;
+  padding: 4px 0;
+}
+
+.editorHtmlBlock summary {
+  cursor: pointer;
+}
+
+/* The zero-height sticky bar: occupies no layout, keeps the button visible
+   while the preview scrolls, and lets pointer events pass through the bar
+   itself (only the interactive children re-enable them). */
+.tocBar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  justify-content: flex-end;
+  height: 0;
+  pointer-events: none;
+}
+
+.tocButton {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: 4px 2px 0 0;
+  padding: 0;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.tocButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* The outline popover, anchored under the button (the bar is the containing
+   block; its height is 0, so the panel drops below the pinned button row). */
+.tocPanel {
+  position: absolute;
+  top: 32px;
+  right: 2px;
+  display: flex;
+  flex-direction: column;
+  width: min(300px, 82%);
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-shadow-lv2);
+  pointer-events: auto;
+}
+
+.tocItem {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxs-12);
+  text-align: left;
+  cursor: pointer;
+}
+
+.tocItem:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Indent by heading level (h2 = one step, h3 = two steps…). */
+.tocItem[data-level='2'] { padding-left: 18px; }
+.tocItem[data-level='3'] { padding-left: 28px; }
+.tocItem[data-level='4'] { padding-left: 38px; }
+.tocItem[data-level='5'] { padding-left: 48px; }
+.tocItem[data-level='6'] { padding-left: 58px; }
+
+/* The tiny level number keeps deep outlines scannable. */
+.tocItemLevel {
+  flex: none;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.tocItemText {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The jumped-to heading flashes once (the class is added to the host-rendered
+   heading element by md-toc.tsx; @keyframes rides the CSS module). */
+@keyframes dsh-toc-flash {
+  0%, 60% { background: var(--dsw-alias-interactive-bg-hover); }
+  100% { background: transparent; }
+}
+
+.tocFlash {
+  animation: dsh-toc-flash 1.2s ease-out;
+  border-radius: 4px;
+}
+
+/* ── Embedded (left-dock) mode ─────────────────────────────────────────── */
+
+/* In left-dock mode the panel host is an IN-FLOW column filling its
+   container, not the fixed viewport overlay: the app's own left sidebar
+   column hosts the workbench, so there is no layout push and nothing to
+   overlay. !important wins over the fixed-host rule above (and over the
+   degraded-mode rule index.tsx uses for exotic shells). */
+:global([data-dsh-panel-host][data-dsh-panel-host-embedded]) {
+  position: relative !important;
+  inset: auto !important;
+  width: 100% !important;
+  height: 100% !important;
+  pointer-events: auto !important;
+  overflow: hidden !important;
+}
+
+.embeddedHost {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+/* The left-dock shell: fills the app's left column; the tab strip on top,
+   the active view (sessions or workbench) below. */
+.leftDock {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.leftDockTabs {
+  display: flex;
+  flex-shrink: 0;
+  align-items: stretch;
+  gap: 2px;
+  padding: 6px 6px 0;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.leftDockTabs::-webkit-scrollbar {
+  display: none;
+}
+
+.leftDockTab {
+  /* Share the strip evenly; long labels truncate with an ellipsis and the
+     full title rides the native tooltip (VS Code-style tab overflow). The
+     strip still scrolls as a fallback for very long lists. */
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: none;
+  border-radius: 7px 7px 0 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxs-12);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    color var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+.leftDockTab:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Ellipsis must live on a BLOCK child: text-overflow does not clip the
+   anonymous flex item a bare text node becomes inside the flex button. */
+.leftDockTabLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leftDockTabActive {
+  background: color-mix(in srgb, var(--dsw-alias-interactive-bg-hover-accent) 12%, transparent);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: inset 0 -2px 0 var(--dsw-alias-interactive-bg-hover-accent);
+}
+
