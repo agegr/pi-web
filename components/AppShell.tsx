@@ -99,6 +99,11 @@ export function AppShell() {
   const [sessionCatalog, setSessionCatalog] = useState<SessionInfo[]>([]);
   const handleSessionsChange = useCallback((sessions: SessionInfo[]) => {
     setSessionCatalog(sessions);
+    setSelectedSession((current) => {
+      if (!current) return current;
+      const refreshed = sessions.find((session) => session.id === current.id);
+      return refreshed ? { ...current, ...refreshed } : current;
+    });
   }, []);
   const sessionsWithSelection = useMemo(() => {
     if (!selectedSession) return sessionCatalog;
@@ -978,7 +983,8 @@ export function AppShell() {
 
   const activeFileTab = fileTabs.find((tab) => tab.id === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
-  const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
+  const activeSessionName = selectedSession?.name?.trim();
+  const windowTitle = [activeSessionName, activeCwdName, "Pi Web"].filter(Boolean).join(" - ");
 
   useEffect(() => {
     const syncWindowTitle = () => {
