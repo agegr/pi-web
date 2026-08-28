@@ -479,6 +479,7 @@ pre, code {
 .markdown-body table {
   border-collapse: separate;
   border-spacing: 0;
+  width: max-content;
   min-width: 100%;
   font-size: 13px;
 }
