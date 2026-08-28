@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme, type ThemePreference } from "@/hooks/useTheme";
 import { sendAgentCommand } from "@/lib/agent-client";
-import type { ShellToolSettingsResponse } from "@/lib/api-types";
+import type { ShellToolSettingsResponse, AutoTitleSettingsResponse } from "@/lib/api-types";
 import {
   setLastSettingsSection,
   type SettingsSection,
@@ -59,6 +59,9 @@ function GeneralSettings({ sessionId, onSessionReloaded }: Pick<Props, "sessionI
   const [shellSettings, setShellSettings] = useState<ShellToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
+  const [autoTitle, setAutoTitle] = useState<AutoTitleSettingsResponse | null>(null);
+  const [autoTitleSaving, setAutoTitleSaving] = useState(false);
+  const [autoTitleError, setAutoTitleError] = useState<string | null>(null);
   const themeOptions: { id: ThemePreference; label: string }[] = [
     { id: "light", label: t("settings.themeLight") },
     { id: "dark", label: t("settings.themeDark") },
@@ -78,6 +81,39 @@ function GeneralSettings({ sessionId, onSessionReloaded }: Pick<Props, "sessionI
       });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/sessions/settings")
+      .then(async (response) => {
+        const data = await response.json() as AutoTitleSettingsResponse & { error?: string };
+        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+        if (!cancelled) setAutoTitle(data);
+      })
+      .catch((cause) => {
+        if (!cancelled) setAutoTitleError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const toggleAutoTitle = async (enabled: boolean) => {
+    setAutoTitleSaving(true);
+    setAutoTitleError(null);
+    try {
+      const response = await fetch("/api/sessions/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      const data = await response.json() as AutoTitleSettingsResponse & { error?: string };
+      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      setAutoTitle(data);
+    } catch (cause) {
+      setAutoTitleError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setAutoTitleSaving(false);
+    }
+  };
 
   const togglePowerShell = async (enabled: boolean) => {
     setShellSaving(true);
@@ -145,6 +181,23 @@ function GeneralSettings({ sessionId, onSessionReloaded }: Pick<Props, "sessionI
           {shellError && <p role="alert" className="settings-general-error">{shellError}</p>}
         </section>
       )}
+
+      <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.autoTitle")}</h3>
+        <p className="settings-general-description">{t("settings.autoTitleDescription")}</p>
+        <div className="settings-shell-option">
+          <span>{t("settings.autoTitleLabel")}</span>
+          {autoTitle && (
+            <ConfigSwitch
+              checked={autoTitle.autoSessionTitle}
+              loading={autoTitleSaving}
+              label={t("settings.autoTitleLabel")}
+              onChange={(enabled) => void toggleAutoTitle(enabled)}
+            />
+          )}
+        </div>
+        {autoTitleError && <p role="alert" className="settings-general-error">{autoTitleError}</p>}
+      </section>
 
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("common.language")}</h3>

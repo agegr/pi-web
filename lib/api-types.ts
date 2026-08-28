@@ -14,6 +14,10 @@ export interface ShellToolSettingsResponse {
   powerShellEnabled: boolean;
 }
 
+export interface AutoTitleSettingsResponse {
+  autoSessionTitle: boolean;
+}
+
 export interface SkillSearchResult {
   package: string;
   installs: string;

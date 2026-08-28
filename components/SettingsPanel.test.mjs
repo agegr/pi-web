@@ -103,3 +103,13 @@ test("uses the child-session robot glyph for the sub-agents tab", () => {
 test("uses the compact controls glyph for General", () => {
   assert.match(panelSource, /section === "general"[\s\S]*?<path d="M20 7h-9M14 17H5" \/>[\s\S]*?<circle cx="7" cy="7" r="3" \/>[\s\S]*?<circle cx="17" cy="17" r="3" \/>/);
 });
+
+test("general settings expose the automatic session title toggle", () => {
+  assert.match(panelSource, /\/api\/sessions\/settings/);
+  assert.match(panelSource, /settings\.autoTitleDescription/);
+  assert.match(panelSource, /checked=\{autoTitle\.autoSessionTitle\}/);
+  for (const source of [enSource, zhSource]) {
+    assert.match(source, /"settings\.autoTitle":/);
+    assert.match(source, /"settings\.autoTitleLabel":/);
+  }
+});
