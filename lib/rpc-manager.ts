@@ -39,6 +39,7 @@ import {
 } from "./subagents";
 import { createSubagentController } from "./subagent-runtime";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
+import { maybeAutoTitleSession } from "./auto-title";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
 import {
@@ -2025,6 +2026,14 @@ export async function startRpcSession(
       onAgentRunComplete: (completedSessionId) => {
         void notifySessionComplete(completedSessionId).catch((error) => {
           console.error("[pi-web] failed to send completion push:", error instanceof Error ? error.message : error);
+        });
+        // Subagent wrappers suppress this callback entirely, so automatic
+        // titles apply only to regular sessions. Failures stay silent here:
+        // an unnamed session simply retries on its next completed run.
+        const completedSession = getRpcSession(completedSessionId);
+        if (!completedSession) return;
+        void maybeAutoTitleSession(completedSession).catch((error) => {
+          console.error("[pi-web] automatic session title failed:", error instanceof Error ? error.message : error);
         });
       },
       suppressCompletionNotifications: Boolean(subagentResources),
