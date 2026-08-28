@@ -356,6 +356,8 @@ export const zhCNLocale: LocalePlugin = {
     "chat.commandCopy": "复制最后一条助手消息",
     "chat.commandClone": "将当前分支复制为独立新会话",
     "chat.compacted": "已压缩",
+    "chat.imageNotSupportedTitle": "图片可能无法发送",
+    "chat.imageNotSupportedBody": "当前选择的模型（{model}）不支持图片输入，附加的图片可能会被忽略。",
     "chat.tokensSaved": "节省 {saved}",
     "i18n.close": "关闭",
     "i18n.copy": "复制",

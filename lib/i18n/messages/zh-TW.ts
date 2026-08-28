@@ -356,6 +356,8 @@ export const zhTWLocale: LocalePlugin = {
     "chat.commandCopy": "複製最後一則助理訊息",
     "chat.commandClone": "將目前分支複製為獨立新工作階段",
     "chat.compacted": "已壓縮",
+    "chat.imageNotSupportedTitle": "圖片可能無法傳送",
+    "chat.imageNotSupportedBody": "目前選擇的模型（{model}）不支援圖片輸入，附加的圖片可能會被忽略。",
     "chat.tokensSaved": "已節省 {saved}",
     "i18n.close": "關閉",
     "i18n.copy": "複製",

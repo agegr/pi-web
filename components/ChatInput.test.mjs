@@ -8,7 +8,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, shouldCompressImageFile } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, modelSupportsImageInput, shouldCompressImageFile } = await jiti.import("./ChatInput.tsx");
 const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("@/lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
@@ -386,4 +386,21 @@ test("renders compact errors above the input as a wrapping alert", () => {
   assert.match(html, /&lt;html&gt;request forbidden&lt;\/html&gt;/);
   assert.match(html, /white-space:pre-wrap/);
   assert.ok(html.indexOf('role="alert"') < html.indexOf("<textarea"));
+});
+
+test("modelSupportsImageInput warns only when modality info is known and lacks image", () => {
+  const modelList = [
+    { id: "text-only", name: "Text Only", provider: "ollama", input: ["text"] },
+    { id: "vision", name: "Vision", provider: "anthropic", input: ["text", "image"] },
+    { id: "unknown", name: "Unknown", provider: "custom", input: undefined },
+  ];
+
+  assert.equal(modelSupportsImageInput({ provider: "ollama", modelId: "text-only" }, modelList), false);
+  assert.equal(modelSupportsImageInput({ provider: "anthropic", modelId: "vision" }, modelList), true);
+  // Unknown modality info never blocks the user.
+  assert.equal(modelSupportsImageInput({ provider: "custom", modelId: "unknown" }, modelList), true);
+  // Model missing from the list is treated as unknown.
+  assert.equal(modelSupportsImageInput({ provider: "x", modelId: "missing" }, modelList), true);
+  assert.equal(modelSupportsImageInput(null, modelList), true);
+  assert.equal(modelSupportsImageInput({ provider: "ollama", modelId: "text-only" }, undefined), true);
 });
