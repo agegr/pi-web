@@ -475,6 +475,11 @@ export class AgentSessionWrapper {
     };
   }
 
+  /** Announce a (re)named session so connected browsers refresh their sidebars. */
+  emitSessionNamed(title: string): void {
+    this.emit({ type: "session_named", sessionId: this.sessionId, name: title });
+  }
+
   onDestroy(cb: () => void): void {
     this.onDestroyCallback = cb;
   }

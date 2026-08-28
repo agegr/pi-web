@@ -58,6 +58,7 @@ export async function maybeAutoTitleSession(
     if (!session.isAlive()) return null;
     session.inner.setSessionName(result.title);
     invalidateSessionListCache();
+    session.emitSessionNamed(result.title);
     return result.title;
   } finally {
     release();

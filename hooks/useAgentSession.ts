@@ -147,6 +147,8 @@ export interface UseAgentSessionOptions {
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
   onSessionCreated?: (session: SessionInfo, sourceDraftKey: string) => void;
   onSessionForked?: (newSessionId: string) => void;
+  /** Fired when the server renames a session (e.g. automatic post-run titling). */
+  onSessionNamed?: (sessionId: string, title: string) => void;
   modelsRefreshKey?: number;
   chatInputRef?: React.RefObject<ChatInputHandle | null>;
   onBranchDataChange?: (tree: SessionTreeNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void) => void;
@@ -270,7 +272,7 @@ type SlashCommandsResponse = {
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
-    session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
+    session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, onSessionNamed,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
   } = opts;
 
@@ -1102,6 +1104,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (wasRunning) onAgentEnd?.();
         break;
       }
+      case "session_named": {
+        // Automatic post-run titling lands seconds after the run ends, while
+        // the idle event stream is still in its grace window. Pure metadata:
+        // never touches streaming state.
+        const title = typeof event.name === "string" ? event.name.trim() : "";
+        if (!title) break;
+        const namedSessionId = typeof event.sessionId === "string"
+          ? event.sessionId
+          : sessionIdRef.current;
+        if (namedSessionId) onSessionNamed?.(namedSessionId, title);
+        break;
+      }
       case "prompt_done":
         {
           const runId = promptRunIdRef.current;
@@ -1270,7 +1284,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
+  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, onSessionNamed, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
