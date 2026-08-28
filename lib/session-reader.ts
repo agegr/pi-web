@@ -459,6 +459,16 @@ export function buildSessionContext(
     leafId,
     byId as unknown as Map<string, PiSessionEntry>,
   );
+  const compactionIndex = sliced.findLastIndex((entry) => entry.type === "compaction");
+  const compaction = sliced[compactionIndex];
+  // The SDK cannot retain entries whose compaction boundary was sliced off the page.
+  if (
+    compactionIndex > 0 &&
+    compaction?.type === "compaction" &&
+    !byId.has(compaction.firstKeptEntryId)
+  ) {
+    contextEntries.splice(1, 0, ...piEntries.slice(0, compactionIndex));
+  }
 
   // Convert the SDK-selected context entries and their IDs together. This keeps
   // fork/navigation targets aligned while preserving pi's compaction ordering.
