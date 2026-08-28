@@ -1,4 +1,5 @@
 import { generateSessionTitle } from "./session-title";
+import { isAutoSessionTitleEnabled } from "./auto-title-settings";
 import { invalidateSessionListCache } from "./session-reader";
 import type { AgentSessionWrapper } from "./rpc-manager";
 import type { AgentSessionLike } from "./pi-types";
@@ -42,8 +43,10 @@ export async function maybeAutoTitleSession(
   session: AgentSessionWrapper,
   generate: (source: AgentSessionLike) => Promise<{ title: string }> = (source) =>
     generateSessionTitle(source as unknown as Parameters<typeof generateSessionTitle>[0]),
+  isEnabled: () => boolean = isAutoSessionTitleEnabled,
 ): Promise<string | null> {
   if (!session.isAlive()) return null;
+  if (!isEnabled()) return null;
   const sessionId = session.sessionId;
   if (session.inner.sessionManager.getSessionName()) return null;
 
