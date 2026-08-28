@@ -7,8 +7,8 @@ import {
   markdownPreviewRemarkPlugins,
   normalizeDisplayMath,
 } from "@/lib/markdown";
-import { splitFinalAssistantBlocks } from "@/lib/message-display";
-import type { AgentMessage, AssistantMessage, TextContent, UserMessage } from "@/lib/types";
+import { isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
+import type { AgentMessage, AssistantMessage, CustomMessage, TextContent, UserMessage } from "@/lib/types";
 import styles from "./ChatMinimap.module.css";
 
 interface Props {
@@ -31,7 +31,7 @@ interface AssistantPreview {
 }
 
 interface TurnInfo {
-  userMessage: UserMessage;
+  userMessage: UserMessage | CustomMessage;
   assistantPreviews: AssistantPreview[];
   scrollTop: number | null;
 }
@@ -42,7 +42,7 @@ interface NodeInfo {
   index: number;
 }
 
-function getUserPreview(message: UserMessage): string {
+function getUserPreview(message: UserMessage | CustomMessage): string {
   if (typeof message.content === "string") return message.content.trim();
   return message.content
     .filter((block): block is TextContent => block.type === "text")
@@ -328,15 +328,16 @@ export function ChatMinimap({
       let currentTurn: TurnInfo | null = null;
 
       for (const message of allMessagesRef.current) {
-        if (message.role !== "user" && message.role !== "assistant") continue;
+        const isAnchor = isMessageGroupAnchor(message);
+        if (!isAnchor && message.role !== "assistant") continue;
         const element = refs?.[refIndex];
         refIndex++;
 
-        if (message.role === "user") {
+        if (isAnchor) {
           currentTurn = null;
           const elementRect = element?.getBoundingClientRect();
           currentTurn = {
-            userMessage: message as UserMessage,
+            userMessage: message as UserMessage | CustomMessage,
             assistantPreviews: [],
             scrollTop: elementRect
               ? elementRect.top - containerRect.top + scrollEl.scrollTop
