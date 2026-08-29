@@ -319,8 +319,8 @@ export interface SessionInfo {
   messageCount: number;
   firstMessage: string;
   parentSessionId?: string; // source session for a fork, or parent session for a subagent
-  /** How this session relates to another session. Forks remain top-level in the
-   *  UI; only subagent relations form a visible parent/child tree. */
+  /** Relationship semantics. Any relation with a resolvable parent is nested in
+   *  the sidebar; only subagent relations receive subagent-specific behavior. */
   relation?:
     | { kind: "fork"; originSessionId?: string }
     | {

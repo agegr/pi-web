@@ -408,6 +408,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const sessionSearchActive = sessionSearchOpen && Boolean(sessionSearchQuery.trim());
   const [changesCount, setChangesCount] = useState(0);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
+  const [collapsedSessionFamilyIds, setCollapsedSessionFamilyIds] = useState<Set<string>>(() => new Set());
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
@@ -1005,11 +1006,32 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   const sessionFamilies = listSessionFamilies(filteredSessions);
 
+  // Windowed rows: one entry per visible session, so nested children keep the
+  // fixed row height the virtualization math relies on.
+  const sessionRows = sessionFamilies.flatMap((family) => {
+    const collapsed = collapsedSessionFamilyIds.has(family.root.id);
+    const rootSession = family.latestModified === family.root.modified
+      ? family.root
+      : { ...family.root, modified: family.latestModified };
+    const rootRow = { family, session: rootSession, depth: 0, collapsed };
+    if (collapsed) return [rootRow];
+    return [rootRow, ...family.children.map((child) => ({ family, session: child, depth: 1, collapsed }))];
+  });
+
+  const toggleSessionFamily = (rootId: string) => {
+    setCollapsedSessionFamilyIds((current) => {
+      const next = new Set(current);
+      if (next.has(rootId)) next.delete(rootId);
+      else next.add(rootId);
+      return next;
+    });
+  };
+
   const virtualIndices = getSessionListIndices(
-    sessionFamilies.length,
+    sessionRows.length,
     listScrollTop,
     listViewportH,
-    sessionFamilies.findIndex((family) => family.root.id === focusedSessionId),
+    sessionRows.findIndex((row) => row.session.id === focusedSessionId),
   );
 
   return (
@@ -1694,38 +1716,39 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {t("sidebar.noSessions")}
           </div>
         )}
-        {sessionFamilies.length > 0 && (
+        {sessionRows.length > 0 && (
           <div
             style={{
               position: "relative",
-              height: sessionFamilies.length * SESSION_LIST_ITEM_HEIGHT,
+              height: sessionRows.length * SESSION_LIST_ITEM_HEIGHT,
             }}
           >
             {virtualIndices.map((index) => {
-              const family = sessionFamilies[index];
-              const familySessions = [family.root, ...family.subagents];
-              const displaySession = family.latestModified === family.root.modified
-                ? family.root
-                : { ...family.root, modified: family.latestModified };
+              const row = sessionRows[index];
+              const rowSessions = row.depth === 0 ? [row.family.root, ...row.family.children] : [row.session];
               // Bubble blur after the input's save handler before unpinning the row.
               return (
                 <div
-                  key={family.root.id}
-                  onFocus={() => setFocusedSessionId(family.root.id)}
+                  key={row.session.id}
+                  onFocus={() => setFocusedSessionId(row.session.id)}
                   onBlur={() => setFocusedSessionId(null)}
                   style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 0, right: 0 }}
                 >
                   <SessionItem
-                    session={displaySession}
-                    isSelected={familySessions.some((session) => session.id === selectedSessionId)}
-                    isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
-                    isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
-                    onClick={() => handleSelectSessionFromList(family.root)}
+                    session={row.session}
+                    isSelected={rowSessions.some((session) => session.id === selectedSessionId)}
+                    isRunning={rowSessions.some((session) => runningSessionIds.has(session.id))}
+                    isUnread={rowSessions.some((session) => unreadSessionIds.has(session.id))}
+                    onClick={() => handleSelectSessionFromList(row.session)}
                     onRenamed={loadSessions}
                     onDeleted={(id) => {
                       onSessionDeleted?.(id);
                       loadSessions();
                     }}
+                    depth={row.depth}
+                    hasChildren={row.depth === 0 && row.family.children.length > 0}
+                    collapsed={row.collapsed}
+                    onToggleCollapse={() => toggleSessionFamily(row.family.root.id)}
                   />
                 </div>
               );
@@ -2207,7 +2230,7 @@ function SessionItem({
         /* ── Normal view ── */
         <>
           {/* Subagent indicator for child sessions */}
-          {depth > 0 && (
+          {depth > 0 && session.relation?.kind === "subagent" && (
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
               <rect x="5" y="7" width="14" height="11" rx="2" />
               <path d="M9 11h.01M15 11h.01M9 15h6M12 7V4M10 4h4" />
