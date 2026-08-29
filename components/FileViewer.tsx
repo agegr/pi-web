@@ -1196,14 +1196,90 @@ function TextFileViewer({
     [data],
   );
 
+  const viewerContent = data?.content ?? "";
+  const sourceLines = useMemo(() => viewerContent.split("\n"), [viewerContent]);
+  const language = data?.language ?? "text";
+  const useLightweightSource = sourceLines.length > SOURCE_HIGHLIGHT_MAX_LINES;
+  // react-syntax-highlighter rebuilds every token element on each render, which
+  // costs hundreds of milliseconds on large files. Cache the rendered trees so
+  // unrelated re-renders (panel open/close, selection changes) reuse them as-is.
+  const highlightedSource = useMemo(
+    () => (
+      <SyntaxHighlighter
+        className={wrapLines ? "file-source-view is-wrapped" : "file-source-view"}
+        language={language === "text" ? "plaintext" : language}
+        style={isDark ? vscDarkPlus : vs}
+        showLineNumbers
+        lineNumberStyle={{
+          ...FILE_LINE_NUMBER_STYLE,
+        }}
+        customStyle={{
+          margin: 0,
+          padding: 0,
+          border: 0,
+          background: "var(--bg)",
+          ...FILE_CODE_STYLE,
+          width: wrapLines ? "100%" : "max-content",
+          minWidth: "100%",
+          minHeight: "100%",
+          overflow: "visible",
+        }}
+        codeTagProps={{
+          style: {
+            fontFamily: "var(--font-mono)",
+            overflowWrap: wrapLines ? "anywhere" : "normal",
+          },
+        }}
+        renderer={(rendererProps) => (
+          <SourceCodeRenderer {...rendererProps} wrapLines={wrapLines} />
+        )}
+        wrapLongLines={wrapLines}
+      >
+        {viewerContent}
+      </SyntaxHighlighter>
+    ),
+    [isDark, language, viewerContent, wrapLines],
+  );
+  const lightweightSourceLines = useMemo(
+    () => sourceLines.map((line, lineIndex) => (
+      <span
+        className="file-source-line"
+        data-line-number={lineIndex + 1}
+        key={`source-line-${lineIndex}`}
+        style={{ display: "flex", minWidth: "100%" }}
+      >
+        <span aria-hidden="true" style={FILE_LINE_NUMBER_STYLE}>
+          {lineIndex + 1}
+        </span>
+        <span
+          className="file-source-line-content"
+          style={{
+            flex: "1 1 auto",
+            minWidth: 0,
+            overflowWrap: wrapLines ? "anywhere" : "normal",
+            whiteSpace: wrapLines ? "pre-wrap" : "pre",
+          }}
+        >
+          {line}
+        </span>
+      </span>
+    )),
+    [sourceLines, wrapLines],
+  );
+
   useEffect(() => {
     const updateSelectedLineRange = () => {
       const root = contentRef.current;
-      setSelectedLineRange(
-        onMentionLines && displayMode === "source" && root
+      setSelectedLineRange((current) => {
+        const next = onMentionLines && displayMode === "source" && root
           ? getSelectedSourceLineRange(root, window.getSelection())
-          : null,
-      );
+          : null;
+        // Skip no-op updates: selectionchange fires continuously while dragging,
+        // and a fresh-but-equal range object would re-render the whole viewer.
+        if (current === null && next === null) return current;
+        if (current && next && current.startLine === next.startLine && current.endLine === next.endLine) return current;
+        return next;
+      });
     };
 
     updateSelectedLineRange();
@@ -1284,14 +1360,12 @@ function TextFileViewer({
 
   if (!data && !isDeletedDiff) return null;
 
-  const language = data?.language ?? "text";
-  const content = data?.content ?? "";
+  const content = viewerContent;
   const isHtml = language === "html";
   const isMarkdown = language === "markdown";
   const hasPreview = isHtml || isMarkdown;
   const markdownDirectory = getFileDirectory(filePath);
-  const lines = content.split("\n");
-  const useLightweightSource = lines.length > SOURCE_HIGHLIGHT_MAX_LINES;
+  const lines = sourceLines;
   const effectiveDisplayMode = isDeletedDiff ? "diff" : displayMode;
   const displayModes: DisplayMode[] = isDeletedDiff
     ? ["diff"]
@@ -1514,63 +1588,10 @@ function TextFileViewer({
               ...FILE_CODE_STYLE,
             }}
           >
-            {lines.map((line, lineIndex) => (
-              <span
-                className="file-source-line"
-                data-line-number={lineIndex + 1}
-                key={`source-line-${lineIndex}`}
-                style={{ display: "flex", minWidth: "100%" }}
-              >
-                <span aria-hidden="true" style={FILE_LINE_NUMBER_STYLE}>
-                  {lineIndex + 1}
-                </span>
-                <span
-                  className="file-source-line-content"
-                  style={{
-                    flex: "1 1 auto",
-                    minWidth: 0,
-                    overflowWrap: wrapLines ? "anywhere" : "normal",
-                    whiteSpace: wrapLines ? "pre-wrap" : "pre",
-                  }}
-                >
-                  {line}
-                </span>
-              </span>
-            ))}
+            {lightweightSourceLines}
           </div>
         ) : (
-          <SyntaxHighlighter
-            className={wrapLines ? "file-source-view is-wrapped" : "file-source-view"}
-            language={language === "text" ? "plaintext" : language}
-            style={isDark ? vscDarkPlus : vs}
-            showLineNumbers
-            lineNumberStyle={{
-              ...FILE_LINE_NUMBER_STYLE,
-            }}
-            customStyle={{
-              margin: 0,
-              padding: 0,
-              border: 0,
-              background: "var(--bg)",
-              ...FILE_CODE_STYLE,
-              width: wrapLines ? "100%" : "max-content",
-              minWidth: "100%",
-              minHeight: "100%",
-              overflow: "visible",
-            }}
-            codeTagProps={{
-              style: {
-                fontFamily: "var(--font-mono)",
-                overflowWrap: wrapLines ? "anywhere" : "normal",
-              },
-            }}
-            renderer={(rendererProps) => (
-              <SourceCodeRenderer {...rendererProps} wrapLines={wrapLines} />
-            )}
-            wrapLongLines={wrapLines}
-          >
-            {content}
-          </SyntaxHighlighter>
+          highlightedSource
         )}
       </div>
     </div>
