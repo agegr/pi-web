@@ -1152,6 +1152,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         return;
       }
 
+      // Alt/Option+Enter sends as follow-up while streaming
+      if (e.key === "Enter" && e.altKey && !isComposing && isStreaming && onFollowUp) {
+        e.preventDefault();
+        sendQueued("followup");
+        return;
+      }
+
       if (sendShortcut) {
         e.preventDefault();
         if (isStreaming && (onSteer || onFollowUp)) {
