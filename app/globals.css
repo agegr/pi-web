@@ -1421,3 +1421,575 @@ span.token.table {
     font-size: 16px !important;
   }
 }
+
+/* ── Research Lens: recursive term explanations ─────────────────────────
+   Selection-triggered AI explanation cards with a glowing rotating border,
+   plus the floating concept-chain panel. See lib/term-research.ts. */
+
+@property --research-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes research-card-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes research-border-spin {
+  to { --research-angle: 360deg; }
+}
+@keyframes research-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+@keyframes research-pop-in {
+  from { opacity: 0; transform: translateY(3px) scale(0.9); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes research-panel-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes research-caret-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.research-card {
+  position: fixed;
+  width: min(92vw, 380px);
+  max-height: min(72vh, 640px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 16px 48px -16px rgba(37, 99, 235, 0.25);
+  overflow: hidden;
+  animation: research-card-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
+}
+
+/* Rotating conic glow running just inside the card border. */
+.research-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.2px;
+  background: conic-gradient(
+    from var(--research-angle),
+    var(--border) 0%,
+    var(--accent) 12%,
+    var(--border) 26%,
+    var(--border) 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  pointer-events: none;
+  animation: research-border-spin 4s linear infinite;
+}
+
+.research-card > div:not(.research-glow) {
+  position: relative;
+}
+
+.research-card-body {
+  padding: 8px 12px 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text);
+}
+
+.markdown-research-card > :first-child { margin-top: 0; }
+.markdown-research-card > :last-child { margin-bottom: 0; }
+.markdown-research-card p { margin: 4px 0; }
+.markdown-research-card ul, .markdown-research-card ol { margin: 4px 0; padding-left: 20px; }
+.markdown-research-card h1, .markdown-research-card h2, .markdown-research-card h3 {
+  font-size: 13px;
+  font-weight: 650;
+  margin: 8px 0 4px;
+}
+
+.research-depth-pill {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+}
+.research-depth-pill:hover { background: var(--bg-hover); color: var(--text); }
+.research-depth-pill[data-active="true"] {
+  background: var(--bg-selected);
+  color: var(--accent);
+  font-weight: 650;
+}
+.research-depth-pill:disabled { cursor: default; opacity: 0.5; }
+
+.research-spinner {
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.research-shimmer {
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--bg-hover) 25%, var(--bg-selected) 50%, var(--bg-hover) 75%);
+  background-size: 200% 100%;
+  animation: research-shimmer 1.4s linear infinite;
+}
+
+.research-caret {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  border-radius: 1px;
+  animation: research-caret-blink 0.9s step-end infinite;
+}
+
+.research-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  color: #f87171;
+  font-size: 12px;
+  word-break: break-word;
+}
+.research-retry {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+  text-decoration: underline;
+}
+
+.research-trigger {
+  position: fixed;
+  z-index: 75;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-panel);
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+  animation: research-pop-in 0.15s ease-out both;
+  transform: translateX(-50%);
+}
+.research-trigger:hover {
+  background: var(--bg-selected);
+  border-color: var(--accent);
+}
+
+.research-chain-toggle {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 68;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  cursor: pointer;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.14);
+  transition: color 0.12s, border-color 0.12s;
+}
+.research-chain-toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.research-chain-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.research-chain-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 64px;
+  z-index: 68;
+  display: flex;
+  flex-direction: column;
+  width: min(92vw, 300px);
+  max-height: min(62vh, 480px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 16px 48px -16px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+  animation: research-panel-in 0.18s ease-out both;
+}
+
+.research-status-dot {
+  display: grid;
+  place-items: center;
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+}
+.research-status-dot.is-done { background: #22c55e; }
+.research-status-dot.is-error { background: #f87171; }
+.research-status-dot svg { animation: spin 0.8s linear infinite; }
+
+/* Research lens v2: dragging, live reasoning, richer chain nodes */
+.research-card.is-dragging {
+  cursor: grabbing;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18), 0 24px 64px -16px rgba(37, 99, 235, 0.35);
+}
+.research-card.is-dragging .research-drag-handle {
+  cursor: grabbing;
+}
+/* The flash lives on a pseudo-element: swapping the host animation (removing
+   .is-flashing) would restart research-card-in and visibly re-scale the
+   card — the reported jumping. */
+.research-card::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 14px;
+  pointer-events: none;
+  opacity: 0;
+}
+.research-card.is-flashing::after {
+  animation: research-flash 1.1s ease-out both;
+}
+@keyframes research-flash {
+  0%, 60% { opacity: 1; box-shadow: 0 0 0 2px var(--accent); }
+  100% { opacity: 0; box-shadow: 0 0 0 2px transparent; }
+}
+
+.research-thinking {
+  margin-bottom: 6px;
+  max-height: 110px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  padding: 5px 8px;
+}
+.research-thinking-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--accent);
+  margin-bottom: 3px;
+  position: sticky;
+  top: 0;
+}
+.research-thinking-text {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.research-chain-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.research-chain-item:hover {
+  background: var(--bg-panel);
+  border-color: var(--border);
+}
+.research-chain-item[data-status="error"] {
+  background: rgba(248, 113, 113, 0.05);
+}
+.research-chain-item .research-status-dot {
+  margin-top: 3px;
+}
+.research-chain-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 5px;
+  background: var(--bg-hover);
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0;
+}
+.group:hover .research-chain-remove {
+  display: grid;
+}
+.research-chain-remove:hover {
+  color: #f87171;
+}
+.research-chain-divider {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--border);
+}
+.research-chain-edge {
+  position: absolute;
+  left: -9px;
+  top: -8px;
+  width: 12px;
+  height: 18px;
+  border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-bottom-left-radius: 8px;
+}
+.research-chain-children {
+  position: relative;
+  padding-left: 3px;
+  margin-top: 2px;
+}
+.research-chain-children::before {
+  content: "";
+  position: absolute;
+  left: -3.5px;
+  top: -2px;
+  bottom: 14px;
+  width: 1px;
+  background: var(--border);
+}
+
+/* Research lens v3: parent→child arrows, in-card follow-ups */
+.research-links {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 59;
+  pointer-events: none;
+  overflow: visible;
+}
+.research-links-path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  opacity: 0.65;
+  stroke-dasharray: 7 5;
+  animation: research-links-flow 1.1s linear infinite;
+}
+.research-links-marker {
+  fill: var(--accent);
+  opacity: 0.8;
+}
+@keyframes research-links-flow {
+  to { stroke-dashoffset: -12; }
+}
+
+.research-followup {
+  margin-top: 10px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+}
+.research-followup + .research-followup {
+  margin-top: 8px;
+}
+.research-followup-q {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.5;
+}
+.research-followup-tag {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--bg-selected);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 18px;
+}
+.research-followup-a {
+  margin-top: 5px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text);
+}
+.research-followup-a .markdown-research-card p { margin: 3px 0; }
+
+.research-followup-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+}
+.research-followup-input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+}
+.research-followup-input::placeholder { color: var(--text-dim); }
+.research-followup-input:focus {
+  border-color: var(--accent);
+}
+.research-followup-input:disabled { opacity: 0.55; }
+.research-followup-send {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-panel);
+  color: var(--accent);
+  cursor: pointer;
+}
+.research-followup-send:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.research-followup-send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.research-chain-followup-badge {
+  flex-shrink: 0;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 650;
+  line-height: 14px;
+}
+
+/* Research lens v4: hover preview of already-explained terms */
+.research-hover-preview {
+  position: fixed;
+  z-index: 58;
+  display: flex;
+  flex-direction: column;
+  max-height: min(56vh, 420px);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: 10px;
+  background: var(--bg);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14), 0 18px 48px -18px rgba(37, 99, 235, 0.3);
+  overflow: hidden;
+  animation: research-pop-in 0.14s ease-out both;
+}
+.research-hover-preview-term {
+  padding: 8px 12px 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.research-hover-preview-body {
+  padding: 4px 12px 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--text);
+}
+.research-hover-preview-open {
+  border: none;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px;
+  flex-shrink: 0;
+}
+.research-hover-preview-open:hover {
+  background: var(--bg-selected);
+}
+
+/* Explained-term marking (CSS Custom Highlight API). The ::highlight()
+   rule itself is injected at runtime from useExplainedTermHighlights —
+   Lightning CSS (Turbopack) rejects ::highlight() at build time and a
+   broken globals.css blanks the whole app. */
+
+/* Research lens v5: web-grounding toggle */
+.research-web-toggle {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 1px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0;
+}
+.research-web-toggle:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.research-web-toggle[data-active="true"] {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.research-web-toggle:disabled {
+  cursor: default;
+  opacity: 0.5;
+}

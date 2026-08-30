@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { useResearchEnabled } from "@/hooks/useResearchEnabled";
 import { useTheme, type ThemePreference } from "@/hooks/useTheme";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type { ShellToolSettingsResponse } from "@/lib/api-types";
@@ -56,6 +57,7 @@ function ThemeIcon({ preference }: { preference: ThemePreference }) {
 function GeneralSettings({ sessionId, onSessionReloaded }: Pick<Props, "sessionId" | "onSessionReloaded">) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
+  const [researchEnabled, setResearchEnabled] = useResearchEnabled();
   const [shellSettings, setShellSettings] = useState<ShellToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
@@ -145,6 +147,19 @@ function GeneralSettings({ sessionId, onSessionReloaded }: Pick<Props, "sessionI
           {shellError && <p role="alert" className="settings-general-error">{shellError}</p>}
         </section>
       )}
+
+      <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.researchMode")}</h3>
+        <p className="settings-general-description">{t("settings.researchModeDescription")}</p>
+        <div className="settings-shell-option">
+          <span>{t("settings.researchModeToggle")}</span>
+          <ConfigSwitch
+            checked={researchEnabled}
+            label={t("settings.researchModeToggle")}
+            onChange={setResearchEnabled}
+          />
+        </div>
+      </section>
 
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("common.language")}</h3>

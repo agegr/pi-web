@@ -10,8 +10,10 @@ import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
+import { TermResearchOverlay } from "./research/TermResearchOverlay";
 import { AnsiText } from "./AnsiText";
 import { useI18n } from "@/hooks/useI18n";
+import { useResearchEnabled } from "@/hooks/useResearchEnabled";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -552,6 +554,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     ? (modelThinkingLevels[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
     : null;
 
+  const [researchEnabled] = useResearchEnabled();
+
   const currentThinkingLevelMap = displayModelValue
     ? (modelThinkingLevelMaps[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
     : null;
@@ -966,6 +970,9 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
         <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} />
       </div>
       </>
+      )}
+      {researchEnabled && (
+        <TermResearchOverlay provider={displayModelValue?.provider} modelId={displayModelValue?.modelId} cwd={session?.cwd ?? newSessionCwd ?? undefined} modelNames={modelNames} scopeKey={session?.id ?? newSessionDraftKey ?? undefined} />
       )}
     </div>
   );

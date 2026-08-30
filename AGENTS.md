@@ -55,6 +55,7 @@ app/api/
   agent/[id]/route.ts             GET state | POST any command
   agent/[id]/events/route.ts      GET SSE stream
   agent/running/route.ts          GET currently-running session ids
+  research/define/route.ts        POST streaming SSE term explanation for the research lens
   auth/api-key/[provider]/route.ts POST/DELETE provider API key storage
   auth/login/[provider]/route.ts  GET OAuth/device-code SSE | POST manual code
   auth/logout/[provider]/route.ts POST OAuth logout
@@ -112,6 +113,7 @@ components/
 
 hooks/
   useAgentSession.ts  messages + streaming + SSE + fork/navigate/reconciliation logic
+  useTermResearch.ts  research-lens node forest + SSE consumption + localStorage persistence
   useAudio.ts         completion sound + browser AudioContext unlock
   useDragDrop.ts      shared drag/drop state
   useIsMobile.ts      responsive breakpoint hook
@@ -177,6 +179,22 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - `/api/files` is intentionally not a general filesystem browser. Allowed roots come from session cwds, their resolved project roots, `~/pi-cwd-*`, and roots explicitly added with `allowFileRoot()`.
 - `/api/cwd/validate`, `/api/default-cwd`, and `/api/worktrees` call `allowFileRoot()` when they make a new location browsable.
 - Allowed roots are stored slash-normalized, but that is a Set-key convention, not a correctness requirement: `isPathWithinRoots()` (`lib/path-security.ts`, the single implementation behind `isFilePathAllowed()`) re-resolves and case-folds both sides, so either path form authorizes correctly. Keep that one implementation — it is the security boundary.
+
+### Research lens (recursive term explanations)
+- The whole lens is gated by a user setting: Settings → General → "Research mode" (`useResearchEnabled`, localStorage `pi-research-enabled`, default on; custom-event + storage-event sync keeps every hook instance in step). ChatWindow only mounts the overlay when enabled.
+- Selecting text inside any `.markdown-body` (chat messages or an explanation card) shows an "explain" trigger; clicking it streams an AI explanation into an animated, draggable card (`components/research/`). Pure helpers and prompt building live in `lib/term-research.ts`.
+- Cards render through `MarkdownBody` and carry `data-research-node-id`, so selecting a term inside an explanation nests a child node — that parent link is the concept chain shown in the floating panel and fed back to the model as `<research-path>`.
+- `POST /api/research/define` resolves the model with a fast `ModelRuntime.create()` first; only when that runtime does not know the provider does it build full services via `createAgentSessionServices({ cwd })` (cached per cwd on `globalThis`) — npm-package providers register only through extension loading. Always stream via `modelRuntime.streamSimple(...)`, not pi-ai's standalone `streamSimple`, or custom API providers are missing.
+- `thinking_delta` frames are forwarded as `type: "thinking"` so the model's live reasoning shows inside the loading card; traces are never persisted (`persistNodes` strips them).
+- Follow-ups: each card has an ask bar that posts `mode: "followup"` with the parent explanation and question; the Q/A block renders in-card (also selectable for recursion) and shows as a count badge on the chain node — follow-ups never become chain nodes.
+- Web grounding: the card header's globe toggle re-runs the explanation with `web: true`; the route queries DuckDuckGo's HTML endpoint keylessly (`lib/web-search.ts`, regex-parsed, best-effort) and injects `<web-search-results>` grounding plus citation instructions. Failures degrade silently to model knowledge and are reported back as an SSE `web` event shown in the globe's tooltip. Reachability depends on the server environment's proxy (`HTTPS_PROXY` via the global dispatcher).
+- Exports from the chain panel: Markdown (`buildChainMarkdown`), an interactive self-contained HTML mind map (`buildChainHtmlMindmap` — collapsible tree, double-click-to-open, with the FreeMind `.mm` XML embedded behind a download link, since users without XMind just see text from a raw `.mm`), and Anki `.csv` (`buildAnkiCsv`, Anki directive headers + BOM, `markdownToBasicHtml` for the HTML answer side, follow-ups appended under a rule, tags = chain root; it is an Anki-import file, not a spreadsheet).
+- When both a parent and child card are open, `ResearchLinks` draws a flowing dashed SVG bezier between them, re-measured after every render so dragging keeps the arrow attached; the SVG sits below the cards and ignores pointer events.
+- Hovering an already-explained term (`matchExplainedTermAt`: caret point → text node/offset → full-string term match, CJK-safe) shows a lightweight preview that closes on mouse-out unless the pointer is inside it; the preview carries `data-research-node-id`, so selections inside it nest under that term. Positioning measures the rendered height in a layout effect — above the term first, then below, then clamped on screen — so the "open" button never falls off-viewport; the document-level scroll dismissal ignores scrolls originating inside the preview. Explanations prompt for heading-free, definition-first formatting so cards stay scannable.
+- Card animation traps, all three of which produced user-visible jumping: (1) card positions are written once into the overlay's `positions` map and reused verbatim on reopen — never recompute per render; (2) the locate-flash lives on `.research-card::after`, because toggling a class that swaps the host `animation` restarts `research-card-in`; (3) `research-card-in` must stay transform-free — a paused animation in a background tab would otherwise hold the scale-from frame indefinitely and shrink the card.
+- Explained terms are marked in the original text via the CSS Custom Highlight API. Lightning CSS rejects `::highlight()` at build time (broken globals.css blanks the app), so the rule is injected through CSSOM at runtime; the Highlight ranges skip terms whose own card is open.
+- Chains are scoped per session: `useTermResearch(locale, scopeKey)` keeps `{ scope, nodes, openIds }` in ONE state so a session switch swaps them atomically (persisting across the swap would write one session's chain under another's key). Storage keys are `pi-research-chain-v1:<sessionId>`; the sidebar's delete flow calls `forgetResearchChain(sessionId)`.
+- The chain persists to localStorage under the per-session key above. The persist effect must stay gated on the restored chain state — persisting the initial empty chain would wipe the stored chain on every page load.
 
 ### Plugins and skills
 - `/api/plugins` uses pi's `SettingsManager` + `DefaultPackageManager` for global/project package install, remove, update, enable, and disable. Disabling writes empty `extensions/skills/prompts/themes` arrays for that package entry.
