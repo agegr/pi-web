@@ -9,6 +9,7 @@ import {
 } from "@/lib/markdown";
 import { splitFinalAssistantBlocks } from "@/lib/message-display";
 import type { AgentMessage, AssistantMessage, TextContent, UserMessage } from "@/lib/types";
+import { useI18n } from "@/hooks/useI18n";
 import styles from "./ChatMinimap.module.css";
 
 interface Props {
@@ -233,6 +234,7 @@ export function ChatMinimap({
   messageRefs,
   onRevealHistory,
 }: Props) {
+  const { t } = useI18n();
   const [visible, setVisible] = useState(false);
   const [allNodes, setAllNodes] = useState<NodeInfo[]>([]);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -720,8 +722,8 @@ export function ChatMinimap({
                         className={styles.assistantJump}
                         data-minimap-preview-assistant={`${node.index}-${assistantIndex}`}
                         onClick={() => scrollToAssistant(node, assistantIndex)}
-                        aria-label="Locate assistant message"
-                        title="Locate assistant message"
+                        aria-label={t("chatMinimap.locateAssistant")}
+                        title={t("chatMinimap.locateAssistant")}
                       >
                         A
                       </button>

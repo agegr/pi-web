@@ -15,9 +15,13 @@ const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 
 test("renders the upstream model error", () => {
   const html = renderToStaticMarkup(
-    React.createElement(ModelErrorBanner, {
-      error: "Invalid models.json schema:\nproviders.custom.models.0.id must not be empty",
-    }),
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ModelErrorBanner, {
+        error: "Invalid models.json schema:\nproviders.custom.models.0.id must not be empty",
+      }),
+    ),
   );
 
   assert.match(html, /role="alert"/);
@@ -26,19 +30,33 @@ test("renders the upstream model error", () => {
 });
 
 test("does not render an empty model error", () => {
-  assert.equal(renderToStaticMarkup(React.createElement(ModelErrorBanner, { error: null })), "");
+  assert.equal(
+    renderToStaticMarkup(
+      React.createElement(I18nProvider, null, React.createElement(ModelErrorBanner, { error: null })),
+    ),
+    "",
+  );
 });
 
 test("renders enabledModels scope warnings", () => {
   const html = renderToStaticMarkup(
-    React.createElement(ModelScopeWarningBanner, {
-      warnings: ['No models match pattern "ghost-gateway/*"'],
-    }),
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ModelScopeWarningBanner, {
+        warnings: ['No models match pattern "ghost-gateway/*"'],
+      }),
+    ),
   );
 
   assert.match(html, /Model scope warning/);
   assert.match(html, /ghost-gateway/);
-  assert.equal(renderToStaticMarkup(React.createElement(ModelScopeWarningBanner, { warnings: [] })), "");
+  assert.equal(
+    renderToStaticMarkup(
+      React.createElement(I18nProvider, null, React.createElement(ModelScopeWarningBanner, { warnings: [] })),
+    ),
+    "",
+  );
 });
 
 test("keeps the model selector visible when a model error leaves no options", () => {
