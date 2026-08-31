@@ -324,7 +324,7 @@ button.extension-widget-trigger:focus-visible {
 .extension-status-line {
   display: flex;
   flex: 1 1 0;
-  align-items: flex-start;
+  align-items: center;
   min-width: 0;
   min-height: 35px;
   max-height: min(144px, 18dvh);
@@ -337,12 +337,16 @@ button.extension-widget-trigger:focus-visible {
 .extension-status-text {
   flex: 1;
   min-width: 0;
+  max-width: 100%;
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.45;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
+  /* 单行不换行；过长时横向滚动以保持完整可读（恢复 fork v0.8.9 行为） */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  white-space: nowrap;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-dim);
