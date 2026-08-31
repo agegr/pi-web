@@ -277,6 +277,8 @@ export const zhTWLocale: LocalePlugin = {
     "chat.openWrittenFile": "開啟 {name}",
     "chat.loadEarlier": "向上捲動以載入較早的訊息",
     "chat.extensionRequest": "擴充功能請求",
+    "chat.extensionExpiresIn": "{seconds} 秒後過期",
+    "chat.extensionQueued": "還有 {count} 個待處理",
     "chat.cancel": "取消",
     "chat.confirm": "確認",
     "chat.submit": "送出",

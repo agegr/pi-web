@@ -42,7 +42,11 @@ test("contains chat content and inputs within the mobile viewport", () => {
   assert.match(cssSource, /\.markdown-body \{[\s\S]*?min-width: 0;[\s\S]*?max-width: 100%;[\s\S]*?overflow-x: hidden;/);
   assert.match(cssSource, /\.markdown-code-block \{[\s\S]*?min-width: 0;[\s\S]*?max-width: 100%;/);
   assert.match(chatWindowSource, /overflow-x-hidden overflow-y-auto/);
-  assert.match(chatWindowSource, /maxHeight: "min\(760px, 100%\)"/);
+  // Extension dialogs are inline cards in the transcript (sized to the column)
+  // instead of a full-viewport modal, so they never exceed the mobile viewport.
+  assert.match(chatWindowSource, /role="dialog"\n\s+aria-label=\{request\.title\}/);
+  assert.match(chatWindowSource, /maxWidth: 560/);
+  assert.doesNotMatch(chatWindowSource, /aria-modal="true"[\s\S]*?chat\.extensionRequest/);
   assert.match(chatInputSource, /flex: 1,\s*minWidth: 0,\s*width: "100%",/);
 });
 

@@ -285,7 +285,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, setNoticePaused,
+    notices, extensionDialogs, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, setNoticePaused,
     isAutoModelSelection,
     agentPhase,
     isNew,
@@ -302,6 +302,10 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
   });
   const sessionBusy = agentRunning || bashRunning;
+
+  // The active dialog is the most recent unanswered request; older ones wait
+  // in the stack and surface as each earlier one is answered or expires.
+  const extensionDialog = extensionDialogs.length > 0 ? extensionDialogs[extensionDialogs.length - 1] : null;
 
   useEffect(() => {
     if (
@@ -657,13 +661,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
         </div>
       )}
 
-      {extensionDialog && (
-        <ExtensionDialog
-          request={extensionDialog}
-          onRespond={respondToExtensionUi}
-        />
-      )}
-
       {extensionCustomUi && (
         <ExtensionCustomPanel
           request={extensionCustomUi}
@@ -718,6 +715,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               </div>
             </div>
             {chatInputElement}
+            <ExtensionDialogCardList dialogs={extensionDialogs} onRespond={respondToExtensionUi} />
             <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} />
           </div>
         </div>
@@ -944,6 +942,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               />
             )}
 
+            <ExtensionDialogCardList dialogs={extensionDialogs} onRespond={respondToExtensionUi} />
+
             <div ref={promptAnchorSpacerRef} aria-hidden="true" />
 
             <div ref={messagesEndRef} />
@@ -1073,6 +1073,42 @@ function NoticeShelf({ notices, floating = false, onPauseChange }: { notices: No
 
 type ExtensionDialogRequest = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>;
 
+/** Renders all unanswered dialogs as inline cards in the conversation. Only
+ *  the newest request is shown; older ones stay queued behind it and surface
+ *  as each earlier one is answered or expires. */
+function ExtensionDialogCardList({
+  dialogs,
+  onRespond,
+}: {
+  dialogs: ExtensionDialogRequest[];
+  onRespond: (request: ExtensionDialogRequest, response: { value: string } | { confirmed: boolean } | { cancelled: true }) => void;
+}) {
+  const { t } = useI18n();
+  if (dialogs.length === 0) return null;
+  const active = dialogs[dialogs.length - 1];
+  const queuedCount = dialogs.length - 1;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, margin: "10px 0 4px" }}>
+      {queuedCount > 0 && (
+        <div style={{ color: "var(--text-dim)", fontSize: 12, fontFamily: "var(--font-mono)" }}>
+          {t("chat.extensionQueued", { count: queuedCount })}
+        </div>
+      )}
+      <ExtensionDialog request={active} onRespond={onRespond} />
+    </div>
+  );
+}
+
+/** Effective expiry (epoch ms) for a request, or null when the extension set
+ *  no timeout/expiresAt (the dialog then waits indefinitely). */
+function resolveDialogExpiry(request: ExtensionDialogRequest): number | null {
+  if (request.expiresAt != null) return request.expiresAt;
+  if (request.timeout != null) return Date.now() + request.timeout;
+  return null;
+}
+
+const EXPIRY_TICK_MS = 250;
+
 function ExtensionDialog({
   request,
   onRespond,
@@ -1082,10 +1118,31 @@ function ExtensionDialog({
 }) {
   const { t } = useI18n();
   const [value, setValue] = useState(request.method === "editor" ? request.prefill ?? "" : "");
+  const [activeOption, setActiveOption] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+  const expiryRef = useRef<number | null>(null);
+  if (expiryRef.current === null) expiryRef.current = resolveDialogExpiry(request);
 
   useEffect(() => {
     setValue(request.method === "editor" ? request.prefill ?? "" : "");
+    setActiveOption(0);
+    setNow(Date.now());
+    expiryRef.current = resolveDialogExpiry(request);
   }, [request]);
+
+  // Countdown + auto-cancel for requests that carry timeout/expiresAt: when the
+  // deadline passes the extension's await resolves with its default value,
+  // matching the daemon-side timeout and the TUI's auto-dismiss behavior.
+  const expired = expiryRef.current !== null && now >= expiryRef.current;
+  useEffect(() => {
+    if (expired) {
+      onRespond(request, { cancelled: true });
+      return;
+    }
+    if (expiryRef.current === null) return;
+    const timer = setInterval(() => setNow(Date.now()), EXPIRY_TICK_MS);
+    return () => clearInterval(timer);
+  }, [expired, onRespond, request]);
 
   const submitValue = () => {
     if (request.method === "confirm") {
@@ -1094,168 +1151,204 @@ function ExtensionDialog({
       onRespond(request, { value });
     }
   };
+  const cancel = () => onRespond(request, { cancelled: true });
+
+  const selectOptions = request.method === "select" ? request.options : [];
+  const selectRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (request.method === "select") selectRef.current?.focus();
+  }, [request]);
+
+  const remainingSeconds = expiryRef.current !== null
+    ? Math.max(0, Math.ceil((expiryRef.current - now) / 1000))
+    : null;
 
   return (
     <div
+      role="dialog"
+      aria-label={request.title}
       style={{
-        position: "absolute",
-        inset: 0,
-        zIndex: 90,
+        width: "100%",
+        maxWidth: 560,
         display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 20,
-        background: "rgba(0,0,0,0.18)",
+        flexDirection: "column",
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        background: "var(--bg)",
+        boxShadow: "0 1px 2px rgba(15,23,42,0.05), 0 10px 28px -14px rgba(15,23,42,0.24)",
+        overflow: "hidden",
       }}
     >
+      <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650, overflowWrap: "anywhere" }}>{request.title}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>
+            <span>{t("chat.extensionRequest")}</span>
+            {remainingSeconds !== null && (
+              <span style={remainingSeconds <= 10 ? { color: "#ef4444" } : undefined}>
+                {t("chat.extensionExpiresIn", { seconds: remainingSeconds })}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
       <div
-        role="dialog"
-        aria-modal="true"
         style={{
-          width: "min(560px, 100%)",
-          maxHeight: "min(760px, 100%)",
-          display: "flex",
-          flexDirection: "column",
-          border: "1px solid var(--border)",
-          borderRadius: 8,
-          background: "var(--bg)",
-          boxShadow: "0 20px 60px rgba(0,0,0,0.28)",
-          overflow: "hidden",
+          padding: 14,
+          ...(request.method === "select"
+            ? { maxHeight: 260, overflowY: "auto" }
+            : {}),
         }}
       >
-        <div style={{ flexShrink: 0, padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650 }}>{request.title}</div>
-          <div style={{ marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>{t("chat.extensionRequest")}</div>
-        </div>
+        {request.method === "confirm" && (
+          <div style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{request.message}</div>
+        )}
+        {request.method === "select" && (
+          <div
+            ref={selectRef}
+            tabIndex={0}
+            role="listbox"
+            aria-label={request.title}
+            onKeyDown={(event) => {
+              if (selectOptions.length === 0) return;
+              if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+                event.preventDefault();
+                setActiveOption((i) => (i + 1) % selectOptions.length);
+              } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+                event.preventDefault();
+                setActiveOption((i) => (i - 1 + selectOptions.length) % selectOptions.length);
+              } else if (event.key === "Home") {
+                event.preventDefault();
+                setActiveOption(0);
+              } else if (event.key === "End") {
+                event.preventDefault();
+                setActiveOption(selectOptions.length - 1);
+              } else if (event.key === "Enter") {
+                event.preventDefault();
+                onRespond(request, { value: selectOptions[activeOption] });
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                cancel();
+              }
+            }}
+            style={{ display: "grid", gap: 8, outline: "none" }}
+          >
+            {selectOptions.map((option, index) => (
+              <div
+                key={option}
+                role="option"
+                aria-selected={index === activeOption}
+                onClick={() => onRespond(request, { value: option })}
+                onMouseEnter={() => setActiveOption(index)}
+                style={{
+                  padding: "9px 10px",
+                  borderRadius: 7,
+                  border: "1px solid var(--border)",
+                  background: index === activeOption ? "var(--bg-selected)" : "var(--bg-panel)",
+                  color: "var(--text)",
+                  cursor: "pointer",
+                  fontSize: 13,
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {option}
+              </div>
+            ))}
+          </div>
+        )}
+        {request.method === "input" && (
+          <input
+            autoFocus
+            value={value}
+            placeholder={request.placeholder}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submitValue();
+              if (e.key === "Escape") cancel();
+            }}
+            style={{
+              width: "100%",
+              padding: "9px 10px",
+              borderRadius: 7,
+              border: "1px solid var(--border)",
+              background: "var(--bg-panel)",
+              color: "var(--text)",
+              outline: "none",
+              fontSize: 13,
+            }}
+          />
+        )}
+        {request.method === "editor" && (
+          <textarea
+            autoFocus
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") cancel();
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submitValue();
+            }}
+            style={{
+              width: "100%",
+              minHeight: 220,
+              padding: 10,
+              borderRadius: 7,
+              border: "1px solid var(--border)",
+              background: "var(--bg-panel)",
+              color: "var(--text)",
+              outline: "none",
+              resize: "vertical",
+              fontSize: 13,
+              lineHeight: 1.55,
+              fontFamily: "var(--font-mono)",
+            }}
+          />
+        )}
+      </div>
 
-        <div
+      <div style={{ flexShrink: 0, display: "flex", justifyContent: "flex-end", gap: 8, padding: "10px 14px", borderTop: "1px solid var(--border)", background: "var(--bg-panel)" }}>
+        <button
+          onClick={cancel}
           style={{
-            padding: 14,
-            ...(request.method === "select"
-              ? { flex: "1 1 auto", minHeight: 0, overflowY: "auto" }
-              : {}),
+            padding: "6px 10px",
+            borderRadius: 6,
+            border: "1px solid var(--border)",
+            background: "var(--bg)",
+            color: "var(--text-muted)",
+            cursor: "pointer",
           }}
         >
-          {request.method === "confirm" && (
-            <div style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{request.message}</div>
-          )}
-          {request.method === "select" && (
-            <div style={{ display: "grid", gap: 8 }}>
-              {request.options.map((option) => (
-                <button
-                  key={option}
-                  onClick={() => onRespond(request, { value: option })}
-                  style={{
-                    width: "100%",
-                    padding: "9px 10px",
-                    borderRadius: 7,
-                    border: "1px solid var(--border)",
-                    background: "var(--bg-panel)",
-                    color: "var(--text)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    fontSize: 13,
-                    overflowWrap: "anywhere",
-                  }}
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
-          )}
-          {request.method === "input" && (
-            <input
-              autoFocus
-              value={value}
-              placeholder={request.placeholder}
-              onChange={(e) => setValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") submitValue();
-                if (e.key === "Escape") onRespond(request, { cancelled: true });
-              }}
-              style={{
-                width: "100%",
-                padding: "9px 10px",
-                borderRadius: 7,
-                border: "1px solid var(--border)",
-                background: "var(--bg-panel)",
-                color: "var(--text)",
-                outline: "none",
-                fontSize: 13,
-              }}
-            />
-          )}
-          {request.method === "editor" && (
-            <textarea
-              autoFocus
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") onRespond(request, { cancelled: true });
-                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submitValue();
-              }}
-              style={{
-                width: "100%",
-                minHeight: 220,
-                padding: 10,
-                borderRadius: 7,
-                border: "1px solid var(--border)",
-                background: "var(--bg-panel)",
-                color: "var(--text)",
-                outline: "none",
-                resize: "vertical",
-                fontSize: 13,
-                lineHeight: 1.55,
-                fontFamily: "var(--font-mono)",
-              }}
-            />
-          )}
-        </div>
-
-        <div style={{ flexShrink: 0, display: "flex", justifyContent: "flex-end", gap: 8, padding: "10px 14px", borderTop: "1px solid var(--border)", background: "var(--bg-panel)" }}>
+           {t("chat.cancel")}
+        </button>
+        {request.method === "confirm" ? (
           <button
-            onClick={() => onRespond(request, { cancelled: true })}
+            onClick={submitValue}
             style={{
               padding: "6px 10px",
               borderRadius: 6,
-              border: "1px solid var(--border)",
-              background: "var(--bg)",
-              color: "var(--text-muted)",
+              border: "1px solid var(--accent)",
+              background: "var(--accent)",
+              color: "#fff",
               cursor: "pointer",
             }}
           >
-             {t("chat.cancel")}
+             {t("chat.confirm")}
           </button>
-          {request.method === "confirm" ? (
-            <button
-              onClick={submitValue}
-              style={{
-                padding: "6px 10px",
-                borderRadius: 6,
-                border: "1px solid var(--accent)",
-                background: "var(--accent)",
-                color: "#fff",
-                cursor: "pointer",
-              }}
-            >
-               {t("chat.confirm")}
-            </button>
-          ) : request.method !== "select" ? (
-            <button
-              onClick={submitValue}
-              style={{
-                padding: "6px 10px",
-                borderRadius: 6,
-                border: "1px solid var(--accent)",
-                background: "var(--accent)",
-                color: "#fff",
-                cursor: "pointer",
-              }}
-            >
-               {t("chat.submit")}
-            </button>
-          ) : null}
-        </div>
+        ) : request.method !== "select" ? (
+          <button
+            onClick={submitValue}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 6,
+              border: "1px solid var(--accent)",
+              background: "var(--accent)",
+              color: "#fff",
+              cursor: "pointer",
+            }}
+          >
+             {t("chat.submit")}
+          </button>
+        ) : null}
       </div>
     </div>
   );

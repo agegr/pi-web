@@ -314,7 +314,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [slashCommandsLoading, setSlashCommandsLoading] = useState(false);
   const [noticeState, dispatchNotice] = useReducer(noticeReducer, { visible: [], pending: [] });
   const [sessionStatsOverride, setSessionStatsOverride] = useState<SessionStatsInfo | null>(null);
-  const [extensionDialog, setExtensionDialog] = useState<ExtensionUiDialogRequest | null>(null);
+  const [extensionDialogs, setExtensionDialogs] = useState<ExtensionUiDialogRequest[]>([]);
   const [extensionCustomUi, setExtensionCustomUi] = useState<ExtensionUiCustomRequest | null>(null);
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
@@ -730,7 +730,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     response: { value: string } | { confirmed: boolean } | { cancelled: true },
   ) => {
     const sid = sessionIdRef.current;
-    setExtensionDialog((current) => current?.id === request.id ? null : current);
+    setExtensionDialogs((current) => current.filter((item) => item.id !== request.id));
     if (!sid) return;
     try {
       await sendAgentCommand(sid, {
@@ -778,7 +778,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "confirm":
       case "input":
       case "editor":
-        setExtensionDialog(request);
+        // Keep every unanswered dialog in a stack so composed flows (e.g.
+        // select -> input) and pipelined requests from concurrent extensions
+        // resolve in answer order instead of clobbering each other. The events
+        // stream replays pending requests on reconnect, so dedupe by request id.
+        setExtensionDialogs((current) =>
+          current.some((item) => item.id === request.id) ? current : [...current, request],
+        );
         break;
       case "notify": {
         addNotice({
@@ -1924,6 +1930,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (!agentRunning) setPromptAnchorActive(false);
   }, [agentRunning]);
 
+  // Drop dialogs/custom UI left over from a previous session when the active
+  // session changes. Pending extension requests are replayed by the events
+  // stream, and stale ones from the old session must not linger in the UI.
+  const activeSessionIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const next = session?.id ?? null;
+    if (activeSessionIdRef.current !== null && activeSessionIdRef.current !== next) {
+      setExtensionDialogs([]);
+      setExtensionCustomUi(null);
+    }
+    activeSessionIdRef.current = next;
+  }, [session?.id]);
+
   useLayoutEffect(() => {
     if (messages.length > 0) {
       if (pendingScrollToUserRef.current) {
@@ -2009,7 +2028,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+    notices: noticeState.visible, extensionDialogs, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,
     agentPhase,
     isNew,

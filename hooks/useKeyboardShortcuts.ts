@@ -50,9 +50,11 @@ export function useGlobalKeyboardShortcuts(
       if (e.key === "Escape") {
         if (!globalAbortHandler) return;
 
-        const tag = (e.target as HTMLElement)?.tagName;
+        const target = e.target as HTMLElement | null;
         // Let textarea/input handle Esc internally (ChatInput menus / stop).
-        if (tag === "TEXTAREA" || tag === "INPUT") return;
+        if (target?.tagName === "TEXTAREA" || target?.tagName === "INPUT") return;
+        // Let extension dialogs handle Esc (cancels the dialog, not the agent).
+        if (target?.closest?.("[role='dialog']")) return;
 
         e.preventDefault();
         globalAbortHandler();
