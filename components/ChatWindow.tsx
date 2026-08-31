@@ -1,7 +1,7 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BatchAskAnswer, BatchAskEnvelope, BatchAskQuestion, BlockingExtensionUiRequest, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
@@ -658,10 +658,18 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       )}
 
       {extensionDialog && (
-        <ExtensionDialog
-          request={extensionDialog}
-          onRespond={respondToExtensionUi}
-        />
+        parseBatchAskEnvelope(extensionDialog) ? (
+          <BatchAskDialog
+            request={extensionDialog}
+            envelope={parseBatchAskEnvelope(extensionDialog)!}
+            onRespond={respondToExtensionUi}
+          />
+        ) : (
+          <ExtensionDialog
+            request={extensionDialog}
+            onRespond={respondToExtensionUi}
+          />
+        )
       )}
 
       {extensionCustomUi && (
@@ -1073,6 +1081,46 @@ function NoticeShelf({ notices, floating = false, onPauseChange }: { notices: No
 
 type ExtensionDialogRequest = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>;
 
+/**
+ * 渲染弹窗标题：识别 ```sh / ```bash 代码围栏，把围栏内容渲染为高亮代码块
+ * （红色边框 + 红色底纹，提示风险命令），其余文本保持 pre-wrap 多行。
+ */
+function renderDialogTitle(title: string): ReactNode {
+  const segments = title.split(/```(?:sh|bash)?\s*\n?/);
+  if (segments.length === 1) return title;
+  return segments.map((seg, i) => {
+    if (i % 2 === 1) {
+      return (
+        <pre
+          key={i}
+          style={{
+            margin: "6px 0",
+            padding: "8px 10px",
+            borderRadius: 6,
+            background: "rgba(239,68,68,0.10)",
+            border: "1px solid rgba(239,68,68,0.35)",
+            borderLeft: "3px solid #ef4444",
+            fontFamily: "var(--font-mono)",
+            fontSize: 12.5,
+            lineHeight: 1.5,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-all",
+            overflowX: "auto",
+            color: "var(--text)",
+          }}
+        >
+          {seg}
+        </pre>
+      );
+    }
+    return (
+      <span key={i} style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+        {seg}
+      </span>
+    );
+  });
+}
+
 function ExtensionDialog({
   request,
   onRespond,
@@ -1082,6 +1130,11 @@ function ExtensionDialog({
 }) {
   const { t } = useI18n();
   const [value, setValue] = useState(request.method === "editor" ? request.prefill ?? "" : "");
+
+  // 标题首行固定在头部；其余内容（含长命令/代码块）放进可滚动区域，按钮始终可见
+  const firstNewline = request.title.indexOf("\n");
+  const titleHead = firstNewline === -1 ? request.title : request.title.slice(0, firstNewline);
+  const titleRest = firstNewline === -1 ? "" : request.title.slice(firstNewline + 1);
 
   useEffect(() => {
     setValue(request.method === "editor" ? request.prefill ?? "" : "");
@@ -1124,18 +1177,16 @@ function ExtensionDialog({
         }}
       >
         <div style={{ flexShrink: 0, padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650 }}>{request.title}</div>
+          <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650, lineHeight: 1.4, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{titleHead}</div>
           <div style={{ marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>{t("chat.extensionRequest")}</div>
         </div>
 
-        <div
-          style={{
-            padding: 14,
-            ...(request.method === "select"
-              ? { flex: "1 1 auto", minHeight: 0, overflowY: "auto" }
-              : {}),
-          }}
-        >
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 14 }}>
+          {titleRest && (
+            <div style={{ marginBottom: 12, color: "var(--text-muted)", fontSize: 13, lineHeight: 1.55 }}>
+              {renderDialogTitle(titleRest)}
+            </div>
+          )}
           {request.method === "confirm" && (
             <div style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{request.message}</div>
           )}
@@ -1255,6 +1306,422 @@ function ExtensionDialog({
                {t("chat.submit")}
             </button>
           ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * __piBatchAsk__ envelope — multi-question questionnaire (tabbed batch UI).
+ * The ask_question extension sends this as the `title` of an `input` request;
+ * we detect it and render a tabbed batch questionnaire instead of a plain input.
+ */
+const BATCH_ASK_ENVELOPE_KEY = "__piBatchAsk";
+
+function parseBatchAskEnvelope(request: ExtensionDialogRequest): BatchAskEnvelope | null {
+  if (request.method !== "input") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(request.title);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const p = parsed as Record<string, unknown>;
+  if (p[BATCH_ASK_ENVELOPE_KEY] !== 1) return null;
+  const questions = Array.isArray(p.questions) ? (p.questions as BatchAskQuestion[]) : [];
+  if (questions.length === 0) return null;
+  return { __piBatchAsk__: 1, review: p.review === true, questions };
+}
+
+function isAnswered(a: BatchAskAnswer | null): boolean {
+  return Boolean(a && a.value !== null && a.value !== undefined && String(a.value).trim() !== "");
+}
+
+/**
+ * Batch questionnaire dialog for the __piBatchAsk__ envelope protocol.
+ * Renders one tab per question (select/confirm/input/editor), an optional
+ * Review tab, and replies with { value: JSON.stringify({ answers }) }.
+ */
+function BatchAskDialog({
+  request,
+  envelope,
+  onRespond,
+}: {
+  request: ExtensionDialogRequest;
+  envelope: BatchAskEnvelope;
+  onRespond: (request: ExtensionDialogRequest, response: { value: string } | { confirmed: boolean } | { cancelled: true }) => void;
+}) {
+  const { t } = useI18n();
+  const questions = envelope.questions;
+  const reviewIndex = questions.length;
+  const [activeTab, setActiveTab] = useState(0);
+  const [answers, setAnswers] = useState<(BatchAskAnswer | null)[]>(() => questions.map(() => null));
+  const [customMode, setCustomMode] = useState<boolean[]>(() => questions.map(() => false));
+  const [customTexts, setCustomTexts] = useState<string[]>(() => questions.map(() => ""));
+
+  const answeredCount = answers.filter(isAnswered).length;
+  const allAnswered = answeredCount === questions.length;
+  // review 模式下必须切到审阅页才能提交（防误提交）
+  const canSubmit = allAnswered && (!envelope.review || activeTab === reviewIndex);
+
+  const setAnswer = (qi: number, a: BatchAskAnswer) => {
+    setAnswers((prev) => prev.map((x, i) => (i === qi ? a : x)));
+  };
+
+  const submit = () => {
+    const clean = questions
+      .map((q, i) => {
+        const a = answers[i];
+        if (!isAnswered(a)) return null;
+        return { ...a, id: q.id, type: q.type };
+      })
+      .filter(Boolean);
+    onRespond(request, { value: JSON.stringify({ answers: clean }) });
+  };
+
+  const q = activeTab < questions.length ? questions[activeTab] : null;
+
+  const tabStyle = (active: boolean, done: boolean): React.CSSProperties => ({
+    padding: "6px 12px",
+    borderRadius: 6,
+    border: active ? "1px solid var(--accent)" : "1px solid var(--border)",
+    background: active ? "var(--accent)" : "var(--bg-panel)",
+    color: active ? "#fff" : done ? "var(--text)" : "var(--text-muted)",
+    cursor: "pointer",
+    fontSize: 12,
+    whiteSpace: "nowrap",
+  });
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 90,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+        background: "rgba(0,0,0,0.18)",
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        style={{
+          width: "min(760px, 100%)",
+          maxHeight: "min(720px, calc(100vh - 40px))",
+          display: "flex",
+          flexDirection: "column",
+          border: "1px solid var(--border)",
+          borderRadius: 8,
+          background: "var(--bg)",
+          boxShadow: "0 20px 60px rgba(0,0,0,0.28)",
+          overflow: "hidden",
+        }}
+      >
+        {/* header */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+            padding: "12px 14px",
+            borderBottom: "1px solid var(--border)",
+            flexShrink: 0,
+          }}
+        >
+          <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650 }}>{t("chat.batchAskTitle")}</div>
+          <div style={{ color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>
+            {answeredCount}/{questions.length} {t("chat.answered")}
+          </div>
+        </div>
+
+        {/* tabs */}
+        <div
+          style={{
+            display: "flex",
+            gap: 6,
+            padding: "10px 14px 0",
+            borderBottom: "1px solid var(--border)",
+            overflowX: "auto",
+            flexShrink: 0,
+          }}
+        >
+          {questions.map((qq, i) => (
+            <button key={qq.id} onClick={() => setActiveTab(i)} style={tabStyle(activeTab === i, isAnswered(answers[i]))}>
+              Q{i + 1}
+            </button>
+          ))}
+          {envelope.review && (
+            <button onClick={() => setActiveTab(reviewIndex)} style={tabStyle(activeTab === reviewIndex, allAnswered)}>
+              {t("chat.reviewTab")}
+            </button>
+          )}
+        </div>
+
+        {/* body */}
+        <div style={{ flex: 1, overflowY: "auto", padding: 14 }}>
+          {q ? (
+            <div key={q.id}>
+              <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 600, marginBottom: 12, whiteSpace: "pre-wrap" }}>
+                {q.question}
+              </div>
+              {q.type === "select" && (
+                <div style={{ display: "grid", gap: 8 }}>
+                  {(q.options ?? []).map((opt) => {
+                    const chosen = isAnswered(answers[activeTab]) && answers[activeTab]?.value === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        onClick={() => setAnswer(activeTab, { id: q.id, type: "select", value: opt.value, label: opt.label, wasCustom: false })}
+                        style={{
+                          width: "100%",
+                          padding: "9px 10px",
+                          borderRadius: 7,
+                          border: chosen ? "1px solid var(--accent)" : "1px solid var(--border)",
+                          background: "var(--bg-panel)",
+                          color: "var(--text)",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          fontSize: 13,
+                        }}
+                      >
+                        {opt.description ? (
+                          <>
+                            <span style={{ fontWeight: 550 }}>{opt.label}</span>
+                            <span style={{ color: "var(--text-muted)", marginLeft: 6, fontSize: 12 }}>— {opt.description}</span>
+                          </>
+                        ) : (
+                          opt.label
+                        )}
+                      </button>
+                    );
+                  })}
+                  {q.allowOther !== false && !customMode[activeTab] && (
+                    <button
+                      onClick={() => setCustomMode((prev) => prev.map((x, i) => (i === activeTab ? true : x)))}
+                      style={{
+                        width: "100%",
+                        padding: "9px 10px",
+                        borderRadius: 7,
+                        border: "1px dashed var(--border)",
+                        background: "var(--bg-panel)",
+                        color: "var(--text-muted)",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        fontSize: 13,
+                      }}
+                    >
+                      {t("chat.customInput")}
+                    </button>
+                  )}
+                  {q.allowOther !== false && customMode[activeTab] && (
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input
+                        autoFocus
+                        value={customTexts[activeTab]}
+                        placeholder={t("chat.customInput")}
+                        onChange={(e) =>
+                          setCustomTexts((prev) => prev.map((x, i) => (i === activeTab ? e.target.value : x)))
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            const v = customTexts[activeTab].trim();
+                            if (v) setAnswer(activeTab, { id: q.id, type: "select", value: v, label: v, wasCustom: true });
+                          }
+                          if (e.key === "Escape") setCustomMode((prev) => prev.map((x, i) => (i === activeTab ? false : x)));
+                        }}
+                        style={{
+                          flex: 1,
+                          padding: "9px 10px",
+                          borderRadius: 7,
+                          border: "1px solid var(--border)",
+                          background: "var(--bg-panel)",
+                          color: "var(--text)",
+                          outline: "none",
+                          fontSize: 13,
+                        }}
+                      />
+                      <button
+                        onClick={() => {
+                          const v = customTexts[activeTab].trim();
+                          if (v) setAnswer(activeTab, { id: q.id, type: "select", value: v, label: v, wasCustom: true });
+                        }}
+                        style={{
+                          padding: "9px 12px",
+                          borderRadius: 7,
+                          border: "1px solid var(--accent)",
+                          background: "var(--accent)",
+                          color: "#fff",
+                          cursor: "pointer",
+                          fontSize: 13,
+                        }}
+                      >
+                        {t("chat.confirm")}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {q.type === "confirm" && (
+                <div style={{ display: "flex", gap: 8 }}>
+                  {[true, false].map((yes) => {
+                    const chosen = isAnswered(answers[activeTab]) && answers[activeTab]?.value === yes;
+                    return (
+                      <button
+                        key={String(yes)}
+                        onClick={() => setAnswer(activeTab, { id: q.id, type: "confirm", value: yes, label: yes ? t("chat.yes") : t("chat.no") })}
+                        style={{
+                          padding: "9px 16px",
+                          borderRadius: 7,
+                          border: chosen ? "1px solid var(--accent)" : "1px solid var(--border)",
+                          background: "var(--bg-panel)",
+                          color: "var(--text)",
+                          cursor: "pointer",
+                          fontSize: 13,
+                        }}
+                      >
+                        {yes ? t("chat.yes") : t("chat.no")}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {q.type === "editor" && (
+                <textarea
+                  autoFocus
+                  value={isAnswered(answers[activeTab]) ? String(answers[activeTab]?.value) : q.prefill ?? ""}
+                  onChange={(e) => setAnswer(activeTab, { id: q.id, type: "editor", value: e.target.value })}
+                  placeholder={q.placeholder}
+                  style={{
+                    width: "100%",
+                    minHeight: 200,
+                    padding: 10,
+                    borderRadius: 7,
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-panel)",
+                    color: "var(--text)",
+                    outline: "none",
+                    resize: "vertical",
+                    fontSize: 13,
+                    lineHeight: 1.55,
+                    fontFamily: "var(--font-mono)",
+                  }}
+                />
+              )}
+              {q.type === "input" && (
+                <input
+                  autoFocus
+                  value={isAnswered(answers[activeTab]) ? String(answers[activeTab]?.value) : ""}
+                  placeholder={q.placeholder}
+                  onChange={(e) => setAnswer(activeTab, { id: q.id, type: "input", value: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && isAnswered(answers[activeTab])) setActiveTab(Math.min(activeTab + 1, reviewIndex));
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "9px 10px",
+                    borderRadius: 7,
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-panel)",
+                    color: "var(--text)",
+                    outline: "none",
+                    fontSize: 13,
+                  }}
+                />
+              )}
+              {isAnswered(answers[activeTab]) && (
+                <button
+                  onClick={() => setActiveTab(Math.min(activeTab + 1, reviewIndex))}
+                  style={{
+                    marginTop: 12,
+                    padding: "7px 12px",
+                    borderRadius: 6,
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-panel)",
+                    color: "var(--text)",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  {t("chat.submit")} →
+                </button>
+              )}
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 12 }}>
+              {questions.map((qq, i) => {
+                const a = answers[i];
+                return (
+                  <div
+                    key={qq.id}
+                    style={{ padding: 10, borderRadius: 7, border: "1px solid var(--border)", background: "var(--bg-panel)" }}
+                  >
+                    <div style={{ color: "var(--text)", fontSize: 13, marginBottom: 4 }}>
+                      <b>Q{i + 1}</b> · {qq.question}
+                    </div>
+                    <div style={{ color: isAnswered(a) ? "var(--text)" : "var(--text-muted)", fontSize: 13, whiteSpace: "pre-wrap" }}>
+                      {isAnswered(a)
+                        ? `${a?.label ?? a?.value}${a?.wasCustom ? ` (${t("chat.customInput")})` : ""}`
+                        : `— ${t("chat.unanswered")}`}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* footer */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+            padding: "10px 14px",
+            borderTop: "1px solid var(--border)",
+            background: "var(--bg-panel)",
+            flexShrink: 0,
+          }}
+        >
+          <button
+            onClick={() => onRespond(request, { cancelled: true })}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              background: "var(--bg)",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              fontSize: 12,
+            }}
+          >
+            {t("chat.cancel")}
+          </button>
+          <div style={{ color: "var(--text-dim)", fontSize: 11 }}>
+            {allAnswered ? t("chat.allAnswered") : t("chat.notAllAnswered")}
+          </div>
+          <button
+            onClick={submit}
+            disabled={!canSubmit}
+            style={{
+              padding: "6px 14px",
+              borderRadius: 6,
+              border: "1px solid var(--accent)",
+              background: "var(--accent)",
+              color: "#fff",
+              cursor: canSubmit ? "pointer" : "not-allowed",
+              opacity: canSubmit ? 1 : 0.5,
+              fontSize: 12,
+            }}
+          >
+            {t("chat.submit")}
+          </button>
         </div>
       </div>
     </div>
