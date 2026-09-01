@@ -1,8 +1,14 @@
-import type { AssistantContentBlock, AssistantMessage, ThinkingContent, ToolCallContent } from "./types";
+import type { AgentMessage, AssistantContentBlock, AssistantMessage, ThinkingContent, ToolCallContent } from "./types";
 
 interface DisplayOptions {
   isStreaming?: boolean;
 }
+
+interface ProcessDetailsOptions {
+  hasFinalAnswer: boolean;
+}
+
+const SUBSTANTIAL_ASSISTANT_TEXT_LENGTH = 200;
 
 export function isEmptyThinkingBlock(block: AssistantContentBlock, options: DisplayOptions = {}): block is ThinkingContent {
   return block.type === "thinking" && !block.deferred && !options.isStreaming && block.thinking.trim() === "";
@@ -44,4 +50,19 @@ export function splitFinalAssistantBlocks(
 
 export function countToolCallBlocks(blocks: AssistantContentBlock[]): number {
   return blocks.filter((block): block is ToolCallContent => block.type === "toolCall").length;
+}
+
+export function shouldExpandProcessDetails(
+  messages: AgentMessage[],
+  options: ProcessDetailsOptions,
+): boolean {
+  if (!options.hasFinalAnswer) return true;
+
+  return messages.some((message) => {
+    if (message.role !== "assistant") return false;
+    return getDisplayableAssistantBlocks(message).some((block) => (
+      block.type === "image"
+      || (block.type === "text" && block.text.trim().length > SUBSTANTIAL_ASSISTANT_TEXT_LENGTH)
+    ));
+  });
 }
