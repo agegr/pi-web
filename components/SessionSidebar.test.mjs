@@ -77,7 +77,7 @@ test("offers the downstream context-menu hook only on a normal session row", () 
   assert.match(sessionItemSource, /const handleContextMenu[\s\S]*?dispatchSessionRowContextMenu\(\{/);
   assert.match(
     sessionItemSource,
-    /onContextMenu=\{confirmDelete \|\| renaming \? undefined : handleContextMenu\}/,
+    /onContextMenu=\{confirmDelete \|\| renaming \|\| archived \? undefined : handleContextMenu\}/,
   );
 });
 
@@ -99,4 +99,28 @@ test("hides subagent rows and aggregates their state into the main session row",
   assert.match(source, /familySessions\.some\(\(session\) => session\.id === selectedSessionId\)/);
   assert.match(source, /familySessions\.some\(\(session\) => runningSessionIds\.has\(session\.id\)\)/);
   assert.doesNotMatch(source, /function SessionTreeItem/);
+});
+
+test("archives sessions via POST and restores them via DELETE", () => {
+  assert.match(source, /fetch\(`\/api\/sessions\/\$\{encodeURIComponent\(id\)\}\/archive`, \{\s*method: "POST"/);
+  assert.match(source, /fetch\(`\/api\/sessions\/\$\{encodeURIComponent\(id\)\}\/archive`, \{\s*method: "DELETE"/);
+  assert.match(source, /fetch\("\/api\/sessions\/archive"/);
+});
+
+test("shows archive and restore actions on hovered persisted sessions", () => {
+  assert.match(sessionItemSource, /onArchive\?: \(id: string\) => void/);
+  assert.match(sessionItemSource, /onRestore\?: \(id: string\) => void/);
+  assert.match(sessionItemSource, /title=\{t\("sidebar\.archive"\)\}/);
+  assert.match(sessionItemSource, /title=\{t\("sidebar\.restore"\)\}/);
+});
+
+test("scopes the archived session list to the selected project", () => {
+  assert.match(source, /const filteredArchivedSessions = selectedProject\s*\? sessionsForProject\(archivedSessions, selectedProject\.key\)\s*: archivedSessions/);
+  assert.match(source, /filteredArchivedSessions\.length > 0/);
+});
+
+test("archived rows stay archived until the restore button is used", () => {
+  assert.match(source, /archiveOpen && filteredArchivedSessions\.map\(\(session\) => \([\s\S]*?archived[\s\S]*?onRestore=\{handleRestore\}/);
+  assert.doesNotMatch(source, /onClick=\{\(\) => handleRestore\(session\.id\)\}/);
+  assert.match(sessionItemSource, /onClick=\{confirmDelete \|\| renaming \|\| archived \? undefined : onClick\}/);
 });

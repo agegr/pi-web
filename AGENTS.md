@@ -48,7 +48,9 @@ Browser                Next.js Server              AgentSession (in-process)
 ```
 app/api/
   sessions/route.ts               GET  list all sessions
+  sessions/archive/route.ts       GET  list archived sessions
   sessions/[id]/route.ts          GET/PATCH/DELETE session
+  sessions/[id]/archive/route.ts  POST archive / DELETE restore
   sessions/[id]/context/route.ts  GET ?leafId= — context for a specific leaf
   sessions/[id]/export/route.ts   GET exported HTML for a session
   agent/new/route.ts              POST { cwd, message, toolNames?, provider?, modelId? }

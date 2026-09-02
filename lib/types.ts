@@ -333,6 +333,9 @@ export interface SessionInfo {
    *  Always set by the server; optional because the client builds transient
    *  SessionInfo objects before the first refresh. Fall back to cwd. */
   projectRoot?: string;
+  /** True for sessions listed from the archive/ directory (they are hidden
+   *  from the main session list until restored). */
+  archived?: boolean;
   /** Stable server-computed project identity for grouping and comparison.
    *  Unlike projectRoot, Windows keys are case- and separator-insensitive.
    *  Internal only: use projectRoot/cwd for display and filesystem operations. */
