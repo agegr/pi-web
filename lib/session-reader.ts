@@ -123,7 +123,8 @@ export async function attachSessionProjectInfo(sessions: SessionInfo[]): Promise
       ...session,
       projectRoot,
       projectKey: projectIdentityKey(projectRoot),
-      ...(project?.isWorktree && project.branch ? { worktreeBranch: project.branch } : {}),
+      ...(project?.branch ? { branch: project.branch } : {}),
+      ...(project?.isWorktree ? { isWorktree: true } : {}),
     };
   });
 }

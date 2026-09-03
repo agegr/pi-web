@@ -33,7 +33,6 @@ interface WebPushEnvironment {
 export interface WebPushNotifier {
   getVapidPublicKey: () => string;
   addSubscription: (subscription: PushSubscriptionRecord) => void;
-  removeSubscription: (endpoint: string) => void;
   notifySessionComplete: (sessionId: string) => Promise<void>;
 }
 
@@ -126,10 +125,6 @@ export function createWebPushNotifier(environment: WebPushEnvironment): WebPushN
       ];
       saveState();
     },
-    removeSubscription(endpoint) {
-      state.subscriptions = state.subscriptions.filter((s) => s.endpoint !== endpoint);
-      saveState();
-    },
     async notifySessionComplete(sessionId) {
       if (state.subscriptions.length === 0) return;
       const sessionName = (await environment.listSessionNames()).get(sessionId);
@@ -178,10 +173,6 @@ export function getVapidPublicKey(): Promise<string> {
 
 export function addSubscription(subscription: PushSubscriptionRecord): Promise<void> {
   return getNotifier().then((notifier) => notifier.addSubscription(subscription));
-}
-
-export function removeSubscription(endpoint: string): Promise<void> {
-  return getNotifier().then((notifier) => notifier.removeSubscription(endpoint));
 }
 
 export async function notifySessionComplete(sessionId: string): Promise<void> {

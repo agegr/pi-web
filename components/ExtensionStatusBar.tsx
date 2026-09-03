@@ -1,7 +1,8 @@
 "use client";
 
-import { parseAnsiLine, stripAnsi } from "@/lib/ansi";
+import { stripAnsi } from "@/lib/ansi";
 import type { ExtensionStatusItem, ExtensionWidgetItem } from "@/lib/types";
+import { AnsiText } from "./AnsiText";
 import { ExtensionWidgets } from "./ExtensionWidgets";
 
 export function sanitizeExtensionStatusText(text: string): string {
@@ -45,9 +46,7 @@ export function ExtensionStatusBar({
           title={plainStatusLine}
         >
           <span className="extension-status-text">
-            {parseAnsiLine(statusLine).map((segment, index) => (
-              <span key={index} style={segment.style}>{segment.text}</span>
-            ))}
+            <AnsiText text={statusLine} />
           </span>
         </div>
       )}

@@ -29,11 +29,11 @@ test("uses shared sidebar sizing for providers and matching indented model rows"
 test("ignores malformed auth provider responses", () => {
   assert.match(
     source,
-    /if \(Array\.isArray\(d\.providers\)\) setOauthProviders\(d\.providers\)/,
+    /if \(Array\.isArray\(d\.oauthProviders\)\) setOauthProviders\(d\.oauthProviders\)/,
   );
   assert.match(
     source,
-    /if \(Array\.isArray\(d\.providers\)\) setApiKeyProviders\(d\.providers\)/,
+    /if \(Array\.isArray\(d\.apiKeyProviders\)\) setApiKeyProviders\(d\.apiKeyProviders\)/,
   );
 });
 

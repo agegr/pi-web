@@ -4,6 +4,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme, type ThemePreference } from "@/hooks/useTheme";
 import { useBrowserTitleMode, type BrowserTitleMode } from "@/hooks/useBrowserTitle";
+import { sendAgentCommand } from "@/lib/agent-client";
+import type { ShellToolSettingsResponse } from "@/lib/api-types";
 import {
   setLastSettingsSection,
   type SettingsSection,
@@ -11,13 +13,14 @@ import {
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
+import { ConfigSwitch } from "./SettingsUi";
 
 interface Props {
   cwd: string | null;
   sessionId: string | null;
   initialSection: SettingsSection;
   onClose: () => void;
-  onPluginsReloaded: () => void;
+  onSessionReloaded: () => void;
 }
 
 export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: { section: SettingsSection; size?: number; strokeWidth?: number }) {
@@ -51,10 +54,13 @@ function ThemeIcon({ preference }: { preference: ThemePreference }) {
   return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></svg>;
 }
 
-function GeneralSettings() {
+function GeneralSettings({ sessionId, onSessionReloaded }: Pick<Props, "sessionId" | "onSessionReloaded">) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
   const { browserTitleMode, setBrowserTitleMode } = useBrowserTitleMode();
+  const [shellSettings, setShellSettings] = useState<ShellToolSettingsResponse | null>(null);
+  const [shellSaving, setShellSaving] = useState(false);
+  const [shellError, setShellError] = useState<string | null>(null);
   const themeOptions: { id: ThemePreference; label: string }[] = [
     { id: "light", label: t("settings.themeLight") },
     { id: "dark", label: t("settings.themeDark") },
@@ -64,6 +70,43 @@ function GeneralSettings() {
     { id: "session", label: t("settings.browserTitleSession") },
     { id: "workspace", label: t("settings.browserTitleWorkspace") },
   ];
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/tools/settings")
+      .then(async (response) => {
+        const data = await response.json() as ShellToolSettingsResponse & { error?: string };
+        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+        if (!cancelled) setShellSettings(data);
+      })
+      .catch((cause) => {
+        if (!cancelled) setShellError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const togglePowerShell = async (enabled: boolean) => {
+    setShellSaving(true);
+    setShellError(null);
+    try {
+      const response = await fetch("/api/tools/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      const data = await response.json() as ShellToolSettingsResponse & { error?: string };
+      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      setShellSettings(data);
+      if (sessionId) {
+        await sendAgentCommand(sessionId, { type: "reload" });
+        onSessionReloaded();
+      }
+    } catch (cause) {
+      setShellError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setShellSaving(false);
+    }
+  };
 
   return (
     <div className="settings-general">
@@ -91,6 +134,23 @@ function GeneralSettings() {
           })}
         </div>
       </section>
+
+      {shellSettings?.isWindows && (
+        <section className="settings-general-section">
+          <h3 className="settings-general-heading">{t("settings.shellTool")}</h3>
+          <p className="settings-general-description">{t("settings.shellToolDescription")}</p>
+          <div className="settings-shell-option">
+            <span>{t("settings.usePowerShell")}</span>
+            <ConfigSwitch
+              checked={shellSettings.powerShellEnabled}
+              loading={shellSaving}
+              label={t("settings.usePowerShell")}
+              onChange={(enabled) => void togglePowerShell(enabled)}
+            />
+          </div>
+          {shellError && <p role="alert" className="settings-general-error">{shellError}</p>}
+        </section>
+      )}
 
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("settings.browserTitle")}</h3>
@@ -143,7 +203,7 @@ function GeneralSettings() {
   );
 }
 
-export function SettingsPanel({ cwd, sessionId, initialSection, onClose, onPluginsReloaded }: Props) {
+export function SettingsPanel({ cwd, sessionId, initialSection, onClose, onSessionReloaded }: Props) {
   const { t } = useI18n();
   const [section, setSection] = useState<SettingsSection>(initialSection);
   const [mountedSections, setMountedSections] = useState<ReadonlySet<SettingsSection>>(
@@ -238,10 +298,10 @@ export function SettingsPanel({ cwd, sessionId, initialSection, onClose, onPlugi
         </div>
 
         <main className="settings-dialog-main">
-          {sectionHost("general", <GeneralSettings />)}
+          {sectionHost("general", <GeneralSettings sessionId={sessionId} onSessionReloaded={onSessionReloaded} />)}
           {sectionHost("models", <ModelsConfig embedded onClose={onClose} />)}
           {cwd && sectionHost("skills", <SkillsConfig embedded key={cwd} cwd={cwd} onClose={onClose} />)}
-          {cwd && sectionHost("plugins", <PluginsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} onClose={onClose} onReloaded={onPluginsReloaded} />)}
+          {cwd && sectionHost("plugins", <PluginsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} onClose={onClose} onReloaded={onSessionReloaded} />)}
         </main>
       </div>
     </div>

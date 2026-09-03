@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { AnsiText } from "@/components/AnsiText";
 import type { ExtensionWidgetItem } from "@/lib/types";
 
 export const DEFAULT_EXPANDED_WIDGET_LINES = 3;
@@ -130,7 +131,7 @@ export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }
               >
                 <div className="extension-widget-panel-heading">{widget.key}</div>
                 <pre className="extension-widget-content">
-                  {formatExtensionWidgetContent(widget.lines)}
+                  <AnsiText text={formatExtensionWidgetContent(widget.lines)} />
                 </pre>
               </section>
             );
