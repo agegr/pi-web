@@ -18,6 +18,15 @@ const ZOOM_STEP = 0.25;
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 3;
 
+export function downloadMermaidSvg(svg: string): void {
+  const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "mermaid-diagram.svg";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 type RenderState =
   | { key: string; status: "loading" }
   | { key: string; status: "error" }
@@ -109,7 +118,20 @@ export function MermaidBlock({ code, isStreaming, defaultPreview = false }: Merm
     <div className="markdown-code-block">
       <div className="markdown-code-header">
         <span className="markdown-code-lang">mermaid</span>
-        {previewButton}
+        <div className="markdown-code-actions">
+          {renderState?.key === currentKey && renderState.status === "ready" && (
+            <button
+              type="button"
+              className="markdown-code-action"
+              title={`${t("i18n.downloadFile")} (SVG)`}
+              aria-label={`${t("i18n.downloadFile")} (SVG)`}
+              onClick={() => downloadMermaidSvg(renderState.svg)}
+            >
+              SVG
+            </button>
+          )}
+          {previewButton}
+        </div>
       </div>
       {body}
     </div>

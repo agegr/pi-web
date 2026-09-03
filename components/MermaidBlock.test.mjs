@@ -8,7 +8,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { MermaidBlock, CodeBlock } = await jiti.import("./MermaidBlock.tsx");
+const { MermaidBlock, CodeBlock, downloadMermaidSvg } = await jiti.import("./MermaidBlock.tsx");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 
 // Simple sequenceDiagram for testing
@@ -91,4 +91,32 @@ test("MermaidBlock handles Chinese characters in diagram", () => {
 
   assert.doesNotMatch(html, /mermaid-block-error/);
   assert.match(html, /mermaid-block/);
+});
+
+test("downloadMermaidSvg downloads the rendered SVG and releases its URL", async () => {
+  const originalDocument = globalThis.document;
+  const originalCreateObjectURL = URL.createObjectURL;
+  const originalRevokeObjectURL = URL.revokeObjectURL;
+  const link = { href: "", download: "", clicked: false, click() { this.clicked = true; } };
+  globalThis.document = { createElement: () => link };
+  URL.createObjectURL = (blob) => {
+    assert.equal(blob.type, "image/svg+xml;charset=utf-8");
+    return "blob:mermaid";
+  };
+  let revoked = null;
+  URL.revokeObjectURL = (url) => { revoked = url; };
+
+  try {
+    downloadMermaidSvg("<svg />");
+    assert.equal(link.href, "blob:mermaid");
+    assert.equal(link.download, "mermaid-diagram.svg");
+    assert.equal(link.clicked, true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(revoked, "blob:mermaid");
+  } finally {
+    if (originalDocument === undefined) delete globalThis.document;
+    else globalThis.document = originalDocument;
+    URL.createObjectURL = originalCreateObjectURL;
+    URL.revokeObjectURL = originalRevokeObjectURL;
+  }
 });
