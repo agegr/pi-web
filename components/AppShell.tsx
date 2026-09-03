@@ -14,6 +14,7 @@ import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
 import { SystemPromptPanel } from "./SystemPromptPanel";
 import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
 import { AgentSessionPanel } from "./AgentSessionPanel";
+import { TerminalPanel } from "./TerminalPanel";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile, useIsNarrowMobile } from "@/hooks/useIsMobile";
@@ -132,6 +133,8 @@ export function AppShell() {
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
+  const [mainView, setMainView] = useState<"chat" | "terminal">("chat");
+  const [terminalMounted, setTerminalMounted] = useState(false);
   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
   const [projectTrustBusy, setProjectTrustBusy] = useState(false);
@@ -932,6 +935,12 @@ export function AppShell() {
   const showPlaceholder = initialSessionRestored && !showChat;
 
   useEffect(() => {
+    if (projectTrustCwd) return;
+    setMainView("chat");
+    setTerminalMounted(false);
+  }, [projectTrustCwd]);
+
+  useEffect(() => {
     setProjectTrust(null);
     setProjectTrustDialogOpen(false);
     setProjectTrustError(null);
@@ -1208,6 +1217,37 @@ export function AppShell() {
     if (!mobile && !showChat) return null;
     return (
       <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
+        <button
+          type="button"
+          onClick={() => {
+            setTerminalMounted(true);
+            setMainView((view) => view === "terminal" ? "chat" : "terminal");
+            setActiveTopPanel(null);
+            if (mobile && isNarrowMobile) setMobileToolbarMoreOpen(true);
+          }}
+          disabled={!projectTrustCwd}
+          title={mainView === "terminal" ? translate("chat.close") : translate("chat.shell")}
+          aria-label={translate("chat.shell")}
+          aria-pressed={mainView === "terminal"}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
+            height: "100%", padding: mobile ? 0 : "0 12px",
+            background: mainView === "terminal" ? "var(--bg-selected)" : "none",
+            border: "none", borderRight: "1px solid var(--border)",
+            borderTop: mainView === "terminal" ? "2px solid var(--accent)" : "2px solid transparent",
+            color: projectTrustCwd ? "var(--text-muted)" : "var(--text-dim)",
+            cursor: projectTrustCwd ? "pointer" : "not-allowed",
+            opacity: projectTrustCwd ? 1 : 0.45,
+            flexShrink: 0, fontSize: 11, whiteSpace: "nowrap",
+          }}
+          data-mobile-toolbar-action={mobile ? "terminal" : undefined}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
+          </svg>
+          {!mobile && <span>{translate("chat.shell")}</span>}
+        </button>
         <button
           type="button"
           onClick={() => {
@@ -2255,6 +2295,7 @@ export function AppShell() {
 
         {/* Chat content */}
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+          <div style={{ width: "100%", height: "100%", display: mainView === "chat" ? "block" : "none" }}>
           {showChat ? (
             <ChatWindow
               key={sessionKey}
@@ -2323,6 +2364,15 @@ export function AppShell() {
               </div>
             )
           ) : null}
+          </div>
+          {terminalMounted && projectTrustCwd && (
+            <div
+              aria-hidden={mainView !== "terminal"}
+              style={{ width: "100%", height: "100%", display: mainView === "terminal" ? "block" : "none" }}
+            >
+              <TerminalPanel cwd={projectTrustCwd} />
+            </div>
+          )}
         </div>
       </div>
 
