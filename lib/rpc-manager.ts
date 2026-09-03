@@ -15,6 +15,7 @@ import {
 import { cacheSessionPath, invalidateSessionListCache, resolveSessionPath } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
+import { planModeExtension } from "./plan-mode-extension";
 import { notifySessionComplete } from "./web-push";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
@@ -901,6 +902,9 @@ export class AgentSessionWrapper {
       }
 
       case "bash": {
+        if (this.extensionStatuses.has("plan-mode")) {
+          throw new Error("Plan mode is read-only. Disable plan mode before running shell commands");
+        }
         if (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning) {
           throw new Error("Cannot run a shell command while the session is busy");
         }
@@ -1945,6 +1949,7 @@ export async function startRpcSession(
           ? CHAT_ONLY_RESOURCE_LOADER_OPTIONS
         : {
             extensionFactories: [
+              { name: "pi-web-plan-mode", factory: planModeExtension, hidden: true },
               createProjectCommandBashExtension({
                 cwd: sessionCwd,
                 settings: settingsManager,

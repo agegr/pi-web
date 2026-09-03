@@ -207,9 +207,29 @@ export function AppShell() {
     reclampRightPanelWidth();
   }, [reclampRightPanelWidth, reclampSidebarWidth, rightPanelOpen]);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
+  const planModeToggleRef = useRef<(() => Promise<void>) | null>(null);
+  const [planModeActive, setPlanModeActive] = useState(false);
+  const [planModeAvailable, setPlanModeAvailable] = useState(false);
+  const [planModeToggling, setPlanModeToggling] = useState(false);
   const topBarRef = useRef<HTMLDivElement>(null);
   const mobileToolbarRef = useRef<HTMLDivElement>(null);
   const languageBtnRef = useRef<HTMLButtonElement>(null);
+
+  const handlePlanModeToggleChange = useCallback((toggle: (() => Promise<void>) | null) => {
+    planModeToggleRef.current = toggle;
+    setPlanModeAvailable(Boolean(toggle));
+  }, []);
+
+  const togglePlanMode = useCallback(async () => {
+    const toggle = planModeToggleRef.current;
+    if (!toggle || planModeToggling) return;
+    setPlanModeToggling(true);
+    try {
+      await toggle();
+    } finally {
+      setPlanModeToggling(false);
+    }
+  }, [planModeToggling]);
 
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
   const [branchTree, setBranchTree] = useState<SessionTreeNode[]>([]);
@@ -1208,6 +1228,32 @@ export function AppShell() {
     if (!mobile && !showChat) return null;
     return (
       <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
+        <button
+          type="button"
+          onClick={() => void togglePlanMode()}
+          disabled={!planModeAvailable || planModeToggling}
+          title={planModeActive ? translate("chat.planModeDisable") : translate("chat.planModeEnable")}
+          aria-label={translate("chat.planMode")}
+          aria-pressed={planModeActive}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
+            height: "100%", padding: mobile ? 0 : "0 12px",
+            background: planModeActive ? "var(--bg-selected)" : "none",
+            border: "none", borderRight: "1px solid var(--border)",
+            borderTop: planModeActive ? "2px solid var(--accent)" : "2px solid transparent",
+            color: planModeActive ? "var(--accent)" : "var(--text-muted)",
+            cursor: planModeAvailable && !planModeToggling ? "pointer" : "not-allowed",
+            opacity: planModeAvailable ? 1 : 0.45,
+            flexShrink: 0, fontSize: 11, whiteSpace: "nowrap",
+          }}
+          data-mobile-toolbar-action={mobile ? "plan-mode" : undefined}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M9 5h11M9 12h11M9 19h11" /><path d="m3 5 1 1 2-2M3 12l1 1 2-2M3 19l1 1 2-2" />
+          </svg>
+          {!mobile && <span>{translate("chat.planMode")}</span>}
+        </button>
         <button
           type="button"
           onClick={() => {
@@ -2272,6 +2318,8 @@ export function AppShell() {
               onSystemPromptChange={handleSystemPromptChange}
               onSystemToolsChange={handleSystemToolsChange}
               onSystemInfoLoaderChange={handleSystemInfoLoaderChange}
+              onPlanModeChange={setPlanModeActive}
+              onPlanModeToggleChange={handlePlanModeToggleChange}
               onSessionStatsChange={handleSessionStatsChange}
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onContextUsageChange={handleContextUsageChange}
