@@ -6,6 +6,7 @@ import { normalizeCustomPanelLines } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
+import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
@@ -46,6 +47,8 @@ interface Props {
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
   onOpenFile?: (filePath: string) => void;
   onOpenSession?: (sessionId: string) => void;
+  onAskInNewChat?: (prompt: string, selectedText: string, sourceSessionId: string, sourceEntryId: string) => void;
+  initialPrompt?: string;
   /** Completion sound state + controls, owned by AppShell so tasks finishing in
    *  a non-active workspace can still ring. */
   soundEnabled?: boolean;
@@ -253,7 +256,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, onAskInNewChat, initialPrompt, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -302,6 +305,77 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
   });
   const sessionBusy = agentRunning || bashRunning;
+  const [quotedSelection, setQuotedSelection] = useState<{
+    text: string;
+    top: number;
+    left: number;
+    sourceEntryId?: string;
+  } | null>(null);
+
+  const captureQuotedSelection = useCallback(() => {
+    const selection = window.getSelection();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    const root = messageContentRef.current;
+    if (!selection || selection.isCollapsed || !range || !root || !root.contains(range.commonAncestorContainer)) {
+      setQuotedSelection(null);
+      return;
+    }
+    const text = selection.toString().trim();
+    if (!text) {
+      setQuotedSelection(null);
+      return;
+    }
+    const rect = range.getBoundingClientRect();
+    const ancestor = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+      ? range.commonAncestorContainer as Element
+      : range.commonAncestorContainer.parentElement;
+    const start = range.startContainer.nodeType === Node.ELEMENT_NODE
+      ? range.startContainer as Element
+      : range.startContainer.parentElement;
+    const end = range.endContainer.nodeType === Node.ELEMENT_NODE
+      ? range.endContainer as Element
+      : range.endContainer.parentElement;
+    const sourceEntryId = [ancestor, start, end]
+      .map((element) => element?.closest<HTMLElement>("[data-message-role=\"assistant\"]")?.dataset.entryId)
+      .find((entryId): entryId is string => Boolean(entryId));
+    setQuotedSelection({
+      text,
+      top: Math.min(window.innerHeight - 44, rect.bottom + 8),
+      left: Math.max(64, Math.min(window.innerWidth - 64, rect.left + rect.width / 2)),
+      sourceEntryId,
+    });
+  }, []);
+
+  const askSelectionHere = useCallback(() => {
+    if (!quotedSelection) return;
+    chatInputRef?.current?.insertText(buildQuotedSelection(
+      quotedSelection.text,
+      t("chat.quoteIntro"),
+      t("chat.quoteQuestion"),
+    ));
+    window.getSelection()?.removeAllRanges();
+    setQuotedSelection(null);
+  }, [chatInputRef, quotedSelection, t]);
+
+  const askSelectionInNewChat = useCallback(() => {
+    const sourceSessionId = sessionIdRef.current ?? session?.id;
+    if (!quotedSelection?.sourceEntryId || !sourceSessionId || !onAskInNewChat) return;
+    onAskInNewChat(
+      buildQuotedSelection(quotedSelection.text, t("chat.quoteIntro"), t("chat.quoteQuestion")),
+      quotedSelection.text,
+      sourceSessionId,
+      quotedSelection.sourceEntryId,
+    );
+    window.getSelection()?.removeAllRanges();
+    setQuotedSelection(null);
+  }, [onAskInNewChat, quotedSelection, session?.id, sessionIdRef, t]);
+
+  const initialPromptSentRef = useRef(false);
+  useEffect(() => {
+    if (loading || !initialPrompt || initialPromptSentRef.current || !chatInputRef?.current) return;
+    initialPromptSentRef.current = true;
+    chatInputRef.current.insertIfEmpty(initialPrompt);
+  }, [chatInputRef, initialPrompt, loading]);
 
   useEffect(() => {
     if (
@@ -726,7 +800,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       <div className="relative flex min-w-0 flex-1 overflow-hidden">
         <div ref={scrollContainerRef} className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-width:none]">
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
-            <div ref={messageContentRef} style={{ width: "100%", minWidth: 0, maxWidth: 820, margin: "0 auto" }}>
+            <div ref={messageContentRef} onPointerUp={captureQuotedSelection} style={{ width: "100%", minWidth: 0, maxWidth: 820, margin: "0 auto" }}>
             {(() => {
               let lastUserIdx = -1;
               for (let i = messages.length - 1; i >= 0; i--) {
@@ -960,6 +1034,48 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
           />
         )}
       </div>
+
+      {quotedSelection && (
+        <div
+          role="menu"
+          aria-label={t("chat.askSelection")}
+          style={{
+            position: "fixed",
+            top: quotedSelection.top,
+            left: quotedSelection.left,
+            zIndex: 80,
+            transform: "translateX(-50%)",
+            display: "flex",
+            gap: 4,
+            padding: 4,
+            border: "1px solid color-mix(in srgb, var(--accent) 55%, var(--border))",
+            borderRadius: 8,
+            background: "var(--bg)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.16)",
+          }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onPointerDown={(event) => event.preventDefault()}
+            onClick={askSelectionHere}
+            style={{ padding: "6px 9px", border: "none", borderRadius: 6, background: "transparent", color: "var(--text)", cursor: "pointer", fontSize: 12, fontWeight: 650, whiteSpace: "nowrap" }}
+          >
+            {t("chat.askInCurrent")}
+          </button>
+          {onAskInNewChat && quotedSelection.sourceEntryId && !sessionBusy && (
+            <button
+              type="button"
+              role="menuitem"
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={askSelectionInNewChat}
+              style={{ padding: "6px 9px", border: "none", borderRadius: 6, background: "var(--bg-panel)", color: "var(--accent)", cursor: "pointer", fontSize: 12, fontWeight: 650, whiteSpace: "nowrap" }}
+            >
+              {t("chat.askInNewChat")}
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="relative">
         {chatInputElement}
