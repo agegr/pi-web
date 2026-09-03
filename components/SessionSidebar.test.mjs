@@ -100,3 +100,18 @@ test("hides subagent rows and aggregates their state into the main session row",
   assert.match(source, /familySessions\.some\(\(session\) => runningSessionIds\.has\(session\.id\)\)/);
   assert.doesNotMatch(source, /function SessionTreeItem/);
 });
+
+test("organizes conversation families into persistent drag-and-drop folders", () => {
+  assert.match(source, /loadConversationFolderState\(\)/);
+  assert.match(source, /saveConversationFolderState\(next\)/);
+  assert.match(source, /const folderFamilies = new Map/);
+  assert.match(source, /event\.dataTransfer\.setData\("text\/session-id", session\.id\)/);
+  assert.match(source, /<ConversationFolderSection/);
+  assert.match(source, /moveSessionToFolder\(sessionId, null\)/);
+});
+
+test("aggregates subagent activity on conversation folder headers", () => {
+  assert.match(source, /const folderSessions = families\.flatMap/);
+  assert.match(source, /running: folderSessions\.filter\(\(session\) => runningSessionIds\.has\(session\.id\)\)\.length/);
+  assert.match(source, /unread: folderSessions\.filter\(\(session\) => unreadSessionIds\.has\(session\.id\)\)\.length/);
+});
