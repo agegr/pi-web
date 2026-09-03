@@ -93,7 +93,7 @@ type DialogOptionsLike = {
 };
 
 type WidgetOptionsLike = {
-  placement?: "aboveEditor" | "belowEditor";
+  placement?: "aboveEditor" | "belowEditor" | "footer";
 };
 
 export interface ExtensionUiContextLike {

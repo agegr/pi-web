@@ -104,7 +104,14 @@ export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }
 
   if (widgets.length === 0) return null;
 
-  const expandedWidget = widgets.find((widget) => (
+  // Footer-placement widgets (e.g. `ctx.ui.setFooter(...)` registrations like
+  // `@liziy/token-stats`) render as a full-width multi-line footer block rather
+  // than a 108px trigger chip — their content (token usage, quotas, cwd, etc.)
+  // is meant to span the entire footer width.
+  const footerWidgets = widgets.filter((widget) => widget.placement === "footer");
+  const trayWidgets = widgets.filter((widget) => widget.placement !== "footer");
+
+  const expandedWidget = trayWidgets.find((widget) => (
     widget.key === expandedWidgetKey
     && widget.lines.length > 0
   ));
@@ -115,11 +122,25 @@ export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }
 
   return (
     <>
+      {footerWidgets.length > 0 && (
+        <div className="extension-footer-widgets" aria-label={t("chat.extensionFooterWidgets")}>
+          {footerWidgets.map((widget, index) => (
+            <section
+              key={widget.key}
+              id={`${idPrefix}-footer-${index}`}
+              className={`extension-footer-widget${updatingWidgetKeys.has(widget.key) ? " is-updating" : ""}`}
+              aria-label={`${t("chat.extensionWidgetFooter")}: ${widget.key}`}
+            >
+              <AnsiText text={formatExtensionWidgetContent(widget.lines)} />
+            </section>
+          ))}
+        </div>
+      )}
       {expandedWidget && (
         <div className="extension-widget-panels">
           {(() => {
             const widget = expandedWidget;
-            const index = widgets.indexOf(widget);
+            const index = trayWidgets.indexOf(widget);
             const triggerId = `${idPrefix}-trigger-${index}`;
             const panelId = `${idPrefix}-panel-${index}`;
             return (
@@ -138,8 +159,9 @@ export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }
           })()}
         </div>
       )}
+      {trayWidgets.length > 0 && (
       <div className="extension-widget-triggers" aria-label={t("chat.extensionWidgets")}>
-        {widgets.map((widget, index) => {
+        {trayWidgets.map((widget, index) => {
           const expandable = widget.lines.length > 0;
           const expanded = expandable && widget.key === expandedWidget?.key;
           const updating = updatingWidgetKeys.has(widget.key);
@@ -203,6 +225,7 @@ export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }
           );
         })}
       </div>
+      )}
     </>
   );
 }

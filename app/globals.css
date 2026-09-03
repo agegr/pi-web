@@ -344,6 +344,40 @@ button.extension-widget-trigger:focus-visible {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
+
+/* Footer-placement widgets (e.g. ctx.ui.setFooter registrations like
+   @liziy/token-stats) render as a full-width multi-line block above the
+   status-shelf children. They intentionally bypass the 108px trigger chip
+   treatment since their content is meant to span the whole footer. */
+.extension-footer-widgets {
+  display: flex;
+  flex: 0 0 100%;
+  flex-direction: column;
+  min-width: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+}
+
+.extension-footer-widget {
+  position: relative;
+  min-width: 0;
+  padding: 4px 12px 5px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  white-space: pre;
+}
+
+.extension-footer-widget + .extension-footer-widget {
+  border-top: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+.extension-footer-widget.is-updating {
+  color: var(--text);
+}
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-dim);
 }

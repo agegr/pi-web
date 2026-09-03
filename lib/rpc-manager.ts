@@ -41,6 +41,7 @@ import { createSubagentController } from "./subagent-runtime";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
+import { COMMAND_TIMEOUT_PROMPT } from "./command-timeout-prompt";
 import {
   appendSessionToolSelection,
   readSessionToolSelection,
@@ -76,12 +77,30 @@ type ExtensionWidgetComponent = {
   dispose?: () => void;
 };
 
-type ExtensionWidgetFactory = (tui: HeadlessCustomUiTui, theme: Theme) => unknown;
+/**
+ * Subset of the SDK's `ReadonlyFooterDataProvider` that footer factories
+ * (e.g. `@liziy/token-stats`) can read from their third factory argument.
+ * pi-web does not watch `.git/HEAD` changes, so `onBranchChange` is a no-op
+ * unsubscribe and `getGitBranch()` returns `null` (token-stats renders cwd
+ * without the branch suffix in that case).
+ */
+type FooterDataProviderLike = {
+  getGitBranch: () => string | null;
+  getExtensionStatuses: () => ReadonlyMap<string, string>;
+  getAvailableProviderCount: () => number;
+  onBranchChange: (callback: () => void) => () => void;
+};
+
+type ExtensionWidgetFactory = (
+  tui: HeadlessCustomUiTui,
+  theme: Theme,
+  footerData?: FooterDataProviderLike,
+) => unknown;
 
 type ActiveExtensionWidget = {
   key: string;
   component: ExtensionWidgetComponent;
-  placement: "aboveEditor" | "belowEditor";
+  placement: "aboveEditor" | "belowEditor" | "footer";
   generation: number;
   clearEmitted: boolean;
   rendered: boolean;
@@ -202,6 +221,7 @@ export class AgentSessionWrapper {
   private extensionWidgetsResetting = false;
   private pendingPromptCount = 0;
   private activeMutatingCommands = 0;
+  private activeToolCalls = new Map<string, { name: string; startedAt: number }>();
   private sessionReplacement: "fork" | "clone" | null = null;
   private agentRunNeedsCompletion = false;
   private promptAdmissionTail: Promise<void> = Promise.resolve();
@@ -274,6 +294,20 @@ export class AgentSessionWrapper {
       if (event.type === "agent_end") {
         invalidateSessionListCache();
       }
+      if (event.type === "tool_execution_start") {
+        const toolCallId = event.toolCallId as string;
+        const toolName = event.toolName as string;
+        if (toolCallId) {
+          this.activeToolCalls.set(toolCallId, {
+            name: toolName || "tool",
+            startedAt: Date.now(),
+          });
+        }
+      }
+      if (event.type === "tool_execution_end") {
+        this.activeToolCalls.delete(event.toolCallId as string);
+      }
+      if (event.type === "agent_settled") this.activeToolCalls.clear();
       if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
       this.emit(event);
       if (event.type === "agent_settled") this.notifyAgentRunCompleteIfIdle();
@@ -647,6 +681,11 @@ export class AgentSessionWrapper {
           isPromptRunning: this.pendingPromptCount > 0,
           isBashRunning: this.inner.isBashRunning,
           isCompacting: this.inner.isCompacting,
+          activeToolCalls: [...this.activeToolCalls.entries()].map(([id, call]) => ({
+            id,
+            name: call.name,
+            startedAt: call.startedAt,
+          })),
           autoCompactionEnabled: this.inner.autoCompactionEnabled,
           autoRetryEnabled: this.inner.autoRetryEnabled,
           model: model ? { id: model.id, provider: model.provider } : undefined,
@@ -1025,6 +1064,20 @@ export class AgentSessionWrapper {
     return Array.from(this.extensionWidgets.values());
   }
 
+  private createFooterDataProvider(): FooterDataProviderLike {
+    // pi-web does not watch .git/HEAD, so getGitBranch() returns null and
+    // onBranchChange() is a no-op unsubscribe. token-stats still works in that
+    // case (renders cwd without the branch suffix). Extension statuses come
+    // from the same map maintained by setStatus(), so any setStatus widget
+    // registered via the regular path is also visible to footer factories.
+    return {
+      getGitBranch: () => null,
+      getExtensionStatuses: () => this.extensionStatuses as ReadonlyMap<string, string>,
+      getAvailableProviderCount: () => 0,
+      onBranchChange: () => () => {},
+    };
+  }
+
   private nextExtensionWidgetGeneration(key: string): number {
     const generation = (this.extensionWidgetGenerations.get(key) ?? 0) + 1;
     this.extensionWidgetGenerations.set(key, generation);
@@ -1172,7 +1225,7 @@ export class AgentSessionWrapper {
   private setExtensionWidgetFactory(
     key: string,
     factory: ExtensionWidgetFactory,
-    options?: { placement?: "aboveEditor" | "belowEditor" },
+    options?: { placement?: "aboveEditor" | "belowEditor" | "footer" },
   ): void {
     const hadPrevious = this.extensionWidgets.has(key) || this.activeExtensionWidgets.has(key);
     const generation = this.clearExtensionWidget(key, hadPrevious);
@@ -1184,7 +1237,7 @@ export class AgentSessionWrapper {
 
     let component: unknown;
     try {
-      component = factory(tui, PLAIN_TEXT_THEME);
+      component = factory(tui, PLAIN_TEXT_THEME, this.createFooterDataProvider());
     } catch (error) {
       this.failExtensionWidget(key, generation, error, hadPrevious);
       return;
@@ -1471,10 +1524,11 @@ export class AgentSessionWrapper {
           ? this.clearExtensionWidget(key)
           : this.nextExtensionWidgetGeneration(key);
         if (this.extensionWidgetGenerations.get(key) !== generation) return;
+        const placement = options?.placement ?? "aboveEditor";
         this.extensionWidgets.set(key, {
           key,
           lines: content,
-          placement: options?.placement ?? "aboveEditor",
+          placement,
         });
         this.emit({
           type: "extension_ui_request",
@@ -1482,10 +1536,29 @@ export class AgentSessionWrapper {
           method: "setWidget",
           widgetKey: key,
           widgetLines: content,
-          widgetPlacement: options?.placement,
+          widgetPlacement: placement,
         } as ExtensionUiRequest as AgentEvent);
       },
-      setFooter: () => {},
+      setFooter: (factory) => {
+        // Map the SDK's setFooter factory onto the existing widget pipeline
+        // pinned to placement "footer". Clearing (factory === undefined) is not
+        // supported by the SDK contract (only setFooter() with no arg restores
+        // the built-in footer, which we don't have) — so treat undefined as a
+        // no-op rather than wiping the registered footer.
+        if (!this._alive || this.extensionWidgetsResetting) return;
+        if (factory === undefined) return;
+        if (typeof factory !== "function") return;
+        // Use a stable key so re-calling setFooter on the same factory replaces
+        // the previous widget without spamming the client.
+        this.setExtensionWidgetFactory(
+          "footer",
+          // SAFETY: ExtensionUiContextLike.setFooter types the factory as
+          // `unknown`; the runtime call signature matches
+          // ExtensionWidgetFactory's positional contract (tui, theme, footerData).
+          factory as unknown as ExtensionWidgetFactory,
+          { placement: "footer" },
+        );
+      },
       setHeader: () => {},
       setTitle: (title) => {
         this.emit({
@@ -1678,6 +1751,7 @@ export async function setRpcSessionTools(
   if (!existing?.isAlive()) {
     if (!sessionFile) throw new Error("Session not found");
     const manager = SessionManager.open(sessionFile, undefined);
+    // SAFETY: SessionManager.getEntries() is structurally compatible with SessionEntry[]; the subagent reader only inspects header / extension resource entries.
     if (readSubagentSessionResources(manager.getEntries() as unknown as SessionEntry[])) {
       throw new Error("Subagent tool selection is fixed by its profile");
     }
@@ -1688,6 +1762,7 @@ export async function setRpcSessionTools(
   }
 
   if (existing.isRunning()) throw new Error("Cannot change tools while the session is running");
+  // SAFETY: Same invariant as the readSubagentSessionResources call above; the agent's session manager returns the same getEntries() shape.
   if (readSubagentSessionResources(existing.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
     throw new Error("Subagent tool selection is fixed by its profile");
   }
@@ -1764,6 +1839,7 @@ export function getRpcSessionInfos(): SessionInfo[] {
     const firstUserMessage = messages.find((entry) => entry.message.role === "user");
     const sessionFile = manager.getSessionFile() ?? session.sessionFile;
     const persisted = Boolean(sessionFile && existsSync(sessionFile));
+    // SAFETY: readSubagentRun expects SessionEntry[]; entries was narrowed from SessionManager.getEntries() which has the same shape.
     const subagent = readSubagentRun(entries as unknown as SessionEntry[], header?.id ?? session.sessionId, sessionFile ?? "");
 
     // An ensure_session call creates an idle, empty runtime while the composer
@@ -1876,11 +1952,14 @@ export async function startRpcSession(
   const sessionCwd = sessionManager.getCwd();
   const subagentResources = sessionFile
     ? readSubagentSessionResources(
+        // SAFETY: SessionManager.getEntries() returns the same shape as SessionEntry[]; subagent resource reader only inspects header / extension entries.
         sessionManager.getEntries() as unknown as SessionEntry[],
       )
     : null;
   const persistedToolNames = subagentResources
     ? undefined
+    // pi-lens-ignore: require-safety-comment-for-type-assertion
+    // SAFETY: readSessionToolSelection expects SessionEntry[]; SessionManager.getEntries() returns the same entry shape.
     : readSessionToolSelection(sessionManager.getEntries() as unknown as SessionEntry[]);
   const selectedToolNames = subagentResources?.tools ?? persistedToolNames ?? requestedToolNames;
   if (!subagentResources && persistedToolNames === undefined && requestedToolNames !== undefined) {
@@ -1956,6 +2035,10 @@ export async function startRpcSession(
               ),
             ],
             extensionsOverride: (base) => preferUserBashExtension(preferPiWebSubagentExtension(base)),
+            // Keep any user/discovered append-system-prompt entries and add
+            // pi-web's command-timeout guidance (tool calls have no built-in
+            // timeout; one hung command leaves the UI spinning for hours).
+            appendSystemPromptOverride: (base) => [...base, COMMAND_TIMEOUT_PROMPT],
           },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
@@ -2041,3 +2124,4 @@ export async function startRpcSession(
   locks.set(sessionId, starting);
   return starting;
 }
+;

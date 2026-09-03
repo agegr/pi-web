@@ -211,7 +211,7 @@ export interface ExtensionStatusItem {
 export interface ExtensionWidgetItem {
   key: string;
   lines: string[];
-  placement: "aboveEditor" | "belowEditor";
+  placement: "aboveEditor" | "belowEditor" | "footer";
 }
 
 export interface SessionMessageEntry extends SessionEntryBase {
