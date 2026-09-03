@@ -1048,6 +1048,7 @@ pre, code {
 }
 
 /* File viewer markdown preview — larger headings */
+.markdown-file-preview { font-family: var(--font-mono); }
 .markdown-file-preview h1 { font-size: 1.8em; }
 .markdown-file-preview h2 { font-size: 1.4em; }
 .markdown-file-preview h3 { font-size: 1.15em; }

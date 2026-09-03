@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("./FileViewer.tsx", import.meta.url), "utf8");
+const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 
 test("large source previews bypass the per-line syntax highlighter", () => {
   assert.match(source, /const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;/);
@@ -19,4 +20,8 @@ test("large source previews bypass the per-line syntax highlighter", () => {
   assert.match(lightweightSource, /className="file-source-line"/);
   assert.match(lightweightSource, /className="file-source-line-content"/);
   assert.match(lightweightSource, /style=\{FILE_LINE_NUMBER_STYLE\}/);
+});
+
+test("markdown file previews use a monospace font for ASCII diagrams", () => {
+  assert.match(styles, /\.markdown-file-preview\s*\{\s*font-family:\s*var\(--font-mono\);\s*\}/);
 });
