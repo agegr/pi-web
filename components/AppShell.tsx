@@ -20,6 +20,7 @@ import { useIsMobile, useIsNarrowMobile } from "@/hooks/useIsMobile";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useAudio } from "@/hooks/useAudio";
+import { useBrowserTitleMode } from "@/hooks/useBrowserTitle";
 import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
@@ -72,6 +73,7 @@ export function AppShell() {
   const searchParams = useSearchParams();
   const [initialNavigation] = useState(() => getInitialNavigation(searchParams));
   const { preference, toggleTheme } = useTheme();
+  const { browserTitleMode } = useBrowserTitleMode();
   const themeLabelKey =
     preference === "light" ? "theme.light" : preference === "dark" ? "theme.dark" : "theme.auto";
   const { locale, setLocale, t: translate, supportedLocales } = useI18n();
@@ -983,10 +985,11 @@ export function AppShell() {
     const latest = sessionCatalog.find((session) => session.id === selectedSession.id);
     return latest?.name ?? selectedSession.name;
   }, [selectedSession, sessionCatalog]);
-  const windowTitle = selectedSessionName
+  const titleSessionName = browserTitleMode === "workspace" ? undefined : selectedSessionName;
+  const windowTitle = titleSessionName
     ? activeCwdName
-      ? `${selectedSessionName} - ${activeCwdName} - Pi Web`
-      : `${selectedSessionName} - Pi Web`
+      ? `${titleSessionName} - ${activeCwdName} - Pi Web`
+      : `${titleSessionName} - Pi Web`
     : activeCwdName
       ? `${activeCwdName} - Pi Web`
       : "Pi Web";

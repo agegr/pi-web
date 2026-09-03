@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme, type ThemePreference } from "@/hooks/useTheme";
+import { useBrowserTitleMode, type BrowserTitleMode } from "@/hooks/useBrowserTitle";
 import {
   setLastSettingsSection,
   type SettingsSection,
@@ -53,10 +54,15 @@ function ThemeIcon({ preference }: { preference: ThemePreference }) {
 function GeneralSettings() {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
+  const { browserTitleMode, setBrowserTitleMode } = useBrowserTitleMode();
   const themeOptions: { id: ThemePreference; label: string }[] = [
     { id: "light", label: t("settings.themeLight") },
     { id: "dark", label: t("settings.themeDark") },
     { id: "auto", label: t("settings.themeSystem") },
+  ];
+  const browserTitleOptions: { id: BrowserTitleMode; label: string }[] = [
+    { id: "session", label: t("settings.browserTitleSession") },
+    { id: "workspace", label: t("settings.browserTitleWorkspace") },
   ];
 
   return (
@@ -79,6 +85,28 @@ function GeneralSettings() {
                 className="settings-theme-option"
               >
                 <ThemeIcon preference={option.id} />
+                <span className="settings-theme-option-label">{option.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.browserTitle")}</h3>
+        <p className="settings-general-description">{t("settings.browserTitleDescription")}</p>
+        <div role="radiogroup" aria-label={t("settings.browserTitle")} className="settings-theme-options settings-theme-options-2">
+          {browserTitleOptions.map((option) => {
+            const selected = browserTitleMode === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => setBrowserTitleMode(option.id)}
+                className="settings-theme-option"
+              >
                 <span className="settings-theme-option-label">{option.label}</span>
               </button>
             );

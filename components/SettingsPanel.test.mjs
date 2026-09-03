@@ -103,3 +103,22 @@ test("uses the child-session robot glyph for the sub-agents tab", () => {
 test("uses the compact controls glyph for General", () => {
   assert.match(panelSource, /section === "general"[\s\S]*?<path d="M20 7h-9M14 17H5" \/>[\s\S]*?<circle cx="7" cy="7" r="3" \/>[\s\S]*?<circle cx="17" cy="17" r="3" \/>/);
 });
+
+test("offers a browser tab title mode selection", async () => {
+  const hookSource = await readFile(new URL("../hooks/useBrowserTitle.ts", import.meta.url), "utf8");
+  const zhTwSource = await readFile(new URL("../lib/i18n/messages/zh-TW.ts", import.meta.url), "utf8");
+  for (const mode of ["session", "workspace"]) {
+    assert.match(panelSource, new RegExp(`id: "${mode}"`));
+  }
+  assert.match(panelSource, /setBrowserTitleMode\(option\.id\)/);
+  assert.match(panelSource, /settings-theme-options-2/);
+  assert.match(cssSource, /\.settings-theme-options\.settings-theme-options-2 \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(hookSource, /const setBrowserTitleMode = useCallback/);
+  assert.match(shellSource, /const \{ browserTitleMode \} = useBrowserTitleMode\(\);/);
+  assert.match(shellSource, /const titleSessionName = browserTitleMode === "workspace" \? undefined : selectedSessionName;/);
+  for (const [name, source] of [["en", enSource], ["zh-CN", zhSource], ["zh-TW", zhTwSource]]) {
+    for (const key of ["settings.browserTitle", "settings.browserTitleDescription", "settings.browserTitleSession", "settings.browserTitleWorkspace"]) {
+      assert.match(source, new RegExp(`"${key}"`), `${name}: ${key}`);
+    }
+  }
+});

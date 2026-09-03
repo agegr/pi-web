@@ -20,6 +20,11 @@ export const enLocale: LocalePlugin = {
     "settings.themeLight": "Light",
     "settings.themeDark": "Dark",
     "settings.themeSystem": "System",
+    "settings.browserTitle": "Browser tab title",
+    "settings.browserTitleDescription":
+      "Choose what the browser tab shows for the current workspace.",
+    "settings.browserTitleSession": "Session name",
+    "settings.browserTitleWorkspace": "Workspace only",
     "settings.languageDescription": "Choose the language used throughout the interface.",
     "settings.projectRequired": "Open a project to configure this section",
     "skills.scope.global": "global",
