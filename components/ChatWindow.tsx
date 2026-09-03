@@ -5,6 +5,7 @@ import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecuti
 import { normalizeCustomPanelLines } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { LONG_RUNNING_TOOL_MS, formatToolElapsed } from "@/lib/tool-elapsed";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
@@ -54,17 +55,20 @@ interface Props {
   unlockAudio?: () => void;
 }
 
-function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, string | number>) => string): string | null {
+function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, string | number>) => string, now?: number): string | null {
   if (phase?.kind === "running_tools") {
     const latest = phase.tools[phase.tools.length - 1];
+    const elapsed = now !== undefined && latest?.startedAt !== undefined
+      ? ` (${formatToolElapsed(now - latest.startedAt)})`
+      : "";
     if (latest?.progress) {
-      return `${t("chat.runningNamedTool", { name: latest.name })} ${latest.progress}`;
+      return `${t("chat.runningNamedTool", { name: latest.name })} ${latest.progress}${elapsed}`;
     }
     const names = phase.tools.map((t) => t.name);
     if (names.length === 0) return t("chat.runningTool");
-    if (names.length === 1) return t("chat.runningNamedTool", { name: names[0] });
-    if (names.length <= 3) return t("chat.runningTools", { names: names.join(", ") });
-    return t("chat.runningToolsMore", { names: names.slice(0, 2).join(", "), count: names.length - 2 });
+    if (names.length === 1) return `${t("chat.runningNamedTool", { name: names[0] })}${elapsed}`;
+    if (names.length <= 3) return `${t("chat.runningTools", { names: names.join(", ") })}${elapsed}`;
+    return `${t("chat.runningToolsMore", { names: names.slice(0, 2).join(", "), count: names.length - 2 })}${elapsed}`;
   }
   if (phase?.kind === "waiting_model") return t("chat.waitingModel");
   if (phase?.kind === "running_command") return t("chat.runningCommand");
@@ -449,6 +453,28 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
   const hasStreamingContent = Boolean(streamState.streamingMessage?.content.length);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
+
+  // Live elapsed clock for in-flight tool calls: ticks once per second only
+  // while the agent reports running tools, so a hung tool visibly ages.
+  const runningTools = agentPhase?.kind === "running_tools" ? agentPhase.tools : null;
+  const hasRunningTools = runningTools !== null;
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (!hasRunningTools) return;
+    const timer = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [hasRunningTools]);
+  const runningToolStartedAt = useMemo(() => {
+    if (!runningTools) return undefined;
+    const map = new Map<string, number>();
+    for (const tool of runningTools) {
+      if (tool.startedAt !== undefined) map.set(tool.id, tool.startedAt);
+    }
+    return map.size > 0 ? map : undefined;
+  }, [runningTools]);
+  const longRunningTool = Boolean(
+    runningTools?.some((tool) => tool.startedAt !== undefined && nowTick - tool.startedAt >= LONG_RUNNING_TOOL_MS),
+  );
   const messageContentRef = useRef<HTMLDivElement | null>(null);
   const promptAnchorSpacerRef = useRef<HTMLDivElement | null>(null);
   const promptAnchorSpacerHeightRef = useRef(0);
@@ -788,6 +814,14 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                     onOpenFile={onOpenFile}
                     onOpenSession={onOpenSession}
                     entryId={entryIds[idx]}
+                    runningToolStartedAt={
+                      // Only the message actually hosting an in-flight toolCall
+                      // gets the map, so other memoized messages do not
+                      // re-render when the tool set changes.
+                      runningToolStartedAt && msg.role === "assistant" && (msg as AssistantMessage).content?.some(
+                        (block) => block.type === "toolCall" && runningToolStartedAt.has(block.toolCallId),
+                      ) ? runningToolStartedAt : undefined
+                    }
                     onFork={sessionBusy || isNew || (idx === 0 && msg.role === "user") ? undefined : handleFork}
                     forking={forkingEntryId === entryIds[idx]}
                     onNavigate={sessionBusy ? undefined : handleNavigate}
@@ -916,12 +950,18 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               );
             })()}
             {streamState.isStreaming && hasStreamingContent && streamState.streamingMessage && (
-              <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} />
+              <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} runningToolStartedAt={runningToolStartedAt} />
             )}
 
             {agentRunning && !hasStreamingContent && agentPhase && (
               <div className="break-words py-2 text-[13px] text-text-muted">
-                <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t)}</span>
+                <span
+                  className="animate-[pulse_1.5s_infinite]"
+                  style={longRunningTool ? { color: "#f59e0b" } : undefined}
+                  title={longRunningTool ? t("chat.toolRunningLong") : undefined}
+                >
+                  {phaseLabel(agentPhase, t, nowTick)}
+                </span>
               </div>
             )}
 

@@ -74,6 +74,7 @@ type AgentStateResponse = {
   isPromptRunning?: boolean;
   isBashRunning?: boolean;
   isCompacting?: boolean;
+  activeToolCalls?: { id: string; name: string; startedAt?: number }[];
   extensionStatuses?: ExtensionStatusItem[];
   extensionWidgets?: ExtensionWidgetItem[];
   queuedMessages?: { steering?: string[]; followUp?: string[] } | null;
@@ -112,7 +113,7 @@ type NoticeAction =
 export type AgentPhase =
   | { kind: "waiting_model" }
   | { kind: "running_command" }
-  | { kind: "running_tools"; tools: { id: string; name: string; progress?: string }[] }
+  | { kind: "running_tools"; tools: { id: string; name: string; progress?: string; startedAt?: number }[] }
   | null;
 
 export interface CompactResultInfo {
@@ -999,6 +1000,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (busy) {
         sdkAgentActiveRef.current = Boolean(state.isStreaming);
         rpcPromptPendingRef.current = Boolean(state.isPromptRunning);
+        // tool_execution_start is not replayed after an SSE reconnect — while
+        // the server reports in-flight tool calls, keep the phase honest so a
+        // hung tool never renders as "waiting for model".
+        const activeTools = state.activeToolCalls ?? [];
+        if (activeTools.length > 0) {
+          setAgentPhase((prev) => {
+            if (
+              prev?.kind === "running_tools"
+              && prev.tools.length === activeTools.length
+              && prev.tools.every((tool) => activeTools.some((active) => active.id === tool.id))
+            ) return prev;
+            return { kind: "running_tools", tools: activeTools.map((tool) => ({ ...tool })) };
+          });
+        }
         return;
       }
       if (!agentRunningRef.current) return;
@@ -1203,7 +1218,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const name = event.toolName as string;
         setAgentPhase((prev) => {
           const tools = prev?.kind === "running_tools" ? [...prev.tools] : [];
-          if (!tools.some((t) => t.id === id)) tools.push({ id, name });
+          const existing = tools.find((t) => t.id === id);
+          if (!existing) tools.push({ id, name, startedAt: Date.now() });
           return { kind: "running_tools", tools };
         });
         break;
@@ -1219,6 +1235,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             id,
             name: name || existing?.name || "tool",
             progress: progress ?? existing?.progress,
+            ...(existing?.startedAt !== undefined ? { startedAt: existing.startedAt } : {}),
           };
           return {
             kind: "running_tools",
@@ -1851,7 +1868,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             rpcPromptPendingRef.current = Boolean(agentState.state.isPromptRunning);
             agentRunningRef.current = true;
             setAgentRunning(true);
-            setAgentPhase(agentState.state.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
+            // A tool may still be executing when the page remounts mid-run:
+            // tool_execution_start is not replayed, so restore the running
+            // phase from get_state instead of a misleading "waiting for model".
+            const activeTools = agentState.state?.activeToolCalls ?? [];
+            setAgentPhase(
+              activeTools.length > 0
+                ? { kind: "running_tools", tools: activeTools.map((tool) => ({ ...tool })) }
+                : agentState.state.isStreaming
+                  ? { kind: "waiting_model" }
+                  : { kind: "running_command" },
+            );
             dispatch({ type: "start" });
             void maintainEventsConnected(session.id);
             if (!agentState.state.isStreaming && agentState.state.isPromptRunning) {

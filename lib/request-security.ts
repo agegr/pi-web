@@ -1,9 +1,8 @@
 import { isIP } from "node:net";
 
 function normalizeHostname(value: string): string {
-  const unbracketed = value.startsWith("[") && value.endsWith("]")
-    ? value.slice(1, -1)
-    : value;
+  const unbracketed =
+    value.startsWith("[") && value.endsWith("]") ? value.slice(1, -1) : value;
   return unbracketed.toLowerCase().replace(/\.$/, "");
 }
 
@@ -11,7 +10,13 @@ function hostnameFromAuthority(value: string): string | null {
   if (!value || /[\s/@\\]/.test(value)) return null;
   try {
     const parsed = new URL(`http://${value}`);
-    if (parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash) {
+    if (
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash
+    ) {
       return null;
     }
     return normalizeHostname(parsed.hostname);
@@ -24,7 +29,13 @@ function normalizeAuthority(value: string): string | null {
   if (!value || /[\s/@\\]/.test(value)) return null;
   try {
     const parsed = new URL(`http://${value}`);
-    if (parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash) {
+    if (
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash
+    ) {
       return null;
     }
     const hostname = normalizeHostname(parsed.hostname);
@@ -37,7 +48,9 @@ function normalizeAuthority(value: string): string | null {
 function normalizeConfiguredHostname(value: string | undefined): string | null {
   const trimmed = value?.trim();
   if (!trimmed) return null;
-  return isIP(trimmed) ? normalizeHostname(trimmed) : hostnameFromAuthority(trimmed);
+  return isIP(trimmed)
+    ? normalizeHostname(trimmed)
+    : hostnameFromAuthority(trimmed);
 }
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -60,23 +73,34 @@ function canonicalOrigin(value: string): string | null {
 }
 
 function getRequestOrigin(request: Request): string | null {
-  const requestUrl = new URL(request.url);
-  const host = request.headers.get("host");
-  return host ? canonicalOrigin(`${requestUrl.protocol}//${host}`) : null;
+  try {
+    const requestUrl = new URL(request.url);
+    const host = request.headers.get("host");
+    return host ? canonicalOrigin(`${requestUrl.protocol}//${host}`) : null;
+  } catch {
+    return null;
+  }
 }
 
 function isUserInitiatedSessionExportNavigation(request: Request): boolean {
   if (
-    request.method !== "GET"
-    || request.headers.get("sec-fetch-mode") !== "navigate"
-    || request.headers.get("sec-fetch-dest") !== "document"
-    || request.headers.get("sec-fetch-user") !== "?1"
+    request.method !== "GET" ||
+    request.headers.get("sec-fetch-mode") !== "navigate" ||
+    request.headers.get("sec-fetch-dest") !== "document" ||
+    request.headers.get("sec-fetch-user") !== "?1"
   ) {
     return false;
   }
 
   try {
-    return /^\/api\/sessions\/[^/]+\/export$/.test(new URL(request.url).pathname);
+    // request.url includes the configured basePath (unlike nextUrl.pathname),
+    // so strip it before matching route patterns.
+    let pathname = new URL(request.url).pathname;
+    const basePath = process.env.PI_WEB_BASE_PATH;
+    if (basePath && pathname.startsWith(basePath)) {
+      pathname = pathname.slice(basePath.length) || "/";
+    }
+    return /^\/api\/sessions\/[^/]+\/export$/.test(pathname);
   } catch {
     return false;
   }
@@ -110,9 +134,10 @@ export function isApiRequestHostAllowed(
  */
 function isProxyRewrittenSameOrigin(request: Request, origin: string): boolean {
   if (
-    request.headers.get("sec-fetch-site") !== "same-origin"
-    || !request.headers.get("x-forwarded-proto")
-  ) return false;
+    request.headers.get("sec-fetch-site") !== "same-origin" ||
+    !request.headers.get("x-forwarded-proto")
+  )
+    return false;
 
   const host = request.headers.get("host");
   if (!host) return false;
@@ -125,7 +150,9 @@ function isProxyRewrittenSameOrigin(request: Request, origin: string): boolean {
   }
 
   const originAuthority = normalizeAuthority(originHost);
-  return originAuthority !== null && originAuthority === normalizeAuthority(host);
+  return (
+    originAuthority !== null && originAuthority === normalizeAuthority(host)
+  );
 }
 
 /** Reject browser cross-site API requests while preserving non-browser clients. */
@@ -136,7 +163,8 @@ export function isApiRequestOriginAllowed(request: Request): boolean {
   if (!origin) return true;
 
   const requestOrigin = getRequestOrigin(request);
-  if (requestOrigin !== null && canonicalOrigin(origin) === requestOrigin) return true;
+  if (requestOrigin !== null && canonicalOrigin(origin) === requestOrigin)
+    return true;
 
   return isProxyRewrittenSameOrigin(request, origin);
 }
@@ -151,11 +179,21 @@ export function isApiRequestAllowed(
 ): boolean {
   if (!isApiRequestHostAllowed(request, configuredHostnames)) return false;
   if (isUserInitiatedSessionExportNavigation(request)) return true;
-  return !shouldCheckApiRequestOrigin(request) || isApiRequestOriginAllowed(request);
+  return (
+    !shouldCheckApiRequestOrigin(request) || isApiRequestOriginAllowed(request)
+  );
 }
 
 export function hasJsonContentType(request: Request): boolean {
-  const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
-  return mediaType === "application/json"
-    || Boolean(mediaType?.startsWith("application/") && mediaType.endsWith("+json"));
+  const mediaType = request.headers
+    .get("content-type")
+    ?.split(";", 1)[0]
+    ?.trim()
+    .toLowerCase();
+  return (
+    mediaType === "application/json" ||
+    Boolean(
+      mediaType?.startsWith("application/") && mediaType.endsWith("+json"),
+    )
+  );
 }

@@ -4,14 +4,27 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 
 const configDir = dirname(fileURLToPath(import.meta.url));
-const { version } = JSON.parse(readFileSync(join(configDir, "package.json"), "utf8")) as { version: string };
+const { version } = JSON.parse(
+  readFileSync(join(configDir, "package.json"), "utf8"),
+) as { version: string };
 let piVersion = "unknown";
 try {
-  const piPkgPath = join(configDir, "node_modules/@earendil-works/pi-coding-agent/package.json");
-  piVersion = (JSON.parse(readFileSync(piPkgPath, "utf8")) as { version: string }).version;
-} catch { /* package not found, use default */ }
+  const piPkgPath = join(
+    configDir,
+    "node_modules/@earendil-works/pi-coding-agent/package.json",
+  );
+  piVersion = (
+    JSON.parse(readFileSync(piPkgPath, "utf8")) as { version: string }
+  ).version;
+} catch {
+  /* package not found, use default */
+}
 
 const nextConfig: NextConfig = {
+  // Mount the app under a subpath (e.g. behind a reverse proxy at /pi-web/).
+  // Build-time only: change requires `npm run build`. Runtime env var must
+  // match for request-security.ts to strip the prefix from URL checks.
+  basePath: process.env.PI_WEB_BASE_PATH || "",
   outputFileTracingRoot: configDir,
   serverExternalPackages: [
     "undici",
@@ -51,7 +64,10 @@ const nextConfig: NextConfig = {
       {
         source: "/",
         headers: [
-          { key: "Cache-Control", value: "private, no-cache, max-age=0, must-revalidate" },
+          {
+            key: "Cache-Control",
+            value: "private, no-cache, max-age=0, must-revalidate",
+          },
         ],
       },
       {
@@ -72,6 +88,9 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_APP_VERSION: version,
     NEXT_PUBLIC_PI_VERSION: piVersion,
+    // Exposed to client code (e.g. service worker registration) so absolute
+    // URLs can be prefixed when the app is mounted under a subpath.
+    NEXT_PUBLIC_BASE_PATH: process.env.PI_WEB_BASE_PATH || "",
   },
 };
 

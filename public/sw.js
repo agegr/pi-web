@@ -1,13 +1,20 @@
 const CACHE_PREFIX = "pi-web";
-const CACHE_VERSION = new URL(self.location.href).searchParams.get("v") || "dev";
+// URLSearchParams is lenient (never throws on empty/malformed query), unlike new URL().
+const CACHE_VERSION =
+  new URLSearchParams(self.location.search).get("v") || "dev";
 const STATIC_CACHE = `${CACHE_PREFIX}-static-${CACHE_VERSION}`;
-const OFFLINE_URL = "/offline.html";
+// Resolve the mount prefix (e.g. "/pi-web/" behind a reverse proxy, or "/")
+// from the service worker's own script path so precache/navigation checks work
+// whether or not the app is deployed under a basePath.
+// String ops only: "/pi-web/sw.js" -> "/pi-web/", "/sw.js" -> "/".
+const BASE_PATH = self.location.pathname.replace(/[^/]*$/, "");
+const OFFLINE_URL = `${BASE_PATH}offline.html`;
 const PRECACHE_URLS = [
   OFFLINE_URL,
-  "/manifest.webmanifest",
-  "/icons/icon-192.png",
-  "/icons/icon-512.png",
-  "/icons/apple-touch-icon.png",
+  `${BASE_PATH}manifest.webmanifest`,
+  `${BASE_PATH}icons/icon-192.png`,
+  `${BASE_PATH}icons/icon-512.png`,
+  `${BASE_PATH}icons/apple-touch-icon.png`,
 ];
 
 self.addEventListener("install", (event) => {
@@ -26,7 +33,10 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(
           keys
-            .filter((key) => key.startsWith(`${CACHE_PREFIX}-`) && key !== STATIC_CACHE)
+            .filter(
+              (key) =>
+                key.startsWith(`${CACHE_PREFIX}-`) && key !== STATIC_CACHE,
+            )
             .map((key) => caches.delete(key)),
         ),
       )
@@ -38,11 +48,20 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
 
-  const url = new URL(request.url);
+  let url;
+  try {
+    url = new URL(request.url);
+  } catch {
+    return;
+  }
   if (url.origin !== self.location.origin) return;
 
   // Session data and live agent traffic must always come from the local server.
-  if (url.pathname.startsWith("/api/") || url.pathname === "/sw.js") return;
+  if (
+    url.pathname.startsWith(`${BASE_PATH}api/`) ||
+    url.pathname === `${BASE_PATH}sw.js`
+  )
+    return;
 
   if (request.mode === "navigate") {
     event.respondWith(
@@ -55,7 +74,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   const isStaticAsset =
-    url.pathname.startsWith("/_next/static/") ||
+    url.pathname.startsWith(`${BASE_PATH}_next/static/`) ||
     PRECACHE_URLS.includes(url.pathname);
 
   if (isStaticAsset) {
@@ -71,30 +90,40 @@ self.addEventListener("push", (event) => {
     // Ignore malformed or missing push payloads.
   }
   const { title, body, url, tag } = payload;
-  if (typeof title !== "string" || !title || typeof body !== "string" || !body) return;
+  if (typeof title !== "string" || !title || typeof body !== "string" || !body)
+    return;
 
   // The in-page notification path handles the visible case (and plays the
   // completion sound). Only surface a system notification when no window for
   // this app is visible — e.g. a backgrounded iOS PWA.
   event.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-      if (clients.some((client) => client.visibilityState === "visible")) return;
-      return self.registration.showNotification(title, {
-        body,
-        data: { url: typeof url === "string" && url ? url : "/" },
-        ...(typeof tag === "string" && tag ? { tag } : {}),
-      });
-    }),
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((clients) => {
+        if (clients.some((client) => client.visibilityState === "visible"))
+          return;
+        return self.registration.showNotification(title, {
+          body,
+          data: { url: typeof url === "string" && url ? url : BASE_PATH },
+          ...(typeof tag === "string" && tag ? { tag } : {}),
+        });
+      }),
   );
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
-  const requestedUrl = typeof event.notification.data?.url === "string"
-    ? event.notification.data.url
-    : "/";
-  let targetUrl = new URL("/", self.location.origin);
+  const requestedUrl =
+    typeof event.notification.data?.url === "string"
+      ? event.notification.data.url
+      : BASE_PATH;
+  let targetUrl;
+  try {
+    targetUrl = new URL(BASE_PATH, self.location.origin);
+  } catch {
+    return;
+  }
   try {
     const candidate = new URL(requestedUrl, self.location.origin);
     if (candidate.origin === self.location.origin) targetUrl = candidate;
@@ -117,9 +146,10 @@ async function focusOrOpenWindow(targetUrl) {
 
   for (const client of candidates) {
     try {
-      const targetClient = client.url === targetUrl
-        ? client
-        : (await client.navigate(targetUrl)) ?? client;
+      const targetClient =
+        client.url === targetUrl
+          ? client
+          : ((await client.navigate(targetUrl)) ?? client);
       await targetClient.focus();
       return;
     } catch {

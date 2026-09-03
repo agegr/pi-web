@@ -7,6 +7,7 @@ import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, isEmptyThinkingBlock } from "@/lib/message-display";
+import { LONG_RUNNING_TOOL_MS, formatToolElapsed } from "@/lib/tool-elapsed";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
 import { isEditToolName } from "@/lib/tool-names";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
@@ -180,6 +181,7 @@ interface Props {
   message: AgentMessage;
   isStreaming?: boolean;
   toolResults?: Map<string, ToolResultMessage>;
+  runningToolStartedAt?: ReadonlyMap<string, number>;
   modelNames?: Record<string, string>;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
@@ -248,12 +250,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSession, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, writtenFiles }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSession, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, writtenFiles, runningToolStartedAt }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} writtenFiles={writtenFiles} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} writtenFiles={writtenFiles} runningToolStartedAt={runningToolStartedAt} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -285,7 +287,8 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.onEditContent === next.onEditContent
     && prev.showTimestamp === next.showTimestamp
     && prev.prevTimestamp === next.prevTimestamp
-    && prev.sessionId === next.sessionId;
+    && prev.sessionId === next.sessionId
+    && prev.runningToolStartedAt === next.runningToolStartedAt;
 });
 
 function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent }: {
@@ -336,6 +339,8 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
       {imageBlocks.map((img, i) => {
         // lib/types.ts ImageContent uses {source:{type,data,media_type,url}}
         // pi-ai on-disk format uses flat {data, mimeType} — handle both
+        // SAFETY: pi-ai may deliver the flat on-disk image shape that the
+        // declared ImageContent type does not cover.
         const flat = img as unknown as { data?: string; mimeType?: string };
         const src = img.source
           ? img.source.type === "base64"
@@ -582,10 +587,12 @@ function AssistantMessageView({
   sessionId,
   entryId,
   writtenFiles,
+  runningToolStartedAt,
 }: {
   message: AssistantMessage;
   isStreaming?: boolean;
   toolResults?: Map<string, ToolResultMessage>;
+  runningToolStartedAt?: ReadonlyMap<string, number>;
   modelNames?: Record<string, string>;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
@@ -772,7 +779,7 @@ function AssistantMessageView({
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {blockItems.map(({ block, originalIndex }) => (
-          <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
+          <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} runningToolStartedAt={runningToolStartedAt} cwd={cwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
         ))}
       </div>
 
@@ -850,7 +857,7 @@ function AssistantMessageView({
   );
 }
 
-function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCallDurations, cwd, onOpenFile, onOpenSession, sessionId, entryId, blockIndex }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string) => void; onOpenSession?: (sessionId: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {
+function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCallDurations, runningToolStartedAt, cwd, onOpenFile, onOpenSession, sessionId, entryId, blockIndex }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; runningToolStartedAt?: ReadonlyMap<string, number>; cwd?: string; onOpenFile?: (filePath: string) => void; onOpenSession?: (sessionId: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {
   if (block.type === "text") {
     return <TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} />;
   }
@@ -861,7 +868,8 @@ function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCal
     const tc = block as ToolCallContent;
     const result = toolResults?.get(tc.toolCallId);
     const duration = toolCallDurations?.get(tc.toolCallId);
-    return <ToolCallBlock block={tc} result={result} duration={duration} onOpenSession={onOpenSession} />;
+    const runningSince = !result && tc.toolCallId ? runningToolStartedAt?.get(tc.toolCallId) : undefined;
+    return <ToolCallBlock block={tc} result={result} duration={duration} runningSince={runningSince} onOpenSession={onOpenSession} />;
   }
   return null;
 }
@@ -958,7 +966,32 @@ function isSubagentToolDetails(value: unknown): value is SubagentToolDetails {
   return details.kind === "pi-web-subagent" && typeof details.sessionId === "string";
 }
 
-function ToolCallBlock({ block, result, duration, onOpenSession }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; onOpenSession?: (sessionId: string) => void }) {
+function RunningToolElapsed({ startedAt }: { startedAt: number }) {
+  const { t } = useI18n();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const elapsed = Math.max(0, now - startedAt);
+  const isLong = elapsed >= LONG_RUNNING_TOOL_MS;
+  return (
+    <span
+      title={isLong ? t("chat.toolRunningLong") : undefined}
+      style={{
+        fontSize: 11,
+        flexShrink: 0,
+        fontVariantNumeric: "tabular-nums",
+        color: isLong ? "#f59e0b" : "var(--text-dim)",
+        fontWeight: isLong ? 600 : undefined,
+      }}
+    >
+      {formatToolElapsed(elapsed)}
+    </span>
+  );
+}
+
+function ToolCallBlock({ block, result, duration, runningSince, onOpenSession }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; runningSince?: number; onOpenSession?: (sessionId: string) => void }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const inputStr = getToolCallInputText(block);
@@ -1012,6 +1045,9 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
           </span>
           {duration !== undefined && (
             <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
+          )}
+          {duration === undefined && runningSince !== undefined && (
+            <RunningToolElapsed startedAt={runningSince} />
           )}
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
             <polyline points="2 3.5 5 6.5 8 3.5" />
@@ -1635,6 +1671,8 @@ function getMessageImages(content: CustomMessage["content"] | UserMessage["conte
 }
 
 function imageSource(img: ImageContent): string {
+  // SAFETY: pi-ai may deliver the flat on-disk image shape {data, mimeType}
+  // that the declared ImageContent type does not cover.
   const flat = img as unknown as { data?: string; mimeType?: string };
   if (img.source) {
     return img.source.type === "base64"
