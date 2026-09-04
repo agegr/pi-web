@@ -121,6 +121,7 @@ export interface PluginUpdateResult {
 export interface PluginPackageInfo {
   source: string;
   scope: PluginScope;
+  canCheckForUpdates: boolean;
   filtered: boolean;
   disabled: boolean;
   installedPath?: string;

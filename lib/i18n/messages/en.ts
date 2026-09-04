@@ -541,7 +541,7 @@ export const enLocale: LocalePlugin = {
     "i18n.packageUpdated": "Package updated.",
     "i18n.packagesUpdated": "Packages updated.",
     "i18n.updateAllPlugins": "Update all",
-    "i18n.updateAllPluginsHint": "Runs pi update --extensions for this project",
+    "i18n.updateAllPluginsHint": "Updates all configured plugins",
     "i18n.packageDisabled": "Package disabled.",
     "i18n.packageEnabled": "Package enabled.",
     "i18n.sessionReloaded": "Session reloaded.",

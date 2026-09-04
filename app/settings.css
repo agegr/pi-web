@@ -469,7 +469,7 @@
 
 .skill-version-value.is-update,
 .skill-update-indicator {
-  color: #d97706;
+  color: var(--accent);
 }
 
 .skill-name-value {

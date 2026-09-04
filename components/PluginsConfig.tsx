@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type { PluginPackageInfo, PluginUpdateResult, PluginsResponse } from "@/lib/api-types";
-import { isPluginSourceCheckable, pluginUpdateKey } from "@/lib/plugin-update-utils";
 import { useI18n } from "@/hooks/useI18n";
 import {
   getLastSettingsSelection,
@@ -34,7 +33,7 @@ import {
 } from "./SettingsUi";
 
 type PluginScope = PluginPackageInfo["scope"];
-type PluginAction = "install" | "remove" | "update" | "update-all" | "disable" | "enable";
+type PluginAction = "install" | "remove" | "update" | "disable" | "enable";
 
 function shortenPath(path: string): string {
   return path.replace(/^\/(?:Users|home)\/[^/]+/, "~");
@@ -431,7 +430,7 @@ function PackageDetail({
   updateStatus?: PluginUpdateResult;
   checkingUpdate: boolean;
   updateError: string | null;
-  onAction: (action: Exclude<PluginAction, "update-all">, pkg: PluginPackageInfo) => void;
+  onAction: (action: PluginAction, pkg: PluginPackageInfo) => void;
   onCheckUpdate: () => void;
   onReloadSession: () => void;
 }) {
@@ -440,7 +439,7 @@ function PackageDetail({
   const busy = busyKey?.endsWith(key) ?? false;
   const reloadBusy = busyKey === "reload";
   const enabled = !pkg.disabled;
-  const canCheckForUpdates = isPluginSourceCheckable(pkg.source);
+  const canCheckForUpdates = pkg.canCheckForUpdates;
   const updateAvailable = updateStatus?.state === "update-available";
 
   return (
@@ -491,11 +490,19 @@ function PackageDetail({
           <ConfigButton
             size="small"
             variant={updateAvailable ? "primary" : undefined}
-            onClick={() => onAction("update", pkg)}
-            disabled={busy || reloadBusy}
+            onClick={updateAvailable || !canCheckForUpdates
+              ? () => onAction("update", pkg)
+              : onCheckUpdate}
+            disabled={busy || reloadBusy || checkingUpdate}
             title={updateAvailable ? t("i18n.updateAvailable") : undefined}
           >
-             {busyKey === `update:${key}` ? t("i18n.updating") : t("i18n.update")}
+             {busyKey === `update:${key}`
+               ? t("i18n.updating")
+               : checkingUpdate
+                 ? t("i18n.checking")
+                 : updateAvailable || !canCheckForUpdates
+                   ? t("i18n.update")
+                   : t("i18n.check")}
           </ConfigButton>
           <ConfigButton
             size="small"
@@ -537,15 +544,6 @@ function PackageDetail({
         <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
           <div className="skill-version-row">
             <span className="skill-version-value">{versionSummary(pkg, t)}</span>
-            {canCheckForUpdates && (
-              <ConfigButton
-                size="small"
-                onClick={onCheckUpdate}
-                disabled={checkingUpdate || busy || reloadBusy}
-              >
-                {checkingUpdate ? t("i18n.checking") : t("i18n.check")}
-              </ConfigButton>
-            )}
             {updateAvailable && (
               <span className="skill-version-value is-update" title={updateStatus.displayName}>
                 {t("i18n.updateAvailable")}
@@ -687,8 +685,8 @@ export function PluginsConfig({
   }, [cwd, selected]);
 
   const checkForUpdates = useCallback(async (pkg?: PluginPackageInfo) => {
-    const targets = pkg ? [pkg] : packages.filter((item) => isPluginSourceCheckable(item.source));
-    const keys = targets.map((item) => pluginUpdateKey(item.source, item.scope));
+    const targets = pkg ? [pkg] : packages.filter((item) => item.canCheckForUpdates);
+    const keys = targets.map(packageKey);
     if (keys.length === 0) return;
 
     setUpdateError(null);
@@ -712,7 +710,7 @@ export function PluginsConfig({
       setUpdateStatuses((current) => {
         const next = { ...current };
         for (const update of data.updates ?? []) {
-          next[pluginUpdateKey(update.source, update.scope)] = update;
+          next[packageKey(update)] = update;
         }
         return next;
       });
@@ -737,7 +735,7 @@ export function PluginsConfig({
       const res = await fetch("/api/plugins", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "update-all", cwd }),
+        body: JSON.stringify({ action: "update", cwd }),
       });
       const next = (await res.json()) as PluginsResponse & { error?: string };
       if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
@@ -747,15 +745,14 @@ export function PluginsConfig({
       if (sessionId) {
         setActionMessage(`${t("i18n.packagesUpdated")} ${t("agents.reloadRequired")}`);
       }
-      await checkForUpdates();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
       setUpdatingAll(false);
     }
-  }, [checkForUpdates, cwd, sessionId, t]);
+  }, [cwd, sessionId, t]);
 
-  const runAction = useCallback(async (action: Exclude<PluginAction, "update-all">, pkg: PluginPackageInfo) => {
+  const runAction = useCallback(async (action: PluginAction, pkg: PluginPackageInfo) => {
     const key = packageKey(pkg);
     setBusyKey(`${action}:${key}`);
     setActionError(null);
@@ -779,7 +776,7 @@ export function PluginsConfig({
           return nextStatuses;
         });
       } else {
-        const messages: Record<Exclude<PluginAction, "remove" | "update-all">, string> = {
+        const messages: Record<Exclude<PluginAction, "remove">, string> = {
           install: "Package installed.",
           update: "Package updated.",
           disable: "Package disabled.",
@@ -792,7 +789,6 @@ export function PluginsConfig({
             delete nextStatuses[key];
             return nextStatuses;
           });
-          void checkForUpdates(pkg);
         }
       }
     } catch (err) {
@@ -800,7 +796,7 @@ export function PluginsConfig({
     } finally {
       setBusyKey(null);
     }
-  }, [checkForUpdates, cwd]);
+  }, [cwd]);
 
   const installPlugin = useCallback(async () => {
     const source = normalizePluginSourceInput(installSource).trim();
@@ -852,8 +848,8 @@ export function PluginsConfig({
   const availableUpdateCount = Object.values(updateStatuses).filter(
     (status) => status.state === "update-available",
   ).length;
-  const hasCheckablePackages = packages.some((pkg) => isPluginSourceCheckable(pkg.source));
-  const footerBusy = loading || busyKey !== null || checkingAll || updatingAll;
+  const hasCheckablePackages = packages.some((pkg) => pkg.canCheckForUpdates);
+  const footerBusy = loading || busyKey !== null || checkingUpdates.size > 0 || updatingAll;
 
   return (
     <ConfigPanelShell embedded={embedded} title={t("common.plugins")} subtitle={shortenPath(cwd)} closeLabel={t("i18n.close")} onClose={onClose}>
@@ -903,7 +899,7 @@ export function PluginsConfig({
                           <ConfigSidebarText className={`is-grow${pkg.disabled ? " is-muted" : ""}`}>
                             {pkg.source}
                           </ConfigSidebarText>
-                          {updateStatuses[pluginUpdateKey(pkg.source, pkg.scope)]?.state === "update-available" && (
+                          {updateStatuses[packageKey(pkg)]?.state === "update-available" && (
                             <span title={t("i18n.updateAvailable")} className="skill-update-indicator">
                               ↑
                             </span>
@@ -950,8 +946,8 @@ export function PluginsConfig({
                 actionError={actionError}
                 actionMessage={actionMessage}
                 sessionId={sessionId}
-                updateStatus={updateStatuses[pluginUpdateKey(selectedPackage.source, selectedPackage.scope)]}
-                checkingUpdate={checkingUpdates.has(pluginUpdateKey(selectedPackage.source, selectedPackage.scope))}
+                updateStatus={updateStatuses[packageKey(selectedPackage)]}
+                checkingUpdate={checkingUpdates.has(packageKey(selectedPackage))}
                 updateError={updateError}
                 onAction={runAction}
                 onCheckUpdate={() => void checkForUpdates(selectedPackage)}
@@ -966,7 +962,7 @@ export function PluginsConfig({
 
         <ConfigFooter status={
             availableUpdateCount > 0 ? (
-              <span style={{ fontSize: 12, color: "#d97706" }}>
+              <span style={{ fontSize: 12, color: "var(--accent)" }}>
                 {availableUpdateCount}{" "}
                 {availableUpdateCount === 1 ? t("i18n.update") : t("i18n.updates")}
               </span>
@@ -986,21 +982,18 @@ export function PluginsConfig({
           {!embedded && <ConfigButton onClick={onClose}>{t("i18n.close")}</ConfigButton>}
           {hasCheckablePackages && (
             <ConfigButton
-              variant="secondary"
-              onClick={() => void checkForUpdates()}
-              disabled={footerBusy}
-            >
-              {checkingAll ? t("i18n.checking") : t("i18n.checkUpdates")}
-            </ConfigButton>
-          )}
-          {packages.length > 0 && (
-            <ConfigButton
               variant={availableUpdateCount > 0 ? "primary" : "secondary"}
-              onClick={() => void updateAllPluginsAction()}
+              onClick={() => void (availableUpdateCount > 0 ? updateAllPluginsAction() : checkForUpdates())}
               disabled={footerBusy}
-              title={t("i18n.updateAllPluginsHint")}
+              title={availableUpdateCount > 0 ? t("i18n.updateAllPluginsHint") : undefined}
             >
-              {updatingAll ? t("i18n.updating") : t("i18n.updateAllPlugins")}
+              {updatingAll
+                ? t("i18n.updating")
+                : checkingAll
+                  ? t("i18n.checking")
+                  : availableUpdateCount > 0
+                    ? `${t("i18n.updateAllPlugins")} (${availableUpdateCount})`
+                    : t("i18n.checkUpdates")}
             </ConfigButton>
           )}
           <ConfigButton variant="secondary" onClick={() => void loadPlugins()} disabled={footerBusy}>

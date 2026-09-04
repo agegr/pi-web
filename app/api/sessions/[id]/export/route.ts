@@ -1,21 +1,33 @@
 import { randomUUID } from "crypto";
 import { execFile } from "child_process";
-import { mkdirSync, readFileSync, rmSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
-import { basename, join } from "path";
+import { basename, dirname, join } from "path";
 import { promisify } from "util";
-import { pathToFileURL } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
-import { getPiCliPath, getPiPackageDir } from "@/lib/pi-cli";
 
 const execFileAsync = promisify(execFile);
 
 export const runtime = "nodejs";
 
+type PiCodingAgentModule = {
+  getPackageDir: () => string;
+};
+
 type ExportHtmlModule = {
   exportFromFile: (inputPath: string, outputPath: string) => Promise<string>;
 };
+
+async function getPiPackageDir(): Promise<string | null> {
+  try {
+    const { getPackageDir } = (await import("@earendil-works/pi-coding-agent")) as PiCodingAgentModule;
+    return getPackageDir();
+  } catch {
+    return null;
+  }
+}
 
 function encodeHeaderValue(value: string): string {
   return encodeURIComponent(value).replace(/[!'()*]/g, (ch) =>
@@ -27,6 +39,43 @@ function getContentDisposition(fileName: string, inline: boolean): string {
   const fallback = fileName.replace(/[^\x20-\x7E]|["\\;\r\n]/g, "_") || "session.html";
   const disposition = inline ? "inline" : "attachment";
   return `${disposition}; filename="${fallback}"; filename*=UTF-8''${encodeHeaderValue(fileName)}`;
+}
+
+async function getPiCliPath(): Promise<string | null> {
+  const candidates = new Set<string>();
+  const packageDir = await getPiPackageDir();
+
+  if (packageDir) {
+    candidates.add(join(packageDir, "dist", "cli.js"));
+  }
+
+  try {
+    const resolver = (import.meta as ImportMeta & {
+      resolve?: (specifier: string) => string | Promise<string>;
+    }).resolve;
+    if (typeof resolver === "function") {
+      const indexUrl = await resolver("@earendil-works/pi-coding-agent");
+      candidates.add(join(dirname(fileURLToPath(indexUrl)), "cli.js"));
+    }
+  } catch {
+    // Next.js production bundles can strip import.meta.resolve.
+  }
+
+  candidates.add(
+    join(
+      process.cwd(),
+      "node_modules",
+      "@earendil-works",
+      "pi-coding-agent",
+      "dist",
+      "cli.js"
+    )
+  );
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
 }
 
 /**
