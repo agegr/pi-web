@@ -121,6 +121,30 @@ list. If no listener cancels the extension event, Pi Web preserves the
 browser's native context menu. This hook is browser-side and independent of
 Pi agent extensions.
 
+### Extension Session Liveness
+
+Server-side Pi extensions with detached work can prevent automatic idle
+session eviction through the versioned global registry:
+
+```js
+const liveness = globalThis[Symbol.for("@agegr/pi-web/session-liveness/v1")];
+const release = liveness?.version === 1
+  ? liveness.register({
+      name: "my-extension",
+      sessionId,
+      sessionFile,
+      isActive: () => detachedJobs.size > 0,
+    })
+  : () => {};
+```
+
+Register once per active extension session and call the returned idempotent
+`release` function on session shutdown, replacement, or reload. `isActive`
+must be synchronous, cheap, and scoped to the supplied exact session id or
+file. Provider errors fail safe by preserving that session. This lease only
+affects automatic idle eviction; explicit shutdown and Stop fallback cleanup
+still take precedence.
+
 ## Development
 
 ```bash
