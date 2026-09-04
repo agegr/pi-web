@@ -33,6 +33,7 @@
   --assistant-bg: #ffffff;
   --tool-bg: #f9fafb;
   --bg-subtle: rgba(0,0,0,0.03);
+  --chat-content-max-width: 820px;
 }
 
 html.dark {

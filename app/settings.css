@@ -967,6 +967,42 @@
   white-space: nowrap;
 }
 
+.settings-chat-width-option {
+  width: 100%;
+  max-width: 420px;
+  margin-top: 14px;
+  padding: 10px;
+  border-radius: 5px;
+  background: var(--bg-panel);
+}
+
+.settings-chat-width-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.settings-chat-width-header output {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.settings-chat-width-description {
+  margin: 4px 0 8px;
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.settings-chat-width-option input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
 .settings-language-options {
   display: flex;
   flex-direction: column;
