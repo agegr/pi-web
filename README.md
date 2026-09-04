@@ -132,7 +132,7 @@ const release = liveness?.version === 1
   ? liveness.register({
       name: "my-extension",
       sessionId,
-      sessionFile,
+      sessionFile: sessionFile || undefined,
       isActive: () => detachedJobs.size > 0,
     })
   : () => {};
