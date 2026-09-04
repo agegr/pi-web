@@ -341,7 +341,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const previousScrollTopRef = useRef(0);
   const liveFollowFrameRef = useRef<number | null>(null);
   const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const ensuringNewSessionRef = useRef<Promise<string | null> | null>(null);
   const newSessionPromotedRef = useRef(false);
@@ -387,8 +386,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const container = scrollContainerRef.current;
-    messagesEndRef.current?.scrollIntoView({ behavior });
-    if (container) previousScrollTopRef.current = container.scrollTop;
+    if (!container) return;
+    // Scroll the chat container itself instead of scrolling a sentinel element
+    // into view: that propagates to every scrollable ancestor, and on mobile
+    // the keyboard-shifted document layer visibly jumps the whole app while
+    // streaming content follows the tail.
+    container.scrollTo({ top: container.scrollHeight, behavior });
+    previousScrollTopRef.current = container.scrollTop;
   }, []);
 
   const currentModel = currentModelOverride ?? data?.context.model ?? pendingModel ?? null;
@@ -2015,7 +2019,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     isNew,
     promptAnchorActive,
     // Refs
-    sessionIdRef, messagesEndRef, scrollContainerRef,
+    sessionIdRef, scrollContainerRef,
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
     // Actions
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,

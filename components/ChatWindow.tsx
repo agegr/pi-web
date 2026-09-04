@@ -289,7 +289,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     isAutoModelSelection,
     agentPhase,
     isNew,
-    sessionIdRef, messagesEndRef, scrollContainerRef,
+    sessionIdRef, scrollContainerRef,
     lastUserMsgRef, promptAnchorActive,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
@@ -945,8 +945,6 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
             )}
 
             <div ref={promptAnchorSpacerRef} aria-hidden="true" />
-
-            <div ref={messagesEndRef} />
             </div>
           </div>
         </div>
