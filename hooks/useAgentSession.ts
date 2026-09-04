@@ -168,6 +168,10 @@ const AGENT_STATE_RECONCILE_MS = 15_000;
 const BASH_STATE_RECONCILE_MS = 1_000;
 const EVENT_STREAM_READY_TIMEOUT_MS = 60_000;
 const EVENT_STREAM_RECONNECT_DELAY_MS = 1_000;
+// Backoff schedule for /api/models load failures. The first dev-server hit can
+// take many seconds (route compile) and a restarted server can transiently 403
+// until the cwd allow-list catches up, so retry before giving up visibly.
+const MODELS_RETRY_DELAYS_MS = [2_000, 5_000, 10_000];
 const MAX_NOTICES = 5;
 const NOTICE_VISIBLE_MS = 5000;
 const NOTICE_EXIT_ANIMATION_MS = 180;
@@ -1546,7 +1550,22 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const modelCwd = newSessionCwd ?? session?.cwd ?? "";
     const modelsUrl = modelCwd ? `/api/models?cwd=${encodeURIComponent(modelCwd)}` : "/api/models";
     const res = await fetch(modelsUrl, signal ? { signal } : undefined);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      // 400/403 bodies carry a plain { error } message; surface it so the UI
+      // degrades to an error state instead of silently hiding the selector.
+      let detail = "";
+      try {
+        const body: unknown = await res.json();
+        if (body && typeof body === "object" && "error" in body && typeof body.error === "string") {
+          detail = body.error;
+        }
+      } catch {
+        // non-JSON error body — fall through to the status message
+      }
+      const message = detail || `Failed to load models (HTTP ${res.status})`;
+      setModelError(message);
+      throw new Error(message);
+    }
     const d = await res.json() as ModelsResponse;
     setModelNames(d.models);
     setModelError(d.modelError ?? null);
@@ -1939,12 +1958,25 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [messages.length, agentRunning, scrollToBottom, scrollUserMsgToTop]);
 
-  // Load model list
+  // Load model list. Failures are transient on purpose (dev cold route
+  // compile, server restart races the cwd allow-list), so retry with backoff
+  // before leaving the selector in its error state.
   useEffect(() => {
     const controller = new AbortController();
-    loadModels(controller.signal).catch((e) => {
-      if (e instanceof DOMException && e.name === "AbortError") return;
-    });
+    (async () => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await loadModels(controller.signal);
+          return;
+        } catch (e) {
+          if (controller.signal.aborted) return;
+          if (e instanceof DOMException && e.name === "AbortError") return;
+          if (attempt >= MODELS_RETRY_DELAYS_MS.length) return;
+          await delay(MODELS_RETRY_DELAYS_MS[attempt]);
+          if (controller.signal.aborted) return;
+        }
+      }
+    })();
     return () => controller.abort();
   }, [loadModels, modelsRefreshKey]);
 
