@@ -10,11 +10,13 @@ const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const {
   MessageView,
+  ThinkingBlock,
   getTokenEstimateText,
   getToolCallInputText,
   replaceUserMessageText,
 } = await jiti.import("./MessageView.tsx");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
+const { splitFinalAssistantBlocks } = await jiti.import("@/lib/message-display");
 
 function renderMessage(message, props = {}) {
   return renderToStaticMarkup(
@@ -25,6 +27,72 @@ function renderMessage(message, props = {}) {
     ),
   );
 }
+
+test("updates a reused message when its written files change", () => {
+  const props = { message: { role: "assistant", content: [] } };
+  assert.equal(MessageView.compare(props, props), true);
+  assert.equal(MessageView.compare(props, { ...props, writtenFiles: [{ path: "/tmp/result.txt" }] }), false);
+});
+
+test("previews the first thinking line and reveals the full text with the saved default", () => {
+  const previousWindow = globalThis.window;
+  try {
+    for (const expanded of [false, true]) {
+      globalThis.window = { localStorage: { getItem: () => String(expanded) } };
+      const html = renderToStaticMarkup(React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(ThinkingBlock, {
+          block: { type: "thinking", thinking: "**Independent reasoning**\n\nDetailed second line." },
+          blockIndex: 2,
+          duration: 3,
+        }),
+      ));
+      assert.match(html, new RegExp(`aria-expanded="${expanded}"`));
+      assert.equal((html.match(/>[^<]*Independent reasoning[^<]*</g) ?? []).length, 1);
+      assert.equal(html.includes("Detailed second line."), expanded);
+      assert.match(html, /aria-label="Thinking: /);
+      assert.match(html, /3s/);
+    }
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});
+
+test("shows deferred thinking previews without loading the full content", () => {
+  const html = renderMessage({
+    role: "assistant",
+    content: [{ type: "thinking", thinking: "Historical first line", deferred: true }],
+  });
+  assert.match(html, />Historical first line<\/span>/);
+  assert.match(html, /aria-expanded="false"/);
+});
+
+test("marks only the matched text block after splitting thinking and the final answer", () => {
+  const message = {
+    role: "assistant",
+    content: [
+      { type: "thinking", thinking: "" },
+      { type: "thinking", thinking: "Thinking about the result" },
+      { type: "text", text: "Process text" },
+      { type: "toolCall", toolCallId: "read-1", toolName: "read", input: {} },
+      { type: "text", text: "First answer" },
+      { type: "text", text: "Matched pi-cwd-spark answer" },
+    ],
+  };
+  const { processBlocks, answerBlocks } = splitFinalAssistantBlocks(message);
+  for (const index of [2, 4, 5]) {
+    const searchBlock = message.content[index];
+    for (const content of [processBlocks, answerBlocks]) {
+      const html = renderMessage({ ...message, content }, { searchBlock });
+      assert.equal((html.match(/data-search-target="true"/g) ?? []).length, content.includes(searchBlock) ? 1 : 0);
+      if (content.includes(searchBlock)) {
+        assert.match(html, new RegExp(`data-search-target="true">(?:(?!data-message-text)[\\s\\S])*${searchBlock.text}`));
+      }
+    }
+  }
+});
 
 test("keeps streamed tool input out of collapsed markup while counting it", () => {
   const block = {
