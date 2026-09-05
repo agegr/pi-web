@@ -19,10 +19,6 @@ interface SessionLivenessRegistry {
   hasActiveProvider(session: SessionIdentity): boolean;
 }
 
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function assertNonEmptyString(value: unknown, field: string): asserts value is string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new Error(`Session liveness provider ${field} must be a non-empty string`);
@@ -72,7 +68,7 @@ function createRegistry(): SessionLivenessRegistry {
           }
           if (active) return true;
         } catch (error) {
-          console.error(`[pi-web] Session liveness provider '${provider.name}' failed; preserving the session: ${describeError(error)}`);
+          console.error(`[pi-web] Session liveness provider '${provider.name}' failed; preserving the session:`, error);
           return true;
         }
       }
