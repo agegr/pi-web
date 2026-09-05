@@ -461,6 +461,7 @@ export const enLocale: LocalePlugin = {
     "i18n.mentionSelectedLines": "Mention selected lines",
     "i18n.disableWrap": "Disable word wrap",
     "i18n.enableWrap": "Enable word wrap",
+    "i18n.toggleMinimap": "Toggle minimap",
     "i18n.htmlPreview": "HTML preview",
     "i18n.previewFile": "Preview {file}",
     "i18n.invalidMermaid": "Invalid Mermaid diagram",

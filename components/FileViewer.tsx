@@ -10,6 +10,7 @@ import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import ReactMarkdown from "react-markdown";
 import { useTheme } from "@/hooks/useTheme";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   DOCX_PREVIEW_MAX_BYTES,
   getFileExt,
@@ -23,6 +24,8 @@ import { resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links
 import { parseFrontmatter } from "@/lib/frontmatter";
 import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
+import { FileMinimap } from "./FileMinimap";
+import { diffSegmentsToMinimapRows } from "@/lib/file-minimap";
 import { FrontmatterCard } from "./FrontmatterCard";
 import { parseUnifiedPatch } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
@@ -57,6 +60,7 @@ interface FileData {
 }
 
 const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
+const MINIMAP_STORAGE_KEY = "pi-file-minimap-enabled";
 const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
   source: "Source",
   preview: "Preview",
@@ -289,30 +293,22 @@ function diffLines(patch: string): DiffLine[] {
   }));
 }
 
-function DiffView({ patch }: { patch: string }) {
-  const { t } = useI18n();
-  const diff = diffLines(patch);
+type DiffSegment = { hidden: true; count: number } | { hidden: false; lines: DiffLine[] };
 
-  const hasChanges = diff.some((l) => l.type !== "unchanged");
-  if (!hasChanges) {
-    return (
-      <div style={{ padding: "12px 16px", fontSize: 12, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-        {t("i18n.noChanges")}
-      </div>
-    );
-  }
+// Render with context: show 3 lines around each change, collapse the rest.
+// Shared with the minimap so its painted rows match the rendered rows.
+const DIFF_CONTEXT_LINES = 3;
 
-  // Render with context: show 3 lines around each change, collapse the rest
-  const CONTEXT = 3;
+function computeDiffSegments(diff: DiffLine[]): DiffSegment[] {
   const changed = new Set(diff.flatMap((l, i) => (l.type !== "unchanged" ? [i] : [])));
   const visible = new Set<number>();
   for (const ci of changed) {
-    for (let j = Math.max(0, ci - CONTEXT); j <= Math.min(diff.length - 1, ci + CONTEXT); j++) {
+    for (let j = Math.max(0, ci - DIFF_CONTEXT_LINES); j <= Math.min(diff.length - 1, ci + DIFF_CONTEXT_LINES); j++) {
       visible.add(j);
     }
   }
 
-  const segments: Array<{ hidden: true; count: number } | { hidden: false; lines: DiffLine[] }> = [];
+  const segments: DiffSegment[] = [];
   let i = 0;
   while (i < diff.length) {
     if (visible.has(i)) {
@@ -331,6 +327,23 @@ function DiffView({ patch }: { patch: string }) {
       segments.push({ hidden: true, count });
     }
   }
+  return segments;
+}
+
+function DiffView({ patch, diff: precomputedDiff }: { patch: string; diff?: DiffLine[] }) {
+  const { t } = useI18n();
+  const diff = precomputedDiff ?? diffLines(patch);
+
+  const hasChanges = diff.some((l) => l.type !== "unchanged");
+  if (!hasChanges) {
+    return (
+      <div style={{ padding: "12px 16px", fontSize: 12, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+        {t("i18n.noChanges")}
+      </div>
+    );
+  }
+
+  const segments = computeDiffSegments(diff);
 
   return (
     <div
@@ -1133,6 +1146,8 @@ function TextFileViewer({
 }: Props) {
   const { isDark } = useTheme();
   const { t } = useI18n();
+  // The minimap never renders on mobile, so its toggle would be dead UI there.
+  const isMobile = useIsMobile();
   const [data, setData] = useState<FileData | null>(null);
   const [gitDiff, setGitDiff] = useState<GitFileDiffResponse | null>(null);
   const [gitDiffLoading, setGitDiffLoading] = useState(false);
@@ -1145,6 +1160,14 @@ function TextFileViewer({
   const initialScrollLeft = initialState?.scrollLeft ?? 0;
   const [displayMode, setDisplayMode] = useState<DisplayMode>(requestedInitialDisplayMode);
   const [wrapLines, setWrapLines] = useState(initialWrapLines);
+  const [minimapEnabled, setMinimapEnabled] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      return window.localStorage.getItem(MINIMAP_STORAGE_KEY) !== "false";
+    } catch {
+      return true;
+    }
+  });
   const [watching, setWatching] = useState(false);
   const esRef = useRef<EventSource | null>(null);
   const contentRequestRef = useRef(0);
@@ -1175,6 +1198,16 @@ function TextFileViewer({
     setWrapLines((current) => {
       const next = !current;
       viewerStateRef.current.wrapLines = next;
+      return next;
+    });
+  }, []);
+
+  const toggleMinimap = useCallback(() => {
+    setMinimapEnabled((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(MINIMAP_STORAGE_KEY, String(next));
+      } catch { /* storage unavailable */ }
       return next;
     });
   }, []);
@@ -1357,6 +1390,26 @@ function TextFileViewer({
 
   const viewerContent = data?.content ?? "";
   const sourceLines = useMemo(() => viewerContent.split("\n"), [viewerContent]);
+
+  // Minimap data. Kept above the early returns below so the hooks order
+  // stays stable; the memoized arrays keep FileMinimap from resampling on
+  // unrelated re-renders.
+  const diffLineData = useMemo(
+    () => (hasGitDiff && gitDiff?.patch ? diffLines(gitDiff.patch) : []),
+    [hasGitDiff, gitDiff],
+  );
+  const diffSegments = useMemo(() => computeDiffSegments(diffLineData), [diffLineData]);
+  const minimapDiffActive = (isDeletedDiff || displayMode === "diff") && hasGitDiff;
+  // DiffView collapses unchanged regions into single rows; the minimap must
+  // mirror those rendered rows, otherwise painted change positions drift from
+  // real scroll positions whenever collapsing kicks in.
+  const minimapDiffRows = useMemo(
+    () => (minimapDiffActive ? diffSegmentsToMinimapRows(diffSegments) : null),
+    [minimapDiffActive, diffSegments],
+  );
+  const minimapLines = minimapDiffRows?.lines ?? sourceLines;
+  const minimapKinds = minimapDiffRows?.kinds;
+
   const language = data?.language ?? "text";
   const isHtml = language === "html";
   const isMarkdown = language === "markdown";
@@ -1647,6 +1700,27 @@ function TextFileViewer({
                 </button>
               </>
             )}
+            {!isMobile && (effectiveDisplayMode === "source" || effectiveDisplayMode === "diff") && (
+              <button
+                type="button"
+                onClick={toggleMinimap}
+                title={t("i18n.toggleMinimap")}
+                aria-label={t("i18n.toggleMinimap")}
+                aria-pressed={minimapEnabled}
+                className="file-viewer-icon-button"
+                style={{
+                  background: minimapEnabled ? "var(--bg-selected)" : "transparent",
+                  color: minimapEnabled ? "var(--text)" : "var(--text-muted)",
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <line x1="13" y1="7" x2="17" y2="7" />
+                  <line x1="13" y1="11" x2="17" y2="11" />
+                  <line x1="13" y1="15" x2="16" y2="15" />
+                </svg>
+              </button>
+            )}
           </div>
 
           {!isDeletedDiff && <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />}
@@ -1654,17 +1728,18 @@ function TextFileViewer({
       </div>
 
       {/* Content area */}
-      <div
-        ref={contentRef}
-        className="file-viewer-content"
-        onScroll={(event) => {
-          viewerStateRef.current.scrollTop = event.currentTarget.scrollTop;
-          viewerStateRef.current.scrollLeft = event.currentTarget.scrollLeft;
-        }}
-        style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}
-      >
+      <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "row" }}>
+        <div
+          ref={contentRef}
+          className="file-viewer-content"
+          onScroll={(event) => {
+            viewerStateRef.current.scrollTop = event.currentTarget.scrollTop;
+            viewerStateRef.current.scrollLeft = event.currentTarget.scrollLeft;
+          }}
+          style={{ flex: 1, minWidth: 0, overflow: "auto", background: "var(--bg)" }}
+        >
         {effectiveDisplayMode === "diff" && hasGitDiff ? (
-          <DiffView patch={gitDiff.patch!} />
+          <DiffView patch={gitDiff.patch!} diff={diffLineData} />
         ) : isHtml && effectiveDisplayMode === "preview" ? (
           <iframe
             srcDoc={content}
@@ -1753,6 +1828,17 @@ function TextFileViewer({
           </div>
         ) : (
           highlightedSource
+        )}
+        </div>
+        {minimapEnabled && (effectiveDisplayMode === "source" || (effectiveDisplayMode === "diff" && hasGitDiff)) && (
+          <FileMinimap
+            scrollContainer={contentRef}
+            lines={minimapLines}
+            lineKinds={minimapKinds}
+            wrapLines={wrapLines}
+            sampleFromDom={effectiveDisplayMode === "source" && !useLightweightSource}
+            isDark={isDark}
+          />
         )}
       </div>
     </div>
