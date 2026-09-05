@@ -684,6 +684,8 @@ pre, code {
 
 .mermaid-preview-button {
   width: 100%;
+  max-height: min(600px, 60dvh);
+  overflow: auto;
   border: 0;
   color: inherit;
   cursor: zoom-in;
