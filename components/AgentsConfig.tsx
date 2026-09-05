@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useConfirmDialog } from "./ConfirmDialog";
 import type { SubagentProfilesResponse, SubagentSettingsResponse } from "@/lib/api-types";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type { ModelsData } from "@/lib/models-cache";
@@ -149,6 +150,7 @@ export function AgentsConfig({
 }) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
+  const { confirm: confirmDialog, element: confirmElement } = useConfirmDialog();
   const [profiles, setProfiles] = useState<SubagentProfile[]>([]);
   const [modelOptions, setModelOptions] = useState<ModelsData["modelList"]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
@@ -318,7 +320,12 @@ export function AgentsConfig({
 
   const remove = async () => {
     if (!selected || !isWritableScope(selected.scope)) return;
-    if (!window.confirm(t("agents.deleteConfirm", { name: selected.displayName }))) return;
+    if (!(await confirmDialog({
+      message: t("agents.deleteConfirm", { name: selected.displayName }),
+      confirmText: t("i18n.delete"),
+      cancelText: t("i18n.cancel"),
+      danger: true,
+    }))) return;
     setSaving(true);
     setError(null);
     try {
@@ -427,6 +434,7 @@ export function AgentsConfig({
 
   return (
     <ConfigPanelShell embedded={embedded} title={t("common.agents")} subtitle={shortenPath(cwd)} closeLabel={t("agents.close")} onClose={onClose}>
+      {confirmElement}
       <div className="agents-feature-setting">
         <div className="agents-feature-copy">
           <strong>{t("agents.builtInTitle")}</strong>
