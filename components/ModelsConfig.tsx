@@ -1841,10 +1841,42 @@ export function ModelsConfig({ onClose, embedded = false, cwd }: { onClose: () =
   const { confirm: confirmDialog, element: confirmElement } = useConfirmDialog();
   const [config, setConfig] = useState<ModelsJson>({ providers: {} });
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [savedOk, setSavedOk] = useState(false);
   const [selection, setSelection] = useState<Selection | null>(readRememberedSelection);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persistSeqRef = useRef(0);
+
+  // Every models.json edit persists immediately (400ms debounce merges
+  // bursts, e.g. typing). The last write wins; a stale response never
+  // overwrites the error banner.
+  const persistNow = useCallback(async (payload: ModelsJson) => {
+    const seq = ++persistSeqRef.current;
+    try {
+      const res = await fetch("/api/models-config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const d = await res.json() as { success?: boolean; error?: string };
+      if (seq === persistSeqRef.current) {
+        setSaveError(!res.ok || d.error ? (d.error ?? `HTTP ${res.status}`) : null);
+      }
+    } catch (e) {
+      if (seq === persistSeqRef.current) setSaveError(String(e));
+    }
+  }, []);
+
+  const schedulePersist = useCallback((updater: (prev: ModelsJson) => ModelsJson) => {
+    setConfig((prev) => {
+      const next = updater(prev);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        debounceRef.current = null;
+        void persistNow(next);
+      }, 400);
+      return next;
+    });
+  }, [persistNow]);
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
   const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -1885,16 +1917,16 @@ export function ModelsConfig({ onClose, embedded = false, cwd }: { onClose: () =
     let finalName = "new-provider";
     let n = 1;
     while (config.providers?.[finalName]) finalName = `new-provider-${n++}`;
-    setConfig((prev) => ({ ...prev, providers: { ...(prev.providers ?? {}), [finalName]: { api: "openai-completions" } } }));
+    schedulePersist((prev) => ({ ...prev, providers: { ...(prev.providers ?? {}), [finalName]: { api: "openai-completions" } } }));
     setSelection({ type: "provider", name: finalName });
-  }, [config.providers]);
+  }, [config.providers, schedulePersist]);
 
   const updateProvider = useCallback((name: string, p: ProviderEntry) => {
-    setConfig((prev) => ({ ...prev, providers: { ...(prev.providers ?? {}), [name]: p } }));
-  }, []);
+    schedulePersist((prev) => ({ ...prev, providers: { ...(prev.providers ?? {}), [name]: p } }));
+  }, [schedulePersist]);
 
   const renameProvider = useCallback((oldName: string, newName: string) => {
-    setConfig((prev) => {
+    schedulePersist((prev) => {
       const entries = Object.entries(prev.providers ?? {});
       const idx = entries.findIndex(([k]) => k === oldName);
       if (idx === -1) return prev;
@@ -1907,10 +1939,10 @@ export function ModelsConfig({ onClose, embedded = false, cwd }: { onClose: () =
       if (prev.type === "model" && prev.providerName === oldName) return { ...prev, providerName: newName };
       return prev;
     });
-  }, []);
+  }, [schedulePersist]);
 
   const deleteProvider = useCallback((name: string) => {
-    setConfig((prev) => {
+    schedulePersist((prev) => {
       const providers = { ...(prev.providers ?? {}) };
       delete providers[name];
       return { ...prev, providers };
@@ -1920,10 +1952,10 @@ export function ModelsConfig({ onClose, embedded = false, cwd }: { onClose: () =
       setSelection(remaining.length > 0 ? { type: "provider", name: remaining[0] } : null);
       return prev;
     });
-  }, []);
+  }, [schedulePersist]);
 
   const addModel = useCallback((providerName: string) => {
-    setConfig((prev) => {
+    schedulePersist((prev) => {
       const provider = prev.providers?.[providerName] ?? {};
       const models = [...(provider.models ?? []), { id: "" }];
       return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models } } };
@@ -1933,10 +1965,10 @@ export function ModelsConfig({ onClose, embedded = false, cwd }: { onClose: () =
       setSelection({ type: "model", providerName, index: idx });
       return prev;
     });
-  }, []);
+  }, [schedulePersist]);
 
   const addDiscoveredModels = useCallback((providerName: string, discovered: DiscoveredModel[]) => {
-    setConfig((prev) => {
+    schedulePersist((prev) => {
       const provider = prev.providers?.[providerName] ?? {};
       const models = [...(provider.models ?? [])];
       const existingIds = new Set(models.map((model) => model.id));
@@ -1947,51 +1979,31 @@ export function ModelsConfig({ onClose, embedded = false, cwd }: { onClose: () =
       }
       return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models } } };
     });
-  }, []);
+  }, [schedulePersist]);
 
   const updateModel = useCallback((providerName: string, index: number, m: ModelEntry) => {
-    setConfig((prev) => {
+    schedulePersist((prev) => {
       const provider = prev.providers?.[providerName] ?? {};
       const models = [...(provider.models ?? [])];
       models[index] = m;
       return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models } } };
     });
-  }, []);
+  }, [schedulePersist]);
 
   const removeModel = useCallback((providerName: string, index: number) => {
-    setConfig((prev) => {
+    schedulePersist((prev) => {
       const provider = prev.providers?.[providerName] ?? {};
       const models = [...(provider.models ?? [])];
       models.splice(index, 1);
       return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models: models.length ? models : undefined } } };
     });
     setSelection({ type: "provider", name: providerName });
-  }, []);
-
-  const handleSave = useCallback(async () => {
-    setSaving(true);
-    setSaveError(null);
-    setSavedOk(false);
-    try {
-      const res = await fetch("/api/models-config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(config),
-      });
-      const d = await res.json() as { success?: boolean; error?: string };
-      if (!res.ok || d.error) setSaveError(d.error ?? `HTTP ${res.status}`);
-      else { setSavedOk(true); setTimeout(() => setSavedOk(false), 2000); }
-    } catch (e) {
-      setSaveError(String(e));
-    } finally {
-      setSaving(false);
-    }
-  }, [config]);
+  }, [schedulePersist]);
 
   const confirmDeleteProvider = useCallback(async (name: string) => {
     if (!(await confirmDialog({
       message: t("i18n.deleteProviderConfirm", { provider: name }),
-      confirmText: t("i18n.remove"),
+      confirmText: t("i18n.delete"),
       cancelText: t("i18n.cancel"),
       danger: true,
     }))) return;
@@ -2172,23 +2184,9 @@ export function ModelsConfig({ onClose, embedded = false, cwd }: { onClose: () =
           </ConfigDetail>
         </ConfigSplitView>
 
-        {/* Footer */}
+        {/* Footer — edits persist immediately; banner surfaces persist errors */}
         <ConfigFooter status={saveError && <span style={{ color: "#f87171" }}>{saveError}</span>}>
-          {!embedded && <ConfigButton onClick={onClose}>{t("i18n.cancel")}</ConfigButton>}
-          <ConfigButton
-            variant="primary"
-            onClick={handleSave}
-            disabled={saving || savedOk}
-            className={savedOk ? "is-success" : undefined}
-          >
-            {savedOk && (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
-                className="config-button-success-icon">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            )}
-             <span>{savedOk ? t("i18n.saved") : saving ? t("i18n.saving") : t("i18n.save")}</span>
-          </ConfigButton>
+          {!embedded && <ConfigButton onClick={onClose}>{t("i18n.close")}</ConfigButton>}
         </ConfigFooter>
     </ConfigPanelShell>
     {pickerOpen && (
