@@ -40,6 +40,23 @@ function stateFilePath(): string {
   return join(getAgentDir(), "web-push.json");
 }
 
+/**
+ * VAPID subject must be a valid `mailto:` or `https:` URL. Apple's push
+ * service rejects requests whose subject is not a syntactically valid URL
+ * (e.g. the previously used `mailto:pi-web@localhost`, which Apple answers
+ * with 403 BadJwtToken), so default to the project homepage and let operators
+ * override it via PI_WEB_PUSH_SUBJECT.
+ */
+export function vapidSubject(): string {
+  const configured = process.env.PI_WEB_PUSH_SUBJECT?.trim();
+  if (configured) return configured;
+  return "https://github.com/agegr/pi-web";
+}
+
+// Ask the push service to deliver immediately. Lower urgencies let idle
+// devices (especially iOS) defer delivery to an arbitrary later window.
+export const PUSH_OPTIONS = { TTL: 2419200, urgency: "high" as const };
+
 function getDefaultEnvironment(): WebPushEnvironment {
   return {
     async send(subscription, payload, vapidKeys) {
@@ -48,10 +65,12 @@ function getDefaultEnvironment(): WebPushEnvironment {
         payload,
         {
           vapidDetails: {
-            subject: "mailto:pi-web@localhost",
+            subject: vapidSubject(),
             publicKey: vapidKeys.publicKey,
             privateKey: vapidKeys.privateKey,
           },
+          TTL: PUSH_OPTIONS.TTL,
+          urgency: PUSH_OPTIONS.urgency,
         },
       );
     },
