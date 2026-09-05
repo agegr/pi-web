@@ -128,3 +128,14 @@ test("hides subagent rows and aggregates their state into the main session row",
   assert.match(source, /familySessions\.some\(\(session\) => runningSessionIds\.has\(session\.id\)\)/);
   assert.doesNotMatch(source, /function SessionTreeItem/);
 });
+
+test("opens project-scoped trash from the sidebar", () => {
+  assert.match(source, /<SessionTrashDialog/);
+  assert.match(source, /projectKey=\{selectedProject\.key\}/);
+  assert.match(source, /title=\{t\("sidebar\.trash"\)\}/);
+});
+
+test("uses the deleted family returned by the API when clearing the active session", () => {
+  assert.match(sessionItemSource, /const data = await response\.json\(\) as \{ sessionIds\?: string\[\] \}/);
+  assert.match(sessionItemSource, /onDeleted\?\.\(data\.sessionIds\?\.length \? data\.sessionIds : \[session\.id\]\)/);
+});

@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import {
   attachSessionProjectInfo,
   getSessionListVersion,
+  invalidateSessionListCache,
   listAllSessions,
   mergeSessionLists,
 } from "@/lib/session-reader";
+import { purgeExpiredTrashedSessions } from "@/lib/session-trash";
 import {
   getCompletionNotificationSuppressedRpcSessionIds,
   getRpcSessionInfos,
@@ -15,6 +17,8 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   try {
+    const purgedIds = purgeExpiredTrashedSessions();
+    if (purgedIds.length > 0) invalidateSessionListCache();
     const force = new URL(req.url).searchParams.get("force") === "1";
     const persistedSessionsPromise = listAllSessions({ force });
     // Capture before awaiting: mutations during the scan still require a later refresh.

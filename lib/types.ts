@@ -346,6 +346,19 @@ export interface SessionInfo {
   transient?: boolean;
 }
 
+export interface TrashedSessionInfo {
+  id: string;
+  title: string;
+  cwd: string;
+  projectKey: string;
+  deletedAt: string;
+  expiresAt: string;
+  created: string;
+  modified: string;
+  messageCount: number;
+  sessionCount: number;
+}
+
 export interface SessionContext {
   messages: AgentMessage[];
   entryIds: string[]; // parallel to messages — the session entry id for each message

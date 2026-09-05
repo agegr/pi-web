@@ -13,6 +13,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import { SessionSearch } from "./SessionSearch";
+import { SessionTrashDialog } from "./SessionTrashDialog";
 
 // Fixed row height for the session list. SessionItem renders at exactly this
 // height, so the list can be windowed (only the visible slice is mounted).
@@ -105,7 +106,7 @@ interface Props {
   skipInitialProjectSelection?: boolean;
   onInitialRestoreDone?: () => void;
   refreshKey?: number;
-  onSessionDeleted?: (sessionId: string) => void;
+  onSessionDeleted?: (sessionIds: string[]) => void;
   selectedCwd?: string | null;
   onCwdChange?: (
     cwd: string | null,
@@ -382,6 +383,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [projectFilter, setProjectFilter] = useState("");
   const [wtFilter, setWtFilter] = useState("");
   const [customPathOpen, setCustomPathOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
   const [customPathValue, setCustomPathValue] = useState(loadLastCustomCwd);
   const [customPathError, setCustomPathError] = useState<string | null>(null);
   const [customPathValidating, setCustomPathValidating] = useState(false);
@@ -1013,6 +1015,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+      {trashOpen && selectedProject && (
+        <SessionTrashDialog
+          projectKey={selectedProject.key}
+          projectLabel={selectedProject.root}
+          onClose={() => setTrashOpen(false)}
+          onChanged={() => { void loadSessions(false, true); }}
+        />
+      )}
       {customPathOpen && (
         <DirectoryPicker
           initialPath={customPathValue}
@@ -1073,6 +1083,28 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 <line x1="1" y1="6" x2="11" y2="6" />
               </svg>
               {t("sidebar.new")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setTrashOpen(true)}
+              disabled={!selectedProject}
+              title={t("sidebar.trash")}
+              aria-label={t("sidebar.trash")}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: 32, height: 32, padding: 0,
+                border: "1px solid var(--border)", borderRadius: 7,
+                background: "var(--bg-hover)", color: selectedProject ? "var(--text-muted)" : "var(--text-dim)",
+                cursor: selectedProject ? "pointer" : "not-allowed", opacity: selectedProject ? 1 : 0.55,
+                flexShrink: 0,
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 6h18" />
+                <path d="M8 6V4h8v2" />
+                <path d="m19 6-1 14H6L5 6" />
+                <path d="M10 11v5M14 11v5" />
+              </svg>
             </button>
             <button
               type="button"
@@ -1721,8 +1753,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
                     onClick={() => handleSelectSessionFromList(family.root)}
                     onRenamed={loadSessions}
-                    onDeleted={(id) => {
-                      onSessionDeleted?.(id);
+                    onDeleted={(ids) => {
+                      onSessionDeleted?.(ids);
                       loadSessions();
                     }}
                   />
@@ -1998,7 +2030,7 @@ function SessionItem({
   isUnread?: boolean;
   onClick: () => void;
   onRenamed?: () => void;
-  onDeleted?: (id: string) => void;
+  onDeleted?: (ids: string[]) => void;
   depth?: number;
   hasChildren?: boolean;
   collapsed?: boolean;
@@ -2059,8 +2091,10 @@ function SessionItem({
     setConfirmDelete(false);
     setDeleting(true);
     try {
-      await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
-      onDeleted?.(session.id);
+      const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json() as { sessionIds?: string[] };
+      onDeleted?.(data.sessionIds?.length ? data.sessionIds : [session.id]);
     } catch {
       setDeleting(false);
     }

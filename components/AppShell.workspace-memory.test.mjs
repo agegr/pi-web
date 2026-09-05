@@ -40,3 +40,10 @@ test("workspace restoration remains inside the cross-project branch", () => {
     /if \(currentProject !== newProject\) \{[\s\S]*?restoreWorkspaceContext\(newProject\);[\s\S]*?\}/,
   );
 });
+
+test("deleting a session family keeps its project recoverable after reload", () => {
+  const body = callbackBody("handleSessionDeleted", "handleOpenFile");
+  assert.match(body, /sessionIds\.includes\(selectedSession\.id\)/);
+  assert.match(body, /router\.replace\(cwd \? `\?cwd=\$\{encodeURIComponent\(cwd\)\}`/);
+  assert.match(body, /typeof window !== "undefined" \? window\.location\.pathname : "\/"/);
+});
