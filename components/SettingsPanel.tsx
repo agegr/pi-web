@@ -6,8 +6,10 @@ import { useTheme, type ThemePreference } from "@/hooks/useTheme";
 import {
   CHAT_CONTENT_WIDTH_MAX,
   CHAT_CONTENT_WIDTH_MIN,
-  useChatContentWidth,
-} from "@/hooks/useChatContentWidth";
+  CHAT_CONTENT_FONT_SIZE_MAX,
+  CHAT_CONTENT_FONT_SIZE_MIN,
+  useChatAppearance,
+} from "@/hooks/useChatAppearance";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type { ShellToolSettingsResponse } from "@/lib/api-types";
 import {
@@ -61,7 +63,7 @@ function ThemeIcon({ preference }: { preference: ThemePreference }) {
 function GeneralSettings({ sessionId, onSessionReloaded }: Pick<Props, "sessionId" | "onSessionReloaded">) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
-  const { width: chatContentWidth, setWidth: setChatContentWidth } = useChatContentWidth();
+  const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
   const [shellSettings, setShellSettings] = useState<ShellToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
@@ -147,6 +149,21 @@ function GeneralSettings({ sessionId, onSessionReloaded }: Pick<Props, "sessionI
             step={10}
             value={chatContentWidth}
             onChange={(event) => setChatContentWidth(Number(event.target.value))}
+          />
+        </div>
+        <div className="settings-chat-width-option">
+          <div className="settings-chat-width-header">
+            <label htmlFor="settings-chat-content-font-size">{t("settings.chatContentFontSize")}</label>
+            <output htmlFor="settings-chat-content-font-size">{fontSize}px</output>
+          </div>
+          <input
+            id="settings-chat-content-font-size"
+            type="range"
+            min={CHAT_CONTENT_FONT_SIZE_MIN}
+            max={CHAT_CONTENT_FONT_SIZE_MAX}
+            step={1}
+            value={fontSize}
+            onChange={(event) => setFontSize(Number(event.target.value))}
           />
         </div>
       </section>

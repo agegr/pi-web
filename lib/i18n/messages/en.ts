@@ -18,6 +18,7 @@ export const enLocale: LocalePlugin = {
     "settings.appearance": "Appearance",
     "settings.appearanceDescription": "Select a theme or follow your system preference.",
     "settings.chatContentWidth": "Chat content width",
+    "settings.chatContentFontSize": "Chat font size",
     "settings.chatContentWidthDescription": "Set the maximum width of messages and the composer.",
     "settings.themeLight": "Light",
     "settings.themeDark": "Dark",

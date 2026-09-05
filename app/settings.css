@@ -886,6 +886,7 @@
 
 .settings-general {
   width: 100%;
+  max-height: 100%;
   max-width: 680px;
   padding: 26px clamp(18px, 4vw, 40px) 40px;
   overflow-y: auto;
