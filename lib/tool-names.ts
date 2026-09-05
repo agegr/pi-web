@@ -31,3 +31,14 @@ export function isReadToolName(toolName: string): boolean {
     name.endsWith(".read") ||
     name.endsWith("_read");
 }
+
+export function isBashToolName(toolName: string): boolean {
+  const name = toolName.toLowerCase();
+  return name === "bash" ||
+    name === "execute_code" ||
+    name.startsWith("bash_") ||
+    name.endsWith(".bash") ||
+    name.endsWith("_bash") ||
+    name === "run_bash" ||
+    name.includes("shell");
+}

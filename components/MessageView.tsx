@@ -8,9 +8,10 @@ import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
-import { isEditToolName, isReadToolName, isWriteToolName } from "@/lib/tool-names";
+import { isBashToolName, isEditToolName, isReadToolName, isWriteToolName } from "@/lib/tool-names";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import { FileWriteResult } from "./FileWriteResult";
+import { BashResultView } from "./BashResultView";
 import type { WrittenFile } from "@/lib/turn-written-files";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import type { SubagentToolDetails } from "@/lib/subagent-extension";
@@ -967,6 +968,7 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
   const isEditTool = isEditToolName(block.toolName);
   const isWriteTool = isWriteToolName(block.toolName);
   const isReadTool = isReadToolName(block.toolName);
+  const isBashTool = isBashToolName(block.toolName);
   const isFileWritingTool = isEditTool || isWriteTool;
   const isFileReadingTool = isReadTool;
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
@@ -995,6 +997,14 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
     }
     return { filePath: rawPath, inputContent: content };
   }, [block.input, isFileWritingTool, isFileReadingTool, isWriteTool, result]);
+
+  // Extract command from bash tool input
+  const bashCommand = useMemo(() => {
+    if (!isBashTool) return undefined;
+    const input = block.input as Record<string, unknown> | undefined;
+    const cmd = input?.command;
+    return typeof cmd === "string" ? cmd : undefined;
+  }, [block.input, isBashTool]);
 
   return (
     <div
@@ -1051,8 +1061,20 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
         )}
       </div>
 
+      {/* ── Expanded: bash command with syntax highlighting ── */}
+      {expanded && isBashTool && bashCommand && (
+        <div
+          style={{
+            borderTop: isError ? "1px solid rgba(248,113,113,0.25)" : "1px solid rgba(34,197,94,0.2)",
+            background: "var(--bg-subtle)",
+          }}
+        >
+          <BashResultView text={bashCommand} isError={isError} isEmpty={false} isCommand />
+        </div>
+      )}
+
       {/* ── Expanded: input args ── */}
-      {expanded && (isStreamingInput || !isFileWritingTool && !isFileReadingTool) && (
+      {expanded && (isStreamingInput || !isFileWritingTool && !isFileReadingTool && !isBashTool) && (
         <pre
           style={{
             margin: 0,
