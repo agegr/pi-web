@@ -9,6 +9,7 @@ import {
   setLastSettingsSection,
   type SettingsSection,
 } from "@/lib/settings-navigation";
+import { getPreferredThinkingStyle, setPreferredThinkingStyle } from "@/lib/thinking-style-preference";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
@@ -123,6 +124,31 @@ function GeneralSettings({ sessionId, onSessionReloaded }: Pick<Props, "sessionI
               >
                 <ThemeIcon preference={option.id} />
                 <span className="settings-theme-option-label">{option.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.thinkingStyle")}</h3>
+        <p className="settings-general-description">{t("settings.thinkingStyleDescription")}</p>
+        <div role="radiogroup" aria-label={t("settings.thinkingStyle")} className="settings-language-options">
+          {([{ id: "card", label: t("settings.thinkingCard") }, { id: "minimal", label: t("settings.thinkingMinimal") }] as const).map((option) => {
+            const selected = getPreferredThinkingStyle() === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => setPreferredThinkingStyle(option.id)}
+                className="settings-language-option"
+              >
+                <span className="settings-language-radio">
+                  {selected && <span className="settings-language-radio-dot" />}
+                </span>
+                <span className="settings-language-label">{option.label}</span>
               </button>
             );
           })}

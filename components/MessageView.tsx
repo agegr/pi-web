@@ -9,10 +9,12 @@ import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
 import { isBashToolName, isEditToolName, isReadToolName, isWriteToolName } from "@/lib/tool-names";
+import { getPreferredThinkingStyle } from "@/lib/thinking-style-preference";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import { FileWriteResult } from "./FileWriteResult";
 import { BashResultView } from "./BashResultView";
 import { JsonParamList } from "./JsonParamList";
+import { ToolIcon } from "./ToolIcon";
 import type { WrittenFile } from "@/lib/turn-written-files";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import type { SubagentToolDetails } from "@/lib/subagent-extension";
@@ -885,6 +887,9 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Read the preferred style on each render so switching the setting applies
+  // as soon as the message list re-renders.
+  const style = getPreferredThinkingStyle();
 
   const toggle = async () => {
     const nextExpanded = !expanded;
@@ -906,6 +911,85 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
     }
   };
 
+  const thinkingLabel = (
+    <>
+      <svg
+        width={style === "card" ? 14 : 12}
+        height={style === "card" ? 14 : 12}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={style === "card" ? 1.7 : 1.6}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.78c.75.53 1.2 1.15 1.2 2.22h5.6c0-1.07.45-1.69 1.2-2.22A7 7 0 0 0 12 2Z" />
+      </svg>
+      <span>{t("i18n.thinking")}</span>
+      {duration !== undefined && (
+        <span style={{ marginLeft: "auto", fontSize: style === "card" ? 11 : 10, color: error ? "#f87171" : "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{style === "minimal" ? "· " : ""}{duration}s</span>
+      )}
+    </>
+  );
+
+  // Minimal: unobtrusive italic label and text, no card chrome.
+  if (style === "minimal") {
+    return (
+      <div>
+        <button
+          onClick={() => void toggle()}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "3px 8px",
+            margin: "2px 0",
+            background: "transparent",
+            border: "none",
+            borderRadius: 4,
+            color: "var(--text-dim)",
+            cursor: "pointer",
+            fontSize: 11,
+            fontStyle: "italic",
+            textAlign: "left",
+          }}
+        >
+          {thinkingLabel}
+          <span
+            style={{
+              fontSize: 9,
+              display: "inline-block",
+              lineHeight: 1,
+              fontStyle: "normal",
+              transition: "transform 0.12s ease",
+              transform: expanded ? "rotate(90deg)" : "none",
+            }}
+          >
+            ▶
+          </span>
+        </button>
+        {expanded && (
+          <div
+            style={{
+              marginLeft: 14,
+              borderLeft: "1px dashed var(--border)",
+              padding: "2px 0 2px 10px",
+              color: error ? "#f87171" : "var(--text-dim)",
+              fontSize: 12,
+              fontStyle: "italic",
+              lineHeight: 1.6,
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {loading ? t("i18n.loadingThinking") : error ?? (block.deferred ? content : block.thinking)}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Card: bordered panel with the original gray chrome plus a thinking icon.
   return (
     <div
       style={{
@@ -931,10 +1015,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
           textAlign: "left",
         }}
       >
-         <span>{t("i18n.thinking")}</span>
-        {duration !== undefined && (
-          <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
-        )}
+        {thinkingLabel}
       </button>
       {expanded && (
         <div
@@ -948,7 +1029,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
             borderTop: "1px solid var(--border)",
           }}
         >
-           {loading ? t("i18n.loadingThinking") : error ?? (block.deferred ? content : block.thinking)}
+          {loading ? t("i18n.loadingThinking") : error ?? (block.deferred ? content : block.thinking)}
         </div>
       )}
     </div>
@@ -1036,7 +1117,8 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
             textAlign: "left",
           }}
         >
-          <span style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
+          <span style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <ToolIcon toolName={block.toolName} />
             {block.toolName}
           </span>
           <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
