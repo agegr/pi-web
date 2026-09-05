@@ -128,8 +128,9 @@ const DEFAULT_SESSION_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 /**
  * Resolves the PI_WEB_IDLE_TIMEOUT_MS environment variable into a session idle
  * timeout in milliseconds. An unset/blank value returns the 10-minute default,
- * `0` disables idle shutdown, and a positive number is used as-is. Invalid or
- * negative values fall back to the default with a console warning.
+ * `0` disables idle shutdown, and positive values up to Node's timer limit
+ * (2147483647 ms) are used as-is. Invalid or out-of-range values fall back to
+ * the default with a console warning.
  * @param rawValue Value to parse; defaults to the environment variable.
  */
 export function resolveSessionIdleTimeoutMs(
@@ -137,7 +138,7 @@ export function resolveSessionIdleTimeoutMs(
 ): number {
   if (rawValue !== undefined && rawValue.trim() !== "") {
     const parsed = Number(rawValue);
-    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 2_147_483_647) return parsed;
     console.warn(`[pi-web] invalid PI_WEB_IDLE_TIMEOUT_MS "${rawValue}", falling back to 10 minutes`);
   }
   return DEFAULT_SESSION_IDLE_TIMEOUT_MS;
