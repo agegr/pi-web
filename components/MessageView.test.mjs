@@ -15,6 +15,7 @@ const {
   replaceUserMessageText,
 } = await jiti.import("./MessageView.tsx");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
+const { splitFinalAssistantBlocks } = await jiti.import("@/lib/message-display");
 
 function renderMessage(message, props = {}) {
   return renderToStaticMarkup(
@@ -25,6 +26,31 @@ function renderMessage(message, props = {}) {
     ),
   );
 }
+
+test("marks only the matched text block after splitting thinking and the final answer", () => {
+  const message = {
+    role: "assistant",
+    content: [
+      { type: "thinking", thinking: "" },
+      { type: "thinking", thinking: "Thinking about the result" },
+      { type: "text", text: "Process text" },
+      { type: "toolCall", toolCallId: "read-1", toolName: "read", input: {} },
+      { type: "text", text: "First answer" },
+      { type: "text", text: "Matched pi-cwd-spark answer" },
+    ],
+  };
+  const { processBlocks, answerBlocks } = splitFinalAssistantBlocks(message);
+  for (const index of [2, 4, 5]) {
+    const searchBlock = message.content[index];
+    for (const content of [processBlocks, answerBlocks]) {
+      const html = renderMessage({ ...message, content }, { searchBlock });
+      assert.equal((html.match(/data-search-target="true"/g) ?? []).length, content.includes(searchBlock) ? 1 : 0);
+      if (content.includes(searchBlock)) {
+        assert.match(html, new RegExp(`data-search-target="true">(?:(?!data-message-text)[\\s\\S])*${searchBlock.text}`));
+      }
+    }
+  }
+});
 
 test("keeps streamed tool input out of collapsed markup while counting it", () => {
   const block = {
