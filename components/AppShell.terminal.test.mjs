@@ -1,12 +1,26 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { newTerminalTab, restoreTerminalTabs } from "./terminal-tab-state.ts";
 
-const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
+test("restored workspace tabs retain terminal identity and never request a new shell", () => {
+  const first = newTerminalTab("/repo/worktree-a");
+  const second = newTerminalTab("/repo/worktree-b");
+  assert.notEqual(first.id, second.id);
+  const saved = restoreTerminalTabs(JSON.stringify({ tabs: [first, second], activeId: second.id, open: true }));
+  assert.deepEqual(saved, {
+    tabs: [{ ...first, restored: true }, { ...second, restored: true }],
+    activeId: second.id,
+    open: true,
+  });
+});
 
-test("keeps the integrated terminal mounted while chat is visible", () => {
-  assert.match(source, /const \[terminalMounted, setTerminalMounted\] = useState\(false\)/);
-  assert.match(source, /setTerminalMounted\(true\);[\s\S]*?setMainView/);
-  assert.match(source, /terminalMounted && projectTrustCwd && \([\s\S]*?display: mainView === "terminal" \? "block" : "none"[\s\S]*?<TerminalPanel/);
-  assert.doesNotMatch(source, /mainView === "terminal" && projectTrustCwd && <TerminalPanel/);
+test("storage corruption cannot create invalid or duplicate terminal tabs", () => {
+  assert.deepEqual(restoreTerminalTabs("broken"), { tabs: [], activeId: null, open: false });
+  assert.deepEqual(restoreTerminalTabs(null), { tabs: [], activeId: null, open: false });
+  const tab = newTerminalTab("/repo");
+  const saved = restoreTerminalTabs(JSON.stringify({
+    tabs: [null, {}, tab, tab, { ...tab, id: "../../bad" }, { ...tab, cwd: null }],
+    activeId: "missing",
+  }));
+  assert.deepEqual(saved, { tabs: [{ ...tab, restored: true }], activeId: null, open: false });
 });
