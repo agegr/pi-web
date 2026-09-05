@@ -25,6 +25,7 @@ const timestamp = "2026-08-23T00:00:00.000Z";
 const LONG = "e2e-long-session";
 const BRANCH = "e2e-branch-session";
 const RICH = "e2e-rich-session";
+const COMPACTED = "e2e-compacted-session";
 const text = (i) => `E2E message ${String(i).padStart(4, "0")}`;
 const ids = (start, end) => Array.from({ length: end - start }, (_, i) => `e${start + i}`);
 
@@ -70,6 +71,25 @@ try {
     toolResult,
     message("answer", "result", "assistant", [{ type: "text", text: "E2E final answer\n```js\nconsole.log('E2E code');\n```" }]),
   ]);
+  // The default 50-entry page starts at compaction, with its user prompt outside it.
+  const compactedEntries = [
+    message("user", null, "user", "E2E prompt outside the compacted page"),
+    { type: "compaction", id: "compact", parentId: "user", timestamp, summary: "E2E compaction anchor", firstKeptEntryId: "user", tokensBefore: 100 },
+  ];
+  for (let i = 0; i < 24; i++) {
+    compactedEntries.push(message(`call${i}`, compactedEntries.at(-1).id, "assistant", [
+      { type: "toolCall", id: `t${i}`, name: "bash", arguments: { command: `echo step${i}` } },
+    ]));
+    const result = message(`result${i}`, `call${i}`, "toolResult", [{ type: "text", text: `step${i}` }]);
+    Object.assign(result.message, { toolCallId: `t${i}`, toolName: "bash", isError: false });
+    compactedEntries.push(result);
+  }
+  compactedEntries.push(message("answer", "result23", "assistant", [{ type: "text", text:
+    "E2E compacted answer paragraph.\n\n".repeat(20)
+    + "## E2E compacted heading\n\n"
+    + "E2E compacted answer paragraph.\n\n".repeat(20),
+  }]));
+  writeSession(COMPACTED, compactedEntries);
 
   const probe = createServer();
   probe.listen(0, "127.0.0.1");
@@ -100,7 +120,7 @@ try {
     const response = await fetch(`${base}/api/sessions`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
     if (response?.ok) {
       const { sessions } = await response.json();
-      assert.deepEqual(sessions.map((session) => session.id).sort(), [LONG, BRANCH, RICH].sort());
+      assert.deepEqual(sessions.map((session) => session.id).sort(), [LONG, BRANCH, RICH, COMPACTED].sort());
       break;
     }
     assert.ok(Date.now() < deadline, "Server readiness timed out; see server.log");
@@ -125,6 +145,9 @@ try {
   assert.equal(beforeRoot.context.hasMore, false);
   await api("/api/sessions/e2e-does-not-exist", 404);
   await api("/api/files/..%2F..%2Fetc%2Fpasswd?type=read", 403);
+  const compacted = await api(`/api/sessions/${COMPACTED}`);
+  assert.equal(compacted.context.entryIds[0], "compact");
+  assert.equal(compacted.context.messages.some((entry) => entry.role === "user"), false);
   console.log("PASS: bounded history, branch context, pagination root, and API errors");
 
   browser = await chromium.launch();
@@ -198,8 +221,28 @@ try {
     await page.getByText("echo E2E tool output", { exact: true }).waitFor();
     await page.getByRole("button", { name: /bash.*echo E2E tool output/ }).click();
     await page.getByText("E2E tool output", { exact: true }).waitFor();
+    await page.goto(`${base}/?session=${COMPACTED}`, { waitUntil: "domcontentloaded" });
+    const heading = page.getByRole("heading", { name: "E2E compacted heading", exact: true });
+    await heading.waitFor({ state: "attached" });
+    if (viewport.width > 600) {
+      const node = page.locator("[data-minimap-node-index='0']");
+      await node.waitFor();
+      const rect = await node.boundingBox();
+      assert.ok(rect);
+      await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+      const preview = page.locator("[data-minimap-preview-box]");
+      await preview.getByRole("button", { name: "E2E compaction anchor", exact: true }).waitFor();
+      await preview.getByRole("button", { name: "E2E compacted heading", exact: true }).click();
+      await page.waitForFunction(() => {
+        const heading = document.querySelector("[data-entry-id='answer'] h2");
+        const scroll = heading?.closest(".overflow-y-auto");
+        return heading && scroll && Math.abs(heading.getBoundingClientRect().top
+          - scroll.getBoundingClientRect().top - scroll.clientHeight * 0.3) < 5;
+      });
+      await page.screenshot({ path: join(artifacts, "compaction-minimap.png") });
+    }
     assert.deepEqual(errors, [], `Browser errors at width ${viewport.width}`);
-    console.log(`PASS: ${viewport.width}px browser pagination, branch, markdown, code, and tool call`);
+    console.log(`PASS: ${viewport.width}px browser pagination, branch, markdown, code, tool call, and compaction navigation`);
     await context.tracing.stop();
     await context.close();
     context = undefined;
