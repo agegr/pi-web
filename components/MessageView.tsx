@@ -8,8 +8,9 @@ import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
-import { isEditToolName } from "@/lib/tool-names";
+import { isEditToolName, isWriteToolName } from "@/lib/tool-names";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
+import { FileWriteResult } from "./FileWriteResult";
 import type { WrittenFile } from "@/lib/turn-written-files";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import type { SubagentToolDetails } from "@/lib/subagent-extension";
@@ -964,6 +965,8 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
   const inputStr = getToolCallInputText(block);
   const isStreamingInput = block.rawInput !== undefined;
   const isEditTool = isEditToolName(block.toolName);
+  const isWriteTool = isWriteToolName(block.toolName);
+  const isFileWritingTool = isEditTool || isWriteTool;
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
 
   // Result display
@@ -974,6 +977,21 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
   const isError = result?.isError ?? false;
   const subagent = isSubagentToolDetails(result?.details) ? result.details : null;
+
+  // Extract file path and content from tool input for file-writing tools
+  const { filePath, inputContent } = useMemo(() => {
+    if (!isFileWritingTool || !result || result.isError) return { filePath: null as string | null, inputContent: undefined as string | undefined };
+    const input = block.input as Record<string, unknown> | undefined;
+    const rawPath = input?.file_path ?? input?.path;
+    if (typeof rawPath !== "string" || rawPath.length === 0) return { filePath: null, inputContent: undefined };
+    // For write tools, extract the content from input
+    let content: string | undefined;
+    if (isWriteTool) {
+      const rawContent = input?.content;
+      if (typeof rawContent === "string") content = rawContent;
+    }
+    return { filePath: rawPath, inputContent: content };
+  }, [block.input, isFileWritingTool, isWriteTool, result]);
 
   return (
     <div
@@ -1031,7 +1049,7 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
       </div>
 
       {/* ── Expanded: input args ── */}
-      {expanded && (isStreamingInput || !isEditTool) && (
+      {expanded && (isStreamingInput || !isFileWritingTool) && (
         <pre
           style={{
             margin: 0,
@@ -1055,6 +1073,15 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
         resultDiff ? (
           <PairedDiffResult
             diff={resultDiff}
+          />
+        ) : isFileWritingTool && filePath ? (
+          <FileWriteResult
+            filePath={filePath}
+            isWrite={isWriteTool}
+            resultText={resultText ?? ""}
+            inputContent={inputContent}
+            isEmpty={resultIsEmpty}
+            isError={isError}
           />
         ) : (
           <PairedResult
