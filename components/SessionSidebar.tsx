@@ -13,6 +13,22 @@ import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 
+// Fixed row height for the session list. SessionItem renders at exactly this
+// height, so the list can be windowed (only the visible slice is mounted).
+const SESSION_LIST_ITEM_HEIGHT = 54;
+
+export function getSessionListIndices(count: number, scrollTop: number, viewportHeight: number, focusedIndex = -1): number[] {
+  const overscan = 8;
+  const visibleCount = Math.ceil((viewportHeight || 600) / SESSION_LIST_ITEM_HEIGHT) + overscan * 2;
+  const start = Math.max(0, Math.min(Math.floor(scrollTop / SESSION_LIST_ITEM_HEIGHT) - overscan, count - visibleCount));
+  const end = Math.min(count, start + visibleCount);
+  const indices = Array.from({ length: end - start }, (_, offset) => start + offset);
+  // Keep a focused row mounted so scrolling cannot discard an inline rename.
+  if (focusedIndex >= 0 && focusedIndex < start) indices.unshift(focusedIndex);
+  if (focusedIndex >= end && focusedIndex < count) indices.push(focusedIndex);
+  return indices;
+}
+
 declare global {
   interface Window {
     piDesktop?: {
@@ -397,6 +413,31 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
+
+  // Virtualized session list: only the visible window of rows is mounted.
+  const listScrollRef = useRef<HTMLDivElement>(null);
+  const [listViewportH, setListViewportH] = useState(0);
+  const [listScrollTop, setListScrollTop] = useState(0);
+  const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
+  const listScrollRafRef = useRef<number | null>(null);
+  const handleListScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const top = e.currentTarget.scrollTop;
+    if (listScrollRafRef.current != null) return;
+    listScrollRafRef.current = requestAnimationFrame(() => {
+      listScrollRafRef.current = null;
+      setListScrollTop(top);
+    });
+  }, []);
+  useLayoutEffect(() => {
+    const el = listScrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) setListViewportH(entry.contentRect.height);
+    });
+    ro.observe(el);
+    setListViewportH(el.clientHeight);
+    return () => ro.disconnect();
+  }, []);
 
   const loadSessions = useCallback(async (showLoading = false, force = false) => {
     try {
@@ -950,6 +991,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       : null);
 
   const sessionFamilies = listSessionFamilies(filteredSessions);
+
+  const virtualIndices = getSessionListIndices(
+    sessionFamilies.length,
+    listScrollTop,
+    listViewportH,
+    sessionFamilies.findIndex((family) => family.root.id === focusedSessionId),
+  );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -1615,7 +1663,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       </div>
 
       {/* Session list */}
-      <div style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}>
+      <div
+        ref={listScrollRef}
+        onScroll={handleListScroll}
+        style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}
+      >
         {loading && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
             {t("sidebar.loading")}
@@ -1631,27 +1683,44 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {t("sidebar.noSessions")}
           </div>
         )}
-        {sessionFamilies.map((family) => {
-          const familySessions = [family.root, ...family.subagents];
-          const displaySession = family.latestModified === family.root.modified
-            ? family.root
-            : { ...family.root, modified: family.latestModified };
-          return (
-            <SessionItem
-              key={family.root.id}
-              session={displaySession}
-              isSelected={familySessions.some((session) => session.id === selectedSessionId)}
-              isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
-              isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
-              onClick={() => handleSelectSessionFromList(family.root)}
-              onRenamed={loadSessions}
-              onDeleted={(id) => {
-                onSessionDeleted?.(id);
-                loadSessions();
-              }}
-            />
-          );
-        })}
+        {sessionFamilies.length > 0 && (
+          <div
+            style={{
+              position: "relative",
+              height: sessionFamilies.length * SESSION_LIST_ITEM_HEIGHT,
+            }}
+          >
+            {virtualIndices.map((index) => {
+              const family = sessionFamilies[index];
+              const familySessions = [family.root, ...family.subagents];
+              const displaySession = family.latestModified === family.root.modified
+                ? family.root
+                : { ...family.root, modified: family.latestModified };
+              // Bubble blur after the input's save handler before unpinning the row.
+              return (
+                <div
+                  key={family.root.id}
+                  onFocus={() => setFocusedSessionId(family.root.id)}
+                  onBlur={() => setFocusedSessionId(null)}
+                  style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 0, right: 0 }}
+                >
+                  <SessionItem
+                    session={displaySession}
+                    isSelected={familySessions.some((session) => session.id === selectedSessionId)}
+                    isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
+                    isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
+                    onClick={() => handleSelectSessionFromList(family.root)}
+                    onRenamed={loadSessions}
+                    onDeleted={(id) => {
+                      onSessionDeleted?.(id);
+                      loadSessions();
+                    }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* File Explorer section */}
@@ -2021,8 +2090,6 @@ function SessionItem({
   }, [onRenamed, session.cwd, session.id, session.name, session.path]);
 
   // Fixed-height outer wrapper — content swaps in place so the list never reflows
-  const ITEM_HEIGHT = 54;
-
   return (
     <div
       onClick={confirmDelete || renaming ? undefined : onClick}
@@ -2030,7 +2097,7 @@ function SessionItem({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); }}
       style={{
-        height: ITEM_HEIGHT,
+        height: SESSION_LIST_ITEM_HEIGHT,
         display: "flex",
         alignItems: "center",
         paddingLeft: depth > 0 ? depth * 12 + 14 : 14,
