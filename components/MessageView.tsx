@@ -1064,19 +1064,12 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
 
       {/* ── Expanded: bash command with syntax highlighting ── */}
       {expanded && isBashTool && bashCommand && (
-        <div
-          style={{
-            borderTop: isError ? "1px solid rgba(248,113,113,0.25)" : "1px solid rgba(34,197,94,0.2)",
-            background: "var(--bg-subtle)",
-          }}
-        >
-          <BashResultView text={bashCommand} isError={isError} isEmpty={false} isCommand />
-        </div>
+        <BashResultView text={bashCommand} isError={isError} isEmpty={false} isCommand />
       )}
 
       {/* ── Expanded: input args ── */}
       {expanded && (isStreamingInput || !isFileWritingTool && !isFileReadingTool && !isBashTool) && (
-        <JsonParamList data={block.input as Record<string, unknown>} />
+        <JsonParamList data={block.input as Record<string, unknown>} isError={isError} />
       )}
 
       {/* ── Paired result — only shown when expanded ── */}

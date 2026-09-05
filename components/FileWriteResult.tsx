@@ -137,6 +137,10 @@ export function FileWriteResult({ filePath, isWrite, isRead = false, resultText,
             }}
             lineProps={{
               style: {
+                // Override the display:flex that wrapLongLines+showLineNumbers
+                // forces on each line (turns tokens into flex blocks). Keeping
+                // inline tokens lets long code wrap like normal text.
+                display: "block",
                 whiteSpace: "pre-wrap",
                 wordBreak: "break-all",
               },

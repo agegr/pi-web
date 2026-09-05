@@ -14,6 +14,7 @@ import { useTheme } from "@/hooks/useTheme";
 interface JsonParamListProps {
   data: Record<string, unknown>;
   maxStringLength?: number;
+  isError?: boolean;
 }
 
 /**
@@ -22,7 +23,7 @@ interface JsonParamListProps {
  * - Nested objects/arrays: collapsible summary
  * - Long strings: truncated with toggle
  */
-export function JsonParamList({ data, maxStringLength = 200 }: JsonParamListProps) {
+export function JsonParamList({ data, maxStringLength = 200, isError = false }: JsonParamListProps) {
   if (!data || Object.keys(data).length === 0) {
     return <div style={{ padding: "8px 10px", color: "var(--text-muted)", fontSize: 12 }}>No parameters</div>;
   }
@@ -34,12 +35,12 @@ export function JsonParamList({ data, maxStringLength = 200 }: JsonParamListProp
       style={{
         padding: "8px 10px",
         background: "var(--bg-subtle)",
-        borderTop: "1px solid rgba(34,197,94,0.2)",
+        borderTop: `1px solid ${isError ? "rgba(248,113,113,0.3)" : "rgba(34,197,94,0.15)"}`,
       }}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         {entries.map(([key, value]) => (
-          <ParamRow key={key} name={key} value={value} maxStringLength={maxStringLength} />
+          <ParamRow key={key} name={key} value={value} maxStringLength={maxStringLength} isError={isError} />
         ))}
       </div>
     </div>
@@ -50,9 +51,10 @@ interface ParamRowProps {
   name: string;
   value: unknown;
   maxStringLength: number;
+  isError: boolean;
 }
 
-function ParamRow({ name, value, maxStringLength }: ParamRowProps) {
+function ParamRow({ name, value, maxStringLength, isError }: ParamRowProps) {
   if (value === null || value === undefined) {
     return (
       <div style={{ display: "flex", gap: 8, fontSize: 12, fontFamily: "var(--font-mono)" }}>
@@ -80,7 +82,7 @@ function ParamRow({ name, value, maxStringLength }: ParamRowProps) {
   }
 
   if (typeof value === "object") {
-    return <ObjectParam name={name} value={value as Record<string, unknown>} maxStringLength={maxStringLength} />;
+    return <ObjectParam name={name} value={value as Record<string, unknown>} maxStringLength={maxStringLength} isError={isError} />;
   }
 
   return (
@@ -197,9 +199,10 @@ interface ObjectParamProps {
   name: string;
   value: Record<string, unknown>;
   maxStringLength: number;
+  isError: boolean;
 }
 
-function ObjectParam({ name, value, maxStringLength }: ObjectParamProps) {
+function ObjectParam({ name, value, maxStringLength, isError }: ObjectParamProps) {
   const [expanded, setExpanded] = useState(false);
   const keys = Object.keys(value);
 
@@ -228,7 +231,7 @@ function ObjectParam({ name, value, maxStringLength }: ObjectParamProps) {
       </button>
       {expanded && (
         <div style={{ marginLeft: 8, width: "calc(100% - 16px)" }}>
-          <JsonParamList data={value} maxStringLength={maxStringLength} />
+          <JsonParamList data={value} maxStringLength={maxStringLength} isError={isError} />
         </div>
       )}
     </div>
@@ -248,7 +251,6 @@ function JsonRawView({ data }: JsonRawViewProps) {
       language="json"
       customStyle={{
         margin: 0,
-        style: { isDark: oneDark },
         padding: 8,
         borderRadius: 4,
         fontSize: 11,

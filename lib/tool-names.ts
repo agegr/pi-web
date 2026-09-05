@@ -37,6 +37,8 @@ export function isBashToolName(toolName: string): boolean {
   return name === "bash" ||
     name === "execute_code" ||
     name.startsWith("bash_") ||
+    // Synthesized display name for user-run local bash (see BashExecutionView).
+    name.startsWith("bash (") ||
     name.endsWith(".bash") ||
     name.endsWith("_bash") ||
     name === "run_bash" ||
