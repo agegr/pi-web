@@ -1199,7 +1199,13 @@ function TextFileViewer({
   const viewerContent = data?.content ?? "";
   const sourceLines = useMemo(() => viewerContent.split("\n"), [viewerContent]);
   const language = data?.language ?? "text";
-  const useLightweightSource = sourceLines.length > SOURCE_HIGHLIGHT_MAX_LINES;
+  const isHtml = language === "html";
+  const isMarkdown = language === "markdown";
+  const hasPreview = isHtml || isMarkdown;
+  const effectiveDisplayMode = isDeletedDiff ? "diff" : displayMode;
+  const useLightweightSource = sourceLines.length > SOURCE_HIGHLIGHT_MAX_LINES
+    && !(effectiveDisplayMode === "diff" && hasGitDiff)
+    && !(effectiveDisplayMode === "preview" && hasPreview);
   // react-syntax-highlighter rebuilds every token element on each render, which
   // costs hundreds of milliseconds on large files. Cache the rendered trees so
   // unrelated re-renders (panel open/close, selection changes) reuse them as-is.
@@ -1241,7 +1247,7 @@ function TextFileViewer({
     [isDark, language, viewerContent, wrapLines],
   );
   const lightweightSourceLines = useMemo(
-    () => sourceLines.map((line, lineIndex) => (
+    () => useLightweightSource ? sourceLines.map((line, lineIndex) => (
       <span
         className="file-source-line"
         data-line-number={lineIndex + 1}
@@ -1263,8 +1269,8 @@ function TextFileViewer({
           {line}
         </span>
       </span>
-    )),
-    [sourceLines, wrapLines],
+    )) : null,
+    [sourceLines, useLightweightSource, wrapLines],
   );
 
   useEffect(() => {
@@ -1361,12 +1367,8 @@ function TextFileViewer({
   if (!data && !isDeletedDiff) return null;
 
   const content = viewerContent;
-  const isHtml = language === "html";
-  const isMarkdown = language === "markdown";
-  const hasPreview = isHtml || isMarkdown;
   const markdownDirectory = getFileDirectory(filePath);
   const lines = sourceLines;
-  const effectiveDisplayMode = isDeletedDiff ? "diff" : displayMode;
   const displayModes: DisplayMode[] = isDeletedDiff
     ? ["diff"]
     : [
