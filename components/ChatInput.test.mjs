@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import { Script } from "node:vm";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createJiti } from "jiti";
+import ts from "typescript";
 
 const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
@@ -11,6 +14,77 @@ const jiti = createJiti(import.meta.url, {
 const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canRestoreUserMessage, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages } = await jiti.import("./ChatInput.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("../lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
+
+test("follow-up shortcuts preserve newline, IME, mobile and completion behavior", () => {
+  const source = ts.createSourceFile("ChatInput.tsx", readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  function findHandler(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === "handleKeyDown") {
+      return node.initializer.arguments[0];
+    }
+    return ts.forEachChild(node, findHandler);
+  }
+  // Execute the component's actual callback without mounting the rest of the UI.
+  const script = new Script(ts.transpileModule(findHandler(source).getText(source), {
+    compilerOptions: { target: ts.ScriptTarget.ES2020 },
+  }).outputText);
+  const cases = [
+    ["Enter steers", {}, {}, "steer"],
+    ["Alt+Enter follows up", { altKey: true }, {}, "followup"],
+    ["idle Alt+Enter sends", { altKey: true }, { isStreaming: false }, "send"],
+    ["Shift+Enter inserts a newline", { shiftKey: true }, {}, "native"],
+    ["Alt+Shift+Enter keeps native behavior", { altKey: true, shiftKey: true }, {}, "native"],
+    ["composition ref blocks sending", { altKey: true }, { isComposingRef: { current: true } }, "native"],
+    ["native composition blocks sending", { altKey: true, nativeEvent: { isComposing: true } }, {}, "native"],
+    ["IME keyCode blocks sending", { altKey: true, nativeEvent: { keyCode: 229 } }, {}, "native"],
+    ["composition grace blocks sending", { altKey: true }, { lastCompositionEndAtRef: { current: 950 } }, "prevented"],
+    ["mobile Alt+Enter keeps native behavior", { altKey: true }, { isMobile: true }, "native"],
+    ["mobile composition grace cannot send", { altKey: true }, { isMobile: true, lastCompositionEndAtRef: { current: 950 } }, "native"],
+    ["mobile Ctrl+Alt+Enter follows up", { altKey: true, ctrlKey: true }, { isMobile: true }, "followup"],
+    ["mobile Cmd+Alt+Enter follows up", { altKey: true, metaKey: true }, { isMobile: true }, "followup"],
+    ["mobile modified Enter respects composition grace", { altKey: true, ctrlKey: true }, { isMobile: true, lastCompositionEndAtRef: { current: 950 } }, "prevented"],
+    ["Enter falls back to follow-up", {}, { onSteer: undefined }, "followup"],
+    ["Alt+Enter falls back to steer", { altKey: true }, { onFollowUp: undefined }, "steer"],
+    ["slash completion takes priority", { altKey: true }, { slashMenuOpen: true, slashQuery: "help" }, "slash"],
+    ["file completion takes priority", { altKey: true }, { atMenuOpen: true, atQuery: {} }, "file"],
+    ["history selection takes priority", { altKey: true }, { historyMenuOpen: true }, "history"],
+  ];
+  for (const [name, keys, state, expected] of cases) {
+    let action = "native";
+    const handler = script.runInNewContext({
+      Date: { now: () => 1000 },
+      COMPOSITION_END_ENTER_GRACE_MS: 100,
+      isMobile: false, isStreaming: true,
+      isComposingRef: { current: false }, lastCompositionEndAtRef: { current: 0 },
+      historyMenuOpen: false, inputHistory: ["previous"], historyActiveIndex: 0,
+      slashMenuOpen: false, slashQuery: null, displayedSlashCommands: [{}], slashActiveIndex: 0,
+      atMenuOpen: false, atQuery: null, atMatches: [{}], atActiveIndex: 0,
+      onSteer() {}, onFollowUp() {},
+      sendQueued(mode) { action = mode; }, handleSend() { action = "send"; },
+      applySlashCommand() { action = "slash"; },
+      applyAtCompletion() { action = "file"; },
+      applyHistoryInput() { action = "history"; },
+      ...state,
+    });
+    handler({
+      key: "Enter", shiftKey: false, altKey: false, ctrlKey: false, metaKey: false,
+      nativeEvent: { isComposing: false, keyCode: 13 },
+      preventDefault() { action = "prevented"; },
+      ...keys,
+    });
+    assert.equal(action, expected, name);
+  }
+});
+
+test("shows the follow-up shortcut in the button tooltip", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(I18nProvider, null, React.createElement(ChatInput, {
+      onSend() {}, onAbort() {}, onFollowUp() {}, isStreaming: true,
+    })),
+  );
+
+  assert.match(html, /title="Queue this message after the agent finishes \(Alt\/Option\+Enter\)"/);
+  assert.match(html, /aria-keyshortcuts="Alt\+Enter"/);
+});
 
 test("renders the upstream model error", () => {
   const html = renderToStaticMarkup(
