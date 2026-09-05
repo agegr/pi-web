@@ -6,18 +6,19 @@ const source = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf
 const dialogSource = source.slice(source.indexOf("function ExtensionDialog"));
 const customSource = source.slice(source.indexOf("function ExtensionCustomPanel"));
 
-test("keeps extension requests as overlays so the composer stays in layout", () => {
+test("confines extension overlays to the content region above the composer", () => {
   assert.doesNotMatch(source, /function ExtensionRequestSheet/);
   assert.match(
     source,
-    /{isDragOver && \([\s\S]*?{extensionDialog && \([\s\S]*?<ExtensionDialog[\s\S]*?<NoticeShelf/,
+    /className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden"[\s\S]*?<ExtensionDialog[\s\S]*?<ExtensionCustomPanel[\s\S]*?className="relative shrink-0"[\s\S]*?{chatInputElement}/,
   );
   assert.match(dialogSource, /position: "absolute"[\s\S]*?inset: 0/);
   assert.match(dialogSource, /pointerEvents: "none"/);
   assert.match(dialogSource, /pointerEvents: "auto"/);
   assert.match(customSource, /position: "absolute"[\s\S]*?inset: 0/);
   assert.match(customSource, /pointerEvents: "none"/);
-  assert.match(source, /className="relative z-\[100\]"/);
+  assert.doesNotMatch(source, /z-\[100\]|zIndex: 100/);
+  assert.match(customSource, /maxHeight: "min\(760px, 100%\)"/);
 });
 
 test("adds collapse without replacing cancel", () => {
@@ -28,5 +29,7 @@ test("adds collapse without replacing cancel", () => {
 });
 
 test("resets collapse state when a new extension request arrives", () => {
-  assert.match(dialogSource, /setCollapsed\(false\)/);
+  assert.match(source, /<ExtensionDialog key=\{extensionDialog.id\}/);
+  assert.match(source, /<ExtensionCustomPanel key=\{extensionCustomUi.id\}/);
+  assert.match(customSource, /if \(!collapsed\) inputRef.current\?\.focus\(\);\s*}, \[collapsed\]\)/);
 });
