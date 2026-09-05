@@ -277,6 +277,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.openWrittenFile": "打开 {name}",
     "chat.fileWritten": "已写入 {name}",
     "chat.fileModified": "已修改 {name}",
+    "chat.fileRead": "已讀取 {name}",
     "chat.fileLines": "{count} 行",
     "chat.showFullResult": "显示完整结果",
     "chat.loadEarlier": "向上滚动以加载更早的消息",

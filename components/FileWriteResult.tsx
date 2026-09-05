@@ -37,8 +37,10 @@ function getLanguageFromPath(filePath: string): string {
 interface Props {
   /** Absolute file path. */
   filePath: string;
-  /** Whether this was a write (new/overwrite) vs edit (modify). */
+  /** Whether this was a write (new/overwrite) vs edit (modify) vs read. */
   isWrite: boolean;
+  /** Whether this was a read operation. */
+  isRead?: boolean;
   /** Full result text (may be the file content). */
   resultText: string;
   /** Content extracted from tool input (for write tools). */
@@ -57,7 +59,7 @@ interface Props {
  * already-expanded `ToolCallBlock`, so a second expand/collapse toggle would
  * only force the user to click twice.
  */
-export function FileWriteResult({ filePath, isWrite, resultText, inputContent, isEmpty, isError }: Props) {
+export function FileWriteResult({ filePath, isWrite, isRead = false, resultText, inputContent, isEmpty, isError }: Props) {
   const { t } = useI18n();
   const { isDark } = useTheme();
   const name = getFileName(filePath);
@@ -66,7 +68,7 @@ export function FileWriteResult({ filePath, isWrite, resultText, inputContent, i
   const displayContent = inputContent ?? resultText;
   const lineCount = displayContent ? displayContent.split("\n").length : 0;
 
-  const summaryLabel = isWrite ? t("chat.fileWritten", { name }) : t("chat.fileModified", { name });
+  const summaryLabel = isWrite ? t("chat.fileWritten", { name }) : isRead ? t("chat.fileRead", { name }) : t("chat.fileModified", { name });
   const linesLabel = t("chat.fileLines", { count: lineCount });
 
   return (

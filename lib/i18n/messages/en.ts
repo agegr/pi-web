@@ -277,6 +277,7 @@ export const enLocale: LocalePlugin = {
     "chat.openWrittenFile": "Open {name}",
     "chat.fileWritten": "Wrote {name}",
     "chat.fileModified": "Modified {name}",
+    "chat.fileRead": "Read {name}",
     "chat.fileLines": "{count} lines",
     "chat.showFullResult": "Show full result",
     "chat.loadEarlier": "Scroll up to load earlier messages",

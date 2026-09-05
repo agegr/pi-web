@@ -8,7 +8,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
-import { isEditToolName, isWriteToolName } from "@/lib/tool-names";
+import { isEditToolName, isReadToolName, isWriteToolName } from "@/lib/tool-names";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import { FileWriteResult } from "./FileWriteResult";
 import type { WrittenFile } from "@/lib/turn-written-files";
@@ -966,7 +966,9 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
   const isStreamingInput = block.rawInput !== undefined;
   const isEditTool = isEditToolName(block.toolName);
   const isWriteTool = isWriteToolName(block.toolName);
+  const isReadTool = isReadToolName(block.toolName);
   const isFileWritingTool = isEditTool || isWriteTool;
+  const isFileReadingTool = isReadTool;
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
 
   // Result display
@@ -978,9 +980,10 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
   const isError = result?.isError ?? false;
   const subagent = isSubagentToolDetails(result?.details) ? result.details : null;
 
-  // Extract file path and content from tool input for file-writing tools
+  // Extract file path and content from tool input for file-writing/reading tools
   const { filePath, inputContent } = useMemo(() => {
-    if (!isFileWritingTool || !result || result.isError) return { filePath: null as string | null, inputContent: undefined as string | undefined };
+    const isFileTool = isFileWritingTool || isFileReadingTool;
+    if (!isFileTool || !result || result.isError) return { filePath: null as string | null, inputContent: undefined as string | undefined };
     const input = block.input as Record<string, unknown> | undefined;
     const rawPath = input?.file_path ?? input?.path;
     if (typeof rawPath !== "string" || rawPath.length === 0) return { filePath: null, inputContent: undefined };
@@ -991,7 +994,7 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
       if (typeof rawContent === "string") content = rawContent;
     }
     return { filePath: rawPath, inputContent: content };
-  }, [block.input, isFileWritingTool, isWriteTool, result]);
+  }, [block.input, isFileWritingTool, isFileReadingTool, isWriteTool, result]);
 
   return (
     <div
@@ -1049,7 +1052,7 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
       </div>
 
       {/* ── Expanded: input args ── */}
-      {expanded && (isStreamingInput || !isFileWritingTool) && (
+      {expanded && (isStreamingInput || !isFileWritingTool && !isFileReadingTool) && (
         <pre
           style={{
             margin: 0,
@@ -1074,10 +1077,11 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
           <PairedDiffResult
             diff={resultDiff}
           />
-        ) : isFileWritingTool && filePath ? (
+        ) : (isFileWritingTool || isFileReadingTool) && filePath ? (
           <FileWriteResult
             filePath={filePath}
             isWrite={isWriteTool}
+            isRead={isReadTool}
             resultText={resultText ?? ""}
             inputContent={inputContent}
             isEmpty={resultIsEmpty}

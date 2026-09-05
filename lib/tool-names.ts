@@ -23,3 +23,11 @@ export function isEditToolName(toolName: string): boolean {
     name.includes("str_replace") ||
     name.includes("replace_editor");
 }
+
+export function isReadToolName(toolName: string): boolean {
+  const name = toolName.toLowerCase();
+  return name === "read" ||
+    name.startsWith("read_") ||
+    name.endsWith(".read") ||
+    name.endsWith("_read");
+}
