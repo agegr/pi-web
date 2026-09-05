@@ -138,7 +138,7 @@ test("places duplicate and delete immediately before the enabled switch", () => 
 });
 
 test("confirms deletion and limits it to writable profiles", () => {
-  assert.match(source, /window\.confirm\(t\("agents\.deleteConfirm", \{ name: selected\.displayName \}\)\)/);
+  assert.match(source, /confirmDialog\(\{[\s\S]*?message: t\("agents\.deleteConfirm", \{ name: selected\.displayName \}\)[\s\S]*?danger: true,\n    \}\)\)/);
   assert.match(source, /selected && isWritableScope\(selected\.scope\) && mode === "edit"/);
   assert.match(source, /method: "DELETE"/);
 });
