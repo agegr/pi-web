@@ -12,6 +12,7 @@ import { isBashToolName, isEditToolName, isReadToolName, isWriteToolName } from 
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import { FileWriteResult } from "./FileWriteResult";
 import { BashResultView } from "./BashResultView";
+import { JsonParamList } from "./JsonParamList";
 import type { WrittenFile } from "@/lib/turn-written-files";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import type { SubagentToolDetails } from "@/lib/subagent-extension";
@@ -1075,22 +1076,7 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
 
       {/* ── Expanded: input args ── */}
       {expanded && (isStreamingInput || !isFileWritingTool && !isFileReadingTool && !isBashTool) && (
-        <pre
-          style={{
-            margin: 0,
-            padding: "8px 10px",
-            color: "var(--text-muted)",
-            fontSize: 12,
-            lineHeight: 1.5,
-            overflow: "auto",
-            background: "var(--bg-subtle)",
-            borderTop: isError ? "1px solid rgba(248,113,113,0.25)" : "1px solid rgba(34,197,94,0.2)",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-all",
-          }}
-        >
-          {inputStr}
-        </pre>
+        <JsonParamList data={block.input as Record<string, unknown>} />
       )}
 
       {/* ── Paired result — only shown when expanded ── */}

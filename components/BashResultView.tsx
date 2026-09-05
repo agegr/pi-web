@@ -98,7 +98,6 @@ export function BashResultView({ text, isError, isEmpty, isCommand = false }: Pr
               },
             }}
             wrapLongLines
-            showLineNumbers={false}
           >
             {displayText}
           </SyntaxHighlighter>
