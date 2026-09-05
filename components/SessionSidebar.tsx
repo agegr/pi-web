@@ -17,6 +17,18 @@ import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 // height, so the list can be windowed (only the visible slice is mounted).
 const SESSION_LIST_ITEM_HEIGHT = 54;
 
+export function getSessionListIndices(count: number, scrollTop: number, viewportHeight: number, focusedIndex = -1): number[] {
+  const overscan = 8;
+  const visibleCount = Math.ceil((viewportHeight || 600) / SESSION_LIST_ITEM_HEIGHT) + overscan * 2;
+  const start = Math.max(0, Math.min(Math.floor(scrollTop / SESSION_LIST_ITEM_HEIGHT) - overscan, count - visibleCount));
+  const end = Math.min(count, start + visibleCount);
+  const indices = Array.from({ length: end - start }, (_, offset) => start + offset);
+  // Keep a focused row mounted so scrolling cannot discard an inline rename.
+  if (focusedIndex >= 0 && focusedIndex < start) indices.unshift(focusedIndex);
+  if (focusedIndex >= end && focusedIndex < count) indices.push(focusedIndex);
+  return indices;
+}
+
 declare global {
   interface Window {
     piDesktop?: {
@@ -406,6 +418,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const listScrollRef = useRef<HTMLDivElement>(null);
   const [listViewportH, setListViewportH] = useState(0);
   const [listScrollTop, setListScrollTop] = useState(0);
+  const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
   const listScrollRafRef = useRef<number | null>(null);
   const handleListScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const top = e.currentTarget.scrollTop;
@@ -979,14 +992,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   const sessionFamilies = listSessionFamilies(filteredSessions);
 
-  // Windowed slice: render only the visible window of rows. 600px fallback
-  // before ResizeObserver fires keeps first paint bounded.
-  const effectiveViewportH = listViewportH > 0 ? listViewportH : 600;
-  const VIRTUAL_OVERSCAN = 8;
-  const virtualListStart = Math.max(0, Math.floor(listScrollTop / SESSION_LIST_ITEM_HEIGHT) - VIRTUAL_OVERSCAN);
-  const virtualVisibleCount = Math.ceil(effectiveViewportH / SESSION_LIST_ITEM_HEIGHT) + VIRTUAL_OVERSCAN * 2;
-  const virtualListEnd = Math.min(sessionFamilies.length, virtualListStart + virtualVisibleCount);
-  const virtualFamilies = sessionFamilies.slice(virtualListStart, virtualListEnd);
+  const virtualIndices = getSessionListIndices(
+    sessionFamilies.length,
+    listScrollTop,
+    listViewportH,
+    sessionFamilies.findIndex((family) => family.root.id === focusedSessionId),
+  );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -1672,30 +1683,28 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {t("sidebar.noSessions")}
           </div>
         )}
-        {!loading && !error && sessionFamilies.length > 0 && (
+        {sessionFamilies.length > 0 && (
           <div
             style={{
               position: "relative",
-              height: listViewportH > 0 ? sessionFamilies.length * SESSION_LIST_ITEM_HEIGHT : undefined,
+              height: sessionFamilies.length * SESSION_LIST_ITEM_HEIGHT,
             }}
           >
-            <div
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                right: 0,
-                transform: `translateY(${virtualListStart * SESSION_LIST_ITEM_HEIGHT}px)`,
-              }}
-            >
-              {virtualFamilies.map((family) => {
-                const familySessions = [family.root, ...family.subagents];
-                const displaySession = family.latestModified === family.root.modified
-                  ? family.root
-                  : { ...family.root, modified: family.latestModified };
-                return (
+            {virtualIndices.map((index) => {
+              const family = sessionFamilies[index];
+              const familySessions = [family.root, ...family.subagents];
+              const displaySession = family.latestModified === family.root.modified
+                ? family.root
+                : { ...family.root, modified: family.latestModified };
+              // Bubble blur after the input's save handler before unpinning the row.
+              return (
+                <div
+                  key={family.root.id}
+                  onFocus={() => setFocusedSessionId(family.root.id)}
+                  onBlur={() => setFocusedSessionId(null)}
+                  style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 0, right: 0 }}
+                >
                   <SessionItem
-                    key={family.root.id}
                     session={displaySession}
                     isSelected={familySessions.some((session) => session.id === selectedSessionId)}
                     isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
@@ -1707,9 +1716,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       loadSessions();
                     }}
                   />
-                );
-              })}
-            </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -2081,8 +2090,6 @@ function SessionItem({
   }, [onRenamed, session.cwd, session.id, session.name, session.path]);
 
   // Fixed-height outer wrapper — content swaps in place so the list never reflows
-  const ITEM_HEIGHT = 54;
-
   return (
     <div
       onClick={confirmDelete || renaming ? undefined : onClick}
@@ -2090,7 +2097,7 @@ function SessionItem({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); }}
       style={{
-        height: ITEM_HEIGHT,
+        height: SESSION_LIST_ITEM_HEIGHT,
         display: "flex",
         alignItems: "center",
         paddingLeft: depth > 0 ? depth * 12 + 14 : 14,
