@@ -165,6 +165,13 @@ export function AppShell() {
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
+  // Allowlist edits from the settings dialog announce themselves so the chat
+  // model selector reloads promptly instead of waiting out its 60s TTL.
+  useEffect(() => {
+    const handler = () => setModelsRefreshKey((key) => key + 1);
+    window.addEventListener("pi:models-changed", handler);
+    return () => window.removeEventListener("pi:models-changed", handler);
+  }, []);
   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
   const [projectTrustBusy, setProjectTrustBusy] = useState(false);
