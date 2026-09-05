@@ -61,7 +61,6 @@ import { getSessionFamily } from "@/lib/session-family";
 import { getLastSettingsSection, type SettingsSection } from "@/lib/settings-navigation";
 
 type SessionCopyField = "file" | "id" | "projectDir" | "gitBranch" | "gitWorktree";
-type QuoteChatState = { id: string; cwd: string; prompt: string; quoteText: string; sessionId: string };
 type AutoNameStatus =
   | { kind: "idle" }
   | { kind: "naming" }
@@ -100,6 +99,22 @@ export function AppShell() {
   // also fire for tasks finishing in a non-active workspace whose ChatWindow
   // is not mounted. ChatWindow receives the audio callbacks as props.
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio, soundEnabledRef } = useAudio();
+  const [quoteSelectionEnabled, setQuoteSelectionEnabled] = useState(false);
+  useEffect(() => {
+    try {
+      setQuoteSelectionEnabled(localStorage.getItem("pi-quote-selection-enabled") === "true");
+    } catch {
+      // Browser storage is best-effort.
+    }
+  }, []);
+  const handleQuoteSelectionChange = useCallback((enabled: boolean) => {
+    setQuoteSelectionEnabled(enabled);
+    try {
+      localStorage.setItem("pi-quote-selection-enabled", String(enabled));
+    } catch {
+      // Keep the current page usable when storage is unavailable.
+    }
+  }, []);
   const notifiedAttentionRequestIdsRef = useRef(new Set<string>());
   const handleBackgroundTaskDone = useCallback(() => {
     if (soundEnabledRef.current) playDoneSound();
@@ -220,11 +235,7 @@ export function AppShell() {
     reclampRightPanelWidth();
   }, [reclampRightPanelWidth, reclampSidebarWidth, rightPanelOpen]);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
-  const quoteChatInputRef = useRef<ChatInputHandle | null>(null);
-  const [quoteChat, setQuoteChat] = useState<QuoteChatState | null>(null);
-  const [quoteChatPosition, setQuoteChatPosition] = useState({ x: 0, y: 0 });
-  const quoteChatDragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
-  const quoteChatPanelRef = useRef<HTMLDivElement | null>(null);
+  const [pendingQuotePrompt, setPendingQuotePrompt] = useState<{ sessionId: string; text: string } | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
   const mobileToolbarRef = useRef<HTMLDivElement>(null);
   const languageBtnRef = useRef<HTMLButtonElement>(null);
@@ -929,61 +940,17 @@ export function AppShell() {
 
   const handleAskInNewChat = useCallback(async (
     prompt: string,
-    quoteText: string,
     sourceSessionId: string,
     sourceEntryId: string,
   ) => {
-    const cwd = selectedSession?.cwd ?? newSessionCwd ?? activeCwd;
-    if (!cwd) return;
-    try {
-      const result = await sendAgentCommand<{ newSessionId?: string }>(sourceSessionId, {
-        type: "fork_branch",
-        entryId: sourceEntryId,
-      });
-      if (!result?.newSessionId) return;
-      const id = typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-      setQuoteChatPosition({
-        x: Math.max(8, window.innerWidth - (isMobile ? Math.min(window.innerWidth - 16, 420) : 540)),
-        y: Math.max(48, window.innerHeight - (isMobile ? Math.min(window.innerHeight - 72, 620) : 700)),
-      });
-      setQuoteChat({ id, cwd, prompt, quoteText, sessionId: result.newSessionId });
-    } catch (error) {
-      console.error("[pi-web] failed to fork quoted chat:", error instanceof Error ? error.message : error);
-    }
-  }, [activeCwd, isMobile, newSessionCwd, selectedSession?.cwd]);
-
-  const handleQuoteChatPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || (event.target as HTMLElement).closest("button")) return;
-    const rect = event.currentTarget.parentElement?.getBoundingClientRect();
-    if (!rect) return;
-    quoteChatDragRef.current = { startX: event.clientX, startY: event.clientY, baseX: rect.left, baseY: rect.top };
-    event.currentTarget.setPointerCapture(event.pointerId);
-    event.preventDefault();
-  }, []);
-
-  const handleQuoteChatPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    const drag = quoteChatDragRef.current;
-    if (!drag) return;
-    const panel = quoteChatPanelRef.current;
-    const panelWidth = panel?.offsetWidth ?? 520;
-    const panelHeight = panel?.offsetHeight ?? 680;
-    const x = Math.max(8, Math.min(window.innerWidth - panelWidth - 8, drag.baseX + event.clientX - drag.startX));
-    const y = Math.max(8, Math.min(window.innerHeight - panelHeight - 8, drag.baseY + event.clientY - drag.startY));
-    if (panel) panel.style.transform = `translate3d(${x - drag.baseX}px, ${y - drag.baseY}px, 0)`;
-  }, []);
-
-  const handleQuoteChatPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    const panel = quoteChatPanelRef.current;
-    if (panel && quoteChatDragRef.current) {
-      const rect = panel.getBoundingClientRect();
-      panel.style.transform = "";
-      setQuoteChatPosition({ x: rect.left, y: rect.top });
-    }
-    quoteChatDragRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-  }, []);
+    const result = await sendAgentCommand<{ newSessionId?: string }>(sourceSessionId, {
+      type: "fork_branch",
+      entryId: sourceEntryId,
+    });
+    if (!result?.newSessionId) throw new Error(translate("chat.quoteForkFailed"));
+    setPendingQuotePrompt({ sessionId: result.newSessionId, text: prompt });
+    handleSessionForked(result.newSessionId);
+  }, [handleSessionForked, translate]);
 
   const handleInitialRestoreDone = useCallback(() => {
     setInitialSessionRestored(true);
@@ -2443,6 +2410,9 @@ export function AppShell() {
               onOpenFile={handleOpenLinkedFile}
               onOpenSession={handleOpenSession}
               onAskInNewChat={handleAskInNewChat}
+              quoteSelectionEnabled={quoteSelectionEnabled}
+              initialPrompt={pendingQuotePrompt?.sessionId === selectedSession?.id ? pendingQuotePrompt?.text : undefined}
+              onInitialPromptConsumed={() => setPendingQuotePrompt(null)}
               soundEnabled={soundEnabled}
               onSoundToggle={onSoundToggle}
               playDoneSound={playDoneSound}
@@ -2491,77 +2461,6 @@ export function AppShell() {
           ) : null}
         </div>
       </div>
-
-      {quoteChat && (
-        <div
-          role="dialog"
-          aria-label={translate("chat.newQuoteChat")}
-          style={{ position: "fixed", inset: 0, zIndex: 120, pointerEvents: "none" }}
-        >
-          <div
-            ref={quoteChatPanelRef}
-            style={{
-              position: "fixed",
-              left: quoteChatPosition.x,
-              top: quoteChatPosition.y,
-              width: isMobile ? "calc(100vw - 16px)" : "min(520px, calc(100vw - 16px))",
-              height: isMobile ? "min(620px, calc(100vh - 72px))" : "min(680px, calc(100vh - 80px))",
-              minHeight: 360,
-              display: "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-              border: "1px solid color-mix(in srgb, var(--border) 72%, transparent)",
-              borderRadius: 10,
-              background: "color-mix(in srgb, var(--bg) 78%, transparent)",
-              backdropFilter: "blur(18px) saturate(1.15)",
-              WebkitBackdropFilter: "blur(18px) saturate(1.15)",
-              boxShadow: "0 24px 80px rgba(0,0,0,0.32), 0 0 0 1px rgba(255,255,255,0.08) inset",
-              pointerEvents: "auto",
-            }}
-          >
-            <div
-              onPointerDown={handleQuoteChatPointerDown}
-              onPointerMove={handleQuoteChatPointerMove}
-              onPointerUp={handleQuoteChatPointerUp}
-              onPointerCancel={handleQuoteChatPointerUp}
-              style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 42, padding: "0 12px", borderBottom: "1px solid color-mix(in srgb, var(--border) 68%, transparent)", background: "color-mix(in srgb, var(--bg-panel) 72%, transparent)", backdropFilter: "blur(22px) saturate(1.2)", WebkitBackdropFilter: "blur(22px) saturate(1.2)", cursor: "grab", userSelect: "none" }}
-            >
-              <span style={{ flex: 1, minWidth: 0, color: "var(--text)", fontSize: 13, fontWeight: 650 }}>{translate("chat.newQuoteChat")}</span>
-              <button
-                type="button"
-                onClick={() => setQuoteChat(null)}
-                title={translate("i18n.close")}
-                aria-label={translate("i18n.close")}
-                style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, padding: 0, border: "none", borderRadius: 5, background: "transparent", color: "var(--text-muted)", cursor: "pointer" }}
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                  <path d="M6 6 18 18M18 6 6 18" />
-                </svg>
-              </button>
-            </div>
-            <div style={{ padding: "9px 12px", borderBottom: "1px solid color-mix(in srgb, var(--border) 62%, transparent)", background: "color-mix(in srgb, var(--accent) 6%, transparent)", color: "var(--text-muted)", fontSize: 12, lineHeight: 1.5 }}>
-              <div style={{ marginBottom: 4, color: "var(--accent)", fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" }}>{translate("chat.quotedFromCurrent")}</div>
-              <div style={{ maxHeight: 88, overflowY: "auto", whiteSpace: "pre-wrap", overflowWrap: "anywhere", borderLeft: "2px solid color-mix(in srgb, var(--accent) 55%, transparent)", paddingLeft: 8 }}>{quoteChat.quoteText}</div>
-            </div>
-            <div style={{ flex: 1, minHeight: 0 }}>
-              <ChatWindow
-                key={quoteChat.id}
-                session={{ id: quoteChat.sessionId, path: "", cwd: quoteChat.cwd, created: "", modified: "", messageCount: 0, firstMessage: "", transient: false }}
-                newSessionCwd={null}
-                newSessionDraftKey={null}
-                chatInputRef={quoteChatInputRef}
-                initialPrompt={quoteChat.prompt}
-                onOpenFile={handleOpenLinkedFile}
-                onOpenSession={handleOpenSession}
-                soundEnabled={soundEnabled}
-                onSoundToggle={onSoundToggle}
-                playDoneSound={playDoneSound}
-                unlockAudio={unlockAudio}
-              />
-            </div>
-          </div>
-        </div>
-      )}
 
       <div
         aria-hidden="true"
@@ -2680,6 +2579,8 @@ export function AppShell() {
         cwd={projectTrustCwd}
         sessionId={selectedSession?.id ?? null}
         initialSection={settingsSection}
+        quoteSelectionEnabled={quoteSelectionEnabled}
+        onQuoteSelectionChange={handleQuoteSelectionChange}
         onClose={() => {
           setSettingsSection(null);
           setModelsRefreshKey((key) => key + 1);
