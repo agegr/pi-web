@@ -168,6 +168,8 @@ const AGENT_STATE_RECONCILE_MS = 15_000;
 const BASH_STATE_RECONCILE_MS = 1_000;
 const EVENT_STREAM_READY_TIMEOUT_MS = 60_000;
 const EVENT_STREAM_RECONNECT_DELAY_MS = 1_000;
+// Retry temporary model-list failures without requiring a page refresh.
+const MODELS_RETRY_DELAYS_MS = [2_000, 5_000, 10_000];
 const MAX_NOTICES = 5;
 const NOTICE_VISIBLE_MS = 5000;
 const NOTICE_EXIT_ANIMATION_MS = 180;
@@ -341,7 +343,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const previousScrollTopRef = useRef(0);
   const liveFollowFrameRef = useRef<number | null>(null);
   const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const ensuringNewSessionRef = useRef<Promise<string | null> | null>(null);
   const newSessionPromotedRef = useRef(false);
@@ -387,8 +388,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const container = scrollContainerRef.current;
-    messagesEndRef.current?.scrollIntoView({ behavior });
-    if (container) previousScrollTopRef.current = container.scrollTop;
+    if (!container) return;
+    // Scroll the chat container itself instead of scrolling a sentinel element
+    // into view: that propagates to every scrollable ancestor, and on mobile
+    // the keyboard-shifted document layer visibly jumps the whole app while
+    // streaming content follows the tail.
+    container.scrollTo({ top: container.scrollHeight, behavior });
+    previousScrollTopRef.current = container.scrollTop;
   }, []);
 
   const currentModel = currentModelOverride ?? data?.context.model ?? pendingModel ?? null;
@@ -518,18 +524,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [setToolPresetState]);
 
-  const loadContext = useCallback(async (sid: string, leafId: string | null, before?: string | null) => {
+  const loadContext = useCallback(async (sid: string, leafId: string | null, before?: string | null, options?: { tail?: number; signal?: AbortSignal }) => {
     try {
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
       if (leafId) params.set("leafId", leafId);
       // Page upward: ask the server for the `tail` ancestors preceding `before`,
       // then prepend them. Omitting `before` fetches the most-recent `tail`.
       if (before) params.set("before", before);
+      if (options?.tail) params.set("tail", String(options.tail));
       const url = `/api/sessions/${encodeURIComponent(sid)}/context?${params}`;
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: options?.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as { context: SessionData["context"] };
-      if (sessionIdRef.current !== sid) return;
+      if (sessionIdRef.current !== sid || options?.signal?.aborted || !sessionHookMountedRef.current) return;
       setHistoryCursor(d.context.oldestEntryId);
       setHasEarlierMessages(d.context.hasMore);
       setData((prev) => {
@@ -551,8 +558,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setMessages(d.context.messages);
         setEntryIds(d.context.entryIds ?? []);
       }
+      return d.context;
     } catch (e) {
-      console.error("Failed to load context:", e);
+      if (!options?.signal?.aborted) console.error("Failed to load context:", e);
     }
   }, []);
 
@@ -1269,6 +1277,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "extension_ui_request":
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
+      case "extension_ui_closed":
+        setExtensionDialog((current) => current?.id === event.id ? null : current);
+        break;
     }
   }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
@@ -1545,9 +1556,30 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const loadModels = useCallback(async (signal?: AbortSignal) => {
     const modelCwd = newSessionCwd ?? session?.cwd ?? "";
     const modelsUrl = modelCwd ? `/api/models?cwd=${encodeURIComponent(modelCwd)}` : "/api/models";
-    const res = await fetch(modelsUrl, signal ? { signal } : undefined);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const d = await res.json() as ModelsResponse;
+    let d: ModelsResponse;
+    try {
+      const res = await fetch(modelsUrl, signal ? { signal } : undefined);
+      if (!res.ok) {
+        let detail = "";
+        try {
+          const body: unknown = await res.json();
+          if (body && typeof body === "object" && "error" in body && typeof body.error === "string") {
+            detail = body.error;
+          }
+        } catch (e) {
+          if (e instanceof DOMException && e.name === "AbortError") throw e;
+          // Non-JSON error responses fall back to the HTTP status.
+        }
+        throw new Error(detail || `Failed to load models (HTTP ${res.status})`);
+      }
+      d = await res.json() as ModelsResponse;
+      signal?.throwIfAborted();
+    } catch (e) {
+      if (!signal?.aborted && !(e instanceof DOMException && e.name === "AbortError")) {
+        setModelError(e instanceof Error ? e.message : String(e));
+      }
+      throw e;
+    }
     setModelNames(d.models);
     setModelError(d.modelError ?? null);
     setModelScopeWarnings(d.modelScopeWarnings ?? []);
@@ -1556,10 +1588,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const nextModelList = d.modelList ?? [];
     setModelList(nextModelList);
     if (isNew && !sessionIdRef.current) {
-      const match = d.defaultModel
+      // The first listed model is not necessarily the runtime's automatic choice.
+      const displayModel = d.defaultModel
         ? nextModelList.find((m) => m.id === d.defaultModel?.modelId && m.provider === d.defaultModel?.provider)
         : undefined;
-      const displayModel = match ?? nextModelList[0];
       setNewSessionDefaultModel(displayModel ? { provider: displayModel.provider, modelId: displayModel.id } : null);
       // An `enabledModels` pattern may pin a thinking level (`anthropic/*:high`).
       // Like pi, apply it to the model a new session starts with.
@@ -1794,6 +1826,24 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [cancelEventStreamGrace, closeEvents, loadTools, setToolPresetState]);
 
+  const scrollToMessage = useCallback((element: HTMLElement) => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    if (liveFollowFrameRef.current !== null) {
+      cancelAnimationFrame(liveFollowFrameRef.current);
+      liveFollowFrameRef.current = null;
+    }
+    initialScrollDoneRef.current = true;
+    pendingScrollToUserRef.current = false;
+    isNearBottomRef.current = false;
+    setPromptAnchorActive(false);
+    container.scrollTo({
+      top: element.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - 16,
+      behavior: "instant",
+    });
+    previousScrollTopRef.current = container.scrollTop;
+  }, []);
+
   const scrollUserMsgToTop = useCallback(() => {
     const container = scrollContainerRef.current;
     const el = lastUserMsgRef.current;
@@ -1939,12 +1989,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [messages.length, agentRunning, scrollToBottom, scrollUserMsgToTop]);
 
-  // Load model list
+  // Load the model list with bounded retries; loadModels exposes each failure.
   useEffect(() => {
     const controller = new AbortController();
-    loadModels(controller.signal).catch((e) => {
-      if (e instanceof DOMException && e.name === "AbortError") return;
-    });
+    (async () => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await loadModels(controller.signal);
+          return;
+        } catch (e) {
+          if (controller.signal.aborted) return;
+          if (e instanceof DOMException && e.name === "AbortError") return;
+          if (attempt >= MODELS_RETRY_DELAYS_MS.length) return;
+          await delay(MODELS_RETRY_DELAYS_MS[attempt]);
+          if (controller.signal.aborted) return;
+        }
+      }
+    })();
     return () => controller.abort();
   }, [loadModels, modelsRefreshKey]);
 
@@ -2015,7 +2076,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     isNew,
     promptAnchorActive,
     // Refs
-    sessionIdRef, messagesEndRef, scrollContainerRef,
+    sessionIdRef, scrollContainerRef,
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
     // Actions
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
@@ -2024,7 +2085,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleBuiltinSlashCommand,
     setNoticePaused: setPausedNoticeId,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
-    scrollToBottom, scrollUserMsgToTop,
+    scrollToBottom, scrollUserMsgToTop, scrollToMessage,
     dispatch, setAgentRunning, setForkingEntryId,
     bashRunning, pendingBash,
     // Subscriptions

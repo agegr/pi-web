@@ -9,10 +9,15 @@ import {
   setLastSettingsSection,
   type SettingsSection,
 } from "@/lib/settings-navigation";
+import {
+  isThinkingExpandedByDefault,
+  setThinkingExpandedByDefault,
+} from "@/lib/thinking-expansion-preference";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
 import { ConfigSwitch } from "./SettingsUi";
+import { ThinkingIcon } from "./ThinkingIcon";
 
 interface Props {
   cwd: string | null;
@@ -59,6 +64,11 @@ function GeneralSettings({ sessionId, onSessionReloaded }: Pick<Props, "sessionI
   const [shellSettings, setShellSettings] = useState<ShellToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
+  const [thinkingExpanded, setThinkingExpanded] = useState(false);
+
+  useEffect(() => {
+    setThinkingExpanded(isThinkingExpandedByDefault());
+  }, []);
   const themeOptions: { id: ThemePreference; label: string }[] = [
     { id: "light", label: t("settings.themeLight") },
     { id: "dark", label: t("settings.themeDark") },
@@ -106,9 +116,26 @@ function GeneralSettings({ sessionId, onSessionReloaded }: Pick<Props, "sessionI
     <div className="settings-general">
       <h2 className="settings-general-title">{t("settings.general")}</h2>
 
+      <section className="settings-general-section settings-thinking-option">
+        <h3 className="settings-general-heading">{t("settings.thinkingExpandedDefault")}</h3>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={thinkingExpanded}
+          aria-label={t("settings.thinkingExpandedDefault")}
+          title={t("settings.thinkingExpandedDefault")}
+          className="settings-thinking-toggle"
+          onClick={() => {
+            setThinkingExpandedByDefault(!thinkingExpanded);
+            setThinkingExpanded(!thinkingExpanded);
+          }}
+        >
+          <ThinkingIcon active={thinkingExpanded} size={20} />
+        </button>
+      </section>
+
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("settings.appearance")}</h3>
-        <p className="settings-general-description">{t("settings.appearanceDescription")}</p>
         <div role="radiogroup" aria-label={t("settings.appearance")} className="settings-theme-options">
           {themeOptions.map((option) => {
             const selected = preference === option.id;
@@ -148,7 +175,6 @@ function GeneralSettings({ sessionId, onSessionReloaded }: Pick<Props, "sessionI
 
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("common.language")}</h3>
-        <p className="settings-general-description">{t("settings.languageDescription")}</p>
         <div role="radiogroup" aria-label={t("common.language")} className="settings-language-options">
           {supportedLocales.map((plugin) => {
             const selected = locale === plugin.id;

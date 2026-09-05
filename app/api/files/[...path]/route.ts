@@ -5,8 +5,6 @@ import {
   getAllowedFileRoots,
   isExistingFilePathAllowed,
   isFilePathAllowed,
-  isWindowsAbsolutePath,
-  normalizeSlashes,
 } from "@/lib/file-access";
 import {
   DOCX_PREVIEW_MAX_BYTES,
@@ -17,6 +15,7 @@ import {
   getDocumentMime,
   getFileExt,
   getImageMime,
+  getVideoMime,
 } from "@/lib/file-types";
 import { resolveDirentIsDirectory } from "@/lib/file-dirent";
 import { isFilePathReferencedBySession } from "@/lib/session-file-references";
@@ -27,7 +26,7 @@ import {
   validateUploadFileNames,
 } from "@/lib/file-upload";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
-import { samePath } from "@/lib/paths";
+import { filePathFromApiSegments, samePath } from "@/lib/paths";
 
 const IGNORED_NAMES = new Set([
   "node_modules", ".git", ".next", "dist", "build", "__pycache__",
@@ -70,13 +69,6 @@ function getLanguage(filePath: string): string {
   return EXT_TO_LANGUAGE[ext] ?? "text";
 }
 
-function filePathFromSegments(segments: string[]): string {
-  const joined = segments.join("/");
-  const slashJoined = normalizeSlashes(joined);
-  if (isWindowsAbsolutePath(slashJoined)) return slashJoined;
-  return "/" + joined.replace(/^\/+/, "");
-}
-
 function parseFileRequestType(value: string): FileRequestType | null {
   return FILE_REQUEST_TYPE_SET.has(value) ? (value as FileRequestType) : null;
 }
@@ -84,7 +76,7 @@ function parseFileRequestType(value: string): FileRequestType | null {
 async function getUploadDirectory(segments: string[]): Promise<
   { directory: string } | { response: NextResponse }
 > {
-  const directory = filePathFromSegments(segments);
+  const directory = filePathFromApiSegments(segments);
   const allowedRoots = await getAllowedFileRoots();
   if (!isFilePathAllowed(directory, allowedRoots)) {
     return { response: NextResponse.json({ error: "Access denied" }, { status: 403 }) };
@@ -429,7 +421,7 @@ export async function GET(
 ) {
   try {
     const { path: segments } = await params;
-    const filePath = filePathFromSegments(segments);
+    const filePath = filePathFromApiSegments(segments);
     const rawType = request.nextUrl.searchParams.get("type") ?? "list";
     const type = parseFileRequestType(rawType);
     if (!type) {
@@ -479,6 +471,10 @@ export async function GET(
       if (audioMime) {
         return streamFile(filePath, stat, audioMime, request.headers.get("range"));
       }
+      const videoMime = getVideoMime(filePath);
+      if (videoMime) {
+        return streamFile(filePath, stat, videoMime, request.headers.get("range"));
+      }
       const documentMime = getDocumentMime(filePath);
       if (documentMime) {
         return streamFile(filePath, stat, documentMime, request.headers.get("range"));
@@ -495,7 +491,7 @@ export async function GET(
       if (!stat?.isFile()) {
         return NextResponse.json({ error: "Not a file" }, { status: 400 });
       }
-      const mime = getImageMime(filePath) || getAudioMime(filePath) || getDocumentMime(filePath) || "application/octet-stream";
+      const mime = getImageMime(filePath) || getAudioMime(filePath) || getVideoMime(filePath) || getDocumentMime(filePath) || "application/octet-stream";
       return streamFile(filePath, stat, mime, request.headers.get("range"), true);
     }
 
@@ -505,11 +501,12 @@ export async function GET(
       }
       const imageMime = getImageMime(filePath);
       const audioMime = getAudioMime(filePath);
+      const videoMime = getVideoMime(filePath);
       const documentMime = getDocumentMime(filePath);
       return NextResponse.json({
         size: stat.size,
         language: getLanguage(filePath),
-        mime: imageMime || audioMime || documentMime || "text/plain",
+        mime: imageMime || audioMime || videoMime || documentMime || "text/plain",
         previewKind: documentPreviewKind(filePath),
       });
     }

@@ -1,3 +1,4 @@
+@import "@xterm/xterm/css/xterm.css";
 @import "tailwindcss";
 
 @theme {
@@ -126,6 +127,111 @@ body {
   flex-direction: column;
 }
 
+.terminal-panel {
+  display: grid;
+  grid-template-rows: 38px auto minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: #111318;
+}
+
+.terminal-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 0 10px 0 13px;
+  border-bottom: 1px solid #2f3540;
+  background: #181b21;
+  color: #9ca3af;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.terminal-panel-path {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.terminal-panel-path span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #facc15;
+}
+
+.terminal-status-dot.is-ready { background: #4ade80; }
+.terminal-status-dot.is-exited,
+.terminal-status-dot.is-error { background: #f87171; }
+
+.terminal-panel-header button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 27px;
+  flex-shrink: 0;
+  padding: 0 8px;
+  border: 1px solid #343a46;
+  border-radius: 5px;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+  font: inherit;
+}
+
+.terminal-panel-exit {
+  padding: 7px 12px;
+  color: #9ca3af;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.terminal-panel-header button:hover {
+  background: #242932;
+  color: #e5e7eb;
+}
+
+.terminal-panel-error {
+  padding: 7px 12px;
+  border-bottom: 1px solid #5f2424;
+  background: #321b1b;
+  color: #fca5a5;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.terminal-xterm {
+  grid-row: -2 / -1;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px 8px 22px 12px;
+  overflow: hidden;
+}
+
+.terminal-xterm .xterm {
+  height: 100%;
+}
+
+.terminal-xterm-host {
+  width: 100%;
+  height: 100%;
+}
+
+.terminal-xterm .xterm-viewport {
+  background-color: #111318;
+}
+
 ::-webkit-scrollbar {
   width: 4px;
   height: 4px;
@@ -198,7 +304,7 @@ body {
 }
 
 .extension-status-shelf.has-widgets.has-status .extension-widget-triggers {
-  flex: 0 1 70%;
+  flex: 0 0 auto;
   max-width: 70%;
   border-right: 1px solid var(--border);
 }
@@ -329,9 +435,10 @@ button.extension-widget-trigger:focus-visible {
   min-height: 35px;
   max-height: min(144px, 18dvh);
   padding: 8px 12px;
-  overflow-y: auto;
+  overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 .extension-status-text {
@@ -341,8 +448,7 @@ button.extension-widget-trigger:focus-visible {
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.45;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
+  white-space: pre;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-dim);
@@ -482,6 +588,7 @@ pre, code {
   min-width: 100%;
   font-size: 13px;
 }
+.markdown-table-wrap > table { width: max-content; }
 .markdown-body th, .markdown-body td {
   border: 0;
   border-bottom: 1px solid var(--border);
@@ -684,6 +791,8 @@ pre, code {
 
 .mermaid-preview-button {
   width: 100%;
+  max-height: min(600px, 60dvh);
+  overflow: auto;
   border: 0;
   color: inherit;
   cursor: zoom-in;

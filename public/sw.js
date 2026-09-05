@@ -82,7 +82,7 @@ self.addEventListener("push", (event) => {
       return self.registration.showNotification(title, {
         body,
         data: { url: typeof url === "string" && url ? url : "/" },
-        ...(typeof tag === "string" && tag ? { tag } : {}),
+        ...(typeof tag === "string" && tag ? { tag, renotify: true } : {}),
       });
     }),
   );

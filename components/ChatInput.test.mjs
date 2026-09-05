@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import { Script } from "node:vm";
 import { createJiti } from "jiti";
+import ts from "typescript";
 
 const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
@@ -8,16 +11,93 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, shouldCompressImageFile } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, modelSupportsImageInput, shouldCompressImageFile } = await jiti.import("./ChatInput.tsx");
 const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("@/lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 
+test("follow-up shortcuts preserve newline, IME, mobile and completion behavior", () => {
+  const source = ts.createSourceFile("ChatInput.tsx", readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  function findHandler(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === "handleKeyDown") {
+      return node.initializer.arguments[0];
+    }
+    return ts.forEachChild(node, findHandler);
+  }
+  // Execute the component's actual callback without mounting the rest of the UI.
+  const script = new Script(ts.transpileModule(findHandler(source).getText(source), {
+    compilerOptions: { target: ts.ScriptTarget.ES2020 },
+  }).outputText);
+  const cases = [
+    ["Enter steers", {}, {}, "steer"],
+    ["Alt+Enter follows up", { altKey: true }, {}, "followup"],
+    ["idle Alt+Enter sends", { altKey: true }, { isStreaming: false }, "send"],
+    ["Shift+Enter inserts a newline", { shiftKey: true }, {}, "native"],
+    ["Alt+Shift+Enter keeps native behavior", { altKey: true, shiftKey: true }, {}, "native"],
+    ["composition ref blocks sending", { altKey: true }, { isComposingRef: { current: true } }, "native"],
+    ["native composition blocks sending", { altKey: true, nativeEvent: { isComposing: true } }, {}, "native"],
+    ["IME keyCode blocks sending", { altKey: true, nativeEvent: { keyCode: 229 } }, {}, "native"],
+    ["composition grace blocks sending", { altKey: true }, { lastCompositionEndAtRef: { current: 950 } }, "prevented"],
+    ["mobile Alt+Enter keeps native behavior", { altKey: true }, { isMobile: true }, "native"],
+    ["mobile composition grace cannot send", { altKey: true }, { isMobile: true, lastCompositionEndAtRef: { current: 950 } }, "native"],
+    ["mobile Ctrl+Alt+Enter follows up", { altKey: true, ctrlKey: true }, { isMobile: true }, "followup"],
+    ["mobile Cmd+Alt+Enter follows up", { altKey: true, metaKey: true }, { isMobile: true }, "followup"],
+    ["mobile modified Enter respects composition grace", { altKey: true, ctrlKey: true }, { isMobile: true, lastCompositionEndAtRef: { current: 950 } }, "prevented"],
+    ["Enter falls back to follow-up", {}, { onSteer: undefined }, "followup"],
+    ["Alt+Enter falls back to steer", { altKey: true }, { onFollowUp: undefined }, "steer"],
+    ["slash completion takes priority", { altKey: true }, { slashMenuOpen: true, slashQuery: "help" }, "slash"],
+    ["available built-in commands take priority", { altKey: true }, { slashMenuOpen: true, slashQuery: "copy", value: "/copy", displayedSlashCommands: [{ name: "copy", source: "builtin", availableWhileStreaming: true }] }, "send"],
+    ["file completion takes priority", { altKey: true }, { atMenuOpen: true, atQuery: {} }, "file"],
+    ["history selection takes priority", { altKey: true }, { historyMenuOpen: true }, "history"],
+  ];
+  for (const [name, keys, state, expected] of cases) {
+    let action = "native";
+    const handler = script.runInNewContext({
+      Date: { now: () => 1000 },
+      COMPOSITION_END_ENTER_GRACE_MS: 100,
+      isMobile: false, isStreaming: true,
+      isComposingRef: { current: false }, lastCompositionEndAtRef: { current: 0 },
+      historyMenuOpen: false, inputHistory: ["previous"], historyActiveIndex: 0,
+      slashMenuOpen: false, slashQuery: null, displayedSlashCommands: [{}], slashActiveIndex: 0,
+      atMenuOpen: false, atQuery: null, atMatches: [{}], atActiveIndex: 0,
+      onSteer() {}, onFollowUp() {},
+      sendQueued(mode) { action = mode; }, handleSend() { action = "send"; },
+      applySlashCommand() { action = "slash"; },
+      isExactSlashCommand, value: "", setSlashMenuOpen() {},
+      applyAtCompletion() { action = "file"; },
+      applyHistoryInput() { action = "history"; },
+      ...state,
+    });
+    handler({
+      key: "Enter", shiftKey: false, altKey: false, ctrlKey: false, metaKey: false,
+      nativeEvent: { isComposing: false, keyCode: 13 },
+      preventDefault() { action = "prevented"; },
+      ...keys,
+    });
+    assert.equal(action, expected, name);
+  }
+});
+
+test("shows the follow-up shortcut in the button tooltip", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(I18nProvider, null, React.createElement(ChatInput, {
+      onSend() {}, onAbort() {}, onFollowUp() {}, isStreaming: true,
+    })),
+  );
+
+  assert.match(html, /title="Queue this message after the agent finishes \(Alt\/Option\+Enter\)"/);
+  assert.match(html, /aria-keyshortcuts="Alt\+Enter"/);
+});
+
 test("renders the upstream model error", () => {
   const html = renderToStaticMarkup(
-    React.createElement(ModelErrorBanner, {
-      error: "Invalid models.json schema:\nproviders.custom.models.0.id must not be empty",
-    }),
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ModelErrorBanner, {
+        error: "Invalid models.json schema:\nproviders.custom.models.0.id must not be empty",
+      }),
+    ),
   );
 
   assert.match(html, /role="alert"/);
@@ -26,19 +106,33 @@ test("renders the upstream model error", () => {
 });
 
 test("does not render an empty model error", () => {
-  assert.equal(renderToStaticMarkup(React.createElement(ModelErrorBanner, { error: null })), "");
+  assert.equal(
+    renderToStaticMarkup(
+      React.createElement(I18nProvider, null, React.createElement(ModelErrorBanner, { error: null })),
+    ),
+    "",
+  );
 });
 
 test("renders enabledModels scope warnings", () => {
   const html = renderToStaticMarkup(
-    React.createElement(ModelScopeWarningBanner, {
-      warnings: ['No models match pattern "ghost-gateway/*"'],
-    }),
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ModelScopeWarningBanner, {
+        warnings: ['No models match pattern "ghost-gateway/*"'],
+      }),
+    ),
   );
 
   assert.match(html, /Model scope warning/);
   assert.match(html, /ghost-gateway/);
-  assert.equal(renderToStaticMarkup(React.createElement(ModelScopeWarningBanner, { warnings: [] })), "");
+  assert.equal(
+    renderToStaticMarkup(
+      React.createElement(I18nProvider, null, React.createElement(ModelScopeWarningBanner, { warnings: [] })),
+    ),
+    "",
+  );
 });
 
 test("keeps the model selector visible when a model error leaves no options", () => {
@@ -386,4 +480,63 @@ test("renders compact errors above the input as a wrapping alert", () => {
   assert.match(html, /&lt;html&gt;request forbidden&lt;\/html&gt;/);
   assert.match(html, /white-space:pre-wrap/);
   assert.ok(html.indexOf('role="alert"') < html.indexOf("<textarea"));
+});
+
+test("modelSupportsImageInput warns only when modality info is known and lacks image", () => {
+  const modelList = [
+    { id: "text-only", name: "Text Only", provider: "ollama", input: ["text"] },
+    { id: "vision", name: "Vision", provider: "anthropic", input: ["text", "image"] },
+    { id: "unknown", name: "Unknown", provider: "custom", input: undefined },
+  ];
+
+  assert.equal(modelSupportsImageInput({ provider: "ollama", modelId: "text-only" }, modelList), false);
+  assert.equal(modelSupportsImageInput({ provider: "anthropic", modelId: "vision" }, modelList), true);
+  // Unknown modality info never blocks the user.
+  assert.equal(modelSupportsImageInput({ provider: "custom", modelId: "unknown" }, modelList), true);
+  // Model missing from the list is treated as unknown.
+  assert.equal(modelSupportsImageInput({ provider: "x", modelId: "missing" }, modelList), true);
+  assert.equal(modelSupportsImageInput(null, modelList), true);
+  assert.equal(modelSupportsImageInput({ provider: "ollama", modelId: "text-only" }, undefined), true);
+});
+
+test("renders image warnings for known text-only defaults without an explicit model selection", () => {
+  const draftKey = "new:/tmp/image-warning-default";
+  const modelList = [
+    { id: "text-only", name: "Text Only", provider: "custom", input: ["text"] },
+    { id: "vision", name: "Vision", provider: "custom", input: ["text", "image"] },
+    { id: "unknown", name: "Unknown", provider: "custom" },
+  ];
+  setDraft(draftKey, {
+    value: "Describe this image",
+    images: [{ data: "aW1hZ2U=", mimeType: "image/png" }],
+  });
+
+  try {
+    for (const [modelId, warningExpected] of [["text-only", true], ["vision", false], ["unknown", false], [null, false]]) {
+      const html = renderToStaticMarkup(
+        React.createElement(
+          I18nProvider,
+          null,
+          React.createElement(ChatInput, {
+            onSend() {},
+            onAbort() {},
+            isStreaming: false,
+            isAutoModelSelection: true,
+            model: modelId ? { provider: "custom", modelId } : null,
+            modelList,
+            draftKey,
+          }),
+        ),
+      );
+
+      assert.match(html, /<img/);
+      assert.equal(html.includes("Images may not be sent"), warningExpected, `default model: ${modelId}`);
+      if (warningExpected) {
+        assert.match(html, /The selected model \(Text Only\) does not support image input/);
+        assert.ok(html.indexOf('role="alert"') < html.indexOf("<textarea"));
+      }
+    }
+  } finally {
+    clearDraft(draftKey);
+  }
 });
