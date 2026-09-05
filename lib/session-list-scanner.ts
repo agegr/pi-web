@@ -1,15 +1,7 @@
-// Incremental session-list scanner replacing SessionManager.listAll() for
-// /api/sessions. The SDK's listAll parses every byte of every session file on
-// every cache miss (~9.5 GiB / ~70s at 2k sessions) to build allMessagesText,
-// which pi-web never reads. This scanner produces bit-identical values for the
-// fields pi-web DOES use, memoized per file:
-//
-//   Invariant: a session file is append-only (pi only appends lines, or
-//   rewrites wholesale via migration/fork — either way size+mtimeMs changes).
-//   Therefore fingerprint (size, mtimeMs) unchanged => bytes unchanged =>
-//   memoized info === fresh scan result. A changed/deleted/new file is always
-//   rescanned/dropped/added, so the incremental result equals a full rescan
-//   by construction. The equivalence is asserted by session-reader.test.mjs.
+// Cache session-list metadata without building the SDK's unused allMessagesText.
+// New and changed files still require a full scan; unchanged files only need stat.
+// ponytail: size/mtime fingerprints miss same-size edits with restored mtime;
+// use content hashes if detecting those edits becomes necessary.
 import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import type { Dirent } from "node:fs";
@@ -41,6 +33,10 @@ interface IndexEntry {
 }
 
 type RawEntry = Record<string, unknown>;
+
+function isRecord(value: unknown): value is RawEntry {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 
 const INDEX_FORMAT_VERSION = 1;
 
@@ -91,8 +87,7 @@ function activityTimeOf(entry: RawEntry): number | undefined {
 	return Number.isNaN(t) ? undefined : t;
 }
 
-// Mirrors the SDK's buildSessionInfo() line semantics exactly (same fallbacks,
-// same rejection rules), minus allMessagesText which pi-web never consumes.
+// Uses the SDK's buildSessionInfo() semantics for displayed metadata.
 export async function scanSessionFileInfo(
 	filePath: string,
 ): Promise<ScannedSessionInfo | null> {
@@ -203,7 +198,7 @@ async function enumerateSessionFiles(sessionsDir: string): Promise<string[]> {
 			// unreadable project dir: same skip-as-absent semantics as the SDK
 		}
 	}
-	return files.sort();
+	return files;
 }
 
 const MAX_CONCURRENT_SCANS = 10;
@@ -236,19 +231,39 @@ function loadPersistedIndex(): void {
 	const path = indexFilePath();
 	if (!existsSync(path)) return;
 	try {
-		const parsed = JSON.parse(readFileSync(path, "utf8")) as {
-			version?: number;
-			entries?: Record<string, { fp: Fingerprint; info: ScannedSessionInfo }>;
-		};
-		if (parsed.version !== INDEX_FORMAT_VERSION || !parsed.entries) return;
+		const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+		if (!isRecord(parsed) || parsed.version !== INDEX_FORMAT_VERSION || !isRecord(parsed.entries)) return;
 		const index = getIndex();
 		for (const [pathKey, entry] of Object.entries(parsed.entries)) {
+			if (!isRecord(entry) || !isRecord(entry.fp) || !isRecord(entry.info)) continue;
+			const { fp, info } = entry;
+			if (
+				typeof fp.size !== "number" || !Number.isSafeInteger(fp.size) || fp.size < 0 ||
+				typeof fp.mtimeMs !== "number" || !Number.isFinite(fp.mtimeMs) ||
+				info.path !== pathKey ||
+				typeof info.id !== "string" ||
+				typeof info.cwd !== "string" ||
+				typeof info.firstMessage !== "string" ||
+				(info.name !== undefined && typeof info.name !== "string") ||
+				(info.parentSessionPath !== undefined && typeof info.parentSessionPath !== "string") ||
+				typeof info.messageCount !== "number" || !Number.isSafeInteger(info.messageCount) || info.messageCount < 0 ||
+				typeof info.created !== "string" || typeof info.modified !== "string"
+			) continue;
+			const created = new Date(info.created);
+			const modified = new Date(info.modified);
+			if (!Number.isFinite(created.getTime()) || !Number.isFinite(modified.getTime())) continue;
 			index.set(pathKey, {
-				fp: entry.fp,
+				fp: { size: fp.size, mtimeMs: fp.mtimeMs },
 				info: {
-					...entry.info,
-					created: new Date(entry.info.created),
-					modified: new Date(entry.info.modified),
+					path: pathKey,
+					id: info.id,
+					cwd: info.cwd,
+					name: info.name,
+					parentSessionPath: info.parentSessionPath,
+					firstMessage: info.firstMessage,
+					messageCount: info.messageCount,
+					created,
+					modified,
 				},
 			});
 		}
@@ -308,9 +323,9 @@ export async function listSessionsIncremental(): Promise<ScannedSessionInfo[]> {
 		}),
 	);
 
-	const changed: Array<{ filePath: string; fp: Fingerprint }> = [];
-	const results: ScannedSessionInfo[] = [];
-	for (const { filePath, fp } of fingerprints) {
+	const changed: Array<{ filePath: string; fp: Fingerprint; resultIndex: number }> = [];
+	const results: (ScannedSessionInfo | null)[] = new Array(files.length).fill(null);
+	for (const [resultIndex, { filePath, fp }] of fingerprints.entries()) {
 		if (!fp) {
 			index.delete(filePath);
 			continue;
@@ -321,17 +336,17 @@ export async function listSessionsIncremental(): Promise<ScannedSessionInfo[]> {
 			cached.fp.size === fp.size &&
 			cached.fp.mtimeMs === fp.mtimeMs
 		) {
-			results.push(cached.info);
+			results[resultIndex] = cached.info;
 			continue;
 		}
-		changed.push({ filePath, fp });
+		changed.push({ filePath, fp, resultIndex });
 	}
 
-	await runPool(changed, async ({ filePath, fp }) => {
+	await runPool(changed, async ({ filePath, fp, resultIndex }) => {
 		const info = await scanSessionFileInfo(filePath);
 		if (info) {
 			index.set(filePath, { fp, info });
-			results.push(info);
+			results[resultIndex] = info;
 		} else {
 			index.delete(filePath);
 		}
@@ -339,8 +354,10 @@ export async function listSessionsIncremental(): Promise<ScannedSessionInfo[]> {
 
 	if (changed.length > 0 || stale.length > 0) queueIndexPersist();
 
-	results.sort((a, b) => b.modified.getTime() - a.modified.getTime());
-	return results;
+	// Preserve catalogue order for timestamp ties, independently of cache hits
+	// and the order in which concurrent file reads complete.
+	return results.filter((info) => info !== null)
+		.sort((a, b) => b.modified.getTime() - a.modified.getTime());
 }
 
 /** Test seam: drop all in-memory index state. */
