@@ -15,7 +15,8 @@ function findFrontmatterBlock(content: string): FrontmatterBlock | undefined {
   if (!opening) return undefined;
 
   const rest = content.slice(opening[0].length);
-  const closing = new RegExp(`(^|${NEWLINE})---[ \\t]*(?=${NEWLINE}|$)`).exec(rest);
+  // Pi SDK closes frontmatter at the first line starting with ---.
+  const closing = new RegExp(`(^|${NEWLINE})---`).exec(rest);
   if (!closing) return undefined;
 
   return {
