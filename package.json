@@ -34,6 +34,7 @@
     "start": "next start -H 127.0.0.1 -p 30141",
     "start:lan": "next start -H 0.0.0.0 -p 30141",
     "lint": "eslint .",
+    "test:e2e": "node e2e/run.mjs",
     "test": "node --experimental-strip-types --test \"app/**/*.test.mjs\" \"components/**/*.test.mjs\" \"hooks/**/*.test.mjs\" \"lib/**/*.test.mjs\" \"public/**/*.test.mjs\"",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
   },
@@ -49,6 +50,7 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "remark-frontmatter": "^5.0.0",
+    "semver": "7.8.0",
     "undici": "8.10.0",
     "web-push": "^3.6.7"
   },
@@ -60,6 +62,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "@types/semver": "7.8.0",
     "@types/web-push": "^3.6.4",
     "eslint": "^9",
     "eslint-config-next": "16.3.1",
@@ -67,6 +70,7 @@
     "katex": "^0.16.47",
     "mammoth": "^1.12.0",
     "mermaid": "^11.16.1",
+    "playwright": "^1.62.1",
     "postcss": "^8.5.26",
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.1",

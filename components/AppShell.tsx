@@ -129,6 +129,10 @@ export function AppShell() {
   const [initialCwdError, setInitialCwdError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [sessionKey, setSessionKey] = useState(0);
+  const [searchTarget, setSearchTarget] = useState<{ sessionId: string; entryId: string; blockIndex?: number } | null>(null);
+  const handleSearchTargetHandled = useCallback((target: { sessionId: string; entryId: string }) => {
+    setSearchTarget((current) => current === target ? null : current);
+  }, []);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
@@ -610,12 +614,22 @@ export function AppShell() {
       // the default welcome page when none is remembered.
       restoreWorkspaceContext(newProject);
     }
-    router.replace("/", { scroll: false });
+    router.replace(typeof window !== "undefined" ? window.location.pathname : "/", { scroll: false });
   }, [activeCwd, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);
 
-  const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
+  const handleSelectSession = useCallback((session: SessionInfo, isRestore = false, entryId?: string, blockIndex?: number) => {
+    setSearchTarget(entryId ? { sessionId: session.id, entryId, blockIndex } : null);
     invalidateWorkspaceRestore();
     activeNewSessionDraftKeyRef.current = null;
+    // Adopt an explicitly selected session before the sidebar reports its cwd.
+    const projectKey = workspaceKeyOf(session);
+    if (activeProjectKeyRef.current !== projectKey) {
+      setFileTabs([]);
+      setActiveFileTabId(null);
+      setRightPanelOpen(false);
+      setActiveTopPanel(null);
+    }
+    activeProjectKeyRef.current = projectKey;
     // Re-clicking the already-open session must not remount the chat and
     // re-run the full load/positioning cycle. Only skip when the effective
     // cwd context already matches — otherwise a pending cwd move still needs
@@ -667,7 +681,7 @@ export function AppShell() {
     setSystemInfoLoading(false);
     setActiveTopPanel(null);
     if (isMobile) setSidebarOpen(false);
-    router.replace("/", { scroll: false });
+    router.replace(typeof window !== "undefined" ? window.location.pathname : "/", { scroll: false });
   }, [invalidateWorkspaceRestore, router, isMobile]);
 
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
@@ -867,7 +881,7 @@ export function AppShell() {
       setSystemTools(null);
       setSystemInfoLoading(false);
       setActiveTopPanel(null);
-      router.replace("/", { scroll: false });
+      router.replace(typeof window !== "undefined" ? window.location.pathname : "/", { scroll: false });
     }
   }, [invalidateWorkspaceRestore, selectedSession, router]);
 
@@ -2259,6 +2273,8 @@ export function AppShell() {
             <ChatWindow
               key={sessionKey}
               session={selectedSession}
+              searchTarget={searchTarget?.sessionId === selectedSession?.id ? searchTarget : null}
+              onSearchTargetHandled={handleSearchTargetHandled}
               sessionRunning={Boolean(selectedSession && runningSessionIds.has(selectedSession.id))}
               newSessionCwd={effectiveNewSessionCwd}
               newSessionDraftKey={newSessionDraftKey}
