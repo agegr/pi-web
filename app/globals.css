@@ -34,6 +34,8 @@
   --assistant-bg: #ffffff;
   --tool-bg: #f9fafb;
   --bg-subtle: rgba(0,0,0,0.03);
+  --chat-content-max-width: 820px;
+  --chat-content-font-size: 14px;
 }
 
 html.dark {
@@ -463,11 +465,15 @@ pre, code {
 }
 
 /* react-markdown output styles */
+.chat-content {
+  --chat-font-size-offset: calc(var(--chat-content-font-size, 14px) - 14px);
+}
+
 .markdown-body {
   min-width: 0;
   max-width: 100%;
   overflow-x: hidden;
-  font-size: 14px;
+  font-size: calc(14px + var(--chat-font-size-offset, 0px));
   line-height: 1.7;
   color: var(--text);
   word-break: break-word;
@@ -586,7 +592,7 @@ pre, code {
   border-collapse: separate;
   border-spacing: 0;
   min-width: 100%;
-  font-size: 13px;
+  font-size: calc(13px + var(--chat-font-size-offset, 0px));
 }
 .markdown-table-wrap > table { width: max-content; }
 .markdown-body th, .markdown-body td {
@@ -1528,5 +1534,8 @@ span.token.table {
   input,
   select {
     font-size: 16px !important;
+  }
+  .chat-input-textarea {
+    font-size: max(16px, var(--chat-content-font-size, 14px)) !important;
   }
 }
