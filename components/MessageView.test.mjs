@@ -10,6 +10,7 @@ const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const {
   MessageView,
+  ThinkingBlock,
   getTokenEstimateText,
   getToolCallInputText,
   replaceUserMessageText,
@@ -25,6 +26,30 @@ function renderMessage(message, props = {}) {
     ),
   );
 }
+
+test("renders standalone thinking with the saved default and accessible disclosure state", () => {
+  const previousWindow = globalThis.window;
+  try {
+    for (const expanded of [false, true]) {
+      globalThis.window = { localStorage: { getItem: () => String(expanded) } };
+      const html = renderToStaticMarkup(React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(ThinkingBlock, {
+          block: { type: "thinking", thinking: "Independent reasoning" },
+          blockIndex: 2,
+          duration: 3,
+        }),
+      ));
+      assert.match(html, new RegExp(`aria-expanded="${expanded}"`));
+      assert.equal(html.includes("Independent reasoning"), expanded);
+      assert.match(html, /3s/);
+    }
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});
 
 test("keeps streamed tool input out of collapsed markup while counting it", () => {
   const block = {

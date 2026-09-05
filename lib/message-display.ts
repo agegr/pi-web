@@ -45,3 +45,14 @@ export function splitFinalAssistantBlocks(
 export function countToolCallBlocks(blocks: AssistantContentBlock[]): number {
   return blocks.filter((block): block is ToolCallContent => block.type === "toolCall").length;
 }
+
+export function splitThinkingBlocks(blocks: AssistantContentBlock[]): { thinking: boolean; blocks: AssistantContentBlock[] }[] {
+  const groups: { thinking: boolean; blocks: AssistantContentBlock[] }[] = [];
+  for (const block of blocks) {
+    const thinking = block.type === "thinking";
+    const previous = groups.at(-1);
+    if (previous?.thinking === thinking) previous.blocks.push(block);
+    else groups.push({ thinking, blocks: [block] });
+  }
+  return groups;
+}

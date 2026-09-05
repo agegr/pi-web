@@ -4,9 +4,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks, splitThinkingBlocks } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
-import { MessageView } from "./MessageView";
+import { MessageView, ThinkingBlock } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
@@ -168,23 +168,6 @@ function getUserInputText(message: AgentMessage): string | null {
     .join("\n")
     .trim();
   return text.length > 0 ? text : null;
-}
-
-function countToolCalls(messages: AgentMessage[], indices: number[]): number {
-  let count = 0;
-  for (const idx of indices) {
-    const msg = messages[idx];
-    if (msg?.role !== "assistant") continue;
-    count += countToolCallBlocks(getDisplayableAssistantBlocks(msg as AssistantMessage));
-  }
-  return count;
-}
-
-function hasDisplayableProcessMessage(message: AgentMessage): boolean {
-  if (message.role === "assistant") {
-    return getDisplayableAssistantBlocks(message as AssistantMessage).length > 0;
-  }
-  return message.role === "custom";
 }
 
 // A user message normally anchors a turn (user prompt → process → final
@@ -841,46 +824,79 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
 
                 rendered.push(renderMessage(userIdx));
 
-                const processIndices: number[] = [];
-                for (let processIdx = userIdx + 1; processIdx < finalAssistantIdx; processIdx++) {
-                  processIndices.push(processIdx);
-                }
-                const visibleProcessIndices = processIndices.filter((processIdx) => hasDisplayableProcessMessage(messages[processIdx]));
                 const finalAssistant = messages[finalAssistantIdx] as AssistantMessage;
                 const finalSplit = splitFinalAssistantBlocks(finalAssistant);
-                const finalProcessMessage = finalSplit.processBlocks.length > 0
-                  ? withAssistantBlocks(finalAssistant, finalSplit.processBlocks, { omitUsage: true })
-                  : null;
                 const finalAnswerMessage = finalSplit.answerBlocks.length > 0 || getAssistantErrorMessage(finalAssistant)
                   ? withAssistantBlocks(finalAssistant, finalSplit.answerBlocks)
                   : null;
 
-                const processCount = visibleProcessIndices.length + (finalProcessMessage ? 1 : 0);
-                if (processCount > 0) {
-                  const processRefIdx = visibleProcessIndices
-                    .map((processIdx) => visibleRefIndexByMessage.get(processIdx))
-                    .find((value): value is number => typeof value === "number")
-                    ?? (finalAnswerMessage ? undefined : visibleRefIndexByMessage.get(finalAssistantIdx));
-                  const processGroup = (
-                    <ProcessDetailsGroup
-                      messageCount={processCount}
-                      defaultExpanded={!finalAnswerMessage}
-                      t={t}
-                      toolCallCount={countToolCalls(messages, visibleProcessIndices) + countToolCallBlocks(finalSplit.processBlocks)}
-                    >
-                      {visibleProcessIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }))}
-                      {finalProcessMessage && renderMessage(finalAssistantIdx, { attachRef: false, keyPrefix: "process-final", messageOverride: finalProcessMessage, showTimestamp: false })}
-                    </ProcessDetailsGroup>
-                  );
+                let processViews: ReactNode[] = [];
+                let processToolCount = 0;
+                let processRefIdx: number | undefined;
+                let processKey = "";
+                const flushProcess = () => {
+                  if (processViews.length === 0) return;
+                  const refIndex = processRefIdx;
                   rendered.push(
                     <div
-                      key={`process-group-${userIdx}-${finalAssistantIdx}`}
-                      ref={processRefIdx === undefined ? undefined : (el) => { messageRefs.current[processRefIdx] = el; }}
+                      key={`process-group-${processKey}`}
+                      ref={refIndex === undefined ? undefined : (el) => { messageRefs.current[refIndex] = el; }}
                     >
-                      {processGroup}
+                      <ProcessDetailsGroup messageCount={processViews.length} toolCallCount={processToolCount} defaultExpanded={!finalAnswerMessage} t={t}>
+                        {processViews}
+                      </ProcessDetailsGroup>
                     </div>,
                   );
+                  processViews = [];
+                  processToolCount = 0;
+                  processRefIdx = undefined;
+                };
+
+                // Flush each process segment before its next thinking block so
+                // reasoning stays outside the fold without reordering the turn.
+                for (let processIdx = userIdx + 1; processIdx <= finalAssistantIdx; processIdx++) {
+                  const processMessage = messages[processIdx];
+                  const messageKey = entryIds[processIdx] ?? processIdx;
+                  if (processMessage.role === "custom") {
+                    if (processViews.length === 0) processKey = String(messageKey);
+                    processViews.push(renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }));
+                    continue;
+                  }
+                  if (processMessage.role !== "assistant") continue;
+                  const blocks = processIdx === finalAssistantIdx ? finalSplit.processBlocks : getDisplayableAssistantBlocks(processMessage);
+                  const groups = splitThinkingBlocks(blocks);
+                  const lastProcessGroup = groups.findLast((group) => !group.thinking);
+                  for (const group of groups) {
+                    const blockIndex = processMessage.content.indexOf(group.blocks[0]);
+                    const key = `${messageKey}-${blockIndex}`;
+                    if (group.thinking) {
+                      flushProcess();
+                      const previousTimestamp = messages[processIdx - 1]?.timestamp;
+                      const duration = processMessage.timestamp && previousTimestamp
+                        ? Math.round((processMessage.timestamp - previousTimestamp) / 1000)
+                        : 0;
+                      const refIndex = visibleRefIndexByMessage.get(processIdx);
+                      rendered.push(
+                        <div key={`thinking-${key}`} style={{ marginBottom: 16, display: "flex", flexDirection: "column", gap: 8 }} ref={refIndex === undefined ? undefined : (el) => { messageRefs.current[refIndex] = el; }}>
+                          {group.blocks.map((block) => block.type === "thinking" && (
+                            <ThinkingBlock key={processMessage.content.indexOf(block)} block={block} blockIndex={processMessage.content.indexOf(block)} entryId={entryIds[processIdx]} sessionId={session?.id ?? sessionIdRef.current ?? undefined} duration={duration > 0 ? duration : undefined} />
+                          ))}
+                        </div>,
+                      );
+                    } else {
+                      if (processViews.length === 0) processKey = key;
+                      processRefIdx ??= visibleRefIndexByMessage.get(processIdx);
+                      processToolCount += countToolCallBlocks(group.blocks);
+                      processViews.push(renderMessage(processIdx, {
+                        attachRef: false,
+                        keyPrefix: `process-${blockIndex}`,
+                        messageOverride: withAssistantBlocks(processMessage, group.blocks, { omitUsage: processIdx === finalAssistantIdx || group !== lastProcessGroup }),
+                        showTimestamp: false,
+                      }));
+                    }
+                  }
                 }
+                flushProcess();
 
                 if (finalAnswerMessage) {
                   // Each tool call is stored as its own assistant entry, so the

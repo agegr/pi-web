@@ -118,7 +118,7 @@ function GeneralSettings({ sessionId, onSessionReloaded }: Pick<Props, "sessionI
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("settings.thinkingDisplay")}</h3>
         <p className="settings-general-description">{t("settings.thinkingDisplayDescription")}</p>
-        <div className="settings-shell-option">
+        <div className="settings-toggle-option">
           <span>{t("settings.thinkingExpandedDefault")}</span>
           <ConfigSwitch
             checked={thinkingExpanded}
