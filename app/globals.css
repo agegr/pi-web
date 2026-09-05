@@ -479,10 +479,10 @@ pre, code {
 .markdown-body table {
   border-collapse: separate;
   border-spacing: 0;
-  width: max-content;
   min-width: 100%;
   font-size: 13px;
 }
+.markdown-table-wrap > table { width: max-content; }
 .markdown-body th, .markdown-body td {
   border: 0;
   border-bottom: 1px solid var(--border);
