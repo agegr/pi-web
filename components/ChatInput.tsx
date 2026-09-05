@@ -873,10 +873,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const hasInputText = Boolean(value.trim());
   const canQueueStreamingMessage = hasInputText || attachedImages.length > 0;
   // Warn when images are attached but the selected model is known not to accept
-  // image input (#584). Unknown modality info and auto model selection stay silent.
+  // image input (#584), including a resolved default. Unknown models stay silent.
   const showImageUnsupportedWarning = (
     attachedImages.length > 0
-    && !isAutoModelSelection
     && !modelSupportsImageInput(model, modelList)
     && !imageWarningDismissed
   );

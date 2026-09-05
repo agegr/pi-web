@@ -404,3 +404,45 @@ test("modelSupportsImageInput warns only when modality info is known and lacks i
   assert.equal(modelSupportsImageInput(null, modelList), true);
   assert.equal(modelSupportsImageInput({ provider: "ollama", modelId: "text-only" }, undefined), true);
 });
+
+test("renders image warnings for known text-only defaults without an explicit model selection", () => {
+  const draftKey = "new:/tmp/image-warning-default";
+  const modelList = [
+    { id: "text-only", name: "Text Only", provider: "custom", input: ["text"] },
+    { id: "vision", name: "Vision", provider: "custom", input: ["text", "image"] },
+    { id: "unknown", name: "Unknown", provider: "custom" },
+  ];
+  setDraft(draftKey, {
+    value: "Describe this image",
+    images: [{ data: "aW1hZ2U=", mimeType: "image/png" }],
+  });
+
+  try {
+    for (const [modelId, warningExpected] of [["text-only", true], ["vision", false], ["unknown", false], [null, false]]) {
+      const html = renderToStaticMarkup(
+        React.createElement(
+          I18nProvider,
+          null,
+          React.createElement(ChatInput, {
+            onSend() {},
+            onAbort() {},
+            isStreaming: false,
+            isAutoModelSelection: true,
+            model: modelId ? { provider: "custom", modelId } : null,
+            modelList,
+            draftKey,
+          }),
+        ),
+      );
+
+      assert.match(html, /<img/);
+      assert.equal(html.includes("Images may not be sent"), warningExpected, `default model: ${modelId}`);
+      if (warningExpected) {
+        assert.match(html, /The selected model \(Text Only\) does not support image input/);
+        assert.ok(html.indexOf('role="alert"') < html.indexOf("<textarea"));
+      }
+    }
+  } finally {
+    clearDraft(draftKey);
+  }
+});
