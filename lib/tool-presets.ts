@@ -2,6 +2,8 @@ export interface ToolEntry {
   name: string;
   description: string;
   active: boolean;
+  parameters?: Record<string, unknown>;
+  promptGuidelines?: string[];
 }
 
 export const TOOL_PRESET_VALUES = ["none", "read-only", "default", "full"] as const;
@@ -12,7 +14,7 @@ export const PRESET_READ_ONLY: string[] = ["read", "grep", "find", "ls"];
 export const PRESET_DEFAULT: string[] = ["read", "bash", "edit", "write"];
 export const PRESET_FULL: string[] = ["bash", "read", "edit", "write", "grep", "find", "ls"];
 
-const BUILTIN_TOOL_NAMES = new Set(PRESET_FULL);
+const BUILTIN_TOOL_NAMES = new Set([...PRESET_FULL, "powershell"]);
 
 export function isToolPreset(value: unknown): value is ToolPreset {
   return typeof value === "string" && (TOOL_PRESET_VALUES as readonly string[]).includes(value);
@@ -20,10 +22,14 @@ export function isToolPreset(value: unknown): value is ToolPreset {
 
 export function getPresetFromTools(tools: ToolEntry[]): ToolPreset {
   const activeTools = tools.filter((t) => t.active);
-  if (activeTools.length === 0) return "none";
+  return getPresetFromToolNames(activeTools.map((tool) => tool.name));
+}
 
-  const active = activeTools
-    .map((t) => t.name)
+export function getPresetFromToolNames(toolNames: readonly string[]): ToolPreset {
+  if (toolNames.length === 0) return "none";
+
+  const active = toolNames
+    .map((name) => name === "powershell" ? "bash" : name)
     .filter((name) => BUILTIN_TOOL_NAMES.has(name))
     .sort()
     .join(",");

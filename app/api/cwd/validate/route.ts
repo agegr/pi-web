@@ -3,6 +3,8 @@ import { statSync, type Stats } from "fs";
 import { homedir } from "os";
 import { isAbsolute, resolve } from "path";
 import { allowFileRoot } from "@/lib/file-access";
+import { projectIdentityKey } from "@/lib/project-identity";
+import { resolveProject } from "@/lib/worktree";
 
 function normalizeCwd(cwd: string): string {
   if (cwd === "~") return homedir();
@@ -34,7 +36,13 @@ export async function POST(req: Request) {
     }
 
     allowFileRoot(normalizedCwd);
-    return NextResponse.json({ success: true, cwd: normalizedCwd });
+    const project = await resolveProject(normalizedCwd);
+    return NextResponse.json({
+      success: true,
+      cwd: normalizedCwd,
+      projectRoot: project.projectRoot,
+      projectKey: projectIdentityKey(project.projectRoot),
+    });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

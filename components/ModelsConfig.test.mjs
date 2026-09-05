@@ -14,6 +14,28 @@ const {
 } = await jiti.import("./models-config-helpers.ts");
 
 const source = await readFile(new URL("./ModelsConfig.tsx", import.meta.url), "utf8");
+const cssSource = await readFile(new URL("../app/settings.css", import.meta.url), "utf8");
+
+test("uses shared sidebar sizing for providers and matching indented model rows", () => {
+  const sidebar = source.slice(source.indexOf("<ConfigSidebar>"), source.indexOf("</ConfigSidebar>"));
+
+  assert.match(sidebar, /<ConfigSidebarItem[\s\S]*?active=\{isSelected\}/);
+  assert.match(sidebar, /<ConfigSidebarItem[\s\S]*?active=\{isProviderSelected\}/);
+  assert.match(sidebar, /className="models-sidebar-indented-item"/);
+  assert.match(sidebar, /className="models-sidebar-indented-item models-sidebar-add-item"/);
+  assert.match(cssSource, /\.models-sidebar-indented-item \{[\s\S]*?padding-left: 26px/);
+});
+
+test("ignores malformed auth provider responses", () => {
+  assert.match(
+    source,
+    /if \(Array\.isArray\(d\.oauthProviders\)\) setOauthProviders\(d\.oauthProviders\)/,
+  );
+  assert.match(
+    source,
+    /if \(Array\.isArray\(d\.apiKeyProviders\)\) setApiKeyProviders\(d\.apiKeyProviders\)/,
+  );
+});
 
 test("custom model config exposes provider-level request headers", () => {
   const providerDetail = source.slice(

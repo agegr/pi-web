@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { AnsiText } from "@/components/AnsiText";
 import type { ExtensionWidgetItem } from "@/lib/types";
 
 export const DEFAULT_EXPANDED_WIDGET_LINES = 3;
@@ -105,7 +106,7 @@ export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }
 
   const expandedWidget = widgets.find((widget) => (
     widget.key === expandedWidgetKey
-    && widget.lines.length > 1
+    && widget.lines.length > 0
   ));
 
   const toggleWidget = (widget: ExtensionWidgetItem) => {
@@ -130,7 +131,7 @@ export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }
               >
                 <div className="extension-widget-panel-heading">{widget.key}</div>
                 <pre className="extension-widget-content">
-                  {formatExtensionWidgetContent(widget.lines)}
+                  <AnsiText text={formatExtensionWidgetContent(widget.lines)} />
                 </pre>
               </section>
             );
@@ -139,7 +140,7 @@ export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }
       )}
       <div className="extension-widget-triggers" aria-label={t("chat.extensionWidgets")}>
         {widgets.map((widget, index) => {
-          const expandable = widget.lines.length > 1;
+          const expandable = widget.lines.length > 0;
           const expanded = expandable && widget.key === expandedWidget?.key;
           const updating = updatingWidgetKeys.has(widget.key);
           const lineCountLabel = t(

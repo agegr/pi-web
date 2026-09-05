@@ -7,16 +7,6 @@ export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ provider: string }> };
 
-// GET /api/auth/api-key/[provider] — returns auth status (never returns the actual key)
-export async function GET(_req: Request, { params }: Params) {
-  const { provider } = await params;
-  const modelRuntime = await ModelRuntime.create();
-  const status = modelRuntime.getProviderAuthStatus(provider);
-  const displayName = modelRuntime.getProvider(provider)?.name ?? provider;
-  const models = modelRuntime.getModels(provider).length;
-  return NextResponse.json({ provider, displayName, configured: status.configured, source: status.source, models });
-}
-
 // POST /api/auth/api-key/[provider]  body: { apiKey: string }
 export async function POST(req: Request, { params }: Params) {
   const { provider } = await params;

@@ -119,13 +119,13 @@ function nextPreference(preference: ThemePreference): ThemePreference {
 export function useTheme() {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
-  const toggleTheme = useCallback((origin?: ToggleOrigin) => {
+  const setThemePreference = useCallback((nextPreference: ThemePreference, origin?: ToggleOrigin) => {
     const current = ensureState();
-    const nextPref = nextPreference(current.preference);
-    const nextTheme = resolveTheme(nextPref);
+    if (current.preference === nextPreference) return;
+    const nextTheme = resolveTheme(nextPreference);
 
     const apply = () => {
-      setThemeState(nextPref, nextTheme, true);
+      setThemeState(nextPreference, nextTheme, true);
     };
 
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -165,9 +165,15 @@ export function useTheme() {
       });
   }, []);
 
+  const toggleTheme = useCallback((origin?: ToggleOrigin) => {
+    const current = ensureState();
+    setThemePreference(nextPreference(current.preference), origin);
+  }, [setThemePreference]);
+
   return {
     theme: snapshot.theme,
     preference: snapshot.preference,
+    setThemePreference,
     toggleTheme,
     isDark: snapshot.theme === "dark",
   };

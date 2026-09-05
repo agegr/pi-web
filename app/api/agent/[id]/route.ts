@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
-import { startRpcSession, getRpcSession } from "@/lib/rpc-manager";
+import { startRpcSession, getRpcSession, setRpcSessionTools } from "@/lib/rpc-manager";
 
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
@@ -14,9 +14,28 @@ export async function POST(
   try {
     const body = await req.json() as { type: string; [key: string]: unknown };
     commandType = typeof body.type === "string" ? body.type : undefined;
+    const requestedToolNames = body.toolNames;
+    if (
+      requestedToolNames !== undefined
+      && (!Array.isArray(requestedToolNames) || requestedToolNames.some((name) => typeof name !== "string"))
+    ) {
+      throw new Error("toolNames must be an array of strings");
+    }
+    const toolNames = requestedToolNames as string[] | undefined;
 
     // Fast path: already-running session
     const existing = getRpcSession(id);
+    if (body.type === "set_tools") {
+      const filePath = existing?.sessionFile || await resolveSessionPath(id) || undefined;
+      if (!existing?.isAlive() && !filePath) {
+        return NextResponse.json({ error: "Session not found" }, { status: 404 });
+      }
+      const changed = await setRpcSessionTools(id, filePath, toolNames);
+      return NextResponse.json({
+        success: true,
+        data: { sessionId: changed.sessionId, recreated: changed.recreated },
+      });
+    }
     if (existing?.isAlive()) {
       const result = await existing.send(body);
       promptAccepted = body.type === "prompt";
@@ -33,7 +52,9 @@ export async function POST(
       }, { status: 404 });
     }
 
-    const { session } = await startRpcSession(id, filePath, undefined);
+    const { session } = await startRpcSession(id, filePath, undefined, {
+      ...(toolNames !== undefined ? { toolNames } : {}),
+    });
     const result = await session.send(body);
     promptAccepted = body.type === "prompt";
 

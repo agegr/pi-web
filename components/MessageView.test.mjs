@@ -1,25 +1,174 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import React from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { MessageView, replaceUserMessageText } = await jiti.import("./MessageView.tsx");
-const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
+const React = await jiti.import("react");
+const { renderToStaticMarkup } = await jiti.import("react-dom/server");
+const {
+  MessageView,
+  ThinkingBlock,
+  getTokenEstimateText,
+  getToolCallInputText,
+  replaceUserMessageText,
+} = await jiti.import("./MessageView.tsx");
+const { I18nProvider } = await jiti.import("@/hooks/useI18n");
+const { splitFinalAssistantBlocks } = await jiti.import("@/lib/message-display");
 
-function renderMessage(message) {
+function renderMessage(message, props = {}) {
   return renderToStaticMarkup(
     React.createElement(
       I18nProvider,
       null,
-      React.createElement(MessageView, { message }),
+      React.createElement(MessageView, { message, ...props }),
     ),
   );
 }
+
+test("updates a reused message when its written files change", () => {
+  const props = { message: { role: "assistant", content: [] } };
+  assert.equal(MessageView.compare(props, props), true);
+  assert.equal(MessageView.compare(props, { ...props, writtenFiles: [{ path: "/tmp/result.txt" }] }), false);
+});
+
+test("previews the first thinking line and reveals the full text with the saved default", () => {
+  const previousWindow = globalThis.window;
+  try {
+    for (const expanded of [false, true]) {
+      globalThis.window = { localStorage: { getItem: () => String(expanded) } };
+      const html = renderToStaticMarkup(React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(ThinkingBlock, {
+          block: { type: "thinking", thinking: "**Independent reasoning**\n\nDetailed second line." },
+          blockIndex: 2,
+          duration: 3,
+        }),
+      ));
+      assert.match(html, new RegExp(`aria-expanded="${expanded}"`));
+      assert.equal((html.match(/>[^<]*Independent reasoning[^<]*</g) ?? []).length, 1);
+      assert.equal(html.includes("Detailed second line."), expanded);
+      assert.match(html, /aria-label="Thinking: /);
+      assert.match(html, /3s/);
+    }
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});
+
+test("shows deferred thinking previews without loading the full content", () => {
+  const html = renderMessage({
+    role: "assistant",
+    content: [{ type: "thinking", thinking: "Historical first line", deferred: true }],
+  });
+  assert.match(html, />Historical first line<\/span>/);
+  assert.match(html, /aria-expanded="false"/);
+});
+
+test("marks only the matched text block after splitting thinking and the final answer", () => {
+  const message = {
+    role: "assistant",
+    content: [
+      { type: "thinking", thinking: "" },
+      { type: "thinking", thinking: "Thinking about the result" },
+      { type: "text", text: "Process text" },
+      { type: "toolCall", toolCallId: "read-1", toolName: "read", input: {} },
+      { type: "text", text: "First answer" },
+      { type: "text", text: "Matched pi-cwd-spark answer" },
+    ],
+  };
+  const { processBlocks, answerBlocks } = splitFinalAssistantBlocks(message);
+  for (const index of [2, 4, 5]) {
+    const searchBlock = message.content[index];
+    for (const content of [processBlocks, answerBlocks]) {
+      const html = renderMessage({ ...message, content }, { searchBlock });
+      assert.equal((html.match(/data-search-target="true"/g) ?? []).length, content.includes(searchBlock) ? 1 : 0);
+      if (content.includes(searchBlock)) {
+        assert.match(html, new RegExp(`data-search-target="true">(?:(?!data-message-text)[\\s\\S])*${searchBlock.text}`));
+      }
+    }
+  }
+});
+
+test("keeps streamed tool input out of collapsed markup while counting it", () => {
+  const block = {
+    type: "toolCall",
+    toolCallId: "call-write-1",
+    toolName: "write",
+    input: {},
+    rawInput: '{"path":"/tmp/file","content":"secret-stream-fragment',
+  };
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [block],
+  }, { isStreaming: true });
+
+  assert.match(html, /write/);
+  assert.match(html, /Generating parameters/);
+  assert.doesNotMatch(html, /secret-stream-fragment/);
+  assert.equal(getToolCallInputText(block), block.rawInput);
+  assert.equal(getTokenEstimateText(block), block.rawInput);
+});
+
+test("renders subagents as standard tool calls with only an extra session button", () => {
+  const block = {
+    type: "toolCall",
+    toolCallId: "call-agent-1",
+    toolName: "Agent",
+    input: {
+      subagent_type: "Explore",
+      prompt: "Find the parser",
+      description: "Find parser",
+    },
+  };
+  const result = {
+    role: "toolResult",
+    toolCallId: block.toolCallId,
+    content: [{ type: "text", text: "Parser is in lib/parser.ts" }],
+    details: {
+      kind: "pi-web-subagent",
+      sessionId: "child-session",
+      profile: "Explore",
+      description: "Find parser",
+      status: "completed",
+      runInBackground: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+  };
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [block],
+  }, {
+    toolResults: new Map([[block.toolCallId, result]]),
+    onOpenSession() {},
+  });
+
+  assert.match(html, /border:1px solid rgba\(34,197,94,0\.25\)/);
+  assert.match(html, />Agent</);
+  assert.match(html, />Explore</);
+  assert.match(html, /aria-label="Open sub-agent session"/);
+  assert.doesNotMatch(html, />completed</);
+  assert.doesNotMatch(html, />Find parser</);
+
+  const ordinaryHtml = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [{ ...block, toolCallId: "call-extension-1", toolName: "extension_tool" }],
+  }, {
+    toolResults: new Map(),
+    onOpenSession() {},
+  });
+  assert.doesNotMatch(ordinaryHtml, /Open sub-agent session/);
+});
 
 const COMPLETE_SKILL_EXPANSION = `<skill name="review" location="/skills/review/SKILL.md">
 References are relative to /skills/review.

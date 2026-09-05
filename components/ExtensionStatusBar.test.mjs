@@ -1,19 +1,20 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
-import React from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
+const React = await jiti.import("react");
+const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const {
   ExtensionStatusBar,
   formatExtensionStatusLine,
   sanitizeExtensionStatusText,
 } = await jiti.import("./ExtensionStatusBar.tsx");
-const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
+const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 
 function renderStatusBar(props) {
   return renderToStaticMarkup(
@@ -39,11 +40,25 @@ test("sorts status text by hidden key like the Pi CLI footer", () => {
   );
 });
 
-test("sanitizes status text for a single-line display", () => {
+test("preserves status line breaks while normalizing horizontal whitespace", () => {
   assert.equal(
     sanitizeExtensionStatusText("  first\tsecond \r\n third  "),
-    "first second third",
+    "first second\nthird",
   );
+});
+
+test("preserves explicit status lines without wrapping and scrolls long or tall output", async () => {
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const statusLineRule = css.match(/\.extension-status-line\s*\{([^}]*)\}/)?.[1] ?? "";
+  const statusTextRule = css.match(/\.extension-status-text\s*\{([^}]*)\}/)?.[1] ?? "";
+
+  assert.match(statusLineRule, /max-height:/);
+  assert.match(statusLineRule, /align-items:\s*flex-start/);
+  assert.match(statusLineRule, /overflow:\s*auto/);
+  assert.match(statusTextRule, /white-space:\s*pre\s*;/);
+  assert.doesNotMatch(statusTextRule, /overflow[^:]*:\s*hidden/);
+  assert.doesNotMatch(statusTextRule, /overflow-wrap:\s*anywhere/);
+  assert.doesNotMatch(statusTextRule, /text-overflow:\s*ellipsis/);
 });
 
 test("renders a single status line without identifier keys", () => {
@@ -58,7 +73,7 @@ test("renders a single status line without identifier keys", () => {
   assert.match(html, /extension-status-shelf/);
   assert.match(html, /extension-status-line/);
   assert.match(html, /extension-status-text/);
-  assert.match(html, />ponytail <\/span>/);
+  assert.match(html, />ponytail <span style=/);
   assert.match(html, />memory</);
   assert.doesNotMatch(html, /05-ponytail|20-memory/);
 });

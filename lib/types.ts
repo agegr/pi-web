@@ -34,7 +34,7 @@ export interface ImageContent {
 export interface ThinkingContent {
   type: "thinking";
   thinking: string;
-  /** Historical content omitted from the initial response and loaded on demand. */
+  /** Historical content is a short preview; full reasoning is loaded on demand. */
   deferred?: boolean;
 }
 
@@ -43,6 +43,8 @@ export interface ToolCallContent {
   toolCallId: string;
   toolName: string;
   input: Record<string, unknown>;
+  /** Client-only buffer for streamed tool input. Never persisted to session files. */
+  rawInput?: string;
 }
 
 export type AssistantContentBlock = TextContent | ImageContent | ThinkingContent | ToolCallContent;
@@ -53,6 +55,20 @@ export interface UserMessage {
   timestamp?: number;
 }
 
+export interface AgentUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cost: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    total: number;
+  };
+}
+
 export interface AssistantMessage {
   role: "assistant";
   content: AssistantContentBlock[];
@@ -61,19 +77,7 @@ export interface AssistantMessage {
   stopReason?: string;
   errorMessage?: string;
   timestamp?: number;
-  usage?: {
-    input: number;
-    output: number;
-    cacheRead: number;
-    cacheWrite: number;
-    cost: {
-      input: number;
-      output: number;
-      cacheRead: number;
-      cacheWrite: number;
-      total: number;
-    };
-  };
+  usage?: AgentUsage;
 }
 
 export interface ToolResultMessage {
@@ -84,6 +88,7 @@ export interface ToolResultMessage {
   isError?: boolean;
   details?: unknown;
   timestamp?: number;
+  usage?: AgentUsage;
 }
 
 export interface CustomMessage {
@@ -232,6 +237,7 @@ export interface CompactionEntry extends SessionEntryBase {
   tokensBefore: number;
   details?: unknown;
   fromHook?: boolean;
+  usage?: AgentUsage;
 }
 
 export interface BranchSummaryEntry extends SessionEntryBase {
@@ -240,6 +246,7 @@ export interface BranchSummaryEntry extends SessionEntryBase {
   summary: string;
   details?: unknown;
   fromHook?: boolean;
+  usage?: AgentUsage;
 }
 
 export interface CustomEntry extends SessionEntryBase {
@@ -285,6 +292,14 @@ export interface BranchPreview {
   text: string;
 }
 
+export type SubagentSessionStatus =
+  | "starting"
+  | "running"
+  | "completed"
+  | "failed"
+  | "aborted"
+  | "interrupted";
+
 export interface SessionTreeNode {
   entry: SessionEntry;
   children: SessionTreeNode[];
@@ -302,13 +317,30 @@ export interface SessionInfo {
   modified: string;
   messageCount: number;
   firstMessage: string;
-  parentSessionId?: string; // set if this session was forked from another
+  parentSessionId?: string; // source session for a fork, or parent session for a subagent
+  /** How this session relates to another session. Forks remain top-level in the
+   *  UI; only subagent relations form a visible parent/child tree. */
+  relation?:
+    | { kind: "fork"; originSessionId?: string }
+    | {
+        kind: "subagent";
+        parentSessionId: string;
+        profile: string;
+        description: string;
+        status: SubagentSessionStatus;
+      };
   /** Main repo root shared by all worktrees of this cwd (cwd itself for non-git dirs).
    *  Always set by the server; optional because the client builds transient
    *  SessionInfo objects before the first refresh. Fall back to cwd. */
   projectRoot?: string;
-  /** Branch name when cwd is a linked git worktree (not the main checkout) */
-  worktreeBranch?: string;
+  /** Stable server-computed project identity for grouping and comparison.
+   *  Unlike projectRoot, Windows keys are case- and separator-insensitive.
+   *  Internal only: use projectRoot/cwd for display and filesystem operations. */
+  projectKey?: string;
+  /** Current git branch for any git repo (undefined for non-git or detached HEAD) */
+  branch?: string;
+  /** True when cwd is a linked git worktree (not the main checkout) */
+  isWorktree?: boolean;
   /** True while the runtime session exists only in memory and its JSONL file
    *  has not been created yet. Disk-backed actions must wait until this clears. */
   transient?: boolean;
@@ -317,6 +349,8 @@ export interface SessionInfo {
 export interface SessionContext {
   messages: AgentMessage[];
   entryIds: string[]; // parallel to messages — the session entry id for each message
+  oldestEntryId: string | null;
+  hasMore: boolean;
   thinkingLevel: string;
   model: { provider: string; modelId: string } | null;
 }

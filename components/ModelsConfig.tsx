@@ -1,10 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
 import type { DiscoveredModel } from "@/lib/model-discovery";
+import {
+  getLastSettingsSelection,
+  setLastSettingsSelection,
+} from "@/lib/settings-navigation";
 import {
   hasModelCostDraftValue,
   modelCostToDraft,
@@ -16,85 +19,23 @@ import {
   type ModelCostDraft,
   type ModelCostKey,
 } from "./models-config-helpers";
-// Color icons (have their own fill colors — no background needed)
-import AnthropicIcon from "@lobehub/icons/es/Anthropic/components/Mono";
-import OpenAIIcon from "@lobehub/icons/es/OpenAI/components/Mono";
-import GoogleColorIcon from "@lobehub/icons/es/Google/components/Color";
-import DeepSeekColorIcon from "@lobehub/icons/es/DeepSeek/components/Color";
-import GroqIcon from "@lobehub/icons/es/Groq/components/Mono";
-import MistralColorIcon from "@lobehub/icons/es/Mistral/components/Color";
-import MoonshotIcon from "@lobehub/icons/es/Moonshot/components/Mono";
-import MinimaxColorIcon from "@lobehub/icons/es/Minimax/components/Color";
-import FireworksColorIcon from "@lobehub/icons/es/Fireworks/components/Color";
-import HuggingFaceColorIcon from "@lobehub/icons/es/HuggingFace/components/Color";
-import CerebrasColorIcon from "@lobehub/icons/es/Cerebras/components/Color";
-import OpenRouterIcon from "@lobehub/icons/es/OpenRouter/components/Mono";
-import XAIIcon from "@lobehub/icons/es/XAI/components/Mono";
-import CloudflareColorIcon from "@lobehub/icons/es/Cloudflare/components/Color";
-import VercelIcon from "@lobehub/icons/es/Vercel/components/Mono";
-import GithubCopilotIcon from "@lobehub/icons/es/GithubCopilot/components/Mono";
-import AwsColorIcon from "@lobehub/icons/es/Aws/components/Color";
-import AzureColorIcon from "@lobehub/icons/es/Azure/components/Color";
-import KimiColorIcon from "@lobehub/icons/es/Kimi/components/Color";
-import QwenColorIcon from "@lobehub/icons/es/Qwen/components/Color";
-import ZhipuColorIcon from "@lobehub/icons/es/Zhipu/components/Color";
-import CohereColorIcon from "@lobehub/icons/es/Cohere/components/Color";
-import PerplexityColorIcon from "@lobehub/icons/es/Perplexity/components/Color";
-import TogetherColorIcon from "@lobehub/icons/es/Together/components/Color";
-import GrokIcon from "@lobehub/icons/es/Grok/components/Mono";
-import AntGroupColorIcon from "@lobehub/icons/es/AntGroup/components/Color";
-import NvidiaColorIcon from "@lobehub/icons/es/Nvidia/components/Color";
-import OpenCodeIcon from "@lobehub/icons/es/OpenCode/components/Mono";
-import XiaomiMiMoIcon from "@lobehub/icons/es/XiaomiMiMo/components/Mono";
-import ZAIIcon from "@lobehub/icons/es/ZAI/components/Mono";
-
-type IconComponent = React.ComponentType<{ size?: number | string; style?: React.CSSProperties }>;
-
-// hasColor=true → Color icon (self-colored SVG, no wrapper)
-// hasColor=false → Mono icon (rendered with currentColor, inherits theme text color)
-const PROVIDER_ICONS: Record<string, { Icon: IconComponent; hasColor: boolean }> = {
-  "anthropic":              { Icon: AnthropicIcon,        hasColor: false },
-  "openai":                 { Icon: OpenAIIcon,           hasColor: false },
-  "openai-codex":           { Icon: OpenAIIcon,           hasColor: false },
-  "google":                 { Icon: GoogleColorIcon,      hasColor: true },
-  "google-vertex":          { Icon: GoogleColorIcon,      hasColor: true },
-  "ant-ling":               { Icon: AntGroupColorIcon,    hasColor: true },
-  "deepseek":               { Icon: DeepSeekColorIcon,    hasColor: true },
-  "groq":                   { Icon: GroqIcon,             hasColor: false },
-  "mistral":                { Icon: MistralColorIcon,     hasColor: true },
-  "moonshotai":             { Icon: MoonshotIcon,         hasColor: false },
-  "moonshotai-cn":          { Icon: MoonshotIcon,         hasColor: false },
-  "moonshot":               { Icon: MoonshotIcon,         hasColor: false },
-  "minimax":                { Icon: MinimaxColorIcon,     hasColor: true },
-  "minimax-cn":             { Icon: MinimaxColorIcon,     hasColor: true },
-  "fireworks":              { Icon: FireworksColorIcon,   hasColor: true },
-  "huggingface":            { Icon: HuggingFaceColorIcon, hasColor: true },
-  "cerebras":               { Icon: CerebrasColorIcon,    hasColor: true },
-  "openrouter":             { Icon: OpenRouterIcon,       hasColor: false },
-  "xai":                    { Icon: XAIIcon,              hasColor: false },
-  "cloudflare-ai-gateway":  { Icon: CloudflareColorIcon,  hasColor: true },
-  "cloudflare-workers-ai":  { Icon: CloudflareColorIcon,  hasColor: true },
-  "vercel-ai-gateway":      { Icon: VercelIcon,           hasColor: false },
-  "github-copilot":         { Icon: GithubCopilotIcon,    hasColor: false },
-  "amazon-bedrock":         { Icon: AwsColorIcon,         hasColor: true },
-  "azure-openai-responses": { Icon: AzureColorIcon,       hasColor: true },
-  "kimi-coding":            { Icon: KimiColorIcon,        hasColor: true },
-  "nvidia":                 { Icon: NvidiaColorIcon,      hasColor: true },
-  "opencode":               { Icon: OpenCodeIcon,         hasColor: false },
-  "opencode-go":            { Icon: OpenCodeIcon,         hasColor: false },
-  "qwen":                   { Icon: QwenColorIcon,        hasColor: true },
-  "xiaomi":                 { Icon: XiaomiMiMoIcon,       hasColor: false },
-  "xiaomi-token-plan-ams":  { Icon: XiaomiMiMoIcon,       hasColor: false },
-  "xiaomi-token-plan-cn":   { Icon: XiaomiMiMoIcon,       hasColor: false },
-  "xiaomi-token-plan-sgp":  { Icon: XiaomiMiMoIcon,       hasColor: false },
-  "zai":                    { Icon: ZAIIcon,              hasColor: false },
-  "zai-coding-cn":          { Icon: ZAIIcon,              hasColor: false },
-  "zhipu":                  { Icon: ZhipuColorIcon,       hasColor: true },
-  "cohere":                 { Icon: CohereColorIcon,      hasColor: true },
-  "perplexity":             { Icon: PerplexityColorIcon,  hasColor: true },
-  "together":               { Icon: TogetherColorIcon,    hasColor: true },
-  "grok":                   { Icon: GrokIcon,             hasColor: false },
-};
+import {
+  ConfigButton,
+  ConfigDetail,
+  ConfigDetailStack,
+  ConfigEmptyState,
+  ConfigField,
+  ConfigFooter,
+  ConfigListAction,
+  ConfigPanelShell,
+  ConfigSectionTitle,
+  ConfigSidebar,
+  ConfigSidebarItem,
+  ConfigSidebarList,
+  ConfigSidebarText,
+  ConfigSplitView,
+} from "./SettingsUi";
+import { ProviderIcon } from "./ProviderIcon";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -180,17 +121,45 @@ type Selection =
   | { type: "oauth"; providerId: string }
   | { type: "apikey"; providerId: string };
 
+function readRememberedSelection(): Selection | null {
+  const raw = getLastSettingsSelection("models");
+  if (!raw) return null;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (value === null || typeof value !== "object") return null;
+    const selection = value as Record<string, unknown>;
+    if (selection.type === "provider" && typeof selection.name === "string") {
+      return { type: "provider", name: selection.name };
+    }
+    if (selection.type === "model"
+      && typeof selection.providerName === "string"
+      && typeof selection.index === "number"
+      && Number.isInteger(selection.index)
+      && selection.index >= 0) {
+      return { type: "model", providerName: selection.providerName, index: selection.index };
+    }
+    if ((selection.type === "oauth" || selection.type === "apikey")
+      && typeof selection.providerId === "string") {
+      return { type: selection.type, providerId: selection.providerId };
+    }
+  } catch {
+    // Ignore malformed browser state.
+  }
+  return null;
+}
+
+function customSelectionExists(config: ModelsJson, selection: Selection): boolean {
+  if (selection.type === "provider") return Boolean(config.providers?.[selection.name]);
+  if (selection.type !== "model") return true;
+  return Boolean(config.providers?.[selection.providerName]?.models?.[selection.index]);
+}
+
 const API_OPTIONS = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"] as const;
 
 // ── Form field helpers ────────────────────────────────────────────────────────
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <label style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 500 }}>{label}</label>
-      {children}
-    </div>
-  );
+  return <ConfigField label={label}>{children}</ConfigField>;
 }
 
 const inputStyle = {
@@ -314,7 +283,7 @@ function Check({ label, checked, onChange }: { label: string; checked: boolean; 
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>{children}</div>;
+  return <ConfigSectionTitle>{children}</ConfigSectionTitle>;
 }
 
 // ── Provider detail ───────────────────────────────────────────────────────────
@@ -1713,46 +1682,6 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
   );
 }
 
-// ── Provider icon ─────────────────────────────────────────────────────────────
-
-function ProviderIcon({ id, size }: { id: string; size: number }) {
-  const pi = PROVIDER_ICONS[id];
-  if (!pi) {
-    const label = id
-      .split(/[-_]/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0])
-      .join("")
-      .toUpperCase() || "?";
-    return (
-      <span
-        aria-hidden="true"
-        style={{
-          width: size,
-          height: size,
-          border: "1px solid var(--border)",
-          borderRadius: 4,
-          color: "var(--text-dim)",
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-          fontSize: Math.max(8, Math.floor(size * 0.42)),
-          fontWeight: 700,
-          lineHeight: 1,
-        }}
-      >
-        {label}
-      </span>
-    );
-  }
-  // Color icons: self-colored SVG, no wrapper needed
-  if (pi.hasColor) return <pi.Icon size={size} />;
-  // Mono icons: use currentColor so they adapt to light/dark theme
-  return <pi.Icon size={size} style={{ color: "var(--text-muted)" }} />;
-}
-
 // ── Add provider picker ───────────────────────────────────────────────────────
 
 interface AddProviderPickerProps {
@@ -1802,6 +1731,12 @@ function AddProviderPicker({
     <div
       style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onKeyDown={(e) => {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }}
     >
       <div style={{ width: 820, maxWidth: "calc(100vw - 32px)", maxHeight: "min(72vh, calc(100vh - 32px))", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.22)", overflow: "hidden" }}>
         {/* Search */}
@@ -1813,7 +1748,6 @@ function AddProviderPicker({
             ref={inputRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
              placeholder={t("i18n.searchProviders")}
             style={{ flex: 1, background: "none", border: "none", outline: "none", color: "var(--text)", fontSize: 13, boxSizing: "border-box" }}
           />
@@ -1891,41 +1825,27 @@ function AddProviderPicker({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ModelsConfig({ onClose }: { onClose: () => void }) {
-  const isMobile = useIsMobile();
+export function ModelsConfig({ onClose, embedded = false }: { onClose: () => void; embedded?: boolean }) {
   const { t } = useI18n();
   const [config, setConfig] = useState<ModelsJson>({ providers: {} });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
-  const [selection, setSelection] = useState<Selection | null>(null);
+  const [selection, setSelection] = useState<Selection | null>(readRememberedSelection);
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
   const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const loadOAuthProviders = useCallback(() => {
+  const refreshAuthProviders = useCallback(() => {
     fetch("/api/auth/providers")
       .then((r) => r.json())
-      .then((d: { providers: OAuthProvider[] }) => setOauthProviders(d.providers))
+      .then((d: { oauthProviders?: OAuthProvider[]; apiKeyProviders?: ApiKeyProvider[] }) => {
+        if (Array.isArray(d.oauthProviders)) setOauthProviders(d.oauthProviders);
+        if (Array.isArray(d.apiKeyProviders)) setApiKeyProviders(d.apiKeyProviders);
+      })
       .catch(() => {});
   }, []);
-
-  const loadApiKeyProviders = useCallback(() => {
-    fetch("/api/auth/all-providers")
-      .then((r) => r.json())
-      .then((d: { providers: ApiKeyProvider[] }) => setApiKeyProviders(d.providers))
-      .catch(() => {});
-  }, []);
-
-  // A dual-auth provider moves between the two lists when its credential type
-  // changes, so any auth change has to reload both — refreshing only one leaves
-  // the provider rendered twice, and disconnecting the stale row would delete
-  // the credential that was just created (#309).
-  const refreshAuthProviders = useCallback(() => {
-    loadOAuthProviders();
-    loadApiKeyProviders();
-  }, [loadOAuthProviders, loadApiKeyProviders]);
 
   useEffect(() => {
     fetch("/api/models-config")
@@ -1934,12 +1854,20 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
         const normalized = d.providers ? d : { ...d, providers: {} };
         setConfig(normalized);
         const keys = Object.keys(normalized.providers ?? {});
-        if (keys.length > 0) setSelection({ type: "provider", name: keys[0] });
+        setSelection((current) => current && customSelectionExists(normalized, current)
+          ? current
+          : keys[0]
+            ? { type: "provider", name: keys[0] }
+            : null);
       })
       .catch(() => setConfig({ providers: {} }))
       .finally(() => setLoading(false));
     refreshAuthProviders();
   }, [refreshAuthProviders]);
+
+  useEffect(() => {
+    if (selection) setLastSettingsSelection("models", JSON.stringify(selection));
+  }, [selection]);
 
   const addCustomProvider = useCallback(() => {
     let finalName = "new-provider";
@@ -2097,45 +2025,26 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
 
   return (
     <>
-    <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center" }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ width: isMobile ? "calc(100vw - 16px)" : 860, maxWidth: "calc(100vw - 16px)", height: isMobile ? "calc(100dvh - 16px)" : "78vh", maxHeight: "calc(100dvh - 16px)", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.18)", overflow: "hidden" }}>
-
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-             <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>{t("common.models")}</span>
-            <code style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>~/.pi/agent/models.json</code>
-          </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 20, lineHeight: 1, padding: "2px 6px" }}>×</button>
-        </div>
+    <ConfigPanelShell embedded={embedded} title={t("common.models")} subtitle="~/.pi/agent/models.json" closeLabel={t("i18n.close")} onClose={onClose}>
 
         {/* Body */}
-        <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
+        <ConfigSplitView>
 
           {/* Left: tree */}
-          <div style={{
-            width: isMobile ? "100%" : 210,
-            maxHeight: isMobile ? "40vh" : undefined,
-            borderRight: isMobile ? "none" : "1px solid var(--border)",
-            borderBottom: isMobile ? "1px solid var(--border)" : "none",
-            display: "flex", flexDirection: "column", flexShrink: 0, background: "var(--bg-panel)",
-          }}>
-            <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>
+          <ConfigSidebar>
+            <ConfigSidebarList>
               {/* Active OAuth subscriptions */}
               {activeOAuth.map((p) => {
                 const isSelected = selection?.type === "oauth" && selection.providerId === p.id;
                 return (
-                  <div
+                  <ConfigSidebarItem
                     key={p.id}
+                    active={isSelected}
                     onClick={() => setSelection({ type: "oauth", providerId: p.id })}
-                    style={{ display: "flex", alignItems: "center", gap: 7, padding: "5px 8px", borderRadius: 5, cursor: "pointer", background: isSelected ? "var(--bg-selected)" : "none" }}
-                    onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                    onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "none"; }}
                   >
                     <ProviderIcon id={p.id} size={16} />
-                    <span style={{ fontSize: 12, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-                  </div>
+                    <ConfigSidebarText className="is-grow">{p.name}</ConfigSidebarText>
+                  </ConfigSidebarItem>
                 );
               })}
 
@@ -2143,16 +2052,14 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
               {activeApiKey.map((p) => {
                 const isSelected = selection?.type === "apikey" && selection.providerId === p.id;
                 return (
-                  <div
+                  <ConfigSidebarItem
                     key={p.id}
+                    active={isSelected}
                     onClick={() => setSelection({ type: "apikey", providerId: p.id })}
-                    style={{ display: "flex", alignItems: "center", gap: 7, padding: "5px 8px", borderRadius: 5, cursor: "pointer", background: isSelected ? "var(--bg-selected)" : "none" }}
-                    onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                    onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "none"; }}
                   >
                     <ProviderIcon id={p.id} size={16} />
-                    <span style={{ fontSize: 12, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.displayName}</span>
-                  </div>
+                    <ConfigSidebarText className="is-grow">{p.displayName}</ConfigSidebarText>
+                  </ConfigSidebarItem>
                 );
               })}
 
@@ -2170,11 +2077,9 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                 return (
                   <div key={pName} style={{ marginBottom: 2 }}>
                     {/* Provider row */}
-                    <div
+                    <ConfigSidebarItem
                       onClick={() => setSelection({ type: "provider", name: pName })}
-                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 8px", borderRadius: 5, cursor: "pointer", background: isProviderSelected ? "var(--bg-selected)" : "none" }}
-                      onMouseEnter={(e) => { if (!isProviderSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                      onMouseLeave={(e) => { if (!isProviderSelected) e.currentTarget.style.background = "none"; }}
+                      active={isProviderSelected}
                     >
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-dim)", flexShrink: 0 }}>
                         <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" />
@@ -2183,100 +2088,76 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                         <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
                         <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
                       </svg>
-                      <span style={{ fontSize: 12, fontWeight: isProviderSelected ? 600 : 400, color: "var(--text)", fontFamily: "var(--font-mono)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <ConfigSidebarText className="is-grow">
                         {pName}
-                      </span>
-                    </div>
+                      </ConfigSidebarText>
+                    </ConfigSidebarItem>
 
                     {/* Model rows */}
                     {models.map((m, i) => {
                       const isModelSelected = selection?.type === "model" && selection.providerName === pName && selection.index === i;
                       return (
-                        <div
+                        <ConfigSidebarItem
                           key={i}
+                          active={isModelSelected}
+                          className="models-sidebar-indented-item"
                           onClick={() => setSelection({ type: "model", providerName: pName, index: i })}
-                          style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px 5px 26px", borderRadius: 5, cursor: "pointer", background: isModelSelected ? "var(--bg-selected)" : "none" }}
-                          onMouseEnter={(e) => { if (!isModelSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                          onMouseLeave={(e) => { if (!isModelSelected) e.currentTarget.style.background = "none"; }}
                         >
-                          <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: m.id ? "var(--text-muted)" : "var(--text-dim)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <ConfigSidebarText className="is-grow" style={{ color: m.id ? "var(--text-muted)" : "var(--text-dim)" }}>
                              {m.id || t("i18n.newModel")}
-                          </span>
+                          </ConfigSidebarText>
                           {m.reasoning && (
                             <span style={{ fontSize: 9, padding: "1px 4px", background: "rgba(99,102,241,0.12)", color: "rgba(99,102,241,0.8)", borderRadius: 3, flexShrink: 0 }}>T</span>
                           )}
-                        </div>
+                        </ConfigSidebarItem>
                       );
                     })}
 
                     {/* Add model button */}
-                    <div
+                    <ConfigSidebarItem
+                      className="models-sidebar-indented-item models-sidebar-add-item"
                       onClick={(e) => { e.stopPropagation(); addModel(pName); }}
-                      style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 8px 4px 26px", borderRadius: 5, cursor: "pointer", color: "var(--text-dim)" }}
-                      onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
                     >
-                       <span style={{ fontSize: 11 }}>+ {t("i18n.model")}</span>
-                    </div>
+                       <ConfigSidebarText>+ {t("i18n.model")}</ConfigSidebarText>
+                    </ConfigSidebarItem>
                   </div>
                 );
               })}
-            </div>
+            </ConfigSidebarList>
 
             {/* Add provider */}
-            <div style={{ borderTop: "1px solid var(--border)", padding: "8px 6px" }}>
-              <button onClick={() => setPickerOpen(true)} style={{
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                width: "100%", padding: "6px 0", background: "none", border: "1px dashed var(--border)", borderRadius: 5,
-                color: "var(--text-muted)", cursor: "pointer", fontSize: 12,
-              }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.color = "var(--accent)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-muted)"; }}
-              >
-                 + {t("i18n.addProvider")}
-              </button>
-            </div>
-          </div>
+            <ConfigListAction onClick={() => setPickerOpen(true)}>{t("i18n.addProvider")}</ConfigListAction>
+          </ConfigSidebar>
 
           {/* Right: detail */}
-          <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
-            {loading ? null : detailContent ?? (
-              <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 13 }}>
-                 {t("i18n.selectProviderModel")}
-              </div>
-            )}
-          </div>
-        </div>
+          <ConfigDetail>
+            <ConfigDetailStack className="is-fill">
+              {loading ? null : detailContent ?? (
+                <ConfigEmptyState>{t("i18n.selectProviderModel")}</ConfigEmptyState>
+              )}
+            </ConfigDetailStack>
+          </ConfigDetail>
+        </ConfigSplitView>
 
         {/* Footer */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, padding: "10px 18px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
-          {saveError && <span style={{ fontSize: 12, color: "#f87171", flex: 1 }}>{saveError}</span>}
-          <button onClick={onClose} style={{ padding: "6px 14px", background: "none", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer", fontSize: 13 }}>
-             {t("i18n.cancel")}
-          </button>
-          <button onClick={handleSave} disabled={saving || savedOk} style={{
-            position: "relative",
-            padding: "6px 16px",
-            minWidth: 92,
-            background: savedOk ? "#16a34a" : saving ? "var(--bg-panel)" : "var(--accent)",
-            border: "none", borderRadius: 6,
-            color: savedOk ? "#fff" : saving ? "var(--text-muted)" : "#fff",
-            cursor: (saving || savedOk) ? "default" : "pointer", fontSize: 13, fontWeight: 600,
-            display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-            transition: "background-color 0.2s ease, color 0.2s ease",
-            animation: savedOk ? "saved-pop 0.45s ease" : undefined,
-          }}>
+        <ConfigFooter status={saveError && <span style={{ color: "#f87171" }}>{saveError}</span>}>
+          {!embedded && <ConfigButton onClick={onClose}>{t("i18n.cancel")}</ConfigButton>}
+          <ConfigButton
+            variant="primary"
+            onClick={handleSave}
+            disabled={saving || savedOk}
+            className={savedOk ? "is-success" : undefined}
+          >
             {savedOk && (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
-                style={{ strokeDasharray: 18, animation: "saved-check-draw 0.35s ease forwards", flexShrink: 0 }}>
+                className="config-button-success-icon">
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             )}
              <span>{savedOk ? t("i18n.saved") : saving ? t("i18n.saving") : t("i18n.save")}</span>
-          </button>
-        </div>
-      </div>
-    </div>
+          </ConfigButton>
+        </ConfigFooter>
+    </ConfigPanelShell>
     {pickerOpen && (
       <AddProviderPicker
         oauthProviders={oauthProviders}

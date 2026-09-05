@@ -2,8 +2,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { Script } from "node:vm";
-import React from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { createJiti } from "jiti";
 import ts from "typescript";
 
@@ -11,9 +9,12 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canRestoreUserMessage, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages } = await jiti.import("./ChatInput.tsx");
-const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("../lib/draft-store.ts");
-const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
+const React = await jiti.import("react");
+const { renderToStaticMarkup } = await jiti.import("react-dom/server");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, modelSupportsImageInput, shouldCompressImageFile } = await jiti.import("./ChatInput.tsx");
+const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
+const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("@/lib/draft-store.ts");
+const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 
 test("follow-up shortcuts preserve newline, IME, mobile and completion behavior", () => {
   const source = ts.createSourceFile("ChatInput.tsx", readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -45,6 +46,7 @@ test("follow-up shortcuts preserve newline, IME, mobile and completion behavior"
     ["Enter falls back to follow-up", {}, { onSteer: undefined }, "followup"],
     ["Alt+Enter falls back to steer", { altKey: true }, { onFollowUp: undefined }, "steer"],
     ["slash completion takes priority", { altKey: true }, { slashMenuOpen: true, slashQuery: "help" }, "slash"],
+    ["available built-in commands take priority", { altKey: true }, { slashMenuOpen: true, slashQuery: "copy", value: "/copy", displayedSlashCommands: [{ name: "copy", source: "builtin", availableWhileStreaming: true }] }, "send"],
     ["file completion takes priority", { altKey: true }, { atMenuOpen: true, atQuery: {} }, "file"],
     ["history selection takes priority", { altKey: true }, { historyMenuOpen: true }, "history"],
   ];
@@ -61,6 +63,7 @@ test("follow-up shortcuts preserve newline, IME, mobile and completion behavior"
       onSteer() {}, onFollowUp() {},
       sendQueued(mode) { action = mode; }, handleSend() { action = "send"; },
       applySlashCommand() { action = "slash"; },
+      isExactSlashCommand, value: "", setSlashMenuOpen() {},
       applyAtCompletion() { action = "file"; },
       applyHistoryInput() { action = "history"; },
       ...state,
@@ -88,9 +91,13 @@ test("shows the follow-up shortcut in the button tooltip", () => {
 
 test("renders the upstream model error", () => {
   const html = renderToStaticMarkup(
-    React.createElement(ModelErrorBanner, {
-      error: "Invalid models.json schema:\nproviders.custom.models.0.id must not be empty",
-    }),
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ModelErrorBanner, {
+        error: "Invalid models.json schema:\nproviders.custom.models.0.id must not be empty",
+      }),
+    ),
   );
 
   assert.match(html, /role="alert"/);
@@ -99,19 +106,33 @@ test("renders the upstream model error", () => {
 });
 
 test("does not render an empty model error", () => {
-  assert.equal(renderToStaticMarkup(React.createElement(ModelErrorBanner, { error: null })), "");
+  assert.equal(
+    renderToStaticMarkup(
+      React.createElement(I18nProvider, null, React.createElement(ModelErrorBanner, { error: null })),
+    ),
+    "",
+  );
 });
 
 test("renders enabledModels scope warnings", () => {
   const html = renderToStaticMarkup(
-    React.createElement(ModelScopeWarningBanner, {
-      warnings: ['No models match pattern "ghost-gateway/*"'],
-    }),
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ModelScopeWarningBanner, {
+        warnings: ['No models match pattern "ghost-gateway/*"'],
+      }),
+    ),
   );
 
   assert.match(html, /Model scope warning/);
   assert.match(html, /ghost-gateway/);
-  assert.equal(renderToStaticMarkup(React.createElement(ModelScopeWarningBanner, { warnings: [] })), "");
+  assert.equal(
+    renderToStaticMarkup(
+      React.createElement(I18nProvider, null, React.createElement(ModelScopeWarningBanner, { warnings: [] })),
+    ),
+    "",
+  );
 });
 
 test("keeps the model selector visible when a model error leaves no options", () => {
@@ -154,6 +175,25 @@ test("renders the read-only tool preset as the active selection", () => {
   assert.match(html, />read-only<\/span>/);
 });
 
+test("renders the empty tool preset as Chat only", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        onToolPresetChange() {},
+        isStreaming: false,
+        toolPreset: "none",
+      }),
+    ),
+  );
+
+  assert.match(html, /title="Change tool preset: Chat only"/);
+  assert.match(html, />Chat only<\/span>/);
+});
+
 test("shows and locks the optimistic model while a switch is pending", () => {
   const html = renderToStaticMarkup(
     React.createElement(
@@ -193,9 +233,106 @@ test("filters model options by name and id", () => {
   assert.equal(filterModelOptions(options, "  "), options);
 });
 
+test("renders the shared field model selector as a disabled gray control", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ModelSelector, {
+        options: [{ provider: "openai", modelId: "gpt-5.6-sol", name: "GPT-5.6 Sol" }],
+        value: null,
+        onChange() {},
+        onClear() {},
+        emptyLabel: "Parent default",
+        ariaLabel: "Model override",
+        disabled: true,
+        variant: "field",
+      }),
+    ),
+  );
+
+  assert.match(html, /aria-label="Model override"/);
+  assert.match(html, /disabled=""/);
+  assert.match(html, /background:var\(--bg-panel\)/);
+  assert.match(html, />Parent default</);
+});
+
 test("caps an upward menu to the visible space above its anchor", () => {
   assert.equal(getUpwardMenuMaxHeight(343, 36), 299);
   assert.equal(getUpwardMenuMaxHeight(40, 36), 0);
+});
+
+test("compresses large images while preserving small images and GIFs", async () => {
+  assert.equal(shouldCompressImageFile({ size: 1024 * 1024, type: "image/png" }), false);
+  assert.equal(shouldCompressImageFile({ size: 1024 * 1024 + 1, type: "image/png" }), true);
+  assert.equal(shouldCompressImageFile({ size: 2 * 1024 * 1024, type: "image/gif" }), false);
+
+  const originals = {
+    FileReader: globalThis.FileReader,
+    createImageBitmap: globalThis.createImageBitmap,
+    document: globalThis.document,
+  };
+  let bitmapCalls = 0;
+  let closed = false;
+  const canvas = {
+    width: 0,
+    height: 0,
+    getContext: () => ({ fillStyle: "", fillRect() {}, drawImage() {} }),
+    toDataURL: () => "data:image/jpeg;base64,COMPRESSED",
+  };
+
+  globalThis.FileReader = class {
+    readAsDataURL() {
+      this.result = "data:image/png;base64,ORIGINAL";
+      this.onload();
+    }
+  };
+  globalThis.createImageBitmap = async () => {
+    bitmapCalls += 1;
+    return { width: 2048, height: 1024, close() { closed = true; } };
+  };
+  globalThis.document = { createElement: () => canvas };
+
+  try {
+    assert.deepEqual(await compressImageFile({ size: 1024, type: "image/png" }), {
+      data: "ORIGINAL",
+      mimeType: "image/png",
+    });
+    assert.deepEqual(await compressImageFile({ size: 2 * 1024 * 1024, type: "image/png" }), {
+      data: "COMPRESSED",
+      mimeType: "image/jpeg",
+    });
+    assert.equal(bitmapCalls, 1);
+    assert.equal(canvas.width, 1024);
+    assert.equal(canvas.height, 512);
+    assert.equal(closed, true);
+  } finally {
+    globalThis.FileReader = originals.FileReader;
+    globalThis.createImageBitmap = originals.createImageBitmap;
+    globalThis.document = originals.document;
+  }
+});
+
+test("recognizes exact slash commands for one-Enter submission", () => {
+  const builtin = { name: "copy", description: "", source: "builtin" };
+  assert.equal(isExactSlashCommand("/copy", builtin), true);
+  assert.equal(isExactSlashCommand("  /copy  ", builtin), true);
+  assert.equal(isExactSlashCommand("/co", builtin), false);
+  assert.equal(isExactSlashCommand("/copy extra", builtin), false);
+  assert.equal(isExactSlashCommand("/copy", { ...builtin, source: "extension" }), false);
+});
+
+test("clears a completed built-in only while its submitted input is unchanged", () => {
+  assert.equal(canClearBuiltinCommandInput("/copy", 0, "/copy"), true);
+  assert.equal(canClearBuiltinCommandInput("new follow-up", 0, "/copy"), false);
+  assert.equal(canClearBuiltinCommandInput("/copy", 1, "/copy"), false);
+});
+
+test("keeps only read-only built-ins available while a run is active", () => {
+  assert.equal(canRunBuiltinSlashCommandWhileStreaming("/copy"), true);
+  assert.equal(canRunBuiltinSlashCommandWhileStreaming("/session"), true);
+  assert.equal(canRunBuiltinSlashCommandWhileStreaming("/compact"), false);
+  assert.equal(canRunBuiltinSlashCommandWhileStreaming("/reload"), false);
 });
 
 test("restores text and base64 images when editing a user message", () => {
@@ -343,4 +480,63 @@ test("renders compact errors above the input as a wrapping alert", () => {
   assert.match(html, /&lt;html&gt;request forbidden&lt;\/html&gt;/);
   assert.match(html, /white-space:pre-wrap/);
   assert.ok(html.indexOf('role="alert"') < html.indexOf("<textarea"));
+});
+
+test("modelSupportsImageInput warns only when modality info is known and lacks image", () => {
+  const modelList = [
+    { id: "text-only", name: "Text Only", provider: "ollama", input: ["text"] },
+    { id: "vision", name: "Vision", provider: "anthropic", input: ["text", "image"] },
+    { id: "unknown", name: "Unknown", provider: "custom", input: undefined },
+  ];
+
+  assert.equal(modelSupportsImageInput({ provider: "ollama", modelId: "text-only" }, modelList), false);
+  assert.equal(modelSupportsImageInput({ provider: "anthropic", modelId: "vision" }, modelList), true);
+  // Unknown modality info never blocks the user.
+  assert.equal(modelSupportsImageInput({ provider: "custom", modelId: "unknown" }, modelList), true);
+  // Model missing from the list is treated as unknown.
+  assert.equal(modelSupportsImageInput({ provider: "x", modelId: "missing" }, modelList), true);
+  assert.equal(modelSupportsImageInput(null, modelList), true);
+  assert.equal(modelSupportsImageInput({ provider: "ollama", modelId: "text-only" }, undefined), true);
+});
+
+test("renders image warnings for known text-only defaults without an explicit model selection", () => {
+  const draftKey = "new:/tmp/image-warning-default";
+  const modelList = [
+    { id: "text-only", name: "Text Only", provider: "custom", input: ["text"] },
+    { id: "vision", name: "Vision", provider: "custom", input: ["text", "image"] },
+    { id: "unknown", name: "Unknown", provider: "custom" },
+  ];
+  setDraft(draftKey, {
+    value: "Describe this image",
+    images: [{ data: "aW1hZ2U=", mimeType: "image/png" }],
+  });
+
+  try {
+    for (const [modelId, warningExpected] of [["text-only", true], ["vision", false], ["unknown", false], [null, false]]) {
+      const html = renderToStaticMarkup(
+        React.createElement(
+          I18nProvider,
+          null,
+          React.createElement(ChatInput, {
+            onSend() {},
+            onAbort() {},
+            isStreaming: false,
+            isAutoModelSelection: true,
+            model: modelId ? { provider: "custom", modelId } : null,
+            modelList,
+            draftKey,
+          }),
+        ),
+      );
+
+      assert.match(html, /<img/);
+      assert.equal(html.includes("Images may not be sent"), warningExpected, `default model: ${modelId}`);
+      if (warningExpected) {
+        assert.match(html, /The selected model \(Text Only\) does not support image input/);
+        assert.ok(html.indexOf('role="alert"') < html.indexOf("<textarea"));
+      }
+    }
+  } finally {
+    clearDraft(draftKey);
+  }
 });

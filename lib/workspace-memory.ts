@@ -5,10 +5,9 @@
  * had open there last, instead of landing on a blank new-session page. Without
  * this, every workspace switch required re-picking the session by hand.
  *
- * The workspace key is the resolved project root when known (sessions carry it
- * from the server), so all worktrees of one repo share a single memory slot.
- * It falls back to the raw cwd for non-repo directories, which is its own
- * project key there.
+ * The workspace key is the server-provided project identity when known, so
+ * Windows path variants and all worktrees of one repo share one memory slot.
+ * Transient and legacy session objects fall back to projectRoot/cwd.
  *
  * Stored in localStorage; best-effort (silently ignored when unavailable).
  */
@@ -93,6 +92,7 @@ export function clearLastOpen(
 export function workspaceKeyOf(session: {
   cwd: string;
   projectRoot?: string | null;
+  projectKey?: string | null;
 }): string {
-  return session.projectRoot ?? session.cwd;
+  return session.projectKey ?? session.projectRoot ?? session.cwd;
 }
