@@ -1,5 +1,36 @@
 import assert from "node:assert/strict";
 
+export async function checkChatAppearanceReset(page) {
+  const width = page.getByRole("slider", { name: "Chat content width", exact: true });
+  const fontSize = page.getByRole("slider", { name: "Chat font size", exact: true });
+  const resetWidth = page.getByRole("button", { name: "Reset chat content width", exact: true });
+  const resetFontSize = page.getByRole("button", { name: "Reset chat font size", exact: true });
+  await width.press("End");
+  await fontSize.press("End");
+  await resetWidth.click();
+  assert.equal(await width.inputValue(), "820");
+  assert.equal(await fontSize.inputValue(), "24", "Resetting width must preserve font size");
+  await width.press("End");
+  await resetFontSize.click();
+  assert.equal(await fontSize.inputValue(), "14");
+  assert.equal(await width.inputValue(), "2000", "Resetting font size must preserve width");
+  await resetWidth.click();
+  assert.deepEqual(await page.evaluate(() => ({
+    width: localStorage.getItem("pi-chat-content-width"),
+    fontSize: localStorage.getItem("pi-chat-content-font-size"),
+    appliedWidth: document.documentElement.style.getPropertyValue("--chat-content-max-width"),
+    appliedFontSize: document.documentElement.style.getPropertyValue("--chat-content-font-size"),
+  })), { width: "820", fontSize: "14", appliedWidth: "820px", appliedFontSize: "14px" });
+  await page.reload({ waitUntil: "networkidle" });
+  const showSidebar = page.getByRole("button", { name: "Show sidebar", exact: true });
+  if (await showSidebar.isVisible()) await showSidebar.click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  assert.equal(await width.inputValue(), "820");
+  assert.equal(await fontSize.inputValue(), "14");
+  assert.equal(await resetWidth.isDisabled(), true);
+  assert.equal(await resetFontSize.isDisabled(), true);
+}
+
 export async function checkChatAppearance(page) {
   await page.setViewportSize({ width: 2560, height: 1100 });
   const textarea = page.locator(".chat-input-textarea");
@@ -50,6 +81,7 @@ export async function checkChatAppearance(page) {
   await openSettings();
   assert.equal(await width.inputValue(), "2000");
   assert.equal(await fontSize.inputValue(), "18");
+  await checkChatAppearanceReset(page);
   for (const viewport of [{ width: 1280, height: 600 }, { width: 320, height: 568 }]) {
     await page.setViewportSize(viewport);
     await page.locator(".settings-general").evaluate((el) => { el.scrollTop = el.scrollHeight; });

@@ -20,10 +20,12 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { AppUpdateResponse } from "@/lib/api-types";
 import type { ToolEntry } from "@/lib/tool-presets";
+import { findChatScrollAnchor, type ChatScrollPosition } from "@/lib/chat-scroll-position";
 import {
   captureScrollDistance,
   getPromptAnchorSpacerHeight,
   getVisibleRenderWindow,
+  isScrollAtTail,
   restoreScrollTop,
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
@@ -32,6 +34,8 @@ interface Props {
   session: SessionInfo | null;
   searchTarget?: { sessionId: string; entryId: string; blockIndex?: number } | null;
   onSearchTargetHandled?: (target: { sessionId: string; entryId: string }) => void;
+  initialScrollPosition?: ChatScrollPosition | null;
+  onScrollPositionChange?: (sessionId: string, position: ChatScrollPosition) => void;
   sessionRunning?: boolean;
   newSessionCwd: string | null;
   newSessionDraftKey: string | null;
@@ -234,7 +238,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, searchTarget, onSearchTargetHandled, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -260,6 +264,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, sessi
     chatInputRef?.current?.replaceMessage(message);
   }, [chatInputRef]);
 
+  const initialScrollPositionRef = useRef(searchTarget ? null : initialScrollPosition ?? null);
+  const [pendingScrollRestore, setPendingScrollRestore] = useState<Extract<ChatScrollPosition, { atBottom: false }> | null>(() => {
+    const position = initialScrollPositionRef.current;
+    return position && !position.atBottom ? position : null;
+  });
+  const [restoreAnchorReady, setRestoreAnchorReady] = useState(false);
+
   const {
     loading, error, messages, entryIds, historyCursor, hasEarlierMessages, streamState,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
@@ -277,10 +288,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, sessi
     handleRecallQueue,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, scrollUserMsgToTop,
-    loadContext, activeLeafId, scrollToMessage,
+    loadContext, activeLeafId, scrollToBottom, scrollToMessage,
   } = useAgentSession({
     session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
+    deferInitialScroll: Boolean(pendingScrollRestore),
   });
   const sessionBusy = agentRunning || bashRunning;
   const [quotedSelection, setQuotedSelection] = useState<{
@@ -452,8 +464,12 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, sessi
   // top, load another page while keeping the scroll position stable.
   const [visibleCount, setVisibleCount] = useState(VISIBLE_PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const messageContentRef = useRef<HTMLDivElement | null>(null);
   const prevScrollDistanceRef = useRef<number | null>(null);
   const loadingOlderRef = useRef(false);
+  const restoreStartedRef = useRef(false);
+  const pendingScrollRestoreRef = useRef(pendingScrollRestore);
+  pendingScrollRestoreRef.current = pendingScrollRestore;
   const [pendingSearchScroll, setPendingSearchScroll] = useState<Props["searchTarget"]>(null);
   const searchMessage = messages[entryIds.indexOf(pendingSearchScroll?.entryId ?? "")];
   const searchBlock = searchMessage?.role === "assistant"
@@ -463,6 +479,108 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, sessi
     : undefined;
   const searchHistoryRef = useRef({ entryIds, historyCursor, hasEarlierMessages });
   searchHistoryRef.current = { entryIds, historyCursor, hasEarlierMessages };
+
+  useLayoutEffect(() => {
+    const sessionId = session?.id;
+    const container = scrollContainerRef.current;
+    const content = messageContentRef.current;
+    if (!sessionId || !onScrollPositionChange || !container || !content) return;
+    return () => {
+      if (pendingScrollRestoreRef.current) return;
+      if (isScrollAtTail(container.scrollTop, container.clientHeight, container.scrollHeight)) {
+        onScrollPositionChange(sessionId, { atBottom: true });
+        return;
+      }
+      const viewportTop = container.getBoundingClientRect().top;
+      const candidates = Array.from(content.children).flatMap((element) => {
+        if (!(element instanceof HTMLElement) || !element.dataset.entryId) return [];
+        const rect = element.getBoundingClientRect();
+        return [{ entryId: element.dataset.entryId, top: rect.top, bottom: rect.bottom }];
+      });
+      const anchor = findChatScrollAnchor(candidates, viewportTop);
+      if (!anchor) return;
+      onScrollPositionChange(sessionId, {
+        atBottom: false,
+        ...anchor,
+        oldestEntryId: searchHistoryRef.current.historyCursor,
+      });
+    };
+  }, [loading, onScrollPositionChange, scrollContainerRef, session?.id]);
+
+  useEffect(() => {
+    if (searchTarget) setPendingScrollRestore(null);
+  }, [searchTarget]);
+
+  useEffect(() => {
+    const position = pendingScrollRestore;
+    const sessionId = session?.id;
+    if (!position || !sessionId || loading || searchTarget || restoreStartedRef.current) return;
+    restoreStartedRef.current = true;
+    const controller = new AbortController();
+
+    const locate = async () => {
+      const initialHistory = searchHistoryRef.current;
+      if (initialHistory.entryIds.includes(position.anchorEntryId)) {
+        setVisibleCount((current) => Math.max(current, initialHistory.entryIds.length * 2));
+        setRestoreAnchorReady(true);
+        return;
+      }
+
+      loadingOlderRef.current = true;
+      let before = initialHistory.historyCursor;
+      let hasMore = initialHistory.hasEarlierMessages;
+      try {
+        while (hasMore && before && !controller.signal.aborted) {
+          const context = await loadContext(sessionId, activeLeafId, before, { signal: controller.signal });
+          if (controller.signal.aborted) return;
+          if (!context) {
+            scrollToBottom("instant");
+            setPendingScrollRestore(null);
+            return;
+          }
+          setVisibleCount((current) => current + Math.max(VISIBLE_PAGE_SIZE, context.messages.length * 2));
+          if (context.entryIds.includes(position.anchorEntryId)) {
+            setRestoreAnchorReady(true);
+            return;
+          }
+          if (context.oldestEntryId === position.oldestEntryId) break;
+          before = context.oldestEntryId;
+          hasMore = context.hasMore;
+        }
+        if (!controller.signal.aborted) {
+          scrollToBottom("instant");
+          setPendingScrollRestore(null);
+        }
+      } finally {
+        loadingOlderRef.current = false;
+      }
+    };
+
+    void locate();
+    return () => {
+      controller.abort();
+      // A branch change cancels restoration and must reveal the new context.
+      setPendingScrollRestore(null);
+    };
+  }, [activeLeafId, loadContext, loading, pendingScrollRestore, scrollToBottom, searchTarget, session?.id]);
+
+  useLayoutEffect(() => {
+    const position = pendingScrollRestore;
+    const content = messageContentRef.current;
+    if (!position || !content || searchTarget) return;
+    const element = Array.from(content.children).find((candidate) => (
+      candidate instanceof HTMLElement && candidate.dataset.entryId === position.anchorEntryId
+    ));
+    if (element instanceof HTMLElement) {
+      scrollToMessage(element, position.anchorOffset);
+      setPendingScrollRestore(null);
+      return;
+    }
+    if (restoreAnchorReady) {
+      scrollToBottom("instant");
+      setPendingScrollRestore(null);
+    }
+  }, [entryIds, pendingScrollRestore, restoreAnchorReady, scrollToBottom, scrollToMessage, searchTarget, visibleCount]);
 
   useEffect(() => {
     if (!searchTarget || loading) return;
@@ -631,7 +749,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, sessi
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
   const hasStreamingContent = Boolean(streamState.streamingMessage?.content.length);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
-  const messageContentRef = useRef<HTMLDivElement | null>(null);
   const promptAnchorSpacerRef = useRef<HTMLDivElement | null>(null);
   const promptAnchorSpacerHeightRef = useRef(0);
   const promptAnchorMeasureFrameRef = useRef<number | null>(null);
@@ -864,7 +981,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, sessi
           <ExtensionCustomPanel key={extensionCustomUi.id} request={extensionCustomUi} onInput={sendExtensionCustomInput} />
         )}
         {!isEmptyNew && <>
-        <div ref={scrollContainerRef} className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-width:none]">
+        <div
+          ref={scrollContainerRef}
+          className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-width:none]"
+          style={{ visibility: pendingScrollRestore ? "hidden" : undefined }}
+        >
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
             <div ref={messageContentRef} onPointerUp={captureQuotedSelection} style={{ width: "100%", minWidth: 0, maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
             {(() => {
@@ -1104,7 +1225,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, sessi
             </div>
           </div>
         </div>
-        {isMobile ? null : (
+        {isMobile || pendingScrollRestore ? null : (
           <ChatMinimap
             messages={messages}
             streamingMessage={streamState.streamingMessage}

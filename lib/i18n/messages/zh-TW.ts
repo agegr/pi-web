@@ -19,6 +19,8 @@ export const zhTWLocale: LocalePlugin = {
     "settings.appearanceDescription": "選擇淺色或深色主題，也可以跟隨系統設定。",
     "settings.chatContentWidth": "聊天內容寬度",
     "settings.chatContentFontSize": "聊天字體大小",
+    "settings.resetChatContentWidth": "重設聊天內容寬度",
+    "settings.resetChatContentFontSize": "重設聊天字體大小",
     "settings.chatContentWidthDescription": "設定訊息內容和輸入框的最大寬度。",
     "settings.themeLight": "淺色",
     "settings.themeDark": "深色",

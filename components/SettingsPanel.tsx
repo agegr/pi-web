@@ -4,8 +4,10 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme, type ThemePreference } from "@/hooks/useTheme";
 import {
+  CHAT_CONTENT_WIDTH_DEFAULT,
   CHAT_CONTENT_WIDTH_MAX,
   CHAT_CONTENT_WIDTH_MIN,
+  CHAT_CONTENT_FONT_SIZE_DEFAULT,
   CHAT_CONTENT_FONT_SIZE_MAX,
   CHAT_CONTENT_FONT_SIZE_MIN,
   useChatAppearance,
@@ -23,7 +25,7 @@ import {
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
-import { ConfigSwitch } from "./SettingsUi";
+import { ConfigButton, ConfigSwitch } from "./SettingsUi";
 import { ThinkingIcon } from "./ThinkingIcon";
 
 interface Props {
@@ -168,6 +170,19 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
           <div className="settings-chat-width-header">
             <label htmlFor="settings-chat-content-width">{t("settings.chatContentWidth")}</label>
             <output htmlFor="settings-chat-content-width">{chatContentWidth}px</output>
+            <ConfigButton
+              variant="ghost"
+              size="small"
+              className="settings-chat-reset"
+              title={t("settings.resetChatContentWidth")}
+              aria-label={t("settings.resetChatContentWidth")}
+              disabled={chatContentWidth === CHAT_CONTENT_WIDTH_DEFAULT}
+              onClick={() => setChatContentWidth(CHAT_CONTENT_WIDTH_DEFAULT)}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" />
+              </svg>
+            </ConfigButton>
           </div>
           <p className="settings-chat-width-description">{t("settings.chatContentWidthDescription")}</p>
           <input
@@ -184,6 +199,19 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
           <div className="settings-chat-width-header">
             <label htmlFor="settings-chat-content-font-size">{t("settings.chatContentFontSize")}</label>
             <output htmlFor="settings-chat-content-font-size">{fontSize}px</output>
+            <ConfigButton
+              variant="ghost"
+              size="small"
+              className="settings-chat-reset"
+              title={t("settings.resetChatContentFontSize")}
+              aria-label={t("settings.resetChatContentFontSize")}
+              disabled={fontSize === CHAT_CONTENT_FONT_SIZE_DEFAULT}
+              onClick={() => setFontSize(CHAT_CONTENT_FONT_SIZE_DEFAULT)}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" />
+              </svg>
+            </ConfigButton>
           </div>
           <input
             id="settings-chat-content-font-size"

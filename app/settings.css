@@ -944,8 +944,6 @@
   width: 100%;
   max-width: 420px;
   padding: 3px;
-  border-radius: 7px;
-  background: var(--bg-panel);
 }
 
 .settings-theme-option {
@@ -988,16 +986,14 @@
   width: 100%;
   max-width: 420px;
   margin-top: 14px;
-  padding: 10px;
-  border-radius: 5px;
-  background: var(--bg-panel);
+  padding: 10px 0;
 }
 
 .settings-chat-width-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 28px;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   color: var(--text);
   font-size: 12px;
 }
@@ -1006,6 +1002,12 @@
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: 11px;
+}
+
+.settings-chat-reset {
+  width: 28px;
+  height: 28px;
+  padding: 0;
 }
 
 .settings-chat-width-description {

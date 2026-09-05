@@ -39,6 +39,14 @@ test("all active-session transitions share one persistence effect", () => {
   );
 });
 
+test("keeps chat scroll positions in page memory by session id", () => {
+  assert.match(source, /useRef\(new Map<string, ChatScrollPosition>\(\)\)/);
+  assert.match(source, /sessionScrollPositionsRef\.current\.set\(sessionId, position\)/);
+  assert.match(source, /initialScrollPosition=\{selectedSession \? sessionScrollPositionsRef\.current\.get\(selectedSession\.id\) \?\? null : null\}/);
+  assert.match(source, /onScrollPositionChange=\{handleSessionScrollPositionChange\}/);
+  assert.doesNotMatch(source, /localStorage[^\n]*sessionScroll/i);
+});
+
 test("workspace restoration remains inside the cross-project branch", () => {
   assert.match(
     callbackBody("handleCwdChange", "handleSelectSession"),
