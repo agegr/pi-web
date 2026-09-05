@@ -722,6 +722,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 const isVisible = msg.role === "user" || msg.role === "assistant";
                 const currentRefIdx = visibleRefIndexByMessage.get(idx);
                 const keyPrefix = options.keyPrefix ?? "message";
+                const messageKey = entryIds[idx] ?? idx;
                 let showTimestamp = false;
                 if (msg.role === "assistant") {
                   showTimestamp = true;
@@ -738,7 +739,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 if (options.showTimestamp !== undefined) showTimestamp = options.showTimestamp;
                 const view = (
                   <MessageView
-                    key={`${keyPrefix}-view-${idx}`}
+                    key={`${keyPrefix}-view-${messageKey}`}
                     message={msg}
                     toolResults={toolResultsMap}
                     modelNames={modelNames}
@@ -759,7 +760,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 );
                 if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;
                 return (
-                  <div key={`${keyPrefix}-${idx}`} ref={attachVisibleRef(idx, currentRefIdx)}>
+                  <div key={`${keyPrefix}-${messageKey}`} ref={attachVisibleRef(idx, currentRefIdx)}>
                     {view}
                   </div>
                 );
@@ -832,7 +833,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                   );
                   rendered.push(
                     <div
-                      key={`process-group-${userIdx}-${finalAssistantIdx}`}
+                      key={`process-group-${entryIds[userIdx] ?? userIdx}-${entryIds[finalAssistantIdx] ?? finalAssistantIdx}`}
                       ref={processRefIdx === undefined ? undefined : (el) => { messageRefs.current[processRefIdx] = el; }}
                     >
                       {processGroup}
