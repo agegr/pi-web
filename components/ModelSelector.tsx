@@ -63,6 +63,7 @@ export function ModelSelector({
   const isMobile = useIsMobile();
   const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<{ top: number; right: number; bottom: number; left: number; width: number } | null>(null);
   const [filter, setFilter] = useState("");
@@ -83,7 +84,7 @@ export function ModelSelector({
     : emptyLabel ?? (sortedOptions.length > 0 ? "Select model" : "No models"));
 
   useEffect(() => {
-    const handleOutsideClick = (event: MouseEvent) => {
+    const handleOutsideClick = (event: MouseEvent | TouchEvent) => {
       if (
         rootRef.current && !rootRef.current.contains(event.target as Node)
         && panelRef.current && !panelRef.current.contains(event.target as Node)
@@ -93,8 +94,40 @@ export function ModelSelector({
       }
     };
     document.addEventListener("mousedown", handleOutsideClick);
-    return () => document.removeEventListener("mousedown", handleOutsideClick);
+    document.addEventListener("touchstart", handleOutsideClick);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+      document.removeEventListener("touchstart", handleOutsideClick);
+    };
   }, []);
+
+  const refreshAnchorRect = () => {
+    const el = buttonRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setAnchorRect({ top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left, width: rect.width });
+  };
+
+  // While open, keep the anchor + viewport geometry live so the panel never
+  // gets stranded off-screen when the Android keyboard resizes the viewport.
+  useEffect(() => {
+    if (!open) return;
+    refreshAnchorRect();
+    const schedule = () => {
+      refreshAnchorRect();
+    };
+    const viewport = window.visualViewport;
+    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, true);
+    viewport?.addEventListener("resize", schedule);
+    viewport?.addEventListener("scroll", schedule);
+    return () => {
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("scroll", schedule, true);
+      viewport?.removeEventListener("resize", schedule);
+      viewport?.removeEventListener("scroll", schedule);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!locked) return;
@@ -161,6 +194,7 @@ export function ModelSelector({
       }}
     >
       <button
+        ref={buttonRef}
         type="button"
         aria-label={ariaLabel}
         aria-haspopup="listbox"
@@ -215,12 +249,22 @@ export function ModelSelector({
       </button>
 
       {open && anchorRect && (() => {
-        const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-        const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
-        const spaceAbove = anchorRect.top - 8;
+        // position:fixed is relative to the layout viewport, so use
+        // window.innerHeight (which tracks the keyboard with
+        // interactiveWidget=resizes-content) rather than visualViewport.height.
+        // Mixing the two misplaces the panel when the keyboard is open.
+        const viewportHeight = window.innerHeight;
+        const viewportWidth = window.innerWidth;
+        const visibleTop = 8;
+        const spaceAbove = anchorRect.top - visibleTop;
         const spaceBelow = viewportHeight - anchorRect.bottom - 8;
         const openAbove = placement === "up" || spaceAbove > spaceBelow;
-        const maxHeight = Math.max(120, Math.min(openAbove ? spaceAbove : spaceBelow, viewportHeight * 0.6));
+        const available = Math.max(0, openAbove ? spaceAbove : spaceBelow);
+        // Never grow past the available space: the old Math.max(120, ...)
+        // floor pushed the panel past the visible top on small screens,
+        // stranding the first rows above the viewport with no way to scroll
+        // to them (only the inner list scrolls, not the fixed panel itself).
+        const maxHeight = Math.min(available, viewportHeight * 0.6);
         const verticalPosition = openAbove
           ? { bottom: viewportHeight - anchorRect.top + 6 }
           : { top: anchorRect.bottom + 6 };
@@ -255,7 +299,11 @@ export function ModelSelector({
                   onChange={(event) => setFilter(event.target.value)}
                   placeholder={t("chat.filterModels")}
                   aria-label={t("chat.filterModels")}
-                  autoFocus
+                  // Never autofocus on mobile: it pops the Android keyboard on
+                  // open, shrinking the viewport so the list no longer fits.
+                  // Users can tap the field when they actually want to filter.
+                  autoFocus={!isMobile}
+                  inputMode="search"
                   autoComplete="off"
                   spellCheck={false}
                   style={{

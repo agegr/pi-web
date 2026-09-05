@@ -1879,4 +1879,22 @@ span.token.table {
   .chat-input-textarea {
     font-size: max(16px, var(--chat-content-font-size, 14px)) !important;
   }
+  /* Ultra-compact message density (mobile) */
+  .chat-message-column {
+    padding-left: 4px !important;
+    padding-right: 4px !important;
+  }
+  .chat-row {
+    margin-bottom: 8px !important;
+  }
+  .chat-user-row > div {
+    max-width: 92% !important;
+  }
+  .chat-user-bubble {
+    padding: 6px 8px !important;
+    border-radius: 8px !important;
+  }
+  .chat-assistant-blocks {
+    gap: 4px !important;
+  }
 }
