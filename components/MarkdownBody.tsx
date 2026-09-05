@@ -25,7 +25,13 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
       const isBlock = className?.includes("language-") || raw.includes("\n");
       if (isBlock) {
         if (lang === "mermaid") {
-          return <MermaidBlock code={raw.replace(/\n$/, "")} isStreaming={isStreaming} />;
+          return (
+            <MermaidBlock
+              code={raw.replace(/\n$/, "")}
+              isStreaming={isStreaming}
+              defaultPreview
+            />
+          );
         }
         return <CodeBlock code={raw.replace(/\n$/, "")} lang={lang} isStreaming={isStreaming} />;
       }

@@ -469,7 +469,7 @@
 
 .skill-version-value.is-update,
 .skill-update-indicator {
-  color: #d97706;
+  color: var(--accent);
 }
 
 .skill-name-value {
@@ -634,18 +634,34 @@
 .config-switch {
   position: relative;
   flex-shrink: 0;
-  width: 40px;
-  height: 22px;
+  width: 32px;
+  height: 18px;
   padding: 0;
-  border: 0;
-  border-radius: 11px;
-  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-selected);
   cursor: pointer;
-  transition: background 0.18s;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .config-switch[aria-checked="true"] {
+  border-color: var(--accent);
   background: var(--accent);
+}
+
+.config-switch:not(:disabled):hover {
+  border-color: var(--text-muted);
+}
+
+.config-switch[aria-checked="true"]:not(:disabled):hover {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+}
+
+.config-switch::before {
+  content: "";
+  position: absolute;
+  inset: -5px -3px;
 }
 
 .config-switch:disabled {
@@ -659,18 +675,18 @@
 
 .config-switch-knob {
   position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 16px;
-  height: 16px;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  background: var(--bg);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
-  transition: left 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  background: var(--text-muted);
+  transition: transform 0.15s, background 0.15s;
 }
 
 .config-switch[aria-checked="true"] .config-switch-knob {
-  left: 21px;
+  transform: translateX(14px);
+  background: var(--bg);
 }
 
 .config-switch:focus-visible {
@@ -1029,6 +1045,43 @@
   color: var(--text-dim);
   font-family: var(--font-mono);
   font-size: 10px;
+}
+
+.settings-thinking-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 420px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.settings-thinking-option .settings-general-heading {
+  margin: 0;
+}
+
+.settings-thinking-toggle {
+  display: grid;
+  place-items: center;
+  flex: 0 0 44px;
+  height: 44px;
+  margin: -6px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.settings-thinking-toggle:hover {
+  background: var(--bg-hover);
+}
+
+.settings-thinking-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .settings-shell-option {

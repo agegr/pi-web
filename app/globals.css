@@ -304,7 +304,7 @@ body {
 }
 
 .extension-status-shelf.has-widgets.has-status .extension-widget-triggers {
-  flex: 0 1 70%;
+  flex: 0 0 auto;
   max-width: 70%;
   border-right: 1px solid var(--border);
 }
@@ -435,9 +435,10 @@ button.extension-widget-trigger:focus-visible {
   min-height: 35px;
   max-height: min(144px, 18dvh);
   padding: 8px 12px;
-  overflow-y: auto;
+  overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 .extension-status-text {
@@ -447,8 +448,7 @@ button.extension-widget-trigger:focus-visible {
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.45;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
+  white-space: pre;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-dim);
@@ -588,6 +588,7 @@ pre, code {
   min-width: 100%;
   font-size: 13px;
 }
+.markdown-table-wrap > table { width: max-content; }
 .markdown-body th, .markdown-body td {
   border: 0;
   border-bottom: 1px solid var(--border);
@@ -790,6 +791,8 @@ pre, code {
 
 .mermaid-preview-button {
   width: 100%;
+  max-height: min(600px, 60dvh);
+  overflow: auto;
   border: 0;
   color: inherit;
   cursor: zoom-in;
