@@ -168,9 +168,7 @@ const AGENT_STATE_RECONCILE_MS = 15_000;
 const BASH_STATE_RECONCILE_MS = 1_000;
 const EVENT_STREAM_READY_TIMEOUT_MS = 60_000;
 const EVENT_STREAM_RECONNECT_DELAY_MS = 1_000;
-// Backoff schedule for /api/models load failures. The first dev-server hit can
-// take many seconds (route compile) and a restarted server can transiently 403
-// until the cwd allow-list catches up, so retry before giving up visibly.
+// Retry temporary model-list failures without requiring a page refresh.
 const MODELS_RETRY_DELAYS_MS = [2_000, 5_000, 10_000];
 const MAX_NOTICES = 5;
 const NOTICE_VISIBLE_MS = 5000;
@@ -1549,24 +1547,30 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const loadModels = useCallback(async (signal?: AbortSignal) => {
     const modelCwd = newSessionCwd ?? session?.cwd ?? "";
     const modelsUrl = modelCwd ? `/api/models?cwd=${encodeURIComponent(modelCwd)}` : "/api/models";
-    const res = await fetch(modelsUrl, signal ? { signal } : undefined);
-    if (!res.ok) {
-      // 400/403 bodies carry a plain { error } message; surface it so the UI
-      // degrades to an error state instead of silently hiding the selector.
-      let detail = "";
-      try {
-        const body: unknown = await res.json();
-        if (body && typeof body === "object" && "error" in body && typeof body.error === "string") {
-          detail = body.error;
+    let d: ModelsResponse;
+    try {
+      const res = await fetch(modelsUrl, signal ? { signal } : undefined);
+      if (!res.ok) {
+        let detail = "";
+        try {
+          const body: unknown = await res.json();
+          if (body && typeof body === "object" && "error" in body && typeof body.error === "string") {
+            detail = body.error;
+          }
+        } catch (e) {
+          if (e instanceof DOMException && e.name === "AbortError") throw e;
+          // Non-JSON error responses fall back to the HTTP status.
         }
-      } catch {
-        // non-JSON error body — fall through to the status message
+        throw new Error(detail || `Failed to load models (HTTP ${res.status})`);
       }
-      const message = detail || `Failed to load models (HTTP ${res.status})`;
-      setModelError(message);
-      throw new Error(message);
+      d = await res.json() as ModelsResponse;
+      signal?.throwIfAborted();
+    } catch (e) {
+      if (!signal?.aborted && !(e instanceof DOMException && e.name === "AbortError")) {
+        setModelError(e instanceof Error ? e.message : String(e));
+      }
+      throw e;
     }
-    const d = await res.json() as ModelsResponse;
     setModelNames(d.models);
     setModelError(d.modelError ?? null);
     setModelScopeWarnings(d.modelScopeWarnings ?? []);
@@ -1958,9 +1962,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [messages.length, agentRunning, scrollToBottom, scrollUserMsgToTop]);
 
-  // Load model list. Failures are transient on purpose (dev cold route
-  // compile, server restart races the cwd allow-list), so retry with backoff
-  // before leaving the selector in its error state.
+  // Load the model list with bounded retries; loadModels exposes each failure.
   useEffect(() => {
     const controller = new AbortController();
     (async () => {
