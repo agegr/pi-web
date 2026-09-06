@@ -34,7 +34,7 @@ interface Props {
  * already-expanded `ToolCallBlock`, so a second expand/collapse toggle would
  * only force the user to click twice.
  */
-export function FileWriteResult({ filePath, isWrite, isRead = false, resultText, inputContent, isEmpty, isError }: Props) {
+export function FileToolResult({ filePath, isWrite, isRead = false, resultText, inputContent, isEmpty, isError }: Props) {
   const { t } = useI18n();
   const { isDark } = useTheme();
   const name = getFileName(filePath);
@@ -99,7 +99,7 @@ export function FileWriteResult({ filePath, isWrite, isRead = false, resultText,
               padding: "8px",
               border: 0,
               background: "var(--bg)",
-              fontSize: 12,
+              fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
               lineHeight: 1.6,
               width: "100%",
               overflow: "visible",

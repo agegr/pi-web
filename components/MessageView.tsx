@@ -22,8 +22,8 @@ import { getPreferredThinkingStyle } from "@/lib/thinking-style-preference";
 import { getPreferredDiffWrap } from "@/lib/diff-wrap-preference";
 import { isThinkingExpandedByDefault, THINKING_EXPANDED_EVENT } from "@/lib/thinking-expansion-preference";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
-import { FileWriteResult } from "./FileWriteResult";
-import { BashResultView } from "./BashResultView";
+import { FileToolResult } from "./FileToolResult";
+import { BashCommandView } from "./BashCommandView";
 import { JsonParamList } from "./JsonParamList";
 import { ToolIcon } from "./ToolIcon";
 import type { WrittenFile } from "@/lib/turn-written-files";
@@ -987,25 +987,37 @@ export function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex 
             ▶
           </span>
         </button>
-        <div
-          style={{
-            marginLeft: 14,
-            borderLeft: "1px dashed var(--border)",
-            padding: "2px 0 2px 10px",
-            color: error ? "#f87171" : "var(--text-dim)",
-            fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
-            fontStyle: "italic",
-            lineHeight: 1.6,
-            whiteSpace: "pre-wrap",
-          }}
-        >
-          { expanded ? (
-            loading ? t("i18n.loadingThinking") : error ?? (block.deferred ? content : block.thinking)
-          ): (
-            preview ? <ReactMarkdown allowedElements={[]} unwrapDisallowed skipHtml>{preview}</ReactMarkdown> + "..." : "..."
-          )}
-        </div>
-        
+        { expanded ? (
+          <div
+            style={{
+              marginLeft: 14,
+              borderLeft: "1px dashed var(--border)",
+              padding: "2px 0 2px 10px",
+              color: error ? "#f87171" : "var(--text-dim)",
+              fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
+              fontStyle: "italic",
+              lineHeight: 1.6,
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            { loading ? t("i18n.loadingThinking") : error ?? (block.deferred ? content : block.thinking) }
+          </div>
+        ) : (
+          <div
+            style={{
+              marginLeft: 14,
+              borderLeft: "1px dashed var(--border)",
+              padding: "2px 0 2px 10px",
+              color: error ? "#f87171" : "var(--text-dim)",
+              fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
+              fontStyle: "italic",
+              lineHeight: 1.6,
+              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"
+            }}
+          >
+            { preview ? <ReactMarkdown allowedElements={[]} unwrapDisallowed skipHtml>{preview}</ReactMarkdown> : "..." }
+          </div>
+        )}
       </div>
     );
   }
@@ -1182,7 +1194,7 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
 
       {/* ── Expanded: bash command with syntax highlighting ── */}
       {expanded && isBashTool && bashCommand && (
-        <BashResultView text={bashCommand} isError={isError} isEmpty={false} isCommand />
+        <BashCommandView text={bashCommand} isError={isError} isEmpty={false} />
       )}
 
       {/* ── Expanded: input args ── */}
@@ -1197,7 +1209,7 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
             diff={resultDiff}
           />
         ) : (isFileWritingTool || isFileReadingTool) && filePath ? (
-          <FileWriteResult
+          <FileToolResult
             filePath={filePath}
             isWrite={isWriteTool}
             isRead={isReadTool}
@@ -1321,7 +1333,7 @@ function SplitFilePatch({ file, showHeader, isDark, wrap, showTopBorder }: {
         minWidth: 0,
         borderTop: showTopBorder ? "1px solid var(--border)" : "none",
         fontFamily: "var(--font-mono)",
-        fontSize: 12,
+        fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
         lineHeight: 1.55,
       }}
     >

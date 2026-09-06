@@ -36,7 +36,7 @@ function commandRenderer({ rows, stylesheet, useInlineStyles }: rendererProps): 
  * Displays bash command or output with syntax highlighting.
  * Used inside an already-expanded ToolCallBlock, so no extra expand/collapse.
  */
-export function BashResultView({ text, isError, isEmpty, isCommand = false }: Props) {
+export function BashCommandView({ text, isError }: Props) {
   const { isDark } = useTheme();
   const highlightStyle = isDark ? vscDarkPlus : vs;
 
@@ -53,47 +53,41 @@ export function BashResultView({ text, isError, isEmpty, isCommand = false }: Pr
           overflow: "auto",
         }}
       >
-        {isEmpty && !isError ? (
-          <div style={{ padding: "8px 10px", color: "var(--text-dim)", fontSize: 12, fontStyle: "italic" }}>
-            (no output)
-          </div>
-        ) : (
-          <SyntaxHighlighter
-            language="bash"
-            style={highlightStyle}
-            showLineNumbers={!isCommand}
-            renderer={isCommand ? commandRenderer : undefined}
-            customStyle={{
-              margin: 0,
-              padding: "8px",
-              border: 0,
-              background: "transparent",
-              fontSize: 12,
-              lineHeight: 1.6,
-              width: "100%",
-              overflow: "visible",
-            }}
-            codeTagProps={{
-              style: {
-                fontFamily: "var(--font-mono)",
-                overflowWrap: "anywhere",
-              },
-            }}
-            lineProps={{
-              style: {
-                // Override the display:flex that wrapLongLines+showLineNumbers
-                // forces on each line (turns tokens into flex blocks). Keeping
-                // inline tokens lets long content wrap like normal text.
-                display: "block",
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-all",
-              },
-            }}
-            wrapLongLines
-          >
-            {text || "(error)"}
-          </SyntaxHighlighter>
-        )}
+        <SyntaxHighlighter
+          language="bash"
+          style={highlightStyle}
+          showLineNumbers
+          renderer={commandRenderer}
+          customStyle={{
+            margin: 0,
+            padding: "8px",
+            border: 0,
+            background: "transparent",
+            fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
+            lineHeight: 1.6,
+            width: "100%",
+            overflow: "visible",
+          }}
+          codeTagProps={{
+            style: {
+              fontFamily: "var(--font-mono)",
+              overflowWrap: "anywhere",
+            },
+          }}
+          lineProps={{
+            style: {
+              // Override the display:flex that wrapLongLines+showLineNumbers
+              // forces on each line (turns tokens into flex blocks). Keeping
+              // inline tokens lets long content wrap like normal text.
+              display: "block",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-all",
+            },
+          }}
+          wrapLongLines
+        >
+          {text || "(error)"}
+        </SyntaxHighlighter>
       </div>
     </div>
   );

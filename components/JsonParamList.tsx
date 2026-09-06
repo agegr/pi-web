@@ -34,7 +34,7 @@ function keyColumnWidth(entries: [string, unknown][]): string {
  */
 export function JsonParamList({ data, maxStringLength = 200, isError = false, bare = false }: JsonParamListProps) {
   if (!data || Object.keys(data).length === 0) {
-    return <div style={{ padding: "2px 0", color: "var(--text-muted)", fontSize: 12 }}>No parameters</div>;
+    return <div style={{ padding: "8px 10px", color: "var(--text-muted)", fontSize: "calc(12px + var(--chat-font-size-offset, 0px))" }}>No parameters</div>;
   }
 
   const entries = Object.entries(data);
@@ -70,7 +70,7 @@ interface ParamRowProps {
 function ParamRow({ name, value, colWidth, maxStringLength, isError }: ParamRowProps) {
   if (value === null || value === undefined) {
     return (
-      <div style={{ display: "flex", gap: 6, fontSize: 12, fontFamily: "var(--font-mono)" }}>
+      <div style={{ display: "flex", gap: 6, fontSize: "calc(12px + var(--chat-font-size-offset, 0px))", fontFamily: "var(--font-mono)" }}>
         <span style={{ color: "var(--accent)", fontWeight: 500, flexShrink: 0, minWidth: colWidth }}>{name}:</span>
         <span style={{ color: "var(--text-dim)" }}>null</span>
       </div>
@@ -83,7 +83,7 @@ function ParamRow({ name, value, colWidth, maxStringLength, isError }: ParamRowP
 
   if (typeof value === "number") {
     return (
-      <div style={{ display: "flex", gap: 6, fontSize: 12, fontFamily: "var(--font-mono)" }}>
+      <div style={{ display: "flex", gap: 6, fontSize: "calc(12px + var(--chat-font-size-offset, 0px))", fontFamily: "var(--font-mono)" }}>
         <span style={{ color: "var(--accent)", fontWeight: 500, flexShrink: 0, minWidth: colWidth }}>{name}:</span>
         <span style={{ color: "var(--json-number)" }}>{String(value)}</span>
       </div>
@@ -92,7 +92,7 @@ function ParamRow({ name, value, colWidth, maxStringLength, isError }: ParamRowP
 
   if (typeof value === "boolean") {
     return (
-      <div style={{ display: "flex", gap: 6, fontSize: 12, fontFamily: "var(--font-mono)" }}>
+      <div style={{ display: "flex", gap: 6, fontSize: "calc(12px + var(--chat-font-size-offset, 0px))", fontFamily: "var(--font-mono)" }}>
         <span style={{ color: "var(--accent)", fontWeight: 500, flexShrink: 0, minWidth: colWidth }}>{name}:</span>
         <span style={{ color: "var(--json-boolean)" }}>{String(value)}</span>
       </div>
@@ -111,7 +111,7 @@ function ParamRow({ name, value, colWidth, maxStringLength, isError }: ParamRowP
   }
 
   return (
-    <div style={{ display: "flex", gap: 6, fontSize: 12, fontFamily: "var(--font-mono)" }}>
+    <div style={{ display: "flex", gap: 6, fontSize: "calc(12px + var(--chat-font-size-offset, 0px))", fontFamily: "var(--font-mono)" }}>
       <span style={{ color: "var(--accent)", fontWeight: 500, flexShrink: 0, minWidth: colWidth }}>{name}:</span>
       <span style={{ color: "var(--text-muted)" }}>{String(value)}</span>
     </div>
@@ -147,7 +147,7 @@ function SimpleArrayParam({ name, value, colWidth }: {
   const hidden = value.length - shown.length;
 
   return (
-    <div style={{ display: "flex", gap: 6, fontSize: 12, fontFamily: "var(--font-mono)" }}>
+    <div style={{ display: "flex", gap: 6, fontSize: "calc(12px + var(--chat-font-size-offset, 0px))", fontFamily: "var(--font-mono)" }}>
       <span style={{ color: "var(--accent)", fontWeight: 500, flexShrink: 0, minWidth: colWidth }}>{name}:</span>
       <span style={{ color: "var(--text-muted)", wordBreak: "break-all" }}>
         {`[`}
@@ -177,7 +177,7 @@ function StringParam({ name, value, colWidth, maxStringLength }: StringParamProp
   const displayValue = isLong && !expanded ? `${value.slice(0, maxStringLength)}...` : value;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12, fontFamily: "var(--font-mono)" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: "calc(12px + var(--chat-font-size-offset, 0px))", fontFamily: "var(--font-mono)" }}>
       <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
         <span style={{ color: "var(--accent)", fontWeight: 500, flexShrink: 0, minWidth: colWidth }}>{name}:</span>
         <span style={{ color: "var(--json-string)", wordBreak: "break-all" }}>
@@ -202,7 +202,7 @@ function StringParam({ name, value, colWidth, maxStringLength }: StringParamProp
       </div>
       {expanded && isLong && (
         <div style={{ marginLeft: 8 }}>
-          <div style={{ color: "var(--text-dim)", fontSize: 11, marginBottom: 4 }}>
+          <div style={{ color: "var(--text-dim)", fontSize: "calc(11px + var(--chat-font-size-offset, 0px))", marginBottom: 4 }}>
             Full value ({value.length} chars)
           </div>
           <pre
@@ -211,7 +211,7 @@ function StringParam({ name, value, colWidth, maxStringLength }: StringParamProp
               padding: 8,
               background: "var(--bg-panel)",
               borderRadius: 4,
-              fontSize: 11,
+              fontSize: "calc(11px + var(--chat-font-size-offset, 0px))",
               lineHeight: 1.4,
               overflow: "auto",
               whiteSpace: "pre-wrap",
@@ -253,7 +253,7 @@ function ArrayParam({ name, value, colWidth, maxStringLength, isError }: ArrayPa
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12, fontFamily: "var(--font-mono)" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: "calc(12px + var(--chat-font-size-offset, 0px))", fontFamily: "var(--font-mono)" }}>
       <button
         onClick={() => setExpanded(!expanded)}
         style={{
@@ -275,7 +275,7 @@ function ArrayParam({ name, value, colWidth, maxStringLength, isError }: ArrayPa
           <span
             style={{
               color: "var(--text-dim)",
-              fontSize: 10,
+              fontSize: "calc(10px + var(--chat-font-size-offset, 0px))",
               display: "inline-block",
               lineHeight: 1,
               transition: "transform 0.12s ease",
@@ -322,7 +322,7 @@ function ArrayItemsView({ value, maxStringLength, isError }: {
             border: "none",
             color: "var(--accent)",
             cursor: "pointer",
-            fontSize: 11,
+            fontSize: "calc(11px + var(--chat-font-size-offset, 0px))",
             padding: 0,
             textAlign: "left",
             fontFamily: "var(--font-mono)",
@@ -348,7 +348,7 @@ function ObjectParam({ name, value, colWidth, maxStringLength, isError }: Object
   const keys = Object.keys(value);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12, fontFamily: "var(--font-mono)" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: "calc(12px + var(--chat-font-size-offset, 0px))", fontFamily: "var(--font-mono)" }}>
       <button
         onClick={() => setExpanded(!expanded)}
         style={{
@@ -370,7 +370,7 @@ function ObjectParam({ name, value, colWidth, maxStringLength, isError }: Object
           <span
             style={{
               color: "var(--text-dim)",
-              fontSize: 10,
+              fontSize: "calc(10px + var(--chat-font-size-offset, 0px))",
               display: "inline-block",
               lineHeight: 1,
               transition: "transform 0.12s ease",
