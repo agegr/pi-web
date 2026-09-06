@@ -10,6 +10,7 @@ const markdownSanitizeSchema = {
   ...defaultSchema,
   attributes: {
     ...defaultSchema.attributes,
+    a: [...(defaultSchema.attributes?.a ?? []), "dataFilePathLabel"],
     code: [["className", /^language-./, "math-inline", "math-display"]],
   },
   protocols: {

@@ -496,6 +496,9 @@ export async function GET(
     }
 
     if (type === "meta") {
+      if (stat?.isDirectory()) {
+        return NextResponse.json({ isDirectory: true });
+      }
       if (!stat?.isFile()) {
         return NextResponse.json({ error: "Not a file" }, { status: 400 });
       }
