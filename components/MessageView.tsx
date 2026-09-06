@@ -1004,10 +1004,23 @@ function isSubagentToolDetails(value: unknown): value is SubagentToolDetails {
 function ToolCallBlock({ block, result, duration, onOpenSession }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; onOpenSession?: (sessionId: string) => void }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
   const inputStr = getToolCallInputText(block);
   const isStreamingInput = block.rawInput !== undefined;
   const isEditTool = isEditToolName(block.toolName);
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
+
+  // 复制工具输入的命令（如 bash 命令），而非工具的回复内容
+  const copyCommand = block.input && typeof block.input === "object" && "command" in block.input
+    ? String((block.input as { command: unknown }).command)
+    : null;
+
+  const handleCopy = () => {
+    copyText(copyCommand ?? inputStr).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
 
   // Result display
   const resultText = result
@@ -1056,7 +1069,26 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
           {duration !== undefined && (
             <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
           )}
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+        </button>
+        <button
+          type="button"
+          onClick={handleCopy}
+          title={copied ? t("i18n.copied") : t("i18n.copy")}
+          aria-label={copied ? t("i18n.copied") : t("i18n.copy")}
+          style={{ width: 32, display: "grid", placeItems: "center", border: "none", borderLeft: "1px solid var(--border)", background: "none", color: copied ? "var(--accent)" : "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s" }}
+          onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = "var(--text)"; }}
+          onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-muted)"; }}
+        >
+          {copied
+            ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
+            : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>}
+        </button>
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          aria-label={expanded ? t("i18n.collapse") : t("i18n.expand")}
+          style={{ width: 32, display: "grid", placeItems: "center", border: "none", borderLeft: "1px solid var(--border)", background: "none", color: "var(--text-dim)", cursor: "pointer", flexShrink: 0 }}
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
             <polyline points="2 3.5 5 6.5 8 3.5" />
           </svg>
         </button>
@@ -1488,11 +1520,12 @@ function CompactionFileMetadata({ readFiles, modifiedFiles }: { readFiles: strin
 }
 
 function CompactionFileList({ title, files }: { title: string; files: string[] }) {
+  const uniqueFiles = Array.from(new Set(files));
   return (
     <div className="compaction-file-section">
       <div className="compaction-file-title">{title}</div>
       <ul className="compaction-file-list">
-        {files.map((file) => (
+        {uniqueFiles.map((file) => (
           <li key={file}>{file}</li>
         ))}
       </ul>

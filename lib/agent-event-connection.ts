@@ -54,7 +54,12 @@ export class AgentEventConnection {
 
   close(): void {
     this.stopRetrying();
-    if (this.current) this.discard(this.current, new AgentEventConnectionError("closed"));
+    if (this.current) {
+      const conn = this.current;
+      this.current = null;
+      conn.attempt.succeed();
+      conn.source.close();
+    }
   }
 
   maintain(sessionId: string): void {
