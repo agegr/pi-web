@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 import test from "node:test";
 import { createJiti } from "jiti";
 
@@ -73,6 +74,35 @@ test("list versions expose idle session creation, rename and deletion to other w
   assert.ok(deleted.sessionListVersion > updated.sessionListVersion);
   assert.deepEqual(deleted.sessions, []);
   assert.equal((await (await getRunningSessions()).json()).sessionListVersion, deleted.sessionListVersion);
+});
+
+test("session listing returns a gzip-compressed response when the client accepts it", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-web-list-gzip-"));
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = dir;
+  invalidateSessionListCache();
+  t.after(async () => {
+    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    invalidateSessionListCache();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const firstMessage = "compressible session content ".repeat(500);
+  const manager = SessionManager.create(dir);
+  manager.appendMessage({ role: "user", content: firstMessage, timestamp: Date.now() });
+  manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "done" }], timestamp: Date.now() });
+  invalidateSessionListCache();
+
+  const response = await getSessionList(new Request("http://localhost/api/sessions", {
+    headers: { "Accept-Encoding": "gzip" },
+  }));
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("Content-Encoding"), "gzip");
+  assert.match(response.headers.get("Vary") ?? "", /(?:^|,\s*)Accept-Encoding(?:\s*,|$)/i);
+  const payload = JSON.parse(gunzipSync(Buffer.from(await response.arrayBuffer())).toString("utf8"));
+  assert.equal(payload.sessions[0].firstMessage, firstMessage);
 });
 
 test("deleting an unpersisted session shuts down its runtime and invalidates caches", async (t) => {
@@ -257,4 +287,49 @@ test("live detail and state routes work without a persisted JSONL file", async (
     running: true,
     state: { isStreaming: true },
   });
+});
+
+test("session detail returns a gzip-compressed response when the client accepts it", async (t) => {
+  const previousRegistry = globalThis.__piSessions;
+  const id = "live-route-gzip-test";
+  const timestamp = "2026-09-05T00:00:00.000Z";
+  const firstMessage = "large session detail content ".repeat(500);
+  const entry = {
+    type: "message",
+    id: "u1",
+    parentId: null,
+    timestamp,
+    message: { role: "user", content: firstMessage },
+  };
+  const sessionManager = {
+    getHeader: () => ({ type: "session", id, cwd: "/tmp", timestamp }),
+    getEntries: () => [entry],
+    getLeafId: () => entry.id,
+    getTree: () => [],
+    getSessionName: () => undefined,
+    getSessionFile: () => `/tmp/pi-web-live-route-gzip-${process.pid}.jsonl`,
+  };
+  globalThis.__piSessions = new Map([[id, {
+    isAlive: () => true,
+    isRunning: () => false,
+    inner: { sessionManager },
+    sessionFile: sessionManager.getSessionFile(),
+    sessionId: id,
+    cwd: "/tmp",
+  }]]);
+  t.after(() => {
+    globalThis.__piSessions = previousRegistry;
+  });
+
+  const response = await getSessionDetail(
+    new Request(`http://localhost/api/sessions/${id}`, {
+      headers: { "Accept-Encoding": "gzip" },
+    }),
+    { params: Promise.resolve({ id }) },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("Content-Encoding"), "gzip");
+  const payload = JSON.parse(gunzipSync(Buffer.from(await response.arrayBuffer())).toString("utf8"));
+  assert.equal(payload.info.firstMessage, firstMessage);
 });
