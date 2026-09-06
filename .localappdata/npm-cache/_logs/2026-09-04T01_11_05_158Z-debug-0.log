@@ -1,0 +1,18 @@
+0 verbose cli D:\softwareDev\nodejs\node.exe D:\softwareDev\nodejs\node_modules\npm\bin\npm-cli.js
+1 info using npm@10.9.3
+2 info using node@v22.19.0
+3 silly config load:file:D:\softwareDev\nodejs\node_modules\npm\npmrc
+4 silly config load:file:D:\softwareDev\pi_web\pi-web-main\.npmrc
+5 silly config load:file:C:\Users\Administrator\.npmrc
+6 silly config load:file:D:\phpstudy_pro\ai模型中转站\sub2api-main\tools\npm-global\etc\npmrc
+7 verbose title npm run build
+8 verbose argv "run" "build"
+9 verbose logfile logs-max:10 dir:D:\softwareDev\pi_web\pi-web-main\.localappdata\npm-cache\_logs\2026-09-04T01_11_05_158Z-
+10 verbose logfile D:\softwareDev\pi_web\pi-web-main\.localappdata\npm-cache\_logs\2026-09-04T01_11_05_158Z-debug-0.log
+11 silly logfile done cleaning log files
+12 verbose cwd D:\softwareDev\pi_web\pi-web-main
+13 verbose os Windows_NT 10.0.17763
+14 verbose node v22.19.0
+15 verbose npm  v10.9.3
+16 verbose exit 1
+17 verbose code 1

@@ -1,0 +1,81 @@
+{
+  "name": "@agegr/pi-web",
+  "version": "0.8.11",
+  "description": "Web UI for the pi coding agent",
+  "homepage": "https://github.com/agegr/pi-web#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agegr/pi-web.git"
+  },
+  "bugs": {
+    "url": "https://github.com/agegr/pi-web/issues"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "bin": {
+    "pi-web": "bin/pi-web.js"
+  },
+  "files": [
+    "bin",
+    ".next",
+    "!.next/cache",
+    "!.next/dev",
+    "!.next/**/*.js.map",
+    "public",
+    "next.config.ts",
+    "package.json"
+  ],
+  "scripts": {
+    "dev": "next dev -H 127.0.0.1 -p 30141",
+    "dev:lan": "next dev -H 0.0.0.0 -p 30141",
+    "build": "next build --webpack",
+    "start": "next start -H 127.0.0.1 -p 30141",
+    "start:lan": "next start -H 0.0.0.0 -p 30141",
+    "lint": "eslint .",
+    "test": "node --experimental-strip-types --test \"app/**/*.test.mjs\" \"components/**/*.test.mjs\" \"hooks/**/*.test.mjs\" \"lib/**/*.test.mjs\" \"public/**/*.test.mjs\"",
+    "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.84.3",
+    "@earendil-works/pi-ai": "0.84.3",
+    "@earendil-works/pi-coding-agent": "0.84.3",
+    "@earendil-works/pi-tui": "0.84.3",
+    "ansi_up": "^6.0.6",
+    "js-yaml": "^5.2.3",
+    "next": "16.3.1",
+    "proper-lockfile": "4.1.2",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "remark-frontmatter": "^5.0.0",
+    "undici": "8.10.0",
+    "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.2.2",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^25",
+    "@types/proper-lockfile": "4.1.4",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "@types/web-push": "^3.6.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.1",
+    "jiti": "^2.7.0",
+    "katex": "^0.16.47",
+    "mammoth": "^1.12.0",
+    "mermaid": "^11.16.1",
+    "postcss": "^8.5.26",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^16.1.1",
+    "rehype-katex": "^7.0.1",
+    "rehype-raw": "^7.0.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "tailwindcss": "^4.2.2",
+    "typescript": "^5"
+  }
+}
