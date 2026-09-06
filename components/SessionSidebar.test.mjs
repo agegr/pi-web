@@ -141,8 +141,21 @@ test("only manual refresh bypasses the server session-list cache", () => {
   assert.match(source, /force \? "\/api\/sessions\?force=1" : "\/api\/sessions"/);
   assert.match(source, /cache: "no-store"/);
   assert.match(source, /void loadSessions\(isFirst, false\)/);
-  assert.match(source, /onClick=\{\(\) => loadSessions\(false, true\)\}/);
+  assert.match(source, /onClick=\{\(\) => void loadSessions\(false, true\)\}/);
   assert.match(source, /loadSessions\(false, false\);[\s\S]*?onBackgroundTaskDone/);
+});
+
+test("manual refresh has priority over background loads and visible completion feedback", () => {
+  const loadBlock = source.slice(
+    source.indexOf("const loadSessions = useCallback"),
+    source.indexOf("const sessionRefreshEffectRef"),
+  );
+  assert.match(loadBlock, /if \(!force && manualRefreshRequestRef\.current !== null\) return/);
+  assert.match(loadBlock, /manualRefreshRequestRef\.current = requestId/);
+  assert.match(loadBlock, /setManualRefreshStatus\(succeeded \? "done" : "idle"\)/);
+  assert.match(source, /disabled=\{manualRefreshStatus === "loading"\}/);
+  assert.match(source, /aria-busy=\{manualRefreshStatus === "loading"\}/);
+  assert.match(source, /manualRefreshStatus === "done"/);
 });
 
 test("Strict Effects replay does not issue a second session-list request", () => {

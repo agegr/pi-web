@@ -480,6 +480,7 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   const [sessionListVersion, setSessionListVersion] = useState<number | null>(null);
   const sessionListVersionRef = useRef<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [manualRefreshStatus, setManualRefreshStatus] = useState<"idle" | "loading" | "done">("idle");
   const [error, setError] = useState<string | null>(null);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [homeDir, setHomeDir] = useState<string>("");
@@ -528,6 +529,8 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
   const sessionListRequestRef = useRef(0);
   const sessionListControllerRef = useRef<AbortController | null>(null);
+  const manualRefreshRequestRef = useRef<number | null>(null);
+  const manualRefreshDoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [sessionOrderPreferences, setSessionOrderPreferences] = useState<SessionOrderPreferences>(
     () => emptySessionOrderPreferences(),
   );
@@ -626,10 +629,19 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
   }, [sessionSearchActive]);
 
   const loadSessions = useCallback(async (showLoading = false, force = false) => {
+    // A background refresh must not cancel an explicit cache-bypassing refresh.
+    if (!force && manualRefreshRequestRef.current !== null) return;
+
     const requestId = ++sessionListRequestRef.current;
     sessionListControllerRef.current?.abort();
     const controller = new AbortController();
     sessionListControllerRef.current = controller;
+    let succeeded = false;
+    if (force) {
+      manualRefreshRequestRef.current = requestId;
+      if (manualRefreshDoneTimerRef.current) clearTimeout(manualRefreshDoneTimerRef.current);
+      setManualRefreshStatus("loading");
+    }
     try {
       if (showLoading) setLoading(true);
       const res = await fetch(force ? "/api/sessions?force=1" : "/api/sessions", {
@@ -668,11 +680,22 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
         return next.size === prev.size ? prev : next;
       });
       setError(null);
+      succeeded = true;
     } catch (e) {
       if ((e as { name?: string }).name !== "AbortError" && requestId === sessionListRequestRef.current) {
         setError(String(e));
       }
     } finally {
+      if (force && manualRefreshRequestRef.current === requestId) {
+        manualRefreshRequestRef.current = null;
+        setManualRefreshStatus(succeeded ? "done" : "idle");
+        if (succeeded) {
+          manualRefreshDoneTimerRef.current = setTimeout(() => {
+            manualRefreshDoneTimerRef.current = null;
+            setManualRefreshStatus("idle");
+          }, 1200);
+        }
+      }
       if (requestId === sessionListRequestRef.current) {
         if (sessionListControllerRef.current === controller) sessionListControllerRef.current = null;
         // A non-loading refresh may replace the initial loading request. The
@@ -680,6 +703,10 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
         setLoading(false);
       }
     }
+  }, []);
+
+  useEffect(() => () => {
+    if (manualRefreshDoneTimerRef.current) clearTimeout(manualRefreshDoneTimerRef.current);
   }, []);
 
   const sessionRefreshEffectRef = useRef<{
@@ -1405,15 +1432,28 @@ export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, 
             </button>
             <button
               type="button"
-              onClick={() => loadSessions(false, true)}
+              onClick={() => void loadSessions(false, true)}
+              disabled={manualRefreshStatus === "loading"}
+              aria-busy={manualRefreshStatus === "loading"}
               title={t("sidebar.refresh")}
               aria-label={t("sidebar.refresh")}
-              className="flex h-[32px] w-[32px] shrink-0 cursor-pointer items-center justify-center rounded-[7px] border border-border bg-bg-hover text-text-muted hover:bg-bg-selected hover:text-accent focus-visible:outline-2 focus-visible:outline-accent"
+              className="flex h-[32px] w-[32px] shrink-0 cursor-pointer items-center justify-center rounded-[7px] border border-border bg-bg-hover text-text-muted hover:bg-bg-selected hover:text-accent focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-wait"
             >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                <path d="M3 3v5h5" />
-              </svg>
+              {manualRefreshStatus === "loading" ? (
+                <svg className="animate-spin" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+                  <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              ) : manualRefreshStatus === "done" ? (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              ) : (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                  <path d="M3 3v5h5" />
+                </svg>
+              )}
             </button>
             <button
               type="button"
