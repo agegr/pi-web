@@ -10,13 +10,19 @@ const jiti = createJiti(import.meta.url, {
 });
 const { MarkdownBody } = await jiti.import("./MarkdownBody.tsx");
 const { normalizeDisplayMath } = await jiti.import("../lib/markdown.ts");
+const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 
-function renderMarkdown(markdown) {
+function renderMarkdown(markdown, props = {}) {
   return renderToStaticMarkup(
-    React.createElement(MarkdownBody, {
-      cwd: "/home/me/project",
-      onOpenFile() {},
-    }, markdown),
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(MarkdownBody, {
+        cwd: "/home/me/project",
+        onOpenFile() {},
+        ...props,
+      }, markdown),
+    ),
   );
 }
 
@@ -31,10 +37,19 @@ test("opens non-file markdown links in a safe new tab", () => {
 });
 
 test("keeps local file markdown links in the app", () => {
-  const html = renderMarkdown("[file](components/MarkdownBody.tsx)");
+  const relativeHtml = renderMarkdown("[file](components/MarkdownBody.tsx)");
+  const fileUrlHtml = renderMarkdown("[report](file:///home/me/project/report.html)");
 
-  assert.match(html, /<a href="components\/MarkdownBody\.tsx">file<\/a>/);
-  assert.doesNotMatch(html, /target=|rel=|\snode=/);
+  assert.match(relativeHtml, /<a href="components\/MarkdownBody\.tsx">file<\/a>/);
+  assert.doesNotMatch(relativeHtml, /target=|rel=|\snode=/);
+  assert.match(fileUrlHtml, /<a href="file:\/\/\/home\/me\/project\/report\.html">report<\/a>/);
+  assert.doesNotMatch(fileUrlHtml, /target=|rel=|\snode=/);
+});
+
+test("keeps file URLs inert without an in-app file handler", () => {
+  const html = renderMarkdown("[report](file:///home/me/project/report.html)", { onOpenFile: undefined });
+
+  assert.match(html, /<a href="" target="_blank" rel="noopener noreferrer">report<\/a>/);
 });
 
 test("keeps single-tilde CJK numeric ranges literal instead of striking them", () => {
@@ -105,4 +120,20 @@ test("does not normalize escaped delimiters or link destinations", () => {
 
   assert.equal(normalizeDisplayMath(escaped), escaped);
   assert.equal(normalizeDisplayMath(link), link);
+});
+
+test("previews completed Mermaid diagrams by default", () => {
+  const html = renderMarkdown("```mermaid\ngraph TD\n  A --> B\n```");
+
+  assert.match(html, /mermaid-block-loading/);
+  assert.match(html, />Source</);
+  assert.doesNotMatch(html, /A --&gt; B/);
+});
+
+test("keeps Mermaid source visible while the response is streaming", () => {
+  const html = renderMarkdown("```mermaid\ngraph TD\n  A --> B\n```", { isStreaming: true });
+
+  assert.doesNotMatch(html, /mermaid-block-loading/);
+  assert.match(html, />Preview</);
+  assert.match(html, /A --&gt; B/);
 });

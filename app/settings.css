@@ -469,7 +469,7 @@
 
 .skill-version-value.is-update,
 .skill-update-indicator {
-  color: #d97706;
+  color: var(--accent);
 }
 
 .skill-name-value {
@@ -634,18 +634,34 @@
 .config-switch {
   position: relative;
   flex-shrink: 0;
-  width: 40px;
-  height: 22px;
+  width: 32px;
+  height: 18px;
   padding: 0;
-  border: 0;
-  border-radius: 11px;
-  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-selected);
   cursor: pointer;
-  transition: background 0.18s;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .config-switch[aria-checked="true"] {
+  border-color: var(--accent);
   background: var(--accent);
+}
+
+.config-switch:not(:disabled):hover {
+  border-color: var(--text-muted);
+}
+
+.config-switch[aria-checked="true"]:not(:disabled):hover {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+}
+
+.config-switch::before {
+  content: "";
+  position: absolute;
+  inset: -5px -3px;
 }
 
 .config-switch:disabled {
@@ -659,18 +675,18 @@
 
 .config-switch-knob {
   position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 16px;
-  height: 16px;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  background: var(--bg);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
-  transition: left 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  background: var(--text-muted);
+  transition: transform 0.15s, background 0.15s;
 }
 
 .config-switch[aria-checked="true"] .config-switch-knob {
-  left: 21px;
+  transform: translateX(14px);
+  background: var(--bg);
 }
 
 .config-switch:focus-visible {
@@ -886,6 +902,7 @@
 
 .settings-general {
   width: 100%;
+  max-height: 100%;
   max-width: 680px;
   padding: 26px clamp(18px, 4vw, 40px) 40px;
   overflow-y: auto;
@@ -927,8 +944,6 @@
   width: 100%;
   max-width: 420px;
   padding: 3px;
-  border-radius: 7px;
-  background: var(--bg-panel);
 }
 
 .settings-theme-option {
@@ -965,6 +980,58 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.settings-chat-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.settings-chat-option {
+  width: 100%;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.settings-chat-switch-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 28px;
+}
+
+.settings-chat-range-option {
+  padding: 0;
+}
+
+.settings-chat-range-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 28px;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-chat-range-header output {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.settings-chat-reset {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
+.settings-chat-range-option input {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  accent-color: var(--accent);
 }
 
 .settings-language-options {

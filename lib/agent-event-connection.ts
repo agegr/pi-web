@@ -54,11 +54,7 @@ export class AgentEventConnection {
 
   close(): void {
     this.stopRetrying();
-    const connection = this.current;
-    if (!connection) return;
-    connection.attempt.succeed();
-    connection.source.close();
-    this.current = null;
+    if (this.current) this.discard(this.current, new AgentEventConnectionError("closed"));
   }
 
   maintain(sessionId: string): void {
@@ -76,7 +72,6 @@ export class AgentEventConnection {
   }
 
   async ensureConnected(sessionId: string): Promise<void> {
-    const connectionGeneration = this.retryGeneration;
     while (true) {
       let connection = this.current;
       if (!connection || connection.sessionId !== sessionId) {
@@ -89,7 +84,6 @@ export class AgentEventConnection {
       }
 
       await connection.attempt.promise;
-      if (connectionGeneration !== this.retryGeneration) return;
       if (this.current !== connection) {
         if (this.current?.sessionId === sessionId) continue;
         throw new AgentEventConnectionError("closed");
