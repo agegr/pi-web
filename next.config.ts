@@ -13,6 +13,9 @@ try {
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: configDir,
+  outputFileTracingExcludes: {
+    "*": ["**/AppData/Local/Microsoft/Windows/UPPS/**"],
+  },
   serverExternalPackages: [
     "node-pty",
     "undici",

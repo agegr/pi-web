@@ -80,6 +80,7 @@ function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, 
   }
   if (phase?.kind === "waiting_model") return t("chat.waitingModel");
   if (phase?.kind === "running_command") return t("chat.runningCommand");
+  if (phase?.kind === "compacting") return t(phase.auto ? "chat.autoCompacting" : "chat.compacting");
   return null;
 }
 
@@ -295,6 +296,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     deferInitialScroll: Boolean(pendingScrollRestore),
   });
   const sessionBusy = agentRunning || bashRunning;
+  const handleWorkspaceHistoryCommand = useCallback((command: "undo" | "redo" | "checkpoint") => {
+    handleSend(`/${command}`);
+  }, [handleSend]);
   const [quotedSelection, setQuotedSelection] = useState<{
     text: string;
     top: number;
@@ -896,6 +900,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       onAudioUnlock={unlockAudio}
       draftKey={session?.id ?? newSessionDraftKey ?? undefined}
       cwd={session?.cwd ?? newSessionCwd}
+      onWorkspaceHistoryCommand={handleWorkspaceHistoryCommand}
     />
   );
 
