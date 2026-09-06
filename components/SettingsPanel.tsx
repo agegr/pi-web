@@ -22,6 +22,8 @@ import {
   isThinkingExpandedByDefault,
   setThinkingExpandedByDefault,
 } from "@/lib/thinking-expansion-preference";
+import { getPreferredThinkingStyle, setPreferredThinkingStyle, type ThinkingStyle } from "@/lib/thinking-style-preference";
+import { getPreferredDiffWrap, setPreferredDiffWrap, type DiffWrapMode } from "@/lib/diff-wrap-preference";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { AgentsConfig } from "./AgentsConfig";
@@ -73,6 +75,10 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
+  // Mirror the localStorage-backed prefs into state so the UI updates
+  // immediately on click instead of waiting for the panel to reopen.
+  const [thinkingStyle, setThinkingStyle] = useState<ThinkingStyle>(() => getPreferredThinkingStyle());
+  const [diffWrap, setDiffWrap] = useState<DiffWrapMode>(() => getPreferredDiffWrap());
   const [shellSettings, setShellSettings] = useState<ShellToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
@@ -230,7 +236,56 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
           </div>
         </div>
       </section>
-
+      <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.thinkingStyle")}</h3>
+        <p className="settings-general-description">{t("settings.thinkingStyleDescription")}</p>
+        <div role="radiogroup" aria-label={t("settings.thinkingStyle")} className="settings-language-options">
+          {([{ id: "card", label: t("settings.thinkingCard") }, { id: "minimal", label: t("settings.thinkingMinimal") }] as const).map((option) => {
+            const selected = thinkingStyle === option.id;
+            return (
+                <button
+                    key={option.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => { setPreferredThinkingStyle(option.id); setThinkingStyle(option.id); }}
+                    className="settings-language-option"
+                >
+                <span className="settings-language-radio">
+                  {selected && <span className="settings-language-radio-dot" />}
+                </span>
+                  <span className="settings-language-label">{option.label}</span>
+                </button>
+            );
+          })}
+        </div>
+      </section>
+      
+      <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.diffWrap")}</h3>
+        <p className="settings-general-description">{t("settings.diffWrapDescription")}</p>
+        <div role="radiogroup" aria-label={t("settings.diffWrap")} className="settings-language-options">
+          {([{ id: "wrap", label: t("settings.diffWrapOn") }, { id: "nowrap", label: t("settings.diffWrapOff") }] as const).map((option) => {
+            const selected = diffWrap === option.id;
+            return (
+                <button
+                    key={option.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => { setPreferredDiffWrap(option.id); setDiffWrap(option.id); }}
+                    className="settings-language-option"
+                >
+                <span className="settings-language-radio">
+                  {selected && <span className="settings-language-radio-dot" />}
+                </span>
+                  <span className="settings-language-label">{option.label}</span>
+                </button>
+            );
+          })}
+        </div>
+      </section>
+      
       {shellSettings?.isWindows && (
         <section className="settings-general-section">
           <h3 className="settings-general-heading">{t("settings.shellTool")}</h3>

@@ -47,7 +47,7 @@ const MAX_UPLOAD_REQUEST_BYTES = MAX_UPLOAD_TOTAL_BYTES + 1024 * 1024;
 const EXT_TO_LANGUAGE: Record<string, string> = {
   ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
   mjs: "javascript", cjs: "javascript", py: "python", rb: "ruby",
-  go: "go", rs: "rust", java: "java", kt: "kotlin", swift: "swift",
+  go: "go", rs: "rust", java: "java", kt: "kotlin", swift: "swift", sc: "scala", scala: "scala",
   c: "c", cpp: "cpp", h: "c", hpp: "cpp", cs: "csharp",
   html: "html", htm: "html", css: "css", scss: "css", less: "css",
   json: "json", jsonl: "json", yaml: "yaml", yml: "yaml",
@@ -55,6 +55,9 @@ const EXT_TO_LANGUAGE: Record<string, string> = {
   sh: "bash", bash: "bash", zsh: "bash", fish: "bash",
   sql: "sql", graphql: "graphql", gql: "graphql",
   dockerfile: "dockerfile", tf: "hcl", hcl: "hcl",
+  dart: "dart", php: "php", pl: "perl", pm: "perl", lua: "lua", r: "r",
+  clj: "clojure", cljs: "clojure", ex: "elixir", exs: "elixir", erl: "erlang", hs: "haskell",
+  sass: "sass", proto: "protobuf", feature: "gherkin", diff: "diff", patch: "diff",
   env: "bash", gitignore: "bash", txt: "text",
   pdf: "pdf", docx: "word",
 };

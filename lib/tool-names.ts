@@ -23,3 +23,24 @@ export function isEditToolName(toolName: string): boolean {
     name.includes("str_replace") ||
     name.includes("replace_editor");
 }
+
+export function isReadToolName(toolName: string): boolean {
+  const name = toolName.toLowerCase();
+  return name === "read" ||
+    name.startsWith("read_") ||
+    name.endsWith(".read") ||
+    name.endsWith("_read");
+}
+
+export function isBashToolName(toolName: string): boolean {
+  const name = toolName.toLowerCase();
+  return name === "bash" ||
+    name === "execute_code" ||
+    name.startsWith("bash_") ||
+    // Synthesized display name for user-run local bash (see BashExecutionView).
+    name.startsWith("bash (") ||
+    name.endsWith(".bash") ||
+    name.endsWith("_bash") ||
+    name === "run_bash" ||
+    name.includes("shell");
+}

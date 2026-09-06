@@ -34,6 +34,9 @@
   --assistant-bg: #ffffff;
   --tool-bg: #f9fafb;
   --bg-subtle: rgba(0,0,0,0.03);
+  --json-string: #16a34a;
+  --json-number: #d97706;
+  --json-boolean: #7c3aed;
   --chat-content-max-width: 820px;
   --chat-content-font-size: 14px;
 }
@@ -53,6 +56,9 @@ html.dark {
   --assistant-bg: #1a1a1a;
   --tool-bg: #1f2937;
   --bg-subtle: rgba(255,255,255,0.04);
+  --json-string: #4ade80;
+  --json-number: #fb923c;
+  --json-boolean: #c084fc;
 }
 
 /* WebKit reports dvh/innerHeight without the status-bar strip for installed

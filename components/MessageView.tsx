@@ -1,18 +1,31 @@
 "use client";
 
-import { memo, useState, useRef, useEffect, useMemo } from "react";
+import { memo, useState, useRef, useEffect, useMemo, Fragment } from "react";
+import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import { MarkdownBody } from "./MarkdownBody";
 import { ImagePreview } from "./ImagePreview";
 import { ThinkingIcon } from "./ThinkingIcon";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
+import { useTheme } from "@/hooks/useTheme";
+import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
+import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, isEmptyThinkingBlock } from "@/lib/message-display";
-import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
-import { isEditToolName } from "@/lib/tool-names";
+import { parseUnifiedPatch, type SplitDiffCell, type SplitDiffFile, type SplitDiffRow } from "@/lib/patch";
+import { getLanguageFromPath } from "@/lib/file-language";
+import { highlightCodeRows } from "@/lib/diff-highlight";
+import { inlineWordDiff, type InlineDiffSegment } from "@/lib/word-diff";
+import { isBashToolName, isEditToolName, isReadToolName, isWriteToolName } from "@/lib/tool-names";
+import { getPreferredThinkingStyle } from "@/lib/thinking-style-preference";
+import { getPreferredDiffWrap } from "@/lib/diff-wrap-preference";
 import { isThinkingExpandedByDefault, THINKING_EXPANDED_EVENT } from "@/lib/thinking-expansion-preference";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
+import { FileToolResult } from "./FileToolResult";
+import { BashCommandView } from "./BashCommandView";
+import { JsonParamList } from "./JsonParamList";
+import { ToolIcon } from "./ToolIcon";
 import type { WrittenFile } from "@/lib/turn-written-files";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import type { SubagentToolDetails } from "@/lib/subagent-extension";
@@ -895,6 +908,9 @@ export function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex 
   const tRef = useRef(t);
   tRef.current = t;
   const preview = getThinkingPreview(block.thinking);
+  // Read the preferred style on each render so switching the setting applies
+  // as soon as the message list re-renders.
+  const style = getPreferredThinkingStyle();
 
   // Keep already-mounted blocks in sync when the preference changes.
   useEffect(() => {
@@ -934,6 +950,79 @@ export function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex 
     };
   }, [expanded, block.deferred, content, sessionId, entryId, blockIndex]);
 
+  // Minimal: unobtrusive italic label and text, no card chrome.
+  if (style === "minimal") {
+    return (
+      <div>
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "3px 8px",
+            margin: "2px 0",
+            background: "transparent",
+            border: "none",
+            borderRadius: 4,
+            color: "var(--text-dim)",
+            cursor: "pointer",
+            fontSize: "calc(11px + var(--chat-font-size-offset, 0px))",
+            fontStyle: "italic",
+            textAlign: "left",
+          }}
+        >
+          <ThinkingIcon active={expanded} />
+          { t("i18n.thinking") }
+          <span
+            style={{
+              fontSize: "calc(9px + var(--chat-font-size-offset, 0px))",
+              display: "inline-block",
+              lineHeight: 1,
+              fontStyle: "normal",
+              transition: "transform 0.12s ease",
+              transform: expanded ? "rotate(90deg)" : "none",
+            }}
+          >
+            ▶
+          </span>
+        </button>
+        { expanded ? (
+          <div
+            style={{
+              marginLeft: 14,
+              borderLeft: "1px dashed var(--border)",
+              padding: "2px 0 2px 10px",
+              color: error ? "#f87171" : "var(--text-dim)",
+              fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
+              fontStyle: "italic",
+              lineHeight: 1.6,
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            { loading ? t("i18n.loadingThinking") : error ?? (block.deferred ? content : block.thinking) }
+          </div>
+        ) : (
+          <div
+            style={{
+              marginLeft: 14,
+              borderLeft: "1px dashed var(--border)",
+              padding: "2px 0 2px 10px",
+              color: error ? "#f87171" : "var(--text-dim)",
+              fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
+              fontStyle: "italic",
+              lineHeight: 1.6,
+              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"
+            }}
+          >
+            { preview ? <ReactMarkdown allowedElements={[]} unwrapDisallowed skipHtml>{preview}</ReactMarkdown> : "..." }
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Card: bordered panel with the original gray chrome plus a thinking icon.
   return (
     <div style={{
       display: "flex", alignItems: "flex-start", gap: 6, minWidth: 0,
@@ -970,7 +1059,7 @@ export function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex 
       >
         <ThinkingIcon active={expanded} />
         {!expanded && (
-          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {preview ? <ReactMarkdown allowedElements={[]} unwrapDisallowed skipHtml>{preview}</ReactMarkdown> : "..."}
           </span>
         )}
@@ -985,7 +1074,7 @@ export function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex 
             overflowWrap: "anywhere",
           }}
         >
-           {loading ? t("i18n.loadingThinking") : error ?? (block.deferred ? content : block.thinking)}
+          {loading ? t("i18n.loadingThinking") : error ?? (block.deferred ? content : block.thinking)}
         </div>
       )}
       {duration !== undefined && (
@@ -1007,6 +1096,11 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
   const inputStr = getToolCallInputText(block);
   const isStreamingInput = block.rawInput !== undefined;
   const isEditTool = isEditToolName(block.toolName);
+  const isWriteTool = isWriteToolName(block.toolName);
+  const isReadTool = isReadToolName(block.toolName);
+  const isBashTool = isBashToolName(block.toolName);
+  const isFileWritingTool = isEditTool || isWriteTool;
+  const isFileReadingTool = isReadTool;
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
 
   // Result display
@@ -1017,6 +1111,30 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
   const isError = result?.isError ?? false;
   const subagent = isSubagentToolDetails(result?.details) ? result.details : null;
+
+  // Extract file path and content from tool input for file-writing/reading tools
+  const { filePath, inputContent } = useMemo(() => {
+    const isFileTool = isFileWritingTool || isFileReadingTool;
+    if (!isFileTool || !result || result.isError) return { filePath: null as string | null, inputContent: undefined as string | undefined };
+    const input = block.input as Record<string, unknown> | undefined;
+    const rawPath = input?.file_path ?? input?.path;
+    if (typeof rawPath !== "string" || rawPath.length === 0) return { filePath: null, inputContent: undefined };
+    // For write tools, extract the content from input
+    let content: string | undefined;
+    if (isWriteTool) {
+      const rawContent = input?.content;
+      if (typeof rawContent === "string") content = rawContent;
+    }
+    return { filePath: rawPath, inputContent: content };
+  }, [block.input, isFileWritingTool, isFileReadingTool, isWriteTool, result]);
+
+  // Extract command from bash tool input
+  const bashCommand = useMemo(() => {
+    if (!isBashTool) return undefined;
+    const input = block.input as Record<string, unknown> | undefined;
+    const cmd = input?.command;
+    return typeof cmd === "string" ? cmd : undefined;
+  }, [block.input, isBashTool]);
 
   return (
     <div
@@ -1047,7 +1165,8 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
             textAlign: "left",
           }}
         >
-          <span style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
+          <span style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <ToolIcon toolName={block.toolName} />
             {block.toolName}
           </span>
           <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
@@ -1073,24 +1192,14 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
         )}
       </div>
 
+      {/* ── Expanded: bash command with syntax highlighting ── */}
+      {expanded && isBashTool && bashCommand && (
+        <BashCommandView text={bashCommand} isError={isError} isEmpty={false} />
+      )}
+
       {/* ── Expanded: input args ── */}
-      {expanded && (isStreamingInput || !isEditTool) && (
-        <pre
-          style={{
-            margin: 0,
-            padding: "8px 10px",
-            color: "var(--text-muted)",
-            fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
-            lineHeight: 1.5,
-            overflow: "auto",
-            background: "var(--bg-subtle)",
-            borderTop: isError ? "1px solid rgba(248,113,113,0.25)" : "1px solid rgba(34,197,94,0.2)",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-all",
-          }}
-        >
-          {inputStr}
-        </pre>
+      {expanded && (isStreamingInput || !isFileWritingTool && !isFileReadingTool && !isBashTool) && (
+        <JsonParamList data={block.input as Record<string, unknown>} isError={isError} />
       )}
 
       {/* ── Paired result — only shown when expanded ── */}
@@ -1098,6 +1207,16 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
         resultDiff ? (
           <PairedDiffResult
             diff={resultDiff}
+          />
+        ) : (isFileWritingTool || isFileReadingTool) && filePath ? (
+          <FileToolResult
+            filePath={filePath}
+            isWrite={isWriteTool}
+            isRead={isReadTool}
+            resultText={resultText ?? ""}
+            inputContent={inputContent}
+            isEmpty={resultIsEmpty}
+            isError={isError}
           />
         ) : (
           <PairedResult
@@ -1132,57 +1251,129 @@ function PairedDiffResult({ diff }: {
 }
 
 function SplitPatchView({ text }: { text: string }) {
-  const { t } = useI18n();
+  const { isDark } = useTheme();
+  const wrap = getPreferredDiffWrap() === "wrap";
   const files = useMemo(() => parseUnifiedPatch(text), [text]);
   if (!files) return <PatchTextView text={text} />;
   const showFileHeaders = files.length > 1;
 
   return (
+    // Vertical viewport only; each column scrolls horizontally on its own and
+    // the two are kept in sync so the diff halves stay aligned.
     <div style={{ maxHeight: 560, overflowY: "auto", overflowX: "hidden", background: "var(--bg)" }}>
       {files.map((file, fileIndex) => (
-        <div
+        <SplitFilePatch
           key={fileIndex}
+          file={file}
+          showHeader={showFileHeaders}
+          isDark={isDark}
+          wrap={wrap}
+          showTopBorder={fileIndex > 0}
+        />
+      ))}
+    </div>
+  );
+}
+
+function isLineRow(row: SplitDiffRow): row is Extract<SplitDiffRow, { type: "line" }> {
+  return row.type === "line";
+}
+
+function SplitFilePatch({ file, showHeader, isDark, wrap, showTopBorder }: {
+  file: SplitDiffFile;
+  showHeader: boolean;
+  isDark: boolean;
+  wrap: boolean;
+  showTopBorder: boolean;
+}) {
+  const { t } = useI18n();
+  const stylesheet = isDark ? vscDarkPlus : vs;
+  const lang = getLanguageFromPath(file.newPath || file.oldPath || "");
+
+  // Highlight each whole column once (keeps multiline strings/comments correct),
+  // then split into per-line token arrays indexed by the line rows order.
+  const leftTokens = useMemo(() => {
+    const code = file.rows.flatMap((row) => (row.type === "line" ? [row.left.text] : [])).join("\n");
+    return highlightCodeRows(code, lang, stylesheet);
+  }, [file, lang, stylesheet]);
+  const rightTokens = useMemo(() => {
+    const code = file.rows.flatMap((row) => (row.type === "line" ? [row.right.text] : [])).join("\n");
+    return highlightCodeRows(code, lang, stylesheet);
+  }, [file, lang, stylesheet]);
+
+  // All line rows (hunk headers are not part of either column). Rendering the
+  // two columns as separate containers — every old row, then every new row —
+  // keeps copy/paste output as distinct old and new blocks. The cells still
+  // pair up by index so the visual alignment is unchanged.
+  const lineRows = useMemo(() => file.rows.filter(isLineRow), [file]);
+  const inlineRows = useMemo(
+    () => lineRows.map((row) =>
+      row.left.type === "removed" && row.right.type === "added"
+        ? inlineWordDiff(row.left.text, row.right.text)
+        : null,
+    ),
+    [lineRows],
+  );
+
+  // Keep the two columns' horizontal scroll positions in sync so scrolling one
+  // side moves the other too (the columns themselves stay at fixed half width).
+  const leftScroller = useRef<HTMLDivElement>(null);
+  const rightScroller = useRef<HTMLDivElement>(null);
+  const syncingRef = useRef(false);
+  const syncScroll = (from: HTMLElement | null, to: HTMLElement | null) => {
+    if (!from || !to || syncingRef.current) return;
+    syncingRef.current = true;
+    to.scrollLeft = from.scrollLeft;
+    syncingRef.current = false;
+  };
+
+  return (
+    <div
+      style={{
+        minWidth: 0,
+        borderTop: showTopBorder ? "1px solid var(--border)" : "none",
+        fontFamily: "var(--font-mono)",
+        fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
+        lineHeight: 1.55,
+      }}
+    >
+      {showHeader && (
+        <div
           style={{
-            minWidth: 0,
-            borderTop: fileIndex === 0 ? "none" : "1px solid var(--border)",
-            fontFamily: "var(--font-mono)",
-            fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
-            lineHeight: 1.55,
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
+            position: "sticky",
+            top: 0,
+            zIndex: 1,
+            background: "var(--bg-panel)",
+            borderBottom: "1px solid var(--border)",
           }}
         >
-          {showFileHeaders && (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-                position: "sticky",
-                top: 0,
-                zIndex: 1,
-                background: "var(--bg-panel)",
-                borderBottom: "1px solid var(--border)",
-              }}
-            >
-               <SplitDiffHeader title={file.oldPath || t("i18n.before")} side="left" />
-               <SplitDiffHeader title={file.newPath || t("i18n.after")} side="right" />
-            </div>
-          )}
-
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)" }}>
-            {file.rows.map((row, rowIndex) => {
-              if (row.type === "hunk") {
-                return null;
-              }
-
-              return (
-                <div key={rowIndex} style={{ display: "contents" }}>
-                  <SplitDiffCellView cell={row.left} side="left" />
-                  <SplitDiffCellView cell={row.right} side="right" />
-                </div>
-              );
-            })}
-          </div>
+          <SplitDiffHeader title={file.oldPath || t("i18n.before")} side="left" />
+          <SplitDiffHeader title={file.newPath || t("i18n.after")} side="right" />
         </div>
-      ))}
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", alignItems: "start" }}>
+        <div
+          ref={leftScroller}
+          onScroll={(e) => syncScroll(e.currentTarget, rightScroller.current)}
+          style={{ overflowX: wrap ? "hidden" : "auto", borderRight: "1px solid var(--border)" }}
+        >
+          <div style={{ width: wrap ? "100%" : "max-content", minWidth: "100%", height: "100%" }}>{lineRows.map((row, i) => (
+            <SplitDiffCellView key={i} cell={row.left} side="left" tokens={leftTokens[i]} inline={inlineRows[i]?.left} wrap={wrap} />
+          ))}</div>
+        </div>
+        <div
+          ref={rightScroller}
+          onScroll={(e) => syncScroll(e.currentTarget, leftScroller.current)}
+          style={{ overflowX: wrap ? "hidden" : "auto", borderRight: "1px solid var(--border)" }}
+        >
+          <div style={{ width: wrap ? "100%" : "max-content", minWidth: "100%", height: "100%" }}>{lineRows.map((row, i) => (
+            <SplitDiffCellView key={i} cell={row.right} side="right" tokens={rightTokens[i]} inline={inlineRows[i]?.right} wrap={wrap} />
+          ))}</div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1205,9 +1396,23 @@ function SplitDiffHeader({ title, side }: { title: string; side: "left" | "right
   );
 }
 
-function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" | "right" }) {
+function SplitDiffCellView({ cell, side, tokens, inline, wrap }: {
+  cell: SplitDiffCell;
+  side: "left" | "right";
+  tokens?: ReactNode[];
+  inline?: InlineDiffSegment[];
+  wrap: boolean;
+}) {
+  // VS Code style: a whole-line change paints the entire row (including its
+  // trailing whitespace) with the strong color; a word-level change keeps the
+  // row light and only marks the changed slices strongly.
+  const isWholeLineChange = (cell.type === "removed" || cell.type === "added") && !(inline && inline.length > 0);
   const bg =
-    cell.type === "added"
+    isWholeLineChange && cell.type === "added"
+      ? "rgba(34,197,94,0.26)"
+      : isWholeLineChange && cell.type === "removed"
+      ? "rgba(248,113,113,0.3)"
+      : cell.type === "added"
       ? "rgba(34,197,94,0.12)"
       : cell.type === "removed"
       ? "rgba(248,113,113,0.13)"
@@ -1225,7 +1430,6 @@ function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" |
         display: "flex",
         minWidth: 0,
         background: bg,
-        borderRight: side === "left" ? "1px solid var(--border)" : "none",
       }}
     >
       <span
@@ -1238,6 +1442,10 @@ function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" |
           background: "var(--bg-panel)",
           borderRight: "1px solid var(--border)",
           flexShrink: 0,
+          // Stay pinned to the left edge when the column scrolls horizontally.
+          position: "sticky",
+          left: 0,
+          zIndex: 1,
         }}
       >
         {cell.lineNo ?? ""}
@@ -1260,11 +1468,23 @@ function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" |
           minWidth: 0,
           padding: "0 10px 0 0",
           color: cell.type === "empty" ? "var(--text-dim)" : "var(--text)",
-          whiteSpace: "pre-wrap",
-          overflowWrap: "anywhere",
+          whiteSpace: wrap ? "pre-wrap" : "pre",
+          overflowWrap: wrap ? "anywhere" : "normal",
         }}
       >
-        {cell.text || "\u00a0"}
+        {cell.type === "empty" ? "\u00a0" : inline && inline.length > 0
+          ? inline.map((seg, i) => {
+              if (seg.type === "removed") {
+                return <span key={i} style={{ background: "rgba(248,113,113,0.3)", color: "var(--text)", fontWeight: 600, borderRadius: 2 }}>{seg.text}</span>;
+              }
+              if (seg.type === "added") {
+                return <span key={i} style={{ background: "rgba(34,197,94,0.26)", color: "var(--text)", fontWeight: 600, borderRadius: 2 }}>{seg.text}</span>;
+              }
+              return <span key={i}>{seg.text}</span>;
+            })
+          : tokens && tokens.length > 0
+            ? tokens.map((node, i) => <Fragment key={i}>{node}</Fragment>)
+            : cell.text || "\u00a0"}
       </span>
     </div>
   );
