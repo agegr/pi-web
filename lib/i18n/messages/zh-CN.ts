@@ -21,6 +21,8 @@ export const zhCNLocale: LocalePlugin = {
     "settings.chatContentFontSize": "聊天字体大小",
     "settings.resetChatContentWidth": "重置聊天内容宽度",
     "settings.resetChatContentFontSize": "重置聊天字体大小",
+    "settings.extensionWidgetFontSize": "扩展组件字体大小",
+    "settings.resetExtensionWidgetFontSize": "重置扩展组件字体大小",
     "settings.chatContentWidthDescription": "设置消息内容和输入框的最大宽度。",
     "settings.themeLight": "浅色",
     "settings.themeDark": "深色",
