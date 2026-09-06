@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { homedir } from "os";
-import { spawn, type IPty } from "node-pty";
+import type { IPty } from "node-pty";
 import { samePath } from "./paths";
 
 export type TerminalEvent =
@@ -71,6 +71,21 @@ export function createTerminal(cwd: string, cols: number, rows: number, id: stri
   if (existing) {
     if (!samePath(existing.cwd, cwd)) throw new Error("Terminal belongs to a different workspace");
     return id;
+  }
+  let spawn: typeof import("node-pty").spawn;
+  try {
+    // Load inside creation so native module failures reach the API's JSON error handler.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ({ spawn } = require("node-pty") as typeof import("node-pty"));
+  } catch (error) {
+    throw new Error(
+      `Cannot load the node-pty native terminal module for ${process.platform}-${process.arch}. ` +
+      "The binary may be missing or incompatible. In the pi-web installation directory " +
+      "(the npx cache directory when using npx), run: npm rebuild node-pty --build-from-source --ignore-scripts=false --foreground-scripts. " +
+      "On Debian/Ubuntu, install build tools first: sudo apt-get install -y python3 build-essential. " +
+      `Then restart pi-web. Original error: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
   }
   const shell = process.platform === "win32"
     ? process.env.ComSpec ?? "cmd.exe"
