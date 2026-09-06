@@ -1,6 +1,7 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { NextResponse } from "next/server";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { backfillAllowlistStandalone } from "@/lib/allowlist-backfill";
 import { removeStoredCredentialIfType, storeProviderCredential } from "@/lib/provider-credential-store";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +43,12 @@ export async function POST(req: Request, { params }: Params) {
     // directly so a slow catalog cannot leave the save request hanging.
     await storeProviderCredential(provider, credential);
     invalidateModelsCache();
+    // A newly configured provider must not be hidden by an existing allowlist.
+    try {
+      await backfillAllowlistStandalone(process.cwd(), AbortSignal.timeout(10_000));
+    } catch {
+      // Never fail credential saving because the backfill hiccapped.
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

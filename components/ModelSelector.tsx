@@ -220,7 +220,9 @@ export function ModelSelector({
         const spaceAbove = anchorRect.top - 8;
         const spaceBelow = viewportHeight - anchorRect.bottom - 8;
         const openAbove = placement === "up" || spaceAbove > spaceBelow;
-        const maxHeight = Math.max(120, Math.min(openAbove ? spaceAbove : spaceBelow, viewportHeight * 0.6));
+        // Adaptive: use all available space in the open direction (the 8px
+        // screen-edge margin is already baked into spaceAbove/spaceBelow).
+        const maxHeight = Math.max(120, openAbove ? spaceAbove : spaceBelow);
         const verticalPosition = openAbove
           ? { bottom: viewportHeight - anchorRect.top + 6 }
           : { top: anchorRect.bottom + 6 };

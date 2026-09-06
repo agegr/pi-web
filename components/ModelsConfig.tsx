@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { ProviderCatalog } from "./ProviderCatalog";
+import { useConfirmDialog } from "./ConfirmDialog";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
 import type { DiscoveredModel } from "@/lib/model-discovery";
 import {
@@ -1292,9 +1294,10 @@ function ModelDetail({
 
 // ── OAuth detail ──────────────────────────────────────────────────────────────
 
-function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefresh: () => void }) {
+function OAuthDetail({ provider, onRefresh, cwd }: { provider: OAuthProvider; onRefresh: () => void; cwd?: string | null }) {
   const [loginState, setLoginState] = useState<OAuthLoginState>({ phase: "idle" });
   const { t } = useI18n();
+  const { confirm: confirmDialog, element: confirmElement } = useConfirmDialog();
   const [inputValue, setInputValue] = useState("");
   const eventSourceRef = useRef<EventSource | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1369,10 +1372,16 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
   }, [provider.id, onRefresh]);
 
   const handleLogout = useCallback(async () => {
+    if (!(await confirmDialog({
+      message: t("i18n.removeOAuthConfirm", { provider: provider.name }),
+      confirmText: t("i18n.remove"),
+      cancelText: t("i18n.cancel"),
+      danger: true,
+    }))) return;
     await fetch(`/api/auth/logout/${encodeURIComponent(provider.id)}`, { method: "POST" });
     setLoginState({ phase: "idle" });
     onRefresh();
-  }, [provider.id, onRefresh]);
+  }, [confirmDialog, provider.id, provider.name, onRefresh, t]);
 
   const submitCode = useCallback(async (token: string, code: string) => {
     if (!code.trim()) return;
@@ -1418,9 +1427,16 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {confirmElement}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
            <SectionTitle>{t("i18n.subscription")}</SectionTitle>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {provider.loggedIn && (
+            <button onClick={handleLogout}
+              style={{ padding: "3px 8px", background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 4, color: "#ef4444", cursor: "pointer", fontSize: 11 }}>
+               {t("i18n.remove")}
+            </button>
+          )}
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.loggedIn ? "#4ade80" : "var(--border)", display: "inline-block" }} />
           <span style={{ fontSize: 11, color: provider.loggedIn ? "#4ade80" : "var(--text-dim)" }}>
              {provider.loggedIn ? t("i18n.connected") : t("i18n.notConnected")}
@@ -1535,30 +1551,25 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
             >
                {provider.loggedIn ? t("i18n.relogin") : t("i18n.login")}
             </button>
-            {provider.loggedIn && (
-              <button
-                onClick={handleLogout}
-                style={{ padding: "5px 12px", background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 5, color: "#ef4444", cursor: "pointer", fontSize: 12 }}
-              >
-                 {t("i18n.disconnect")}
-              </button>
-            )}
           </>
         )}
       </div>
+
+      {provider.loggedIn && <ProviderCatalog providerId={provider.id} displayName={provider.name} cwd={cwd} />}
     </div>
   );
 }
 
 // ── API Key detail ────────────────────────────────────────────────────────────
 
-function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRefresh: () => void }) {
+function ApiKeyDetail({ provider, onRefresh, cwd }: { provider: ApiKeyProvider; onRefresh: () => void; cwd?: string | null }) {
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
   const { t } = useI18n();
+  const { confirm: confirmDialog, element: confirmElement } = useConfirmDialog();
 
   // Reset state when provider changes
   useEffect(() => {
@@ -1595,6 +1606,12 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
   }, [apiKey, provider.id, onRefresh]);
 
   const handleRemove = useCallback(async () => {
+    if (!(await confirmDialog({
+      message: t("i18n.removeKeyConfirm", { provider: provider.displayName }),
+      confirmText: t("i18n.remove"),
+      cancelText: t("i18n.cancel"),
+      danger: true,
+    }))) return;
     setRemoving(true);
     setError(null);
     try {
@@ -1607,13 +1624,20 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
     } finally {
       setRemoving(false);
     }
-  }, [provider.id, onRefresh]);
+  }, [confirmDialog, provider.id, provider.displayName, onRefresh, t]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {confirmElement}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
          <SectionTitle>API Key</SectionTitle>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {provider.configured && (
+            <button onClick={handleRemove} disabled={removing}
+              style={{ padding: "3px 8px", background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 4, color: "#ef4444", cursor: removing ? "not-allowed" : "pointer", fontSize: 11 }}>
+               {t("i18n.remove")}
+            </button>
+          )}
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.configured ? "#4ade80" : "var(--border)", display: "inline-block" }} />
           <span style={{ fontSize: 11, color: provider.configured ? "#4ade80" : "var(--text-dim)" }}>
              {provider.configured ? t("i18n.configured") : t("i18n.notConfigured")}
@@ -1664,20 +1688,7 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
 
       {error && <p style={{ margin: 0, fontSize: 12, color: "#f87171" }}>{error}</p>}
 
-      {provider.configured && (
-        <button
-          onClick={handleRemove}
-          disabled={removing}
-          style={{
-            alignSelf: "flex-start", padding: "5px 12px",
-            background: "none", border: "1px solid rgba(239,68,68,0.3)",
-            borderRadius: 5, color: "#ef4444",
-            cursor: removing ? "not-allowed" : "pointer", fontSize: 12,
-          }}
-        >
-           {removing ? t("i18n.removing") : t("i18n.disconnect")}
-        </button>
-      )}
+      {provider.configured && <ProviderCatalog providerId={provider.id} displayName={provider.displayName} cwd={cwd} />}
     </div>
   );
 }
@@ -1825,14 +1836,47 @@ function AddProviderPicker({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ModelsConfig({ onClose, embedded = false }: { onClose: () => void; embedded?: boolean }) {
+export function ModelsConfig({ onClose, embedded = false, cwd }: { onClose: () => void; embedded?: boolean; cwd?: string | null }) {
   const { t } = useI18n();
+  const { confirm: confirmDialog, element: confirmElement } = useConfirmDialog();
   const [config, setConfig] = useState<ModelsJson>({ providers: {} });
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [savedOk, setSavedOk] = useState(false);
   const [selection, setSelection] = useState<Selection | null>(readRememberedSelection);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persistSeqRef = useRef(0);
+
+  // Every models.json edit persists immediately (400ms debounce merges
+  // bursts, e.g. typing). The last write wins; a stale response never
+  // overwrites the error banner.
+  const persistNow = useCallback(async (payload: ModelsJson) => {
+    const seq = ++persistSeqRef.current;
+    try {
+      const res = await fetch("/api/models-config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const d = await res.json() as { success?: boolean; error?: string };
+      if (seq === persistSeqRef.current) {
+        setSaveError(!res.ok || d.error ? (d.error ?? `HTTP ${res.status}`) : null);
+      }
+    } catch (e) {
+      if (seq === persistSeqRef.current) setSaveError(String(e));
+    }
+  }, []);
+
+  const schedulePersist = useCallback((updater: (prev: ModelsJson) => ModelsJson) => {
+    setConfig((prev) => {
+      const next = updater(prev);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        debounceRef.current = null;
+        void persistNow(next);
+      }, 400);
+      return next;
+    });
+  }, [persistNow]);
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
   const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -1873,16 +1917,16 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
     let finalName = "new-provider";
     let n = 1;
     while (config.providers?.[finalName]) finalName = `new-provider-${n++}`;
-    setConfig((prev) => ({ ...prev, providers: { ...(prev.providers ?? {}), [finalName]: { api: "openai-completions" } } }));
+    schedulePersist((prev) => ({ ...prev, providers: { ...(prev.providers ?? {}), [finalName]: { api: "openai-completions" } } }));
     setSelection({ type: "provider", name: finalName });
-  }, [config.providers]);
+  }, [config.providers, schedulePersist]);
 
   const updateProvider = useCallback((name: string, p: ProviderEntry) => {
-    setConfig((prev) => ({ ...prev, providers: { ...(prev.providers ?? {}), [name]: p } }));
-  }, []);
+    schedulePersist((prev) => ({ ...prev, providers: { ...(prev.providers ?? {}), [name]: p } }));
+  }, [schedulePersist]);
 
   const renameProvider = useCallback((oldName: string, newName: string) => {
-    setConfig((prev) => {
+    schedulePersist((prev) => {
       const entries = Object.entries(prev.providers ?? {});
       const idx = entries.findIndex(([k]) => k === oldName);
       if (idx === -1) return prev;
@@ -1895,10 +1939,10 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
       if (prev.type === "model" && prev.providerName === oldName) return { ...prev, providerName: newName };
       return prev;
     });
-  }, []);
+  }, [schedulePersist]);
 
   const deleteProvider = useCallback((name: string) => {
-    setConfig((prev) => {
+    schedulePersist((prev) => {
       const providers = { ...(prev.providers ?? {}) };
       delete providers[name];
       return { ...prev, providers };
@@ -1908,10 +1952,10 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
       setSelection(remaining.length > 0 ? { type: "provider", name: remaining[0] } : null);
       return prev;
     });
-  }, []);
+  }, [schedulePersist]);
 
   const addModel = useCallback((providerName: string) => {
-    setConfig((prev) => {
+    schedulePersist((prev) => {
       const provider = prev.providers?.[providerName] ?? {};
       const models = [...(provider.models ?? []), { id: "" }];
       return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models } } };
@@ -1921,10 +1965,10 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
       setSelection({ type: "model", providerName, index: idx });
       return prev;
     });
-  }, []);
+  }, [schedulePersist]);
 
   const addDiscoveredModels = useCallback((providerName: string, discovered: DiscoveredModel[]) => {
-    setConfig((prev) => {
+    schedulePersist((prev) => {
       const provider = prev.providers?.[providerName] ?? {};
       const models = [...(provider.models ?? [])];
       const existingIds = new Set(models.map((model) => model.id));
@@ -1935,46 +1979,46 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
       }
       return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models } } };
     });
-  }, []);
+  }, [schedulePersist]);
 
   const updateModel = useCallback((providerName: string, index: number, m: ModelEntry) => {
-    setConfig((prev) => {
+    schedulePersist((prev) => {
       const provider = prev.providers?.[providerName] ?? {};
       const models = [...(provider.models ?? [])];
       models[index] = m;
       return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models } } };
     });
-  }, []);
+  }, [schedulePersist]);
 
   const removeModel = useCallback((providerName: string, index: number) => {
-    setConfig((prev) => {
+    schedulePersist((prev) => {
       const provider = prev.providers?.[providerName] ?? {};
       const models = [...(provider.models ?? [])];
       models.splice(index, 1);
       return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models: models.length ? models : undefined } } };
     });
     setSelection({ type: "provider", name: providerName });
-  }, []);
+  }, [schedulePersist]);
 
-  const handleSave = useCallback(async () => {
-    setSaving(true);
-    setSaveError(null);
-    setSavedOk(false);
-    try {
-      const res = await fetch("/api/models-config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(config),
-      });
-      const d = await res.json() as { success?: boolean; error?: string };
-      if (!res.ok || d.error) setSaveError(d.error ?? `HTTP ${res.status}`);
-      else { setSavedOk(true); setTimeout(() => setSavedOk(false), 2000); }
-    } catch (e) {
-      setSaveError(String(e));
-    } finally {
-      setSaving(false);
-    }
-  }, [config]);
+  const confirmDeleteProvider = useCallback(async (name: string) => {
+    if (!(await confirmDialog({
+      message: t("i18n.deleteProviderConfirm", { provider: name }),
+      confirmText: t("i18n.delete"),
+      cancelText: t("i18n.cancel"),
+      danger: true,
+    }))) return;
+    deleteProvider(name);
+  }, [confirmDialog, t, deleteProvider]);
+
+  const confirmRemoveModel = useCallback(async (providerName: string, index: number, modelId: string) => {
+    if (!(await confirmDialog({
+      message: t("i18n.deleteModelConfirm", { model: modelId }),
+      confirmText: t("i18n.remove"),
+      cancelText: t("i18n.cancel"),
+      danger: true,
+    }))) return;
+    removeModel(providerName, index);
+  }, [confirmDialog, t, removeModel]);
 
   const providers = Object.entries(config.providers ?? {});
   const activeOAuth = oauthProviders.filter((p) => p.loggedIn);
@@ -1986,12 +2030,12 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
     if (selection.type === "oauth") {
       const p = oauthProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <OAuthDetail key={p.id} provider={p} onRefresh={refreshAuthProviders} />;
+      return <OAuthDetail key={p.id} provider={p} onRefresh={refreshAuthProviders} cwd={cwd} />;
     }
     if (selection.type === "apikey") {
       const p = apiKeyProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <ApiKeyDetail key={p.id} provider={p} onRefresh={refreshAuthProviders} />;
+      return <ApiKeyDetail key={p.id} provider={p} onRefresh={refreshAuthProviders} cwd={cwd} />;
     }
     if (selection.type === "provider") {
       const provider = config.providers?.[selection.name];
@@ -2003,7 +2047,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
           provider={provider}
           onChange={(p) => updateProvider(selection.name, p)}
           onRename={(n) => renameProvider(selection.name, n)}
-          onDelete={() => deleteProvider(selection.name)}
+          onDelete={() => void confirmDeleteProvider(selection.name)}
           onAddModels={(models) => addDiscoveredModels(selection.name, models)}
         />
       );
@@ -2018,7 +2062,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
         provider={provider}
         model={model}
         onChange={(m) => updateModel(selection.providerName, selection.index, m)}
-        onDelete={() => removeModel(selection.providerName, selection.index)}
+        onDelete={() => void confirmRemoveModel(selection.providerName, selection.index, model.id)}
       />
     );
   })();
@@ -2026,6 +2070,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
   return (
     <>
     <ConfigPanelShell embedded={embedded} title={t("common.models")} subtitle="~/.pi/agent/models.json" closeLabel={t("i18n.close")} onClose={onClose}>
+      {confirmElement}
 
         {/* Body */}
         <ConfigSplitView>
@@ -2139,23 +2184,9 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
           </ConfigDetail>
         </ConfigSplitView>
 
-        {/* Footer */}
+        {/* Footer — edits persist immediately; banner surfaces persist errors */}
         <ConfigFooter status={saveError && <span style={{ color: "#f87171" }}>{saveError}</span>}>
-          {!embedded && <ConfigButton onClick={onClose}>{t("i18n.cancel")}</ConfigButton>}
-          <ConfigButton
-            variant="primary"
-            onClick={handleSave}
-            disabled={saving || savedOk}
-            className={savedOk ? "is-success" : undefined}
-          >
-            {savedOk && (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
-                className="config-button-success-icon">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            )}
-             <span>{savedOk ? t("i18n.saved") : saving ? t("i18n.saving") : t("i18n.save")}</span>
-          </ConfigButton>
+          {!embedded && <ConfigButton onClick={onClose}>{t("i18n.close")}</ConfigButton>}
         </ConfigFooter>
     </ConfigPanelShell>
     {pickerOpen && (
