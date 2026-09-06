@@ -2,7 +2,7 @@ import {
   SessionManager,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import { closeSync, type Dirent, fstatSync, openSync, readSync } from "fs";
+import { closeSync, type Dirent, existsSync, openSync, readSync } from "fs";
 import { readdir } from "fs/promises";
 import { isAbsolute, join, normalize as normalizePath, relative, resolve as resolvePath, sep } from "path";
 import type { AgentMessage, ImageContent, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
@@ -12,15 +12,16 @@ import { projectIdentityKey } from "./project-identity";
 import { sessionPathKey } from "./session-path";
 import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "./tool-result-images";
 import { resolveProject, type ProjectInfo } from "./worktree";
-import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
-import { listSessionsIncremental } from "./session-list-scanner";
+import {
+  getIndexedSessionMetadata,
+  getVerifiedIndexedSessionMetadata,
+  invalidateSessionIndex,
+} from "./session-index";
+import type { IndexedSessionMetadata } from "./session-index-core.mts";
 
 export { getAgentDir };
 
 const SESSION_HEADER_MAX_BYTES = 64 * 1024;
-const SESSION_RELATION_MAX_BYTES = 256 * 1024;
-const SESSION_RELATION_MAX_LINES = 2;
-const SESSION_RESULT_MAX_BYTES = 256 * 1024;
 
 function readBoundedLines(filePath: string, maxBytes: number, maxLines: number): string[] {
   const fd = openSync(filePath, "r");
@@ -61,54 +62,6 @@ function readBoundedLines(filePath: string, maxBytes: number, maxLines: number):
   }
 }
 
-function readBoundedTailLines(filePath: string, maxBytes: number): string[] {
-  const fd = openSync(filePath, "r");
-  try {
-    const fileSize = fstatSync(fd).size;
-    const start = Math.max(0, fileSize - maxBytes);
-    const buffer = Buffer.allocUnsafe(fileSize - start);
-    const bytesRead = readSync(fd, buffer, 0, buffer.length, start);
-    if (bytesRead === 0) return [];
-
-    const lines = buffer.subarray(0, bytesRead).toString("utf8").split("\n");
-    if (start > 0) {
-      const previousByte = Buffer.allocUnsafe(1);
-      readSync(fd, previousByte, 0, 1, start - 1);
-      if (previousByte[0] !== 0x0a) lines.shift();
-    }
-    if (lines.at(-1) === "") lines.pop();
-    return lines.map((line) => line.endsWith("\r") ? line.slice(0, -1) : line);
-  } finally {
-    closeSync(fd);
-  }
-}
-
-function parseSessionEntries(lines: readonly string[]): SessionEntry[] {
-  return lines.flatMap((line) => {
-    try {
-      const entry = JSON.parse(line) as SessionEntry;
-      return [entry];
-    } catch {
-      return [];
-    }
-  });
-}
-
-function readSessionRelationEntries(filePath: string): SessionEntry[] {
-  const prefixEntries = parseSessionEntries(
-    readBoundedLines(filePath, SESSION_RELATION_MAX_BYTES, SESSION_RELATION_MAX_LINES).slice(1),
-  );
-  const isSubagent = prefixEntries.some((entry) => (
-    entry.type === "custom" && entry.customType === SUBAGENT_META_TYPE
-  ));
-  if (!isSubagent) return prefixEntries;
-
-  return [
-    ...prefixEntries,
-    ...parseSessionEntries(readBoundedTailLines(filePath, SESSION_RESULT_MAX_BYTES)),
-  ];
-}
-
 export async function attachSessionProjectInfo(sessions: SessionInfo[]): Promise<SessionInfo[]> {
   const uniqueCwds = [...new Set(sessions.map((s) => s.cwd).filter(Boolean))];
   const projectByCwd = new Map<string, ProjectInfo>();
@@ -136,47 +89,133 @@ export function mergeSessionLists(
   const byId = new Map(supplementalSessions.map((session) => [session.id, session]));
   // A disk scan is authoritative once the JSONL exists. In particular, this
   // replaces a transient registry snapshot without briefly rendering two rows.
-  for (const session of persistedSessions) byId.set(session.id, session);
+  for (const session of persistedSessions) {
+    const runtime = byId.get(session.id);
+    const relation = session.relation;
+    const liveRelation = runtime?.relation;
+    byId.set(session.id, relation?.kind === "subagent" && liveRelation?.kind === "subagent"
+      && relation.parentSessionId === liveRelation.parentSessionId
+      ? { ...session, relation: { ...relation, status: liveRelation.status } }
+      : session);
+  }
   return [...byId.values()].sort((a, b) => b.modified.localeCompare(a.modified));
 }
 
-async function loadAllSessions(): Promise<SessionInfo[]> {
-  const scanned = await listSessionsIncremental();
-  const pathToId = new Map<string, string>();
-  for (const s of scanned) pathToId.set(sessionPathKey(s.path), s.id);
+export type SessionListTimingStage = "session-scan" | "session-map" | "project";
 
-  const sessions = scanned.map((s) => {
-    cacheSessionPath(s.id, s.path);
-    const originSessionId = s.parentSessionPath ? pathToId.get(sessionPathKey(s.parentSessionPath)) : undefined;
-    let subagent = null;
-    if (s.parentSessionPath) {
-      try {
-        subagent = readSubagentRun(readSessionRelationEntries(s.path), s.id, s.path);
-      } catch { /* malformed or concurrently removed session */ }
-    }
-    return {
-      path: s.path,
-      id: s.id,
-      cwd: s.cwd,
-      name: s.name,
-      created: s.created.toISOString(),
-      modified: s.modified.toISOString(),
-      messageCount: s.messageCount,
-      firstMessage: s.firstMessage || "(no messages)",
-      parentSessionId: originSessionId,
-      ...(subagent
-        ? { relation: { kind: "subagent" as const, parentSessionId: subagent.parentSessionId, profile: subagent.profile, description: subagent.description, status: subagent.status } }
-        : s.parentSessionPath
-          ? { relation: { kind: "fork" as const, ...(originSessionId ? { originSessionId } : {}) } }
-          : {}),
-      transient: false,
-    };
-  });
-  return attachSessionProjectInfo(sessions);
+type SessionListOptions = {
+  force?: boolean;
+  onTiming?: (stage: SessionListTimingStage, durationMs: number) => void;
+};
+
+async function measureSessionListStage<T>(
+  stage: SessionListTimingStage,
+  onTiming: SessionListOptions["onTiming"],
+  operation: () => T | Promise<T>,
+): Promise<T> {
+  const startedAt = performance.now();
+  try {
+    return await operation();
+  } finally {
+    onTiming?.(stage, performance.now() - startedAt);
+  }
 }
 
-export async function listAllSessions(options: { force?: boolean } = {}): Promise<SessionInfo[]> {
-  if (options.force) invalidateSessionListCache();
+function indexedSessionRelation(
+  session: IndexedSessionMetadata,
+  originSessionId: string | undefined,
+): Pick<SessionInfo, "parentSessionId" | "relation"> {
+  if (session.subagent) {
+    return {
+      parentSessionId: session.subagent.parentSessionId,
+      relation: {
+        kind: "subagent",
+        parentSessionId: session.subagent.parentSessionId,
+        profile: session.subagent.profile,
+        description: session.subagent.description,
+        status: session.subagent.status,
+      },
+    };
+  }
+  return {
+    parentSessionId: originSessionId,
+    ...(session.parentSessionPath
+      ? { relation: { kind: "fork" as const, ...(originSessionId ? { originSessionId } : {}) } }
+      : {}),
+  };
+}
+
+export async function getIndexedSessionInfoById(sessionId: string): Promise<SessionInfo | null> {
+  const indexedSessions = await getVerifiedIndexedSessionMetadata();
+  const indexed = indexedSessions.find((session) => session.id === sessionId);
+  if (!indexed) return null;
+  cacheSessionPath(indexed.id, indexed.path);
+  const parentSessionId = indexed.parentSessionPath
+    ? indexedSessions.find(
+        (candidate) => sessionPathKey(candidate.path) === sessionPathKey(indexed.parentSessionPath!),
+      )?.id
+    : undefined;
+  const [session] = await attachSessionProjectInfo([{
+    path: indexed.path,
+    id: indexed.id,
+    cwd: indexed.cwd,
+    name: indexed.name,
+    created: indexed.created,
+    modified: indexed.modified,
+    messageCount: indexed.messageCount,
+    firstMessage: indexed.firstMessage || "(no messages)",
+    ...indexedSessionRelation(indexed, parentSessionId),
+    transient: false,
+  }]);
+  return session ?? null;
+}
+
+async function loadAllSessions(onTiming?: SessionListOptions["onTiming"]): Promise<SessionInfo[]> {
+  const indexedSessions = await measureSessionListStage(
+    "session-scan",
+    onTiming,
+    () => getIndexedSessionMetadata(),
+  );
+  const sessions = await measureSessionListStage("session-map", onTiming, () => {
+    const pathToId = new Map<string, string>();
+    for (const session of indexedSessions) {
+      pathToId.set(sessionPathKey(session.path), session.id);
+    }
+
+    return indexedSessions.map((session) => {
+      cacheSessionPath(session.id, session.path);
+      return {
+        path: session.path,
+        id: session.id,
+        cwd: session.cwd,
+        name: session.name,
+        created: session.created,
+        modified: session.modified,
+        messageCount: session.messageCount,
+        firstMessage: session.firstMessage || "(no messages)",
+        ...indexedSessionRelation(session, session.parentSessionPath
+          ? pathToId.get(sessionPathKey(session.parentSessionPath))
+          : undefined),
+        transient: false,
+      };
+    });
+  });
+  return measureSessionListStage("project", onTiming, () => attachSessionProjectInfo(sessions));
+}
+
+export async function listAllSessions(options: SessionListOptions = {}): Promise<SessionInfo[]> {
+  if (options.force) {
+    if (globalThis.__piSessionListForcePromise) return globalThis.__piSessionListForcePromise;
+    invalidateSessionListCache();
+    const forcePromise = listAllSessions({ onTiming: options.onTiming });
+    const trackedForcePromise = forcePromise.finally(() => {
+      if (globalThis.__piSessionListForcePromise === trackedForcePromise) {
+        globalThis.__piSessionListForcePromise = undefined;
+      }
+    });
+    globalThis.__piSessionListForcePromise = trackedForcePromise;
+    return trackedForcePromise;
+  }
   const generation = globalThis.__piSessionListGeneration ?? 0;
 
   // Return cached result if still fresh (avoids re-scanning session files
@@ -191,12 +230,12 @@ export async function listAllSessions(options: { force?: boolean } = {}): Promis
     return globalThis.__piSessionListPromise;
   }
 
-  const loadPromise = loadAllSessions().then((data) => {
+  const loadPromise = loadAllSessions(options.onTiming).then((data) => {
     // If a mutation invalidated this scan, make this caller join (or start) a
     // scan for the current generation. Returning the stale result here made a
     // refresh race indistinguishable from a successful refresh.
     if ((globalThis.__piSessionListGeneration ?? 0) !== generation) {
-      return listAllSessions();
+      return listAllSessions({ onTiming: options.onTiming });
     }
     globalThis.__piSessionListCache = { data, ts: Date.now() };
     return data;
@@ -221,6 +260,7 @@ declare global {
   var __piPathToSessionIdCache: Map<string, string> | undefined;
   var __piSessionListPromise: Promise<SessionInfo[]> | undefined;
   var __piSessionListPromiseGeneration: number | undefined;
+  var __piSessionListForcePromise: Promise<SessionInfo[]> | undefined;
   var __piSessionListGeneration: number | undefined;
   var __piSessionListCache: { data: SessionInfo[]; ts: number } | undefined;
 }
@@ -312,9 +352,10 @@ function findSessionIdByPath(filePath: string): string | undefined {
   }
 }
 
-export function invalidateSessionListCache(): void {
+export function invalidateSessionListCache(sessionPaths?: string[]): void {
   globalThis.__piSessionListGeneration = (globalThis.__piSessionListGeneration ?? 0) + 1;
   globalThis.__piSessionListCache = undefined;
+  invalidateSessionIndex(sessionPaths);
 }
 
 export function getSessionListVersion(): number {
@@ -333,7 +374,8 @@ function getPathToIdCache(): Map<string, string> {
 
 export async function resolveSessionPath(sessionId: string): Promise<string | null> {
   const cached = getPathCache().get(sessionId);
-  if (cached) return cached;
+  if (cached && existsSync(cached)) return cached;
+  if (cached) invalidateSessionPathCache(sessionId);
 
   const targetedPath = await findSessionPathById(sessionId);
   if (targetedPath) {
@@ -350,7 +392,8 @@ export async function resolveSessionPath(sessionId: string): Promise<string | nu
 export async function resolveSessionIdByPath(filePath: string): Promise<string | undefined> {
   const pathKey = sessionPathKey(filePath);
   const cached = getPathToIdCache().get(pathKey);
-  if (cached) return cached;
+  if (cached && existsSync(filePath)) return cached;
+  if (cached) invalidateSessionPathCache(cached);
 
   const targetedId = findSessionIdByPath(filePath);
   if (targetedId) return targetedId;

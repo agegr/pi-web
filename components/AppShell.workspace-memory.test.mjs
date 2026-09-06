@@ -39,6 +39,21 @@ test("all active-session transitions share one persistence effect", () => {
   );
 });
 
+test("workspace restoration aborts stale requests and keeps its generation guard", () => {
+  const restore = callbackBody("restoreWorkspaceContext", "handleCwdChange");
+  assert.match(restore, /workspaceRestoreControllerRef\.current\?\.abort\(\)/);
+  assert.match(
+    restore,
+    /fetch\(`\/api\/sessions\/\$\{encodeURIComponent\(lastOpenSessionId\)\}\/meta`, \{\s*signal: controller\.signal/,
+  );
+  assert.doesNotMatch(restore, /fetch\("\/api\/sessions"/);
+  assert.match(restore, /token !== workspaceRestoreTokenRef\.current/);
+  assert.match(restore, /response\.status === 404/);
+  assert.match(restore, /if \(result\?\.missing\) clearLastOpen\(projectKey\)/);
+  assert.match(restore, /workspaceRestoreControllerRef\.current === controller/);
+  assert.match(callbackBody("invalidateWorkspaceRestore", "restoreWorkspaceContext"), /\.abort\(\)/);
+});
+
 test("keeps chat scroll positions in page memory by session id", () => {
   assert.match(source, /useRef\(new Map<string, ChatScrollPosition>\(\)\)/);
   assert.match(source, /sessionScrollPositionsRef\.current\.set\(sessionId, position\)/);
@@ -63,7 +78,8 @@ test("New restores the draft after session navigation and workspace auto-restore
   ].join("\n");
   const parkedKeyHelper = source.slice(source.indexOf("function parkedNewSessionDraftKey"), source.indexOf("export function AppShell"));
   const hookSource = await readFile(new URL("../hooks/useAgentSession.ts", import.meta.url), "utf8");
-  const cleanupStart = hookSource.indexOf("    return () => {", hookSource.indexOf("  // Load session on mount"));
+  const cleanupStart = hookSource.indexOf("    return () => {", hookSource.indexOf("  // Own long-lived resources"));
+  assert.notEqual(cleanupStart, -1);
   const cleanupEnd = hookSource.indexOf("    // eslint-disable-next-line", cleanupStart);
 
   for (const rememberedCwd of ["/draft-project", "/draft-project-worktree"]) {
@@ -76,6 +92,15 @@ test("New restores the draft after session navigation and workspace auto-restore
         crypto: globalThis.crypto,
         queueMicrotask,
         URLSearchParams,
+        AbortController,
+        workspaceRestoreControllerRef: { current: null },
+        sessionLoadGenerationRef: { current: 0 },
+        sessionLoadControllerRef: { current: null },
+        contextLoadGenerationRef: { current: 0 },
+        contextLoadControllerRef: { current: null },
+        historyLoadGenerationRef: { current: 0 },
+        historyLoadControllerRef: { current: null },
+        historyLoadPendingRef: { current: false },
         window: { location: { pathname: "/", search: "" } },
         router: { replace() {} },
         fetch: () => response.promise,
@@ -145,7 +170,7 @@ test("New restores the draft after session navigation and workspace auto-restore
       context.navigate.handleCwdChange(cwd, cwd, cwd);
       await commit();
       assert.deepEqual(draftStore.getDraft(context.activeNewSessionDraftKeyRef.current), draft);
-      response.resolve({ ok: true, json: async () => ({ sessions: [session] }) });
+      response.resolve({ ok: true, status: 200, json: async () => ({ session }) });
       await new Promise((resolve) => setImmediate(resolve));
       await commit();
       assert.equal(context.selectedSession.id, session.id);

@@ -28,16 +28,15 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
     }];
   }
 
-  const sourceChanged = Boolean(
-    input.sourceSessionId && existing.sourceSessionId !== input.sourceSessionId,
-  );
+  const nextSourceSessionId = input.sourceSessionId ?? null;
+  const sourceChanged = (existing.sourceSessionId ?? null) !== nextSourceSessionId;
   const sourceUnchanged = !sourceChanged;
   if (sourceUnchanged && !input.modeHint) return tabs;
 
   return tabs.map((tab) => {
     if (tab.id !== input.tabId) return tab;
     const next: Tab = { ...tab };
-    if (sourceChanged) next.sourceSessionId = input.sourceSessionId;
+    if (sourceChanged) next.sourceSessionId = nextSourceSessionId;
     if (input.modeHint) {
       next.initialDisplayMode = input.modeHint;
       next.viewerState = {

@@ -16,11 +16,21 @@ import { buildSearchTree, type SearchTreeNode } from "@/lib/search-tree";
 import { useI18n } from "@/hooks/useI18n";
 type Translate = ReturnType<typeof useI18n>["t"];
 
+const DIRECTORY_VERSION_BATCH_SIZE = 128;
+const MAX_DIRECTORY_VERSION_CACHE_ENTRIES = 512;
+const EMPTY_DIRECTORY_REFRESH_VERSIONS = new Map<string, number>();
+const ignoreDirectoryVersion = () => {};
+
 interface FileEntry {
   name: string;
   isDir: boolean;
   size: number;
   modified: string;
+}
+
+interface DirectoryListing {
+  entries: FileNode[];
+  version: string | null;
 }
 
 interface FileNode {
@@ -36,6 +46,7 @@ interface Props {
   cwd: string;
   onOpenFile: (filePath: string, fileName: string, options?: OpenFileOptions) => void;
   refreshKey?: number;
+  forceRefreshKey?: number;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
   onAtMentions?: (relativePaths: string[]) => void;
   onUploadBusyChange?: (busy: boolean) => void;
@@ -78,9 +89,9 @@ interface PendingConflict {
   nonReplaceable: string[];
 }
 
-async function fetchEntries(dirPath: string): Promise<FileNode[]> {
+async function fetchEntries(dirPath: string, signal?: AbortSignal): Promise<DirectoryListing> {
   const encoded = encodeFilePathForApi(dirPath);
-  const res = await fetch(`/api/files/${encoded}?type=list`);
+  const res = await fetch(`/api/files/${encoded}?type=list`, { signal });
   if (!res.ok) {
     let message = `Failed to load files (HTTP ${res.status})`;
     try {
@@ -91,20 +102,52 @@ async function fetchEntries(dirPath: string): Promise<FileNode[]> {
     }
     throw new Error(message);
   }
-  const data = await res.json() as { entries?: FileEntry[] };
-  return (data.entries ?? []).map((e) => ({
-    name: e.name,
-    fullPath: joinFilePath(dirPath, e.name),
-    isDir: e.isDir,
-    size: e.size,
-    children: e.isDir ? [] : undefined,
-    loaded: !e.isDir,
-  }));
+  const data = await res.json() as { entries?: FileEntry[]; directoryVersion?: string };
+  return {
+    entries: (data.entries ?? []).map((e) => ({
+      name: e.name,
+      fullPath: joinFilePath(dirPath, e.name),
+      isDir: e.isDir,
+      size: e.size,
+      children: e.isDir ? [] : undefined,
+      loaded: !e.isDir,
+    })),
+    version: data.directoryVersion ?? null,
+  };
 }
 
-async function fetchGitStatus(cwd: string): Promise<GitStatusResponse> {
+async function fetchDirectoryVersions(
+  cwd: string,
+  paths: string[],
+  signal?: AbortSignal,
+): Promise<Record<string, string | null>> {
+  const versions: Record<string, string | null> = {};
+  for (let offset = 0; offset < paths.length; offset += DIRECTORY_VERSION_BATCH_SIZE) {
+    const batch = paths.slice(offset, offset + DIRECTORY_VERSION_BATCH_SIZE);
+    const response = await fetch(
+      `/api/files/${encodeFilePathForApi(cwd)}?type=directory-versions`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths: batch }),
+        signal,
+      },
+    );
+    if (!response.ok) throw new Error(`Failed to validate directories (HTTP ${response.status})`);
+    const data = await response.json() as { versions?: Record<string, string | null> };
+    Object.assign(versions, data.versions ?? {});
+  }
+  return versions;
+}
+
+async function fetchGitStatus(
+  cwd: string,
+  signal?: AbortSignal,
+  force = false,
+): Promise<GitStatusResponse> {
   const params = new URLSearchParams({ cwd });
-  const res = await fetch(`/api/git/status?${params.toString()}`);
+  if (force) params.set("force", "1");
+  const res = await fetch(`/api/git/status?${params.toString()}`, { signal });
   if (!res.ok) throw new Error(`Failed to load Git status (HTTP ${res.status})`);
   return res.json() as Promise<GitStatusResponse>;
 }
@@ -221,7 +264,8 @@ function TreeNode({
   onAtMention,
   expandedPaths,
   onToggleExpanded,
-  refreshToken,
+  directoryRefreshVersions = EMPTY_DIRECTORY_REFRESH_VERSIONS,
+  onDirectoryVersion = ignoreDirectoryVersion,
   highlightedPaths,
   gitStatusByPath,
   changedDirectoryPaths,
@@ -234,7 +278,8 @@ function TreeNode({
   onAtMention?: (relativePath: string, isDir: boolean) => void;
   expandedPaths: Set<string>;
   onToggleExpanded: (fullPath: string, open: boolean) => void;
-  refreshToken?: string;
+  directoryRefreshVersions?: Map<string, number>;
+  onDirectoryVersion?: (fullPath: string, version: string | null) => void;
   highlightedPaths: Set<string>;
   gitStatusByPath: Map<string, GitFileStatus>;
   changedDirectoryPaths: Set<string>;
@@ -244,6 +289,7 @@ function TreeNode({
   const highlighted = highlightedPaths.has(node.fullPath);
   const normalizedPath = normalizeFilePathSlashes(node.fullPath);
   const gitStatus = gitStatusByPath.get(normalizedPath);
+  const refreshVersion = directoryRefreshVersions.get(normalizedPath) ?? 0;
   const containsGitChanges = node.isDir && (
     gitStatus !== undefined || changedDirectoryPaths.has(normalizedPath)
   );
@@ -256,23 +302,25 @@ function TreeNode({
     if (loaded && !force) return;
     setLoading(true);
     try {
-      const entries = await fetchEntries(node.fullPath);
-      setChildren(entries);
+      const listing = await fetchEntries(node.fullPath);
+      setChildren(listing.entries);
       setLoaded(true);
+      onDirectoryVersion(node.fullPath, listing.version);
     } catch {
       // ignore
     } finally {
       setLoading(false);
     }
-  }, [loaded, node.fullPath]);
+  }, [loaded, node.fullPath, onDirectoryVersion]);
 
-  // Re-fetch children when the tree refreshes and the directory is open.
+  // Re-enumerate only directories whose metadata version changed during the
+  // batched refresh validation.
   useEffect(() => {
-    if (refreshToken !== undefined && open && loaded) {
-      loadChildren(true);
-    }
+    if (refreshVersion > 0 && open && loaded) void loadChildren(true);
+    // loadChildren changes after a successful fetch because `loaded` changes;
+    // refreshVersion is the sole invalidation trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshToken]);
+  }, [refreshVersion]);
 
   const handleClick = useCallback(() => {
     if (node.isDir) {
@@ -287,6 +335,8 @@ function TreeNode({
   return (
     <div>
       <div
+        data-file-directory={node.isDir ? "true" : undefined}
+        data-file-directory-open={node.isDir ? String(open) : undefined}
         onClick={handleClick}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
@@ -443,7 +493,8 @@ function TreeNode({
               onAtMention={onAtMention}
               expandedPaths={expandedPaths}
               onToggleExpanded={onToggleExpanded}
-              refreshToken={refreshToken}
+              directoryRefreshVersions={directoryRefreshVersions}
+              onDirectoryVersion={onDirectoryVersion}
               highlightedPaths={highlightedPaths}
               gitStatusByPath={gitStatusByPath}
               changedDirectoryPaths={changedDirectoryPaths}
@@ -522,6 +573,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   cwd,
   onOpenFile,
   refreshKey,
+  forceRefreshKey,
   onAtMention,
   onAtMentions,
   onUploadBusyChange,
@@ -535,6 +587,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const [directoryRefreshVersions, setDirectoryRefreshVersions] = useState<Map<string, number>>(new Map());
   const [treeRefreshKey, setTreeRefreshKey] = useState(0);
   const [highlightedPaths, setHighlightedPaths] = useState<Set<string>>(new Set());
   const [gitFiles, setGitFiles] = useState<GitFileStatus[]>([]);
@@ -551,9 +604,31 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const [searchExpanded, setSearchExpanded] = useState<Set<string>>(new Set());
   const searchInputRef = useRef<HTMLInputElement>(null);
   const prevCwdRef = useRef<string | null>(null);
+  const rootRequestRef = useRef(0);
+  const gitRequestRef = useRef(0);
+  const directoryVersionRequestRef = useRef(0);
+  const directoryValidationCwdRef = useRef<string | null>(null);
+  const directoryVersionsRef = useRef(new Map<string, string | null>());
+  const expandedPathsRef = useRef(expandedPaths);
+  const gitRefreshRef = useRef<{ cwd: string | null; token: string | null }>({ cwd: null, token: null });
+  const directoryForceRefreshRef = useRef(forceRefreshKey ?? 0);
   const uploadInputRef = useRef<HTMLInputElement>(null);
-  const refreshToken = `${refreshKey ?? 0}:${treeRefreshKey}`;
+  const refreshToken = `${refreshKey ?? 0}:${forceRefreshKey ?? 0}:${treeRefreshKey}`;
   const uploadBusy = uploadPhase !== "idle";
+  expandedPathsRef.current = expandedPaths;
+
+  const handleDirectoryVersion = useCallback((fullPath: string, version: string | null) => {
+    const key = normalizeFilePathSlashes(fullPath);
+    const versions = directoryVersionsRef.current;
+    versions.delete(key);
+    versions.set(key, version);
+    while (versions.size > MAX_DIRECTORY_VERSION_CACHE_ENTRIES) {
+      const oldest = versions.keys().next().value as string | undefined;
+      if (!oldest) break;
+      versions.delete(oldest);
+    }
+  }, []);
+
   const hasSearchQuery = searchQuery.trim().length > 0;
 
   // Reuse the cached, bounded file index used by @ mentions.
@@ -758,6 +833,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     // Reset expanded state only when cwd changes, not on refreshKey bumps
     if (cwdChanged) {
       setExpandedPaths(new Set());
+      setDirectoryRefreshVersions(new Map());
+      directoryVersionsRef.current.clear();
       setHighlightedPaths(new Set());
       setUploadSummary(null);
       setPendingConflict(null);
@@ -766,33 +843,95 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
 
     setLoading(cwdChanged);
     setError(null);
-    let cancelled = false;
-    fetchEntries(cwd)
-      .then((entries) => { if (!cancelled) setRoots(entries); })
-      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [cwd, refreshKey, treeRefreshKey]);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchGitStatus(cwd)
-      .then((status) => {
-        if (!cancelled) {
-          setGitFiles(status.isGitRepository ? status.files : []);
-          setGitLineStats(status.isGitRepository
-            ? { additions: status.additions, deletions: status.deletions }
-            : { additions: 0, deletions: 0 });
+    const requestId = ++rootRequestRef.current;
+    const controller = new AbortController();
+    fetchEntries(cwd, controller.signal)
+      .then((listing) => {
+        if (requestId !== rootRequestRef.current) return;
+        setRoots(listing.entries);
+        handleDirectoryVersion(cwd, listing.version);
+      })
+      .catch((e) => {
+        if ((e as { name?: string }).name !== "AbortError" && requestId === rootRequestRef.current) {
+          setError(e instanceof Error ? e.message : String(e));
         }
       })
-      .catch(() => {
-        if (!cancelled) {
-          setGitFiles([]);
-          setGitLineStats({ additions: 0, deletions: 0 });
-        }
+      .finally(() => {
+        if (requestId === rootRequestRef.current) setLoading(false);
       });
-    return () => { cancelled = true; };
-  }, [cwd, refreshKey, treeRefreshKey]);
+    return () => controller.abort();
+  }, [cwd, refreshKey, forceRefreshKey, treeRefreshKey, handleDirectoryVersion]);
+
+  useEffect(() => {
+    if (directoryValidationCwdRef.current !== cwd) {
+      directoryValidationCwdRef.current = cwd;
+      directoryForceRefreshRef.current = forceRefreshKey ?? 0;
+      return;
+    }
+    const forceRefresh = directoryForceRefreshRef.current !== (forceRefreshKey ?? 0);
+    directoryForceRefreshRef.current = forceRefreshKey ?? 0;
+    const paths = [...expandedPathsRef.current];
+    if (paths.length === 0) return;
+    if (forceRefresh) {
+      setDirectoryRefreshVersions((current) => {
+        const next = new Map(current);
+        for (const pathValue of paths) {
+          const key = normalizeFilePathSlashes(pathValue);
+          next.set(key, (next.get(key) ?? 0) + 1);
+        }
+        return next;
+      });
+      return;
+    }
+    const requestId = ++directoryVersionRequestRef.current;
+    const controller = new AbortController();
+    void fetchDirectoryVersions(cwd, paths, controller.signal)
+      .then((versions) => {
+        if (requestId !== directoryVersionRequestRef.current) return;
+        const changed: string[] = [];
+        for (const pathValue of paths) {
+          const key = normalizeFilePathSlashes(pathValue);
+          const previous = directoryVersionsRef.current.get(key);
+          const next = versions[pathValue] ?? null;
+          handleDirectoryVersion(pathValue, next);
+          if (previous !== undefined && previous !== next) changed.push(key);
+        }
+        if (changed.length === 0) return;
+        setDirectoryRefreshVersions((current) => {
+          const next = new Map(current);
+          for (const key of changed) next.set(key, (next.get(key) ?? 0) + 1);
+          return next;
+        });
+      })
+      .catch(() => {
+        // Keep the existing tree on validation failure; manual refresh can retry.
+      });
+    return () => controller.abort();
+  }, [cwd, refreshKey, forceRefreshKey, treeRefreshKey, handleDirectoryVersion]);
+
+  useEffect(() => {
+    const requestId = ++gitRequestRef.current;
+    const controller = new AbortController();
+    const previousRefresh = gitRefreshRef.current;
+    const force = previousRefresh.cwd === cwd
+      && previousRefresh.token !== null
+      && previousRefresh.token !== refreshToken;
+    gitRefreshRef.current = { cwd, token: refreshToken };
+    fetchGitStatus(cwd, controller.signal, force)
+      .then((status) => {
+        if (requestId !== gitRequestRef.current) return;
+        setGitFiles(status.isGitRepository ? status.files : []);
+        setGitLineStats(status.isGitRepository
+          ? { additions: status.additions, deletions: status.deletions }
+          : { additions: 0, deletions: 0 });
+      })
+      .catch((error: unknown) => {
+        if ((error as { name?: string }).name === "AbortError" || requestId !== gitRequestRef.current) return;
+        setGitFiles([]);
+        setGitLineStats({ additions: 0, deletions: 0 });
+      });
+    return () => controller.abort();
+  }, [cwd, refreshToken]);
 
   useEffect(() => {
     onChangesCountChange?.(gitFiles.length);
@@ -1034,7 +1173,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                 onAtMention={onAtMention}
                 expandedPaths={expandedPaths}
                 onToggleExpanded={handleToggleExpanded}
-                refreshToken={refreshToken}
+                directoryRefreshVersions={directoryRefreshVersions}
+                onDirectoryVersion={handleDirectoryVersion}
                 highlightedPaths={highlightedPaths}
                 gitStatusByPath={gitStatusByPath}
                 changedDirectoryPaths={changedDirectoryPaths}

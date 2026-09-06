@@ -4,7 +4,7 @@ import test from "node:test";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconfigPaths: true });
-const { getSessionListIndices } = await jiti.import("./SessionSidebar.tsx");
+const { getSessionListIndices, getVariableSessionListIndices } = await jiti.import("./SessionSidebar.tsx");
 
 const source = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
 const sessionItemSource = source.slice(source.indexOf("function SessionItem("));
@@ -37,6 +37,27 @@ test("only Shift+click bypasses session deletion confirmation", () => {
     sessionItemSource,
     /const handleDeleteClick[\s\S]*?if \(e\.shiftKey\) \{\s*void performDelete\(\);\s*\} else \{\s*setConfirmDelete\(true\);/,
   );
+});
+
+test("persists recursive session-tree collapse state outside unmounted rows", () => {
+  const treeItemSource = source.slice(
+    source.indexOf("function SessionTreeItem("),
+    source.indexOf("function RunningSessionIndicator"),
+  );
+  assert.match(source, /setCollapsedSessionIds\(loadCollapsedSessionIds\(\)\)/);
+  assert.match(source, /saveCollapsedSessionIds\(next\)/);
+  assert.match(treeItemSource, /collapsedSessionIds\.has\(node\.session\.id\)/);
+  assert.match(treeItemSource, /onCollapseChange\(node\.session\.id, !collapsed\)/);
+  assert.doesNotMatch(treeItemSource, /useState\(false\)/);
+});
+
+test("uses the full pinned card as the drag surface with visible motion feedback", () => {
+  assert.match(sessionItemSource, /const canDragPinned = isPinned && depth === 0/);
+  assert.match(sessionItemSource, /draggable=\{canDragPinned\}/);
+  assert.match(sessionItemSource, /onDragStart=\{canDragPinned \? handlePinnedDragStart : undefined\}/);
+  assert.doesNotMatch(sessionItemSource, /<button[\s\S]{0,200}?draggable/);
+  assert.match(source, /translateY\(-2px\) scale\(1\.015\)/);
+  assert.match(source, /transition: "transform 140ms ease, box-shadow 140ms ease, background 140ms ease"/);
 });
 
 test("does not register row-level session deletion shortcuts", () => {
@@ -87,6 +108,14 @@ test("includes project activity counts in accessible labels", () => {
   );
 });
 
+test("summarizes running and completed activity across every project", () => {
+  assert.match(source, /const workspaceActivity = useMemo\(\(\) => \{/);
+  assert.match(source, /for \(const activity of projectActivity\.values\(\)\)/);
+  assert.match(source, /<WorkspaceActivitySummary activity=\{workspaceActivity\} \/>/);
+  assert.match(source, /sidebar\.backgroundSessionRunning/);
+  assert.match(source, /sidebar\.backgroundSessionComplete/);
+});
+
 test("formats session timestamps with the active locale", () => {
   assert.match(source, /import \{ formatRelativeTime \} from "@\/lib\/i18n\/format"/);
   assert.match(sessionItemSource, /const \{ locale, t \} = useI18n\(\)/);
@@ -108,13 +137,52 @@ test("offers the downstream context-menu hook only on a normal session row", () 
   );
 });
 
-test("lifecycle refreshes bypass the cache while cross-window polling reuses it", () => {
+test("only manual refresh bypasses the server session-list cache", () => {
   assert.match(source, /force \? "\/api\/sessions\?force=1" : "\/api\/sessions"/);
   assert.match(source, /cache: "no-store"/);
-  assert.match(source, /loadSessions\(isFirst, !isFirst\)/);
+  assert.match(source, /void loadSessions\(isFirst, false\)/);
+  assert.match(source, /onClick=\{\(\) => loadSessions\(false, true\)\}/);
+  assert.match(source, /loadSessions\(false, false\);[\s\S]*?onBackgroundTaskDone/);
+});
+
+test("Strict Effects replay does not issue a second session-list request", () => {
+  const effectStart = source.indexOf("const sessionRefreshEffectRef = useRef");
+  const effectEnd = source.indexOf("// Browser storage is unavailable", effectStart);
+  const effect = source.slice(effectStart, effectEnd);
+  assert.match(effect, /effect\.initialized && Object\.is\(effect\.refreshKey, refreshKey\)/);
+  assert.match(effect, /void loadSessions\(isFirst, false\)/);
+
+  const state = { initialized: false, refreshKey: undefined };
+  const calls = [];
+  for (const refreshKey of [undefined, undefined]) {
+    if (state.initialized && Object.is(state.refreshKey, refreshKey)) continue;
+    const isFirst = !state.initialized;
+    state.initialized = true;
+    state.refreshKey = refreshKey;
+    calls.push({ showLoading: isFirst, force: false });
+  }
+  assert.deepEqual(calls, [{ showLoading: true, force: false }]);
+});
+
+test("session-list requests abort predecessors and ignore stale responses", () => {
+  assert.match(source, /sessionListControllerRef\.current\?\.abort\(\)/);
+  assert.match(source, /signal: controller\.signal/);
+  assert.match(source, /if \(requestId !== sessionListRequestRef\.current\) return/);
+  assert.match(source, /name !== "AbortError"/);
+});
+
+test("a replacement refresh always clears initial loading state", () => {
+  const loadBlock = source.slice(
+    source.indexOf("const loadSessions = useCallback"),
+    source.indexOf("const sessionRefreshEffectRef"),
+  );
+  assert.match(loadBlock, /if \(requestId === sessionListRequestRef\.current\) \{[\s\S]*setLoading\(false\)/);
+  assert.doesNotMatch(loadBlock, /if \(showLoading\) setLoading\(false\)/);
+});
+
+test("cross-window version polling reuses the invalidated cache", () => {
   assert.match(source, /data\.sessionListVersion !== sessionListVersionRef\.current[\s\S]*?await loadSessions\(\)/);
-  assert.doesNotMatch(source, /sessionRefreshDone|sessionRefreshTimerRef|title=\{t\("sidebar\.refresh"\)\}/);
-  assert.match(source, /loadSessions\(false, true\);[\s\S]*?onBackgroundTaskDone/);
+  assert.doesNotMatch(source, /sessionRefreshDone|sessionRefreshTimerRef/);
 });
 
 test("does not expose disk-backed actions for transient sessions", () => {
@@ -122,9 +190,36 @@ test("does not expose disk-backed actions for transient sessions", () => {
   assert.match(sessionItemSource, /\{hovered && !session\.transient && \(/);
 });
 
-test("hides subagent rows and aggregates their state into the main session row", () => {
-  assert.match(source, /const sessionFamilies = listSessionFamilies\(filteredSessions\)/);
-  assert.match(source, /familySessions\.some\(\(session\) => session\.id === selectedSessionId\)/);
-  assert.match(source, /familySessions\.some\(\(session\) => runningSessionIds\.has\(session\.id\)\)/);
-  assert.doesNotMatch(source, /function SessionTreeItem/);
+test("hides subagent rows, aggregates their state, and preserves the visible fork tree", () => {
+  assert.match(source, /const families = listSessionFamilies\(sessions\)/);
+  assert.match(source, /familySelected = node\.familySessions\.some\(\(session\) => session\.id === selectedSessionId\)/);
+  assert.match(source, /familyRunning = node\.familySessions\.some\(\(session\) => runningSessionIds\.has\(session\.id\)\)/);
+  assert.match(source, /function SessionTreeItem/);
+  assert.match(source, /node\.children\.map\(\(child\)/);
+});
+
+test("virtualizes variable-height root subtrees while retaining focused or dragged roots", () => {
+  const layouts = [
+    { top: 0, height: 54 },
+    { top: 54, height: 540 },
+    { top: 594, height: 108 },
+    { top: 702, height: 54 },
+    { top: 756, height: 54 },
+    { top: 810, height: 54 },
+    { top: 864, height: 54 },
+    { top: 918, height: 54 },
+    { top: 972, height: 54 },
+    { top: 1026, height: 54 },
+    { top: 1080, height: 54 },
+    { top: 1134, height: 54 },
+    { top: 1188, height: 54 },
+  ];
+  const visible = getVariableSessionListIndices(layouts, 1080, 54, [0]);
+  assert.ok(visible.includes(0), "forced root remains mounted");
+  assert.ok(visible.includes(10));
+  assert.ok(visible.includes(11));
+  assert.ok(!visible.includes(1), "distant variable-height subtree stays unmounted");
+  assert.deepEqual(visible, [...visible].sort((a, b) => a - b));
+  assert.match(source, /visibleSessionTreeRows\(node, collapsedSessionIds\) \* SESSION_LIST_ITEM_HEIGHT/);
+  assert.match(source, /getVariableSessionListIndices\([\s\S]*?forcedLayoutIndices/);
 });

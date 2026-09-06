@@ -1,12 +1,26 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import { memo, useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { listSessionFamilies } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
+import {
+  loadCollapsedSessionIds,
+  saveCollapsedSessionIds,
+  setSessionTreeCollapsed,
+} from "@/lib/session-tree-collapse";
 import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
+import {
+  compareSessionRootOrder,
+  emptySessionOrderPreferences,
+  movePinnedSession,
+  normalizeSessionOrderPreferences,
+  setProjectPinnedSessionIds,
+  setSessionPinned,
+  type SessionOrderPreferences,
+} from "@/lib/session-order";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import { useI18n } from "@/hooks/useI18n";
@@ -47,6 +61,7 @@ function ToolbarIconButton({
   background = "none",
   marginRight,
   ariaPressed,
+  dataAction,
   children,
 }: {
   onClick: () => void;
@@ -57,6 +72,7 @@ function ToolbarIconButton({
   background?: string;
   marginRight?: number;
   ariaPressed?: boolean;
+  dataAction?: string;
   children: ReactNode;
 }) {
   const enter = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -76,6 +92,7 @@ function ToolbarIconButton({
       title={title}
       aria-label={title}
       aria-pressed={ariaPressed}
+      data-action={dataAction}
       style={{
         position: "relative",
         display: "flex", alignItems: "center", justifyContent: "center",
@@ -281,6 +298,94 @@ function AnimatedDropdown({ open, children, style }: { open: boolean; children: 
 
 
 
+interface SessionTreeNode {
+  session: SessionInfo;
+  familySessions: SessionInfo[];
+  children: SessionTreeNode[];
+}
+
+interface SessionTreeLayout {
+  node: SessionTreeNode;
+  top: number;
+  height: number;
+  pinned: boolean;
+}
+
+function buildSessionTree(sessions: SessionInfo[], pinnedSessionIds: readonly string[] = []): SessionTreeNode[] {
+  const families = listSessionFamilies(sessions);
+  const byId = new Map<string, SessionTreeNode>();
+  for (const family of families) {
+    byId.set(family.root.id, {
+      session: family.latestModified === family.root.modified
+        ? family.root
+        : { ...family.root, modified: family.latestModified },
+      familySessions: [family.root, ...family.subagents],
+      children: [],
+    });
+  }
+
+  // Resolve missing ancestors while excluding subagents from visible rows.
+  const parentOf = new Map<string, string>();
+  for (const family of families) {
+    if (family.root.parentSessionId) parentOf.set(family.root.id, family.root.parentSessionId);
+  }
+  function resolveAncestor(id: string): string | null {
+    let current = parentOf.get(id);
+    const visited = new Set<string>();
+    while (current) {
+      if (visited.has(current)) return null;
+      visited.add(current);
+      if (byId.has(current)) return current;
+      current = parentOf.get(current);
+    }
+    return null;
+  }
+
+  const roots: SessionTreeNode[] = [];
+  for (const node of byId.values()) {
+    const ancestor = resolveAncestor(node.session.id);
+    if (ancestor) byId.get(ancestor)!.children.push(node);
+    else roots.push(node);
+  }
+
+  const pinnedIndexes = new Map(pinnedSessionIds.map((id, index) => [id, index]));
+  roots.sort((a, b) => compareSessionRootOrder(a.session, b.session, pinnedIndexes));
+  const sortChildren = (nodes: SessionTreeNode[]) => {
+    nodes.sort((a, b) => b.session.modified.localeCompare(a.session.modified));
+    nodes.forEach((node) => sortChildren(node.children));
+  };
+  roots.forEach((root) => sortChildren(root.children));
+  return roots;
+}
+
+function visibleSessionTreeRows(node: SessionTreeNode, collapsedIds: ReadonlySet<string>): number {
+  if (collapsedIds.has(node.session.id)) return 1;
+  return 1 + node.children.reduce((total, child) => total + visibleSessionTreeRows(child, collapsedIds), 0);
+}
+
+export function getVariableSessionListIndices(
+  layouts: ReadonlyArray<Pick<SessionTreeLayout, "top" | "height">>,
+  scrollTop: number,
+  viewportHeight: number,
+  forcedIndices: readonly number[] = [],
+): number[] {
+  const overscan = SESSION_LIST_ITEM_HEIGHT * 8;
+  const viewportEnd = scrollTop + (viewportHeight || 600);
+  const indices = layouts.flatMap((layout, index) => (
+    layout.top + layout.height >= scrollTop - overscan && layout.top <= viewportEnd + overscan ? [index] : []
+  ));
+  for (const index of forcedIndices) {
+    if (index >= 0 && index < layouts.length && !indices.includes(index)) indices.push(index);
+  }
+  return indices.sort((a, b) => a - b);
+}
+
+function sessionTreeContains(node: SessionTreeNode, sessionId: string): boolean {
+  return node.familySessions.some((session) => session.id === sessionId)
+    || node.children.some((child) => sessionTreeContains(child, sessionId));
+}
+
+
 const SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
 
 function useScramble(target: string, running: boolean): string {
@@ -360,7 +465,7 @@ function PiWebTitle() {
         background: "none", border: "none", padding: 0, cursor: "default",
         fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em",
         color: showVersion ? "var(--accent)" : "var(--text)",
-        fontFamily: "var(--font-mono)",
+        fontFamily: showVersion ? "var(--font-mono)" : "inherit",
         minWidth: "6ch",
       }}
     >
@@ -369,12 +474,11 @@ function PiWebTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export const SessionSidebar = memo(function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [sessionListVersion, setSessionListVersion] = useState<number | null>(null);
   const sessionListVersionRef = useRef<number | null>(null);
-  const sessionLoadIdRef = useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
@@ -401,6 +505,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const wtNewInputRef = useRef<HTMLInputElement>(null);
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [explorerKey, setExplorerKey] = useState(0);
+  const [explorerForceKey, setExplorerForceKey] = useState(0);
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
@@ -411,6 +516,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
+  const [collapsedSessionIds, setCollapsedSessionIds] = useState<Set<string>>(new Set());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
   const currentSuppressedCompletionSessionIdsRef = useRef<Set<string>>(new Set());
   const previousSuppressedCompletionSessionIdsRef = useRef<Set<string>>(new Set());
@@ -418,7 +524,80 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // running state; late /api/sessions responses must not overwrite it.
   const runningPollAuthoritativeRef = useRef(false);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressNextExternalExplorerRefreshRef = useRef(false);
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
+  const sessionListRequestRef = useRef(0);
+  const sessionListControllerRef = useRef<AbortController | null>(null);
+  const [sessionOrderPreferences, setSessionOrderPreferences] = useState<SessionOrderPreferences>(
+    () => emptySessionOrderPreferences(),
+  );
+  const sessionOrderPreferencesRef = useRef(sessionOrderPreferences);
+  const sessionOrderMutationRef = useRef(0);
+  const sessionOrderSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const [draggingPinnedSessionId, setDraggingPinnedSessionId] = useState<string | null>(null);
+  const [dragOverPinnedSessionId, setDragOverPinnedSessionId] = useState<string | null>(null);
+  const [dragPreviewPinnedSessionIds, setDragPreviewPinnedSessionIds] = useState<string[] | null>(null);
+  const pinnedDragLayoutRef = useRef<Map<string, { top: number; height: number }>>(new Map());
+
+  useEffect(() => {
+    setCollapsedSessionIds(loadCollapsedSessionIds());
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const mutationAtStart = sessionOrderMutationRef.current;
+    void fetch("/api/session-order", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const preferences = normalizeSessionOrderPreferences(await response.json());
+        if (mutationAtStart !== sessionOrderMutationRef.current) return;
+        sessionOrderPreferencesRef.current = preferences;
+        setSessionOrderPreferences(preferences);
+      })
+      .catch((loadError) => {
+        if ((loadError as { name?: string }).name !== "AbortError") {
+          console.error("Failed to load session order:", loadError);
+        }
+      });
+    return () => controller.abort();
+  }, []);
+
+  const updateProjectPinnedSessions = useCallback((
+    projectKey: string,
+    update: (current: readonly string[]) => string[],
+  ) => {
+    const pinnedSessionIds = update(sessionOrderPreferencesRef.current.projects[projectKey] ?? []);
+    const preferences = setProjectPinnedSessionIds(
+      sessionOrderPreferencesRef.current,
+      projectKey,
+      pinnedSessionIds,
+    );
+    sessionOrderMutationRef.current += 1;
+    sessionOrderPreferencesRef.current = preferences;
+    setSessionOrderPreferences(preferences);
+
+    sessionOrderSaveQueueRef.current = sessionOrderSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const response = await fetch("/api/session-order", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectKey, pinnedSessionIds }),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      })
+      .catch((saveError) => {
+        console.error("Failed to save session order:", saveError);
+      });
+  }, []);
+
+  const handleSessionTreeCollapse = useCallback((sessionId: string, collapsed: boolean) => {
+    setCollapsedSessionIds((current) => {
+      const next = setSessionTreeCollapsed(current, sessionId, collapsed);
+      saveCollapsedSessionIds(next);
+      return next;
+    });
+  }, []);
 
   // Virtualized session list: only the visible window of rows is mounted.
   const listScrollRef = useRef<HTMLDivElement>(null);
@@ -447,11 +626,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }, [sessionSearchActive]);
 
   const loadSessions = useCallback(async (showLoading = false, force = false) => {
-    const loadId = ++sessionLoadIdRef.current;
+    const requestId = ++sessionListRequestRef.current;
+    sessionListControllerRef.current?.abort();
+    const controller = new AbortController();
+    sessionListControllerRef.current = controller;
     try {
       if (showLoading) setLoading(true);
       const res = await fetch(force ? "/api/sessions?force=1" : "/api/sessions", {
         cache: "no-store",
+        signal: controller.signal,
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as {
@@ -460,7 +643,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         runningSessionIds?: string[];
         completionNotificationSuppressedSessionIds?: string[];
       };
-      if (loadId !== sessionLoadIdRef.current) return;
+      if (requestId !== sessionListRequestRef.current) return;
       sessionListVersionRef.current = data.sessionListVersion;
       setSessionListVersion(data.sessionListVersion);
       setAllSessions(data.sessions);
@@ -486,17 +669,30 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       });
       setError(null);
     } catch (e) {
-      if (loadId === sessionLoadIdRef.current) setError(String(e));
+      if ((e as { name?: string }).name !== "AbortError" && requestId === sessionListRequestRef.current) {
+        setError(String(e));
+      }
     } finally {
-      if (loadId === sessionLoadIdRef.current) setLoading(false);
+      if (requestId === sessionListRequestRef.current) {
+        if (sessionListControllerRef.current === controller) sessionListControllerRef.current = null;
+        // A non-loading refresh may replace the initial loading request. The
+        // current request owns completion even when it did not start loading.
+        setLoading(false);
+      }
     }
   }, []);
 
-  const initialLoadDone = useRef(false);
+  const sessionRefreshEffectRef = useRef<{
+    initialized: boolean;
+    refreshKey: number | undefined;
+  }>({ initialized: false, refreshKey: undefined });
   useEffect(() => {
-    const isFirst = !initialLoadDone.current;
-    initialLoadDone.current = true;
-    loadSessions(isFirst, !isFirst);
+    const effect = sessionRefreshEffectRef.current;
+    if (effect.initialized && Object.is(effect.refreshKey, refreshKey)) return;
+    const isFirst = !effect.initialized;
+    effect.initialized = true;
+    effect.refreshKey = refreshKey;
+    void loadSessions(isFirst, false);
   }, [loadSessions, refreshKey]);
 
   // Browser storage is unavailable during server rendering. Restore the panel
@@ -614,7 +810,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       (id) => !allSessions.some((session) => session.id === id),
     );
     if (completedInBackground.length > 0 || hasUnlistedRunningSession) {
-      loadSessions(false, true);
+      loadSessions(false, false);
     }
     if (completedWithNotifications.length > 0) {
       onBackgroundTaskDone?.();
@@ -639,7 +835,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }, [selectedSessionId]);
 
   useEffect(() => {
-    if (explorerRefreshKey !== undefined) setExplorerKey((k) => k + 1);
+    if (explorerRefreshKey === undefined) return;
+    if (suppressNextExternalExplorerRefreshRef.current) {
+      suppressNextExternalExplorerRefreshRef.current = false;
+      return;
+    }
+    setExplorerKey((k) => k + 1);
   }, [explorerRefreshKey]);
 
   useEffect(() => {
@@ -709,6 +910,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   // Load worktrees for the current effective cwd
   const [wtRefreshKey, setWtRefreshKey] = useState(0);
+  const wtLoadedRefreshKeyRef = useRef(0);
   useLayoutEffect(() => {
     if (!selectedCwd) {
       setWorktreeState(null);
@@ -716,8 +918,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       return;
     }
     let cancelled = false;
+    const controller = new AbortController();
+    const force = wtLoadedRefreshKeyRef.current !== wtRefreshKey;
+    wtLoadedRefreshKeyRef.current = wtRefreshKey;
     setWorktreeLoadingCwd(selectedCwd);
-    fetch(`/api/worktrees?cwd=${encodeURIComponent(selectedCwd)}`)
+    const worktreeParams = new URLSearchParams({ cwd: selectedCwd });
+    if (force) worktreeParams.set("force", "1");
+    fetch(`/api/worktrees?${worktreeParams}`, {
+      signal: controller.signal,
+    })
       .then((r) => r.json())
       .then((d: { projectRoot?: string; projectKey?: string; isGit?: boolean; isTopLevel?: boolean; currentWorktreePath?: string | null; worktrees?: WorktreeEntry[]; error?: string }) => {
         if (cancelled) return;
@@ -742,8 +951,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           setWorktreeState(null);
         }
       });
-    return () => { cancelled = true; };
-  }, [selectedCwd, wtRefreshKey, refreshKey]);
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [selectedCwd, wtRefreshKey]);
 
   // Auto-select cwd and restore session from URL on first load
   useEffect(() => {
@@ -961,15 +1173,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     [allSessions, runningSessionIds, unreadSessionIds],
   );
 
-  // Any activity in a project other than the one currently selected — shown as
-  // a dot on the (collapsed) selector button so it is visible without opening
-  // the dropdown.
-  const hasOtherWorkspaceActivity = useMemo(
-    () => [...projectActivity.entries()].some(
-      ([key, { running, unread }]) => key !== selectedProject?.key && (running > 0 || unread > 0),
-    ),
-    [projectActivity, selectedProject],
-  );
+  // Aggregate activity across every project for the collapsed selector. Keep
+  // running and completed-but-unread counts separate so the summary remains
+  // useful without opening the project dropdown.
+  const workspaceActivity = useMemo(() => {
+    const total = { running: 0, unread: 0 };
+    for (const activity of projectActivity.values()) {
+      total.running += activity.running;
+      total.unread += activity.unread;
+    }
+    return total;
+  }, [projectActivity]);
 
   const filteredSessions = selectedProject
     ? sessionsForProject(allSessions, selectedProject.key)
@@ -1003,13 +1217,127 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         }
       : null);
 
-  const sessionFamilies = listSessionFamilies(filteredSessions);
+  // Hide subagent rows inside their owning conversation while preserving the
+  // visible fork tree. Only roots can be pinned, and virtualization operates on
+  // complete root subtrees so collapse and native drag retain stable DOM units.
+  const selectedProjectKey = selectedProject?.key ?? null;
+  const storedProjectPinnedSessionIds = selectedProjectKey
+    ? (sessionOrderPreferences.projects[selectedProjectKey] ?? [])
+    : [];
+  const sessionTree = buildSessionTree(filteredSessions, storedProjectPinnedSessionIds);
+  const pinnedSessionIdSet = new Set(storedProjectPinnedSessionIds);
+  const pinnedSessionTrees = sessionTree.filter((node) => pinnedSessionIdSet.has(node.session.id));
+  const recentSessionTrees = sessionTree.filter((node) => !pinnedSessionIdSet.has(node.session.id));
+  const visibleRootSessionIds = new Set(sessionTree.map((node) => node.session.id));
+  const pinnedDragOffsets = new Map<string, number>();
+  if (dragPreviewPinnedSessionIds && pinnedDragLayoutRef.current.size > 0) {
+    let nextTop = Math.min(...[...pinnedDragLayoutRef.current.values()].map((layout) => layout.top));
+    for (const sessionId of dragPreviewPinnedSessionIds) {
+      const layout = pinnedDragLayoutRef.current.get(sessionId);
+      if (!layout) continue;
+      pinnedDragOffsets.set(sessionId, nextTop - layout.top);
+      nextTop += layout.height;
+    }
+  }
 
-  const virtualIndices = getSessionListIndices(
-    sessionFamilies.length,
+  const toggleSessionPinned = (sessionId: string, pinned: boolean) => {
+    if (!selectedProjectKey) return;
+    updateProjectPinnedSessions(selectedProjectKey, (current) => setSessionPinned(current, sessionId, pinned));
+  };
+  const previewPinnedSessionMove = (targetId: string, afterTarget: boolean) => {
+    if (!draggingPinnedSessionId || draggingPinnedSessionId === targetId) return;
+    setDragPreviewPinnedSessionIds((current) => {
+      const visiblePinned = current
+        ?? storedProjectPinnedSessionIds.filter((id) => visibleRootSessionIds.has(id));
+      const moved = movePinnedSession(visiblePinned, draggingPinnedSessionId, targetId, afterTarget);
+      return moved.every((id, index) => id === visiblePinned[index]) ? visiblePinned : moved;
+    });
+  };
+  const commitPinnedSessionMove = () => {
+    if (!selectedProjectKey || !dragPreviewPinnedSessionIds) return;
+    updateProjectPinnedSessions(selectedProjectKey, () => dragPreviewPinnedSessionIds);
+  };
+  const finishPinnedDrag = () => {
+    setDraggingPinnedSessionId(null);
+    setDragOverPinnedSessionId(null);
+    setDragPreviewPinnedSessionIds(null);
+    pinnedDragLayoutRef.current = new Map();
+  };
+
+  const renderRootSessionTree = (node: SessionTreeNode, pinned: boolean) => (
+    <SessionTreeItem
+      node={node}
+      selectedSessionId={selectedSessionId}
+      runningSessionIds={runningSessionIds}
+      unreadSessionIds={unreadSessionIds}
+      collapsedSessionIds={collapsedSessionIds}
+      onCollapseChange={handleSessionTreeCollapse}
+      onSelectSession={handleSelectSessionFromList}
+      onRenamed={loadSessions}
+      onSessionDeleted={(id) => {
+        if (selectedProjectKey) {
+          updateProjectPinnedSessions(selectedProjectKey, (current) => setSessionPinned(current, id, false));
+        }
+        handleSessionTreeCollapse(id, false);
+        onSessionDeleted?.(id);
+        loadSessions();
+      }}
+      depth={0}
+      isPinned={pinned}
+      onTogglePinned={(nextPinned) => toggleSessionPinned(node.session.id, nextPinned)}
+      isDragging={draggingPinnedSessionId === node.session.id}
+      isDragOver={dragOverPinnedSessionId === node.session.id}
+      dragOffsetY={pinnedDragOffsets.get(node.session.id) ?? 0}
+      animateDragOffset={dragPreviewPinnedSessionIds !== null}
+      onPinnedDragStart={() => {
+        const dragLayouts = new Map<string, { top: number; height: number }>();
+        for (const element of listScrollRef.current?.querySelectorAll<HTMLElement>("[data-pinned-session-root]") ?? []) {
+          const sessionId = element.dataset.pinnedSessionRoot;
+          if (!sessionId) continue;
+          const bounds = element.getBoundingClientRect();
+          dragLayouts.set(sessionId, { top: bounds.top, height: bounds.height });
+        }
+        pinnedDragLayoutRef.current = dragLayouts;
+        setDraggingPinnedSessionId(node.session.id);
+        setDragPreviewPinnedSessionIds(pinnedSessionTrees.map((tree) => tree.session.id));
+      }}
+      onPinnedDragEnd={finishPinnedDrag}
+      onPinnedDragOver={(afterTarget) => {
+        setDragOverPinnedSessionId(node.session.id);
+        previewPinnedSessionMove(node.session.id, afterTarget);
+      }}
+      onPinnedDrop={() => {
+        commitPinnedSessionMove();
+        finishPinnedDrag();
+      }}
+    />
+  );
+
+  const sessionTreeLayouts: SessionTreeLayout[] = [];
+  let nextSessionTreeTop = 0;
+  const appendLayouts = (nodes: SessionTreeNode[], pinned: boolean) => {
+    for (const node of nodes) {
+      const height = visibleSessionTreeRows(node, collapsedSessionIds) * SESSION_LIST_ITEM_HEIGHT;
+      sessionTreeLayouts.push({ node, top: nextSessionTreeTop, height, pinned });
+      nextSessionTreeTop += height;
+    }
+  };
+  appendLayouts(pinnedSessionTrees, true);
+  const unpinnedSectionTop = pinnedSessionTrees.length > 0 && recentSessionTrees.length > 0
+    ? nextSessionTreeTop
+    : null;
+  if (unpinnedSectionTop !== null) nextSessionTreeTop += 18;
+  appendLayouts(recentSessionTrees, false);
+  const forcedLayoutIndices = [focusedSessionId, draggingPinnedSessionId].flatMap((sessionId) => {
+    if (!sessionId) return [];
+    const index = sessionTreeLayouts.findIndex((layout) => sessionTreeContains(layout.node, sessionId));
+    return index >= 0 ? [index] : [];
+  });
+  const virtualSessionTreeIndices = getVariableSessionListIndices(
+    sessionTreeLayouts,
     listScrollTop,
     listViewportH,
-    sessionFamilies.findIndex((family) => family.root.id === focusedSessionId),
+    forcedLayoutIndices,
   );
 
   return (
@@ -1077,6 +1405,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             </button>
             <button
               type="button"
+              onClick={() => loadSessions(false, true)}
+              title={t("sidebar.refresh")}
+              aria-label={t("sidebar.refresh")}
+              className="flex h-[32px] w-[32px] shrink-0 cursor-pointer items-center justify-center rounded-[7px] border border-border bg-bg-hover text-text-muted hover:bg-bg-selected hover:text-accent focus-visible:outline-2 focus-visible:outline-accent"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+              </svg>
+            </button>
+            <button
+              type="button"
               onClick={() => {
                 setSessionSearchOpen((open) => !open);
                 setWtDropdownOpen(false);
@@ -1139,20 +1479,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                  {initialSessionId && !restoredRef.current ? "" : t("sidebar.selectProject")}
               </span>
             )}
-            {hasOtherWorkspaceActivity && (
-              <span
-                title={t("sidebar.newActivity")}
-                aria-label={t("sidebar.newActivity")}
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  flexShrink: 0,
-                  marginLeft: 6,
-                  background: "var(--accent)",
-                }}
-              />
-            )}
+            <WorkspaceActivitySummary activity={workspaceActivity} />
           </button>
 
           <AnimatedDropdown
@@ -1689,44 +2016,28 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {error}
           </div>
         )}
-        {!loading && !error && sessionFamilies.length === 0 && (
+        {!loading && !error && sessionTree.length === 0 && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
             {t("sidebar.noSessions")}
           </div>
         )}
-        {sessionFamilies.length > 0 && (
-          <div
-            style={{
-              position: "relative",
-              height: sessionFamilies.length * SESSION_LIST_ITEM_HEIGHT,
-            }}
-          >
-            {virtualIndices.map((index) => {
-              const family = sessionFamilies[index];
-              const familySessions = [family.root, ...family.subagents];
-              const displaySession = family.latestModified === family.root.modified
-                ? family.root
-                : { ...family.root, modified: family.latestModified };
-              // Bubble blur after the input's save handler before unpinning the row.
+        {sessionTreeLayouts.length > 0 && (
+          <div style={{ position: "relative", height: nextSessionTreeTop }}>
+            {unpinnedSectionTop !== null && (
+              <div style={{ position: "absolute", top: unpinnedSectionTop, left: 0, right: 0 }}>
+                <SessionListSectionLabel label={t("sidebar.unpinnedSessions")} />
+              </div>
+            )}
+            {virtualSessionTreeIndices.map((index) => {
+              const layout = sessionTreeLayouts[index];
               return (
                 <div
-                  key={family.root.id}
-                  onFocus={() => setFocusedSessionId(family.root.id)}
+                  key={layout.node.session.id}
+                  onFocus={() => setFocusedSessionId(layout.node.session.id)}
                   onBlur={() => setFocusedSessionId(null)}
-                  style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 0, right: 0 }}
+                  style={{ position: "absolute", top: layout.top, left: 0, right: 0, height: layout.height }}
                 >
-                  <SessionItem
-                    session={displaySession}
-                    isSelected={familySessions.some((session) => session.id === selectedSessionId)}
-                    isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
-                    isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
-                    onClick={() => handleSelectSessionFromList(family.root)}
-                    onRenamed={loadSessions}
-                    onDeleted={(id) => {
-                      onSessionDeleted?.(id);
-                      loadSessions();
-                    }}
-                  />
+                  {renderRootSessionTree(layout.node, layout.pinned)}
                 </div>
               );
             })}
@@ -1836,9 +2147,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               </ToolbarIconButton>
             )}
             <ToolbarIconButton
+              dataAction="refresh-file-explorer"
               onClick={() => {
-                if (onExplorerRefresh) onExplorerRefresh();
-                else setExplorerKey((k) => k + 1);
+                setWtRefreshKey((key) => key + 1);
+                setExplorerForceKey((key) => key + 1);
+                if (onExplorerRefresh) {
+                  suppressNextExternalExplorerRefreshRef.current = true;
+                  onExplorerRefresh();
+                } else {
+                  setExplorerKey((k) => k + 1);
+                }
                 setExplorerRefreshDone(true);
                 if (explorerRefreshTimerRef.current) clearTimeout(explorerRefreshTimerRef.current);
                 explorerRefreshTimerRef.current = setTimeout(() => setExplorerRefreshDone(false), 2000);
@@ -1868,6 +2186,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 cwd={selectedCwd ?? selectedCwdProp!}
                 onOpenFile={onOpenFile ?? (() => {})}
                 refreshKey={explorerKey}
+                forceRefreshKey={explorerForceKey}
                 onAtMention={onAtMention}
                 onAtMentions={onAtMentions}
                 onUploadBusyChange={setExplorerUploadBusy}
@@ -1878,6 +2197,177 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               />
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+});
+
+function SessionListSectionLabel({ label }: { label: string }) {
+  const dividerStyle = {
+    height: 1,
+    flex: 1,
+    background: "var(--border)",
+  };
+
+  return (
+    <div
+      style={{
+        height: 18,
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "0 10px",
+        color: "var(--text-dim)",
+        fontSize: 10,
+        fontWeight: 650,
+        letterSpacing: "0.06em",
+        textTransform: "uppercase",
+        boxSizing: "border-box",
+      }}
+    >
+      <span aria-hidden="true" style={dividerStyle} />
+      <span style={{ flexShrink: 0 }}>{label}</span>
+      <span aria-hidden="true" style={dividerStyle} />
+    </div>
+  );
+}
+
+function SessionTreeItem({
+  node,
+  selectedSessionId,
+  runningSessionIds,
+  unreadSessionIds,
+  collapsedSessionIds,
+  onCollapseChange,
+  onSelectSession,
+  onRenamed,
+  onSessionDeleted,
+  depth,
+  isPinned = false,
+  onTogglePinned,
+  isDragging = false,
+  isDragOver = false,
+  dragOffsetY = 0,
+  animateDragOffset = false,
+  onPinnedDragStart,
+  onPinnedDragEnd,
+  onPinnedDragOver,
+  onPinnedDrop,
+}: {
+  node: SessionTreeNode;
+  selectedSessionId: string | null;
+  runningSessionIds: Set<string>;
+  unreadSessionIds: Set<string>;
+  collapsedSessionIds: Set<string>;
+  onCollapseChange: (sessionId: string, collapsed: boolean) => void;
+  onSelectSession: (s: SessionInfo) => void;
+  onRenamed?: () => void;
+  onSessionDeleted?: (id: string) => void;
+  depth: number;
+  isPinned?: boolean;
+  onTogglePinned?: (pinned: boolean) => void;
+  isDragging?: boolean;
+  isDragOver?: boolean;
+  dragOffsetY?: number;
+  animateDragOffset?: boolean;
+  onPinnedDragStart?: () => void;
+  onPinnedDragEnd?: () => void;
+  onPinnedDragOver?: (afterTarget: boolean) => void;
+  onPinnedDrop?: (afterTarget: boolean) => void;
+}) {
+  const collapsed = collapsedSessionIds.has(node.session.id);
+  const hasChildren = node.children.length > 0;
+  const familySelected = node.familySessions.some((session) => session.id === selectedSessionId);
+  const familyRunning = node.familySessions.some((session) => runningSessionIds.has(session.id));
+  const familyUnread = node.familySessions.some((session) => unreadSessionIds.has(session.id));
+
+  return (
+    <div
+      data-pinned-session-root={isPinned ? node.session.id : undefined}
+      onDragOver={isPinned ? (event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        const bounds = event.currentTarget.getBoundingClientRect();
+        onPinnedDragOver?.(event.clientY > bounds.top + bounds.height / 2);
+      } : undefined}
+      onDrop={isPinned ? (event) => {
+        event.preventDefault();
+        const bounds = event.currentTarget.getBoundingClientRect();
+        onPinnedDrop?.(event.clientY > bounds.top + bounds.height / 2);
+      } : undefined}
+      style={{
+        position: "relative",
+        zIndex: isDragging ? 3 : 0,
+        transform: `translateY(${dragOffsetY}px)`,
+        transition: animateDragOffset
+          ? "transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1)"
+          : "none",
+        willChange: dragOffsetY !== 0 ? "transform" : "auto",
+      }}
+    >
+      <div
+        style={{
+          position: "relative",
+          borderRadius: 6,
+          transform: isDragging
+            ? "translateY(-2px) scale(1.015)"
+            : isDragOver ? "scale(0.985)" : "translateY(0) scale(1)",
+          boxShadow: isDragging
+            ? "0 7px 18px rgba(15,23,42,0.20)"
+            : isDragOver ? "inset 0 2px 0 var(--accent), 0 2px 8px rgba(15,23,42,0.10)" : "none",
+          background: isDragOver && !isDragging ? "var(--bg-hover)" : "transparent",
+          transition: "transform 140ms ease, box-shadow 140ms ease, background 140ms ease",
+          willChange: isDragging || isDragOver ? "transform" : "auto",
+        }}
+      >
+        {/* Indent line for child sessions */}
+        {depth > 0 && (
+          <div style={{
+            position: "absolute",
+            left: depth * 12 + 6,
+            top: 0, bottom: 0,
+            width: 1,
+            background: "var(--border)",
+            pointerEvents: "none",
+          }} />
+        )}
+        <SessionItem
+          session={node.session}
+          isSelected={familySelected}
+          isRunning={familyRunning}
+          isUnread={familyUnread}
+          onClick={() => onSelectSession(node.session)}
+          onRenamed={onRenamed}
+          onDeleted={(id) => onSessionDeleted?.(id)}
+          depth={depth}
+          hasChildren={hasChildren}
+          collapsed={collapsed}
+          onToggleCollapse={() => onCollapseChange(node.session.id, !collapsed)}
+          isPinned={isPinned}
+          isDragging={isDragging}
+          onTogglePinned={depth === 0 ? onTogglePinned : undefined}
+          onPinnedDragStart={depth === 0 ? onPinnedDragStart : undefined}
+          onPinnedDragEnd={depth === 0 ? onPinnedDragEnd : undefined}
+        />
+      </div>
+      {hasChildren && !collapsed && (
+        <div>
+          {node.children.map((child) => (
+            <SessionTreeItem
+              key={child.session.id}
+              node={child}
+              selectedSessionId={selectedSessionId}
+              runningSessionIds={runningSessionIds}
+              unreadSessionIds={unreadSessionIds}
+              collapsedSessionIds={collapsedSessionIds}
+              onCollapseChange={onCollapseChange}
+              onSelectSession={onSelectSession}
+              onRenamed={onRenamed}
+              onSessionDeleted={onSessionDeleted}
+              depth={depth + 1}
+            />
+          ))}
         </div>
       )}
     </div>
@@ -1949,6 +2439,48 @@ function UnreadSessionIndicator() {
   );
 }
 
+function WorkspaceActivitySummary({
+  activity,
+}: {
+  activity: { running: number; unread: number };
+}) {
+  const { t } = useI18n();
+  if (activity.running === 0 && activity.unread === 0) return null;
+
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 7, flexShrink: 0, marginLeft: 8 }}>
+      {activity.running > 0 && (
+        <span
+          title={`${t("sidebar.backgroundSessionRunning")} (${activity.running})`}
+          aria-label={`${t("sidebar.backgroundSessionRunning")} (${activity.running})`}
+          style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "var(--accent)", fontSize: 10, fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}
+        >
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ display: "block" }}>
+            <g>
+              <path d="M21 12a9 9 0 1 1-3.8-7.4" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" />
+              <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.9s" repeatCount="indefinite" />
+            </g>
+          </svg>
+          {activity.running}
+        </span>
+      )}
+      {activity.unread > 0 && (
+        <span
+          title={`${t("sidebar.backgroundSessionComplete")} (${activity.unread})`}
+          aria-label={`${t("sidebar.backgroundSessionComplete")} (${activity.unread})`}
+          style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "#0891b2", fontSize: 10, fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums" }}
+        >
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true" style={{ display: "block" }}>
+            <circle cx="6" cy="6" r="5" fill="currentColor" opacity="0.16" />
+            <path d="M3.25 6.1 5.2 8 8.85 4.15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          {activity.unread}
+        </span>
+      )}
+    </span>
+  );
+}
+
 /**
  * Compact per-project activity badges for the workspace selector dropdown items:
  * a spinning running icon + count and an unread dot + count. Renders nothing
@@ -2003,6 +2535,11 @@ function SessionItem({
   hasChildren = false,
   collapsed = false,
   onToggleCollapse,
+  isPinned = false,
+  isDragging = false,
+  onTogglePinned,
+  onPinnedDragStart,
+  onPinnedDragEnd,
 }: {
   session: SessionInfo;
   isSelected: boolean;
@@ -2015,6 +2552,11 @@ function SessionItem({
   hasChildren?: boolean;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  isPinned?: boolean;
+  isDragging?: boolean;
+  onTogglePinned?: (pinned: boolean) => void;
+  onPinnedDragStart?: () => void;
+  onPinnedDragEnd?: () => void;
 }) {
   const { locale, t } = useI18n();
   const [hovered, setHovered] = useState(false);
@@ -2097,6 +2639,32 @@ function SessionItem({
     setConfirmDelete(false);
   }, []);
 
+  const handlePinClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    onTogglePinned?.(!isPinned);
+  }, [isPinned, onTogglePinned]);
+
+  const handlePinnedDragStart = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", session.id);
+
+    // Hide the browser's translucent card snapshot. The live, fully opaque
+    // list and insertion indicator provide the drag feedback instead.
+    const dragImage = document.createElement("span");
+    dragImage.style.cssText = "position:fixed;left:-10px;top:-10px;width:1px;height:1px;";
+    document.body.appendChild(dragImage);
+    e.dataTransfer.setDragImage(dragImage, 0, 0);
+    requestAnimationFrame(() => dragImage.remove());
+
+    onPinnedDragStart?.();
+  }, [onPinnedDragStart, session.id]);
+
+  const handlePinnedDragEnd = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    onPinnedDragEnd?.();
+  }, [onPinnedDragEnd]);
+
   const handleContextMenu = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const handled = dispatchSessionRowContextMenu({
       id: session.id,
@@ -2112,9 +2680,15 @@ function SessionItem({
     e.stopPropagation();
   }, [onRenamed, session.cwd, session.id, session.name, session.path]);
 
-  // Fixed-height outer wrapper — content swaps in place so the list never reflows
+  // Fixed-height outer wrapper — content swaps in place so the list never reflows.
+  const canDragPinned = isPinned && depth === 0 && !confirmDelete && !renaming && !deleting;
   return (
     <div
+      data-session-id={session.id}
+      draggable={canDragPinned}
+      aria-grabbed={canDragPinned ? isDragging : undefined}
+      onDragStart={canDragPinned ? handlePinnedDragStart : undefined}
+      onDragEnd={canDragPinned ? handlePinnedDragEnd : undefined}
       onClick={confirmDelete || renaming ? undefined : onClick}
       onContextMenu={confirmDelete || renaming ? undefined : handleContextMenu}
       onMouseEnter={() => setHovered(true)}
@@ -2125,14 +2699,14 @@ function SessionItem({
         alignItems: "center",
         paddingLeft: depth > 0 ? depth * 12 + 14 : 14,
         paddingRight: 8,
-        cursor: confirmDelete || renaming ? "default" : "pointer",
+        cursor: canDragPinned ? (isDragging ? "grabbing" : "grab") : confirmDelete || renaming ? "default" : "pointer",
         background: confirmDelete
           ? "rgba(239,68,68,0.06)"
           : isSelected ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "transparent",
         borderLeft: confirmDelete
           ? "2px solid #ef4444"
           : isSelected ? "2px solid var(--accent)" : "2px solid transparent",
-        transition: "background 0.1s",
+        transition: "background 0.1s, opacity 0.14s ease",
         opacity: deleting ? 0.5 : 1,
         gap: 6,
         overflow: "hidden",
@@ -2220,8 +2794,8 @@ function SessionItem({
                 alignItems: "center",
                 gap: 5,
                 minWidth: 0,
-                fontSize: 12,
-                fontWeight: isSelected ? 500 : 400,
+                fontSize: 12.5,
+                fontWeight: isSelected ? 520 : 450,
                 lineHeight: 1.4,
                 color: "var(--text)",
               }}
@@ -2230,8 +2804,25 @@ function SessionItem({
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                 {title}
               </span>
+              {isPinned && (
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="var(--accent)"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-label={t("sidebar.pinned")}
+                  style={{ flexShrink: 0 }}
+                >
+                  <path d="M12 17v5" />
+                  <path d="m5 17 3-7V4h8v6l3 7Z" />
+                </svg>
+              )}
             </div>
-            <div style={{ marginTop: 2, display: "flex", alignItems: "center", gap: 8, color: "var(--text-dim)", fontSize: 11, minWidth: 0 }}>
+            <div style={{ marginTop: 2, display: "flex", alignItems: "center", gap: 8, color: "var(--text-dim)", fontSize: 11.25, minWidth: 0 }}>
               {isRunning ? (
                 <RunningSessionIndicator />
               ) : isUnread ? (
@@ -2279,13 +2870,34 @@ function SessionItem({
 
           {/* Action buttons — shown on hover */}
           {hovered && !session.transient && (
-            <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+            <div style={{ display: "flex", gap: 3, flexShrink: 0 }}>
+              {onTogglePinned && (
+                <button
+                  onClick={handlePinClick}
+                  title={isPinned ? t("sidebar.unpinSession") : t("sidebar.pinSession")}
+                  aria-pressed={isPinned}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    width: 28, height: 28, padding: 0,
+                    background: isPinned ? "rgba(37,99,235,0.1)" : "var(--bg-hover)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 7, color: isPinned ? "var(--accent)" : "var(--text-muted)",
+                    cursor: "pointer", flexShrink: 0,
+                    transition: "background 0.12s, color 0.12s, border-color 0.12s",
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 17v5" />
+                    <path d="m5 17 3-7V4h8v6l3 7Z" />
+                  </svg>
+                </button>
+              )}
               <button
                 onClick={startRename}
                 title={t("sidebar.rename")}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  width: 32, height: 32, padding: 0,
+                  width: 28, height: 28, padding: 0,
                   background: "var(--bg-hover)", border: "1px solid var(--border)",
                   borderRadius: 7, color: "var(--text-muted)",
                   cursor: "pointer", flexShrink: 0,
@@ -2311,7 +2923,7 @@ function SessionItem({
                 title={t("sidebar.deleteWithShiftClick")}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  width: 32, height: 32, padding: 0,
+                  width: 28, height: 28, padding: 0,
                   background: "var(--bg-hover)", border: "1px solid var(--border)",
                   borderRadius: 7, color: "var(--text-muted)",
                   cursor: "pointer", flexShrink: 0,

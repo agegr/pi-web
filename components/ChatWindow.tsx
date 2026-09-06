@@ -1,6 +1,6 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines } from "@/lib/ansi";
@@ -23,6 +23,7 @@ import type { ToolEntry } from "@/lib/tool-presets";
 import { findChatScrollAnchor, type ChatScrollPosition } from "@/lib/chat-scroll-position";
 import {
   captureScrollDistance,
+  getNextVisibleCount,
   getPromptAnchorSpacerHeight,
   getVisibleRenderWindow,
   isScrollAtTail,
@@ -238,7 +239,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
+export const ChatWindow = memo(function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -264,15 +265,24 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     chatInputRef?.current?.replaceMessage(message);
   }, [chatInputRef]);
 
-  const initialScrollPositionRef = useRef(searchTarget ? null : initialScrollPosition ?? null);
-  const [pendingScrollRestore, setPendingScrollRestore] = useState<Extract<ChatScrollPosition, { atBottom: false }> | null>(() => {
-    const position = initialScrollPositionRef.current;
-    return position && !position.atBottom ? position : null;
-  });
+  type ReadingPosition = Extract<ChatScrollPosition, { atBottom: false }> | null;
+  const restoreSessionId = session?.id ?? null;
+  const initialReadingPosition: ReadingPosition = !searchTarget && initialScrollPosition && !initialScrollPosition.atBottom
+    ? initialScrollPosition : null;
+  const [scrollRestore, setScrollRestore] = useState<{ sessionId: string | null; position: ReadingPosition }>(() => ({
+    sessionId: restoreSessionId, position: initialReadingPosition,
+  }));
+  const pendingScrollRestore = scrollRestore.sessionId === restoreSessionId ? scrollRestore.position : initialReadingPosition;
+  const setPendingScrollRestore = useCallback((position: ReadingPosition) => {
+    setScrollRestore({ sessionId: restoreSessionId, position });
+  }, [restoreSessionId]);
+  const initialReadingPositionRef = useRef(initialReadingPosition);
+  initialReadingPositionRef.current = initialReadingPosition;
   const [restoreAnchorReady, setRestoreAnchorReady] = useState(false);
 
   const {
-    loading, error, messages, entryIds, historyCursor, hasEarlierMessages, streamState,
+    loading, error, messages, entryIds, streamState,
+    hasEarlierMessages, earlierMessageCount, loadingEarlierMessages, serverInputHistory,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
@@ -287,12 +297,12 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, scrollUserMsgToTop,
-    loadContext, activeLeafId, scrollToBottom, scrollToMessage,
+    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, loadEarlierMessages, scrollUserMsgToTop,
+    activeLeafId, scrollToBottom, scrollToMessage,
   } = useAgentSession({
     session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
-    deferInitialScroll: Boolean(pendingScrollRestore),
+    deferInitialScroll: Boolean(pendingScrollRestore || searchTarget),
   });
   const sessionBusy = agentRunning || bashRunning;
   const [quotedSelection, setQuotedSelection] = useState<{
@@ -464,10 +474,12 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   // top, load another page while keeping the scroll position stable.
   const [visibleCount, setVisibleCount] = useState(VISIBLE_PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const renderedMessageCountRef = useRef(0);
   const messageContentRef = useRef<HTMLDivElement | null>(null);
   const prevScrollDistanceRef = useRef<number | null>(null);
   const loadingOlderRef = useRef(false);
   const restoreStartedRef = useRef(false);
+  const locateGenerationRef = useRef(0);
   const pendingScrollRestoreRef = useRef(pendingScrollRestore);
   pendingScrollRestoreRef.current = pendingScrollRestore;
   const [pendingSearchScroll, setPendingSearchScroll] = useState<Props["searchTarget"]>(null);
@@ -477,39 +489,62 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       ? searchMessage.content.find((block) => block.type === "text")
       : searchMessage.content[pendingSearchScroll.blockIndex])
     : undefined;
-  const searchHistoryRef = useRef({ entryIds, historyCursor, hasEarlierMessages });
-  searchHistoryRef.current = { entryIds, historyCursor, hasEarlierMessages };
+  const searchHistoryRef = useRef({ entryIds, hasEarlierMessages });
+  searchHistoryRef.current = { entryIds, hasEarlierMessages };
 
   useLayoutEffect(() => {
     const sessionId = session?.id;
     const container = scrollContainerRef.current;
     const content = messageContentRef.current;
-    if (!sessionId || !onScrollPositionChange || !container || !content) return;
-    return () => {
+    if (loading || !sessionId || !onScrollPositionChange || !container || !content) return;
+    const capturePosition = () => {
       if (pendingScrollRestoreRef.current) return;
       if (isScrollAtTail(container.scrollTop, container.clientHeight, container.scrollHeight)) {
         onScrollPositionChange(sessionId, { atBottom: true });
         return;
       }
       const viewportTop = container.getBoundingClientRect().top;
-      const candidates = Array.from(content.children).flatMap((element) => {
-        if (!(element instanceof HTMLElement) || !element.dataset.entryId) return [];
-        const rect = element.getBoundingClientRect();
-        return [{ entryId: element.dataset.entryId, top: rect.top, bottom: rect.bottom }];
-      });
-      const anchor = findChatScrollAnchor(candidates, viewportTop);
+      const candidates = Array.from(content.children).filter((element): element is HTMLElement => (
+        element instanceof HTMLElement && Boolean(element.dataset.entryId)
+      ));
+      // DOM order follows message order; locate the anchor without measuring every row.
+      let low = 0;
+      let high = candidates.length - 1;
+      let index = 0;
+      while (low <= high) {
+        const middle = (low + high) >>> 1;
+        if (candidates[middle].getBoundingClientRect().top <= viewportTop) {
+          index = middle;
+          low = middle + 1;
+        } else high = middle - 1;
+      }
+      const candidate = candidates[index];
+      const rect = candidate?.getBoundingClientRect();
+      const anchor = findChatScrollAnchor(candidate && rect
+        ? [{ entryId: candidate.dataset.entryId!, top: rect.top, bottom: rect.bottom }] : [], viewportTop);
       if (!anchor) return;
       onScrollPositionChange(sessionId, {
         atBottom: false,
         ...anchor,
-        oldestEntryId: searchHistoryRef.current.historyCursor,
+        oldestEntryId: searchHistoryRef.current.entryIds[0] ?? null,
       });
+    };
+    let frame: number | null = null;
+    const scheduleCapture = () => {
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => { frame = null; capturePosition(); });
+    };
+    capturePosition();
+    container.addEventListener("scroll", scheduleCapture, { passive: true });
+    return () => {
+      container.removeEventListener("scroll", scheduleCapture);
+      if (frame !== null) cancelAnimationFrame(frame);
     };
   }, [loading, onScrollPositionChange, scrollContainerRef, session?.id]);
 
   useEffect(() => {
     if (searchTarget) setPendingScrollRestore(null);
-  }, [searchTarget]);
+  }, [searchTarget, setPendingScrollRestore]);
 
   useEffect(() => {
     const position = pendingScrollRestore;
@@ -517,6 +552,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     if (!position || !sessionId || loading || searchTarget || restoreStartedRef.current) return;
     restoreStartedRef.current = true;
     const controller = new AbortController();
+    const generation = ++locateGenerationRef.current;
 
     const locate = async () => {
       const initialHistory = searchHistoryRef.current;
@@ -527,42 +563,41 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       }
 
       loadingOlderRef.current = true;
-      let before = initialHistory.historyCursor;
       let hasMore = initialHistory.hasEarlierMessages;
       try {
-        while (hasMore && before && !controller.signal.aborted) {
-          const context = await loadContext(sessionId, activeLeafId, before, { signal: controller.signal });
-          if (controller.signal.aborted) return;
-          if (!context) {
+        while (hasMore && !controller.signal.aborted) {
+          const page = await loadEarlierMessages({ signal: controller.signal });
+          if (controller.signal.aborted || generation !== locateGenerationRef.current) return;
+          if (!page) {
             scrollToBottom("instant");
             setPendingScrollRestore(null);
             return;
           }
-          setVisibleCount((current) => current + Math.max(VISIBLE_PAGE_SIZE, context.messages.length * 2));
-          if (context.entryIds.includes(position.anchorEntryId)) {
+          setVisibleCount((current) => current + Math.max(VISIBLE_PAGE_SIZE, page.context.messages.length * 2));
+          if (page.context.entryIds.includes(position.anchorEntryId)) {
             setRestoreAnchorReady(true);
             return;
           }
-          if (context.oldestEntryId === position.oldestEntryId) break;
-          before = context.oldestEntryId;
-          hasMore = context.hasMore;
+          hasMore = page.page.hasEarlier;
         }
         if (!controller.signal.aborted) {
           scrollToBottom("instant");
           setPendingScrollRestore(null);
         }
       } finally {
-        loadingOlderRef.current = false;
+        if (generation === locateGenerationRef.current) loadingOlderRef.current = false;
       }
     };
 
     void locate();
     return () => {
       controller.abort();
-      // A branch change cancels restoration and must reveal the new context.
-      setPendingScrollRestore(null);
+      if (generation === locateGenerationRef.current) {
+        restoreStartedRef.current = false;
+        loadingOlderRef.current = false;
+      }
     };
-  }, [activeLeafId, loadContext, loading, pendingScrollRestore, scrollToBottom, searchTarget, session?.id]);
+  }, [activeLeafId, loadEarlierMessages, loading, pendingScrollRestore, scrollToBottom, searchTarget, session?.id, setPendingScrollRestore]);
 
   useLayoutEffect(() => {
     const position = pendingScrollRestore;
@@ -580,35 +615,42 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       scrollToBottom("instant");
       setPendingScrollRestore(null);
     }
-  }, [entryIds, pendingScrollRestore, restoreAnchorReady, scrollToBottom, scrollToMessage, searchTarget, visibleCount]);
+  }, [entryIds, pendingScrollRestore, restoreAnchorReady, scrollToBottom, scrollToMessage, searchTarget, visibleCount, setPendingScrollRestore]);
 
   useEffect(() => {
-    if (!searchTarget || loading) return;
+    if (!searchTarget || loading || searchTarget.sessionId !== session?.id) return;
     const controller = new AbortController();
+    const generation = ++locateGenerationRef.current;
     const locate = async () => {
       const history = searchHistoryRef.current;
       let found = history.entryIds.includes(searchTarget.entryId);
-      if (!found && !sessionBusy && history.hasEarlierMessages && history.historyCursor && !loadingOlderRef.current) {
-        loadingOlderRef.current = true;
-        const container = scrollContainerRef.current;
-        if (container) prevScrollDistanceRef.current = captureScrollDistance(container.scrollHeight, container.scrollTop);
-        // ponytail: one extra page of 200 entries; deeper or other-branch hits just open the session.
-        const context = await loadContext(searchTarget.sessionId, activeLeafId, history.historyCursor, { tail: 200, signal: controller.signal });
-        loadingOlderRef.current = false;
-        found = Boolean(context?.entryIds.includes(searchTarget.entryId));
-      }
-      if (controller.signal.aborted) return;
-      if (found) {
-        prevScrollDistanceRef.current = null;
-        setVisibleCount((current) => Math.max(current, (searchHistoryRef.current.entryIds.length + 200) * 2));
-        setPendingSearchScroll(searchTarget);
-      } else {
-        onSearchTargetHandled?.(searchTarget);
+      let hasMore = history.hasEarlierMessages;
+      let loadedCount = history.entryIds.length;
+      loadingOlderRef.current = true;
+      try {
+        while (!found && !sessionBusy && hasMore && !controller.signal.aborted) {
+          const page = await loadEarlierMessages({ signal: controller.signal });
+          if (controller.signal.aborted || generation !== locateGenerationRef.current) return;
+          if (!page) break;
+          loadedCount += page.context.entryIds.length;
+          found = page.context.entryIds.includes(searchTarget.entryId);
+          hasMore = page.page.hasEarlier;
+        }
+        if (controller.signal.aborted || generation !== locateGenerationRef.current) return;
+        if (found) {
+          prevScrollDistanceRef.current = null;
+          setVisibleCount((current) => Math.max(current, loadedCount * 2));
+          setPendingSearchScroll(searchTarget);
+        } else {
+          onSearchTargetHandled?.(searchTarget);
+        }
+      } finally {
+        if (generation === locateGenerationRef.current) loadingOlderRef.current = false;
       }
     };
     void locate();
     return () => controller.abort();
-  }, [searchTarget, loading, activeLeafId, sessionBusy, loadContext, onSearchTargetHandled, scrollContainerRef]);
+  }, [searchTarget, loading, activeLeafId, sessionBusy, loadEarlierMessages, onSearchTargetHandled, session?.id]);
 
   useLayoutEffect(() => {
     if (!pendingSearchScroll || pendingSearchScroll !== searchTarget) return;
@@ -625,6 +667,18 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     onSearchTargetHandled?.(pendingSearchScroll);
   }, [pendingSearchScroll, searchTarget, searchMessage, scrollContainerRef, scrollToMessage, onSearchTargetHandled]);
 
+  useEffect(() => {
+    locateGenerationRef.current += 1;
+    restoreStartedRef.current = false;
+    loadingOlderRef.current = false;
+    initialPromptSentRef.current = false;
+    setPendingScrollRestore(initialReadingPositionRef.current);
+    setRestoreAnchorReady(false);
+    setPendingSearchScroll(null);
+    setVisibleCount(VISIBLE_PAGE_SIZE);
+    prevScrollDistanceRef.current = null;
+  }, [session?.id, setPendingScrollRestore]);
+
   // IntersectionObserver on the sentinel div at the top of the message list.
   // When it becomes visible, load the next page of older messages.
   useEffect(() => {
@@ -634,32 +688,27 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries[0]?.isIntersecting) return;
-        // No older history loaded yet: fetch the previous page from the server
-        // and prepend it (loadContext handles prepend + scroll anchoring).
-        // Skip while a page is already loading or nothing older exists.
-        if (loadingOlderRef.current) return;
-        if (!hasEarlierMessages) return;
-        const oldestId = historyCursor;
-        if (!oldestId) return;
-        const sid = session?.id ?? sessionIdRef.current;
-        if (!sid) return;
-        loadingOlderRef.current = true;
+        if (loadingOlderRef.current || pendingScrollRestore || searchTarget) return;
+        // Save distance from top before revealing or fetching older messages.
         prevScrollDistanceRef.current = captureScrollDistance(container.scrollHeight, container.scrollTop);
-        void loadContext(sid, activeLeafId, oldestId).finally(() => {
-          loadingOlderRef.current = false;
-        });
+        if (visibleCount < renderedMessageCountRef.current) {
+          setVisibleCount((prev) => getNextVisibleCount(prev));
+          return;
+        }
+        if (hasEarlierMessages && !loadingEarlierMessages) {
+          const generation = locateGenerationRef.current;
+          void loadEarlierMessages().then((page) => {
+            if (generation !== locateGenerationRef.current) return;
+            if (page) setVisibleCount((previous) => previous + page.context.messages.length);
+            else prevScrollDistanceRef.current = null;
+          });
+        }
       },
       { root: container, threshold: 0 }
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [historyCursor, hasEarlierMessages, session, activeLeafId, loadContext, sessionIdRef, scrollContainerRef]);
-
-  // Keep the rendered window at least as large as what's loaded, so prepended
-  // (older) pages stay visible instead of being sliced off the top.
-  useEffect(() => {
-    setVisibleCount((current) => Math.max(current, messages.length));
-  }, [messages.length]);
+  }, [visibleCount, messages.length, hasEarlierMessages, loadingEarlierMessages, loadEarlierMessages, scrollContainerRef, pendingScrollRestore, searchTarget]);
 
   // After visibleCount increases (more messages prepended), restore the
   // scroll position so the viewport doesn't jump.
@@ -730,17 +779,21 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     return map;
   }, [messages]);
   const inputHistory = useMemo(() => {
+    const localInputs = messages
+      .map(getUserInputText)
+      .filter((text): text is string => Boolean(text));
+    const candidates = [...(serverInputHistory ?? []), ...localInputs];
     const seen = new Set<string>();
     const history: string[] = [];
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const text = getUserInputText(messages[i]);
-      if (!text || seen.has(text)) continue;
+    for (let index = candidates.length - 1; index >= 0; index -= 1) {
+      const text = candidates[index];
+      if (seen.has(text)) continue;
       seen.add(text);
       history.push(text);
       if (history.length >= 50) break;
     }
     return history.reverse();
-  }, [messages]);
+  }, [messages, serverInputHistory]);
   const messageRefs = useMessageRefs(visibleMessages.length);
   const revealHistoryForMinimap = useCallback(() => {
     setVisibleCount((current) => Math.max(current, messages.length * 2));
@@ -918,6 +971,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   return (
     <div
       className="chat-content relative flex h-full min-w-0 flex-col overflow-hidden"
+      data-ready-session-id={session?.id}
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
@@ -973,6 +1027,40 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         <NoticeShelf notices={notices} floating onPauseChange={setNoticePaused} />
       </div>
 
+      {isEmptyNew ? (
+        <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8">
+          <div className="w-full" style={{ maxWidth: "var(--chat-content-max-width, 820px)" }}>
+            <div
+              className="mb-3"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                marginLeft: 16,
+                marginRight: isMobile ? 16 : 52,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "baseline", gap: isMobile ? 7 : 10, minWidth: 0, flex: 1, lineHeight: 1.4, overflow: "hidden" }}>
+                <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: 0, color: "var(--text)", flexShrink: 0, whiteSpace: "nowrap" }}>π</span>
+                <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: "-0.025em", flexShrink: 0, whiteSpace: "nowrap" }}>Pi Agent Web</span>
+                <NewSessionUpdateLink label={(version) => t("appUpdate.releaseNotes", { version })} />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                  web <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
+                </span>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                  pi <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
+                </span>
+              </div>
+            </div>
+            {chatInputElement}
+            <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} />
+          </div>
+        </div>
+      ) : (
+      <>
       <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {extensionDialog && (
           <ExtensionDialog key={extensionDialog.id} request={extensionDialog} onRespond={respondToExtensionUi} />
@@ -980,9 +1068,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         {extensionCustomUi && (
           <ExtensionCustomPanel key={extensionCustomUi.id} request={extensionCustomUi} onInput={sendExtensionCustomInput} />
         )}
-        {!isEmptyNew && <>
         <div
           ref={scrollContainerRef}
+          data-chat-scroll-container
           className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-width:none]"
           style={{ visibility: pendingScrollRestore ? "hidden" : undefined }}
         >
@@ -1179,13 +1267,22 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 }
                 idx = endIdx;
               }
+              renderedMessageCountRef.current = rendered.length;
               const { startIndex } = getVisibleRenderWindow(rendered.length, visibleCount);
               const hasMore = startIndex > 0 || hasEarlierMessages;
               return (
                 <>
                   {hasMore && (
-                     <div ref={sentinelRef} className="py-3 text-center text-xs text-text-muted">
-                       {t("chat.loadEarlier")}
+                     <div
+                       ref={sentinelRef}
+                       data-history-sentinel
+                       data-earlier-count={earlierMessageCount + (hasMore ? startIndex : 0)}
+                       className="py-3 text-center text-xs text-text-muted"
+                     >
+                       {t("chat.loadEarlier", {
+                         count: earlierMessageCount + (hasMore ? startIndex : 0),
+                       })}
+
                     </div>
                   )}
                   {rendered.slice(startIndex)}
@@ -1234,7 +1331,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             onRevealHistory={revealHistoryForMinimap}
           />
         )}
-        </>}
       </div>
 
       {quoteSelectionEnabled && quotedSelection && createPortal(
@@ -1317,32 +1413,14 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       )}
 
       <div className="relative shrink-0">
-        {isEmptyNew && (
-          <div className="mx-auto mb-3 w-full" style={{ maxWidth: "var(--chat-content-max-width, 820px)", paddingLeft: 32, paddingRight: isMobile ? 32 : 68 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, fontFamily: "var(--font-mono)" }}>
-              <div style={{ display: "flex", alignItems: "baseline", gap: isMobile ? 7 : 10, minWidth: 0, flex: 1, lineHeight: 1.4, overflow: "hidden" }}>
-                <span style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", flexShrink: 0, whiteSpace: "nowrap" }}>π</span>
-                <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap" }}>Pi Web</span>
-                <NewSessionUpdateLink label={(version) => t("appUpdate.releaseNotes", { version })} />
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  web <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
-                </span>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  pi <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
         {chatInputElement}
         <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} />
       </div>
-      {isEmptyNew && <div className="min-h-0 flex-1" />}
+      </>
+      )}
     </div>
   );
-}
+});
 
 // Toast 整体高度上限；文本区高度上限 = 整体上限 - 上下 padding(14*2) - 上下边框(1*2)
 const NOTICE_MAX_HEIGHT_PX = 500;

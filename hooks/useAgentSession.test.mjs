@@ -134,7 +134,7 @@ test("fresh sessions use the preference while persisted and live sessions restor
     preferenceSource,
     /const existingSessionId = session\?\.id;[\s\S]*?useLayoutEffect\(\(\) => \{\s*if \(!existingSessionId && \(!isNew \|\| sessionIdRef\.current\)\) return;\s*setToolPresetState\(getPreferredToolPreset\(\)\)/,
   );
-  assert.match(source, /if \(agentState\?\.running\) \{\s*loadTools\(session\.id\)/);
+  assert.match(source, /if \(agentState\.running\) \{\s*void loadTools\(sid\)/);
   assert.match(source, /d\.toolNames !== undefined \? getPresetFromToolNames\(d\.toolNames\) : "default"/);
   assert.match(changeSource, /setPreferredToolPreset\(preset\)/);
   assert.match(changeSource, /\(sid, \{ type: "set_tools", toolNames \}\)/);
@@ -209,13 +209,82 @@ test("abandoned fresh-session drafts are cleared and cannot be recreated by late
     source.indexOf("  const sessionStats = useMemo"),
   );
   const mountSource = source.slice(
-    source.indexOf("  // Load session on mount"),
+    source.indexOf("  // Own long-lived resources"),
     source.indexOf("  useEffect(() => {\n    onSystemPromptChange"),
   );
 
   assert.match(restoreSource, /!sessionHookMountedRef\.current[\s\S]*?!newSessionPromotedRef\.current/);
   assert.match(mountSource, /const abandonedDraftKey = isNew \? newSessionDraftKey : null/);
   assert.match(mountSource, /clearDraft\(abandonedDraftKey\)/);
+});
+
+test("session and branch loads cancel predecessors and reject stale generations", () => {
+  const sessionLoadSource = source.slice(
+    source.indexOf("  const loadSession = useCallback"),
+    source.indexOf("  const loadContext = useCallback"),
+  );
+  const contextLoadSource = source.slice(
+    source.indexOf("  const loadContext = useCallback"),
+    source.indexOf("  const loadTools = useCallback"),
+  );
+  const cleanupSource = source.slice(
+    source.indexOf("  // Own long-lived resources"),
+    source.indexOf("  useEffect(() => {\n    onSystemPromptChange"),
+  );
+
+  assert.match(sessionLoadSource, /sessionLoadControllerRef\.current\?\.abort\(\)/);
+  assert.match(sessionLoadSource, /sessionLoadGenerationRef\.current === generation/);
+  assert.match(sessionLoadSource, /signal: controller\.signal/);
+  assert.match(sessionLoadSource, /waitForAbortableDelay\(SESSION_STATE_SETTLE_DELAY_MS, controller\.signal\)[\s\S]*?if \(!isCurrent\(\)\) return null;[\s\S]*?\/state/);
+  assert.match(contextLoadSource, /contextLoadControllerRef\.current\?\.abort\(\)/);
+  assert.match(contextLoadSource, /contextLoadGenerationRef\.current !== generation/);
+  assert.match(contextLoadSource, /fetch\(url, \{ signal: controller\.signal \}\)/);
+  assert.match(cleanupSource, /sessionLoadControllerRef\.current\?\.abort\(\)/);
+  assert.match(cleanupSource, /contextLoadControllerRef\.current\?\.abort\(\)/);
+});
+
+test("paged history prepends only contiguous pages owned by the active session and leaf", () => {
+  const sessionLoadSource = source.slice(
+    source.indexOf("  const loadSession = useCallback"),
+    source.indexOf("  const loadContext = useCallback"),
+  );
+  const earlierSource = source.slice(
+    source.indexOf("  const loadEarlierMessages = useCallback"),
+    source.indexOf("  const loadTools = useCallback"),
+  );
+
+  assert.match(sessionLoadSource, /tail: String\(INITIAL_SESSION_CONTEXT_MESSAGES\)/);
+  assert.match(earlierSource, /before: String\(requestedBefore\)/);
+  assert.match(earlierSource, /activeLeafIdRef\.current !== requestedLeafId/);
+  assert.match(earlierSource, /contextPageRef\.current\?\.startIndex !== requestedBefore/);
+  assert.match(earlierSource, /result\.page\.endIndex !== requestedBefore/);
+  assert.match(earlierSource, /setMessages\(\(current\) => \[\.\.\.result\.context\.messages, \.\.\.current\]\)/);
+  assert.match(earlierSource, /setServerInputHistory\(result\.inputHistory \?\? null\)/);
+  assert.match(chatWindowSource, /serverInputHistory \?\? \[\]/);
+  assert.match(chatWindowSource, /hasEarlierMessages && !loadingEarlierMessages/);
+  assert.match(chatWindowSource, /loadEarlierMessages\(\)\.then/);
+});
+
+test("existing session switches reuse the chat shell and reload by session id", () => {
+  const selectSource = appShellSource.slice(
+    appShellSource.indexOf("  const handleSelectSession = useCallback"),
+    appShellSource.indexOf("  const handleNewSession = useCallback"),
+  );
+  const transitionSource = source.slice(
+    source.indexOf("  // Load by session id without rebuilding ChatWindow"),
+    source.indexOf("  useEffect(() => {\n    onSystemPromptChange"),
+  );
+
+  assert.doesNotMatch(selectSource, /setSessionKey/);
+  assert.match(transitionSource, /sessionIdRef\.current = sid/);
+  assert.match(transitionSource, /loadSession\(sid, true, true\)/);
+  assert.match(transitionSource, /setData\(null\)/);
+  assert.match(transitionSource, /dispatchNotice\(\{ type: "reset" \}\)/);
+  assert.match(transitionSource, /setExtensionStatuses\(\[\]\)/);
+  assert.match(transitionSource, /setSlashCommands\(\[\]\)/);
+  assert.match(transitionSource, /\}, \[session\?\.id\]\)/);
+  assert.match(source, /loading: loading \|\| sessionTransitionPending/);
+  assert.match(chatWindowSource, /setVisibleCount\(VISIBLE_PAGE_SIZE\)[\s\S]*?\}, \[session\?\.id, setPendingScrollRestore\]\)/);
 });
 
 test("streaming submissions cannot be stranded in an idle direct queue", () => {
@@ -229,6 +298,17 @@ test("streaming submissions cannot be stranded in an idle direct queue", () => {
   assert.match(queueSource, /if \(isPromptRejectedError\(e\)\) restore\(\)/);
   assert.doesNotMatch(queueSource, /type: "steer"/);
   assert.doesNotMatch(queueSource, /type: "follow_up"/);
+});
+
+test("ordinary prompts retry atomically as steering when an extension wins the start race", () => {
+  const sendSource = source.slice(
+    source.indexOf("  const handleSend = useCallback"),
+    source.indexOf("  const executeBash = useCallback"),
+  );
+
+  assert.match(sendSource, /isPromptBusyError\(error\)/);
+  assert.match(sendSource, /streamingBehavior: "steer"/);
+  assert.ok(sendSource.indexOf("isPromptBusyError(error)") < sendSource.indexOf('console.error("Failed to send message:", failure)'));
 });
 
 test("built-in clone switches to the independent child session", () => {
@@ -279,13 +359,12 @@ test("uses server pagination state instead of guessing from rendered rows", () =
     source.indexOf("const loadContext = useCallback"),
     source.indexOf("const loadTools = useCallback"),
   );
-  assert.match(source, /const \[hasEarlierMessages, setHasEarlierMessages\] = useState\(false\)/);
-  assert.match(source, /setHasEarlierMessages\(d\.context\.hasMore\)/);
-  assert.match(source, /setHistoryCursor\(d\.context\.oldestEntryId\)/);
-  assert.match(loadContextSource, /setData\(\(prev\) => \{[\s\S]*messages: \[\.\.\.d\.context\.messages, \.\.\.prev\.context\.messages\]/);
-  assert.match(chatWindowSource, /const oldestId = historyCursor/);
-  assert.doesNotMatch(chatWindowSource, /const oldestId = entryIds\[0\]/);
-  assert.match(chatWindowSource, /if \(!hasEarlierMessages\) return/);
+  assert.match(source, /hasEarlierMessages: Boolean\(contextPage\?\.hasEarlier\)/);
+  assert.match(source, /contextPageRef\.current = combinedPage/);
+  assert.match(loadContextSource, /messages: \[\.\.\.result\.context\.messages, \.\.\.previous\.context\.messages\]/);
+  assert.match(loadContextSource, /before: String\(requestedBefore\)/);
+  assert.doesNotMatch(chatWindowSource, /historyCursor|loadContext\(/);
+  assert.match(chatWindowSource, /loadEarlierMessages\(\{ signal: controller\.signal \}\)/);
   assert.match(chatWindowSource, /const hasMore = startIndex > 0 \|\| hasEarlierMessages/);
   assert.doesNotMatch(chatWindowSource, /rendered\.length >= visibleCount/);
 });
@@ -436,12 +515,14 @@ test("restores an in-page session viewport without the default tail jump", () =>
   assert.match(source, /const initialScrollDoneRef = useRef\(Boolean\(opts\.deferInitialScroll\)\)/);
   assert.match(source, /const scrollToMessage = useCallback\(\(element: HTMLElement, viewportOffset = 16\)/);
   assert.match(source, /container\.scrollTop\s+- viewportOffset/);
-  assert.match(chatWindowSource, /deferInitialScroll: Boolean\(pendingScrollRestore\)/);
+  assert.match(chatWindowSource, /deferInitialScroll: Boolean\(pendingScrollRestore \|\| searchTarget\)/);
+  assert.match(source, /if \(opts\.deferInitialScroll\) return/);
+  assert.match(chatWindowSource, /scrollRestore\.sessionId === restoreSessionId/);
   assert.match(chatWindowSource, /isScrollAtTail\(container\.scrollTop, container\.clientHeight, container\.scrollHeight\)/);
   assert.match(chatWindowSource, /findChatScrollAnchor\(/);
-  assert.match(chatWindowSource, /while \(hasMore && before && !controller\.signal\.aborted\)/);
-  assert.match(chatWindowSource, /context\.oldestEntryId === position\.oldestEntryId/);
-  assert.match(chatWindowSource, /if \(!context\) \{\s*scrollToBottom\("instant"\);\s*setPendingScrollRestore\(null\);/);
+  assert.match(chatWindowSource, /while \(hasMore && !controller\.signal\.aborted\)/);
+  assert.match(chatWindowSource, /hasMore = page\.page\.hasEarlier/);
+  assert.match(chatWindowSource, /if \(!page\) \{\s*scrollToBottom\("instant"\);\s*setPendingScrollRestore\(null\);/);
   assert.match(chatWindowSource, /scrollToMessage\(element, position\.anchorOffset\)/);
   assert.match(chatWindowSource, /visibility: pendingScrollRestore \? "hidden" : undefined/);
 });
@@ -456,8 +537,8 @@ test("keeps a newly sent user message at the top while its response starts", () 
     source.indexOf("const handleScrollPositionChange"),
   );
   const scrollEffectSource = source.slice(
-    source.indexOf("useLayoutEffect(() => {\n    if (messages.length > 0)"),
-    source.indexOf("// Load model list"),
+    source.indexOf("useLayoutEffect(() => {\n    if (opts.deferInitialScroll) return;"),
+    source.indexOf("// Load the model list"),
   );
 
   assert.match(streamUpdateSource, /!pendingScrollToUserRef\.current && isNearBottomRef\.current/);
@@ -518,8 +599,8 @@ test("uses the prompt anchor as the only trailing message spacer", () => {
 
 test("keeps a detached viewport in place when streaming completes", () => {
   const scrollEffectSource = source.slice(
-    source.indexOf("useLayoutEffect(() => {\n    if (messages.length > 0)"),
-    source.indexOf("// Load model list"),
+    source.indexOf("useLayoutEffect(() => {\n    if (opts.deferInitialScroll) return;"),
+    source.indexOf("// Load the model list"),
   );
 
   assert.match(scrollEffectSource, /!agentRunningRef\.current && isNearBottomRef\.current[\s\S]*?scrollToBottom\("auto"\)/);

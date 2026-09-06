@@ -20,25 +20,29 @@
 }
 
 :root {
-  --bg: #ffffff;
-  --bg-panel: #f5f5f5;
-  --bg-hover: #eeeeee;
-  --bg-selected: #e8e8e8;
-  --border: #e0e0e0;
-  --text: #1a1a1a;
-  --text-muted: #6b7280;
-  --text-dim: #9ca3af;
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --user-bg: #eff6ff;
-  --assistant-bg: #ffffff;
-  --tool-bg: #f9fafb;
-  --bg-subtle: rgba(0,0,0,0.03);
+  color-scheme: light;
+  --bg: #fafbfc;
+  --bg-panel: #f2f4f7;
+  --bg-hover: #e9edf2;
+  --bg-selected: #dfe6ee;
+  --border: #d5dce5;
+  --text: #18202a;
+  --text-muted: #566476;
+  --text-dim: #647285;
+  --accent: #315f9f;
+  --accent-hover: #274d82;
+  --user-bg: #edf3f9;
+  --user-border: #cbd9e9;
+  --assistant-bg: #fafbfc;
+  --tool-bg: #f5f7f9;
+  --bg-subtle: rgba(24, 32, 42, 0.045);
+  --shadow-soft: 0 1px 2px rgba(24, 32, 42, 0.06), 0 10px 28px -18px rgba(24, 32, 42, 0.3);
   --chat-content-max-width: 820px;
   --chat-content-font-size: 14px;
 }
 
 html.dark {
+  color-scheme: dark;
   --bg: #1a1a1a;
   --bg-panel: #242424;
   --bg-hover: #2e2e2e;
@@ -50,9 +54,11 @@ html.dark {
   --accent: #60a5fa;
   --accent-hover: #93c5fd;
   --user-bg: #1e293b;
+  --user-border: rgba(96, 165, 250, 0.2);
   --assistant-bg: #1a1a1a;
   --tool-bg: #1f2937;
   --bg-subtle: rgba(255,255,255,0.04);
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.18), 0 10px 28px -18px rgba(0, 0, 0, 0.7);
 }
 
 /* WebKit reports dvh/innerHeight without the status-bar strip for installed
@@ -119,14 +125,24 @@ html, body {
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-geist-sans), var(--font-noto-sans-sc), "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif;
   font-size: 14px;
+  font-weight: 450;
+  font-synthesis: none;
+  font-optical-sizing: auto;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
 }
 
 body {
   display: flex;
   flex-direction: column;
+}
+
+html:not(.dark) body {
+  font-weight: 450;
+  letter-spacing: 0.002em;
 }
 
 .terminal-panel {
@@ -457,11 +473,33 @@ button.extension-widget-trigger:focus-visible {
 }
 
 :root {
-  --font-mono: var(--font-noto-mono), 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, 'PingFang SC', 'Microsoft YaHei', monospace;
+  --font-mono: var(--font-geist-mono), 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, var(--font-noto-sans-sc), 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', monospace;
 }
 
 pre, code {
   font-family: var(--font-mono);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+:where(button, input, textarea, select, a):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 68%, white);
+  outline-offset: 2px;
+}
+
+.chat-composer:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border)) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 11%, transparent), var(--shadow-soft) !important;
+}
+
+.chat-composer-input::placeholder {
+  color: var(--text-dim);
+  opacity: 0.88;
 }
 
 /* react-markdown output styles */
@@ -473,24 +511,29 @@ pre, code {
   min-width: 0;
   max-width: 100%;
   overflow-x: hidden;
-  font-size: calc(14px + var(--chat-font-size-offset, 0px));
-  line-height: 1.7;
+  font-size: calc(15px + var(--chat-font-size-offset, 0px));
+  font-weight: 450;
+  line-height: 1.74;
+  letter-spacing: 0;
   color: var(--text);
   word-break: break-word;
 }
-.markdown-body p { margin: 0 0 8px; }
+.markdown-body p { margin: 0 0 10px; }
 .markdown-body p:last-child { margin-bottom: 0; }
+.markdown-body > :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6) {
+  max-width: 72ch;
+}
 .markdown-body h1, .markdown-body h2, .markdown-body h3,
 .markdown-body h4, .markdown-body h5, .markdown-body h6 {
-  font-weight: 600;
-  margin: 10px 0 5px;
+  font-weight: 650;
+  margin: 14px 0 6px;
   color: var(--text);
   line-height: 1.35;
-  letter-spacing: 0;
+  letter-spacing: -0.015em;
 }
-.markdown-body h1 { font-size: 1.16em; }
-.markdown-body h2 { font-size: 1.08em; }
-.markdown-body h3 { font-size: 0.98em; color: color-mix(in srgb, var(--text) 88%, var(--text-muted)); }
+.markdown-body h1 { font-size: 1.22em; }
+.markdown-body h2 { font-size: 1.12em; }
+.markdown-body h3 { font-size: 1.02em; color: color-mix(in srgb, var(--text) 90%, var(--text-muted)); }
 .markdown-body ul, .markdown-body ol {
   padding-left: 22px;
   margin: 5px 0 8px;
@@ -573,10 +616,10 @@ pre, code {
   transform: rotate(45deg) translateY(-1px);
 }
 .markdown-body blockquote {
-  border-left: 3px solid color-mix(in srgb, var(--border) 75%, var(--text-muted));
+  border-left: 3px solid color-mix(in srgb, var(--accent) 36%, var(--border));
   border-radius: 0 6px 6px 0;
-  margin: 6px 0;
-  padding: 6px 11px;
+  margin: 8px 0 10px;
+  padding: 7px 12px;
   background: var(--bg-subtle);
   color: var(--text-muted);
 }
@@ -729,7 +772,7 @@ pre, code {
   border-radius: 7px;
   overflow: hidden;
   background: var(--bg);
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 42%, transparent);
+  box-shadow: var(--shadow-soft);
 }
 .markdown-code-header {
   padding: 5px 10px;
@@ -1025,6 +1068,14 @@ pre, code {
   .mermaid-zoom-viewport {
     padding: 12px;
   }
+}
+
+/* Keep the complete source/diff DOM for selection and references while
+   letting the browser skip layout and paint for off-screen rows. */
+.file-source-line,
+.file-diff-line {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 20.8px;
 }
 
 /* File viewer toolbar */

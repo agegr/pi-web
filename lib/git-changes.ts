@@ -1,7 +1,5 @@
-import { execFile } from "child_process";
 import fs from "fs";
 import path from "path";
-import { promisify } from "util";
 import { TEXT_PREVIEW_MAX_BYTES } from "./file-types";
 import type {
   GitFileDiffResponse,
@@ -13,25 +11,60 @@ import {
   parseGitPorcelainV1,
   type GitPorcelainEntry,
 } from "./git-status";
-
-const execFileAsync = promisify(execFile);
+import { runGit } from "./git-process";
+import { projectIdentityKey } from "./project-identity";
+import { resolveProject } from "./worktree";
 const GIT_TIMEOUT_MS = 10_000;
 const GIT_STATUS_MAX_BUFFER = 8 * 1024 * 1024;
+const GIT_STATUS_CACHE_TTL_MS = 1_500;
+const MAX_GIT_STATUS_CACHE_ENTRIES = 32;
 
-async function git(cwd: string, args: string[], maxBuffer = GIT_STATUS_MAX_BUFFER): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], {
-    timeout: GIT_TIMEOUT_MS,
-    maxBuffer,
-    env: { ...process.env, LC_ALL: "C" },
-  });
-  return stdout;
+interface RepositoryStatusSnapshot {
+  entries: GitPorcelainEntry[];
+  expiresAt: number;
 }
 
-async function findRepositoryRoot(cwd: string): Promise<string | null> {
-  try {
-    return (await git(cwd, ["rev-parse", "--show-toplevel"])).trim() || null;
-  } catch {
-    return null;
+interface GitStatusCacheEntry {
+  result: GitStatusResponse;
+  expiresAt: number;
+}
+
+interface GitStatusCacheState {
+  repositories: Map<string, RepositoryStatusSnapshot>;
+  repositoryPromises: Map<string, Promise<RepositoryStatusSnapshot>>;
+  responses: Map<string, GitStatusCacheEntry>;
+  responsePromises: Map<string, Promise<GitStatusResponse>>;
+  cwdRepositories: Map<string, string>;
+}
+
+declare global {
+  var __piGitStatusCache: GitStatusCacheState | undefined;
+}
+
+function cacheState(): GitStatusCacheState {
+  if (!globalThis.__piGitStatusCache) {
+    globalThis.__piGitStatusCache = {
+      repositories: new Map(),
+      repositoryPromises: new Map(),
+      responses: new Map(),
+      responsePromises: new Map(),
+      cwdRepositories: new Map(),
+    };
+  }
+  return globalThis.__piGitStatusCache;
+}
+
+async function git(cwd: string, args: string[], maxBuffer = GIT_STATUS_MAX_BUFFER): Promise<string> {
+  return runGit(cwd, args, { timeoutMs: GIT_TIMEOUT_MS, maxBuffer });
+}
+
+function touchBounded<K, V>(cache: Map<K, V>, key: K, value: V): void {
+  cache.delete(key);
+  cache.set(key, value);
+  while (cache.size > MAX_GIT_STATUS_CACHE_ENTRIES) {
+    const oldest = cache.keys().next().value as K | undefined;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
   }
 }
 
@@ -52,6 +85,34 @@ async function readStatusEntries(repositoryRoot: string): Promise<GitPorcelainEn
     "--untracked-files=all",
   ]);
   return parseGitPorcelainV1(output);
+}
+
+async function getRepositoryStatusSnapshot(
+  repositoryRoot: string,
+  force = false,
+): Promise<RepositoryStatusSnapshot> {
+  const key = projectIdentityKey(repositoryRoot);
+  const state = cacheState();
+  const cached = state.repositories.get(key);
+  if (!force && cached && cached.expiresAt > Date.now()) {
+    touchBounded(state.repositories, key, cached);
+    return cached;
+  }
+  const existing = state.repositoryPromises.get(key);
+  if (existing) return existing;
+
+  const loadPromise = readStatusEntries(repositoryRoot).then((entries) => {
+    const snapshot = { entries, expiresAt: Date.now() + GIT_STATUS_CACHE_TTL_MS };
+    touchBounded(state.repositories, key, snapshot);
+    return snapshot;
+  });
+  const trackedPromise = loadPromise.finally(() => {
+    if (state.repositoryPromises.get(key) === trackedPromise) {
+      state.repositoryPromises.delete(key);
+    }
+  });
+  state.repositoryPromises.set(key, trackedPromise);
+  return trackedPromise;
 }
 
 async function readTrackedLineStats(
@@ -99,23 +160,22 @@ function countUntrackedTextLines(filePath: string): number {
   }
 }
 
-export async function getGitStatus(cwd: string): Promise<GitStatusResponse> {
-  const repositoryRoot = await findRepositoryRoot(cwd);
-  if (!repositoryRoot) {
-    return {
-      isGitRepository: false,
-      repositoryRoot: null,
-      files: [],
-      additions: 0,
-      deletions: 0,
-    };
-  }
+function nonRepositoryStatus(): GitStatusResponse {
+  return {
+    isGitRepository: false,
+    repositoryRoot: null,
+    files: [],
+    additions: 0,
+    deletions: 0,
+  };
+}
 
-  const [entries, trackedLineStats] = await Promise.all([
-    readStatusEntries(repositoryRoot),
+async function loadGitStatus(cwd: string, repositoryRoot: string, force: boolean): Promise<GitStatusResponse> {
+  const [snapshot, trackedLineStats] = await Promise.all([
+    getRepositoryStatusSnapshot(repositoryRoot, force),
     readTrackedLineStats(repositoryRoot, cwd),
   ]);
-  const files = entries.flatMap((entry): GitFileStatus[] => {
+  const files = snapshot.entries.flatMap((entry): GitFileStatus[] => {
     const filePath = path.resolve(repositoryRoot, entry.path);
     if (!isWithinPath(cwd, filePath)) return [];
     const classified = classifyGitStatus(entry);
@@ -130,7 +190,6 @@ export async function getGitStatus(cwd: string): Promise<GitStatusResponse> {
     (total, file) => total + (file.status === "untracked" ? countUntrackedTextLines(file.filePath) : 0),
     0,
   );
-
   return {
     isGitRepository: true,
     repositoryRoot,
@@ -138,6 +197,61 @@ export async function getGitStatus(cwd: string): Promise<GitStatusResponse> {
     additions: trackedLineStats.additions + untrackedAdditions,
     deletions: trackedLineStats.deletions,
   };
+}
+
+export async function getGitStatus(
+  cwd: string,
+  options: { force?: boolean } = {},
+): Promise<GitStatusResponse> {
+  const cwdKey = projectIdentityKey(path.resolve(cwd));
+  const state = cacheState();
+  const cached = state.responses.get(cwdKey);
+  if (!options.force && cached && cached.expiresAt > Date.now()) {
+    touchBounded(state.responses, cwdKey, cached);
+    return cached.result;
+  }
+  const existing = state.responsePromises.get(cwdKey);
+  if (existing) return existing;
+
+  const loadPromise = resolveProject(cwd).then(async (project) => {
+    const repositoryRoot = project.repositoryRoot;
+    if (!repositoryRoot) return nonRepositoryStatus();
+    const repositoryKey = projectIdentityKey(repositoryRoot);
+    touchBounded(state.cwdRepositories, cwdKey, repositoryKey);
+    return loadGitStatus(cwd, repositoryRoot, options.force === true);
+  }).then((result) => {
+    touchBounded(state.responses, cwdKey, {
+      result,
+      expiresAt: Date.now() + GIT_STATUS_CACHE_TTL_MS,
+    });
+    return result;
+  });
+  const trackedPromise = loadPromise.finally(() => {
+    if (state.responsePromises.get(cwdKey) === trackedPromise) {
+      state.responsePromises.delete(cwdKey);
+    }
+  });
+  state.responsePromises.set(cwdKey, trackedPromise);
+  return trackedPromise;
+}
+
+export function invalidateGitStatus(cwd?: string): void {
+  const state = cacheState();
+  if (!cwd) {
+    state.repositories.clear();
+    state.responses.clear();
+    state.cwdRepositories.clear();
+    return;
+  }
+  const cwdKey = projectIdentityKey(path.resolve(cwd));
+  state.responses.delete(cwdKey);
+  const repositoryKey = state.cwdRepositories.get(cwdKey);
+  if (repositoryKey) {
+    state.repositories.delete(repositoryKey);
+    for (const [candidateCwd, candidateRepository] of state.cwdRepositories) {
+      if (candidateRepository === repositoryKey) state.responses.delete(candidateCwd);
+    }
+  }
 }
 
 function hasNullByte(content: Buffer): boolean {
@@ -185,18 +299,30 @@ async function createTrackedFilePatch(
   }
 }
 
-export async function getGitFileDiff(cwd: string, filePath: string): Promise<GitFileDiffResponse> {
-  const repositoryRoot = await findRepositoryRoot(cwd);
+export async function getGitFileDiff(
+  cwd: string,
+  filePath: string,
+  options: { includePatch?: boolean } = {},
+): Promise<GitFileDiffResponse> {
+  const project = await resolveProject(cwd);
+  const repositoryRoot = project.repositoryRoot;
   if (!repositoryRoot || !isWithinPath(repositoryRoot, filePath)) return { supported: false };
 
   const resolvedFilePath = path.resolve(filePath);
   const relativePath = toGitPath(path.relative(repositoryRoot, resolvedFilePath));
-  const entries = await readStatusEntries(repositoryRoot);
-  const entry = entries.find((candidate) => candidate.path === relativePath);
+  let snapshot = await getRepositoryStatusSnapshot(repositoryRoot);
+  let entry = snapshot.entries.find((candidate) => candidate.path === relativePath);
+  if (!entry) {
+    // A user can open Diff immediately after a write, inside the short status
+    // TTL. Refresh once on a miss so caching never hides a newly changed file.
+    snapshot = await getRepositoryStatusSnapshot(repositoryRoot, true);
+    entry = snapshot.entries.find((candidate) => candidate.path === relativePath);
+  }
   if (!entry) return { supported: false };
 
   const { status } = classifyGitStatus(entry);
   if (status === "deleted") {
+    if (options.includePatch === false) return { supported: true, status };
     const patch = await createTrackedFilePatch(repositoryRoot, relativePath, entry.originalPath);
     if (!patch?.includes("\n@@ ")) return { supported: false };
     return { supported: true, status, patch };
@@ -209,6 +335,7 @@ export async function getGitFileDiff(cwd: string, filePath: string): Promise<Git
     return { supported: false };
   }
   if (!stat.isFile() || stat.size > TEXT_PREVIEW_MAX_BYTES) return { supported: false };
+  if (options.includePatch === false) return { supported: true, status };
 
   const currentBuffer = fs.readFileSync(resolvedFilePath);
   if (hasNullByte(currentBuffer)) return { supported: false };

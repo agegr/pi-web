@@ -1,5 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionFromServices, createEventBus, getAgentDir, initTheme, SessionManager, SettingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
@@ -15,6 +15,7 @@ import {
 import { cacheSessionPath, invalidateSessionListCache, resolveSessionPath } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
+import { createPiWebAgentSessionServices } from "./agent-session-services";
 import { notifySessionComplete } from "./web-push";
 import { hasActiveSessionLivenessProvider } from "./session-liveness";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
@@ -28,6 +29,9 @@ import type {
   SessionMessageEntry,
 } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
+import { createSubagentBackgroundWorkProbe, type BackgroundWorkProbe } from "./subagent-background-work";
+import { invalidateParsedSession } from "./session-detail-cache";
+import { invalidateGitStatus } from "./git-changes";
 import {
   createSubagentExtension,
   preferPiWebSubagentExtension,
@@ -115,7 +119,10 @@ type AgentSessionWrapperOptions = {
   chatOnly?: boolean;
   onAgentRunComplete?: AgentRunCompleteListener;
   suppressCompletionNotifications?: boolean;
+  backgroundWorkProbe?: BackgroundWorkProbe;
+  idleTimeoutMs?: number;
 };
+
 
 const IDLE_RESET_EVENT_TYPES = new Set([
   "agent_end",
@@ -239,11 +246,14 @@ export class AgentSessionWrapper {
   private readonly suppressCompletionNotifications: boolean;
   private unsubscribe: (() => void) | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  private idleGeneration = 0;
   private onDestroyCallback: (() => void) | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private sessionShutdownEmitted = false;
   private forceShutdownOnIdle = false;
   private _alive = true;
+  private readonly backgroundWorkProbe?: BackgroundWorkProbe;
+  private readonly idleTimeoutMs: number;
 
   constructor(
     public readonly inner: AgentSessionLike,
@@ -253,6 +263,8 @@ export class AgentSessionWrapper {
     this.chatOnly = options.chatOnly ?? false;
     this.onAgentRunComplete = options.onAgentRunComplete;
     this.suppressCompletionNotifications = options.suppressCompletionNotifications ?? false;
+    this.backgroundWorkProbe = options.backgroundWorkProbe;
+    this.idleTimeoutMs = options.idleTimeoutMs ?? SESSION_IDLE_TIMEOUT_MS;
     this.installExactSystemPromptContinuation();
     this.applyExactSystemPrompt();
   }
@@ -285,6 +297,12 @@ export class AgentSessionWrapper {
     return this._alive && (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning);
   }
 
+  private invalidateSessionList(): void {
+    const sessionFile = this.sessionFile;
+    if (sessionFile) invalidateParsedSession(sessionFile);
+    invalidateSessionListCache(sessionFile ? [sessionFile] : undefined);
+  }
+
   isChatOnly(): boolean {
     return this.chatOnly;
   }
@@ -296,9 +314,10 @@ export class AgentSessionWrapper {
   start(): void {
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
       if (event.type === "agent_start") this.agentRunNeedsCompletion = true;
-      if (event.type === "agent_end") {
-        invalidateSessionListCache();
+      if (event.type === "agent_end" || event.type === "session_info_changed") {
+        this.invalidateSessionList();
       }
+      if (event.type === "agent_end") invalidateGitStatus(this.cwd);
       if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
       this.emit(event);
       if (event.type === "agent_settled") this.notifyAgentRunCompleteIfIdle();
@@ -459,20 +478,46 @@ export class AgentSessionWrapper {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (!this._alive) return;
     // A resolved timeout of 0 disables idle shutdown entirely.
-    if (SESSION_IDLE_TIMEOUT_MS === 0) return;
+    if (this.idleTimeoutMs === 0) return;
     if (!this.isRunning()) this.forceShutdownOnIdle = false;
+    const generation = ++this.idleGeneration;
     this.idleTimer = setTimeout(() => {
-      if (!this.forceShutdownOnIdle && (this.isRunning() || hasActiveSessionLivenessProvider({
-        sessionId: this.sessionId,
-        sessionFile: this.sessionFile || undefined,
-      }))) {
-        this.resetIdleTimer();
-        return;
+      this.idleTimer = null;
+      void this.handleIdleTimeout(generation);
+    }, this.idleTimeoutMs);
+  }
+
+  private async handleIdleTimeout(generation: number): Promise<void> {
+    if (!this._alive || generation !== this.idleGeneration) return;
+    if (!this.forceShutdownOnIdle && (this.isRunning() || hasActiveSessionLivenessProvider({
+      sessionId: this.sessionId,
+      sessionFile: this.sessionFile || undefined,
+    }))) {
+      this.resetIdleTimer();
+      return;
+    }
+
+    let hasActiveBackgroundWork = false;
+    if (!this.forceShutdownOnIdle) {
+      try {
+        hasActiveBackgroundWork = await this.backgroundWorkProbe?.hasActiveWork() ?? false;
+      } catch (error) {
+        // A configured probe represents an extension that owns background work.
+        // Preserve the session on transient probe failures rather than losing its
+        // completion notifier.
+        hasActiveBackgroundWork = Boolean(this.backgroundWorkProbe);
+        console.error("[pi-web] failed to inspect session background work:", error instanceof Error ? error.message : error);
       }
-      void this.shutdown().catch((error) => {
-        console.error("[pi-web] failed to shut down idle session:", error instanceof Error ? error.message : error);
-      });
-    }, SESSION_IDLE_TIMEOUT_MS);
+    }
+
+    if (!this._alive || generation !== this.idleGeneration) return;
+    if (!this.forceShutdownOnIdle && (this.isRunning() || hasActiveBackgroundWork)) {
+      this.resetIdleTimer();
+      return;
+    }
+    await this.shutdown().catch((error) => {
+      console.error("[pi-web] failed to shut down idle session:", error instanceof Error ? error.message : error);
+    });
   }
 
   private persistBashOnlySession(): void {
@@ -637,7 +682,7 @@ export class AgentSessionWrapper {
           }, (error) => {
             rejectPreflight(error);
             finishPrompt();
-            invalidateSessionListCache();
+            this.invalidateSessionList();
             // A preflight rejection is returned by the POST itself. Only an
             // unexpected failure after acceptance needs the asynchronous event.
             if (preflightAccepted) {
@@ -711,7 +756,7 @@ export class AgentSessionWrapper {
         if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
         await this.inner.setModel(model);
         invalidateModelsCache();
-        invalidateSessionListCache();
+        this.invalidateSessionList();
         return { id: model.id, provider: model.provider };
       }
 
@@ -748,7 +793,8 @@ export class AgentSessionWrapper {
 
           const newSessionId = SessionManager.open(newSessionFile, sessionDir).getSessionId();
           cacheSessionPath(newSessionId, newSessionFile);
-          invalidateSessionListCache();
+          invalidateParsedSession(newSessionFile);
+          invalidateSessionListCache([newSessionFile]);
           await this.shutdownAfterSessionReplacement("fork");
           return { cancelled: false, newSessionId };
         });
@@ -772,7 +818,8 @@ export class AgentSessionWrapper {
 
         const newSessionId = SessionManager.open(forkedPath, sessionDir).getSessionId();
         cacheSessionPath(newSessionId, forkedPath);
-        invalidateSessionListCache();
+        invalidateParsedSession(forkedPath);
+        invalidateSessionListCache([forkedPath]);
         return { cancelled: false, newSessionId };
       }
 
@@ -798,7 +845,8 @@ export class AgentSessionWrapper {
 
           const newSessionId = SessionManager.open(clonedPath, sessionDir).getSessionId();
           cacheSessionPath(newSessionId, clonedPath);
-          invalidateSessionListCache();
+          invalidateParsedSession(clonedPath);
+          invalidateSessionListCache([clonedPath]);
           await this.shutdownAfterSessionReplacement("clone");
           return { cancelled: false, newSessionId };
         });
@@ -821,7 +869,7 @@ export class AgentSessionWrapper {
         if (level === "xhigh" && (this.inner.model as { compat?: { thinkingFormat?: string } } | null)?.compat?.thinkingFormat === "deepseek" && this.inner.agent?.state) {
           this.inner.agent.state.thinkingLevel = "xhigh";
         }
-        invalidateSessionListCache();
+        this.invalidateSessionList();
         return null;
       }
 
@@ -831,7 +879,7 @@ export class AgentSessionWrapper {
             this.inner.compact(command.customInstructions as string | undefined)
           );
         } finally {
-          invalidateSessionListCache();
+          this.invalidateSessionList();
         }
       }
 
@@ -839,7 +887,7 @@ export class AgentSessionWrapper {
         const name = (command.name as string | undefined)?.trim();
         if (!name) throw new Error("Session name cannot be empty");
         this.inner.setSessionName(name);
-        invalidateSessionListCache();
+        this.invalidateSessionList();
         return null;
       }
 
@@ -980,7 +1028,8 @@ export class AgentSessionWrapper {
           return result;
         } finally {
           this.resetIdleTimer();
-          invalidateSessionListCache();
+          this.invalidateSessionList();
+          invalidateGitStatus(this.cwd);
         }
       }
 
@@ -1001,7 +1050,9 @@ export class AgentSessionWrapper {
   destroy(): void {
     if (!this._alive) return;
     this._alive = false;
+    this.idleGeneration += 1;
     if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.backgroundWorkProbe?.dispose();
     if (this.inner.isBashRunning) this.inner.abortBash();
     this.unsubscribe?.();
     for (const pending of this.pendingUiResponses.values()) pending.cancel();
@@ -1997,12 +2048,15 @@ export async function startRpcSession(
         ? undefined
         : projectTrustReloadOptions(sessionCwd, agentDir);
     const settingsManager = SettingsManager.create(sessionCwd, agentDir);
-    const services = await createAgentSessionServices({
+    const extensionEventBus = createEventBus();
+    const backgroundWorkProbe = createSubagentBackgroundWorkProbe(extensionEventBus, sessionManager.getSessionId() ?? sessionId);
+    const services = await createPiWebAgentSessionServices({
       cwd: sessionCwd,
       agentDir,
       settingsManager,
       resourceLoaderOptions: subagentResources
         ? {
+            eventBus: extensionEventBus,
             noExtensions: !subagentResources.loadExtensions,
             noSkills: !subagentResources.loadSkills,
             noPromptTemplates: true,
@@ -2017,21 +2071,22 @@ export async function startRpcSession(
             appendSystemPrompt: subagentResources.appendSystemPrompt,
           }
         : chatOnly
-          ? CHAT_ONLY_RESOURCE_LOADER_OPTIONS
-        : {
-            extensionFactories: [
-              createProjectCommandBashExtension({
-                cwd: sessionCwd,
-                settings: settingsManager,
-              }),
-              createSubagentExtension(
-                SUBAGENT_CONTROLLER.extensionRuntime,
-                () => listSubagentProfiles(sessionCwd),
-                isBuiltInSubagentsEnabled,
-              ),
-            ],
-            extensionsOverride: (base) => preferUserBashExtension(preferPiWebSubagentExtension(base)),
-          },
+          ? { ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS, eventBus: extensionEventBus }
+          : {
+              eventBus: extensionEventBus,
+              extensionFactories: [
+                createProjectCommandBashExtension({
+                  cwd: sessionCwd,
+                  settings: settingsManager,
+                }),
+                createSubagentExtension(
+                  SUBAGENT_CONTROLLER.extensionRuntime,
+                  () => listSubagentProfiles(sessionCwd),
+                  isBuiltInSubagentsEnabled,
+                ),
+              ],
+              extensionsOverride: (base) => preferUserBashExtension(preferPiWebSubagentExtension(base)),
+            },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
     const scope = await resolveVisibleModels(
@@ -2097,6 +2152,7 @@ export async function startRpcSession(
     const wrapper = new AgentSessionWrapper(inner, {
       exactSystemPrompt,
       chatOnly,
+      backgroundWorkProbe,
       onAgentRunComplete: (completedSessionId) => {
         void notifySessionComplete(completedSessionId).catch((error) => {
           console.error("[pi-web] failed to send completion push:", error instanceof Error ? error.message : error);

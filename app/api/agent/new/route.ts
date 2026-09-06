@@ -65,7 +65,7 @@ export async function POST(req: Request) {
     // in sync so the new cwd is immediately readable via /api/files. Without this,
     // a file request under a brand-new cwd would 403 for up to the cache TTL.
     allowFileRoot(cwd);
-    invalidateSessionListCache();
+    invalidateSessionListCache(session.sessionFile ? [session.sessionFile] : undefined);
 
     const state = await session.send({ type: "get_state" }) as {
       model?: { id: string; provider: string };

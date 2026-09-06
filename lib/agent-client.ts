@@ -21,7 +21,13 @@ export class AgentCommandError extends Error {
 
 export function isPromptRejectedError(error: unknown): error is AgentCommandError {
   return error instanceof AgentCommandError
-    && error.code === "prompt_rejected"
+    && (error.code === "prompt_rejected" || error.code === "prompt_busy")
+    && error.accepted === false;
+}
+
+export function isPromptBusyError(error: unknown): error is AgentCommandError {
+  return error instanceof AgentCommandError
+    && error.code === "prompt_busy"
     && error.accepted === false;
 }
 

@@ -15,6 +15,8 @@ const jiti = createJiti(import.meta.url, {
   moduleCache: false,
 });
 const { DELETE: deleteSession, GET: getSessionDetail, PATCH: renameSession } = await jiti.import("./[id]/route.ts");
+const { GET: getSessionContext } = await jiti.import("./[id]/context/route.ts");
+const { GET: getSessionMeta } = await jiti.import("./[id]/meta/route.ts");
 const { GET: getSessionList } = await jiti.import("./route.ts");
 const { GET: getRunningSessions } = await jiti.import("../agent/running/route.ts");
 const { GET: getSessionState } = await jiti.import("./[id]/state/route.ts");
@@ -77,9 +79,11 @@ test("list versions expose idle session creation, rename and deletion to other w
 
 test("session listing merges live registry snapshots and honors force refresh", () => {
   assert.match(listRoute, /searchParams\.get\("force"\) === "1"/);
-  assert.match(listRoute, /listAllSessions\(\{ force \}\)/);
+  assert.match(listRoute, /listAllSessions\(\{\s*force,/);
   assert.match(listRoute, /attachSessionProjectInfo\(getRpcSessionInfos\(\)\)/);
   assert.match(listRoute, /mergeSessionLists\(persistedSessions, runtimeSessions\)/);
+  assert.match(listRoute, /onTiming: \(stage, durationMs\) => timing\.record\(stage, durationMs\)/);
+  assert.match(listRoute, /timing\.timeSync\("serialize"/);
   assert.match(listRoute, /"Cache-Control": "no-store"/);
 });
 
@@ -89,7 +93,8 @@ test("session reads use the live SessionManager before requiring a JSONL path", 
     const pathLookup = source.indexOf("resolveSessionPath(id)");
     assert.ok(liveLookup >= 0);
     assert.ok(pathLookup > liveLookup);
-    assert.match(source, /liveRpc\?\.inner\.sessionManager \?\? SessionManager\.open/);
+    assert.match(source, /const diskSnapshot = liveRpc\s*\? null\s*:\s*await timing\.time\("parse", \(\) => getParsedSessionSnapshot/);
+    assert.match(source, /liveRpc\?\.inner\.sessionManager/);
   }
 });
 
@@ -170,10 +175,17 @@ test("live detail and state routes work without a persisted JSONL file", async (
     timestamp,
     message: { role: "user", content: "hello live" },
   };
+  const secondEntry = {
+    type: "message",
+    id: "u2",
+    parentId: entry.id,
+    timestamp: "2026-08-12T01:02:04.000Z",
+    message: { role: "user", content: "second live message" },
+  };
   const sessionManager = {
     getHeader: () => ({ type: "session", id, cwd: "/tmp", timestamp }),
-    getEntries: () => [entry],
-    getLeafId: () => entry.id,
+    getEntries: () => [entry, secondEntry],
+    getLeafId: () => secondEntry.id,
     getTree: () => [],
     getSessionName: () => undefined,
     getSessionFile: () => `/tmp/pi-web-live-route-not-persisted-${process.pid}.jsonl`,
@@ -196,17 +208,66 @@ test("live detail and state routes work without a persisted JSONL file", async (
     new Request(`http://localhost/api/sessions/${id}`),
     routeContext,
   );
+  const pagedResponse = await getSessionDetail(
+    new Request(`http://localhost/api/sessions/${id}?tail=1`),
+    routeContext,
+  );
+  const earlierResponse = await getSessionContext(
+    new Request(`http://localhost/api/sessions/${id}/context?before=1&limit=1`),
+    routeContext,
+  );
+  const invalidPageResponse = await getSessionContext(
+    new Request(`http://localhost/api/sessions/${id}/context?tail=0`),
+    routeContext,
+  );
+  const metaResponse = await getSessionMeta(
+    new Request(`http://localhost/api/sessions/${id}/meta`),
+    routeContext,
+  );
   const stateResponse = await getSessionState(
     new Request(`http://localhost/api/sessions/${id}/state`),
     routeContext,
   );
   const detail = await detailResponse.json();
+  const paged = await pagedResponse.json();
+  const earlier = await earlierResponse.json();
+  const meta = await metaResponse.json();
 
   assert.equal(detailResponse.status, 200);
+  assert.match(detailResponse.headers.get("Server-Timing") ?? "", /session-read;dur=\d+\.\d/);
+  assert.match(detailResponse.headers.get("Server-Timing") ?? "", /context;dur=\d+\.\d/);
+  assert.match(detailResponse.headers.get("Server-Timing") ?? "", /serialize;dur=\d+\.\d/);
+  assert.match(detailResponse.headers.get("Server-Timing") ?? "", /total;dur=\d+\.\d/);
   assert.equal(detail.info.transient, true);
   assert.equal(detail.info.projectRoot, "/tmp");
   assert.equal(typeof detail.info.projectKey, "string");
-  assert.deepEqual(detail.context.messages.map((message) => message.content), ["hello live"]);
+  assert.deepEqual(
+    detail.context.messages.map((message) => message.content),
+    ["hello live", "second live message"],
+  );
+  assert.equal(pagedResponse.status, 200);
+  assert.deepEqual(paged.context.messages.map((message) => message.content), ["second live message"]);
+  assert.deepEqual(paged.contextPage, {
+    startIndex: 1,
+    endIndex: 2,
+    totalMessages: 2,
+    hasEarlier: true,
+  });
+  assert.equal(paged.contextStats.totalMessages, 2);
+  assert.deepEqual(paged.inputHistory, ["hello live", "second live message"]);
+  assert.equal(earlierResponse.status, 200);
+  assert.equal(invalidPageResponse.status, 400);
+  assert.deepEqual(earlier.context.messages.map((message) => message.content), ["hello live"]);
+  assert.deepEqual(earlier.page, {
+    startIndex: 0,
+    endIndex: 1,
+    totalMessages: 2,
+    hasEarlier: false,
+  });
+  assert.equal(metaResponse.status, 200);
+  assert.equal(meta.session.id, id);
+  assert.equal(meta.session.transient, true);
+  assert.equal(typeof meta.session.projectKey, "string");
   assert.equal(stateResponse.status, 200);
   assert.deepEqual(await stateResponse.json(), {
     running: true,

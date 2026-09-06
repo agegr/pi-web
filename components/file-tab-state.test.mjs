@@ -54,6 +54,14 @@ test("changing the source session remounts the viewer without losing its state",
   assert.strictEqual(next.viewerState, tabA.viewerState);
 });
 
+test("opening from root authorization clears a stale source session", () => {
+  const tab = { ...tabA, sourceSessionId: "session-1" };
+  const [next] = openFileTab([tab], { ...openA, sourceSessionId: null });
+  assert.equal(next.sourceSessionId, null);
+  assert.equal(next.viewerRevision, 1);
+  assert.strictEqual(next.viewerState, tab.viewerState);
+});
+
 test("opening from the same source session preserves the viewer revision", () => {
   const tab = { ...tabA, sourceSessionId: "session-1" };
   const tabs = [tab];

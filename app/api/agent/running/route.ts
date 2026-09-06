@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessionListVersion } from "@/lib/session-reader";
+import { refreshSessionIndexInBackground } from "@/lib/session-index";
 import {
   getCompletionNotificationSuppressedRpcSessionIds,
   getRunningRpcSessionIds,
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 
 // GET /api/agent/running - Lightweight snapshot for visible-tab polling.
 export async function GET() {
+  refreshSessionIndexInBackground();
   return NextResponse.json(
     {
       sessionListVersion: getSessionListVersion(),

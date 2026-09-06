@@ -22,7 +22,12 @@ async function validateCwd(value: unknown): Promise<
       return { response: NextResponse.json({ error: "cwd must be a directory" }, { status: 400 }) };
     }
   } catch {
-    return { response: NextResponse.json({ error: "Directory does not exist" }, { status: 400 }) };
+    return {
+      response: NextResponse.json(
+        { error: "Directory does not exist", code: "cwd_not_found" },
+        { status: 400 },
+      ),
+    };
   }
 
   const allowedRoots = await getAllowedFileRoots();

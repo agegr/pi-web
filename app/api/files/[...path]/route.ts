@@ -27,6 +27,18 @@ import {
 } from "@/lib/file-upload";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
 import { filePathFromApiSegments, samePath } from "@/lib/paths";
+import { createServerTiming } from "@/lib/server-timing";
+import {
+  createFileVersion,
+  fileVersionHeaders,
+  matchesIfModifiedSince,
+  matchesIfNoneMatch,
+  type FileVersion,
+} from "@/lib/file-version";
+import {
+  documentPreviewCacheKey,
+  getOrCreateDocumentPreview,
+} from "@/lib/document-preview-cache";
 
 const IGNORED_NAMES = new Set([
   "node_modules", ".git", ".next", "dist", "build", "__pycache__",
@@ -43,6 +55,7 @@ const MAX_UPLOAD_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOAD_TOTAL_BYTES = 100 * 1024 * 1024;
 // Multipart boundaries and headers are not file bytes, but must be bounded too.
 const MAX_UPLOAD_REQUEST_BYTES = MAX_UPLOAD_TOTAL_BYTES + 1024 * 1024;
+const MAX_DIRECTORY_VERSION_PATHS = 128;
 
 const EXT_TO_LANGUAGE: Record<string, string> = {
   ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
@@ -115,6 +128,10 @@ function parseUploadFileNames(value: unknown): string[] | null {
   return value;
 }
 
+function directoryVersion(stat: fs.Stats): string {
+  return [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(":");
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
@@ -129,6 +146,34 @@ export async function POST(
     if ("response" in uploadDirectory) return uploadDirectory.response;
     const { directory } = uploadDirectory;
     const type = request.nextUrl.searchParams.get("type") ?? "upload";
+
+    if (type === "directory-versions") {
+      const body = await request.json().catch(() => null) as { paths?: unknown } | null;
+      const paths = parseUploadFileNames(body?.paths);
+      if (!paths || paths.length > MAX_DIRECTORY_VERSION_PATHS) {
+        return NextResponse.json(
+          { error: `paths must be an array of at most ${MAX_DIRECTORY_VERSION_PATHS} strings` },
+          { status: 400 },
+        );
+      }
+      const root = new Set([directory]);
+      const versions: Record<string, string | null> = {};
+      for (const candidate of paths) {
+        if (!isFilePathAllowed(candidate, root)) {
+          return NextResponse.json({ error: "Access denied" }, { status: 403 });
+        }
+        try {
+          if (!isExistingFilePathAllowed(candidate, root)) {
+            return NextResponse.json({ error: "Access denied" }, { status: 403 });
+          }
+          const stat = fs.statSync(candidate);
+          versions[candidate] = stat.isDirectory() ? directoryVersion(stat) : null;
+        } catch {
+          versions[candidate] = null;
+        }
+      }
+      return NextResponse.json({ versions });
+    }
 
     if (type === "upload-check") {
       const body = await request.json().catch(() => null) as { fileNames?: unknown } | null;
@@ -288,10 +333,26 @@ function getContentDisposition(filePath: string, asDownload = false): string {
   return `${disposition}; filename="${fallback}"; filename*=UTF-8''${encodeHeaderValue(fileName)}`;
 }
 
-function streamFile(filePath: string, stat: fs.Stats, contentType: string, rangeHeader: string | null, asDownload = false): Response {
+function notModifiedResponse(request: Request, version: FileVersion): Response | null {
+  const ifNoneMatch = request.headers.get("if-none-match");
+  const unchanged = ifNoneMatch
+    ? matchesIfNoneMatch(ifNoneMatch, version.etag)
+    : matchesIfModifiedSince(request.headers.get("if-modified-since"), version.lastModified);
+  if (!unchanged) return null;
+  return new Response(null, { status: 304, headers: fileVersionHeaders(version) });
+}
+
+function streamFile(
+  filePath: string,
+  stat: fs.Stats,
+  version: FileVersion,
+  contentType: string,
+  rangeHeader: string | null,
+  asDownload = false,
+): Response {
   const headers: Record<string, string> = {
+    ...Object.fromEntries(fileVersionHeaders(version)),
     "Content-Type": contentType,
-    "Cache-Control": "no-cache",
     "Accept-Ranges": "bytes",
     "Content-Disposition": getContentDisposition(filePath, asDownload),
     "X-Content-Type-Options": "nosniff",
@@ -419,7 +480,9 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
-  try {
+  const timing = createServerTiming();
+  const response = await timing.time("file-handler", async () => {
+    try {
     const { path: segments } = await params;
     const filePath = filePathFromApiSegments(segments);
     const rawType = request.nextUrl.searchParams.get("type") ?? "list";
@@ -429,7 +492,7 @@ export async function GET(
     }
     const sessionId = request.nextUrl.searchParams.get("sessionId");
 
-    const allowedRoots = await getAllowedFileRoots();
+    const allowedRoots = await timing.time("auth", () => getAllowedFileRoots());
     const allowedByRoot = isFilePathAllowed(filePath, allowedRoots);
     const allowedBySessionReference =
       !allowedByRoot &&
@@ -441,7 +504,7 @@ export async function GET(
 
     let stat: fs.Stats | undefined;
     try {
-      stat = fs.statSync(filePath);
+      stat = timing.timeSync("stat", () => fs.statSync(filePath));
     } catch {
       if (type !== "watch") {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -456,6 +519,8 @@ export async function GET(
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
+    const version = createFileVersion(stat);
+
     if (type === "read") {
       if (!stat?.isFile()) {
         return NextResponse.json({ error: "Not a file" }, { status: 400 });
@@ -465,40 +530,57 @@ export async function GET(
         if (stat.size > IMAGE_PREVIEW_MAX_BYTES) {
           return NextResponse.json({ error: "Image too large (>10MB)" }, { status: 413 });
         }
-        return streamFile(filePath, stat, imageMime, request.headers.get("range"));
+        const notModified = notModifiedResponse(request, version);
+        if (notModified) return notModified;
+        return streamFile(filePath, stat, version, imageMime, request.headers.get("range"));
       }
       const audioMime = getAudioMime(filePath);
       if (audioMime) {
-        return streamFile(filePath, stat, audioMime, request.headers.get("range"));
+        const notModified = notModifiedResponse(request, version);
+        if (notModified) return notModified;
+        return streamFile(filePath, stat, version, audioMime, request.headers.get("range"));
       }
       const videoMime = getVideoMime(filePath);
       if (videoMime) {
-        return streamFile(filePath, stat, videoMime, request.headers.get("range"));
+        const notModified = notModifiedResponse(request, version);
+        if (notModified) return notModified;
+        return streamFile(filePath, stat, version, videoMime, request.headers.get("range"));
       }
       const documentMime = getDocumentMime(filePath);
       if (documentMime) {
-        return streamFile(filePath, stat, documentMime, request.headers.get("range"));
+        const notModified = notModifiedResponse(request, version);
+        if (notModified) return notModified;
+        return streamFile(filePath, stat, version, documentMime, request.headers.get("range"));
       }
       if (stat.size > TEXT_PREVIEW_MAX_BYTES) {
         return NextResponse.json({ error: "File too large for preview (>256KB)" }, { status: 413 });
       }
-      const content = fs.readFileSync(filePath, "utf-8");
+      const notModified = notModifiedResponse(request, version);
+      if (notModified) return notModified;
+      const content = timing.timeSync("file-read", () => fs.readFileSync(filePath, "utf-8"));
       const language = getLanguage(filePath);
-      return NextResponse.json({ content, language, size: stat.size });
+      return timing.timeSync("serialize", () => NextResponse.json(
+        { content, language, size: stat.size, version },
+        { headers: fileVersionHeaders(version) },
+      ));
     }
 
     if (type === "download") {
       if (!stat?.isFile()) {
         return NextResponse.json({ error: "Not a file" }, { status: 400 });
       }
+      const notModified = notModifiedResponse(request, version);
+      if (notModified) return notModified;
       const mime = getImageMime(filePath) || getAudioMime(filePath) || getVideoMime(filePath) || getDocumentMime(filePath) || "application/octet-stream";
-      return streamFile(filePath, stat, mime, request.headers.get("range"), true);
+      return streamFile(filePath, stat, version, mime, request.headers.get("range"), true);
     }
 
     if (type === "meta") {
       if (!stat?.isFile()) {
         return NextResponse.json({ error: "Not a file" }, { status: 400 });
       }
+      const notModified = notModifiedResponse(request, version);
+      if (notModified) return notModified;
       const imageMime = getImageMime(filePath);
       const audioMime = getAudioMime(filePath);
       const videoMime = getVideoMime(filePath);
@@ -508,7 +590,8 @@ export async function GET(
         language: getLanguage(filePath),
         mime: imageMime || audioMime || videoMime || documentMime || "text/plain",
         previewKind: documentPreviewKind(filePath),
-      });
+        version,
+      }, { headers: fileVersionHeaders(version) });
     }
 
     if (type === "preview") {
@@ -522,19 +605,27 @@ export async function GET(
         return NextResponse.json({ error: "DOCX too large for preview (>10MB)" }, { status: 413 });
       }
 
-      const mammoth = await import("mammoth");
-      const result = await mammoth.convertToHtml(
-        { path: filePath },
-        {
-          externalFileAccess: false,
-          convertImage: mammoth.images.dataUri,
-        }
-      );
-      const html = wrapDocxPreviewHtml(result.value, path.basename(filePath));
+      const notModified = notModifiedResponse(request, version);
+      if (notModified) return notModified;
+      const cacheKey = documentPreviewCacheKey(filePath, version.etag);
+      const html = await timing.time("preview", () => getOrCreateDocumentPreview(
+        cacheKey,
+        async () => {
+          const mammoth = await import("mammoth");
+          const result = await mammoth.convertToHtml(
+            { path: filePath },
+            {
+              externalFileAccess: false,
+              convertImage: mammoth.images.dataUri,
+            },
+          );
+          return wrapDocxPreviewHtml(result.value, path.basename(filePath));
+        },
+      ));
       return new Response(html, {
         headers: {
+          ...Object.fromEntries(fileVersionHeaders(version)),
           "Content-Type": "text/html; charset=utf-8",
-          "Cache-Control": "no-cache",
           "Content-Security-Policy": "default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
           "Referrer-Policy": "no-referrer",
           "X-Content-Type-Options": "nosniff",
@@ -547,11 +638,7 @@ export async function GET(
         return NextResponse.json({ error: "Not a file" }, { status: 400 });
       }
       let watcher: fs.FSWatcher | null = null;
-      let lastMtimeMs = stat?.mtimeMs ?? 0;
-      let lastCtimeMs = stat?.ctimeMs ?? 0;
-      let lastIno = stat?.ino ?? 0;
-      let lastSize = stat?.size ?? 0;
-      let lastExists = stat !== undefined;
+      let lastVersion = version;
       const stream = new ReadableStream({
         start(controller) {
           const send = (eventName: string, data: Record<string, unknown>) => {
@@ -569,37 +656,40 @@ export async function GET(
                 changedName != null
                 && !samePath(path.join(watchedDirectory, changedName.toString()), filePath)
               ) return;
+              let nextVersion: FileVersion;
               try {
-                const s = fs.statSync(filePath);
-                // Some platforms emit watch events for file reads/attribute
-                // access. Ignore those or the client's refresh read loops.
-                if (
-                  lastExists
-                  && s.mtimeMs === lastMtimeMs
-                  && s.ctimeMs === lastCtimeMs
-                  && s.ino === lastIno
-                  && s.size === lastSize
-                ) return;
-                lastExists = true;
-                lastMtimeMs = s.mtimeMs;
-                lastCtimeMs = s.ctimeMs;
-                lastIno = s.ino;
-                lastSize = s.size;
-                send("change", { mtime: s.mtime.toISOString(), size: s.size });
+                nextVersion = createFileVersion(fs.statSync(filePath));
               } catch {
-                if (!lastExists) return;
-                lastExists = false;
-                send("change", { mtime: new Date().toISOString(), size: 0 });
+                nextVersion = createFileVersion();
               }
+              // Some platforms emit watch events for file reads/attribute
+              // access. Ignore those or the client's refresh read loops.
+              if (nextVersion.etag === lastVersion.etag) return;
+              lastVersion = nextVersion;
+              send("change", {
+                version: nextVersion,
+                size: nextVersion.size,
+                mtime: nextVersion.lastModified,
+              });
             });
             watcher.on("error", () => {
               try { watcher?.close(); } catch { /* ignore */ }
               watcher = null;
               try { controller.close(); } catch { /* ignore */ }
             });
-            // The client snapshots only after this event, so emit it after the
-            // watcher exists to avoid dropping changes between those steps.
-            send("connected", { filePath });
+            // Re-stat only after fs.watch exists. This closes the pre-watch
+            // snapshot window and gives the client one authoritative version
+            // from which to start its initial read.
+            try {
+              lastVersion = createFileVersion(fs.statSync(filePath));
+            } catch {
+              lastVersion = createFileVersion();
+            }
+            send("connected", {
+              version: lastVersion,
+              size: lastVersion.size,
+              mtime: lastVersion.lastModified,
+            });
           } catch {
             send("error", { message: "Failed to watch file" });
             controller.close();
@@ -626,7 +716,7 @@ export async function GET(
 
     // Avoid per-entry stat calls for normal files and directories. Symlinks and
     // filesystems without directory type information use the stat fallback.
-    const dirents = fs.readdirSync(filePath, { withFileTypes: true });
+    const dirents = timing.timeSync("enumerate", () => fs.readdirSync(filePath, { withFileTypes: true }));
     const entries = dirents
       .filter((d) => !IGNORED_NAMES.has(d.name) && !IGNORED_SUFFIXES.some((s) => d.name.endsWith(s)))
       .flatMap((d) => {
@@ -641,8 +731,14 @@ export async function GET(
         return a.name.localeCompare(b.name);
       });
 
-    return NextResponse.json({ entries, path: filePath });
-  } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
-  }
+    return timing.timeSync("serialize", () => NextResponse.json({
+      entries,
+      path: filePath,
+      directoryVersion: directoryVersion(stat),
+    }));
+    } catch (error) {
+      return NextResponse.json({ error: String(error) }, { status: 500 });
+    }
+  });
+  return timing.finish(response);
 }
