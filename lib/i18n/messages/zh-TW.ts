@@ -475,6 +475,7 @@ export const zhTWLocale: LocalePlugin = {
     "i18n.mentionSelectedLines": "引用選取的行",
     "i18n.disableWrap": "停用自動換行",
     "i18n.enableWrap": "啟用自動換行",
+    "i18n.toggleMinimap": "切換程式碼縮圖",
     "i18n.htmlPreview": "HTML 預覽",
     "i18n.previewFile": "預覽 {file}",
     "i18n.invalidMermaid": "Mermaid 圖表無效",
