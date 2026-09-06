@@ -10,6 +10,9 @@ import {
   CHAT_CONTENT_FONT_SIZE_DEFAULT,
   CHAT_CONTENT_FONT_SIZE_MAX,
   CHAT_CONTENT_FONT_SIZE_MIN,
+  EXTENSION_WIDGET_FONT_SIZE_DEFAULT,
+  EXTENSION_WIDGET_FONT_SIZE_MAX,
+  EXTENSION_WIDGET_FONT_SIZE_MIN,
   useChatAppearance,
 } from "@/hooks/useChatAppearance";
 import { sendAgentCommand } from "@/lib/agent-client";
@@ -72,7 +75,7 @@ function ThemeIcon({ preference }: { preference: ThemePreference }) {
 function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange">) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
-  const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
+  const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize, extensionWidgetFontSize, setExtensionWidgetFontSize } = useChatAppearance();
   const [shellSettings, setShellSettings] = useState<ShellToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
@@ -218,6 +221,34 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
               step={1}
               value={fontSize}
               onChange={(event) => setFontSize(Number(event.target.value))}
+            />
+          </div>
+          <div className="settings-chat-option settings-chat-range-option">
+            <div className="settings-chat-range-header">
+              <label htmlFor="settings-extension-widget-font-size">{t("settings.extensionWidgetFontSize")}</label>
+              <output htmlFor="settings-extension-widget-font-size">{extensionWidgetFontSize}px</output>
+              <ConfigButton
+                variant="ghost"
+                size="small"
+                className="settings-chat-reset"
+                title={t("settings.resetExtensionWidgetFontSize")}
+                aria-label={t("settings.resetExtensionWidgetFontSize")}
+                disabled={extensionWidgetFontSize === EXTENSION_WIDGET_FONT_SIZE_DEFAULT}
+                onClick={() => setExtensionWidgetFontSize(EXTENSION_WIDGET_FONT_SIZE_DEFAULT)}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" />
+                </svg>
+              </ConfigButton>
+            </div>
+            <input
+              id="settings-extension-widget-font-size"
+              type="range"
+              min={EXTENSION_WIDGET_FONT_SIZE_MIN}
+              max={EXTENSION_WIDGET_FONT_SIZE_MAX}
+              step={1}
+              value={extensionWidgetFontSize}
+              onChange={(event) => setExtensionWidgetFontSize(Number(event.target.value))}
             />
           </div>
           <div className="settings-chat-option settings-chat-switch-option">
