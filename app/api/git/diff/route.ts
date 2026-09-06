@@ -1,31 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAllowedFileRoots, isExistingFilePathAllowed, isFilePathAllowed, isWindowsAbsolutePath } from "@/lib/file-access";
 import { getGitFileDiff } from "@/lib/git-changes";
+import { createServerTiming } from "@/lib/server-timing";
 
 export async function GET(request: NextRequest) {
+  const timing = createServerTiming();
   try {
     const cwd = request.nextUrl.searchParams.get("cwd")?.trim() ?? "";
     const filePath = request.nextUrl.searchParams.get("path")?.trim() ?? "";
+    const includePatch = request.nextUrl.searchParams.get("probe") !== "1";
     if (!cwd || (!cwd.startsWith("/") && !isWindowsAbsolutePath(cwd))) {
-      return NextResponse.json({ error: "cwd must be an absolute path" }, { status: 400 });
+      return timing.finish(NextResponse.json({ error: "cwd must be an absolute path" }, { status: 400 }));
     }
     if (!filePath || (!filePath.startsWith("/") && !isWindowsAbsolutePath(filePath))) {
-      return NextResponse.json({ error: "path must be an absolute path" }, { status: 400 });
+      return timing.finish(NextResponse.json({ error: "path must be an absolute path" }, { status: 400 }));
     }
 
-    const allowedRoots = await getAllowedFileRoots();
+    const allowedRoots = await timing.time("auth", () => getAllowedFileRoots());
     if (!isFilePathAllowed(cwd, allowedRoots) || !isFilePathAllowed(filePath, allowedRoots)) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+      return timing.finish(NextResponse.json({ error: "Access denied" }, { status: 403 }));
     }
     // The cwd must resolve inside an allowed root. The file itself may no
     // longer exist when Git reports it as deleted; getGitFileDiff verifies
     // that the requested path belongs to this repository and its status.
     if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+      return timing.finish(NextResponse.json({ error: "Access denied" }, { status: 403 }));
     }
 
-    return NextResponse.json(await getGitFileDiff(cwd, filePath));
+    const result = await timing.time("git", () => getGitFileDiff(cwd, filePath, { includePatch }));
+    const response = timing.timeSync("serialize", () => NextResponse.json(result));
+    return timing.finish(response);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return timing.finish(NextResponse.json(
+      { error: error instanceof Error ? error.message : String(error) },
+      { status: 500 },
+    ));
   }
 }

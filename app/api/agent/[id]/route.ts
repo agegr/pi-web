@@ -60,12 +60,16 @@ export async function POST(
 
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const promptBusy = commandType === "prompt"
+      && !promptAccepted
+      && getRpcSession(id)?.isRunning() === true;
     return NextResponse.json({
-      error: error instanceof Error ? error.message : String(error),
+      error: message,
       ...(commandType === "prompt" && !promptAccepted
-        ? { code: "prompt_rejected", accepted: false }
+        ? { code: promptBusy ? "prompt_busy" : "prompt_rejected", accepted: false }
         : {}),
-    }, { status: 500 });
+    }, { status: promptBusy ? 409 : 500 });
   }
 }
 

@@ -1983,6 +1983,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             );
           })()}
           <div
+            className="chat-composer"
             style={{
               minWidth: 0,
               display: "flex",
@@ -1992,16 +1993,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               background: "var(--bg)",
               border: compact ? "none" : `1px solid ${bashMode ? "var(--tool-bg)" : isStreaming && (onSteer || onFollowUp)
                 ? "rgba(234,179,8,0.4)"
-                : "color-mix(in srgb, var(--border) 70%, transparent)"}`,
+                : "var(--border)"}`,
               borderRadius: compact ? 0 : 14,
               padding: compact ? 0 : "10px 10px 10px 14px",
-              boxShadow: compact ? "none" : "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
+              boxShadow: compact ? "none" : "var(--shadow-soft)",
               transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
             } as React.CSSProperties}
           >
           <textarea
             ref={textareaRef}
-            className="chat-input-textarea"
+            className="chat-composer-input chat-input-textarea"
             aria-label={compact ? t("chat.quoteQuestion") : undefined}
             value={value}
             onChange={(e) => {
@@ -2042,8 +2043,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               outline: "none",
               resize: "none",
               color: "var(--text)",
-              fontSize: "var(--chat-content-font-size, 14px)",
-              lineHeight: 1.6,
+              fontSize: "calc(var(--chat-content-font-size, 14px) + 0.5px)",
+              fontWeight: 450,
+              lineHeight: 1.62,
               fontFamily: "inherit",
               minHeight: compact ? 96 : 24,
               maxHeight: 200,

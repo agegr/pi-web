@@ -1,46 +1,41 @@
-// Static + behavior coverage for the context pagination API (the #555 transfer fix):
-// ?tail bounds the returned chain, ?before rewinds the walk and excludes its own
-// boundary so prepending the page never duplicates it. Data behavior is covered
-// end-to-end in lib/session-reader.pagination.test.mjs; here we assert the route wires
-// the params through to buildSessionContext (excludeLeaf on ?before).
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createJiti } from "jiti";
 
-const routeSrc = await readFileSync(new URL("./[id]/context/route.ts", import.meta.url), "utf8");
-const jiti = createJiti(import.meta.url, {
-  alias: { "@": process.cwd() },
-  interopDefault: true,
-  moduleCache: false,
-});
+const routeSrc = readFileSync(new URL("./[id]/context/route.ts", import.meta.url), "utf8");
+const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() } });
 const { buildSessionContext } = await jiti.import("@/lib/session-reader");
+const { paginateSessionContext, parseSessionContextPageRequest } = await jiti.import("@/lib/session-context-page");
 
-test("context route parses ?tail and ?before, excluding the boundary on paging", () => {
-  assert.match(routeSrc, /const tail = Number\.isFinite\(rawTail\) && rawTail > 0 \? Math\.min\(rawTail, 1000\) : 50/);
-  assert.match(routeSrc, /const before = url\.searchParams\.get\("before"\)/);
-  assert.match(routeSrc, /buildSessionContext\(sm\.getEntries\(\) as never, before \?\? leafId, \{[^}]*excludeLeaf: Boolean\(before\)/);
+test("context 路由复用完整分支缓存后分页，图片 URL 带会话身份", () => {
+  assert.match(routeSrc, /parseSessionContextPageRequest\(url.searchParams\)/);
+  assert.match(routeSrc, /getSessionContextFromSnapshot/);
+  assert.match(routeSrc, /paginateSessionContext\(fullContext, pageRequest\)/);
+  assert.match(routeSrc, /sessionId: id/);
+  assert.doesNotMatch(routeSrc, /before \?\? leafId|excludeLeaf: Boolean\(before\)/);
 });
 
-test("context route: ?before pages upward without duplicating the boundary", () => {
-  const entries = [];
-  for (let i = 0; i < 100; i++) {
-    entries.push({ id: `e${i}`, parentId: i === 0 ? null : `e${i - 1}`, type: "message", timestamp: new Date(1000 + i * 1000).toISOString(), message: { role: "user", content: `m${i}` } });
-  }
-  const page1 = buildSessionContext(entries, "e99", { tail: 5 }).entryIds;
-  assert.deepEqual(page1, ["e95", "e96", "e97", "e98", "e99"]);
-  const oldest = page1[0]; // e95
-  const page2 = buildSessionContext(entries, oldest, { tail: 5, excludeLeaf: true }).entryIds;
-  assert.equal(page2[page2.length - 1], "e94");
-  assert.ok(!page2.includes(oldest), "boundary `before` must not be duplicated");
-  assert.ok(page1.every((id) => !page2.includes(id)), "adjacent pages share no entry");
+test("数字 before 作为排他边界，上翻不重复已返回消息", () => {
+  const entries = Array.from({ length: 100 }, (_, i) => ({
+    id: `e${i}`, parentId: i ? `e${i - 1}` : null, type: "message",
+    timestamp: new Date(1000 + i * 1000).toISOString(), message: { role: "user", content: `m${i}` },
+  }));
+  const full = buildSessionContext(entries, "e99");
+  const first = paginateSessionContext(full, parseSessionContextPageRequest(new URLSearchParams("tail=5")));
+  assert.deepEqual(first.context.entryIds, ["e95", "e96", "e97", "e98", "e99"]);
+  const second = paginateSessionContext(full, parseSessionContextPageRequest(new URLSearchParams(`before=${first.page.startIndex}&limit=5`)));
+  assert.deepEqual(second.context.entryIds, ["e90", "e91", "e92", "e93", "e94"]);
+  assert.equal(first.context.entryIds.some(id => second.context.entryIds.includes(id)), false);
+  assert.equal(second.context.oldestEntryId, "e90");
+  assert.equal(second.context.hasMore, second.page.hasEarlier);
 });
 
-test("context route data reports when pagination reaches the root", () => {
-  const entries = [
-    { id: "e0", parentId: null, type: "message", timestamp: new Date(1000).toISOString(), message: { role: "user", content: "root" } },
-  ];
-  const page = buildSessionContext(entries, "e0", { tail: 50, excludeLeaf: true });
-  assert.deepEqual(page.entryIds, []);
-  assert.equal(page.hasMore, false);
+test("到达根节点后返回空窗口，不保留完整分支的旧游标", () => {
+  const full = buildSessionContext([{ id: "e0", parentId: null, type: "message", timestamp: new Date(1000).toISOString(), message: { role: "user", content: "root" } }]);
+  const page = paginateSessionContext(full, { before: 0, limit: 120 });
+  assert.deepEqual(page.context.entryIds, []);
+  assert.equal(page.context.oldestEntryId, null);
+  assert.equal(page.context.hasMore, false);
+  assert.equal(page.page.hasEarlier, false);
 });

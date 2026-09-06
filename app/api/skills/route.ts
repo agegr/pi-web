@@ -10,8 +10,9 @@ import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-acces
 export const dynamic = "force-dynamic";
 
 // GET /api/skills?cwd=<path>
-// Uses DefaultResourceLoader (same logic as AgentSession startup) so settings.json
-// skill paths, package skills, and .agents/skills directories are all included.
+// Uses DefaultResourceLoader for settings paths, package skills, and
+// .agents/skills, but disables extensions because this request has no session
+// lifecycle in which to dispatch resources_discover or session_shutdown.
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const cwd = searchParams.get("cwd");

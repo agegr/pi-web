@@ -24,6 +24,7 @@
     "!.next/dev",
     "!.next/**/*.js.map",
     "public",
+    "scripts",
     "next.config.ts",
     "package.json"
   ],
@@ -38,6 +39,8 @@
     "test:terminal": "node e2e/terminal.mjs",
     "test:e2e": "node e2e/run.mjs",
     "test": "node --experimental-strip-types --test \"app/**/*.test.mjs\" \"components/**/*.test.mjs\" \"hooks/**/*.test.mjs\" \"lib/**/*.test.mjs\" \"public/**/*.test.mjs\"",
+    "perf:browser": "node scripts/interaction-browser-baseline.mjs",
+    "perf:sessions": "node --experimental-strip-types scripts/session-list-baseline.mjs",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
   },
   "dependencies": {

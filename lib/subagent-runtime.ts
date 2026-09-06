@@ -1,7 +1,6 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import {
   createAgentSessionFromServices,
-  createAgentSessionServices,
   getAgentDir,
   initTheme,
   SessionManager,
@@ -33,6 +32,7 @@ import { appendSubagentInputFiles, loadSubagentInputFiles } from "./subagent-inp
 import { projectTrustReloadOptions } from "./project-trust";
 import { resolveShellTools } from "./powershell-settings";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
+import { createPiWebAgentSessionServices } from "./agent-session-services";
 
 interface HostSession {
   readonly inner: AgentSessionLike;
@@ -174,7 +174,7 @@ export function createSubagentController(
       });
       const { chatOnly, appendSystemPrompt, delegatedTask } = promptPlan;
       if (!chatOnly) initTheme();
-      const services = await createAgentSessionServices({
+      const services = await createPiWebAgentSessionServices({
         cwd: parent.cwd,
         agentDir,
         modelRuntime: parentModelRuntime,

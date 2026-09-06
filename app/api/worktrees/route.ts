@@ -3,6 +3,7 @@ import { existsSync } from "fs";
 import { addWorktree, findCurrentWorktreePath, listWorktrees, removeWorktree, resolveProject } from "@/lib/worktree";
 import { allowFileRoot, getAllowedFileRoots, isExistingFilePathAllowed, isFilePathAllowed } from "@/lib/file-access";
 import { projectIdentityKey } from "@/lib/project-identity";
+import { createServerTiming } from "@/lib/server-timing";
 
 /** Same gate as /api/files: only session cwds / project roots / explicitly
  *  allowed dirs may be inspected or mutated through this endpoint. */
@@ -16,22 +17,28 @@ async function checkCwdAllowed(cwd: string): Promise<NextResponse | null> {
 
 // GET /api/worktrees?cwd=  →  { projectRoot, projectKey, isGit, isTopLevel, currentWorktreePath, worktrees }
 export async function GET(req: Request) {
+  const timing = createServerTiming();
   try {
-    const cwd = new URL(req.url).searchParams.get("cwd");
+    const searchParams = new URL(req.url).searchParams;
+    const cwd = searchParams.get("cwd");
+    const force = searchParams.get("force") === "1";
     if (!cwd) {
-      return NextResponse.json({ error: "cwd is required" }, { status: 400 });
+      return timing.finish(NextResponse.json({ error: "cwd is required" }, { status: 400 }));
     }
-    const denied = await checkCwdAllowed(cwd);
-    if (denied) return denied;
+    const denied = await timing.time("auth", () => checkCwdAllowed(cwd));
+    if (denied) return timing.finish(denied);
 
-    const project = await resolveProject(cwd);
+    const project = await timing.time("project", () => resolveProject(cwd));
     let worktrees: Awaited<ReturnType<typeof listWorktrees>> = [];
     let currentWorktreePath: string | null = null;
     let isGit = true;
     try {
       // For a removed-worktree cwd (session of a deleted worktree), fall back
       // to the inferred project root so the switcher still shows the project.
-      worktrees = await listWorktrees(existsSync(cwd) ? cwd : project.projectRoot);
+      worktrees = await timing.time("git", () => listWorktrees(
+        existsSync(cwd) ? cwd : project.projectRoot,
+        { force },
+      ));
       currentWorktreePath = findCurrentWorktreePath(worktrees, cwd);
     } catch {
       isGit = false;
@@ -40,16 +47,17 @@ export async function GET(req: Request) {
     // file explorer to browse them even before they have any session (the
     // in-memory allowlist from addWorktree does not survive server restarts).
     for (const w of worktrees) allowFileRoot(w.path);
-    return NextResponse.json({
+    const response = timing.timeSync("serialize", () => NextResponse.json({
       projectRoot: project.projectRoot,
       projectKey: projectIdentityKey(project.projectRoot),
       isGit,
       isTopLevel: project.isTopLevel,
       currentWorktreePath,
       worktrees,
-    });
+    }));
+    return timing.finish(response);
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return timing.finish(NextResponse.json({ error: String(error) }, { status: 500 }));
   }
 }
 

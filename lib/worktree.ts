@@ -1,11 +1,9 @@
-import { execFile } from "child_process";
 import { existsSync, mkdirSync, realpathSync } from "fs";
 import { basename, dirname, join, resolve } from "path";
-import { promisify } from "util";
 import { allowFileRoot } from "./allowed-roots";
+import { runGit } from "./git-process";
 import { samePath, toNativePath } from "./paths";
-
-const execFileAsync = promisify(execFile);
+import { projectIdentityKey } from "./project-identity";
 
 // ============================================================================
 // Project resolution: cwd → { projectRoot, branch }
@@ -26,6 +24,10 @@ export interface ProjectInfo {
    *  False for repo subdirectories and non-git dirs — the worktree switcher
    *  is only meaningful at the top level. */
   isTopLevel: boolean;
+  /** Top-level of the current checkout, including a linked worktree. */
+  repositoryRoot: string | null;
+  /** Main repository root shared by all linked worktrees. */
+  gitCommonRoot: string | null;
 }
 
 export interface WorktreeInfo {
@@ -36,28 +38,56 @@ export interface WorktreeInfo {
 
 declare global {
   var __piProjectCache: Map<string, { info: ProjectInfo; expiresAt: number }> | undefined;
+  var __piProjectPromises: Map<string, Promise<ProjectInfo>> | undefined;
+  var __piWorktreeListPromises: Map<string, Promise<WorktreeInfo[]>> | undefined;
+  var __piWorktreeListCache: Map<string, { worktrees: WorktreeInfo[]; expiresAt: number }> | undefined;
 }
 
 const PROJECT_CACHE_TTL_MS = 60_000;
+const WORKTREE_CACHE_TTL_MS = 5_000;
+const MAX_PROJECT_CACHE_ENTRIES = 256;
+const MAX_WORKTREE_CACHE_ENTRIES = 64;
 
 function getProjectCache(): Map<string, { info: ProjectInfo; expiresAt: number }> {
   if (!globalThis.__piProjectCache) globalThis.__piProjectCache = new Map();
   return globalThis.__piProjectCache;
 }
 
+function getProjectPromises(): Map<string, Promise<ProjectInfo>> {
+  if (!globalThis.__piProjectPromises) globalThis.__piProjectPromises = new Map();
+  return globalThis.__piProjectPromises;
+}
+
+function getWorktreeListPromises(): Map<string, Promise<WorktreeInfo[]>> {
+  if (!globalThis.__piWorktreeListPromises) globalThis.__piWorktreeListPromises = new Map();
+  return globalThis.__piWorktreeListPromises;
+}
+
+function getWorktreeListCache(): Map<string, { worktrees: WorktreeInfo[]; expiresAt: number }> {
+  if (!globalThis.__piWorktreeListCache) globalThis.__piWorktreeListCache = new Map();
+  return globalThis.__piWorktreeListCache;
+}
+
 export function invalidateProjectCache(): void {
   globalThis.__piProjectCache?.clear();
 }
 
+export function invalidateWorktreeCache(): void {
+  globalThis.__piWorktreeListCache?.clear();
+}
+
+function setBoundedCache<K, V>(cache: Map<K, V>, key: K, value: V, limit: number): void {
+  cache.delete(key);
+  cache.set(key, value);
+  while (cache.size > limit) {
+    const oldest = cache.keys().next().value as K | undefined;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+}
+
 async function git(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], {
-    timeout: 10_000,
-    maxBuffer: 1024 * 1024,
-    // Pin the message locale so error-text matching (e.g. the dirty-worktree
-    // detection in the DELETE route) works regardless of system language.
-    env: { ...process.env, LC_ALL: "C" },
-  });
-  return stdout.trim();
+  return (await runGit(cwd, args, { maxBuffer: 1024 * 1024 })).trim();
 }
 
 function realPathOrSelf(filePath: string): string {
@@ -79,19 +109,64 @@ function inferRemovedWorktree(cwd: string): ProjectInfo | null {
   if (!parent.endsWith("-worktrees")) return null;
   const repoRoot = parent.slice(0, -"-worktrees".length);
   if (!repoRoot || !existsSync(join(repoRoot, ".git"))) return null;
-  return { projectRoot: realPathOrSelf(repoRoot), branch: basename(cwd), isWorktree: true, isTopLevel: true };
+  const projectRoot = realPathOrSelf(repoRoot);
+  return {
+    projectRoot,
+    branch: basename(cwd),
+    isWorktree: true,
+    isTopLevel: true,
+    repositoryRoot: null,
+    gitCommonRoot: projectRoot,
+  };
+}
+
+function canonicalCwdKey(cwd: string): string {
+  return projectIdentityKey(realPathOrSelf(resolve(cwd)));
 }
 
 export async function resolveProject(cwd: string): Promise<ProjectInfo> {
+  const key = canonicalCwdKey(cwd);
   const cache = getProjectCache();
-  const cached = cache.get(cwd);
-  if (cached && cached.expiresAt > Date.now()) return cached.info;
+  const cached = cache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    setBoundedCache(cache, key, cached, MAX_PROJECT_CACHE_ENTRIES);
+    return cached.info;
+  }
 
+  const promises = getProjectPromises();
+  const existing = promises.get(key);
+  if (existing) return existing;
+
+  const loadPromise = resolveProjectUncached(cwd, key, cache);
+  const trackedPromise = loadPromise.finally(() => {
+    if (promises.get(key) === trackedPromise) promises.delete(key);
+  });
+  promises.set(key, trackedPromise);
+  return trackedPromise;
+}
+
+async function resolveProjectUncached(
+  cwd: string,
+  key: string,
+  cache: Map<string, { info: ProjectInfo; expiresAt: number }>,
+): Promise<ProjectInfo> {
   let info: ProjectInfo;
   try {
     if (!existsSync(cwd)) {
-      info = inferRemovedWorktree(cwd) ?? { projectRoot: cwd, branch: null, isWorktree: false, isTopLevel: false };
-      cache.set(cwd, { info, expiresAt: Date.now() + PROJECT_CACHE_TTL_MS });
+      info = inferRemovedWorktree(cwd) ?? {
+        projectRoot: cwd,
+        branch: null,
+        isWorktree: false,
+        isTopLevel: false,
+        repositoryRoot: null,
+        gitCommonRoot: null,
+      };
+      setBoundedCache(
+        cache,
+        key,
+        { info, expiresAt: Date.now() + PROJECT_CACHE_TTL_MS },
+        MAX_PROJECT_CACHE_ENTRIES,
+      );
       return info;
     }
     const out = await git(cwd, [
@@ -118,12 +193,26 @@ export async function resolveProject(cwd: string): Promise<ProjectInfo> {
       branch: ref && ref !== "HEAD" ? ref : null,
       isWorktree: isWorktreeTopLevel,
       isTopLevel,
+      repositoryRoot: realPathOrSelf(toplevel),
+      gitCommonRoot: realPathOrSelf(dirname(commonDir)),
     };
   } catch {
-    info = { projectRoot: cwd, branch: null, isWorktree: false, isTopLevel: false };
+    info = {
+      projectRoot: cwd,
+      branch: null,
+      isWorktree: false,
+      isTopLevel: false,
+      repositoryRoot: null,
+      gitCommonRoot: null,
+    };
   }
 
-  cache.set(cwd, { info, expiresAt: Date.now() + PROJECT_CACHE_TTL_MS });
+  setBoundedCache(
+    cache,
+    key,
+    { info, expiresAt: Date.now() + PROJECT_CACHE_TTL_MS },
+    MAX_PROJECT_CACHE_ENTRIES,
+  );
   return info;
 }
 
@@ -135,13 +224,48 @@ export async function resolveProject(cwd: string): Promise<ProjectInfo> {
 // common dir, so callers can pass session cwds directly.
 // ============================================================================
 
-/** Main repo root (parent of the shared .git dir), or throws for non-git dirs */
+/** Main repo root shared by linked worktrees, or throws for non-git dirs. */
 async function getRepoRoot(cwd: string): Promise<string> {
-  const commonDir = await git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  return realPathOrSelf(dirname(toNativePath(commonDir)));
+  const project = await resolveProject(cwd);
+  if (!project.gitCommonRoot) throw new Error("Not a Git repository");
+  return project.gitCommonRoot;
 }
 
-export async function listWorktrees(cwd: string): Promise<WorktreeInfo[]> {
+export async function listWorktrees(
+  cwd: string,
+  options: { force?: boolean } = {},
+): Promise<WorktreeInfo[]> {
+  const project = await resolveProject(cwd);
+  const key = projectIdentityKey(project.gitCommonRoot ?? canonicalCwdKey(cwd));
+  const cache = getWorktreeListCache();
+  const cached = cache.get(key);
+  if (!options.force && cached && cached.expiresAt > Date.now()) {
+    setBoundedCache(cache, key, cached, MAX_WORKTREE_CACHE_ENTRIES);
+    return cached.worktrees;
+  }
+
+  const promises = getWorktreeListPromises();
+  const existing = promises.get(key);
+  if (existing) return existing;
+
+  const gitCwd = existsSync(cwd) ? cwd : project.gitCommonRoot ?? project.projectRoot;
+  const loadPromise = loadWorktrees(gitCwd).then((worktrees) => {
+    setBoundedCache(
+      cache,
+      key,
+      { worktrees, expiresAt: Date.now() + WORKTREE_CACHE_TTL_MS },
+      MAX_WORKTREE_CACHE_ENTRIES,
+    );
+    return worktrees;
+  });
+  const trackedPromise = loadPromise.finally(() => {
+    if (promises.get(key) === trackedPromise) promises.delete(key);
+  });
+  promises.set(key, trackedPromise);
+  return trackedPromise;
+}
+
+async function loadWorktrees(cwd: string): Promise<WorktreeInfo[]> {
   const out = await git(cwd, ["worktree", "list", "--porcelain"]);
   const worktrees: WorktreeInfo[] = [];
   let current: (Partial<WorktreeInfo> & { prunable?: boolean }) | null = null;
@@ -226,11 +350,12 @@ export async function addWorktree(cwd: string, branch: string): Promise<{ path: 
 
   allowFileRoot(worktreePath);
   invalidateProjectCache();
+  invalidateWorktreeCache();
   return { path: worktreePath, branch: trimmed };
 }
 
 export async function removeWorktree(cwd: string, worktreePath: string, force = false): Promise<void> {
-  const worktrees = await listWorktrees(cwd);
+  const worktrees = await listWorktrees(cwd, { force: true });
   const target = findWorktreeByPath(worktrees, worktreePath);
   if (!target) throw new Error(`Not a worktree of this repository: ${worktreePath}`);
   if (target.isMain) throw new Error("Cannot remove the main worktree");
@@ -241,6 +366,7 @@ export async function removeWorktree(cwd: string, worktreePath: string, force = 
     throw new Error(extractGitError(error));
   }
   invalidateProjectCache();
+  invalidateWorktreeCache();
 }
 
 function extractGitError(error: unknown): string {

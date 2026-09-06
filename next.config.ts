@@ -11,6 +11,14 @@ try {
   piVersion = (JSON.parse(readFileSync(piPkgPath, "utf8")) as { version: string }).version;
 } catch { /* package not found, use default */ }
 
+const configureWebpack: NonNullable<NextConfig["webpack"]> = (config) => {
+  config.module.rules.push({
+    test: /\.mts$/,
+    use: [{ loader: join(configDir, "scripts/next-mts-loader.cjs") }],
+  });
+  return config;
+};
+
 const nextConfig: NextConfig = {
   outputFileTracingRoot: configDir,
   serverExternalPackages: [
@@ -23,12 +31,10 @@ const nextConfig: NextConfig = {
     "@earendil-works/pi-tui",
   ],
   // Next 16 blocks cross-origin access to dev resources by default. Allow the
-  // loopback and the RFC1918 LAN ranges so the dev server stays reachable
-  // from other machines on the same LAN.
+  // loopback and RFC1918 LAN ranges used to access the local dev server.
   allowedDevOrigins: [
     "127.0.0.1",
     "10.*.*.*",
-    // 172.16.0.0/12
     "172.16.*.*",
     "172.17.*.*",
     "172.18.*.*",
@@ -47,6 +53,7 @@ const nextConfig: NextConfig = {
     "172.31.*.*",
     "192.168.*.*",
   ],
+  ...(process.env.NODE_ENV === "production" ? { webpack: configureWebpack } : {}),
   async headers() {
     return [
       {

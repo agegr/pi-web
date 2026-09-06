@@ -520,9 +520,12 @@ export function AppShell() {
   // Guards the async workspace restore so a slow response from an earlier
   // switch cannot resurrect a session into a project the user already left.
   const workspaceRestoreTokenRef = useRef(0);
+  const workspaceRestoreControllerRef = useRef<AbortController | null>(null);
 
   const invalidateWorkspaceRestore = useCallback(() => {
     workspaceRestoreTokenRef.current += 1;
+    workspaceRestoreControllerRef.current?.abort();
+    workspaceRestoreControllerRef.current = null;
   }, []);
 
   // Persist every active-session transition, including new and forked sessions
@@ -576,22 +579,32 @@ export function AppShell() {
 
   // Restore the workspace's last open session after switching to it. Called
   // from handleCwdChange once the outgoing context has been reset. The session
-  // is looked up against the live list so a deleted or drifted session falls
+  // is looked up through a lightweight indexed meta query so a deleted or drifted session falls
   // back to the default welcome page instead of erroring.
   const restoreWorkspaceContext = useCallback((projectKey: string, cwd: string) => {
     const token = ++workspaceRestoreTokenRef.current;
     const lastOpenSessionId = getLastOpenSession(projectKey);
     if (!lastOpenSessionId) return;
-    void fetch("/api/sessions")
-      .then((r) => (r.ok ? (r.json() as Promise<{ sessions: SessionInfo[] }>) : null))
-      .then((d) => {
+
+    workspaceRestoreControllerRef.current?.abort();
+    const controller = new AbortController();
+    workspaceRestoreControllerRef.current = controller;
+    void fetch(`/api/sessions/${encodeURIComponent(lastOpenSessionId)}/meta`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (response.status === 404) return { missing: true as const, session: null };
+        if (!response.ok) return null;
+        const body = await response.json() as { session?: SessionInfo };
+        return { missing: false as const, session: body.session ?? null };
+      })
+      .then((result) => {
         if (token !== workspaceRestoreTokenRef.current) return; // stale switch
-        const s = d?.sessions.find((x) => x.id === lastOpenSessionId);
+        const s = result?.session;
         if (!s) {
-          // The list loaded but the remembered session is gone — forget it.
-          // When the list itself failed (d === null) keep the memory so a
-          // later switch retries the restore.
-          if (d) clearLastOpen(projectKey);
+          // A confirmed miss clears the memory. Transport/server failures keep
+          // it so a later workspace switch can retry.
+          if (result?.missing) clearLastOpen(projectKey);
           return;
         }
         if (workspaceKeyOf(s) !== projectKey) {
@@ -599,25 +612,24 @@ export function AppShell() {
           clearLastOpen(projectKey);
           return;
         }
-        // Keep the temporary composer's draft in its cwd, even when the
-        // remembered session belongs to another worktree of this project.
+        // Park the fresh draft in its own cwd; the persistent chat shell loads by id.
         const activeDraftKey = activeNewSessionDraftKeyRef.current;
         if (activeDraftKey) {
           rekeyDraft(activeDraftKey, parkedNewSessionDraftKey(cwd));
         }
         activeNewSessionDraftKeyRef.current = null;
-        // Selecting the session must remount the chat with the session
-        // present: useAgentSession loads content in a mount-only effect, so
-        // the null-session welcome mount from the switch would never load
-        // the restored session's messages.
         setSelectedSession(s);
-        setSessionKey((k) => k + 1);
         if (new URLSearchParams(window.location.search).get("session") !== s.id) {
           router.replace(`?session=${encodeURIComponent(s.id)}`, { scroll: false });
         }
       })
       .catch(() => {
         // Network hiccup: keep the remembered session for a later retry.
+      })
+      .finally(() => {
+        if (workspaceRestoreControllerRef.current === controller) {
+          workspaceRestoreControllerRef.current = null;
+        }
       });
   }, [router]);
 
@@ -728,9 +740,9 @@ export function AppShell() {
     }
     setNewSessionCwd(null);
     setSelectedSession(session);
-    setSessionKey((k) => k + 1);
     setBranchTree([]);
     setBranchActiveLeafId(null);
+    setSessionStats(null);
     branchLeafChangeFnRef.current = null;
     setSystemPrompt(null);
     setSystemTools(null);
@@ -932,8 +944,11 @@ export function AppShell() {
     invalidateWorkspaceRestore();
     activeNewSessionDraftKeyRef.current = null;
     setRefreshKey((k) => k + 1);
-    setSessionKey((k) => k + 1);
     setNewSessionCwd(null);
+    setBranchTree([]);
+    setBranchActiveLeafId(null);
+    setSessionStats(null);
+    setSystemPrompt(null);
     setSelectedSession((prev) => ({
       ...(prev ?? { path: "", cwd: "", created: "", modified: "", messageCount: 0, firstMessage: "" }),
       id: newSessionId,
@@ -1076,8 +1091,14 @@ export function AppShell() {
       signal: controller.signal,
     })
       .then(async (response) => {
-        const data = await response.json() as ProjectTrustStatus & { error?: string };
-        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+        const data = await response.json() as ProjectTrustStatus & { error?: string; code?: string };
+        if (!response.ok || data.error) {
+          if (data.code === "cwd_not_found") {
+            setProjectTrustError(data.error ?? "Directory does not exist");
+            return;
+          }
+          throw new Error(data.error ?? `HTTP ${response.status}`);
+        }
         setProjectTrust(data);
       })
       .catch((error) => {
