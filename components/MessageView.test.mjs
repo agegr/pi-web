@@ -207,6 +207,18 @@ test("renders partial assistant content before the provider error", () => {
   assert.match(html, /Error: Connection closed/);
 });
 
+test("marks persisted assistant messages with their source entry", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "openai",
+    model: "gpt-test",
+    content: [{ type: "text", text: "Select this response" }],
+  }, { entryId: "assistant-entry" });
+
+  assert.match(html, /data-message-role="assistant"/);
+  assert.match(html, /data-entry-id="assistant-entry"/);
+});
+
 test("renders a complete SDK skill expansion as a compact command", () => {
   const html = renderMessage({
     role: "user",

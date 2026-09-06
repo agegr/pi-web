@@ -432,6 +432,20 @@ test("keeps live following cancellable when the user scrolls away from the tail"
   assert.doesNotMatch(source, /SCROLL_BOTTOM_THRESHOLD|completionScrollAllowedRef|ignoreProgrammaticScrollUntilRef/);
 });
 
+test("restores an in-page session viewport without the default tail jump", () => {
+  assert.match(source, /const initialScrollDoneRef = useRef\(Boolean\(opts\.deferInitialScroll\)\)/);
+  assert.match(source, /const scrollToMessage = useCallback\(\(element: HTMLElement, viewportOffset = 16\)/);
+  assert.match(source, /container\.scrollTop\s+- viewportOffset/);
+  assert.match(chatWindowSource, /deferInitialScroll: Boolean\(pendingScrollRestore\)/);
+  assert.match(chatWindowSource, /isScrollAtTail\(container\.scrollTop, container\.clientHeight, container\.scrollHeight\)/);
+  assert.match(chatWindowSource, /findChatScrollAnchor\(/);
+  assert.match(chatWindowSource, /while \(hasMore && before && !controller\.signal\.aborted\)/);
+  assert.match(chatWindowSource, /context\.oldestEntryId === position\.oldestEntryId/);
+  assert.match(chatWindowSource, /if \(!context\) \{\s*scrollToBottom\("instant"\);\s*setPendingScrollRestore\(null\);/);
+  assert.match(chatWindowSource, /scrollToMessage\(element, position\.anchorOffset\)/);
+  assert.match(chatWindowSource, /visibility: pendingScrollRestore \? "hidden" : undefined/);
+});
+
 test("keeps a newly sent user message at the top while its response starts", () => {
   const streamUpdateSource = source.slice(
     source.indexOf('case "message_start"'),
@@ -493,7 +507,7 @@ test("keeps prompt anchor measurement outside the React update cycle", () => {
   assert.match(anchorLifecycleEffectSource, /promptAnchorMeasureFrameRef\.current = requestAnimationFrame\(\(\) => \{\s*promptAnchorMeasureFrameRef\.current = null;\s*updatePromptAnchorSpacer\(\)/);
   assert.match(anchorLifecycleEffectSource, /disposed = true;[\s\S]*?promptAnchorUpdateRef\.current === updatePromptAnchorSpacer[\s\S]*?cancelAnimationFrame\(promptAnchorMeasureFrameRef\.current\)/);
   assert.match(anchorSyncEffectSource, /promptAnchorUpdateRef\.current\?\.\(\);\s*\}, \[streamState\.streamingMessage\]\)/);
-  assert.match(chatWindowSource, /<div ref=\{messageContentRef\} style=\{\{/);
+  assert.match(chatWindowSource, /<div ref=\{messageContentRef\}[^>]*style=\{\{/);
 });
 
 test("uses the prompt anchor as the only trailing message spacer", () => {

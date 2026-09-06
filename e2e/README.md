@@ -29,6 +29,8 @@ Coverage:
   the chat. A small session checks pagination through the root.
 - Branch context follows the selected leaf and excludes the other branch.
 - Markdown, code blocks, and real tool-call/tool-result blocks render.
+- Chat width and font size persist, existing drafts resize, and short settings
+  panels keep every language option reachable on desktop and mobile.
 - Unknown sessions and paths outside the fixture project are rejected.
 - A local extension checks dialog keyboard navigation, Esc cancellation,
   collapse/expand draft preservation, countdown display, and server-side expiry.

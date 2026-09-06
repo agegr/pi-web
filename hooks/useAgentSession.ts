@@ -156,6 +156,7 @@ export interface UseAgentSessionOptions {
   onSystemInfoLoaderChange?: (loader: (() => Promise<void>) | null) => void;
   onSessionStatsPanelOpen?: () => void;
   setToolPreset?: (preset: ToolPreset) => void;
+  deferInitialScroll?: boolean;
 }
 
 export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -336,7 +337,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const bashRunningRef = useRef(false);
   const bashRecoveryIdRef = useRef(0);
   const handleAgentEventRef = useRef<((event: AgentEvent) => void) | null>(null);
-  const initialScrollDoneRef = useRef(false);
+  const initialScrollDoneRef = useRef(Boolean(opts.deferInitialScroll));
   const lastUserMsgRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollToUserRef = useRef(false);
   const isNearBottomRef = useRef(true);
@@ -1826,7 +1827,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [cancelEventStreamGrace, closeEvents, loadTools, setToolPresetState]);
 
-  const scrollToMessage = useCallback((element: HTMLElement) => {
+  const scrollToMessage = useCallback((element: HTMLElement, viewportOffset = 16) => {
     const container = scrollContainerRef.current;
     if (!container) return;
     if (liveFollowFrameRef.current !== null) {
@@ -1838,7 +1839,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     isNearBottomRef.current = false;
     setPromptAnchorActive(false);
     container.scrollTo({
-      top: element.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - 16,
+      top: element.getBoundingClientRect().top
+        - container.getBoundingClientRect().top
+        + container.scrollTop
+        - viewportOffset,
       behavior: "instant",
     });
     previousScrollTopRef.current = container.scrollTop;

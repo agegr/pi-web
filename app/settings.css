@@ -902,6 +902,7 @@
 
 .settings-general {
   width: 100%;
+  max-height: 100%;
   max-width: 680px;
   padding: 26px clamp(18px, 4vw, 40px) 40px;
   overflow-y: auto;
@@ -943,8 +944,6 @@
   width: 100%;
   max-width: 420px;
   padding: 3px;
-  border-radius: 7px;
-  background: var(--bg-panel);
 }
 
 .settings-theme-option {
@@ -981,6 +980,58 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.settings-chat-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.settings-chat-option {
+  width: 100%;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.settings-chat-switch-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 28px;
+}
+
+.settings-chat-range-option {
+  padding: 0;
+}
+
+.settings-chat-range-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 28px;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-chat-range-header output {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.settings-chat-reset {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
+.settings-chat-range-option input {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  accent-color: var(--accent);
 }
 
 .settings-language-options {
@@ -1045,43 +1096,6 @@
   color: var(--text-dim);
   font-family: var(--font-mono);
   font-size: 10px;
-}
-
-.settings-thinking-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  max-width: 420px;
-  color: var(--text);
-  font-size: 12px;
-}
-
-.settings-thinking-option .settings-general-heading {
-  margin: 0;
-}
-
-.settings-thinking-toggle {
-  display: grid;
-  place-items: center;
-  flex: 0 0 44px;
-  height: 44px;
-  margin: -6px;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.settings-thinking-toggle:hover {
-  background: var(--bg-hover);
-}
-
-.settings-thinking-toggle:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
 }
 
 .settings-shell-option {

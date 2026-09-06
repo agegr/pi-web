@@ -21,14 +21,13 @@ test("opens one settings panel from direct sidebar shortcuts", () => {
   assert.doesNotMatch(shellSource, /setModelsConfigOpen|setSkillsConfigOpen|setAgentsConfigOpen|setPluginsConfigOpen/);
 });
 
-test("keeps enabled configuration surfaces inside the settings panel", () => {
-  for (const section of ["general", "models", "skills", "plugins"]) {
+test("keeps every requested configuration surface inside the settings panel", () => {
+  for (const section of ["general", "models", "skills", "agents", "plugins"]) {
     assert.match(panelSource, new RegExp(`id: "${section}"`));
   }
-  for (const component of ["ModelsConfig", "SkillsConfig", "PluginsConfig"]) {
+  for (const component of ["ModelsConfig", "SkillsConfig", "AgentsConfig", "PluginsConfig"]) {
     assert.match(panelSource, new RegExp(`<${component} embedded`));
   }
-  assert.doesNotMatch(panelSource, /id: "agents"|<AgentsConfig embedded/);
 });
 
 test("restores the settings section and each list detail selection", async () => {
@@ -57,6 +56,29 @@ test("offers direct light, dark, and system theme selection", () => {
   }
   assert.match(panelSource, /setThemePreference\(option\.id\)/);
   assert.match(themeSource, /const setThemePreference = useCallback/);
+});
+
+test("groups chat display controls together without row backgrounds", () => {
+  const appearanceSection = panelSource.slice(
+    panelSource.indexOf('{t("settings.appearance")}'),
+    panelSource.indexOf('{t("settings.chat")}'),
+  );
+  const chatSection = panelSource.slice(
+    panelSource.indexOf('{t("settings.chat")}'),
+    panelSource.indexOf("{shellSettings?.isWindows"),
+  );
+
+  assert.doesNotMatch(appearanceSection, /settings-chat-content/);
+  assert.match(chatSection, /className="settings-chat-options"/);
+  assert.equal((chatSection.match(/className="settings-chat-option(?: |")/g) ?? []).length, 4);
+  assert.equal((chatSection.match(/<ConfigSwitch/g) ?? []).length, 2);
+  for (const key of ["thinkingExpandedDefault", "chatContentWidth", "chatContentFontSize", "quoteSelection"]) {
+    assert.match(chatSection, new RegExp(`t\\("settings\\.${key}"\\)`));
+  }
+  assert.doesNotMatch(panelSource, /ThinkingIcon|settings-thinking-/);
+  const chatOptionStyles = cssSource.match(/\.settings-chat-option \{[\s\S]*?\}/)?.[0] ?? "";
+  assert.match(chatOptionStyles, /font-size: 12px/);
+  assert.doesNotMatch(chatOptionStyles, /background/);
 });
 
 test("keeps General free of divider rows", () => {
