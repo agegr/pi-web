@@ -27,11 +27,8 @@ export interface ViewportBoxGeometry {
   height: number;
 }
 
+/** Fixed minimap strip width in px — does not follow the pane width. */
 export const MINIMAP_DEFAULT_WIDTH = 96;
-export const MINIMAP_MIN_WIDTH = 64;
-export const MINIMAP_MAX_WIDTH = 110;
-/** Minimap width as a fraction of the scroll container width. */
-export const MINIMAP_WIDTH_RATIO = 0.12;
 export const MINIMAP_LINE_HEIGHT = 2;
 /** Canvas height cap as a multiple of the container height. */
 export const MINIMAP_MAX_CANVAS_FACTOR = 8;
@@ -48,10 +45,9 @@ function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
-/** Minimap width adapts to the container, clamped to a usable range. */
-export function computeMinimapWidth(containerWidth: number): number {
-  const target = Math.round(containerWidth * MINIMAP_WIDTH_RATIO);
-  return Math.max(MINIMAP_MIN_WIDTH, Math.min(MINIMAP_MAX_WIDTH, target || MINIMAP_DEFAULT_WIDTH));
+/** Minimap width is fixed at MINIMAP_DEFAULT_WIDTH, independent of the container. */
+export function computeMinimapWidth(): number {
+  return MINIMAP_DEFAULT_WIDTH;
 }
 
 /**
@@ -93,21 +89,35 @@ export function scrollTopForFraction(fraction: number, scrollHeight: number, cli
 }
 
 /**
+ * The box's effective track: the minimap region actually occupied by the
+ * canvas. For short documents the canvas is shorter than the strip, so the
+ * box is confined to the thumbnail (VSCode-style); for tall documents the
+ * canvas fills/exceeds the strip and the track is the strip itself.
+ */
+function effectiveTrackHeight(containerHeight: number, canvasHeight: number): number {
+  return Math.max(1, Math.min(containerHeight, canvasHeight));
+}
+
+/**
  * Viewport box position inside the minimap track. The box height is the
- * visible fraction of the document (min VIEWPORT_MIN_HEIGHT), and its top
- * tracks the scroll fraction so both ends glue to the track ends.
+ * visible fraction of the document measured against the canvas (min
+ * VIEWPORT_MIN_HEIGHT, clamped to the track), so the box exactly overlays the
+ * visible lines' thumbnail. Its top tracks the scroll fraction so both ends
+ * glue to the track ends — with the canvas-based height this equals the
+ * parallax-corrected canvas position of the first visible line.
  */
 export function viewportBoxGeometry(
   scrollTop: number,
   scrollHeight: number,
   clientHeight: number,
   containerHeight: number,
+  canvasHeight: number,
 ): ViewportBoxGeometry {
-  const track = Math.max(1, containerHeight);
+  const track = effectiveTrackHeight(containerHeight, canvasHeight);
   if (scrollHeight <= 0) return { top: 0, height: track };
-  const height = Math.max(
-    MINIMAP_VIEWPORT_MIN_HEIGHT,
-    Math.min(track, (clientHeight / scrollHeight) * track),
+  const height = Math.min(
+    track,
+    Math.max(MINIMAP_VIEWPORT_MIN_HEIGHT, (clientHeight / scrollHeight) * canvasHeight),
   );
   const fraction = fractionForScrollTop(scrollTop, scrollHeight, clientHeight);
   return { top: fraction * (track - height), height };
@@ -121,8 +131,9 @@ export function fractionForBoxTop(
   boxTop: number,
   containerHeight: number,
   boxHeight: number,
+  canvasHeight: number,
 ): number {
-  const usable = Math.max(1, containerHeight) - boxHeight;
+  const usable = effectiveTrackHeight(containerHeight, canvasHeight) - boxHeight;
   if (usable <= 0) return 0;
   return clamp01(boxTop / usable);
 }
@@ -135,8 +146,51 @@ export function fractionForPointer(
   pointerY: number,
   containerHeight: number,
   boxHeight: number,
+  canvasHeight: number,
 ): number {
-  return fractionForBoxTop(pointerY - boxHeight / 2, containerHeight, boxHeight);
+  return fractionForBoxTop(pointerY - boxHeight / 2, containerHeight, boxHeight, canvasHeight);
+}
+
+/** Pointer travel from the press point that turns a track press into a drag. */
+export const MINIMAP_DRAG_THRESHOLD_PX = 4;
+
+export interface MinimapDragState {
+  /** Pointer's offset inside the viewport box, kept constant while dragging. */
+  grabOffset: number;
+  /** Pointer Y at pointerdown; track presses engage only past the threshold. */
+  startPointerY: number;
+  /**
+   * True from the start for presses on the viewport box. False for track
+   * presses: a smooth scroll to the click point is in flight, and jitter-level
+   * pointer moves must not cancel it with an instant jump.
+   */
+  engaged: boolean;
+}
+
+/**
+ * Start a minimap drag. Pressing the box engages immediately and keeps the
+ * pointer's offset inside it; pressing the track starts disengaged with the
+ * grab offset centered, ready to take over once the pointer really moves.
+ */
+export function beginMinimapDrag(
+  onBox: boolean,
+  pointerY: number,
+  box: ViewportBoxGeometry,
+): MinimapDragState {
+  return {
+    grabOffset: onBox ? pointerY - box.top : box.height / 2,
+    startPointerY: pointerY,
+    engaged: onBox,
+  };
+}
+
+/**
+ * Whether the drag should drive the scroll position. Below the threshold the
+ * caller must not touch scrollTop, so a track click's smooth-scroll animation
+ * keeps running; crossing it cancels the animation in favor of the drag.
+ */
+export function shouldEngageMinimapDrag(drag: MinimapDragState, pointerY: number): boolean {
+  return drag.engaged || Math.abs(pointerY - drag.startPointerY) >= MINIMAP_DRAG_THRESHOLD_PX;
 }
 
 /**

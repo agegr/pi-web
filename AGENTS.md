@@ -79,7 +79,7 @@ lib/
   agent-client.ts      typed fetch helper for /api/agent commands
   draft-store.ts       local draft persistence helpers
   file-access.ts       allowed file roots for /api/files and worktrees
-  file-minimap.ts      pure minimap geometry, scroll-fraction mapping, and colors
+  file-minimap.ts      pure minimap geometry, scroll-fraction mapping, drag state, and colors
   file-paths.ts        client/server path encoding helpers
   markdown.ts          shared markdown helpers
   npx.ts               npx runner used by skill install

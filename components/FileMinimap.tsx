@@ -11,6 +11,7 @@ import {
 import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   baseLineColor,
+  beginMinimapDrag,
   canvasOffsetForFraction,
   computeMinimapGeometry,
   computeMinimapWidth,
@@ -24,8 +25,10 @@ import {
   MINIMAP_MAX_SAMPLED_LINES,
   MINIMAP_VIEWPORT_MIN_HEIGHT,
   scrollTopForFraction,
+  shouldEngageMinimapDrag,
   viewportBoxGeometry,
   type DiffLineKind,
+  type MinimapDragState,
   type MinimapLineSegment,
 } from "@/lib/file-minimap";
 
@@ -104,7 +107,7 @@ export function FileMinimap({ scrollContainer, lines, lineKinds, wrapLines, samp
   const visibleRef = useRef(false);
   const segmentsRef = useRef<Map<number, MinimapLineSegment[]> | null>(null);
   const canvasHeightRef = useRef(0);
-  const dragRef = useRef<{ grabOffset: number } | null>(null);
+  const dragRef = useRef<MinimapDragState | null>(null);
   const rafRef = useRef(0);
   const sampleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -127,6 +130,10 @@ export function FileMinimap({ scrollContainer, lines, lineKinds, wrapLines, samp
     // beside a horizontal scrollbar that scrollEl.clientHeight excludes.
     // Pointer handlers measure this same element, so both stay in agreement.
     const containerHeight = containerRef.current?.clientHeight || scrollEl.clientHeight;
+    // Computed fresh instead of reading canvasHeightRef: the ref is still 0 on
+    // the first sync before draw() runs, which would briefly confine the box
+    // to a 1px track.
+    const canvasHeight = computeMinimapGeometry(linesRef.current.length, containerHeight).canvasHeight;
     const fraction = fractionForScrollTop(scrollEl.scrollTop, scrollEl.scrollHeight, scrollEl.clientHeight);
 
     const box = boxRef.current;
@@ -136,6 +143,7 @@ export function FileMinimap({ scrollContainer, lines, lineKinds, wrapLines, samp
         scrollEl.scrollHeight,
         scrollEl.clientHeight,
         containerHeight,
+        canvasHeight,
       );
       box.style.height = `${boxGeometry.height}px`;
       box.style.transform = `translateY(${boxGeometry.top}px)`;
@@ -162,7 +170,7 @@ export function FileMinimap({ scrollContainer, lines, lineKinds, wrapLines, samp
     if (!scrollEl || !canvas || !container || !visibleRef.current) return;
 
     const containerHeight = container.clientHeight || scrollEl.clientHeight;
-    const width = computeMinimapWidth(scrollEl.clientWidth);
+    const width = computeMinimapWidth();
     container.style.width = `${width}px`;
 
     const linesValue = linesRef.current;
@@ -356,19 +364,19 @@ export function FileMinimap({ scrollContainer, lines, lineKinds, wrapLines, samp
 
     const rect = container.getBoundingClientRect();
     const containerHeight = rect.height;
+    const canvasHeight = computeMinimapGeometry(linesRef.current.length, containerHeight).canvasHeight;
     const pointerY = event.clientY - rect.top;
     const boxGeometry = viewportBoxGeometry(
       scrollEl.scrollTop,
       scrollEl.scrollHeight,
       scrollEl.clientHeight,
       containerHeight,
+      canvasHeight,
     );
     const onBox = pointerY >= boxGeometry.top && pointerY <= boxGeometry.top + boxGeometry.height;
-    // Grabbing the box keeps the pointer's offset inside it; grabbing the
-    // track first centers the box on the pointer, then drags from there.
-    dragRef.current = { grabOffset: onBox ? pointerY - boxGeometry.top : boxGeometry.height / 2 };
+    dragRef.current = beginMinimapDrag(onBox, pointerY, boxGeometry);
     if (!onBox) {
-      scrollToFraction(fractionForPointer(pointerY, containerHeight, boxGeometry.height), "smooth");
+      scrollToFraction(fractionForPointer(pointerY, containerHeight, boxGeometry.height, canvasHeight), "smooth");
     }
   }, [scrollContainer, scrollToFraction]);
 
@@ -380,8 +388,13 @@ export function FileMinimap({ scrollContainer, lines, lineKinds, wrapLines, samp
     event.preventDefault();
     const rect = container.getBoundingClientRect();
     const pointerY = event.clientY - rect.top;
+    // Below the threshold this is a track click, not a drag: an instant
+    // scroll here would cancel the smooth scroll started on pointerdown.
+    if (!shouldEngageMinimapDrag(drag, pointerY)) return;
+    drag.engaged = true;
     const boxHeight = boxRef.current?.offsetHeight || MINIMAP_VIEWPORT_MIN_HEIGHT;
-    scrollToFraction(fractionForBoxTop(pointerY - drag.grabOffset, rect.height, boxHeight), "auto");
+    const canvasHeight = computeMinimapGeometry(linesRef.current.length, rect.height).canvasHeight;
+    scrollToFraction(fractionForBoxTop(pointerY - drag.grabOffset, rect.height, boxHeight, canvasHeight), "auto");
   }, [scrollContainer, scrollToFraction]);
 
   const endDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
