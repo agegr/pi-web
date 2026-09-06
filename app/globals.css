@@ -533,6 +533,43 @@ pre, code {
   font-size: 0.92em;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent);
 }
+.markdown-body a.markdown-local-file-link,
+.markdown-body a.markdown-local-file-link:hover {
+  color: var(--text);
+  text-decoration: none;
+  cursor: pointer;
+  background: var(--bg-subtle);
+  border-radius: 5px;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent);
+}
+.markdown-body a.markdown-local-file-link .markdown-inline-code {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  font-size: inherit;
+}
+.markdown-body a.markdown-local-file-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.directory-viewer-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.directory-viewer-entry:hover { background: var(--bg-hover); }
 .markdown-body .contains-task-list {
   padding-left: 0;
   list-style: none;

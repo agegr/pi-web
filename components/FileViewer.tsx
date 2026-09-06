@@ -24,6 +24,7 @@ import { parseFrontmatter } from "@/lib/frontmatter";
 import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
 import { FrontmatterCard } from "./FrontmatterCard";
+import { DirectoryViewer } from "./DirectoryViewer";
 import { parseUnifiedPatch } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
@@ -1076,7 +1077,34 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }:
   );
 }
 
-export function FileViewer({
+export function FileViewer(props: Props) {
+  return <PathViewer key={`${props.sourceSessionId ?? ""}:${props.filePath}`} {...props} />;
+}
+
+function PathViewer(props: Props) {
+  const { t } = useI18n();
+  const [kind, setKind] = useState<"file" | "directory" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch(getFileApiUrl(props.filePath, "meta", props.sourceSessionId), { signal: controller.signal })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? response.statusText);
+        if (!controller.signal.aborted) setKind(data.isDirectory ? "directory" : "file");
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) setError(String(error));
+      });
+    return () => controller.abort();
+  }, [props.filePath, props.sourceSessionId]);
+  if (error) return <div role="alert" style={{ padding: 16 }}>{error}</div>;
+  if (!kind) return <div style={{ padding: 16 }}>{t("files.loading")}</div>;
+  if (kind === "directory") return <DirectoryViewer filePath={props.filePath} onOpenFile={props.onOpenFile} />;
+  return <FileContentViewer {...props} />;
+}
+
+function FileContentViewer({
   filePath,
   cwd,
   sourceSessionId,

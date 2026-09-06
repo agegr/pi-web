@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -9,7 +10,9 @@ const jiti = createJiti(import.meta.url, {
   tsconfigPaths: true,
 });
 const { MarkdownBody } = await jiti.import("./MarkdownBody.tsx");
-const { normalizeDisplayMath } = await jiti.import("../lib/markdown.ts");
+const { normalizeDisplayMath, markdownRemarkPlugins, markdownRehypePlugins } = await jiti.import("../lib/markdown.ts");
+const { remarkFileLinks } = await jiti.import("../lib/remark-file-links.ts");
+const { default: ReactMarkdown } = await import("react-markdown");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 
 function renderMarkdown(markdown, props = {}) {
@@ -26,6 +29,49 @@ function renderMarkdown(markdown, props = {}) {
   );
 }
 
+test("full-path metadata survives sanitization while the original label remains intact", () => {
+  let label;
+  const html = renderToStaticMarkup(React.createElement(ReactMarkdown, {
+    remarkPlugins: [...markdownRemarkPlugins, [remarkFileLinks, { cwd: "D:/project" }]],
+    rehypePlugins: markdownRehypePlugins,
+    components: { a({ node, children }) {
+      label = node.properties.dataFilePathLabel;
+      return React.createElement("span", null, children);
+    } },
+  }, "`src/main.ts`"));
+  assert.equal(label, "D:/project/src/main.ts");
+  assert.match(html, /<code>src\/main.ts<\/code>/);
+});
+
+test("local path links retain neutral code styling without an underline", async () => {
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /a\.markdown-local-file-link:hover \{[^}]*color: var\(--text\);[^}]*text-decoration: none;[^}]*background: var\(--bg-subtle\);/);
+  const link = await readFile(new URL("./LocalFileLink.tsx", import.meta.url), "utf8");
+  assert.match(link, /title=\{fullPathLabel \?\? filePath\}/);
+  assert.match(link, /onClick=\{handleClick\}>\s*\{children\}/);
+  assert.doesNotMatch(link, /\{fullPathLabel \?\? children\}/);
+});
+
+test("keeps original inline-code path labels until filesystem validation succeeds", () => {
+  const html = renderMarkdown("`components/MarkdownBody.tsx:12` 和 `D:\\My Project\\报告.md`", { cwd: "D:/repo" });
+  assert.match(html, /<code[^>]*>components\/MarkdownBody.tsx:12<\/code>/);
+  assert.ok(html.includes("D:\\My Project\\报告.md"));
+  assert.doesNotMatch(html, /<a |D:\/repo/);
+});
+
+test("preserves plain paths and punctuation while validation is pending", () => {
+  const html = renderMarkdown("文件： /home/me/project/report.md，另见 components/MarkdownBody.tsx。");
+  assert.ok(html.includes("文件： /home/me/project/report.md，另见 components/MarkdownBody.tsx。"));
+  assert.doesNotMatch(html, /<a /);
+});
+
+test("does not autolink code blocks, ordinary inline code, or paths without a handler", () => {
+  assert.doesNotMatch(renderMarkdown("```text\n/home/me/project/report.md\n```\n\n`hello`"), /<a /);
+  assert.doesNotMatch(renderMarkdown("`src/index.ts` /home/me/project/report.md", { onOpenFile: undefined }), /<a /);
+  const html = renderMarkdown("[report](/home/me/project/report.md)");
+  assert.doesNotMatch(html, /<a /);
+});
+
 test("opens non-file markdown links in a safe new tab", () => {
   const html = renderMarkdown("[docs](https://example.com/docs)");
 
@@ -36,14 +82,13 @@ test("opens non-file markdown links in a safe new tab", () => {
   assert.doesNotMatch(html, /\snode=/);
 });
 
-test("keeps local file markdown links in the app", () => {
+test("also requires validation for explicit local markdown links", () => {
   const relativeHtml = renderMarkdown("[file](components/MarkdownBody.tsx)");
   const fileUrlHtml = renderMarkdown("[report](file:///home/me/project/report.html)");
 
-  assert.match(relativeHtml, /<a href="components\/MarkdownBody\.tsx">file<\/a>/);
-  assert.doesNotMatch(relativeHtml, /target=|rel=|\snode=/);
-  assert.match(fileUrlHtml, /<a href="file:\/\/\/home\/me\/project\/report\.html">report<\/a>/);
-  assert.doesNotMatch(fileUrlHtml, /target=|rel=|\snode=/);
+  assert.match(relativeHtml, />file<\/p>/);
+  assert.match(fileUrlHtml, />report<\/p>/);
+  assert.doesNotMatch(relativeHtml + fileUrlHtml, /<a |target=|rel=|\snode=/);
 });
 
 test("keeps file URLs inert without an in-app file handler", () => {
