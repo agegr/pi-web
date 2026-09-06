@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createPortal } from "react-dom";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines } from "@/lib/ansi";
+import { splitDialogTitle, splitDialogTitleCode } from "@/lib/dialog-title";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
@@ -1455,6 +1456,47 @@ function getExtensionDialogSummary(request: ExtensionDialogRequest): string | un
   return undefined;
 }
 
+/**
+ * Render the scrollable portion of a dialog title: ```sh / ```bash code fences are
+ * rendered as highlighted code blocks (red border + red tint to flag risky commands),
+ * and all other text keeps pre-wrap multi-line rendering.
+ */
+function renderDialogTitle(title: string): ReactNode {
+  const segments = splitDialogTitleCode(title);
+  if (segments.length === 1 && !segments[0].isCode) return title;
+  return segments.map((seg, i) => {
+    if (seg.isCode) {
+      return (
+        <pre
+          key={i}
+          style={{
+            margin: "6px 0",
+            padding: "8px 10px",
+            borderRadius: 6,
+            background: "rgba(239,68,68,0.10)",
+            border: "1px solid rgba(239,68,68,0.35)",
+            borderLeft: "3px solid #ef4444",
+            fontFamily: "var(--font-mono)",
+            fontSize: 12.5,
+            lineHeight: 1.5,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-all",
+            overflowX: "auto",
+            color: "var(--text)",
+          }}
+        >
+          {seg.text}
+        </pre>
+      );
+    }
+    return (
+      <span key={i} style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+        {seg.text}
+      </span>
+    );
+  });
+}
+
 function ExtensionDialog({
   request,
   onRespond,
@@ -1467,6 +1509,7 @@ function ExtensionDialog({
   const [collapsed, setCollapsed] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const summary = getExtensionDialogSummary(request);
+  const { head: titleHead, rest: titleRest } = splitDialogTitle(request.title);
   const remainingSeconds = request.expiresAt === undefined
     ? null
     : Math.max(0, Math.ceil((request.expiresAt - now) / 1000));
@@ -1568,7 +1611,7 @@ function ExtensionDialog({
       >
         <div style={{ flexShrink: 0, display: "flex", alignItems: "flex-start", gap: 8, padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650 }}>{request.title}</div>
+            <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650, lineHeight: 1.4, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{titleHead}</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>
               <span>{t("chat.extensionRequest")}</span>
               {countdown}
@@ -1605,6 +1648,11 @@ function ExtensionDialog({
             flex: "1 1 auto", minHeight: 0, overflowY: "auto",
           }}
         >
+          {titleRest && (
+            <div style={{ marginBottom: 12, color: "var(--text-muted)", fontSize: 13, lineHeight: 1.55 }}>
+              {renderDialogTitle(titleRest)}
+            </div>
+          )}
           {request.method === "confirm" && (
             <div style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{request.message}</div>
           )}
