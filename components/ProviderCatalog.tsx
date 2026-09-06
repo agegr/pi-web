@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 
 interface CatalogModel {
@@ -86,7 +86,9 @@ export function ProviderCatalog({ providerId, displayName, cwd }: {
     return () => controller.abort();
   }, [load]);
 
-  const models = data?.models ?? [];
+  // data is state (stable reference between renders unless reloaded); memoize
+  // so `models` keeps a stable identity for the useCallback deps below.
+  const models = useMemo(() => data?.models ?? [], [data]);
   const patterns = data?.enabledModels ?? null;
   const allowlistActive = Array.isArray(patterns) && patterns.length > 0;
 

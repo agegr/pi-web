@@ -1,8 +1,6 @@
 import { getAgentDir, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { resolve } from "path";
 
-const PROVIDER_PART = "[A-Za-z0-9_.-]+";
-
 /** Does the pattern list contain any entry attributable to `providerId`? */
 function hasProviderEntry(patterns: string[], providerId: string): boolean {
   const prefix = `${providerId}/`;
