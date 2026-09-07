@@ -541,21 +541,45 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (sessionIdRef.current !== sid || options?.signal?.aborted || !sessionHookMountedRef.current) return;
       setHistoryCursor(d.context.oldestEntryId);
       setHasEarlierMessages(d.context.hasMore);
+      // Deduplicate: the active branch may have changed while the pagination
+      // request was in flight (e.g. loadSession ran from agent_end), so the
+      // returned ancestors may already exist in the current state. Compute
+      // the indices of entries whose entryId is not already present.
+      const dedupeIndices = (existing: Set<string>): number[] => {
+        const seen = new Set<string>();
+        const indices: number[] = [];
+        for (let i = 0; i < d.context.entryIds.length; i++) {
+          const id = d.context.entryIds[i];
+          if (id && !existing.has(id) && !seen.has(id)) {
+            indices.push(i);
+            seen.add(id);
+          }
+        }
+        return indices;
+      };
+
       setData((prev) => {
         if (!prev || prev.sessionId !== sid) return prev;
-        const context = before ? {
+        if (!before) return { ...prev, context: d.context };
+        const indices = dedupeIndices(new Set(prev.context.entryIds));
+        return { ...prev, context: {
           ...prev.context,
-          messages: [...d.context.messages, ...prev.context.messages],
-          entryIds: [...d.context.entryIds, ...prev.context.entryIds],
+          messages: [...indices.map(i => d.context.messages[i]), ...prev.context.messages],
+          entryIds: [...indices.map(i => d.context.entryIds[i]), ...prev.context.entryIds],
           oldestEntryId: d.context.oldestEntryId,
           hasMore: d.context.hasMore,
-        } : d.context;
-        return { ...prev, context };
+        }};
       });
       if (before) {
         // Older page: prepend so scroll position stays anchored.
-        setMessages((prev) => [...d.context.messages, ...prev]);
-        setEntryIds((prev) => [...d.context.entryIds, ...prev]);
+        const indices = dedupeIndices(new Set(entryIds));
+        const newMessages = indices.map(i => d.context.messages[i]);
+        const newEntryIds = indices.map(i => d.context.entryIds[i]);
+        setMessages((prev) => [...newMessages, ...prev]);
+        setEntryIds((prev) => {
+          const existingPrev = new Set(prev);
+          return [...newEntryIds.filter(id => !existingPrev.has(id)), ...prev];
+        });
       } else {
         setMessages(d.context.messages);
         setEntryIds(d.context.entryIds ?? []);

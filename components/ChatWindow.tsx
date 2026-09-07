@@ -1030,7 +1030,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 const isVisible = isMessageGroupAnchor(msg) || msg.role === "assistant";
                 const currentRefIdx = visibleRefIndexByMessage.get(idx);
                 const keyPrefix = options.keyPrefix ?? "message";
-                const messageKey = entryIds[idx] ?? idx;
+                const messageKey = entryIds[idx] ?? `i${idx}`;
                 let showTimestamp = false;
                 if (msg.role === "assistant") {
                   showTimestamp = true;
