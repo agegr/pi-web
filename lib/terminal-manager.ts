@@ -51,7 +51,7 @@ function shellEnvironment(): Record<string, string> {
   env.COLORTERM = "truecolor";
   // Windows shells (Git Bash / MSYS2, cmd, PowerShell) otherwise inherit the
   // system ANSI codepage (e.g. GBK on zh-CN) and mangle non-ASCII filenames.
-  if (!env.LANG && !env.LC_ALL && !env.LC_CTYPE) env.LANG = "C.UTF-8";
+  if (!process.env.LANG && !process.env.LC_ALL && !process.env.LC_CTYPE) env.LANG = "C.UTF-8";
   return env;
 }
 
