@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
+import { appendImagePaths, getImageAttachmentStore, type MaterializedImages } from "./image-materialization";
 import { invalidateModelsCache } from "./models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
 import {
@@ -551,6 +552,9 @@ export class AgentSessionWrapper {
 
     const tracksMutation = !allowedDuringReplacement;
     if (tracksMutation) this.activeMutatingCommands += 1;
+    let imageBatch: MaterializedImages | undefined;
+    let imagesAccepted = false;
+    let message = command.message as string;
 
     try {
       // Status reconciliation must not postpone forced cleanup after Stop.
@@ -563,6 +567,17 @@ export class AgentSessionWrapper {
       if (type === "prompt" || type === "steer" || type === "follow_up") {
         const imageError = validateAgentImages(command.images);
         if (imageError) throw new Error(imageError);
+        globalThis.__piImageAttachmentStore?.touch();
+        const images = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
+        if (images?.length) {
+          if (typeof message !== "string") throw new Error("message must be a string");
+          const store = getImageAttachmentStore(() => [...(globalThis.__piSessions?.values() ?? [])].some(session =>
+            session.isRunning() || session.activeMutatingCommands > 0
+            || Boolean(session.inner.getSteeringMessages?.().length || session.inner.getFollowUpMessages?.().length),
+          ));
+          imageBatch = await store.materialize(images);
+          message = appendImagePaths(message, imageBatch.paths);
+        }
       }
 
       switch (type) {
@@ -587,6 +602,7 @@ export class AgentSessionWrapper {
           let rejectPreflight!: (error: unknown) => void;
           const preflight = new Promise<void>((resolve, reject) => {
             acceptPreflight = () => {
+              imagesAccepted = true;
               preflightAccepted = true;
               this.agentRunNeedsCompletion = true;
               if (preflightSettled) return;
@@ -610,7 +626,7 @@ export class AgentSessionWrapper {
           this.pendingPromptCount += 1;
           let prompt: Promise<void>;
           try {
-            prompt = this.inner.prompt(command.message as string, {
+            prompt = this.inner.prompt(message, {
               ...(promptImages?.length ? { images: promptImages } : {}),
               ...(streamingBehavior ? { streamingBehavior } : {}),
               source: "rpc",
@@ -867,13 +883,15 @@ export class AgentSessionWrapper {
 
       case "steer": {
         const steerImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        await this.inner.steer(command.message as string, steerImages?.length ? steerImages : undefined);
+        await this.inner.steer(message, steerImages?.length ? steerImages : undefined);
+        imagesAccepted = true;
         return null;
       }
 
       case "follow_up": {
         const followImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        await this.inner.followUp(command.message as string, followImages?.length ? followImages : undefined);
+        await this.inner.followUp(message, followImages?.length ? followImages : undefined);
+        imagesAccepted = true;
         return null;
       }
 
@@ -993,6 +1011,13 @@ export class AgentSessionWrapper {
         default:
           throw new Error(`Unsupported command: ${type}`);
       }
+    } catch (error) {
+      if (imageBatch && !imagesAccepted) {
+        await imageBatch.rollback().catch(cleanupError => {
+          console.error("[pi-web] rejected image attachment cleanup failed:", cleanupError);
+        });
+      }
+      throw error;
     } finally {
       if (tracksMutation) this.activeMutatingCommands = Math.max(0, this.activeMutatingCommands - 1);
     }

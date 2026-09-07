@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { checkExtensionDialogs, extensionSource } from "./extension-dialog.mjs";
 import { checkChatAppearance } from "./chat-appearance.mjs";
+import { checkImageAttachments, imageExtensionSource } from "./image-attachments.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const mode = process.env.E2E_SERVER_MODE || "dev";
@@ -32,7 +33,15 @@ const text = (i) => `E2E message ${String(i).padStart(4, "0")}`;
 const ids = (start, end) => Array.from({ length: end - start }, (_, i) => `e${start + i}`);
 
 function message(id, parentId, role, content) {
-  return { type: "message", id, parentId, timestamp, message: { role, content } };
+  const entry = { type: "message", id, parentId, timestamp, message: { role, content } };
+  if (role === "assistant") {
+    // Real session instances compute their own usage, so fixtures must provide the fields the SDK expects.
+    entry.message.usage = {
+      input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    };
+  }
+  return entry;
 }
 
 function writeSession(id, entries) {
@@ -60,6 +69,7 @@ try {
   // Seed before startup so the first catalogue scan sees every fixture.
   mkdirSync(join(agentDir, "extensions"));
   writeFileSync(join(agentDir, "extensions", "e2e-dialog.js"), extensionSource);
+  writeFileSync(join(agentDir, "extensions", "e2e-images.js"), imageExtensionSource);
   const longEntries = Array.from({ length: 5000 }, (_, i) =>
     message(`e${i}`, i ? `e${i - 1}` : null, i % 2 ? "assistant" : "user", text(i)));
   longEntries.splice(1, 0, message("alternate", "e0", "user", "E2E alternate history branch"));
@@ -352,6 +362,7 @@ try {
       await heading.waitFor({ state: "visible" });
     }
     await checkExtensionDialogs(page, artifacts, viewport.width);
+    await checkImageAttachments(page, project, artifacts, viewport.width);
     if (viewport.width > 600) {
       await page.goto(`${base}/?session=${RICH}`, { waitUntil: "domcontentloaded" });
       await page.locator(".markdown-code-block pre").waitFor();
