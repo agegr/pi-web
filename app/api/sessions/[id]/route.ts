@@ -19,6 +19,8 @@ import { computeSessionStats } from "@/lib/session-stats";
 import type { SessionEntry } from "@/lib/types";
 import { readSubagentRun, readSubagentSessionResources, SUBAGENT_META_TYPE } from "@/lib/subagents";
 import { readSessionToolSelection } from "@/lib/session-tool-selection";
+import { getFirstTurnUndoTarget } from "@/lib/first-turn-undo";
+import { assertSessionHistoryAvailable, sessionHistoryLocks } from "@/lib/session-history-lock";
 
 export async function GET(
   req: Request,
@@ -101,6 +103,7 @@ export async function GET(
       context,
       stats,
       totalActiveMs,
+      firstTurnUndo: getFirstTurnUndoTarget(header, entries, leafId),
       ...(toolNames !== undefined ? { toolNames } : {}),
     });
   } catch (error) {
@@ -123,6 +126,7 @@ export async function PATCH(
     if (!filePath) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
+    assertSessionHistoryAvailable(id);
     const sm = SessionManager.open(filePath);
     sm.appendSessionInfo(name.trim());
     invalidateSessionListCache();
@@ -138,6 +142,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const locks = sessionHistoryLocks();
+  if (locks.has(id)) return NextResponse.json({ error: "Session is busy" }, { status: 409 });
+  locks.add(id);
   try {
     const filePath = await resolveSessionPath(id);
     if (!filePath) {
@@ -225,5 +232,7 @@ export async function DELETE(
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
+  } finally {
+    locks.delete(id);
   }
 }

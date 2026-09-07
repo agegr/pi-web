@@ -13,6 +13,8 @@ import type {
 } from "@/lib/types";
 import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
 import { normalizeToolCalls } from "@/lib/normalize";
+import type { FirstTurnUndoTarget } from "@/lib/first-turn-undo";
+import { useI18n } from "@/hooks/useI18n";
 import { isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
 import { clearDraft, rekeyDraft, restoreDraftSubmission } from "@/lib/draft-store";
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
@@ -40,6 +42,7 @@ export interface SessionData {
   tree: SessionTreeNode[];
   leafId: string | null;
   toolNames?: string[];
+  firstTurnUndo?: FirstTurnUndoTarget | null;
   context: {
     messages: AgentMessage[];
     entryIds: string[];
@@ -241,7 +244,7 @@ function readCompactResult(result: unknown, reason: string): CompactResultInfo |
 export interface ChatInputHandle {
   insertText: (text: string) => void;
   insertIfEmpty: (content: string) => void;
-  replaceMessage: (message: UserMessage) => void;
+  replaceMessage: (message: UserMessage) => boolean;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
   rekeyDraft: (previousKey: string, nextKey: string) => void;
@@ -272,6 +275,7 @@ type SlashCommandsResponse = {
 };
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
+  const { t } = useI18n();
   const {
     session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
@@ -350,6 +354,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const newSessionModelOverrideRef = useRef<SelectedModel | null>(null);
   const thinkingLevelOverrideRef = useRef<Exclude<ThinkingLevelOption, "auto"> | null>(null);
   const promptRunIdRef = useRef(0);
+  const historyRevisionRef = useRef(0);
+  const undoPendingRef = useRef(false);
+  const [undoingFirstTurn, setUndoingFirstTurn] = useState(false);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
   const modelSwitchPendingRef = useRef(false);
   const draftKeyAliasesRef = useRef(new Map<string, string>());
@@ -457,11 +464,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [messages, sessionStatsOverride, contextUsage, data?.context.messages, data?.filePath, data?.totalActiveMs, data?.stats, session?.id, session?.name]);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
+    const revision = historyRevisionRef.current;
     let messagesLoaded = false;
     try {
       if (showLoading) setLoading(true);
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
       const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}?${params}`);
+      if (historyRevisionRef.current !== revision) return null;
       if (res.status === 404) {
         if (showLoading) {
           setData(null);
@@ -476,7 +485,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as SessionData;
-      if (sessionIdRef.current !== sid) return null;
+      if (sessionIdRef.current !== sid || historyRevisionRef.current !== revision) return null;
       const persistedMessages = d.context.messages;
       setData(d);
       setActiveLeafId(d.leafId);
@@ -499,7 +508,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const stateRes = await fetch(`/api/sessions/${encodeURIComponent(sid)}/state`);
         if (!stateRes.ok) throw new Error(`HTTP ${stateRes.status}`);
         const agentState = await stateRes.json() as { running: boolean; state?: AgentStateResponse };
-        if (sessionIdRef.current !== sid) return null;
+        if (sessionIdRef.current !== sid || historyRevisionRef.current !== revision) return null;
 
         const liveState = agentState.state;
         if (liveState) {
@@ -526,6 +535,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [setToolPresetState]);
 
   const loadContext = useCallback(async (sid: string, leafId: string | null, before?: string | null, options?: { tail?: number; signal?: AbortSignal }) => {
+    const revision = historyRevisionRef.current;
     try {
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
       if (leafId) params.set("leafId", leafId);
@@ -537,7 +547,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const res = await fetch(url, { signal: options?.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as { context: SessionData["context"] };
-      if (sessionIdRef.current !== sid || options?.signal?.aborted || !sessionHookMountedRef.current) return;
+      if (sessionIdRef.current !== sid || historyRevisionRef.current !== revision || options?.signal?.aborted || !sessionHookMountedRef.current) return;
       setHistoryCursor(d.context.oldestEntryId);
       setHasEarlierMessages(d.context.hasMore);
       setData((prev) => {
@@ -1450,6 +1460,45 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, []);
 
+  const handleUndoFirstTurn = useCallback(async (message: UserMessage) => {
+    const sid = sessionIdRef.current;
+    const target = data?.firstTurnUndo;
+    if (!sid || !target || undoPendingRef.current || agentRunningRef.current || bashRunningRef.current) return;
+    // Refuse to overwrite a draft. Restore BEFORE destructive I/O, so a lost
+    // response does not lose the user's text or image attachments in this tab.
+    if (!opts.chatInputRef?.current?.replaceMessage(message)) {
+      addNotice({ type: "error", message: t("chat.undoFirstTurnDraftBusy") });
+      return;
+    }
+    undoPendingRef.current = true;
+    setUndoingFirstTurn(true);
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(sid)}/undo-first-turn`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(target),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Unable to undo the first turn");
+      if (sessionIdRef.current !== sid) return;
+      historyRevisionRef.current++;
+      promptRunIdRef.current++;
+      closeEvents();
+      setMessages([]);
+      setEntryIds([]);
+      setActiveLeafId(null);
+      setSessionStatsOverride(null);
+      setContextUsage(null);
+      setData((previous) => previous ? { ...previous, firstTurnUndo: null } : previous);
+      await loadSession(sid, false, true);
+    } catch (error) {
+      addNotice({ type: "error", message: `${t("chat.undoFirstTurnFailed")} ${error instanceof Error ? error.message : String(error)}` });
+    } finally {
+      undoPendingRef.current = false;
+      setUndoingFirstTurn(false);
+    }
+  }, [addNotice, closeEvents, data?.firstTurnUndo, loadSession, opts.chatInputRef, t]);
+
   const handleFork = useCallback(async (entryId: string) => {
     if (bashRunningRef.current) return;
     const sid = sessionIdRef.current;
@@ -2084,6 +2133,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
     // Actions
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
+    handleUndoFirstTurn, undoingFirstTurn, firstTurnUndo: data?.firstTurnUndo ?? null,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,

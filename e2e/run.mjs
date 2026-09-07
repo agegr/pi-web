@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { checkExtensionDialogs, extensionSource } from "./extension-dialog.mjs";
 import { checkChatAppearance } from "./chat-appearance.mjs";
+import { checkFirstTurnUndo, undoPrompt, undoImage } from "./first-turn-undo.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const mode = process.env.E2E_SERVER_MODE || "dev";
@@ -28,6 +29,7 @@ const LONG = "e2e-long-session";
 const BRANCH = "e2e-branch-session";
 const RICH = "e2e-rich-session";
 const COMPACTED = "e2e-compacted-session";
+const UNDO = "e2e-undo-first-turn";
 const text = (i) => `E2E message ${String(i).padStart(4, "0")}`;
 const ids = (start, end) => Array.from({ length: end - start }, (_, i) => `e${start + i}`);
 
@@ -64,6 +66,13 @@ try {
     message(`e${i}`, i ? `e${i - 1}` : null, i % 2 ? "assistant" : "user", text(i)));
   longEntries.splice(1, 0, message("alternate", "e0", "user", "E2E alternate history branch"));
   writeSession(LONG, longEntries);
+  writeSession(UNDO, [
+    message("undo-user", null, "user", [
+      { type: "text", text: undoPrompt },
+      { type: "image", mimeType: "image/png", data: undoImage },
+    ]),
+    { ...message("undo-assistant", "undo-user", "assistant", []), message: { role: "assistant", content: [], stopReason: "aborted" } },
+  ]);
   writeSession(BRANCH, [
     message("root", null, "user", "Branch root"),
     message("old", "root", "assistant", "Inactive branch answer"),
@@ -144,7 +153,7 @@ try {
     const response = await fetch(`${base}/api/sessions`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
     if (response?.ok) {
       const { sessions } = await response.json();
-      assert.deepEqual(sessions.map((session) => session.id).sort(), [LONG, BRANCH, RICH, COMPACTED].sort());
+      assert.deepEqual(sessions.map((session) => session.id).sort(), [LONG, BRANCH, RICH, COMPACTED, UNDO].sort());
       break;
     }
     assert.ok(Date.now() < deadline, "Server readiness timed out; see server.log");
@@ -356,6 +365,7 @@ try {
       await page.goto(`${base}/?session=${RICH}`, { waitUntil: "domcontentloaded" });
       await page.locator(".markdown-code-block pre").waitFor();
       await checkChatAppearance(page);
+      await checkFirstTurnUndo(page, base, UNDO, join(sessionDir, `2026-08-23T00-00-00-000Z_${UNDO}.jsonl`));
     }
     assert.deepEqual(errors, [], `Browser errors at width ${viewport.width}`);
     console.log(`PASS: ${viewport.width}px browser pagination, branch, markdown, code, tool call, and compaction navigation`);

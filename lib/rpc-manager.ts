@@ -1,3 +1,4 @@
+import { assertSessionHistoryAvailable } from "./session-history-lock";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
@@ -285,6 +286,11 @@ export class AgentSessionWrapper {
     return this._alive && (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning);
   }
 
+  canUndoFirstTurn(): boolean {
+    return this._alive && !this.isRunning() && this.activeMutatingCommands === 0 && !this.sessionReplacement
+      && this.inner.getSteeringMessages().length === 0 && this.inner.getFollowUpMessages().length === 0;
+  }
+
   isChatOnly(): boolean {
     return this.chatOnly;
   }
@@ -540,6 +546,8 @@ export class AgentSessionWrapper {
   }
 
   async send(command: Record<string, unknown>): Promise<unknown> {
+    assertSessionHistoryAvailable(this.sessionId);
+    if (!this._alive) throw new Error("Session is closed");
     const type = command.type as string;
     const allowedDuringReplacement = COMMANDS_ALLOWED_DURING_SESSION_REPLACEMENT.has(type);
     if (this.sessionReplacement && !allowedDuringReplacement) {
@@ -556,6 +564,8 @@ export class AgentSessionWrapper {
       // Status reconciliation must not postpone forced cleanup after Stop.
       if (type !== "get_state") this.resetIdleTimer();
       if (this.shouldWaitForExtensions(type)) await this.waitForExtensionsBound();
+      assertSessionHistoryAvailable(this.sessionId);
+      if (!this._alive) throw new Error("Session is closed");
       if (this.sessionReplacement && !allowedDuringReplacement) {
         throw new Error("Session is being copied to a new session");
       }
@@ -1922,12 +1932,17 @@ export function getCompletionNotificationSuppressedRpcSessionIds(): string[] {
  * thinking pin, and SDK scopedModels share one settings snapshot.
  * Pass options.toolNames to pre-configure active tools (empty = all disabled).
  */
+export function isRpcSessionStarting(sessionId: string): boolean {
+  return getLocks().has(sessionId);
+}
+
 export async function startRpcSession(
   sessionId: string,
   sessionFile: string,
   cwd: string | undefined,
   options: RpcSessionStartOptions = {},
 ): Promise<{ session: AgentSessionWrapper; realSessionId: string }> {
+  assertSessionHistoryAvailable(sessionId);
   const { initialModel, allowInitialModelFallback, thinkingLevel } = options;
   const requestedToolNames = options.toolNames === undefined
     ? undefined

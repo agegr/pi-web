@@ -284,6 +284,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     sessionIdRef, scrollContainerRef,
     lastUserMsgRef, promptAnchorActive,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
+    handleUndoFirstTurn, undoingFirstTurn, firstTurnUndo,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
@@ -294,7 +295,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     deferInitialScroll: Boolean(pendingScrollRestore),
   });
-  const sessionBusy = agentRunning || bashRunning;
+  const sessionBusy = agentRunning || bashRunning || undoingFirstTurn;
   const [quotedSelection, setQuotedSelection] = useState<{
     text: string;
     top: number;
@@ -1056,6 +1057,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     onNavigate={sessionBusy ? undefined : handleNavigate}
                     prevAssistantEntryId={sessionBusy ? undefined : prevAssistantEntryId}
                     onEditContent={handleEditContent}
+                    onUndoFirstTurn={!sessionBusy && firstTurnUndo?.entryId === entryIds[idx] ? handleUndoFirstTurn : undefined}
                     showTimestamp={showTimestamp}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
