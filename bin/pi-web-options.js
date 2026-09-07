@@ -46,6 +46,8 @@ Environment:
   PI_WEB_NO_OPEN             Set to 1/true/yes/on to disable browser open
   PI_WEB_PASSWORD            Enable HTTP Basic Auth (username is always "pi")
   PI_WEB_ALLOWED_HOSTS       Extra exact proxy/custom hostnames, comma-separated
+  PI_WEB_SKIP_VERSION_CHECK  Set to 1 to disable Pi Web update checks
+  PI_WEB_IDLE_TIMEOUT_MS     Session idle timeout in ms (0 disables; default 600000)
 `;
 }
 
