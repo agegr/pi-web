@@ -2186,12 +2186,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
                 border: "none",
                 borderRadius: 8,
-                color: (value.trim() || attachedImages.length) ? "#fff" : "var(--text-dim)",
+                color: (value.trim() || attachedImages.length) ? "var(--accent-contrast)" : "var(--text-dim)",
                 cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
                 fontSize: 13,
                 fontWeight: 600,
                 letterSpacing: "-0.01em",
-                boxShadow: (value.trim() || attachedImages.length) ? "0 1px 3px rgba(37,99,235,0.25)" : "none",
+                boxShadow: (value.trim() || attachedImages.length) ? "0 1px 3px color-mix(in srgb, var(--accent) 25%, transparent)" : "none",
                 transition: "background 0.15s, box-shadow 0.15s",
               }}
             >
