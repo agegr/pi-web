@@ -331,7 +331,7 @@ function PiWebTitle() {
   const [scrambling, setScrambling] = useState(false);
   const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const target = showVersion ? `${process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}p${process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}` : "Pi Web";
+  const target = showVersion ? `${process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}p${process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}` : "Seb";
   const display = useScramble(target, scrambling);
 
   const triggerScramble = useCallback((toVersion: boolean) => {
@@ -425,6 +425,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [listViewportH, setListViewportH] = useState(0);
   const [listScrollTop, setListScrollTop] = useState(0);
   const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
+  const [collapsedFamilyIds, setCollapsedFamilyIds] = useState<Set<string>>(new Set());
   const listScrollRafRef = useRef<number | null>(null);
   const handleListScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const top = e.currentTarget.scrollTop;
@@ -1004,12 +1005,25 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       : null);
 
   const sessionFamilies = listSessionFamilies(filteredSessions);
+  const sessionRows = sessionFamilies.flatMap((family) => [
+    { kind: "main" as const, family },
+    ...(family.subagents.length > 0 && !collapsedFamilyIds.has(family.root.id)
+      ? [
+          { kind: "agents" as const, family },
+          ...family.subagents.map((session) => ({ kind: "subagent" as const, family, session })),
+        ]
+      : []),
+  ]);
+
+  const focusedRowIndex = sessionRows.findIndex((row) => (
+    row.kind === "subagent" ? row.session.id === focusedSessionId : row.family.root.id === focusedSessionId
+  ));
 
   const virtualIndices = getSessionListIndices(
-    sessionFamilies.length,
+    sessionRows.length,
     listScrollTop,
     listViewportH,
-    sessionFamilies.findIndex((family) => family.root.id === focusedSessionId),
+    focusedRowIndex,
   );
 
   return (
@@ -1698,11 +1712,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           <div
             style={{
               position: "relative",
-              height: sessionFamilies.length * SESSION_LIST_ITEM_HEIGHT,
+              height: sessionRows.length * SESSION_LIST_ITEM_HEIGHT,
             }}
           >
             {virtualIndices.map((index) => {
-              const family = sessionFamilies[index];
+              const row = sessionRows[index];
+              const family = row.family;
               const familySessions = [family.root, ...family.subagents];
               const displaySession = family.latestModified === family.root.modified
                 ? family.root
@@ -1710,23 +1725,71 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               // Bubble blur after the input's save handler before unpinning the row.
               return (
                 <div
-                  key={family.root.id}
-                  onFocus={() => setFocusedSessionId(family.root.id)}
+                  key={row.kind === "subagent" ? row.session.id : `${row.kind}:${family.root.id}`}
+                  onFocus={() => setFocusedSessionId(row.kind === "subagent" ? row.session.id : family.root.id)}
                   onBlur={() => setFocusedSessionId(null)}
                   style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 0, right: 0 }}
                 >
-                  <SessionItem
-                    session={displaySession}
-                    isSelected={familySessions.some((session) => session.id === selectedSessionId)}
-                    isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
-                    isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
-                    onClick={() => handleSelectSessionFromList(family.root)}
-                    onRenamed={loadSessions}
-                    onDeleted={(id) => {
-                      onSessionDeleted?.(id);
-                      loadSessions();
-                    }}
-                  />
+                  {row.kind === "main" && (
+                    <SessionItem
+                      session={displaySession}
+                      isSelected={family.root.id === selectedSessionId || (collapsedFamilyIds.has(family.root.id) && family.subagents.some((session) => session.id === selectedSessionId))}
+                      isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
+                      isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
+                      onClick={() => handleSelectSessionFromList(family.root)}
+                      onRenamed={loadSessions}
+                      onDeleted={(id) => {
+                        onSessionDeleted?.(id);
+                        loadSessions();
+                      }}
+                      hasChildren={family.subagents.length > 0}
+                      collapsed={collapsedFamilyIds.has(family.root.id)}
+                      onToggleCollapse={() => setCollapsedFamilyIds((previous) => {
+                        const next = new Set(previous);
+                        if (next.has(family.root.id)) next.delete(family.root.id);
+                        else next.add(family.root.id);
+                        return next;
+                      })}
+                    />
+                  )}
+                  {row.kind === "agents" && (
+                    <button
+                      type="button"
+                      aria-label={t("sidebar.collapseSubagents")}
+                      aria-expanded={true}
+                      onClick={() => setCollapsedFamilyIds((previous) => {
+                        const next = new Set(previous);
+                        next.add(family.root.id);
+                        return next;
+                      })}
+                      style={{
+                        width: "100%", height: SESSION_LIST_ITEM_HEIGHT, display: "flex", alignItems: "center",
+                        gap: 7, padding: "0 14px 0 26px", border: "none", borderTop: "1px solid var(--border)",
+                        background: "var(--bg-panel)", color: "var(--text-muted)", cursor: "pointer", textAlign: "left",
+                        fontSize: 11, fontWeight: 600,
+                      }}
+                    >
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="2 3.5 5 6.5 8 3.5" />
+                      </svg>
+                      <span>{t("agentSwitcher.count", { count: family.subagents.length })}</span>
+                    </button>
+                  )}
+                  {row.kind === "subagent" && (
+                    <SessionItem
+                      session={row.session}
+                      isSelected={row.session.id === selectedSessionId}
+                      isRunning={runningSessionIds.has(row.session.id)}
+                      isUnread={unreadSessionIds.has(row.session.id)}
+                      depth={1}
+                      onClick={() => handleSelectSessionFromList(row.session)}
+                      onRenamed={loadSessions}
+                      onDeleted={(id) => {
+                        onSessionDeleted?.(id);
+                        loadSessions();
+                      }}
+                    />
+                  )}
                 </div>
               );
             })}
@@ -2121,6 +2184,7 @@ function SessionItem({
       onMouseLeave={() => { setHovered(false); }}
       style={{
         height: SESSION_LIST_ITEM_HEIGHT,
+        position: "relative",
         display: "flex",
         alignItems: "center",
         paddingLeft: depth > 0 ? depth * 12 + 14 : 14,
@@ -2260,11 +2324,15 @@ function SessionItem({
           {/* Collapse toggle — always visible when has children */}
           {hasChildren && (
             <button
+              type="button"
+              aria-label={t(collapsed ? "sidebar.expandSubagents" : "sidebar.collapseSubagents")}
+              aria-expanded={!collapsed}
               onClick={(e) => { e.stopPropagation(); onToggleCollapse?.(); }}
               title={t(collapsed ? "sidebar.expandSubagents" : "sidebar.collapseSubagents")}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center",
                 width: 20, height: 20, padding: 0, flexShrink: 0,
+                marginRight: hovered && !session.transient ? 90 : 0,
                 background: "none", border: "none",
                 color: "var(--text-dim)", cursor: "pointer",
                 transform: collapsed ? "rotate(-90deg)" : "none",
@@ -2279,7 +2347,11 @@ function SessionItem({
 
           {/* Action buttons — shown on hover */}
           {hovered && !session.transient && (
-            <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+            <div style={{
+              position: "absolute", right: 8, top: 11, zIndex: 1,
+              display: "flex", gap: 4, paddingLeft: 18,
+              background: `linear-gradient(to right, transparent, ${isSelected ? "var(--bg-selected)" : "var(--bg-hover)"} 18px)`,
+            }}>
               <button
                 onClick={startRename}
                 title={t("sidebar.rename")}

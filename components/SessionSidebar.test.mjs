@@ -100,6 +100,14 @@ test("does not persist an unchanged fallback title ending in whitespace", () => 
   );
 });
 
+test("keeps focused nested rows mounted and exposes accessible collapse state", () => {
+  assert.match(source, /const focusedRowIndex = sessionRows\.findIndex\(\(row\) => \([\s\S]*?row\.kind === "subagent" \? row\.session\.id === focusedSessionId/);
+  assert.match(source, /onFocus=\{\(\) => setFocusedSessionId\(row\.kind === "subagent" \? row\.session\.id : family\.root\.id\)\}/);
+  assert.match(source, /aria-label=\{t\(collapsed \? "sidebar\.expandSubagents" : "sidebar\.collapseSubagents"\)\}/);
+  assert.match(source, /aria-expanded=\{!collapsed\}/);
+  assert.match(source, /isSelected=\{family\.root\.id === selectedSessionId \|\| \(collapsedFamilyIds\.has\(family\.root\.id\)/);
+});
+
 test("offers the downstream context-menu hook only on a normal session row", () => {
   assert.match(sessionItemSource, /const handleContextMenu[\s\S]*?dispatchSessionRowContextMenu\(\{/);
   assert.match(
@@ -122,9 +130,8 @@ test("does not expose disk-backed actions for transient sessions", () => {
   assert.match(sessionItemSource, /\{hovered && !session\.transient && \(/);
 });
 
-test("hides subagent rows and aggregates their state into the main session row", () => {
-  assert.match(source, /const sessionFamilies = listSessionFamilies\(filteredSessions\)/);
-  assert.match(source, /familySessions\.some\(\(session\) => session\.id === selectedSessionId\)/);
+test("keeps subagent state visible while selecting the visible nested row", () => {
   assert.match(source, /familySessions\.some\(\(session\) => runningSessionIds\.has\(session\.id\)\)/);
+  assert.match(source, /isSelected=\{row\.session\.id === selectedSessionId\}/);
   assert.doesNotMatch(source, /function SessionTreeItem/);
 });
