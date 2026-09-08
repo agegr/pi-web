@@ -4,7 +4,8 @@ import test from "node:test";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconfigPaths: true });
-const { getSessionListIndices } = await jiti.import("./SessionSidebar.tsx");
+const { getFocusedSessionRowIndex, getSessionListIndices, getSessionRows, isSessionRowSelected } = await jiti.import("./SessionSidebar.tsx");
+const { listSessionFamilies } = await jiti.import("../lib/session-family.ts");
 
 const source = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
 const sessionItemSource = source.slice(source.indexOf("function SessionItem("));
@@ -100,12 +101,23 @@ test("does not persist an unchanged fallback title ending in whitespace", () => 
   );
 });
 
-test("keeps focused nested rows mounted and exposes accessible collapse state", () => {
-  assert.match(source, /const focusedRowIndex = sessionRows\.findIndex\(\(row\) => \([\s\S]*?row\.kind === "subagent" \? row\.session\.id === focusedSessionId/);
-  assert.match(source, /onFocus=\{\(\) => setFocusedSessionId\(row\.kind === "subagent" \? row\.session\.id : family\.root\.id\)\}/);
-  assert.match(source, /aria-label=\{t\(collapsed \? "sidebar\.expandSubagents" : "sidebar\.collapseSubagents"\)\}/);
-  assert.match(source, /aria-expanded=\{!collapsed\}/);
-  assert.match(source, /isSelected=\{family\.root\.id === selectedSessionId \|\| \(collapsedFamilyIds\.has\(family\.root\.id\)/);
+test("nested session rows expand, collapse, and keep focused subagents mounted", () => {
+  const sessions = [
+    makeSession("main", "2026-01-01T00:00:00.000Z"),
+    makeSession("agent-1", "2026-01-01T00:01:00.000Z", "main"),
+    makeSession("agent-2", "2026-01-01T00:02:00.000Z", "main"),
+  ];
+  const [family] = listSessionFamilies(sessions);
+
+  const expandedRows = getSessionRows([family], new Set());
+  assert.deepEqual(expandedRows.map((row) => row.kind), ["main", "subagent", "subagent"]);
+  assert.deepEqual(expandedRows.map((row) => row.kind === "subagent" ? row.session.id : row.family.root.id), ["main", "agent-1", "agent-2"]);
+  assert.equal(getFocusedSessionRowIndex(expandedRows, "agent-2"), 2);
+  assert.ok(getSessionListIndices(200, 0, 54, 199).includes(199));
+
+  const collapsedRows = getSessionRows([family], new Set(["main"]));
+  assert.deepEqual(collapsedRows.map((row) => row.kind), ["main"]);
+  assert.equal(getFocusedSessionRowIndex(collapsedRows, "agent-2"), -1);
 });
 
 test("offers the downstream context-menu hook only on a normal session row", () => {
@@ -130,8 +142,36 @@ test("does not expose disk-backed actions for transient sessions", () => {
   assert.match(sessionItemSource, /\{hovered && !session\.transient && \(/);
 });
 
-test("keeps subagent state visible while selecting the visible nested row", () => {
-  assert.match(source, /familySessions\.some\(\(session\) => runningSessionIds\.has\(session\.id\)\)/);
-  assert.match(source, /isSelected=\{row\.session\.id === selectedSessionId\}/);
-  assert.doesNotMatch(source, /function SessionTreeItem/);
+test("visible nested session rows own selection until the family is collapsed", () => {
+  const [family] = listSessionFamilies([
+    makeSession("main", "2026-01-01T00:00:00.000Z"),
+    makeSession("agent", "2026-01-01T00:01:00.000Z", "main"),
+  ]);
+  const expandedRows = getSessionRows([family], new Set());
+  assert.equal(isSessionRowSelected(expandedRows[0], "agent", new Set()), false);
+  assert.equal(isSessionRowSelected(expandedRows[1], "agent", new Set()), true);
+
+  const collapsedRows = getSessionRows([family], new Set(["main"]));
+  assert.equal(isSessionRowSelected(collapsedRows[0], "agent", new Set(["main"])), true);
 });
+
+function makeSession(id, modified, parentSessionId) {
+  return {
+    path: `/tmp/${id}.jsonl`,
+    id,
+    cwd: "/tmp/pi-web",
+    created: "2026-01-01T00:00:00.000Z",
+    modified,
+    messageCount: 1,
+    firstMessage: id,
+    relation: parentSessionId
+      ? {
+          kind: "subagent",
+          parentSessionId,
+          profile: "review",
+          description: "Review",
+          status: "completed",
+        }
+      : undefined,
+  };
+}

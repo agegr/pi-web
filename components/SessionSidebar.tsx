@@ -30,6 +30,40 @@ export function getSessionListIndices(count: number, scrollTop: number, viewport
   return indices;
 }
 
+type SessionListRow =
+  | { kind: "main"; family: ReturnType<typeof listSessionFamilies>[number] }
+  | { kind: "subagent"; family: ReturnType<typeof listSessionFamilies>[number]; session: SessionInfo };
+
+export function getSessionRows(
+  sessionFamilies: ReturnType<typeof listSessionFamilies>,
+  collapsedFamilyIds: ReadonlySet<string>,
+): SessionListRow[] {
+  return sessionFamilies.flatMap((family) => [
+    { kind: "main" as const, family },
+    ...(family.subagents.length > 0 && !collapsedFamilyIds.has(family.root.id)
+      ? family.subagents.map((session) => ({ kind: "subagent" as const, family, session }))
+      : []),
+  ]);
+}
+
+export function getFocusedSessionRowIndex(sessionRows: readonly SessionListRow[], focusedSessionId: string | null): number {
+  return sessionRows.findIndex((row) => (
+    row.kind === "subagent" ? row.session.id === focusedSessionId : row.family.root.id === focusedSessionId
+  ));
+}
+
+export function isSessionRowSelected(
+  row: SessionListRow,
+  selectedSessionId: string | null | undefined,
+  collapsedFamilyIds: ReadonlySet<string>,
+): boolean {
+  if (row.kind === "subagent") return row.session.id === selectedSessionId;
+  return row.family.root.id === selectedSessionId || (
+    collapsedFamilyIds.has(row.family.root.id)
+    && row.family.subagents.some((session) => session.id === selectedSessionId)
+  );
+}
+
 declare global {
   interface Window {
     piDesktop?: {
@@ -1005,19 +1039,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       : null);
 
   const sessionFamilies = listSessionFamilies(filteredSessions);
-  const sessionRows = sessionFamilies.flatMap((family) => [
-    { kind: "main" as const, family },
-    ...(family.subagents.length > 0 && !collapsedFamilyIds.has(family.root.id)
-      ? [
-          { kind: "agents" as const, family },
-          ...family.subagents.map((session) => ({ kind: "subagent" as const, family, session })),
-        ]
-      : []),
-  ]);
-
-  const focusedRowIndex = sessionRows.findIndex((row) => (
-    row.kind === "subagent" ? row.session.id === focusedSessionId : row.family.root.id === focusedSessionId
-  ));
+  const sessionRows = getSessionRows(sessionFamilies, collapsedFamilyIds);
+  const focusedRowIndex = getFocusedSessionRowIndex(sessionRows, focusedSessionId);
 
   const virtualIndices = getSessionListIndices(
     sessionRows.length,
@@ -1733,7 +1756,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   {row.kind === "main" && (
                     <SessionItem
                       session={displaySession}
-                      isSelected={family.root.id === selectedSessionId || (collapsedFamilyIds.has(family.root.id) && family.subagents.some((session) => session.id === selectedSessionId))}
+                      isSelected={isSessionRowSelected(row, selectedSessionId, collapsedFamilyIds)}
                       isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
                       isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
                       onClick={() => handleSelectSessionFromList(family.root)}
@@ -1752,33 +1775,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       })}
                     />
                   )}
-                  {row.kind === "agents" && (
-                    <button
-                      type="button"
-                      aria-label={t("sidebar.collapseSubagents")}
-                      aria-expanded={true}
-                      onClick={() => setCollapsedFamilyIds((previous) => {
-                        const next = new Set(previous);
-                        next.add(family.root.id);
-                        return next;
-                      })}
-                      style={{
-                        width: "100%", height: SESSION_LIST_ITEM_HEIGHT, display: "flex", alignItems: "center",
-                        gap: 7, padding: "0 14px 0 26px", border: "none", borderTop: "1px solid var(--border)",
-                        background: "var(--bg-panel)", color: "var(--text-muted)", cursor: "pointer", textAlign: "left",
-                        fontSize: 11, fontWeight: 600,
-                      }}
-                    >
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="2 3.5 5 6.5 8 3.5" />
-                      </svg>
-                      <span>{t("agentSwitcher.count", { count: family.subagents.length })}</span>
-                    </button>
-                  )}
                   {row.kind === "subagent" && (
                     <SessionItem
                       session={row.session}
-                      isSelected={row.session.id === selectedSessionId}
+                      isSelected={isSessionRowSelected(row, selectedSessionId, collapsedFamilyIds)}
                       isRunning={runningSessionIds.has(row.session.id)}
                       isUnread={unreadSessionIds.has(row.session.id)}
                       depth={1}
