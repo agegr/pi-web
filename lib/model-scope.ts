@@ -125,7 +125,13 @@ export async function resolveVisibleModels(
     getAvailable: async () => available,
   } as ModelRuntime;
   const { scopedModels, diagnostics } = await resolveModelScopeWithDiagnostics(cleaned, snapshotRuntime);
-  const warnings = diagnostics.map((diagnostic) => diagnostic.message);
+  // A leftover glob after a model was removed is not a chat-level problem when
+  // other enabledModels entries still matched. Keep no-match warnings only for
+  // a total miss, where the UI falls back to every available model and the user
+  // needs to know the scope did not apply.
+  const warnings = diagnostics
+    .filter((diagnostic) => diagnostic.code !== "no-match" || scopedModels.length === 0)
+    .map((diagnostic) => diagnostic.message);
   if (scopedModels.length === 0) {
     return {
       visible: available,
