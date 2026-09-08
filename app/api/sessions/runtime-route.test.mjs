@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -150,7 +150,8 @@ test("deleting an intermediate subagent reparents both relation representations"
   const dir = await mkdtemp(join(tmpdir(), "pi-web-delete-reparent-"));
   const grandparentPath = join(dir, "grandparent.jsonl");
   const parentPath = join(dir, "parent.jsonl");
-  const childPath = join(dir, "child.jsonl");
+  const childPath = join(dir, "nested", "child.jsonl");
+  await mkdir(join(dir, "nested"), { recursive: true });
   const parentId = "delete-reparent-parent";
   const header = (id, parentSession) => JSON.stringify({
     type: "session",

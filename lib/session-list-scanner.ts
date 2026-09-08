@@ -3,7 +3,7 @@
 // ponytail: size/mtime fingerprints miss same-size edits with restored mtime;
 // use content hashes if detecting those edits becomes necessary.
 import { createReadStream, existsSync, readFileSync } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
+import { readdir, realpath, stat } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -176,29 +176,43 @@ export async function scanSessionFileInfo(
 	}
 }
 
-async function enumerateSessionFiles(sessionsDir: string): Promise<string[]> {
-	let dirs: Dirent[];
-	try {
-		const entries = await readdir(sessionsDir, { withFileTypes: true });
-		dirs = entries.filter(
-			(entry) => entry.isDirectory() || entry.isSymbolicLink(),
-		);
-	} catch {
-		return [];
-	}
-
+export async function listSessionFiles(sessionsDir: string): Promise<string[]> {
 	const files: string[] = [];
-	for (const dir of dirs) {
-		const dirPath = join(sessionsDir, dir.name);
+	const visited = new Set<string>();
+
+	const visit = async (dirPath: string): Promise<void> => {
+		let realDir: string;
 		try {
-			for (const f of await readdir(dirPath)) {
-				if (f.endsWith(".jsonl")) files.push(join(dirPath, f));
-			}
+			realDir = await realpath(dirPath);
 		} catch {
-			// unreadable project dir: same skip-as-absent semantics as the SDK
+			return;
 		}
-	}
-	return files;
+		if (visited.has(realDir)) return;
+		visited.add(realDir);
+
+		let entries: Dirent[];
+		try {
+			entries = await readdir(dirPath, { withFileTypes: true });
+		} catch {
+			return;
+		}
+
+		for (const entry of entries) {
+			const entryPath = join(dirPath, entry.name);
+			if (entry.isDirectory() || entry.isSymbolicLink()) {
+				try {
+					if ((await stat(entryPath)).isDirectory()) await visit(entryPath);
+				} catch {
+					// Unreadable or concurrently removed entries are absent.
+				}
+				continue;
+			}
+			if (entry.isFile() && entry.name.endsWith(".jsonl")) files.push(entryPath);
+		}
+	};
+
+	await visit(sessionsDir);
+	return files.sort();
 }
 
 const MAX_CONCURRENT_SCANS = 10;
@@ -299,7 +313,7 @@ export async function listSessionsIncremental(): Promise<ScannedSessionInfo[]> {
 	loadPersistedIndex();
 
 	const sessionsDir = join(getAgentDir(), "sessions");
-	const files = await enumerateSessionFiles(sessionsDir);
+	const files = await listSessionFiles(sessionsDir);
 
 	const index = getIndex();
 	const present = new Set(files);
