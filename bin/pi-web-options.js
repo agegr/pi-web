@@ -12,6 +12,8 @@ const CLI_OPTIONS = {
   help: { type: "boolean", short: "h" },
 };
 
+const COMMANDS = new Set(["foreground", "start", "stop", "status"]);
+
 function isEnabled(value) {
   return typeof value === "string" && TRUE_VALUES.has(value.trim().toLowerCase());
 }
@@ -30,9 +32,14 @@ function normalizePort(value) {
 }
 
 function getHelpText() {
-  return `Usage: pi-web [options]
+  return `Usage: pi-web [command] [options]
 
 Start the Pi Web UI server.
+
+Commands:
+  start                      Start a background service (macOS only)
+  stop                       Stop and unload the background service (macOS only)
+  status                     Report background service status (macOS only)
 
 Options:
   -p, --port <port>          Server port (default: 30141, or PORT)
@@ -49,7 +56,7 @@ Environment:
 `;
 }
 
-function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
+function parseCliArguments(args = process.argv.slice(2), env = process.env) {
   let values;
   let positionals;
   try {
@@ -66,17 +73,15 @@ function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
     throw err;
   }
 
-  if (values.help) {
-    return { help: true };
-  }
-
-  if (positionals.length > 0) {
+  if (values.help) return { command: "foreground", help: true };
+  if (positionals.length > 1 || (positionals.length === 1 && !COMMANDS.has(positionals[0]))) {
     throw new Error(
       `Unexpected argument(s): ${positionals.join(" ")}\nUse --help to see available options.`,
     );
   }
 
   return {
+    command: positionals[0] ?? "foreground",
     help: false,
     port: normalizePort(values.port ?? env.PORT ?? "30141"),
     hostname: values.hostname ?? env.PI_WEB_HOSTNAME ?? "127.0.0.1",
@@ -84,4 +89,16 @@ function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
   };
 }
 
-module.exports = { parseLaunchOptions, getHelpText };
+function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
+  const options = parseCliArguments(args, env);
+  if (options.command !== "foreground") {
+    throw new Error(
+      `Unexpected argument(s): ${options.command}\nUse --help to see available options.`,
+    );
+  }
+  const launchOptions = { ...options };
+  delete launchOptions.command;
+  return launchOptions;
+}
+
+module.exports = { parseCliArguments, parseLaunchOptions, getHelpText };

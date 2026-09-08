@@ -36,6 +36,16 @@ pi-web
 
 To update, stop the running process with `Ctrl+C` and run the same install command again. To uninstall, run `npm uninstall -g @agegr/pi-web`.
 
+On macOS, the command can run as a per-user background service:
+
+```bash
+pi-web start
+pi-web status
+pi-web stop
+```
+
+`start` loads a `launchd` LaunchAgent and returns immediately. `stop` unloads it; both commands are safe to repeat. The service definition is stored at `~/Library/LaunchAgents/com.agegr.pi-web.plist` and its standard output and error logs are stored under `~/Library/Logs/Pi Web/`. The service captures the startup environment and options at `start` time, so run `stop` and `start` again after changing configuration. Stop the service before uninstalling Pi Web.
+
 ## Configuration
 
 For port and hostname, command-line options override the corresponding environment variables. Either `--no-open` or `PI_WEB_NO_OPEN=1` disables automatic browser opening. Run `pi-web --help` (or `-h`) to print startup options and exit without starting the server. Unknown options exit with an error.
