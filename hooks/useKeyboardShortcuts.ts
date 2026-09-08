@@ -21,10 +21,20 @@ export function registerAbortHandler(handler: (() => void) | null): void {
 // ---------------------------------------------------------------------------
 
 interface UseGlobalKeyboardShortcutsOptions {
-  /** Called when Ctrl+Alt+N is pressed. Receives current cwd. */
+  /** Called when Ctrl+Alt+N or Command+Shift+O is pressed. Receives current cwd. */
   onNewSession?: (cwd: string) => void;
+  /** Focuses the active chat input and inserts a slash. */
+  onFocusSlash?: () => void;
   /** The currently selected project directory (sidebar cwd). */
   activeCwd?: string | null;
+}
+
+export function isEditableTarget(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null;
+  return element?.isContentEditable === true
+    || element?.tagName === "INPUT"
+    || element?.tagName === "TEXTAREA"
+    || element?.tagName === "SELECT";
 }
 
 /**
@@ -42,7 +52,7 @@ interface UseGlobalKeyboardShortcutsOptions {
 export function useGlobalKeyboardShortcuts(
   options: UseGlobalKeyboardShortcutsOptions,
 ): void {
-  const { onNewSession, activeCwd } = options;
+  const { onNewSession, onFocusSlash, activeCwd } = options;
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
@@ -59,6 +69,22 @@ export function useGlobalKeyboardShortcuts(
         return;
       }
 
+      // ---- Command+Shift+O: new session ----
+      if (e.key.toLowerCase() === "o" && e.metaKey && e.shiftKey) {
+        if (!activeCwd || !onNewSession) return;
+        e.preventDefault();
+        onNewSession(activeCwd);
+        return;
+      }
+
+      // ---- Slash: focus the chat composer ----
+      if (e.key === "/" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (isEditableTarget(e.target) || !onFocusSlash) return;
+        e.preventDefault();
+        onFocusSlash();
+        return;
+      }
+
       // ---- Ctrl+Alt+N: new session ----
       if (e.key === "n" && e.ctrlKey && e.altKey) {
         if (!activeCwd || !onNewSession) return;
@@ -69,5 +95,5 @@ export function useGlobalKeyboardShortcuts(
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activeCwd, onNewSession]);
+  }, [activeCwd, onFocusSlash, onNewSession]);
 }

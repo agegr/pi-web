@@ -84,6 +84,7 @@ interface Props {
 
 export interface ChatInputHandle {
   insertText: (text: string) => void;
+  focusAndInsertSlash: () => void;
   insertIfEmpty: (text: string) => void;
   replaceMessage: (message: UserMessage) => void;
   prependText: (text: string) => void;
@@ -710,6 +711,19 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         const pos = start + sep.length + text.length;
         ta.setSelectionRange(pos, pos);
         ta.focus();
+        ta.style.height = "auto";
+        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      });
+    },
+    focusAndInsertSlash() {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      valueRef.current = `${ta.value}/`;
+      setValue(valueRef.current);
+      setAtQuery(null);
+      requestAnimationFrame(() => {
+        ta.focus();
+        ta.setSelectionRange(ta.value.length, ta.value.length);
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
