@@ -27,6 +27,7 @@ const nextConfig: NextConfig = {
   basePath: process.env.PI_WEB_BASE_PATH || "",
   outputFileTracingRoot: configDir,
   serverExternalPackages: [
+    "node-pty",
     "undici",
     "web-push",
     "@earendil-works/pi-coding-agent",

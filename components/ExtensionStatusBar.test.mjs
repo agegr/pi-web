@@ -47,15 +47,17 @@ test("preserves status line breaks while normalizing horizontal whitespace", () 
   );
 });
 
-test("allows multiline status text to wrap and scroll within the footer", async () => {
+test("preserves explicit status lines without wrapping and scrolls long or tall output", async () => {
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   const statusLineRule = css.match(/\.extension-status-line\s*\{([^}]*)\}/)?.[1] ?? "";
   const statusTextRule = css.match(/\.extension-status-text\s*\{([^}]*)\}/)?.[1] ?? "";
 
   assert.match(statusLineRule, /max-height:/);
-  assert.match(statusLineRule, /overflow-y:\s*auto/);
-  assert.match(statusTextRule, /overflow-wrap:\s*anywhere/);
-  assert.match(statusTextRule, /white-space:\s*pre-wrap/);
+  assert.match(statusLineRule, /align-items:\s*flex-start/);
+  assert.match(statusLineRule, /overflow:\s*auto/);
+  assert.match(statusTextRule, /white-space:\s*pre\s*;/);
+  assert.doesNotMatch(statusTextRule, /overflow[^:]*:\s*hidden/);
+  assert.doesNotMatch(statusTextRule, /overflow-wrap:\s*anywhere/);
   assert.doesNotMatch(statusTextRule, /text-overflow:\s*ellipsis/);
 });
 

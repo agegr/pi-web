@@ -24,6 +24,7 @@ import {
   isAudioPath,
   isDocumentPreviewPath,
   isImagePath,
+  isVideoPath,
 } from "@/lib/file-types";
 import {
   encodeFilePathForApi,
@@ -31,11 +32,12 @@ import {
   getFileName,
   getRelativeFilePath,
 } from "@/lib/file-paths";
-import { resolveLocalFileHref } from "@/lib/file-links";
+import { resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
 import { parseFrontmatter } from "@/lib/frontmatter";
 import {
   markdownPreviewRehypePlugins,
   markdownPreviewRemarkPlugins,
+  markdownUrlTransform,
   normalizeDisplayMath,
 } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
@@ -74,6 +76,8 @@ interface FileData {
   content: string;
   language: string;
   size: number;
+  nextOffset: number;
+  truncated: boolean;
 }
 
 const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
@@ -925,6 +929,161 @@ function AudioViewer({
   );
 }
 
+function VideoViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Props) {
+  const { t } = useI18n();
+  const [watching, setWatching] = useState(false);
+  const [bust, setBust] = useState(0);
+  const [size, setSize] = useState<number | null>(null);
+  const [duration, setDuration] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const esRef = useRef<EventSource | null>(null);
+  const syncRequestRef = useRef(0);
+
+  const ext = getFileName(filePath).toLowerCase().split(".").pop() ?? "";
+
+  useEffect(() => {
+    setBust(0);
+    setSize(null);
+    setDuration(null);
+    setError(null);
+    setWatching(false);
+  }, [filePath, sourceSessionId]);
+
+  useEffect(() => {
+    setWatching(false);
+
+    if (esRef.current) {
+      esRef.current.close();
+      esRef.current = null;
+    }
+
+    if (!watchEnabled) return;
+
+    let active = true;
+    const synchronize = () => {
+      const requestId = ++syncRequestRef.current;
+      fetch(getFileApiUrl(filePath, "meta", sourceSessionId))
+        .then((response) => response.json())
+        .then((next: { size?: number; error?: string }) => {
+          if (!active || requestId !== syncRequestRef.current) return;
+          if (next.error) {
+            setError(next.error);
+            return;
+          }
+          if (typeof next.size === "number") setSize(next.size);
+          setDuration(null);
+          setError(null);
+          setBust((value) => value + 1);
+        })
+        .catch((nextError) => {
+          if (active && requestId === syncRequestRef.current) setError(String(nextError));
+        });
+    };
+
+    const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
+    esRef.current = es;
+
+    es.addEventListener("connected", () => {
+      setWatching(true);
+      synchronize();
+    });
+    es.addEventListener("change", (e) => {
+      syncRequestRef.current += 1;
+      try {
+        const d = JSON.parse((e as MessageEvent).data) as { size?: number };
+        if (typeof d.size === "number") setSize(d.size);
+      } catch { /* ignore */ }
+      setDuration(null);
+      setError(null);
+      setBust((b) => b + 1);
+    });
+    const markDisconnected = () => {
+      setWatching(false);
+    };
+    es.addEventListener("error", markDisconnected);
+    es.onerror = markDisconnected;
+
+    return () => {
+      active = false;
+      es.close();
+      if (esRef.current === es) esRef.current = null;
+    };
+  }, [filePath, sourceSessionId, watchEnabled]);
+
+  const src = getFileApiUrl(filePath, "read", sourceSessionId, bust ? { v: bust } : undefined);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          padding: "4px 16px",
+          borderBottom: "1px solid var(--border)",
+          fontSize: 11,
+          color: "var(--text-dim)",
+          background: "var(--bg)",
+          flexShrink: 0,
+        }}
+      >
+        <span style={{ fontFamily: "var(--font-mono)" }} title={filePath}>
+          {getRelativeFilePath(filePath, cwd)}
+        </span>
+        <span style={{ marginLeft: "auto" }}>{ext || "video"}</span>
+        {duration != null && <span>{formatDuration(duration)}</span>}
+        {size != null && <span>{formatSize(size)}</span>}
+        <span
+          title={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
+          style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "#4ade80" : "var(--text-dim)" }}
+        >
+          <span
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              background: watching ? "#4ade80" : "var(--border)",
+              display: "inline-block",
+              boxShadow: watching ? "0 0 4px #4ade80" : "none",
+            }}
+          />
+          {watching ? "live" : "static"}
+        </span>
+        <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
+      </div>
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 24,
+          background: "var(--bg-panel)",
+          minHeight: 0,
+        }}
+      >
+        <div style={{ width: "min(960px, 100%)", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 0 }}>
+          {error && (
+            <div style={{ color: "#f87171", fontSize: 13, marginBottom: 12, textAlign: "center" }}>
+              {error}
+            </div>
+          )}
+          <video
+            key={src}
+            controls
+            playsInline
+            preload="metadata"
+            src={src}
+            onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+            onError={() => setError("Failed to load video")}
+            style={{ maxWidth: "100%", maxHeight: "100%" }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DocumentViewer({
   filePath,
   cwd,
@@ -1190,6 +1349,9 @@ export function FileViewer({
       />
     );
   }
+  if (isVideoPath(filePath)) {
+    return <VideoViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} watchEnabled={watchEnabled} />;
+  }
   if (isDocumentPreviewPath(filePath)) {
     return (
       <DocumentViewer
@@ -1237,6 +1399,7 @@ function TextFileViewer({
   const [gitDiffLoading, setGitDiffLoading] = useState(false);
   const [gitDiffResolved, setGitDiffResolved] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestedInitialDisplayMode = resolveInitialFileDisplayMode(
     initialState,
@@ -1310,29 +1473,28 @@ function TextFileViewer({
     initialScrollLeft,
   ]);
 
-  const fetchContent = useCallback(
-    (filePath: string) => {
-      const requestId = ++contentRequestRef.current;
-      return fetch(getFileApiUrl(filePath, "read", sourceSessionId))
-        .then((r) => r.json())
-        .then((d: FileData & { error?: string }) => {
-          if (requestId !== contentRequestRef.current) return null;
-          if (d.error) {
-            setError(d.error);
-            return null;
-          }
-          setError(null);
-          setData(d);
-          return d;
-        })
-        .catch((e) => {
-          if (requestId !== contentRequestRef.current) return null;
-          setError(String(e));
+  const fetchContent = useCallback((filePath: string, offset = 0) => {
+    const requestId = ++contentRequestRef.current;
+    return fetch(getFileApiUrl(filePath, "read", sourceSessionId, { offset: offset || undefined }))
+      .then((r) => r.json())
+      .then((d: FileData & { error?: string }) => {
+        if (requestId !== contentRequestRef.current) return null;
+        if (d.error) {
+          setError(d.error);
           return null;
-        });
-    },
-    [sourceSessionId],
-  );
+        }
+        setError(null);
+        setData((current) => offset && current
+          ? { ...d, content: current.content + d.content }
+          : d);
+        return d;
+      })
+      .catch((e) => {
+        if (requestId !== contentRequestRef.current) return null;
+        setError(String(e));
+        return null;
+      });
+  }, [sourceSessionId]);
 
   const fetchGitDiff = useCallback(
     async (targetPath: string) => {
@@ -1440,13 +1602,14 @@ function TextFileViewer({
     // mode already; the source tab stays one click away. A restored choice or
     // explicit mode hint always wins over this default.
     if (
-      defaultPreviewEligibleRef.current &&
-      (data?.language === "markdown" || data?.language === "html")
+      defaultPreviewEligibleRef.current
+      && !data?.truncated
+      && (data?.language === "markdown" || data?.language === "html")
     ) {
       defaultPreviewEligibleRef.current = false;
       updateDisplayMode("preview");
     }
-  }, [data?.language, updateDisplayMode]);
+  }, [data?.language, data?.truncated, updateDisplayMode]);
 
   const hasGitDiff =
     gitDiff?.supported === true && typeof gitDiff.patch === "string";
@@ -1482,14 +1645,96 @@ function TextFileViewer({
     [data],
   );
 
+  const viewerContent = data?.content ?? "";
+  const sourceLines = useMemo(() => viewerContent.split("\n"), [viewerContent]);
+  const language = data?.language ?? "text";
+  const isHtml = language === "html";
+  const isMarkdown = language === "markdown";
+  const hasPreview = !data?.truncated && (isHtml || isMarkdown);
+  const effectiveDisplayMode = isDeletedDiff ? "diff" : displayMode;
+  const useLightweightSource = sourceLines.length > SOURCE_HIGHLIGHT_MAX_LINES
+    && !(effectiveDisplayMode === "diff" && hasGitDiff)
+    && !(effectiveDisplayMode === "preview" && hasPreview);
+  // react-syntax-highlighter rebuilds every token element on each render, which
+  // costs hundreds of milliseconds on large files. Cache the rendered trees so
+  // unrelated re-renders (panel open/close, selection changes) reuse them as-is.
+  const highlightedSource = useMemo(
+    () => (
+      <SyntaxHighlighter
+        className={wrapLines ? "file-source-view is-wrapped" : "file-source-view"}
+        language={language === "text" ? "plaintext" : language}
+        style={isDark ? vscDarkPlus : vs}
+        showLineNumbers
+        lineNumberStyle={{
+          ...FILE_LINE_NUMBER_STYLE,
+        }}
+        customStyle={{
+          margin: 0,
+          padding: 0,
+          border: 0,
+          background: "var(--bg)",
+          ...FILE_CODE_STYLE,
+          width: wrapLines ? "100%" : "max-content",
+          minWidth: "100%",
+          minHeight: "100%",
+          overflow: "visible",
+        }}
+        codeTagProps={{
+          style: {
+            fontFamily: "var(--font-mono)",
+            overflowWrap: wrapLines ? "anywhere" : "normal",
+          },
+        }}
+        renderer={(rendererProps) => (
+          <SourceCodeRenderer {...rendererProps} wrapLines={wrapLines} />
+        )}
+        wrapLongLines={wrapLines}
+      >
+        {viewerContent}
+      </SyntaxHighlighter>
+    ),
+    [isDark, language, viewerContent, wrapLines],
+  );
+  const lightweightSourceLines = useMemo(
+    () => useLightweightSource ? sourceLines.map((line, lineIndex) => (
+      <span
+        className="file-source-line"
+        data-line-number={lineIndex + 1}
+        key={`source-line-${lineIndex}`}
+        style={{ display: "flex", minWidth: "100%" }}
+      >
+        <span aria-hidden="true" style={FILE_LINE_NUMBER_STYLE}>
+          {lineIndex + 1}
+        </span>
+        <span
+          className="file-source-line-content"
+          style={{
+            flex: "1 1 auto",
+            minWidth: 0,
+            overflowWrap: wrapLines ? "anywhere" : "normal",
+            whiteSpace: wrapLines ? "pre-wrap" : "pre",
+          }}
+        >
+          {line}
+        </span>
+      </span>
+    )) : null,
+    [sourceLines, useLightweightSource, wrapLines],
+  );
+
   useEffect(() => {
     const updateSelectedLineRange = () => {
       const root = contentRef.current;
-      setSelectedLineRange(
-        onMentionLines && displayMode === "source" && root
+      setSelectedLineRange((current) => {
+        const next = onMentionLines && displayMode === "source" && root
           ? getSelectedSourceLineRange(root, window.getSelection())
-          : null,
-      );
+          : null;
+        // Skip no-op updates: selectionchange fires continuously while dragging,
+        // and a fresh-but-equal range object would re-render the whole viewer.
+        if (current === null && next === null) return current;
+        if (current && next && current.startLine === next.startLine && current.endLine === next.endLine) return current;
+        return next;
+      });
     };
 
     updateSelectedLineRange();
@@ -1613,15 +1858,9 @@ function TextFileViewer({
 
   if (!data && !isDeletedDiff) return null;
 
-  const language = data?.language ?? "text";
-  const content = data?.content ?? "";
-  const isHtml = language === "html";
-  const isMarkdown = language === "markdown";
-  const hasPreview = isHtml || isMarkdown;
+  const content = viewerContent;
   const markdownDirectory = getFileDirectory(filePath);
-  const lines = content.split("\n");
-  const useLightweightSource = lines.length > SOURCE_HIGHLIGHT_MAX_LINES;
-  const effectiveDisplayMode = isDeletedDiff ? "diff" : displayMode;
+  const lines = sourceLines;
   const displayModes: DisplayMode[] = isDeletedDiff
     ? ["diff"]
     : [
@@ -1634,15 +1873,7 @@ function TextFileViewer({
     : `${language} · ${lines.length} lines · ${formatSize(data!.size)}`;
 
   return (
-    <div
-      className="file-viewer-shell"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
+    <div className="file-viewer-shell" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", position: "relative" }}>
       <div
         className="file-viewer-toolbar"
         style={{
@@ -1785,6 +2016,36 @@ function TextFileViewer({
         </div>
       </div>
 
+      {data?.truncated && (
+        <div
+          className="file-viewer-load-more"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 10,
+            padding: "5px 8px",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            color: "var(--text-dim)",
+            fontSize: 11,
+          }}
+        >
+          <span>{formatSize(data.nextOffset)} / {formatSize(data.size)}</span>
+          <button
+            type="button"
+            className="file-viewer-mode-button"
+            disabled={loadingMore}
+            onClick={() => {
+              setLoadingMore(true);
+              void fetchContent(filePath, data.nextOffset).finally(() => setLoadingMore(false));
+            }}
+          >
+            {loadingMore ? t("i18n.loading") : t("i18n.loadMore")}
+          </button>
+        </div>
+      )}
+
       {/* Content area */}
       <div
         ref={contentRef}
@@ -1793,7 +2054,7 @@ function TextFileViewer({
           viewerStateRef.current.scrollTop = event.currentTarget.scrollTop;
           viewerStateRef.current.scrollLeft = event.currentTarget.scrollLeft;
         }}
-        style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}
+        style={{ flex: 1, overflow: "auto", background: "var(--bg)", paddingBottom: data?.truncated ? 48 : undefined }}
       >
         {effectiveDisplayMode === "diff" && hasGitDiff ? (
           <DiffView patch={gitDiff.patch!} />
@@ -1818,6 +2079,7 @@ function TextFileViewer({
             <ReactMarkdown
               remarkPlugins={markdownPreviewRemarkPlugins}
               rehypePlugins={markdownPreviewRehypePlugins}
+              urlTransform={onOpenFile ? markdownUrlTransform : undefined}
               components={{
                 code({ className, children, ...props }) {
                   const lang =
@@ -1866,17 +2128,8 @@ function TextFileViewer({
                     );
                   }
 
-                  const handleClick = (
-                    event: MouseEvent<HTMLAnchorElement>,
-                  ) => {
-                    if (event.defaultPrevented || event.button !== 0) return;
-                    if (
-                      event.metaKey ||
-                      event.ctrlKey ||
-                      event.shiftKey ||
-                      event.altKey
-                    )
-                      return;
+                  const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+                    if (!shouldOpenLocalFileInApp(event)) return;
                     event.preventDefault();
                     onOpenFile(linkedFile);
                   };
@@ -1927,65 +2180,10 @@ function TextFileViewer({
               ...FILE_CODE_STYLE,
             }}
           >
-            {lines.map((line, lineIndex) => (
-              <span
-                className="file-source-line"
-                data-line-number={lineIndex + 1}
-                key={`source-line-${lineIndex}`}
-                style={{ display: "flex", minWidth: "100%" }}
-              >
-                <span aria-hidden="true" style={FILE_LINE_NUMBER_STYLE}>
-                  {lineIndex + 1}
-                </span>
-                <span
-                  className="file-source-line-content"
-                  style={{
-                    flex: "1 1 auto",
-                    minWidth: 0,
-                    overflowWrap: wrapLines ? "anywhere" : "normal",
-                    whiteSpace: wrapLines ? "pre-wrap" : "pre",
-                  }}
-                >
-                  {line}
-                </span>
-              </span>
-            ))}
+            {lightweightSourceLines}
           </div>
         ) : (
-          <SyntaxHighlighter
-            className={
-              wrapLines ? "file-source-view is-wrapped" : "file-source-view"
-            }
-            language={language === "text" ? "plaintext" : language}
-            style={isDark ? vscDarkPlus : vs}
-            showLineNumbers
-            lineNumberStyle={{
-              ...FILE_LINE_NUMBER_STYLE,
-            }}
-            customStyle={{
-              margin: 0,
-              padding: 0,
-              border: 0,
-              background: "var(--bg)",
-              ...FILE_CODE_STYLE,
-              width: wrapLines ? "100%" : "max-content",
-              minWidth: "100%",
-              minHeight: "100%",
-              overflow: "visible",
-            }}
-            codeTagProps={{
-              style: {
-                fontFamily: "var(--font-mono)",
-                overflowWrap: wrapLines ? "anywhere" : "normal",
-              },
-            }}
-            renderer={(rendererProps) => (
-              <SourceCodeRenderer {...rendererProps} wrapLines={wrapLines} />
-            )}
-            wrapLongLines={wrapLines}
-          >
-            {content}
-          </SyntaxHighlighter>
+          highlightedSource
         )}
       </div>
     </div>

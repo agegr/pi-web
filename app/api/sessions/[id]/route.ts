@@ -145,10 +145,22 @@ export async function DELETE(
     }
 
     // Read only the bounded header before deleting.
-    const parentSessionPath = readSessionHeader(filePath)?.parentSession;
-    const parentSessionId = parentSessionPath
-      ? readSessionHeader(parentSessionPath)?.id
-      : undefined;
+    let parentSessionPath: string | undefined;
+    try {
+      parentSessionPath = readSessionHeader(filePath)?.parentSession;
+    } catch (error) {
+      // Empty runtime sessions have a cached path before their first disk write.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    let parentSessionId: string | undefined;
+    if (parentSessionPath) {
+      try {
+        // The parent may have been deleted or moved already; treat it as absent.
+        parentSessionId = readSessionHeader(parentSessionPath)?.id;
+      } catch {
+        parentSessionId = undefined;
+      }
+    }
 
     // Re-attach all direct children to this session's parent (cascade re-parent)
     // Scan sibling files in the same directory
@@ -203,7 +215,11 @@ export async function DELETE(
     } catch { /* skip if dir unreadable */ }
 
     await getRpcSession(id)?.shutdown();
-    unlinkSync(filePath);
+    try {
+      unlinkSync(filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
     invalidateSessionPathCache(id);
     invalidateSessionListCache();
     return NextResponse.json({ ok: true });

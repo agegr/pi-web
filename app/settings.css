@@ -469,7 +469,7 @@
 
 .skill-version-value.is-update,
 .skill-update-indicator {
-  color: #d97706;
+  color: var(--accent);
 }
 
 .skill-name-value {
@@ -566,7 +566,7 @@
 .config-button-primary {
   border-color: var(--accent);
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-contrast);
   font-weight: 600;
 }
 
@@ -589,8 +589,8 @@
 }
 
 .config-button-primary:not(:disabled):hover {
-  border-color: color-mix(in srgb, var(--accent) 88%, #000);
-  background: color-mix(in srgb, var(--accent) 88%, #000);
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
 }
 
 .config-button-secondary:not(:disabled):hover,
@@ -634,18 +634,34 @@
 .config-switch {
   position: relative;
   flex-shrink: 0;
-  width: 40px;
-  height: 22px;
+  width: 32px;
+  height: 18px;
   padding: 0;
-  border: 0;
-  border-radius: 11px;
-  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-selected);
   cursor: pointer;
-  transition: background 0.18s;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .config-switch[aria-checked="true"] {
+  border-color: var(--accent);
   background: var(--accent);
+}
+
+.config-switch:not(:disabled):hover {
+  border-color: var(--text-muted);
+}
+
+.config-switch[aria-checked="true"]:not(:disabled):hover {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+}
+
+.config-switch::before {
+  content: "";
+  position: absolute;
+  inset: -5px -3px;
 }
 
 .config-switch:disabled {
@@ -659,18 +675,18 @@
 
 .config-switch-knob {
   position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 16px;
-  height: 16px;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  background: var(--bg);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
-  transition: left 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  background: var(--text-muted);
+  transition: transform 0.15s, background 0.15s;
 }
 
 .config-switch[aria-checked="true"] .config-switch-knob {
-  left: 21px;
+  transform: translateX(14px);
+  background: var(--bg);
 }
 
 .config-switch:focus-visible {
@@ -886,6 +902,7 @@
 
 .settings-general {
   width: 100%;
+  max-height: 100%;
   max-width: 680px;
   padding: 26px clamp(18px, 4vw, 40px) 40px;
   overflow-y: auto;
@@ -927,18 +944,17 @@
   width: 100%;
   max-width: 420px;
   padding: 3px;
-  border-radius: 7px;
-  background: var(--bg-panel);
 }
 
 .settings-theme-option {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
   min-width: 0;
-  height: 42px;
-  padding: 0 8px;
+  min-height: 44px;
+  padding: 0 6px;
   border: 0;
   border-radius: 5px;
   background: transparent;
@@ -948,23 +964,76 @@
   font-weight: 400;
 }
 
-.settings-theme-option[aria-checked="true"] {
+.settings-theme-option:has(input:checked) {
   background: var(--bg-selected);
   color: var(--accent);
   font-weight: 600;
 }
 
-.settings-theme-option:not([aria-checked="true"]):hover,
-.settings-theme-option:focus-visible {
+.settings-theme-option:not(:has(input:checked)):hover {
   background: var(--bg-hover);
-  outline: none;
+}
+
+.settings-theme-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .settings-theme-option-label {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+
+.settings-chat-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.settings-chat-option {
+  width: 100%;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.settings-chat-switch-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 28px;
+}
+
+.settings-chat-range-option {
+  padding: 0;
+}
+
+.settings-chat-range-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 28px;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-chat-range-header output {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.settings-chat-reset {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
+.settings-chat-range-option input {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  accent-color: var(--accent);
 }
 
 .settings-language-options {

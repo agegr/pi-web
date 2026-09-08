@@ -34,7 +34,7 @@ export interface ImageContent {
 export interface ThinkingContent {
   type: "thinking";
   thinking: string;
-  /** Historical content omitted from the initial response and loaded on demand. */
+  /** Historical content is a short preview; full reasoning is loaded on demand. */
   deferred?: boolean;
 }
 

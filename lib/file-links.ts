@@ -1,3 +1,21 @@
+interface LocalFileClickEvent {
+  defaultPrevented: boolean;
+  button: number;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+  altKey: boolean;
+}
+
+export function shouldOpenLocalFileInApp(event: LocalFileClickEvent): boolean {
+  // Browsers block file:// navigation from Pi Web's HTTP origin, so the
+  // platform primary modifier must use the same in-app preview as a plain click.
+  return !event.defaultPrevented
+    && event.button === 0
+    && !event.shiftKey
+    && !event.altKey;
+}
+
 function safeDecode(value: string): string {
   try {
     return decodeURIComponent(value);
@@ -98,7 +116,8 @@ export function resolveLocalFileHref(
   }
 
   if (lowerHref.startsWith("file:")) {
-    candidate = fileUrlToPath(normalizedHref);
+    // Decode only the parsed pathname so encoded delimiters stay in the filename.
+    candidate = fileUrlToPath(cleanHref);
     candidateKind = candidate ? "absolute" : null;
   } else if (/^[a-zA-Z]:\//.test(normalizedHref)) {
     candidate = normalizedHref;

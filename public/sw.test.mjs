@@ -61,6 +61,7 @@ test("push shows a notification when no window is visible", async () => {
       body: "Task finished.",
       data: { url: "/?session=session-1" },
       tag: "pi-session-complete:session-1",
+      renotify: true,
     },
   }]);
 });

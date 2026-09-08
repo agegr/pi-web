@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getSessionListVersion } from "@/lib/session-reader";
 import {
   getCompletionNotificationSuppressedRpcSessionIds,
   getRunningRpcSessionIds,
@@ -10,6 +11,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   return NextResponse.json(
     {
+      sessionListVersion: getSessionListVersion(),
       runningSessionIds: getRunningRpcSessionIds(),
       completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
     },

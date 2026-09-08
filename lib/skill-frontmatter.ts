@@ -2,6 +2,34 @@ import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 
 const KEY = "disable-model-invocation";
 const KEY_LINE = `[ \\t]*(?:${KEY}|"${KEY}"|'${KEY}')[ \\t]*:`;
+const NEWLINE = "\\r\\n|\\n|\\r";
+
+interface FrontmatterBlock {
+  openingEnd: number;
+  closingStart: number;
+  newline: string;
+}
+
+function findFrontmatterBlock(content: string): FrontmatterBlock | undefined {
+  const opening = new RegExp(`^\\uFEFF?---[ \\t]*(${NEWLINE})`).exec(content);
+  if (!opening) return undefined;
+
+  const rest = content.slice(opening[0].length);
+  // Pi SDK closes frontmatter at the first line starting with ---.
+  const closing = new RegExp(`(^|${NEWLINE})---`).exec(rest);
+  if (!closing) return undefined;
+
+  return {
+    openingEnd: opening[0].length,
+    closingStart: opening[0].length + closing.index + closing[1].length,
+    newline: opening[1],
+  };
+}
+
+function startsWithFrontmatterFence(content: string): boolean {
+  const start = content.startsWith("\uFEFF") ? 1 : 0;
+  return content.startsWith("---", start);
+}
 
 /**
  * Toggle the `disable-model-invocation` frontmatter key with a surgical line
@@ -19,27 +47,39 @@ export function setDisableModelInvocation(content: string, disable: boolean): st
 
   // Only edit inside the frontmatter block, so a body line that happens to
   // document the key is never touched.
-  const closing = content.startsWith("---") ? content.indexOf("\n---", 3) : -1;
-  const head = closing === -1 ? content : content.slice(0, closing);
-  const tail = closing === -1 ? "" : content.slice(closing);
+  const block = findFrontmatterBlock(content);
 
   if (disable) {
     if (hasKey) {
-      const keyLine = new RegExp(`^(${KEY_LINE})[^\\r\\n]*(\\r?)$`, "m");
+      if (!block) throw new Error(`Cannot edit ${KEY}: unsupported frontmatter formatting`);
+      const head = content.slice(block.openingEnd, block.closingStart);
+      const keyLine = new RegExp(`(^|${NEWLINE})(${KEY_LINE})[^\\r\\n]*`);
       if (!keyLine.test(head)) throw new Error(`Cannot edit ${KEY}: unsupported frontmatter formatting`);
-      return head.replace(keyLine, "$1 true$2") + tail;
+      const updated = head.replace(keyLine, "$1$2 true");
+      return content.slice(0, block.openingEnd) + updated + content.slice(block.closingStart);
     }
-    const withKey = head.replace(/^---(\r?\n)/, `---$1${KEY}: true$1`);
-    if (withKey === head) {
+    if (!block) {
+      if (startsWithFrontmatterFence(content)) {
+        throw new Error(`Cannot edit ${KEY}: unsupported frontmatter formatting`);
+      }
       // No frontmatter block at all — create one.
-      return `---\n${KEY}: true\n---\n${content}`;
+      const bom = content.startsWith("\uFEFF") ? "\uFEFF" : "";
+      const body = bom ? content.slice(1) : content;
+      return `${bom}---\n${KEY}: true\n---\n${body}`;
     }
-    return withKey + tail;
+    return (
+      content.slice(0, block.openingEnd) +
+      `${KEY}: true${block.newline}` +
+      content.slice(block.openingEnd)
+    );
   }
 
-  // Drop the line together with its preceding newline so no blank line is
-  // left behind; the key is never the first line of the frontmatter block.
-  const keyLine = new RegExp(`\\n${KEY_LINE}[^\\n]*`);
+  if (!block) throw new Error(`Cannot edit ${KEY}: unsupported frontmatter formatting`);
+  const head = content.slice(block.openingEnd, block.closingStart);
+  // Keep the preceding newline, when present, and consume the key line's own
+  // newline so the surrounding frontmatter retains exactly one line break.
+  const keyLine = new RegExp(`(^|${NEWLINE})${KEY_LINE}[^\\r\\n]*(?:${NEWLINE}|$)`);
   if (!keyLine.test(head)) throw new Error(`Cannot edit ${KEY}: unsupported frontmatter formatting`);
-  return head.replace(keyLine, "") + tail;
+  const updated = head.replace(keyLine, "$1");
+  return content.slice(0, block.openingEnd) + updated + content.slice(block.closingStart);
 }

@@ -1,4 +1,4 @@
-import type { Options as ReactMarkdownOptions } from "react-markdown";
+import { defaultUrlTransform, type Options as ReactMarkdownOptions } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
@@ -12,8 +12,27 @@ const markdownSanitizeSchema = {
     ...defaultSchema.attributes,
     code: [["className", /^language-./, "math-inline", "math-display"]],
   },
+  protocols: {
+    ...defaultSchema.protocols,
+    href: [...(defaultSchema.protocols?.href ?? []), "file"],
+  },
   strip: [...(defaultSchema.strip || []), "iframe", "object", "style", "form"],
 };
+
+export function markdownUrlTransform(value: string): string {
+  return /^file:/i.test(value) ? value : defaultUrlTransform(value);
+}
+
+const escapedInlineCodePattern = /(?<![\\`])`((?:[^`\n]|\\`)+?)(?<![\\`])`(?!`)/g;
+
+function rewriteEscapedInlineCodeBackticks(line: string): string {
+  return line.replace(escapedInlineCodePattern, (match, content: string) => {
+    const code = content.replace(/\\`/g, "`");
+    if (code === content) return match;
+    const marker = "`".repeat(Math.max(...(code.match(/`+/g)?.map((run) => run.length) ?? [0])) + 1);
+    return `${marker}${code}${marker}`;
+  });
+}
 
 export function normalizeDisplayMath(markdown: string): string {
   const lineBreak = markdown.includes("\r\n") ? "\r\n" : "\n";
@@ -25,7 +44,7 @@ export function normalizeDisplayMath(markdown: string): string {
   const unmatchedDisplayMathUntil = new Map<string, number>();
 
   for (let index = 0; index < lines.length; index++) {
-    const line = lines[index];
+    let line = lines[index];
 
     if (rawCodeTag) {
       normalized.push(line);
@@ -64,6 +83,8 @@ export function normalizeDisplayMath(markdown: string): string {
       normalized.push(line);
       continue;
     }
+
+    if (!inlineCodeMarkerSize) line = rewriteEscapedInlineCodeBackticks(line);
 
     if (inlineCodeMarkerSize || line.includes("`")) {
       inlineCodeMarkerSize = updateInlineCodeMarker(line, inlineCodeMarkerSize);

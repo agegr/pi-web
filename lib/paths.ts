@@ -27,6 +27,15 @@ export function isWindowsAbsolutePath(filePath: string): boolean {
   return WINDOWS_ABSOLUTE_RE.test(filePath) || filePath.startsWith("\\\\") || filePath.startsWith("//");
 }
 
+/** Rebuild an absolute filesystem path from Next.js catch-all route segments. */
+export function filePathFromApiSegments(segments: string[]): string {
+  const joined = segments.join("/");
+  const slashJoined = toSlashPath(joined);
+  if (/^[a-zA-Z]:$/.test(slashJoined)) return `${slashJoined}/`;
+  if (isWindowsAbsolutePath(slashJoined)) return slashJoined;
+  return "/" + joined.replace(/^\/+/, "");
+}
+
 /**
  * Convert a path to native separators. Chiefly for git output: git prints
  * POSIX-style absolute paths even on Windows (`D:/repo/sub`), which never

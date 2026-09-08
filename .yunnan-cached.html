@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>云南 5 天 4 晚休闲自驾 · 国庆窗口决策面板</title>
+<style>
+:root{
+  --bg:#0f1720; --panel:#16222f; --panel2:#1c2b3a; --line:#2a3b4d;
+  --txt:#e8eef5; --sub:#9fb0c3; --mut:#6b7c90;
+  --brand:#4ade80; --brand2:#22d3ee; --amber:#fbbf24; --rose:#f87171;
+  --dl:#f59e0b; --lj:#34d399; --sh:#a78bfa; --er:#f472b6;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--txt);font:14px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+a{color:var(--brand2);text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:1200px;margin:0 auto;padding:20px 18px 80px}
+
+/* header */
+header.hero{background:linear-gradient(135deg,#0e2a1f 0%,#0f1720 45%,#12263a 100%);border:1px solid var(--line);border-radius:16px;padding:28px 30px;margin-bottom:22px;position:relative;overflow:hidden}
+header.hero h1{font-size:26px;letter-spacing:1px;color:#fff}
+header.hero .sub{margin-top:6px;color:var(--sub);font-size:13px}
+header.hero .badges{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+.badge{background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:3px 10px;border-radius:20px;font-size:12px}
+.badge b{color:var(--brand2)}
+.hero .summary{margin-top:16px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.3);border-left:4px solid var(--brand);border-radius:10px;padding:12px 16px;font-size:13.5px;color:#d9f7e3}
+.hero .summary b{color:var(--brand)}
+
+/* nav tabs */
+nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;position:sticky;top:0;background:var(--bg);padding:10px 0;z-index:50}
+nav button{background:var(--panel);border:1px solid var(--line);color:var(--sub);padding:9px 18px;border-radius:10px;cursor:pointer;font-size:14px;transition:.15s}
+nav button:hover{color:var(--txt);border-color:var(--brand2)}
+nav button.active{background:linear-gradient(135deg,var(--brand),#22c55e);color:#052e16;border-color:transparent;font-weight:600}
+.section{display:none}
+.section.active{display:block;animation:fade .25s ease}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1}}
+
+h2.sec{margin:8px 0 16px;font-size:19px;display:flex;align-items:center;gap:8px}
+h2.sec .dot{width:8px;height:8px;border-radius:50%;background:var(--brand2)}
+h3.blk{margin:22px 0 10px;font-size:15px;color:var(--txt);border-left:3px solid var(--brand2);padding-left:10px}
+.mut{color:var(--mut);font-size:12.5px}
+.src{color:var(--mut);font-size:11.5px}
+
+/* cards */
+.grid{display:grid;gap:14px}
+.g4{grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}
+.g2{grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;transition:.15s;position:relative}
+.card:hover{border-color:var(--brand2);transform:translateY(-2px)}
+.card .h{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.card .t{font-size:15.5px;font-weight:600}
+.card .d{color:var(--sub);font-size:12.5px;margin-top:4px}
+.tag-pill{font-size:11px;padding:2px 9px;border-radius:12px;white-space:nowrap}
+.tp-best{background:rgba(74,222,128,.15);color:var(--brand);border:1px solid rgba(74,222,128,.4)}
+.tp-warn{background:rgba(251,191,36,.12);color:var(--amber);border:1px solid rgba(251,191,36,.35)}
+.tp-hot{background:rgba(248,113,113,.14);color:var(--rose);border:1px solid rgba(248,113,113,.4)}
+.tp-info{background:rgba(34,211,238,.1);color:var(--brand2);border:1px solid rgba(34,211,238,.3)}
+
+/* plan cards */
+.plan-grid{grid-template-columns:repeat(auto-fill,minmax(270px,1fr))}
+.plan-card{border-top:3px solid var(--brand2)}
+.plan-card.win{border-color:var(--brand);box-shadow:0 0 0 1px rgba(74,222,128,.4),0 8px 30px -12px rgba(74,222,128,.3)}
+.plan-card .big{margin:10px 0;font-size:24px;font-weight:700;color:#fff}
+.plan-card .big small{font-size:13px;color:var(--sub);font-weight:400}
+.plan-card ul{margin:8px 0 0;padding-left:18px}
+.plan-card li{font-size:12.5px;color:var(--sub);margin:2px 0}
+.plan-card .fit{margin-top:12px;padding-top:10px;border-top:1px dashed var(--line);font-size:12.5px;color:var(--amber)}
+.metric-row{display:flex;justify-content:space-between;padding:4px 0;font-size:13px;border-bottom:1px dashed rgba(42,59,77,.5)}
+.metric-row span:last-child{font-weight:600;color:#fff}
+
+/* compare table */
+.tbl{width:100%;border-collapse:collapse;font-size:13px;background:var(--panel);border-radius:12px;overflow:hidden}
+.tbl th,.tbl td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.tbl th{background:var(--panel2);color:var(--sub);font-weight:600;white-space:nowrap}
+.tbl tr:hover td{background:rgba(34,211,238,.05)}
+.tbl td.num{text-align:right;font-variant-numeric:tabular-nums}
+.tbl tr.hl td{background:rgba(74,222,128,.07)}
+.rank1{color:var(--brand);font-weight:700}
+
+/* controls */
+.filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px;background:var(--panel2);padding:12px 14px;border-radius:12px;border:1px solid var(--line)}
+.filters label{font-size:12.5px;color:var(--sub);display:flex;align-items:center;gap:6px;cursor:pointer}
+.filters input[type=radio],.filters input[type=checkbox]{accent-color:var(--brand2)}
+.filters select{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:13px}
+.seg{display:flex;gap:4px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:3px}
+.seg button{background:none;border:none;color:var(--sub);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12.5px}
+.seg button.on{background:var(--brand2);color:#062836;font-weight:600}
+
+/* hotel row */
+.hotel-line{display:grid;grid-template-columns:1fr auto auto auto;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-bottom:8px}
+.hotel-line .nm{font-weight:600;font-size:13.5px}
+.hotel-line .ci{color:var(--mut);font-size:12px}
+.price-tag{text-align:right}
+.price-tag .p{font-size:16px;font-weight:700;color:var(--brand2)}
+.price-tag .pn{font-size:11px;color:var(--mut)}
+.stars{color:var(--amber);font-size:11px;letter-spacing:1px}
+.minmax-bar{height:6px;background:var(--panel2);border-radius:3px;margin-top:6px;overflow:hidden}
+.minmax-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--brand),var(--amber));border-radius:3px}
+
+/* restaurant */
+.rest .sig{color:var(--sub);font-size:12.5px;margin:6px 0}
+.conf-dots{color:var(--amber);letter-spacing:1px;font-size:12px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.chip{font-size:11px;background:var(--panel2);border:1px solid var(--line);padding:2px 8px;border-radius:10px;color:var(--sub)}
+
+/* timeline */
+.tl{position:relative;padding-left:26px}
+.tl::before{content:"";position:absolute;left:8px;top:6px;bottom:6px;width:2px;background:var(--line)}
+.tl-item{position:relative;margin-bottom:16px}
+.tl-item::before{content:"";position:absolute;left:-22px;top:6px;width:12px;height:12px;border-radius:50%;background:var(--brand2);border:3px solid var(--bg)}
+.tl-item .dh{font-weight:700;font-size:16px;margin-bottom:4px}
+.tl-item .dh span{font-size:12px;color:var(--mut);font-weight:400;margin-left:8px}
+.tl-item .row{display:grid;grid-template-columns:90px 1fr;gap:8px;font-size:13px;margin:3px 0}
+.tl-item .row .k{color:var(--mut)}
+.tl-item .row .v{color:var(--txt)}
+
+/* price matrix */
+.px th,.px td{border-right:1px solid var(--line)}
+.px td.c-hotel{min-width:220px}
+.px .pricecell{font-weight:600}
+.px .p-cheap{color:var(--brand)}
+.px .p-mid{color:var(--amber)}
+.px .p-expensive{color:var(--rose)}
+
+/* calc */
+.calc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px}
+.calc-panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}
+.calc-panel h4{margin-bottom:12px;color:var(--txt)}
+.opt-row{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:13.5px;cursor:pointer}
+.opt-row input{accent-color:var(--brand2);transform:scale(1.1)}
+.sum-line{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px dashed var(--line);font-size:13.5px}
+.sum-line b{color:#fff}
+.total-box{margin-top:14px;background:linear-gradient(135deg,rgba(74,222,128,.12),rgba(34,211,238,.1));border:1px solid rgba(74,222,128,.35);border-radius:12px;padding:16px;text-align:center}
+.total-box .n{font-size:34px;font-weight:800;color:#fff}
+.total-box .n small{font-size:15px;color:var(--sub)}
+.total-box .sub{color:var(--sub);font-size:12.5px;margin-top:4px}
+
+footer{margin-top:30px;color:var(--mut);font-size:12px;text-align:center;border-top:1px solid var(--line);padding-top:16px}
+
+.empty{padding:30px;text-align:center;color:var(--mut);border:1px dashed var(--line);border-radius:12px}
+.hidden{display:none}
+kbd{background:var(--panel2);padding:1px 6px;border-radius:5px;border:1px solid var(--line);font-size:11px;color:var(--sub)}
+.pill-city-dl{background:rgba(245,158,11,.12);color:var(--dl)} .pill-city-lj{background:rgba(52,211,153,.12);color:var(--lj)}
+.pill-city-sh{background:rgba(167,139,250,.15);color:var(--sh)} .pill-city-er{background:rgba(244,114,182,.12);color:var(--er)}
+@media(max-width:700px){.hotel-line{grid-template-columns:1fr;gap:4px}.tbl{font-size:11.5px}.tbl th,.tbl td{padding:6px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>🏔️ 云南 5 天 4 晚 · 大理-洱海-丽江 休闲自驾</h1>
+  <div class="sub">广州 2 人 + 北京 2 人 · 全程租车 · 4 人返程同城飞广州 · 出行窗口 9.25(中秋)~10.7(国庆)</div>
+  <div class="badges">
+    <span class="badge">数据源 <b>小红书 App V2 + rgh 酒店实测</b></span>
+    <span class="badge">房价核验 <b>2026-09-05</b></span>
+    <span class="badge">山路驾驶 <b>✅ 高度接受</b></span>
+    <span class="badge">预算 <b>无上限 · 多档</b></span>
+  </div>
+  <div class="summary">
+    <b>💡 一句话结论：</b>若 4 人 9.25 都能出发 → 选 <b>方案 A（9.25-9.29 中秋）</b>，比国庆后段（D）省约 ¥8,000（46%）。
+    用下方 <b>方案对比 / 预算计算器</b> 按你们实际能休的日期 + 想要的住宿档位筛选。
+  </div>
+</header>
+
+<nav>
+  <button data-sec="overview" class="active">📊 总览</button>
+  <button data-sec="plans">🗓️ 方案对比</button>
+  <button data-sec="hotels">🏨 酒店</button>
+  <button data-sec="food">🍜 餐厅</button>
+  <button data-sec="itinerary">🛣️ 行程</button>
+  <button data-sec="budget">🧮 预算计算器</button>
+  <button data-sec="map">🗺️ 炫酷地图</button>
+  <button data-sec="info">📋 预订·交通·天气</button>
+</nav>
+
+<!-- ============ 总览 ============ -->
+<section id="overview" class="section active">
+  <h2 class="sec"><span class="dot"></span>窗口选择一目了然</h2>
+  <div class="grid g4" id="planCards"></div>
+
+  <h3 class="blk">窗口 × 城市 最划算酒店对比（每间 4 晚总价，rgh 实测）</h3>
+  <div class="grid" id="minHotelGrid"></div>
+
+  <h3 class="blk">数据说明</h3>
+  <div class="card">
+    <div class="d">
+      · <b>酒店价格</b>：rollinggo（rgh）实时查询，2026-09-05 核验；显示"已售罄"的精品民宿（不期尔榆等）= 渠道无库存，需走携程。<br>
+      · <b>机票价格</b>：基于携程/去哪儿 2026 国庆趋势区间估算（"9.27-10.1 均价创三年最低"等），<span class="src">下单前请在航司官网复核</span>。<br>
+      · <b>餐厅/路线</b>：小红书 App V2 检索 676 条候选 → 16 条餐厅 + 8 家口碑住宿，多源交叉验证，广告已过滤。
+    </div>
+  </div>
+</section>
+
+<!-- ============ 方案对比 ============ -->
+<section id="plans" class="section">
+  <h2 class="sec"><span class="dot"></span>4 套 5 天窗口对比</h2>
+  <div class="card" style="margin-bottom:16px">
+    <div class="d">价格规律：<b>9.27-10.1 机票均价三年最低</b> · 9.28-30 出发最便宜 · 10.1 / 10.7 返程双高峰 · 酒店 9.30 后进入国庆价(+80~150%)</div>
+  </div>
+  <div class="tbl-wrap"><table class="tbl" id="planCompareTbl"></table></div>
+
+  <h3 class="blk">酒店实测：同档酒店跨窗口涨价</h3>
+  <table class="tbl" id="hotelRiseTbl"></table>
+  <div class="mut" style="margin-top:6px">注：丽江阿丹阁 ¥774/4晚 四个窗口不变价（rgh 数据可能缓存，预订时复核）；丽江云曼 5★ ¥1,084-1,163 国庆几乎不涨（隐藏性价比款）。</div>
+</section>
+
+<!-- ============ 酒店 ============ -->
+<section id="hotels" class="section">
+  <h2 class="sec"><span class="dot"></span>酒店价格筛选（78 组实测）</h2>
+  <div class="filters">
+    <span style="font-size:12.5px;color:var(--sub)">窗口：</span>
+    <div class="seg" id="hPlanSeg"></div>
+    <span style="font-size:12.5px;color:var(--sub)">城市：</span>
+    <div class="seg" id="hCitySeg"></div>
+    <span style="font-size:12.5px;color:var(--sub)">星级：</span>
+    <select id="hStarSel">
+      <option value="">全部</option>
+      <option value="5">5★</option><option value="4">4★+</option>
+      <option value="3">3★+</option><option value="2">2★</option>
+    </select>
+    <label><input type="checkbox" id="hMaxPrice">只看 ≤ ¥1000/晚</label>
+    <span style="margin-left:auto;color:var(--sub);font-size:12px" id="hCount"></span>
+  </div>
+  <div id="hotelList"></div>
+</section>
+
+<!-- ============ 餐厅 ============ -->
+<section id="food" class="section">
+  <h2 class="sec"><span class="dot"></span>餐厅与口碑住宿</h2>
+  <div class="filters">
+    <span style="font-size:12.5px;color:var(--sub)">区域：</span>
+    <div class="seg" id="fAreaSeg">
+      <button data-a="all" class="on">全部</button>
+      <button data-a="大理">大理</button>
+      <button data-a="洱海">洱海</button>
+      <button data-a="丽江">丽江</button>
+    </div>
+    <span style="font-size:12.5px;color:var(--sub)">置信度：</span>
+    <div class="seg" id="fConfSeg">
+      <button data-c="all" class="on">全部</button>
+      <button data-c="4">4-5星</button>
+      <button data-c="2">仅高置信</button>
+    </div>
+  </div>
+  <h3 class="blk">🍜 餐厅（每家 = 店名 / 在哪 / 吃什么 / 为什么去）</h3>
+  <div class="grid g2" id="restGrid"></div>
+
+  <h3 class="blk">🏡 口碑住宿（小红书验证；rgh 无库存需平台订）</h3>
+  <div class="grid g2" id="recGrid"></div>
+</section>
+
+<!-- ============ 行程 ============ -->
+<section id="itinerary" class="section">
+  <h2 class="sec"><span class="dot"></span>5 天 4 晚每日行程（方向 A：大理进 → 丽江出）</h2>
+  <div class="card" style="margin-bottom:14px">
+    <div class="d">路线：广州/北京 ✈️ <b>大理</b>（会合取车）→ <b>洱海西线</b> → <b>沙溪</b>（顺路）→ <b>丽江</b> → 4 人 ✈️ 返广州。<br>
+    全程只换 <b>2 次酒店</b>（大理 2 晚 + 丽江 2 晚）；每日 1-2 个主景点 + 咖啡/午休；总车程约 9-11h / 5 天。</div>
+  </div>
+  <div class="tl" id="timeline"></div>
+</section>
+
+<!-- ============ 预算计算器 ============ -->
+<section id="budget" class="section">
+  <h2 class="sec"><span class="dot"></span>预算计算器</h2>
+  <div class="calc-grid">
+    <div class="calc-panel">
+      <h4>① 选窗口</h4>
+      <div id="calcPlanOpts"></div>
+      <h4 style="margin-top:18px">② 广州出发 2 人机票</h4>
+      <div class="opt-row"><input type="radio" name="gz" value="0"><span>往返 ¥3,000-4,000 / 人（错峰）</span></div>
+      <div class="opt-row"><input type="radio" name="gz" value="1" checked><span>往返 ¥4,500-6,000 / 人（国庆段）</span></div>
+      <div class="opt-row"><input type="radio" name="gz" value="2"><span>往返 ¥6,500-9,000 / 人（双高峰）</span></div>
+      <h4 style="margin-top:18px">③ 北京出发 2 人机票</h4>
+      <div class="opt-row"><input type="radio" name="bj" value="0"><span>往返 ¥3,800-5,000 / 人（错峰）</span></div>
+      <div class="opt-row"><input type="radio" name="bj" value="1" checked><span>往返 ¥5,500-7,500 / 人（国庆段）</span></div>
+      <div class="opt-row"><input type="radio" name="bj" value="2"><span>往返 ¥8,000-11,000 / 人（双高峰）</span></div>
+      <div class="mut" style="margin-top:8px">注：北京 2 人返程按"云南→广州"计（返程同城飞广州是硬要求，不回北京）。</div>
+    </div>
+    <div class="calc-panel">
+      <h4>④ 酒店档位（2 间 × 4 晚）</h4>
+      <div id="calcHotelOpts"></div>
+      <h4 style="margin-top:18px">⑤ 共同开销（租车/吃/门票，4 人固定）</h4>
+      <div class="sum-line"><span>租车+油费+异地还车（4天）</span><b>¥1,800</b></div>
+      <div class="sum-line"><span>餐饮（4人×4天+小吃）</span><b>¥4,320</b></div>
+      <div class="sum-line"><span>门票杂费（木府/停车等）</span><b>¥800</b></div>
+      <div class="total-box">
+        <div class="sub">4 人合计（估算中值）</div>
+        <div class="n"><span id="calcTotal">¥0</span><small> / 4人</small></div>
+        <div class="sub">人均 ≈ <b id="calcPer">¥0</b> · 广州2人机票含 <span id="calcGZ">0</span> · 北京2人含 <span id="calcBJ">0</span></div>
+      </div>
+      <div class="mut" style="margin-top:10px">区间会随你选的窗口/档位联动（酒店取所选窗口 rgh 实测，机票按档取中值）。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 炫酷地图 ============ -->
+<section id="map" class="section">
+  <h2 class="sec"><span class="dot"></span>🗺️ 炫酷路线地图 <span class="mut" style="margin-left:8px;font-size:12px">出发 → 住宿 → 景点 · 自绘暗色 SVG · 节点可点/日期可高亮</span></h2>
+  <div style="border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#050b14">
+    <iframe src="map.html" style="width:100%;height:820px;border:none" title="云南路线地图" loading="lazy"></iframe>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <div class="d"><b>怎么看：</b>灰实线 = 每日车程（点右侧日期卡高亮当日路线+动画）· ✈ 弧线 = 飞机（广州2人/北京2人 → 大理机场会合；Day5 丽江4人同机返广州）· 🏨 金圈 = 住宿基地（大理2晚+丽江2晚）· 🍜 橙圈 = 餐饮 · 📸 紫圈 = 景点驿站 · 🏔️ = 玉龙雪山（可选）。洱海发光蓝域在中央。</div>
+  </div>
+</section>
+
+<!-- ============ 预订/交通/天气 ============ -->
+<section id="info" class="section">
+  <h2 class="sec"><span class="dot"></span>预订清单 · 交通 · 停车 · 天气备选</h2>
+  <h3 class="blk">🔖 预订优先级</h3>
+  <table class="tbl" id="bookingTbl"></table>
+  <div class="grid g2" style="margin-top:14px">
+    <div>
+      <h3 class="blk">🚗 租车 & 异地还车</h3>
+      <div class="card" id="transportCard"></div>
+    </div>
+    <div>
+      <h3 class="blk">🅿️ 停车攻略</h3>
+      <div id="parkingList"></div>
+    </div>
+  </div>
+  <h3 class="blk">🌤️ 天气 · 高反 · 备选</h3>
+  <div class="grid g2" id="weatherGrid"></div>
+</section>
+
+<footer>
+  云南 5 天 4 晚休闲自驾决策面板 · 数据核验 2026-09-05（rollinggo rgh 实测房价 / 小红书 App V2 检索 / 携程去哪儿趋势）<br>
+  机票价为趋势区间需官网复核 · 房价以锁价为准 · 本页不构成预订建议，下单请自行确认退改规则
+</footer>
+</div>
+
+<script src="data.js"></script>
+<script>
+'use strict';
+const D = window.YUNNAN_DATA;
+const $ = (s,r=document)=>r.querySelector(s);
+const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
+const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* nav */
+$$('nav button').forEach(b=>b.onclick=()=>{
+  $$('nav button').forEach(x=>x.classList.remove('active'));
+  $$('.section').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  $('#'+b.dataset.sec).classList.add('active');
+  if(b.dataset.sec==='budget') calc();
+});
+
+const stars = n=> '★'.repeat(Math.round(n||0)) + '☆'.repeat(Math.max(0,5-Math.round(n||0)));
+const areaPill = a=>({大理:'pill-city-dl',丽江:'pill-city-lj',束河:'pill-city-sh',洱海:'pill-city-er'}[a]||'');
+const tagPill = t => t==='最划算'?'tp-best':(t==='全假期'?'tp-hot':(t==='平衡'?'tp-info':'tp-warn'));
+
+/* ---------- 总览：方案卡片 ---------- */
+function renderPlanCards(){
+  $('#planCards').innerHTML = D.plans.map(p=>`
+    <div class="card plan-card ${p.tag==='最划算'?'win':''}" style="border-top-color:${p.tag==='最划算'?'var(--brand)':'var(--brand2)'}">
+      <div class="h"><span class="t">${esc(p.name)}</span><span class="tag-pill ${tagPill(p.tag)}">${esc(p.tag)}</span></div>
+      <div class="d">📅 ${p.dates} · ${p.days}天${p.nights}晚</div>
+      <div class="metric-row"><span>4人合计(参考)</span><span>¥${p.total_ref.toLocaleString()}</span></div>
+      <div class="metric-row"><span>人均</span><span>¥${p.per_person.toLocaleString()}</span></div>
+      <div class="metric-row"><span>机票(4人)</span><span>¥${p.flight_low.toLocaleString()}-${p.flight_high.toLocaleString()}</span></div>
+      <ul>${p.pros.map(x=>`<li>✅ ${esc(x)}</li>`).join('')}${p.cons.map(x=>`<li>⚠️ ${esc(x)}</li>`).join('')}</ul>
+      <div class="fit">👥 ${esc(p.fit)}</div>
+    </div>`).join('');
+}
+
+/* ---------- 总览：窗口最优酒店 ---------- */
+function renderMinHotels(){
+  const mins = {};
+  D.hotels.forEach(h=>{
+    const k = h.plan+'_'+h.city;
+    if(!mins[k] || h.total < mins[k].total) mins[k]=h;
+  });
+  $('#minHotelGrid').innerHTML = D.plans.map(p=>{
+    const dl = mins[p.id+'_大理'], lj = mins[p.id+'_丽江'];
+    return `<div class="card"><div class="h"><span class="t">${p.dates}</span>
+      <span class="tag-pill ${tagPill(p.tag)}">${p.tag==='最划算'?'最便宜':(p.id==='D'?'最贵':'')}</span></div>
+      <div class="d" style="margin-top:8px">
+        大理 最便宜：<b>¥${dl?dl.total.toLocaleString():'—'}</b>/${dl?dl.nights+'晚':''} <span class="stars">${dl?stars(dl.star):''}</span><br>${dl?esc(dl.hotel.split('(')[0]):''}<br><br>
+        丽江 最便宜：<b>¥${lj?lj.total.toLocaleString():'—'}</b>/${lj?lj.nights+'晚':''} <span class="stars">${lj?stars(lj.star):''}</span><br>${lj?esc(lj.hotel.split('(')[0]):''}
+      </div></div>`;
+  }).join('');
+}
+
+/* ---------- 方案对比表 ---------- */
+function renderPlanCompare(){
+  $('#planCompareTbl').innerHTML = `<thead><tr><th>方案</th><th>窗口</th><th>定位</th>
+    <th>4人机票</th><th>酒店(品质档)</th><th>合计</th><th>人均</th><th>涨幅(基准A)</th><th>适合</th></tr></thead>
+    <tbody>${D.plans.map(p=>{
+      const rise = p.id==='A'?'—':`+${Math.round((p.total_ref-D.plans[0].total_ref)/D.plans[0].total_ref*100)}%`;
+      return `<tr class="${p.id==='A'?'hl':''}">
+        <td><b>${p.id==='A'?'<span class="rank1">A ★推荐</span>':esc(p.id)}</b></td>
+        <td>${p.dates}</td><td>${esc(p.desc)}</td>
+        <td class="num">¥${p.flight_low.toLocaleString()}-${p.flight_high.toLocaleString()}</td>
+        <td class="num">¥${p.hotel_ref.toLocaleString()}</td>
+        <td class="num"><b>¥${p.total_ref.toLocaleString()}</b></td>
+        <td class="num">¥${p.per_person.toLocaleString()}</td>
+        <td class="num">${rise}</td><td class="src">${esc(p.fit)}</td></tr>`;
+    }).join('')}</tbody>`;
+}
+
+/* 同酒店跨窗口涨价 */
+function renderHotelRise(){
+  // 找在 A 和 D 都有的酒店
+  const byName = {};
+  D.hotels.forEach(h=>{
+    const base = h.hotel.replace(/\(.*$/,'').trim();
+    (byName[base]=byName[base]||[]).push(h);
+  });
+  const rows=[];
+  Object.entries(byName).forEach(([nm,hs])=>{
+    const a = hs.find(h=>h.plan==='A'), d = hs.find(h=>h.plan==='D');
+    if(a&&d&&a.city!=='束河'){
+      const pct = d.total && a.total ? Math.round((d.total-a.total)/a.total*100) : 0;
+      rows.push({nm, city:a.city, star:a.star, a:a.total, d:d.total, pct});
+    }
+  });
+  rows.sort((x,y)=>y.pct-x.pct);
+  $('#hotelRiseTbl').innerHTML = `<thead><tr><th>酒店</th><th>城市</th><th>A 中秋价</th><th>D 国庆价</th><th>涨幅</th><th>价格条</th></tr></thead>
+  <tbody>${rows.map(r=>`<tr>
+    <td>${esc(r.nm)} <span class="stars">${stars(r.star)}</span></td>
+    <td>${r.city}</td>
+    <td class="num">¥${r.a.toLocaleString()}</td>
+    <td class="num">¥${r.d.toLocaleString()}</td>
+    <td class="num" style="color:${r.pct>80?'var(--rose)':(r.pct>30?'var(--amber)':'var(--brand)')}">${r.pct>0?'+':''}${r.pct}%</td>
+    <td style="min-width:110px"><div class="minmax-bar"><i style="width:${Math.min(100,Math.abs(r.pct)/2)}%"></i></div></td>
+    </tr>`).join('')}</tbody>`;
+}
+
+/* ---------- 酒店筛选 ---------- */
+let hPlan='all', hCity='all', hStar='', hMax=false;
+function renderHSeg(){
+  const plans=['all',...D.plans.map(p=>p.id)];
+  $('#hPlanSeg').innerHTML = plans.map(x=>`<button class="${x===hPlan?'on':''}" data-v="${x}">${x==='all'?'全部':D.plans.find(p=>p.id===x).dates}</button>`).join('');
+  $$('#hPlanSeg button').forEach(b=>b.onclick=()=>{hPlan=b.dataset.v;renderHSeg();renderHotels();});
+  const cities=['all','大理','丽江','束河'];
+  $('#hCitySeg').innerHTML = cities.map(x=>`<button class="${x===hCity?'on':''}" data-v="${x}">${x==='all'?'全部城市':x}</button>`).join('');
+  $$('#hCitySeg button').forEach(b=>b.onclick=()=>{hCity=b.dataset.v;renderHSeg();renderHotels();});
+  $('#hStarSel').onchange=e=>{hStar=e.target.value;renderHotels();};
+  $('#hMaxPrice').onchange=e=>{hMax=e.target.checked;renderHotels();};
+}
+function renderHotels(){
+  let list = D.hotels.filter(h=>{
+    if(hPlan!=='all' && h.plan!==hPlan) return false;
+    if(hCity!=='all' && h.city!==hCity) return false;
+    if(hStar){ const s=+hStar; const hs=+h.star||0; if(s===5&&hs<5)return false; if(s===4&&hs<4)return false; if(s===3&&hs<3)return false; if(s===2&&hs<2)return false;}
+    if(hMax && h.per_night>1000) return false;
+    return true;
+  });
+  list.sort((a,b)=>a.city.localeCompare(b.city)||b.total-a.total);
+  $('#hCount').textContent = `${list.length} 组 · 排序:国庆档→低价`;
+  const byCity = {};
+  list.forEach(h=>(byCity[h.city]=byCity[h.city]||[]).push(h));
+  const order = ['大理','丽江','束河'];
+  $('#hotelList').innerHTML = Object.entries(byCity).sort((a,b)=>order.indexOf(a[0])-order.indexOf(b[0])).map(([city,hs])=>{
+    // min-max for bar
+    const total = hs.filter(h=>h.total);
+    const mn = Math.min(...total.map(h=>h.per_night)), mx = Math.max(...total.map(h=>h.per_night));
+    return `<h3 class="blk" style="margin-top:18px">📍 ${city} <span class="mut">${hs.length} 组</span></h3>
+      ${hs.map(h=>{
+        const barW = mx>mn?Math.max(8,Math.round((h.per_night-mn)/(mx-mn)*100)):50;
+        const plancolor = h.plan==='A'?'var(--brand)':(h.plan==='B'?'var(--brand2)':(h.plan==='C'?'var(--amber)':'var(--rose)'));
+        return `<div class="hotel-line">
+          <div><div class="nm">${esc(h.hotel.split('(')[0])} <span class="stars">${stars(h.star)}</span></div>
+            <div class="ci">${D.plans.find(p=>p.id===h.plan)?.dates||''} 入住 ${h.nights} 晚 · <span style="color:${plancolor}">方案${h.plan}</span> · <span class="src">rgh实测</span></div></div>
+          <div style="min-width:100px"><div class="minmax-bar"><i style="width:${barW}%;background:${plancolor}"></i></div>
+            <div class="mut" style="font-size:10.5px">档内 ¥${mn}-${mx}/晚</div></div>
+          <div class="price-tag"><div class="p">¥${h.total.toLocaleString()}</div><div class="pn">${h.nights}晚总价 · ¥${h.per_night}/晚</div></div>
+          <div style="text-align:right"><a href="${esc(h.url)}" target="_blank" rel="noopener">查房态→</a></div>
+        </div>`;
+      }).join('')}`;
+  }).join('') || '<div class="empty">无匹配酒店，放宽筛选</div>';
+}
+
+/* ---------- 餐厅 ---------- */
+let fArea='all', fConf='all';
+function renderFoodSeg(){
+  $$('#fAreaSeg button').forEach(b=>b.onclick=()=>{fArea=b.dataset.a;refreshSeg('#fAreaSeg',b);renderFood();});
+  $$('#fConfSeg button').forEach(b=>b.onclick=()=>{fConf=b.dataset.c;refreshSeg('#fConfSeg',b);renderFood();});
+}
+function refreshSeg(sel,btn){ $$(sel+' button').forEach(x=>x.classList.remove('on')); btn.classList.add('on'); }
+function renderFood(){
+  let list = D.restaurants.filter(r=>{
+    if(fArea!=='all' && r.area!==fArea) return false;
+    if(fConf!=='all'){ if(fConf==='4' && r.conf<4) return false; if(fConf==='2' && r.conf<2) return false; }
+    return true;
+  });
+  $('#restGrid').innerHTML = list.map(r=>`
+    <div class="card rest">
+      <div class="h"><span class="t">${esc(r.name)}</span><span class="tag-pill ${areaPill(r.area)}">${r.area}</span></div>
+      <div class="d">${esc(r.type)} · ${esc(r.zone)}</div>
+      <div class="sig">🍽️ ${esc(r.signature)}</div>
+      <div class="conf-dots">${'★'.repeat(r.conf)}${'☆'.repeat(5-r.conf)}</div>
+      <div class="chips"><span class="chip">💰 ${esc(r.budget)}</span><span class="chip">👥 ${esc(r.votes)}</span>
+        ${r.reserve&&r.reserve!=='否'?`<span class="chip" style="color:var(--amber)">📌 ${esc(r.reserve)}</span>`:''}
+        ${r.when?`<span class="chip" style="color:var(--brand2)">🕐 ${esc(r.when)}</span>`:''}</div>
+      ${r.note?`<div class="d" style="margin-top:8px;color:var(--sub)">💬 ${esc(r.note)}</div>`:''}
+      ${r.source?`<div class="src" style="margin-top:6px">来源: ${esc(r.source)}</div>`:''}
+    </div>`).join('') || '<div class="empty">无匹配</div>';
+
+  $('#recGrid').innerHTML = D.hotel_recs.map(r=>`
+    <div class="card rest">
+      <div class="h"><span class="t">${esc(r.name)}</span><span class="tag-pill ${areaPill(r.city)}">${r.city}</span></div>
+      <div class="d">${esc(r.type)} · ${esc(r.zone)}</div>
+      <div class="sig">${esc(r.why)}</div>
+      <div class="chips"><span class="chip">💰 ${esc(r.price)}</span><span class="chip">🔖 ${esc(r.book)}</span>
+        ${r.flag?`<span class="chip" style="color:var(--amber)">⚠ ${esc(r.flag)}</span>`:''}</div>
+      ${r.source?`<div class="src" style="margin-top:6px">来源: ${esc(r.source)}</div>`:''}
+    </div>`).join('');
+}
+
+/* ---------- 行程 ---------- */
+function renderTimeline(){
+  $('#timeline').innerHTML = D.itinerary.map(d=>`
+    <div class="tl-item">
+      <div class="dh">Day ${d.day} · ${esc(d.title)} <span class="badge" style="margin-left:6px">${d.city}</span></div>
+      <div class="row"><div class="k">🚗 交通</div><div class="v">${esc(d.drive)}</div></div>
+      <div class="row"><div class="k">🛏️ 住宿</div><div class="v">${esc(d.stay)}</div></div>
+      <div class="row"><div class="k">☀️ 上午</div><div class="v">${esc(d.am)}</div></div>
+      <div class="row"><div class="k">🌤️ 下午</div><div class="v">${esc(d.pm)}</div></div>
+      <div class="row"><div class="k">🌙 晚餐</div><div class="v">${esc(d.dinner)}</div></div>
+      ${d.note?`<div class="row"><div class="k">💡 提示</div><div class="v" style="color:var(--amber)">${esc(d.note)}</div></div>`:''}
+    </div>`).join('');
+}
+
+/* ---------- 预算计算器 ---------- */
+let calcState={plan:'A',hotel:'品质',gz:'1',bj:'1'};
+function calcHotelOpts(){
+  // 各窗口 × 档位实测价: 用该窗口 大理最便宜(舒适)/品质代表/5★
+  const opts=[
+    {k:'舒适', label:'舒适（2间4晚 ≈ ¥2,600-4,800）'},
+    {k:'品质', label:'品质（2间4晚 ≈ ¥5,000-8,500）'},
+    {k:'轻奢', label:'轻奢 5★（2间4晚 ≈ ¥8,000-20,000）'},
+  ];
+  $('#calcPlanOpts').innerHTML = D.plans.map(p=>`
+    <label class="opt-row"><input type="radio" name="cp" value="${p.id}" ${calcState.plan===p.id?'checked':''}>
+      <span><b>${esc(p.name)}</b> ${p.dates} · 合计≈¥${p.total_ref.toLocaleString()}</span></label>`).join('');
+  $$('input[name=cp]').forEach(r=>r.onchange=()=>{calcState.plan=r.value;calc();});
+}
+function hotelCost(planId, tier){
+  const hs = D.hotels.filter(h=>h.plan===planId);
+  const dl = hs.filter(h=>h.city==='大理').sort((a,b)=>a.total-b.total);
+  const lj = hs.filter(h=>h.city==='丽江').sort((a,b)=>a.total-b.total);
+  if(!dl.length||!lj.length) return 10000;
+  const dlc = dl[0].total*2, ljc = lj[0].total*2;      // 2间
+  const dlq = (dl.find(h=>+h.star>=4)||dl[0]).total*2;
+  const ljq = (lj.find(h=>+h.star>=4)||lj[0]).total*2;
+  const dl5 = (dl.find(h=>+h.star>=5)||dl[0]).total*2;
+  const lj5 = (lj.find(h=>+h.star>=5)||lj[0]).total*2;
+  if(tier==='舒适') return dlc+ljc;
+  if(tier==='品质') return dlq+ljq;
+  return dl5+lj5;
+}
+function calc(){
+  // 触发重新渲染酒店选项
+  $('#calcHotelOpts').innerHTML = ['舒适','品质','轻奢'].map(k=>{
+    const c = hotelCost(calcState.plan,k);
+    const lb = {舒适:'舒适',品质:'品质',轻奢:'轻奢 5★'}[k];
+    return `<label class="opt-row"><input type="radio" name="ch" value="${k}" ${calcState.hotel===k?'checked':''}>
+      <span>${lb}（${D.plans.find(p=>p.id===calcState.plan)?.dates} · 2间4晚 ≈ ¥${c.toLocaleString()}）</span></label>`;
+  }).join('');
+  $$('input[name=ch]').forEach(r=>r.onchange=()=>{calcState.hotel=r.value;calc();});
+
+  const gz = {'0':3500,'1':5250,'2':7750}[calcState.gz];
+  const bj = {'0':4400,'1':6500,'2':9500}[calcState.bj];
+  const hotel = hotelCost(calcState.plan, calcState.hotel);
+  const fixed = 1800+4320+800;
+  const total = gz*2 + bj*2 + hotel + fixed;
+  $('#calcTotal').textContent = '¥'+total.toLocaleString();
+  $('#calcPer').textContent = '¥'+Math.round(total/4).toLocaleString();
+  $('#calcGZ').textContent = '¥'+(gz*2).toLocaleString();
+  $('#calcBJ').textContent = '¥'+(bj*2).toLocaleString();
+}
+
+/* ---------- 预订/交通/天气 ---------- */
+function renderInfo(){
+  $('#bookingTbl').innerHTML = `<thead><tr><th>项目</th><th>优先级</th><th>建议提前</th><th>原因</th></tr></thead>
+  <tbody>${D.booking.map(b=>`<tr>
+    <td>${b.item}</td><td><span class="tag-pill ${b.priority.includes('必须')?'tp-hot':(b.priority.includes('建议')?'tp-warn':'tp-info')}">${b.priority}</span></td>
+    <td class="src">${b.window}</td><td class="src">${b.why}</td></tr>`).join('')}</tbody>`;
+
+  const t = D.transport;
+  $('#transportCard').innerHTML = `
+    <div class="d"><b>推荐平台：</b>${t.carrier.map(esc).join(' / ')}</div>
+    <div class="d" style="margin-top:6px"><b>取车：</b>${esc(t.pickup)}<br><b>还车：</b>${esc(t.dropoff)}</div>
+    <div style="margin-top:10px;background:var(--panel2);padding:10px;border-radius:8px;font-size:12.5px">
+      <b>实测案例：</b>${esc(t.example.route)} · ${esc(t.example.car)}<br>总价 <b style="color:var(--brand2)">¥${t.example.total}</b> = ${esc(t.example.breakdown)}
+    </div>
+    <div style="margin-top:10px">${t.tips.map(x=>`<div style="font-size:12.5px;color:var(--sub);margin:3px 0">• ${esc(x)}</div>`).join('')}</div>`;
+
+  $('#parkingList').innerHTML = D.transport.parking.map(p=>`
+    <div class="card" style="margin-bottom:10px"><div class="h"><span class="t" style="font-size:14px">${esc(p.title)}</span>
+      <span class="tag-pill tp-info">${esc(p.place)}</span></div>
+      <div style="font-size:12.5px;color:var(--sub);margin:8px 0">${p.steps.map((s,i)=>`${i+1}. ${esc(s)}`).join('<br>')}</div>
+      <div class="src">${esc(p.conf)}</div></div>`).join('');
+
+  $('#weatherGrid').innerHTML = D.weather.map(w=>`
+    <div class="card"><div class="h"><span class="t" style="font-size:14px">${esc(w.title)}</span></div>
+      <div class="d" style="margin-top:6px">${esc(w.detail)}</div></div>`).join('');
+}
+
+/* init */
+renderPlanCards(); renderMinHotels(); renderPlanCompare(); renderHotelRise();
+renderHSeg(); renderHotels(); renderFoodSeg(); renderFood();
+renderTimeline(); calcHotelOpts(); calc(); renderInfo();
+</script>
+</body>
+</html>

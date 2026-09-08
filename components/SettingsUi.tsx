@@ -216,13 +216,14 @@ export function ConfigSwitch({ checked, disabled = false, loading = false, label
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-busy={loading || undefined}
       aria-label={label}
       title={label}
       disabled={inactive}
       className={`config-switch${loading ? " is-loading" : ""}`}
       onClick={() => onChange(!checked)}
     >
-      <span className="config-switch-knob" />
+      <span className="config-switch-knob" aria-hidden="true" />
     </button>
   );
 }
