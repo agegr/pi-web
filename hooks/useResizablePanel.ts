@@ -13,20 +13,21 @@ import { clampPanelWidth } from "@/lib/panel-layout";
 
 interface DragState {
   pointerId: number;
-  startX: number;
+  startPosition: number;
   startWidth: number;
   target: HTMLDivElement;
   previousCursor: string;
   previousUserSelect: string;
 }
 
+/** "width" below means the resized extent: horizontal for left/right, vertical for up/down. */
 interface UseResizablePanelOptions {
   ariaLabel: string;
   cssVariable: `--${string}`;
   defaultWidth: number;
   getDefaultWidth?: () => number;
   getMaxWidth: () => number;
-  growthDirection: "left" | "right";
+  growthDirection: "left" | "right" | "up" | "down";
   maxWidth: number;
   minWidth: number;
   storageKey: string;
@@ -70,6 +71,7 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
     storageKey,
     widthRef,
   } = options;
+  const vertical = growthDirection === "up" || growthDirection === "down";
   const panelRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const restoredRef = useRef(false);
@@ -138,16 +140,16 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
     target.setPointerCapture(event.pointerId);
     dragRef.current = {
       pointerId: event.pointerId,
-      startX: event.clientX,
+      startPosition: vertical ? event.clientY : event.clientX,
       startWidth: widthRef.current,
       target,
       previousCursor: document.body.style.cursor,
       previousUserSelect: document.body.style.userSelect,
     };
-    document.body.style.cursor = "col-resize";
+    document.body.style.cursor = vertical ? "row-resize" : "col-resize";
     document.body.style.userSelect = "none";
     setIsResizing(true);
-  }, [finishResize, widthRef]);
+  }, [finishResize, vertical, widthRef]);
 
   const onPointerMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
@@ -158,12 +160,13 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
     }
     event.preventDefault();
 
-    const direction = growthDirection === "right" ? 1 : -1;
-    const nextWidth = clampWidth(drag.startWidth + ((event.clientX - drag.startX) * direction));
+    const direction = growthDirection === "right" || growthDirection === "down" ? 1 : -1;
+    const position = vertical ? event.clientY : event.clientX;
+    const nextWidth = clampWidth(drag.startWidth + ((position - drag.startPosition) * direction));
     applyLiveWidth(nextWidth);
     event.currentTarget.setAttribute("aria-valuenow", String(nextWidth));
     event.currentTarget.setAttribute("aria-valuetext", `${nextWidth} px`);
-  }, [applyLiveWidth, clampWidth, finishResize, growthDirection]);
+  }, [applyLiveWidth, clampWidth, finishResize, growthDirection, vertical]);
 
   const onPointerUp = useCallback((event: PointerEvent<HTMLDivElement>) => {
     finishResize(event.pointerId);
@@ -188,8 +191,12 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
 
   const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     const step = event.shiftKey ? 32 : 12;
-    const growKey = growthDirection === "right" ? "ArrowRight" : "ArrowLeft";
-    const shrinkKey = growthDirection === "right" ? "ArrowLeft" : "ArrowRight";
+    const growKey = growthDirection === "right" ? "ArrowRight"
+      : growthDirection === "left" ? "ArrowLeft"
+      : growthDirection === "down" ? "ArrowDown" : "ArrowUp";
+    const shrinkKey = growthDirection === "right" ? "ArrowLeft"
+      : growthDirection === "left" ? "ArrowRight"
+      : growthDirection === "down" ? "ArrowUp" : "ArrowDown";
 
     if (event.key === growKey) {
       event.preventDefault();
@@ -265,7 +272,8 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
     resetWidth,
     separatorProps: {
       "aria-label": ariaLabel,
-      "aria-orientation": "vertical" as const,
+      // The separator's own orientation is perpendicular to the axis it resizes.
+      "aria-orientation": vertical ? ("horizontal" as const) : ("vertical" as const),
       "aria-valuemax": mounted ? effectiveMaxWidth() : maxWidth,
       "aria-valuemin": minWidth,
       "aria-valuenow": width,

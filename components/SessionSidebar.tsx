@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type MutableRefObject, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { listSessionFamilies } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
@@ -10,6 +10,7 @@ import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import { useI18n } from "@/hooks/useI18n";
+import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import { SessionSearch } from "./SessionSearch";
@@ -17,6 +18,11 @@ import { SessionSearch } from "./SessionSearch";
 // Fixed row height for the session list. SessionItem renders at exactly this
 // height, so the list can be windowed (only the visible slice is mounted).
 const SESSION_LIST_ITEM_HEIGHT = 54;
+// The split keeps a few session rows and a usable file tree visible at any sidebar height.
+const SESSION_LIST_MIN_HEIGHT = 80;
+const EXPLORER_MIN_HEIGHT = 120;
+const EXPLORER_MAX_HEIGHT = 2000;
+const EXPLORER_DEFAULT_HEIGHT = 260;
 
 export function getSessionListIndices(count: number, scrollTop: number, viewportHeight: number, focusedIndex = -1): number[] {
   const overscan = 8;
@@ -400,6 +406,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const wtDropdownRef = useRef<HTMLDivElement>(null);
   const wtNewInputRef = useRef<HTMLInputElement>(null);
   const [explorerOpen, setExplorerOpen] = useState(true);
+  const explorerHeightRef = useRef(EXPLORER_DEFAULT_HEIGHT);
+  const sidebarBodyRef = useRef<HTMLDivElement>(null);
   const [explorerKey, setExplorerKey] = useState(0);
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
@@ -504,6 +512,25 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   useEffect(() => {
     setExplorerOpen(loadExplorerOpen());
   }, []);
+
+  const getExplorerMaxHeight = useCallback(
+    () => Math.max(
+      EXPLORER_MIN_HEIGHT,
+      (sidebarBodyRef.current?.getBoundingClientRect().height ?? 0) - SESSION_LIST_MIN_HEIGHT,
+    ),
+    [],
+  );
+  const explorerResizer = useResizablePanel({
+    ariaLabel: t("layout.resizeExplorer"),
+    cssVariable: "--explorer-height",
+    defaultWidth: EXPLORER_DEFAULT_HEIGHT,
+    getMaxWidth: getExplorerMaxHeight,
+    growthDirection: "up",
+    maxWidth: EXPLORER_MAX_HEIGHT,
+    minWidth: EXPLORER_MIN_HEIGHT,
+    storageKey: "pi-explorer-height",
+    widthRef: explorerHeightRef,
+  });
 
   // Persist unread markers so they survive a browser refresh before the user
   // has actually opened the completed session.
@@ -1013,7 +1040,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+    <div
+      // The explorer panel only exists once a project is open, so the resized
+      // height lives on the sidebar itself and is inherited by the panel.
+      ref={(node) => {
+        sidebarBodyRef.current = node;
+        (explorerResizer.panelRef as MutableRefObject<HTMLDivElement | null>).current = node;
+      }}
+      style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}
+    >
       {customPathOpen && (
         <DirectoryPicker
           initialPath={customPathValue}
@@ -1672,12 +1707,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         )}
       </div>
 
-      {/* Session list */}
+      {/* Session list; the explorer keeps its own height and this takes the rest. */}
       <SessionSearch open={sessionSearchOpen} query={sessionSearchQuery} refreshKey={sessionListVersion} selectedSessionId={selectedSessionId} onSelectSession={handleSelectSessionFromList}>
       <div
         ref={listScrollRef}
         onScroll={handleListScroll}
-        style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}
+        style={{ flex: "1 1 0", overflowY: "auto", padding: "0", minHeight: SESSION_LIST_MIN_HEIGHT }}
       >
         {loading && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
@@ -1742,11 +1777,24 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             borderTop: "1px solid var(--border)",
             display: "flex",
             flexDirection: "column",
-            flex: explorerOpen ? "1 1 0" : "0 0 auto",
+            flex: "0 0 auto",
+            height: explorerOpen ? "var(--explorer-height)" : undefined,
             minHeight: 0,
             overflow: "hidden",
           }}
         >
+          {explorerOpen && (
+            <div
+              {...explorerResizer.separatorProps}
+              title={`${t("layout.resizeExplorer")}: ${t("layout.resizeHint")}`}
+              style={{
+                height: 7, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                cursor: "row-resize", touchAction: "none", outline: "none",
+              }}
+            >
+              <span style={{ width: 28, height: 2, borderRadius: 2, background: explorerResizer.isResizing ? "var(--text-muted)" : "var(--border)" }} />
+            </div>
+          )}
           <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
             <button
               onClick={() => setExplorerOpen((open) => {

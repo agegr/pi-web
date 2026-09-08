@@ -175,6 +175,7 @@ export const zhCNLocale: LocalePlugin = {
     "files.showPanel": "显示文件面板",
     "files.noneOpen": "没有打开的文件",
     "layout.resizeSidebar": "调整侧边栏宽度",
+    "layout.resizeExplorer": "调整文件浏览器高度",
     "layout.resizeFilePanel": "调整文件面板宽度",
     "layout.resizeHint": "拖动调整宽度。双击或按 Enter 恢复默认值。",
     "sidebar.new": "新建",
