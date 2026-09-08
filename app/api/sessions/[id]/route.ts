@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { existsSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
-import { dirname, join } from "path";
+import { existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   attachSessionProjectInfo,
@@ -10,6 +10,7 @@ import {
   invalidateSessionListCache,
   buildSessionContext,
   readSessionHeader,
+  getAgentDir,
 } from "@/lib/session-reader";
 import { sessionPathKey } from "@/lib/session-path";
 import { getRpcSession } from "@/lib/rpc-manager";
@@ -19,6 +20,15 @@ import { computeSessionStats } from "@/lib/session-stats";
 import type { SessionEntry } from "@/lib/types";
 import { readSubagentRun, readSubagentSessionResources, SUBAGENT_META_TYPE } from "@/lib/subagents";
 import { readSessionToolSelection } from "@/lib/session-tool-selection";
+import { listSessionFiles } from "@/lib/session-list-scanner";
+
+function sessionDiscoveryRoot(filePath: string): string {
+  const sessionsDir = resolve(join(getAgentDir(), "sessions"));
+  const relativePath = relative(sessionsDir, resolve(filePath));
+  return relativePath && relativePath !== ".." && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath)
+    ? sessionsDir
+    : dirname(filePath);
+}
 
 export async function GET(
   req: Request,
@@ -163,15 +173,13 @@ export async function DELETE(
     }
 
     // Re-attach all direct children to this session's parent (cascade re-parent)
-    // Scan sibling files in the same directory
+    // Scan the complete configured session tree so launcher-specific nested
+    // session directories are included.
     const targetPathKey = sessionPathKey(filePath);
-    const dir = dirname(filePath);
     try {
-      const files = readdirSync(dir).filter(
-        (file) => file.endsWith(".jsonl") && sessionPathKey(join(dir, file)) !== targetPathKey,
-      );
-      for (const file of files) {
-        const childPath = join(dir, file);
+      const files = await listSessionFiles(sessionDiscoveryRoot(filePath));
+      for (const childPath of files) {
+        if (sessionPathKey(childPath) === targetPathKey) continue;
         try {
           const content = readFileSync(childPath, "utf8");
           const lines = content.split("\n");

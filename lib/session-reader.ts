@@ -2,8 +2,7 @@ import {
   SessionManager,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import { closeSync, type Dirent, fstatSync, openSync, readSync } from "fs";
-import { readdir } from "fs/promises";
+import { closeSync, fstatSync, openSync, readSync } from "fs";
 import { isAbsolute, join, normalize as normalizePath, relative, resolve as resolvePath, sep } from "path";
 import type { AgentMessage, ImageContent, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
 import { normalizeToolCalls } from "./normalize";
@@ -13,7 +12,7 @@ import { sessionPathKey } from "./session-path";
 import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "./tool-result-images";
 import { resolveProject, type ProjectInfo } from "./worktree";
 import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
-import { listSessionsIncremental } from "./session-list-scanner";
+import { listSessionFiles, listSessionsIncremental } from "./session-list-scanner";
 
 export { getAgentDir };
 
@@ -251,48 +250,22 @@ async function findSessionPathById(sessionId: string): Promise<string | null> {
   // authoritative so future layouts and malformed files use the full fallback.
   if (!SESSION_ID_PATTERN.test(sessionId)) return null;
 
-  let projectDirs: Dirent[];
   const sessionsDir = resolvePath(defaultSessionsDir());
-  try {
-    projectDirs = await readdir(sessionsDir, { withFileTypes: true });
-  } catch {
-    return null;
-  }
-
   const suffix = `_${sessionId}.jsonl`;
   let match: string | undefined;
-  for (const projectDir of projectDirs) {
-    if (!projectDir.isDirectory() && !projectDir.isSymbolicLink()) continue;
-    const projectPath = resolvePathWithinDefaultSessions(
-      join(sessionsDir, projectDir.name),
-      sessionsDir,
-    );
-    if (!projectPath) continue;
-
-    let files: string[];
+  for (const filePath of await listSessionFiles(sessionsDir)) {
+    if (!filePath.endsWith(suffix)) continue;
+    const candidate = resolvePathWithinDefaultSessions(filePath, sessionsDir);
+    if (!candidate) continue;
     try {
-      files = await readdir(projectPath);
+      if (readSessionHeader(candidate)?.id !== sessionId) continue;
     } catch {
       continue;
     }
-
-    for (const file of files) {
-      if (!file.endsWith(suffix)) continue;
-      const candidate = resolvePathWithinDefaultSessions(
-        join(projectPath, file),
-        sessionsDir,
-      );
-      if (!candidate) continue;
-      try {
-        if (readSessionHeader(candidate)?.id !== sessionId) continue;
-      } catch {
-        continue;
-      }
-      // Do not choose between duplicate candidates; retain the existing
-      // catalogue fallback for its current resolution semantics.
-      if (match && match !== candidate) return null;
-      match = candidate;
-    }
+    // Do not choose between duplicate candidates; retain the existing
+    // catalogue fallback for its current resolution semantics.
+    if (match && match !== candidate) return null;
+    match = candidate;
   }
 
   return match ?? null;
