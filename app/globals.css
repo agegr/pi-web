@@ -1234,6 +1234,17 @@ pre, code {
   filter: brightness(1.08);
 }
 
+.file-viewer-load-more {
+  position: absolute;
+  z-index: 2;
+  right: 12px;
+  bottom: 12px;
+  max-width: calc(100% - 24px);
+  background: var(--bg-panel);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--text) 18%, transparent);
+  pointer-events: auto;
+}
+
 .file-viewer-icon-button {
   display: inline-flex;
   align-items: center;

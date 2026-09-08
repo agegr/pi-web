@@ -425,6 +425,7 @@ export const enLocale: LocalePlugin = {
     "i18n.removing": "Removing…",
     "i18n.delete": "Delete",
     "i18n.loading": "Loading...",
+    "i18n.loadMore": "Load more",
     "i18n.search": "Search",
     "i18n.refresh": "Refresh",
     "i18n.update": "Update",

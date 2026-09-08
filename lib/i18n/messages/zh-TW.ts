@@ -425,6 +425,7 @@ export const zhTWLocale: LocalePlugin = {
     "i18n.removing": "移除中…",
     "i18n.delete": "刪除",
     "i18n.loading": "載入中...",
+    "i18n.loadMore": "載入更多",
     "i18n.search": "搜尋",
     "i18n.refresh": "重新整理",
     "i18n.update": "更新",
