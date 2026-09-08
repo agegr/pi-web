@@ -119,7 +119,15 @@ test("lifecycle refreshes bypass the cache while cross-window polling reuses it"
 
 test("does not expose disk-backed actions for transient sessions", () => {
   assert.match(sessionItemSource, /if \(session\.transient\) return;/);
-  assert.match(sessionItemSource, /\{hovered && !session\.transient && \(/);
+  assert.match(sessionItemSource, /\{showHover && !session\.transient && \(/);
+});
+
+test("re-probes the session under a stationary pointer after the list reflows", () => {
+  assert.match(source, /data-session-id=\{family\.root\.id\}/);
+  assert.match(source, /list\.querySelectorAll\("\[data-session-id\]"\)/);
+  assert.match(source, /Removing the hovered row fires pointerleave/);
+  assert.match(source, /pointerActive=\{pointerSessionId === family\.root\.id\}/);
+  assert.match(sessionItemSource, /const showHover = hovered \|\| pointerActive/);
 });
 
 test("hides subagent rows and aggregates their state into the main session row", () => {
