@@ -75,6 +75,51 @@ test("list versions expose idle session creation, rename and deletion to other w
   assert.equal((await (await getRunningSessions()).json()).sessionListVersion, deleted.sessionListVersion);
 });
 
+test("deleting an unpersisted session shuts down its runtime and invalidates caches", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-web-delete-empty-"));
+  const previousRegistry = globalThis.__piSessions;
+  const ids = [];
+  globalThis.__piSessions = new Map();
+  t.after(async () => {
+    globalThis.__piSessions = previousRegistry;
+    for (const id of ids) invalidateSessionPathCache(id);
+    invalidateSessionListCache();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  for (const persistOnShutdown of [false, true]) {
+    const manager = SessionManager.create(dir, dir);
+    const id = manager.getSessionId();
+    const filePath = manager.getSessionFile();
+    ids.push(id);
+    await assert.rejects(readFile(filePath), { code: "ENOENT" });
+    cacheSessionPath(id, filePath);
+    let shutdownCalled = false;
+    globalThis.__piSessions.set(id, {
+      isRunning: () => false,
+      shutdown: async () => {
+        shutdownCalled = true;
+        if (persistOnShutdown) await writeFile(filePath, JSON.stringify(manager.getHeader()));
+        globalThis.__piSessions.delete(id);
+      },
+    });
+    const before = (await (await getRunningSessions()).json()).sessionListVersion;
+    const response = await deleteSession(
+      new Request(`http://localhost/api/sessions/${id}`, { method: "DELETE" }),
+      { params: Promise.resolve({ id }) },
+    );
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ok: true });
+    assert.equal(shutdownCalled, true);
+    assert.equal(globalThis.__piSessions.has(id), false);
+    assert.equal(globalThis.__piSessionPathCache.has(id), false);
+    assert.equal([...globalThis.__piPathToSessionIdCache.values()].includes(id), false);
+    assert.ok((await (await getRunningSessions()).json()).sessionListVersion > before);
+    await assert.rejects(readFile(filePath), { code: "ENOENT" });
+  }
+});
+
 test("session listing merges live registry snapshots and honors force refresh", () => {
   assert.match(listRoute, /searchParams\.get\("force"\) === "1"/);
   assert.match(listRoute, /listAllSessions\(\{ force \}\)/);

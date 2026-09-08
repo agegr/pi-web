@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { setImmediate } from "node:timers/promises";
-import { createTerminalWriter } from "../lib/terminal-client.ts";
+import { createTerminalWriter, terminalRequest } from "../lib/terminal-client.ts";
+
+test("terminal errors preserve server diagnostics and explain non-JSON responses", async (t) => {
+  const fetch = t.mock.method(globalThis, "fetch");
+  for (const body of [null, "<html>Server error</html>", "null"]) {
+    fetch.mock.mockImplementation(async () => new Response(body, { status: 500 }));
+    await assert.rejects(terminalRequest("/api/terminal"), /HTTP 500.*pi-web server log/);
+  }
+  fetch.mock.mockImplementation(async () => Response.json({ error: "Native module missing; run npm rebuild node-pty" }, { status: 500 }));
+  await assert.rejects(terminalRequest("/api/terminal"), /Native module missing; run npm rebuild node-pty/);
+});
 
 test("a delayed input request cannot be overtaken by typing or resize", async (t) => {
   const received = [];

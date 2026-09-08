@@ -18,6 +18,8 @@ import { AgentSessionPanel } from "./AgentSessionPanel";
 import { TerminalPanel } from "./TerminalPanel";
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
 import { useTheme } from "@/hooks/useTheme";
+import { THEME_OPTIONS } from "@/lib/theme";
+import { ThemeIcon } from "./ThemeIcon";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile, useIsNarrowMobile } from "@/hooks/useIsMobile";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
@@ -69,7 +71,7 @@ type AutoNameStatus =
   | { kind: "error"; message: string };
 
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
-const LANGUAGE_MENU_WIDTH = 176;
+const SELECTION_MENU_WIDTH = 176;
 const AGENT_PANEL_WIDTH = 420;
 
 function parkedNewSessionDraftKey(cwd: string): string {
@@ -80,9 +82,8 @@ export function AppShell() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [initialNavigation] = useState(() => getInitialNavigation(searchParams));
-  const { preference, toggleTheme } = useTheme();
-  const themeLabelKey =
-    preference === "light" ? "theme.light" : preference === "dark" ? "theme.dark" : "theme.auto";
+  const { preference, setThemePreference } = useTheme();
+  const themeLabelKey = `theme.${preference}`;
   const { locale, setLocale, t: translate, supportedLocales } = useI18n();
   const isMobile = useIsMobile();
   const isNarrowMobile = useIsNarrowMobile();
@@ -243,7 +244,9 @@ export function AppShell() {
   const [pendingQuotePrompt, setPendingQuotePrompt] = useState<{ sessionId: string; text: string } | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
   const mobileToolbarRef = useRef<HTMLDivElement>(null);
+  const themeBtnRef = useRef<HTMLButtonElement>(null);
   const languageBtnRef = useRef<HTMLButtonElement>(null);
+  const selectionMenuRef = useRef<HTMLDivElement>(null);
 
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
   const [branchTree, setBranchTree] = useState<SessionTreeNode[]>([]);
@@ -316,7 +319,7 @@ export function AppShell() {
   }, []);
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "branches" | "system" | "tools" | "session" | "language" | null>(null);
+  const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "branches" | "system" | "tools" | "session" | "language" | "theme" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   useEffect(() => {
@@ -332,7 +335,7 @@ export function AppShell() {
   }, [hasSubagentSessions]);
 
   const toggleTopPanel = useCallback((
-    panel: "agents" | "branches" | "system" | "tools" | "session" | "language",
+    panel: "agents" | "branches" | "system" | "tools" | "session" | "language" | "theme",
     keepMobileToolbarOpen = false,
   ) => {
     if (isMobile) setSidebarOpen(false);
@@ -396,10 +399,12 @@ export function AppShell() {
     const handlePointerDown = (event: PointerEvent) => {
       const toolbar = mobileToolbarRef.current;
       if (toolbar && event.composedPath().includes(toolbar)) return;
+      // An open selector dismisses both layers together.
+      if (selectionMenuRef.current) return;
       setMobileToolbarMoreOpen(false);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || selectionMenuRef.current) return;
       event.preventDefault();
       event.stopPropagation();
       setMobileToolbarMoreOpen(false);
@@ -417,13 +422,56 @@ export function AppShell() {
     setMobileToolbarMoreOpen(false);
   }, [isMobile, isNarrowMobile, selectedSession?.id, newSessionDraftId]);
 
+  useLayoutEffect(() => {
+    if (activeTopPanel !== "theme" && activeTopPanel !== "language") return;
+    const menu = selectionMenuRef.current;
+    const trigger = activeTopPanel === "theme" ? themeBtnRef.current : languageBtnRef.current;
+    if (!menu || !trigger) return;
+    const items = Array.from(menu.querySelectorAll<HTMLButtonElement>("[role=menuitemradio]"));
+    (items.find((item) => item.getAttribute("aria-checked") === "true") ?? items[0])?.focus();
+
+    const dismissOutside = (event: Event) => {
+      if (event.composedPath().includes(menu) || event.composedPath().includes(trigger)) return;
+      setActiveTopPanel(null);
+      const toolbar = mobileToolbarRef.current;
+      if (event.type === "pointerdown" && (!toolbar || !event.composedPath().includes(toolbar))) {
+        setMobileToolbarMoreOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        trigger.focus();
+        setActiveTopPanel(null);
+        return;
+      }
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const index = items.indexOf(document.activeElement as HTMLButtonElement);
+      const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1
+        : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+      items[next]?.focus();
+    };
+    document.addEventListener("pointerdown", dismissOutside, true);
+    document.addEventListener("focusin", dismissOutside);
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOutside, true);
+      document.removeEventListener("focusin", dismissOutside);
+      document.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [activeTopPanel, topPanelPos]);
+
   useEffect(() => {
     if (!activeTopPanel || !topBarRef.current) return;
     const update = () => {
       const topBarRect = topBarRef.current!.getBoundingClientRect();
-      if (activeTopPanel === "language" && !isMobile && languageBtnRef.current) {
-        const buttonRect = languageBtnRef.current.getBoundingClientRect();
-        const width = Math.min(LANGUAGE_MENU_WIDTH, topBarRect.width);
+      if ((activeTopPanel === "language" || activeTopPanel === "theme") && !isMobile) {
+        const button = activeTopPanel === "theme" ? themeBtnRef.current : languageBtnRef.current;
+        if (!button) return;
+        const buttonRect = button.getBoundingClientRect();
+        const width = Math.min(SELECTION_MENU_WIDTH, topBarRect.width);
         const left = Math.min(
           buttonRect.left - 1,
           Math.max(topBarRect.left, topBarRect.right - width),
@@ -445,6 +493,7 @@ export function AppShell() {
     const ro = new ResizeObserver(update);
     ro.observe(topBarRef.current);
     if (languageBtnRef.current) ro.observe(languageBtnRef.current);
+    if (themeBtnRef.current) ro.observe(themeBtnRef.current);
     return () => ro.disconnect();
   }, [activeTopPanel, isMobile]);
 
@@ -1200,43 +1249,27 @@ export function AppShell() {
 
   const renderThemeButton = (mobile: boolean) => (
     <button
+      ref={themeBtnRef}
       type="button"
-      onClick={(event) => {
-        const rect = event.currentTarget.getBoundingClientRect();
-        toggleTheme({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-        if (mobile && isNarrowMobile) setMobileToolbarMoreOpen(true);
-      }}
+      onClick={() => toggleTopPanel("theme", mobile)}
       title={translate(themeLabelKey)}
       aria-label={translate(themeLabelKey)}
+      aria-haspopup="menu"
+      aria-expanded={activeTopPanel === "theme"}
+      aria-pressed={activeTopPanel === "theme"}
       style={{
         display: "flex", alignItems: "center", justifyContent: "center",
         width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-        background: "none", border: "none", borderRight: "1px solid var(--border)",
-        color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
+        background: activeTopPanel === "theme" ? "var(--bg-selected)" : "none",
+        border: "none", borderRight: "1px solid var(--border)",
+        color: activeTopPanel === "theme" ? "var(--text)" : "var(--text-muted)",
+        cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
       }}
       onMouseEnter={(event) => { event.currentTarget.style.color = "var(--text)"; }}
-      onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text-muted)"; }}
+      onMouseLeave={(event) => { event.currentTarget.style.color = activeTopPanel === "theme" ? "var(--text)" : "var(--text-muted)"; }}
       data-mobile-toolbar-action={mobile ? "theme" : undefined}
     >
-      {preference === "light" ? (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="5" />
-          <line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
-          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-          <line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" />
-          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-        </svg>
-      ) : preference === "dark" ? (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-        </svg>
-      ) : (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <rect x="2" y="3" width="20" height="14" rx="2" />
-          <line x1="8" y1="21" x2="16" y2="21" />
-          <line x1="12" y1="17" x2="12" y2="21" />
-        </svg>
-      )}
+      <ThemeIcon preference={preference} size={16} />
     </button>
   );
 
@@ -2111,6 +2144,7 @@ export function AppShell() {
             }}>
               {activeTopPanel === "language" && (
                 <div
+                  ref={selectionMenuRef}
                   role="menu"
                   aria-label={translate("common.language")}
                   style={{
@@ -2128,6 +2162,7 @@ export function AppShell() {
                       type="button"
                       onClick={() => {
                         setLocale(plugin.id as typeof locale);
+                        languageBtnRef.current?.focus();
                         setActiveTopPanel(null);
                       }}
                       role="menuitemradio"
@@ -2148,6 +2183,52 @@ export function AppShell() {
                       }}
                     >
                       <span>{plugin.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {activeTopPanel === "theme" && (
+                <div
+                  ref={selectionMenuRef}
+                  role="menu"
+                  aria-label={translate("settings.appearance")}
+                  style={{
+                    background: "var(--bg-panel)",
+                    borderLeft: "1px solid var(--border)",
+                    borderRight: "1px solid var(--border)",
+                    borderBottom: "1px solid var(--border)",
+                    overflow: "hidden",
+                    padding: 4,
+                  }}
+                >
+                  {THEME_OPTIONS.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => {
+                        setThemePreference(option.id);
+                        themeBtnRef.current?.focus();
+                        setActiveTopPanel(null);
+                      }}
+                      role="menuitemradio"
+                      aria-checked={preference === option.id}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 8,
+                        width: "100%", minHeight: 34, padding: "0 10px",
+                        border: "none", borderRadius: 4,
+                        background: preference === option.id ? "var(--bg-selected)" : "transparent",
+                        color: "var(--text)", cursor: "pointer", textAlign: "left", fontSize: 12,
+                        transition: "background 0.1s",
+                      }}
+                      onMouseEnter={(event) => {
+                        if (preference !== option.id) event.currentTarget.style.background = "var(--bg-hover)";
+                      }}
+                      onMouseLeave={(event) => {
+                        if (preference !== option.id) event.currentTarget.style.background = "transparent";
+                      }}
+                    >
+                      <ThemeIcon preference={option.id} size={16} />
+                      <span>{translate(option.label)}</span>
                     </button>
                   ))}
                 </div>

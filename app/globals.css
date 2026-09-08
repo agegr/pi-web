@@ -19,17 +19,20 @@
   --font-mono-font: var(--font-mono);
 }
 
-:root {
+:root,
+[data-theme="light"] {
+  color-scheme: light;
   --bg: #ffffff;
   --bg-panel: #f5f5f5;
   --bg-hover: #eeeeee;
   --bg-selected: #e8e8e8;
   --border: #e0e0e0;
   --text: #1a1a1a;
-  --text-muted: #6b7280;
-  --text-dim: #9ca3af;
-  --accent: #2563eb;
+  --text-muted: #515c6b;
+  --text-dim: #5e6673;
+  --accent: #245bce;
   --accent-hover: #1d4ed8;
+  --accent-contrast: #ffffff;
   --user-bg: #eff6ff;
   --assistant-bg: #ffffff;
   --tool-bg: #f9fafb;
@@ -38,21 +41,82 @@
   --chat-content-font-size: 14px;
 }
 
-html.dark {
+html.dark,
+[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #1a1a1a;
   --bg-panel: #242424;
   --bg-hover: #2e2e2e;
   --bg-selected: #383838;
-  --border: #3a3a3a;
+  --border: #454545;
   --text: #e8e8e8;
-  --text-muted: #9ca3af;
-  --text-dim: #6b7280;
-  --accent: #60a5fa;
-  --accent-hover: #93c5fd;
-  --user-bg: #1e293b;
+  --text-muted: #b7b7b7;
+  --text-dim: #a4a4a4;
+  --accent: #a4c2f4;
+  --accent-hover: #c3d8fa;
+  --accent-contrast: #182234;
+  --user-bg: #292929;
   --assistant-bg: #1a1a1a;
-  --tool-bg: #1f2937;
+  --tool-bg: #222222;
   --bg-subtle: rgba(255,255,255,0.04);
+}
+
+[data-theme="mist"] {
+  color-scheme: light;
+  --bg: #f4f8f7;
+  --bg-panel: #e9f0ee;
+  --bg-hover: #e0eae7;
+  --bg-selected: #d7e4df;
+  --border: #afc4ba;
+  --text: #202e2b;
+  --text-muted: #455f56;
+  --text-dim: #52685f;
+  --accent: #1e6559;
+  --accent-hover: #174f46;
+  --accent-contrast: #ffffff;
+  --user-bg: #e0efeb;
+  --assistant-bg: #f4f8f7;
+  --tool-bg: #ecf3f0;
+  --bg-subtle: rgba(24,65,50,0.04);
+}
+
+[data-theme="rose"] {
+  color-scheme: light;
+  --bg: #fcf7f8;
+  --bg-panel: #f3edef;
+  --bg-hover: #eee3e7;
+  --bg-selected: #e8dce1;
+  --border: #cdb5bf;
+  --text: #34282e;
+  --text-muted: #65505a;
+  --text-dim: #705b65;
+  --accent: #914360;
+  --accent-hover: #76324d;
+  --accent-contrast: #ffffff;
+  --user-bg: #f3e4eb;
+  --assistant-bg: #fcf7f8;
+  --tool-bg: #f7eef2;
+  --bg-subtle: rgba(89,39,62,0.04);
+}
+
+html[data-theme="pine"],
+[data-theme="pine"] {
+  color-scheme: dark;
+  --bg: #19201f;
+  --bg-panel: #212b28;
+  --bg-hover: #2b3632;
+  --bg-selected: #35433c;
+  --border: #4a5f52;
+  --text: #e6ede8;
+  --text-muted: #c3d0c6;
+  --text-dim: #afc2b5;
+  --accent: #acccb7;
+  --accent-hover: #d0e2d3;
+  --accent-contrast: #182b20;
+  --user-bg: #25382f;
+  --assistant-bg: #19201f;
+  --tool-bg: #222d29;
+  --bg-subtle: rgba(210,236,219,0.04);
 }
 
 /* WebKit reports dvh/innerHeight without the status-bar strip for installed
@@ -127,6 +191,139 @@ html, body {
 body {
   display: flex;
   flex-direction: column;
+}
+
+.web-login-page {
+  display: grid;
+  min-height: 100%;
+  padding: max(24px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+  place-items: center;
+  background: var(--bg);
+}
+
+.web-login-shell {
+  width: min(100%, 360px);
+}
+
+.web-login-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.web-login-brand img {
+  flex-shrink: 0;
+  border-radius: 8px;
+}
+
+.web-login-brand h1 {
+  margin: 0 0 3px;
+  color: var(--text);
+  font-size: 22px;
+  letter-spacing: 0;
+}
+
+.web-login-brand p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.web-login-form {
+  width: 100%;
+}
+
+.web-login-composer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 10px 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 14px;
+  background: var(--bg);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -12px rgba(15, 23, 42, 0.10);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.web-login-composer:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent), 0 8px 24px -12px rgba(15, 23, 42, 0.10);
+}
+
+.web-login-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.web-login-form input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+}
+
+.web-login-form input::placeholder {
+  color: var(--text-dim);
+}
+
+.web-login-error {
+  min-height: 17px;
+  margin: 7px 4px 0;
+  color: #dc2626;
+  font-size: 11px;
+  line-height: 17px;
+}
+
+html.dark .web-login-error {
+  color: #f87171;
+}
+
+.web-login-form button {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 7px 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.web-login-form button:not(:disabled):hover {
+  background: var(--accent-hover);
+}
+
+.web-login-form button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.web-login-form button:disabled {
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  cursor: not-allowed;
 }
 
 .terminal-panel {
@@ -1099,6 +1296,17 @@ pre, code {
 
 .file-viewer-mode-button:hover {
   filter: brightness(1.08);
+}
+
+.file-viewer-load-more {
+  position: absolute;
+  z-index: 2;
+  right: 12px;
+  bottom: 12px;
+  max-width: calc(100% - 24px);
+  background: var(--bg-panel);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--text) 18%, transparent);
+  pointer-events: auto;
 }
 
 .file-viewer-icon-button {
