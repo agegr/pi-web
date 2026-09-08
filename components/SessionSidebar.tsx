@@ -2332,7 +2332,6 @@ function SessionItem({
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center",
                 width: 20, height: 20, padding: 0, flexShrink: 0,
-                marginRight: hovered && !session.transient ? 90 : 0,
                 background: "none", border: "none",
                 color: "var(--text-dim)", cursor: "pointer",
                 transform: collapsed ? "rotate(-90deg)" : "none",
@@ -2348,7 +2347,7 @@ function SessionItem({
           {/* Action buttons — shown on hover */}
           {hovered && !session.transient && (
             <div style={{
-              position: "absolute", right: 8, top: 11, zIndex: 1,
+              position: "absolute", right: hasChildren ? 32 : 8, top: 11, zIndex: 1,
               display: "flex", gap: 4, paddingLeft: 18,
               background: `linear-gradient(to right, transparent, ${isSelected ? "var(--bg-selected)" : "var(--bg-hover)"} 18px)`,
             }}>
