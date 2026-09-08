@@ -1861,6 +1861,11 @@ export function ModelsConfig({ onClose, embedded = false, cwd }: { onClose: () =
       if (seq === persistSeqRef.current) {
         setSaveError(!res.ok || d.error ? (d.error ?? `HTTP ${res.status}`) : null);
       }
+      if (res.ok) {
+        // The server may have pruned/backfilled the allowlist in response to
+        // this save; open model selectors and warning banners must refresh.
+        window.dispatchEvent(new CustomEvent("pi:models-changed"));
+      }
     } catch (e) {
       if (seq === persistSeqRef.current) setSaveError(String(e));
     }

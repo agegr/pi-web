@@ -184,15 +184,17 @@ export function ProviderCatalog({ providerId, displayName, cwd }: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(cwd ? { cwd } : {}),
       });
-      const d = await res.json() as { errors?: { provider: string; error: string }[]; backfill?: { changed: boolean; added: string[] } };
+      const d = await res.json() as { errors?: { provider: string; error: string }[]; sync?: { changed: boolean; added: string[]; warning?: string } };
       if (!res.ok && d.errors?.length) {
         setError(d.errors[0].error);
       }
-      if (d.backfill?.changed && d.backfill.added.length > 0) {
+      if (d.sync?.changed && d.sync.added.length > 0) {
         setBackfillNotice(
-          t("models.backfillNotice").replace("{providers}", d.backfill.added.map((p) => p.replace("/*", "")).join(", ")),
+          t("models.backfillNotice").replace("{providers}", d.sync.added.map((p) => p.replace("/*", "")).join(", ")),
         );
         window.dispatchEvent(new CustomEvent("pi:models-changed"));
+      } else if (d.sync?.warning) {
+        setError(d.sync.warning);
       }
     } catch (e) {
       setError(String(e));

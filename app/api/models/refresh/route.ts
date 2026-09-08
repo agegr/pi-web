@@ -2,7 +2,7 @@ import { stat } from "fs/promises";
 import { resolve } from "path";
 import { createAgentSessionServices, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { invalidateModelsCache } from "@/lib/models-cache";
-import { backfillAllowlist } from "@/lib/allowlist-backfill";
+import { syncAllowlist, ensureAllowlistSegments } from "@/lib/allowlist-backfill";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { projectTrustReloadOptions } from "@/lib/project-trust";
 
@@ -43,6 +43,11 @@ export async function POST(req: Request) {
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
 
+    // Providers configured before the refresh, used after it to seed only the
+    // genuinely NEW providers (a global backfill would silently revive providers
+    // the user trimmed to zero models — see ensureAllowlistSegments).
+    const beforeProviders = new Set((await services.modelRuntime.getAvailable()).map((m) => m.provider));
+
     // Explicit user action: allow the pi.dev remote catalog to be fetched with
     // `force` so the 4h freshness window is bypassed, like pi's own refresh.
     const result = await services.modelRuntime.refresh({
@@ -56,13 +61,29 @@ export async function POST(req: Request) {
     invalidateModelsCache();
 
     // A remote refresh may reveal models of providers that have no allowlist
-    // segment yet; keep them visible (the allowlist records trims only).
-    let backfill: Awaited<ReturnType<typeof backfillAllowlist>> = { changed: false, added: [] };
+    // segment yet (seed the genuinely new ones), and may drop providers that
+    // no longer exist (prune removes their stale entries).
+    let sync: { changed: boolean; added: string[]; removed: string[]; warning?: string } = { changed: false, added: [], removed: [] };
     try {
-      backfill = await backfillAllowlist(services.modelRuntime, services.settingsManager, AbortSignal.timeout(8_000));
-      if (backfill.changed) invalidateModelsCache();
+      const prune = await syncAllowlist(services.modelRuntime, services.settingsManager, AbortSignal.timeout(8_000), {
+        // A provider whose refresh just errored is temporarily missing from
+        // the available list — that is not a removal, keep its entries.
+        keepProviders: [...result.errors.keys()],
+      });
+      const afterProviders = new Set((await services.modelRuntime.getAvailable()).map((m) => m.provider));
+      const ensure = ensureAllowlistSegments(services.settingsManager, [...afterProviders].filter((p) => !beforeProviders.has(p)));
+      sync = {
+        changed: prune.changed || ensure.changed,
+        added: ensure.added,
+        removed: prune.removed,
+        ...(prune.warning ? { warning: prune.warning } : {}),
+      };
+      if (sync.changed) {
+        await services.settingsManager.flush();
+        invalidateModelsCache();
+      }
     } catch {
-      // Never fail the refresh because the allowlist backfill hiccapped.
+      // Never fail the refresh because the allowlist sync hiccapped.
     }
 
     const errors: { provider: string; error: string }[] = [];
@@ -72,7 +93,7 @@ export async function POST(req: Request) {
     return Response.json({
       ok: !result.aborted,
       ...(result.aborted ? { aborted: true } : {}),
-      backfill,
+      sync,
       errors,
     });
   } catch (error) {

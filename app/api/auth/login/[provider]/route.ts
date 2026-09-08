@@ -1,7 +1,7 @@
 import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { invalidateModelsCache } from "@/lib/models-cache";
-import { backfillAllowlistStandalone } from "@/lib/allowlist-backfill";
+import { ensureAllowlistSegmentsStandalone } from "@/lib/allowlist-backfill";
 
 export const dynamic = "force-dynamic";
 
@@ -165,11 +165,13 @@ export async function GET(
         });
 
         invalidateModelsCache();
-        // A newly configured provider must not be hidden by an existing allowlist.
+        // A newly configured provider must not be hidden by an existing allowlist:
+        // seed just this provider's segment (a global backfill would silently
+        // revive providers the user trimmed to zero models).
         try {
-          await backfillAllowlistStandalone(process.cwd(), AbortSignal.timeout(10_000));
+          await ensureAllowlistSegmentsStandalone(process.cwd(), [provider]);
         } catch {
-          // Never fail the OAuth login because the backfill hiccupped.
+          // Never fail the OAuth login because the allowlist seed hiccupped.
         }
         send(controller, { type: "success" });
       } catch (err) {

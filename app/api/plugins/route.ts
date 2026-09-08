@@ -13,6 +13,7 @@ import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-acces
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getProjectTrustStatus } from "@/lib/project-trust";
 import { isPluginSourceCheckable } from "@/lib/plugin-updates";
+import { syncAllowlistStandalone } from "@/lib/allowlist-backfill";
 import type {
   PluginDiagnostic,
   PluginPackageInfo,
@@ -363,6 +364,17 @@ export async function POST(req: Request) {
       await settingsManager.flush();
     } else {
       return NextResponse.json({ error: `Unsupported action: ${body.action}` }, { status: 400 });
+    }
+
+    // A removed/updated/disabled package plugin may have registered providers;
+    // drop their now-stale allowlist entries. Availability-based prune is safe
+    // here: it only touches providers truly absent from the configured set.
+    if (body.action === "remove" || body.action === "update" || body.action === "disable") {
+      try {
+        await syncAllowlistStandalone(process.cwd(), AbortSignal.timeout(10_000));
+      } catch {
+        // Never fail the plugin action because the allowlist sync hiccapped.
+      }
     }
 
     return NextResponse.json(await readPlugins(body.cwd));
