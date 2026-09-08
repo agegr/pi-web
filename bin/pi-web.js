@@ -16,13 +16,13 @@ const path = require("path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fs = require("fs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { getHelpText, parseLaunchOptions } = require("./pi-web-options");
+const { getHelpText, parseCliArguments } = require("./pi-web-options");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { wireChildProcessLifecycle } = require("./process-lifecycle");
 
 let launchOptions;
 try {
-  launchOptions = parseLaunchOptions();
+  launchOptions = parseCliArguments();
 } catch (error) {
   fs.writeSync(
     process.stderr.fd,
@@ -36,10 +36,39 @@ if (launchOptions.help) {
   process.exit(0);
 }
 
-const { port, hostname, openBrowser } = launchOptions;
+const { command, port, hostname, openBrowser } = launchOptions;
 
 const pkgDir = path.join(__dirname, "..");
 const nextDir = path.join(pkgDir, ".next");
+
+if (command !== "foreground") {
+  try {
+    // Resolve the running script so npx, symlinked global installs, and paths
+    // containing spaces all keep using the same installed package.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { assertSupportedPlatform, runServiceCommand } = require("./mac-service");
+    assertSupportedPlatform();
+    if (command === "start" && !fs.existsSync(nextDir)) {
+      throw new Error("Build artifacts not found. Install the published Pi Web package before starting its service.");
+    }
+    const result = runServiceCommand(command, {
+      scriptPath: fs.realpathSync(__filename),
+      packageDir: pkgDir,
+      port,
+      hostname,
+      openBrowser,
+      environment: process.env,
+    });
+    fs.writeSync(process.stdout.fd, `${result.message}\n`);
+    process.exit(0);
+  } catch (error) {
+    fs.writeSync(
+      process.stderr.fd,
+      `${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    process.exit(1);
+  }
+}
 
 // Resolve next's CLI entry directly to avoid relying on .bin symlinks (which
 // may not exist when installed via npx).
