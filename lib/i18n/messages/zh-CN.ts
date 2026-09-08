@@ -395,6 +395,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.allBuiltInTools": "全部内置工具",
     "chat.changeReasoning": "更改推理级别：{level}",
     "chat.changeReasoningLabel": "更改推理级别",
+    "chat.currentReasoning": "本轮使用的推理级别：{level}",
     "chat.changeToolPreset": "更改工具预设",
     "chat.stopCompaction": "停止压缩",
     "chat.compactContext": "压缩上下文",
