@@ -301,6 +301,22 @@ test("renders the shared field model selector as a disabled gray control", () =>
 test("caps an upward menu to the visible space above its anchor", () => {
   assert.equal(getUpwardMenuMaxHeight(343, 36), 299);
   assert.equal(getUpwardMenuMaxHeight(40, 36), 0);
+  // Composer sitting under a 36px top bar with only ~160px of air: a 400px
+  // file list would paint through the bar and hide the leading matches.
+  assert.equal(getUpwardMenuMaxHeight(200, 36), 156);
+  assert.ok(getUpwardMenuMaxHeight(200, 36) < 400);
+});
+
+test("file mention menu applies the measured upward height cap", () => {
+  const source = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  const start = source.indexOf("{atMenuOpen && atQuery !== null && (() => {");
+  assert.notEqual(start, -1);
+  const block = source.slice(start, start + 4000);
+  assert.match(block, /ref=\{atMenuRef\}/);
+  assert.match(block, /min\(48vh, 400px, \$\{atMenuMaxHeight\}px\)/);
+  assert.match(block, /flexDirection: "column"/);
+  assert.match(block, /minHeight: 0/);
+  assert.equal(block.includes("maxHeight: \"min(48vh, 400px)\""), false);
 });
 
 test("compresses large images while preserving small images and GIFs", async () => {
