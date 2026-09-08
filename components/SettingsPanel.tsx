@@ -14,6 +14,7 @@ import {
 } from "@/hooks/useChatAppearance";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type { ShellToolSettingsResponse } from "@/lib/api-types";
+import type { ModelsData } from "@/lib/models-cache";
 import {
   setLastSettingsSection,
   type SettingsSection,
@@ -69,7 +70,7 @@ function ThemeIcon({ preference }: { preference: ThemePreference }) {
   return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></svg>;
 }
 
-function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange">) {
+function GeneralSettings({ cwd, sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "cwd" | "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange">) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
@@ -77,10 +78,64 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
+  const [titleModel, setTitleModel] = useState("inherit");
+  const [titleModelOptions, setTitleModelOptions] = useState<ModelsData["modelList"]>([]);
+  const [titleModelReady, setTitleModelReady] = useState(false);
+  const [titleModelSaving, setTitleModelSaving] = useState(false);
+  const [titleModelError, setTitleModelError] = useState<string | null>(null);
 
   useEffect(() => {
     setThinkingExpanded(isThinkingExpandedByDefault());
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setTitleModelReady(false);
+    void fetch("/api/session-title/settings")
+      .then(async (response) => {
+        const data = await response.json() as { model?: string; error?: string };
+        if (!response.ok || typeof data.model !== "string") throw new Error(data.error ?? `HTTP ${response.status}`);
+        if (!cancelled) {
+          setTitleModel(data.model);
+          setTitleModelReady(true);
+        }
+      })
+      .catch((cause) => {
+        if (!cancelled) setTitleModelError(cause instanceof Error ? cause.message : String(cause));
+      });
+    // The model catalogue is project-scoped; without a project the stored value is still shown.
+    if (cwd) {
+      void fetch(`/api/models?cwd=${encodeURIComponent(cwd)}`)
+        .then(async (response) => {
+          const data = await response.json() as Partial<ModelsData> & { error?: string };
+          if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+          if (!cancelled) setTitleModelOptions(data.modelList ?? []);
+        })
+        .catch((cause) => {
+          if (!cancelled) setTitleModelError(cause instanceof Error ? cause.message : String(cause));
+        });
+    }
+    return () => { cancelled = true; };
+  }, [cwd]);
+
+  const saveTitleModel = async (model: string) => {
+    setTitleModelSaving(true);
+    setTitleModelError(null);
+    try {
+      const response = await fetch("/api/session-title/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model }),
+      });
+      const data = await response.json() as { model?: string; error?: string };
+      if (!response.ok || typeof data.model !== "string") throw new Error(data.error ?? `HTTP ${response.status}`);
+      setTitleModel(data.model);
+    } catch (cause) {
+      setTitleModelError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setTitleModelSaving(false);
+    }
+  };
   const themeOptions: { id: ThemePreference; label: string }[] = [
     { id: "light", label: t("settings.themeLight") },
     { id: "dark", label: t("settings.themeDark") },
@@ -249,6 +304,29 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
       )}
 
       <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.sessionTitle")}</h3>
+        <p className="settings-general-description">{t("settings.sessionTitleDescription")}</p>
+        <select
+          className="settings-title-model-select"
+          aria-label={t("settings.sessionTitleModel")}
+          value={titleModel}
+          disabled={!titleModelReady || titleModelSaving}
+          onChange={(event) => void saveTitleModel(event.target.value)}
+        >
+          <option value="inherit">{t("settings.sessionTitleModelInherit")}</option>
+          {titleModel !== "inherit"
+            && !titleModelOptions.some((option) => `${option.provider}/${option.id}` === titleModel)
+            && <option value={titleModel}>{titleModel}</option>}
+          {titleModelOptions.map((option) => (
+            <option key={`${option.provider}/${option.id}`} value={`${option.provider}/${option.id}`}>
+              {option.name || option.id} ({option.provider})
+            </option>
+          ))}
+        </select>
+        {titleModelError && <p role="alert" className="settings-general-error">{titleModelError}</p>}
+      </section>
+
+      <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("common.language")}</h3>
         <div role="radiogroup" aria-label={t("common.language")} className="settings-language-options">
           {supportedLocales.map((plugin) => {
@@ -372,7 +450,7 @@ export function SettingsPanel({ cwd, sessionId, initialSection, onClose, onSessi
         </div>
 
         <main className="settings-dialog-main">
-          {sectionHost("general", <GeneralSettings sessionId={sessionId} onSessionReloaded={onSessionReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />)}
+          {sectionHost("general", <GeneralSettings cwd={cwd} sessionId={sessionId} onSessionReloaded={onSessionReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />)}
           {sectionHost("models", <ModelsConfig embedded onClose={onClose} />)}
           {cwd && sectionHost("skills", <SkillsConfig embedded key={cwd} cwd={cwd} onClose={onClose} />)}
           {cwd && sectionHost("agents", <AgentsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} onClose={onClose} onReloaded={onSessionReloaded} />)}

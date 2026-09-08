@@ -3,7 +3,13 @@ import {
   type AgentMessage,
   type AgentOptions,
   type AgentTool,
+  type ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
+import {
+  getSupportedThinkingLevels,
+  type Api,
+  type Model,
+} from "@earendil-works/pi-ai";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
 const TITLE_TIMEOUT_MS = 90_000;
@@ -38,18 +44,42 @@ function createShadowTools(tools: AgentTool[]): AgentTool[] {
   }));
 }
 
+export interface BuildSessionTitleAgentOptions {
+  model?: Model<Api>;
+}
+
+/**
+ * Naming is a short classification task, so thinking only adds latency and
+ * tokens. Gemini rejects "minimal" and its SDK emits that level when thinking
+ * is disabled, so ask for the cheapest level it accepts instead.
+ */
+export function resolveTitleThinkingLevel(model: Model<Api>): ThinkingLevel {
+  if (!model.reasoning) return "off";
+  if (model.api === "google-generative-ai" || /gemini/i.test(model.id)) return "low";
+  const supported = getSupportedThinkingLevels(model);
+  if (supported.includes("off")) return "off";
+  if (supported.includes("low")) return "low";
+  if (supported.includes("minimal")) return "minimal";
+  return "off";
+}
+
 /**
  * Build a temporary Agent configuration whose provider-facing prefix matches
  * the source Agent. Tool implementations are replaced without changing their
  * names, descriptions, or schemas, so a naming run cannot mutate the project.
+ * Thinking is minimized because a title needs no reasoning budget.
  */
-export function buildSessionTitleAgentOptions(source: Agent): AgentOptions {
+export function buildSessionTitleAgentOptions(
+  source: Agent,
+  options?: BuildSessionTitleAgentOptions,
+): AgentOptions {
   const state = source.state;
+  const targetModel = options?.model ?? state.model;
   return {
     initialState: {
       systemPrompt: state.systemPrompt,
-      model: state.model,
-      thinkingLevel: state.thinkingLevel,
+      model: targetModel,
+      thinkingLevel: resolveTitleThinkingLevel(targetModel),
       tools: createShadowTools(state.tools),
       messages: state.messages,
     },
@@ -208,7 +238,15 @@ export function sanitizeTitleMessages(messages: AgentMessage[]): AgentMessage[] 
   return sanitized;
 }
 
-export async function generateSessionTitle(source: AgentSession): Promise<GeneratedSessionTitle> {
+export interface GenerateSessionTitleOptions {
+  /** "provider/model-id" from settings, or "inherit" to name with the session's own model. */
+  model?: string;
+}
+
+export async function generateSessionTitle(
+  source: AgentSession,
+  options?: GenerateSessionTitleOptions,
+): Promise<GeneratedSessionTitle> {
   const sourceAgent = source.agent;
   await sourceAgent.waitForIdle();
 
@@ -220,14 +258,25 @@ export async function generateSessionTitle(source: AgentSession): Promise<Genera
     throw new Error("The session has no user messages to name");
   }
 
-  const options = buildSessionTitleAgentOptions(sourceAgent);
-  options.initialState!.messages = sanitizedMessages;
-  const continuesFromTrailingUser = sanitizedMessages.at(-1)?.role === "user";
-  if (continuesFromTrailingUser) {
-    options.initialState!.messages = appendTitleRequestToTrailingUser(sanitizedMessages);
+  let modelOverride: Model<Api> | undefined;
+  if (options?.model && options.model !== "inherit") {
+    const slash = options.model.indexOf("/");
+    if (slash > 0) {
+      modelOverride = source.modelRuntime?.getModel(
+        options.model.slice(0, slash),
+        options.model.slice(slash + 1),
+      );
+    }
   }
 
-  const temporaryAgent = new Agent(options);
+  const agentOptions = buildSessionTitleAgentOptions(sourceAgent, { model: modelOverride });
+  agentOptions.initialState!.messages = sanitizedMessages;
+  const continuesFromTrailingUser = sanitizedMessages.at(-1)?.role === "user";
+  if (continuesFromTrailingUser) {
+    agentOptions.initialState!.messages = appendTitleRequestToTrailingUser(sanitizedMessages);
+  }
+
+  const temporaryAgent = new Agent(agentOptions);
   const runPromise = continuesFromTrailingUser
     ? temporaryAgent.continue()
     : temporaryAgent.prompt(TITLE_PROMPT);

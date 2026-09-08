@@ -937,6 +937,17 @@
   line-height: 1.5;
 }
 
+.settings-title-model-select {
+  width: 100%;
+  max-width: 420px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
 .settings-theme-options {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
