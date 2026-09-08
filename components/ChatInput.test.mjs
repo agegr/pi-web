@@ -11,7 +11,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, modelSupportsImageInput, replaceLinksWithMarkdown, shouldCompressImageFile } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, cycleListIndex, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, modelSupportsImageInput, replaceLinksWithMarkdown, shouldCompressImageFile } = await jiti.import("./ChatInput.tsx");
 const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("@/lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
@@ -97,6 +97,66 @@ test("follow-up shortcuts preserve newline, IME, mobile and completion behavior"
     });
     assert.equal(action, expected, name);
   }
+});
+
+test("file mention arrows wrap around the match list", () => {
+  const source = ts.createSourceFile("ChatInput.tsx", readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  function findHandler(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === "handleKeyDown") {
+      return node.initializer.arguments[0];
+    }
+    return ts.forEachChild(node, findHandler);
+  }
+  const script = new Script(ts.transpileModule(findHandler(source).getText(source), {
+    compilerOptions: { target: ts.ScriptTarget.ES2020 },
+  }).outputText);
+
+  function move(key, atActiveIndex, length) {
+    let next = null;
+    const handler = script.runInNewContext({
+      Date: { now: () => 1000 },
+      COMPOSITION_END_ENTER_GRACE_MS: 100,
+      isMobile: false, isStreaming: false,
+      isComposingRef: { current: false }, lastCompositionEndAtRef: { current: 0 },
+      historyMenuOpen: false, inputHistory: [], historyActiveIndex: 0,
+      slashMenuOpen: false, slashQuery: null, displayedSlashCommands: [], slashActiveIndex: 0,
+      atMenuOpen: true, atQuery: {}, atMatches: Array.from({ length }, () => ({})), atActiveIndex,
+      onSteer() {}, onFollowUp() {},
+      sendQueued() {}, handleSend() {},
+      applySlashCommand() {},
+      isExactSlashCommand() { return false; }, value: "@file",
+      setSlashMenuOpen() {}, setAtMenuOpen() {},
+      applyAtCompletion() {},
+      applyHistoryInput() {},
+      cycleListIndex,
+      setAtActiveIndex(update) {
+        next = typeof update === "function" ? update(atActiveIndex) : update;
+      },
+    });
+    handler({
+      key, shiftKey: false, altKey: false, ctrlKey: false, metaKey: false,
+      nativeEvent: { isComposing: false, keyCode: 0 },
+      preventDefault() {},
+    });
+    return next;
+  }
+
+  assert.equal(move("ArrowDown", 0, 3), 1);
+  assert.equal(move("ArrowDown", 2, 3), 0);
+  assert.equal(move("ArrowUp", 0, 3), 2);
+  assert.equal(move("ArrowUp", 1, 3), 0);
+  assert.equal(move("ArrowDown", 0, 1), 0);
+  assert.equal(move("ArrowDown", 0, 0), 0);
+});
+
+test("cycleListIndex wraps in both directions", () => {
+  assert.equal(cycleListIndex(0, 3, 1), 1);
+  assert.equal(cycleListIndex(2, 3, 1), 0);
+  assert.equal(cycleListIndex(0, 3, -1), 2);
+  assert.equal(cycleListIndex(1, 3, -1), 0);
+  assert.equal(cycleListIndex(0, 1, 1), 0);
+  assert.equal(cycleListIndex(4, 0, 1), 0);
+  assert.equal(cycleListIndex(-1, 4, 1), 0);
 });
 
 test("shows the follow-up shortcut in the button tooltip", () => {
