@@ -56,5 +56,15 @@ export function formatRelativeTime(date: Date | string, locale: Locale, now = ne
         ? ["hour", 3_600_000]
         : ["day", 86_400_000];
   const value = Math.round(diffMs / divisor);
+  if (locale === "en") {
+    const labels: Record<string, string> = {
+      second: "sec",
+      minute: "min",
+      hour: "hr",
+      day: "d",
+    };
+    const label = labels[unit];
+    return diffMs < 0 ? `${Math.abs(value)} ${label} ago` : `in ${value} ${label}`;
+  }
   return new Intl.RelativeTimeFormat(locale, { numeric: "always" }).format(value, unit as Intl.RelativeTimeFormatUnit);
 }
