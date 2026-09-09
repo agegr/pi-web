@@ -1649,6 +1649,15 @@ export function AppShell() {
         : String(value);
     const costText = cost > 0 ? (cost >= 0.01 ? `$${cost.toFixed(2)}` : `<$0.01`) : null;
 
+    // Session files grow with the message count, and past a few thousand messages
+    // opening or switching to the session is visibly slower.
+    const totalMessages = sessionStats?.totalMessages ?? 0;
+    const messageCountColor = totalMessages > 5000
+      ? "#ef4444"
+      : totalMessages > 2000
+        ? "rgba(234,179,8,0.95)"
+        : "var(--text-muted)";
+
     let contextColor = "var(--text-muted)";
     let desktopContextText: string | null = null;
     let mobileContextText: string | null = null;
@@ -1663,6 +1672,7 @@ export function AppShell() {
     }
 
     const tooltipParts: string[] = [];
+    if (totalMessages > 0) tooltipParts.push(`messages: ${totalMessages.toLocaleString(locale)}`);
     if (tokens) {
       tooltipParts.push(`in: ${tokens.input.toLocaleString(locale)}`);
       tooltipParts.push(`out: ${tokens.output.toLocaleString(locale)}`);
@@ -1757,6 +1767,14 @@ export function AppShell() {
           </>
         ) : (
           <>
+            {totalMessages > 0 && (
+              <span style={{ display: "flex", alignItems: "center", gap: 4, color: messageCountColor }}>
+                <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M1 2.5 Q1 1 2.5 1 L7.5 1 Q9 1 9 2.5 L9 5 Q9 6.5 7.5 6.5 L4 6.5 L2 8.5 L2 6.5 Q1 6.5 1 5 Z" />
+                </svg>
+                {formatCompact(totalMessages)}
+              </span>
+            )}
             {tokens && tokens.input > 0 && (
               <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                 <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
