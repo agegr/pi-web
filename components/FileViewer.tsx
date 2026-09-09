@@ -32,6 +32,7 @@ import {
   type FileViewerDisplayMode as DisplayMode,
   type FileViewerState,
 } from "@/lib/file-viewer-state";
+import { getSourceRenderMode, SOURCE_HIGHLIGHT_MAX_LINES } from "@/lib/file-source-render-mode";
 
 export type { FileViewerState } from "@/lib/file-viewer-state";
 
@@ -58,7 +59,6 @@ interface FileData {
   truncated: boolean;
 }
 
-const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
 const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
   source: "Source",
   preview: "Preview",
@@ -1149,6 +1149,7 @@ function TextFileViewer({
   const [displayMode, setDisplayMode] = useState<DisplayMode>(requestedInitialDisplayMode);
   const [wrapLines, setWrapLines] = useState(initialWrapLines);
   const [watching, setWatching] = useState(false);
+  const [highlightLargeSource, setHighlightLargeSource] = useState(false);
   const esRef = useRef<EventSource | null>(null);
   const contentRequestRef = useRef(0);
   const gitDiffRequestRef = useRef(0);
@@ -1173,6 +1174,10 @@ function TextFileViewer({
     viewerStateRef.current.displayMode = nextDisplayMode;
     setDisplayMode(nextDisplayMode);
   }, []);
+
+  useEffect(() => {
+    setHighlightLargeSource(false);
+  }, [filePath]);
 
   const toggleWrapLines = useCallback(() => {
     setWrapLines((current) => {
@@ -1368,9 +1373,14 @@ function TextFileViewer({
   const isMarkdown = language === "markdown";
   const hasPreview = !data?.truncated && (isHtml || isMarkdown);
   const effectiveDisplayMode = isDeletedDiff ? "diff" : displayMode;
-  const useLightweightSource = sourceLines.length > SOURCE_HIGHLIGHT_MAX_LINES
-    && !(effectiveDisplayMode === "diff" && hasGitDiff)
-    && !(effectiveDisplayMode === "preview" && hasPreview);
+  const useLightweightSource = getSourceRenderMode({
+    truncated: data?.truncated ?? false,
+    sourceLineCount: sourceLines.length,
+    highlightLargeSource,
+    effectiveDisplayMode,
+    hasGitDiff,
+    hasPreview,
+  }) === "lightweight";
   // react-syntax-highlighter rebuilds every token element on each render, which
   // costs hundreds of milliseconds on large files. Cache the rendered trees so
   // unrelated re-renders (panel open/close, selection changes) reuse them as-is.
@@ -1630,28 +1640,48 @@ function TextFileViewer({
                 <MentionIcon />
               </button>
             )}
+            {effectiveDisplayMode === "source" && (data?.truncated || sourceLines.length > SOURCE_HIGHLIGHT_MAX_LINES) && (
+              <button
+                type="button"
+                onClick={() => setHighlightLargeSource((enabled) => !enabled)}
+                title={highlightLargeSource ? t("i18n.disableSyntaxHighlighting") : t("i18n.enableSyntaxHighlighting")}
+                aria-label={highlightLargeSource ? t("i18n.disableSyntaxHighlighting") : t("i18n.enableSyntaxHighlighting")}
+                aria-pressed={highlightLargeSource}
+                className="file-viewer-icon-button"
+                style={{
+                  background: highlightLargeSource ? "var(--bg-selected)" : "transparent",
+                  color: highlightLargeSource ? "var(--text)" : "var(--text-muted)",
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M4 7V5a1 1 0 0 1 1-1h2" />
+                  <path d="M20 7V5a1 1 0 0 0-1-1h-2" />
+                  <path d="M4 17v2a1 1 0 0 0 1 1h2" />
+                  <path d="M20 17v2a1 1 0 0 1-1 1h-2" />
+                  <path d="m9 12 2 2 4-4" />
+                </svg>
+              </button>
+            )}
             {effectiveDisplayMode === "source" && (
-              <>
-                <button
-                  type="button"
-                  onClick={toggleWrapLines}
-                  title={wrapLines ? t("i18n.disableWrap") : t("i18n.enableWrap")}
-                  aria-label={wrapLines ? t("i18n.disableWrap") : t("i18n.enableWrap")}
-                  aria-pressed={wrapLines}
-                  className="file-viewer-icon-button"
-                  style={{
-                    background: wrapLines ? "var(--bg-selected)" : "transparent",
-                    color: wrapLines ? "var(--text)" : "var(--text-muted)",
-                  }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M3 6h18" />
-                    <path d="M3 12h15a3 3 0 1 1 0 6h-4" />
-                    <path d="m16 16-2 2 2 2" />
-                    <path d="M3 18h7" />
-                  </svg>
-                </button>
-              </>
+              <button
+                type="button"
+                onClick={toggleWrapLines}
+                title={wrapLines ? t("i18n.disableWrap") : t("i18n.enableWrap")}
+                aria-label={wrapLines ? t("i18n.disableWrap") : t("i18n.enableWrap")}
+                aria-pressed={wrapLines}
+                className="file-viewer-icon-button"
+                style={{
+                  background: wrapLines ? "var(--bg-selected)" : "transparent",
+                  color: wrapLines ? "var(--text)" : "var(--text-muted)",
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 6h18" />
+                  <path d="M3 12h15a3 3 0 1 1 0 6h-4" />
+                  <path d="m16 16-2 2 2 2" />
+                  <path d="M3 18h7" />
+                </svg>
+              </button>
             )}
           </div>
 
