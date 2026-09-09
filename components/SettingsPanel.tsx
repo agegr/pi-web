@@ -70,7 +70,7 @@ function ThemeIcon({ preference }: { preference: ThemePreference }) {
   return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></svg>;
 }
 
-function GeneralSettings({ cwd, sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "cwd" | "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange">) {
+function GeneralSettings({ active, cwd, sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "cwd" | "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange"> & { active: boolean }) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
@@ -103,20 +103,26 @@ function GeneralSettings({ cwd, sessionId, onSessionReloaded, quoteSelectionEnab
       .catch((cause) => {
         if (!cancelled) setTitleModelError(cause instanceof Error ? cause.message : String(cause));
       });
-    // The model catalogue is project-scoped; without a project the stored value is still shown.
-    if (cwd) {
-      void fetch(`/api/models?cwd=${encodeURIComponent(cwd)}`)
-        .then(async (response) => {
-          const data = await response.json() as Partial<ModelsData> & { error?: string };
-          if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
-          if (!cancelled) setTitleModelOptions(data.modelList ?? []);
-        })
-        .catch((cause) => {
-          if (!cancelled) setTitleModelError(cause instanceof Error ? cause.message : String(cause));
-        });
-    }
     return () => { cancelled = true; };
   }, [cwd]);
+
+  // Sections stay mounted once visited, so reload the catalogue each time General
+  // is shown: a model added under Models must be selectable without reopening.
+  // The catalogue is project-scoped; without a project the stored value is still shown.
+  useEffect(() => {
+    if (!active || !cwd) return;
+    let cancelled = false;
+    void fetch(`/api/models?cwd=${encodeURIComponent(cwd)}`)
+      .then(async (response) => {
+        const data = await response.json() as Partial<ModelsData> & { error?: string };
+        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+        if (!cancelled) setTitleModelOptions(data.modelList ?? []);
+      })
+      .catch((cause) => {
+        if (!cancelled) setTitleModelError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => { cancelled = true; };
+  }, [active, cwd]);
 
   const saveTitleModel = async (model: string) => {
     setTitleModelSaving(true);
@@ -450,7 +456,7 @@ export function SettingsPanel({ cwd, sessionId, initialSection, onClose, onSessi
         </div>
 
         <main className="settings-dialog-main">
-          {sectionHost("general", <GeneralSettings cwd={cwd} sessionId={sessionId} onSessionReloaded={onSessionReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />)}
+          {sectionHost("general", <GeneralSettings active={section === "general"} cwd={cwd} sessionId={sessionId} onSessionReloaded={onSessionReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />)}
           {sectionHost("models", <ModelsConfig embedded onClose={onClose} />)}
           {cwd && sectionHost("skills", <SkillsConfig embedded key={cwd} cwd={cwd} onClose={onClose} />)}
           {cwd && sectionHost("agents", <AgentsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} onClose={onClose} onReloaded={onSessionReloaded} />)}

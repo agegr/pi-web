@@ -46,6 +46,9 @@ test("keeps visited settings sections mounted and contains nested Escape handlin
   const modelsSource = await readFile(new URL("./ModelsConfig.tsx", import.meta.url), "utf8");
   assert.match(panelSource, /mountedSections\.has\(id\)/);
   assert.match(panelSource, /hidden=\{section !== id\}/);
+  // Hidden sections keep their state, so the title-model catalogue reloads on every return to General.
+  assert.match(panelSource, /<GeneralSettings active=\{section === "general"\}/);
+  assert.match(panelSource, /if \(!active \|\| !cwd\) return;[\s\S]*?\/api\/models\?cwd=[\s\S]*?\}, \[active, cwd\]\);/);
   assert.match(panelSource, /event\.defaultPrevented/);
   assert.match(modelsSource, /e\.preventDefault\(\);\s*e\.stopPropagation\(\);\s*onClose\(\);/);
 });

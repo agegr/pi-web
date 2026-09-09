@@ -50,17 +50,17 @@ export interface BuildSessionTitleAgentOptions {
 
 /**
  * Naming is a short classification task, so thinking only adds latency and
- * tokens. Gemini rejects "minimal" and its SDK emits that level when thinking
- * is disabled, so ask for the cheapest level it accepts instead.
+ * tokens: use the cheapest level the model actually supports. Gemini rejects
+ * "minimal" and its SDK emits that level when thinking is disabled, so it
+ * skips to the next supported level instead.
  */
 export function resolveTitleThinkingLevel(model: Model<Api>): ThinkingLevel {
   if (!model.reasoning) return "off";
-  if (model.api === "google-generative-ai" || /gemini/i.test(model.id)) return "low";
+  // getSupportedThinkingLevels lists levels in ascending cost order.
   const supported = getSupportedThinkingLevels(model);
-  if (supported.includes("off")) return "off";
-  if (supported.includes("low")) return "low";
-  if (supported.includes("minimal")) return "minimal";
-  return "off";
+  const rejectsMinimal = model.api === "google-generative-ai" || /gemini/i.test(model.id);
+  const usable = rejectsMinimal ? supported.filter((level) => level !== "off" && level !== "minimal") : supported;
+  return usable[0] ?? supported[0] ?? "off";
 }
 
 /**
@@ -243,6 +243,27 @@ export interface GenerateSessionTitleOptions {
   model?: string;
 }
 
+/**
+ * A configured model that cannot be resolved must fail loudly. Falling back to
+ * the session's own model would silently spend the request the user chose the
+ * dedicated model to avoid. Refresh first, as set_model does, so a model added
+ * while this session's runtime was already alive is still found.
+ */
+async function resolveTitleModel(source: AgentSession, spec: string): Promise<Model<Api>> {
+  const slash = spec.indexOf("/");
+  if (slash <= 0) throw new Error(`Invalid session title model: ${spec}`);
+  const provider = spec.slice(0, slash);
+  const modelId = spec.slice(slash + 1);
+  const runtime = source.modelRuntime;
+  let model = runtime.getModel(provider, modelId);
+  if (!model) {
+    await runtime.refresh({ allowNetwork: false });
+    model = runtime.getModel(provider, modelId);
+  }
+  if (!model) throw new Error(`Session title model not found: ${spec}`);
+  return model;
+}
+
 export async function generateSessionTitle(
   source: AgentSession,
   options?: GenerateSessionTitleOptions,
@@ -258,16 +279,9 @@ export async function generateSessionTitle(
     throw new Error("The session has no user messages to name");
   }
 
-  let modelOverride: Model<Api> | undefined;
-  if (options?.model && options.model !== "inherit") {
-    const slash = options.model.indexOf("/");
-    if (slash > 0) {
-      modelOverride = source.modelRuntime?.getModel(
-        options.model.slice(0, slash),
-        options.model.slice(slash + 1),
-      );
-    }
-  }
+  const modelOverride = options?.model && options.model !== "inherit"
+    ? await resolveTitleModel(source, options.model)
+    : undefined;
 
   const agentOptions = buildSessionTitleAgentOptions(sourceAgent, { model: modelOverride });
   agentOptions.initialState!.messages = sanitizedMessages;
