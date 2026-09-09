@@ -8,7 +8,8 @@ const source = await readFile(new URL("./FileViewer.tsx", import.meta.url), "utf
 
 test("large source previews bypass the per-line syntax highlighter", () => {
   assert.match(source, /const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;/);
-  assert.match(source, /const useLightweightSource = sourceLines\.length > SOURCE_HIGHLIGHT_MAX_LINES/);
+  assert.match(source, /const useLightweightSource = \(data\?\.truncated \|\| sourceLines\.length > SOURCE_HIGHLIGHT_MAX_LINES\)/);
+  assert.match(source, /!highlightLargeSource/);
 
   // Both source trees are memoized so unrelated re-renders (panel open/close,
   // selection changes) reuse them instead of rebuilding every line element.
@@ -38,11 +39,11 @@ test("lightweight source rows are skipped for highlighted, diff, and preview vie
   const viewer = file.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "TextFileViewer");
   const calculations = viewer.body.statements.filter((node) =>
     ts.isVariableStatement(node) && node.declarationList.declarations.some((declaration) =>
-      ["viewerContent", "sourceLines", "language", "isHtml", "isMarkdown", "hasPreview", "effectiveDisplayMode", "useLightweightSource", "lightweightSourceLines"].includes(declaration.name.getText(file)),
+      ["viewerContent", "sourceLines", "language", "isHtml", "isMarkdown", "hasPreview", "effectiveDisplayMode", "highlightLargeSource", "useLightweightSource", "lightweightSourceLines"].includes(declaration.name.getText(file)),
     ),
   ).map((node) => node.getText(file)).join("\n");
   const { outputText } = ts.transpileModule(`
-    return (data, displayMode, hasGitDiff = false, isDeletedDiff = false, wrapLines = false) => {
+    return (data, displayMode, hasGitDiff = false, isDeletedDiff = false, wrapLines = false, highlightLargeSource = false) => {
       const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
       const FILE_LINE_NUMBER_STYLE = {};
       ${calculations}
@@ -52,8 +53,10 @@ test("lightweight source rows are skipped for highlighted, diff, and preview vie
   const render = new Function("React", "useMemo", outputText)(React, (calculate) => calculate());
   const large = { content: "line\n".repeat(1_000), language: "text" };
 
-  assert.equal(render({ ...large, content: "line\n".repeat(999) }, "source"), null);
-  assert.equal(render(large, "diff", true), null);
+  assert.equal(render({ ...large, truncated: true }, "source").length, 1_001);
+  assert.equal(render({ ...large, truncated: true }, "source", false, false, false, true), null);
+  assert.equal(render(large, "source", false, false, false, true), null);
+
   assert.equal(render(large, "source", true, true), null);
   for (const language of ["html", "markdown"]) {
     assert.equal(render({ ...large, language }, "preview"), null);

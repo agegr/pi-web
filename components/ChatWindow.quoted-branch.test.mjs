@@ -10,6 +10,10 @@ test("offers compact quoting controls and sends branch questions through the mai
   assert.match(chatSource, /closest<HTMLElement>\("\[data-message-role=/);
   assert.match(chatSource, /chatInputRef\?\.current\?\.insertText\(buildQuotedSelection/);
   assert.match(chatSource, /onAskInNewChat\([\s\S]*?sourceSessionId,[\s\S]*?quotedSelection\.sourceEntryId/);
+  assert.match(chatSource, /onBranchInNewChat=\{sessionBusy \|\| isNew \? undefined : branchMessageInNewChat\}/);
+  assert.match(chatSource, /onBranchInNewChat\(sourceSessionId, entryId\)/);
+  assert.match(chatSource, /chat\.branchInNewChat/);
+  assert.match(shellSource, /onBranchInNewChat=\{handleBranchInNewChat\}/);
   assert.match(shellSource, /type: "fork_branch"/);
   assert.match(shellSource, /initialPrompt=\{pendingQuotePrompt\?\.sessionId === selectedSession\?\.id/);
   assert.equal((shellSource.match(/<ChatWindow\b/g) ?? []).length, 1);
