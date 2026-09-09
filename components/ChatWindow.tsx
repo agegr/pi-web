@@ -775,7 +775,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const longRunningTool = Boolean(
     runningTools?.some((tool) => tool.startedAt !== undefined && nowTick - tool.startedAt >= LONG_RUNNING_TOOL_MS),
   );
-  const messageContentRef = useRef<HTMLDivElement | null>(null);
   const promptAnchorSpacerRef = useRef<HTMLDivElement | null>(null);
   const promptAnchorSpacerHeightRef = useRef(0);
   const promptAnchorMeasureFrameRef = useRef<number | null>(null);

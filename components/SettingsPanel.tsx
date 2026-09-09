@@ -40,7 +40,15 @@ interface Props {
   onQuoteSelectionChange: (enabled: boolean) => void;
 }
 
-export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: { section: SettingsSection; size?: number; strokeWidth?: number }) {
+export function SettingsSectionIcon({
+  section,
+  size = 16,
+  strokeWidth = 1.8,
+}: {
+  section: SettingsSection;
+  size?: number;
+  strokeWidth?: number;
+}) {
   const common = {
     width: size,
     height: size,
@@ -54,18 +62,65 @@ export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: {
     className: "settings-section-icon",
   };
 
-  if (section === "general") return <svg {...common}><path d="M20 7h-9M14 17H5" /><circle cx="7" cy="7" r="3" /><circle cx="17" cy="17" r="3" /></svg>;
-  if (section === "models") return <svg {...common}><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 15h3M1 9h3M1 15h3" /></svg>;
-  if (section === "skills") return <svg {...common}><path d="m12 2-10 5 10 5 10-5-10-5Z" /><path d="m2 12 10 5 10-5M2 17l10 5 10-5" /></svg>;
-  if (section === "agents") return <svg {...common} className="settings-section-icon is-agent"><rect x="5" y="7" width="14" height="11" rx="2" /><path d="M9 11h.01M15 11h.01M9 15h6M12 7V4M10 4h4" /></svg>;
-  return <svg {...common}><path d="M9 7V2M15 7V2M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0ZM12 19v3" /></svg>;
+  if (section === "general")
+    return (
+      <svg {...common}>
+        <path d="M20 7h-9M14 17H5" />
+        <circle cx="7" cy="7" r="3" />
+        <circle cx="17" cy="17" r="3" />
+      </svg>
+    );
+  if (section === "models")
+    return (
+      <svg {...common}>
+        <rect x="4" y="4" width="16" height="16" rx="2" />
+        <rect x="9" y="9" width="6" height="6" />
+        <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 15h3M1 9h3M1 15h3" />
+      </svg>
+    );
+  if (section === "skills")
+    return (
+      <svg {...common}>
+        <path d="m12 2-10 5 10 5 10-5-10-5Z" />
+        <path d="m2 12 10 5 10-5M2 17l10 5 10-5" />
+      </svg>
+    );
+  if (section === "agents")
+    return (
+      <svg {...common} className="settings-section-icon is-agent">
+        <rect x="5" y="7" width="14" height="11" rx="2" />
+        <path d="M9 11h.01M15 11h.01M9 15h6M12 7V4M10 4h4" />
+      </svg>
+    );
+  return (
+    <svg {...common}>
+      <path d="M9 7V2M15 7V2M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0ZM12 19v3" />
+    </svg>
+  );
 }
 
-function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange">) {
+function GeneralSettings({
+  sessionId,
+  onSessionReloaded,
+  quoteSelectionEnabled,
+  onQuoteSelectionChange,
+}: Pick<
+  Props,
+  | "sessionId"
+  | "onSessionReloaded"
+  | "quoteSelectionEnabled"
+  | "onQuoteSelectionChange"
+>) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
-  const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
-  const [shellSettings, setShellSettings] = useState<ShellToolSettingsResponse | null>(null);
+  const {
+    width: chatContentWidth,
+    setWidth: setChatContentWidth,
+    fontSize,
+    setFontSize,
+  } = useChatAppearance();
+  const [shellSettings, setShellSettings] =
+    useState<ShellToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
@@ -76,8 +131,10 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   useEffect(() => {
     setThinkingExpanded(isThinkingExpandedByDefault());
     void fetch("/api/web-auth")
-      .then((response) => response.ok ? response.json() : null)
-      .then((data: { enabled?: boolean } | null) => setWebAuthEnabled(data?.enabled === true))
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { enabled?: boolean } | null) =>
+        setWebAuthEnabled(data?.enabled === true),
+      )
       .catch(() => {});
   }, []);
 
@@ -87,7 +144,9 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
     try {
       const response = await fetch("/api/web-auth", { method: "DELETE" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      window.location.replace("/login");
+      window.location.replace(
+        `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/login`,
+      );
     } catch {
       setLogoutError(t("auth.logoutFailed"));
     } finally {
@@ -99,14 +158,20 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
     let cancelled = false;
     void fetch("/api/tools/settings")
       .then(async (response) => {
-        const data = await response.json() as ShellToolSettingsResponse & { error?: string };
-        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+        const data = (await response.json()) as ShellToolSettingsResponse & {
+          error?: string;
+        };
+        if (!response.ok || data.error)
+          throw new Error(data.error ?? `HTTP ${response.status}`);
         if (!cancelled) setShellSettings(data);
       })
       .catch((cause) => {
-        if (!cancelled) setShellError(cause instanceof Error ? cause.message : String(cause));
+        if (!cancelled)
+          setShellError(cause instanceof Error ? cause.message : String(cause));
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const togglePowerShell = async (enabled: boolean) => {
@@ -118,8 +183,11 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled }),
       });
-      const data = await response.json() as ShellToolSettingsResponse & { error?: string };
-      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      const data = (await response.json()) as ShellToolSettingsResponse & {
+        error?: string;
+      };
+      if (!response.ok || data.error)
+        throw new Error(data.error ?? `HTTP ${response.status}`);
       setShellSettings(data);
       if (sessionId) {
         await sendAgentCommand(sessionId, { type: "reload" });
@@ -138,14 +206,15 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
 
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("settings.appearance")}</h3>
-        <div role="radiogroup" aria-label={t("settings.appearance")} className="settings-theme-options">
+        <div
+          role="radiogroup"
+          aria-label={t("settings.appearance")}
+          className="settings-theme-options"
+        >
           {THEME_OPTIONS.map((option) => {
             const selected = preference === option.id;
             return (
-              <label
-                key={option.id}
-                className="settings-theme-option"
-              >
+              <label key={option.id} className="settings-theme-option">
                 <input
                   type="radio"
                   name="theme"
@@ -155,7 +224,9 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
                   className="sr-only"
                 />
                 <ThemeIcon preference={option.id} />
-                <span className="settings-theme-option-label">{t(option.label)}</span>
+                <span className="settings-theme-option-label">
+                  {t(option.label)}
+                </span>
               </label>
             );
           })}
@@ -178,8 +249,12 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
           </div>
           <div className="settings-chat-option settings-chat-range-option">
             <div className="settings-chat-range-header">
-              <label htmlFor="settings-chat-content-width">{t("settings.chatContentWidth")}</label>
-              <output htmlFor="settings-chat-content-width">{chatContentWidth}px</output>
+              <label htmlFor="settings-chat-content-width">
+                {t("settings.chatContentWidth")}
+              </label>
+              <output htmlFor="settings-chat-content-width">
+                {chatContentWidth}px
+              </output>
               <ConfigButton
                 variant="ghost"
                 size="small"
@@ -189,7 +264,17 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
                 disabled={chatContentWidth === CHAT_CONTENT_WIDTH_DEFAULT}
                 onClick={() => setChatContentWidth(CHAT_CONTENT_WIDTH_DEFAULT)}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
                   <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" />
                 </svg>
               </ConfigButton>
@@ -201,13 +286,19 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
               max={CHAT_CONTENT_WIDTH_MAX}
               step={10}
               value={chatContentWidth}
-              onChange={(event) => setChatContentWidth(Number(event.target.value))}
+              onChange={(event) =>
+                setChatContentWidth(Number(event.target.value))
+              }
             />
           </div>
           <div className="settings-chat-option settings-chat-range-option">
             <div className="settings-chat-range-header">
-              <label htmlFor="settings-chat-content-font-size">{t("settings.chatContentFontSize")}</label>
-              <output htmlFor="settings-chat-content-font-size">{fontSize}px</output>
+              <label htmlFor="settings-chat-content-font-size">
+                {t("settings.chatContentFontSize")}
+              </label>
+              <output htmlFor="settings-chat-content-font-size">
+                {fontSize}px
+              </output>
               <ConfigButton
                 variant="ghost"
                 size="small"
@@ -217,7 +308,17 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
                 disabled={fontSize === CHAT_CONTENT_FONT_SIZE_DEFAULT}
                 onClick={() => setFontSize(CHAT_CONTENT_FONT_SIZE_DEFAULT)}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
                   <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" />
                 </svg>
               </ConfigButton>
@@ -245,8 +346,12 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
 
       {shellSettings?.isWindows && (
         <section className="settings-general-section">
-          <h3 className="settings-general-heading">{t("settings.shellTool")}</h3>
-          <p className="settings-general-description">{t("settings.shellToolDescription")}</p>
+          <h3 className="settings-general-heading">
+            {t("settings.shellTool")}
+          </h3>
+          <p className="settings-general-description">
+            {t("settings.shellToolDescription")}
+          </p>
           <div className="settings-shell-option">
             <span>{t("settings.usePowerShell")}</span>
             <ConfigSwitch
@@ -256,13 +361,21 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
               onChange={(enabled) => void togglePowerShell(enabled)}
             />
           </div>
-          {shellError && <p role="alert" className="settings-general-error">{shellError}</p>}
+          {shellError && (
+            <p role="alert" className="settings-general-error">
+              {shellError}
+            </p>
+          )}
         </section>
       )}
 
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("common.language")}</h3>
-        <div role="radiogroup" aria-label={t("common.language")} className="settings-language-options">
+        <div
+          role="radiogroup"
+          aria-label={t("common.language")}
+          className="settings-language-options"
+        >
           {supportedLocales.map((plugin) => {
             const selected = locale === plugin.id;
             return (
@@ -287,26 +400,56 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
 
       {webAuthEnabled && (
         <section className="settings-general-section">
-          <ConfigButton variant="secondary" disabled={loggingOut} onClick={() => void logOut()}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <ConfigButton
+            variant="secondary"
+            disabled={loggingOut}
+            onClick={() => void logOut()}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
               <path d="M10 17l5-5-5-5M15 12H3M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
             </svg>
             {loggingOut ? t("auth.loggingOut") : t("auth.logOut")}
           </ConfigButton>
-          {logoutError && <p role="alert" className="settings-general-error">{logoutError}</p>}
+          {logoutError && (
+            <p role="alert" className="settings-general-error">
+              {logoutError}
+            </p>
+          )}
         </section>
       )}
     </div>
   );
 }
 
-export function SettingsPanel({ cwd, sessionId, initialSection, onClose, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Props) {
+export function SettingsPanel({
+  cwd,
+  sessionId,
+  initialSection,
+  onClose,
+  onSessionReloaded,
+  quoteSelectionEnabled,
+  onQuoteSelectionChange,
+}: Props) {
   const { t } = useI18n();
   const [section, setSection] = useState<SettingsSection>(initialSection);
-  const [mountedSections, setMountedSections] = useState<ReadonlySet<SettingsSection>>(
-    () => new Set([section]),
-  );
-  const sections: { id: SettingsSection; label: string; requiresProject: boolean }[] = [
+  const [mountedSections, setMountedSections] = useState<
+    ReadonlySet<SettingsSection>
+  >(() => new Set([section]));
+  const sections: {
+    id: SettingsSection;
+    label: string;
+    requiresProject: boolean;
+  }[] = [
     { id: "general", label: t("settings.general"), requiresProject: false },
     { id: "models", label: t("common.models"), requiresProject: false },
     { id: "skills", label: t("common.skills"), requiresProject: true },
@@ -327,7 +470,11 @@ export function SettingsPanel({ cwd, sessionId, initialSection, onClose, onSessi
   }, [onClose]);
 
   useEffect(() => {
-    if (cwd || (section !== "skills" && section !== "agents" && section !== "plugins")) return;
+    if (
+      cwd ||
+      (section !== "skills" && section !== "agents" && section !== "plugins")
+    )
+      return;
     setSection("general");
     setMountedSections((current) => new Set(current).add("general"));
     setLastSettingsSection("general");
@@ -339,40 +486,50 @@ export function SettingsPanel({ cwd, sessionId, initialSection, onClose, onSessi
     setLastSettingsSection(nextSection);
   };
 
-  const sectionHost = (id: SettingsSection, content: ReactNode) => mountedSections.has(id) ? (
-    <div
-      key={id}
-      hidden={section !== id}
-      className="settings-section-host"
-    >
-      {content}
-    </div>
-  ) : null;
+  const sectionHost = (id: SettingsSection, content: ReactNode) =>
+    mountedSections.has(id) ? (
+      <div key={id} hidden={section !== id} className="settings-section-host">
+        {content}
+      </div>
+    ) : null;
 
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label={t("settings.title")}
-      onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
       className="settings-dialog-backdrop"
     >
       <div className="settings-dialog-surface">
         <div className="settings-dialog-header">
-          <strong className="settings-dialog-title">{t("settings.title")}</strong>
+          <strong className="settings-dialog-title">
+            {t("settings.title")}
+          </strong>
           <select
             aria-label={t("settings.title")}
             value={section}
-            onChange={(event) => activateSection(event.target.value as SettingsSection)}
+            onChange={(event) =>
+              activateSection(event.target.value as SettingsSection)
+            }
             className="settings-mobile-section-picker"
           >
             {sections.map((item) => (
-              <option key={item.id} value={item.id} disabled={item.requiresProject && !cwd}>
+              <option
+                key={item.id}
+                value={item.id}
+                disabled={item.requiresProject && !cwd}
+              >
                 {item.label}
               </option>
             ))}
           </select>
-          <nav aria-label={t("settings.title")} className="settings-section-tabs">
+          <nav
+            aria-label={t("settings.title")}
+            className="settings-section-tabs"
+          >
             {sections.map((item) => {
               const selected = section === item.id;
               const disabled = item.requiresProject && !cwd;
@@ -392,15 +549,57 @@ export function SettingsPanel({ cwd, sessionId, initialSection, onClose, onSessi
               );
             })}
           </nav>
-          <button type="button" onClick={onClose} title={t("i18n.close")} aria-label={t("i18n.close")} className="config-close-button settings-dialog-close">×</button>
+          <button
+            type="button"
+            onClick={onClose}
+            title={t("i18n.close")}
+            aria-label={t("i18n.close")}
+            className="config-close-button settings-dialog-close"
+          >
+            ×
+          </button>
         </div>
 
         <main className="settings-dialog-main">
-          {sectionHost("general", <GeneralSettings sessionId={sessionId} onSessionReloaded={onSessionReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />)}
+          {sectionHost(
+            "general",
+            <GeneralSettings
+              sessionId={sessionId}
+              onSessionReloaded={onSessionReloaded}
+              quoteSelectionEnabled={quoteSelectionEnabled}
+              onQuoteSelectionChange={onQuoteSelectionChange}
+            />,
+          )}
           {sectionHost("models", <ModelsConfig embedded onClose={onClose} />)}
-          {cwd && sectionHost("skills", <SkillsConfig embedded key={cwd} cwd={cwd} onClose={onClose} />)}
-          {cwd && sectionHost("agents", <AgentsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} onClose={onClose} onReloaded={onSessionReloaded} />)}
-          {cwd && sectionHost("plugins", <PluginsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} onClose={onClose} onReloaded={onSessionReloaded} />)}
+          {cwd &&
+            sectionHost(
+              "skills",
+              <SkillsConfig embedded key={cwd} cwd={cwd} onClose={onClose} />,
+            )}
+          {cwd &&
+            sectionHost(
+              "agents",
+              <AgentsConfig
+                embedded
+                key={cwd}
+                cwd={cwd}
+                sessionId={sessionId}
+                onClose={onClose}
+                onReloaded={onSessionReloaded}
+              />,
+            )}
+          {cwd &&
+            sectionHost(
+              "plugins",
+              <PluginsConfig
+                embedded
+                key={cwd}
+                cwd={cwd}
+                sessionId={sessionId}
+                onClose={onClose}
+                onReloaded={onSessionReloaded}
+              />,
+            )}
         </main>
       </div>
     </div>

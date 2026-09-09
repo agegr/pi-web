@@ -1,12 +1,17 @@
 "use client";
 
-import Image from "next/image";
 import { useState, type FormEvent } from "react";
 import { I18nProvider, useI18n } from "@/hooks/useI18n";
 
 function safeDestination(): string {
   const destination = new URLSearchParams(window.location.search).get("next");
-  return destination?.startsWith("/") && !destination.startsWith("//") ? destination : "/";
+  const internal =
+    destination?.startsWith("/") && !destination.startsWith("//")
+      ? destination
+      : "/";
+  // The next param is an internal path (no basePath); window.location is a raw
+  // browser API and does not apply Next's basePath, so prepend it manually.
+  return `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}${internal}`;
 }
 
 function LoginForm() {
@@ -26,7 +31,11 @@ function LoginForm() {
         body: JSON.stringify({ password }),
       });
       if (!response.ok) {
-        setError(response.status === 401 ? t("auth.invalidPassword") : t("auth.loginFailed"));
+        setError(
+          response.status === 401
+            ? t("auth.invalidPassword")
+            : t("auth.loginFailed"),
+        );
         return;
       }
       window.location.replace(safeDestination());
@@ -41,7 +50,13 @@ function LoginForm() {
     <main className="web-login-page">
       <div className="web-login-shell">
         <header className="web-login-brand">
-          <Image src="/icons/apple-touch-icon.png" width={52} height={52} alt="" priority />
+          <img
+            src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/icons/apple-touch-icon.png`}
+            width={52}
+            height={52}
+            alt=""
+            style={{ width: 52, height: 52 }}
+          />
           <div>
             <h1>Pi Web</h1>
             <p>{t("auth.prompt")}</p>
@@ -49,7 +64,9 @@ function LoginForm() {
         </header>
         <form className="web-login-form" onSubmit={submit}>
           <div className="web-login-composer">
-            <label className="web-login-label" htmlFor="web-login-password">{t("auth.password")}</label>
+            <label className="web-login-label" htmlFor="web-login-password">
+              {t("auth.password")}
+            </label>
             <input
               id="web-login-password"
               type="password"
@@ -62,14 +79,26 @@ function LoginForm() {
               disabled={busy}
             />
             <button type="submit" disabled={busy || !password}>
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 14 14"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
                 <line x1="2" y1="7" x2="11" y2="7" />
                 <polyline points="7.5 3 12 7 7.5 11" />
               </svg>
               {busy ? t("auth.loggingIn") : t("auth.logIn")}
             </button>
           </div>
-          <p className="web-login-error" role="alert" aria-live="polite">{error}</p>
+          <p className="web-login-error" role="alert" aria-live="polite">
+            {error}
+          </p>
         </form>
       </div>
     </main>
@@ -77,5 +106,9 @@ function LoginForm() {
 }
 
 export default function LoginPage() {
-  return <I18nProvider><LoginForm /></I18nProvider>;
+  return (
+    <I18nProvider>
+      <LoginForm />
+    </I18nProvider>
+  );
 }
