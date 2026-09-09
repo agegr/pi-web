@@ -86,6 +86,15 @@ test("groups chat display controls together without row backgrounds", () => {
   assert.doesNotMatch(chatOptionStyles, /background/);
 });
 
+test("offers an editable display name with a Seb fallback", async () => {
+  const displayNameSource = await readFile(new URL("../hooks/useDisplayName.ts", import.meta.url), "utf8");
+  assert.match(panelSource, /id="settings-display-name"/);
+  assert.match(panelSource, /t\("settings\.displayName"\)/);
+  assert.match(panelSource, /t\("settings\.saveDisplayName"\)/);
+  assert.match(displayNameSource, /STORAGE_KEY = "pi-display-name"/);
+  assert.match(displayNameSource, /DEFAULT_DISPLAY_NAME = "Seb"/);
+});
+
 test("keeps General free of divider rows", () => {
   assert.match(panelSource, /className="settings-dialog-header"/);
   assert.match(cssSource, /\.settings-dialog-header \{[\s\S]*?display: flex[\s\S]*?align-items: center[\s\S]*?min-height: 50px/);

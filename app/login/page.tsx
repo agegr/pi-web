@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useState, type FormEvent } from "react";
+import { useDisplayName } from "@/hooks/useDisplayName";
 import { I18nProvider, useI18n } from "@/hooks/useI18n";
 
 function safeDestination(): string {
@@ -11,6 +12,7 @@ function safeDestination(): string {
 
 function LoginForm() {
   const { t } = useI18n();
+  const [displayName] = useDisplayName();
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -43,7 +45,7 @@ function LoginForm() {
         <header className="web-login-brand">
           <Image src="/icons/apple-touch-icon.png" width={52} height={52} alt="" priority />
           <div>
-            <h1>Seb</h1>
+            <h1>{displayName}</h1>
             <p>{t("auth.prompt")}</p>
           </div>
         </header>
