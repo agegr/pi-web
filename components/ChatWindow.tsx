@@ -278,7 +278,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, setNoticePaused,
+    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, addNotice, setNoticePaused,
     isAutoModelSelection,
     agentPhase,
     isNew,
@@ -424,10 +424,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     void onBranchInNewChat(sourceSessionId, entryId)
       .catch((error) => {
         console.error("Branch failed:", error);
-        setQuoteError(error instanceof Error ? error.message : String(error));
+        addNotice({ message: error instanceof Error ? error.message : String(error), type: "error" });
       })
       .finally(() => setBranchingEntryId(null));
-  }, [branchingEntryId, onBranchInNewChat, session?.id, sessionIdRef]);
+  }, [addNotice, branchingEntryId, onBranchInNewChat, session?.id, sessionIdRef]);
 
   const branchSelectionInNewChat = useCallback(async () => {
     const sourceSessionId = sessionIdRef.current ?? session?.id;
