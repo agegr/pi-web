@@ -27,6 +27,7 @@ import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useAudio } from "@/hooks/useAudio";
 import { copyText } from "@/lib/clipboard";
 import { sendAgentCommand } from "@/lib/agent-client";
+import { branchInNewChat } from "@/lib/branch-in-new-chat";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import {
@@ -993,13 +994,16 @@ export function AppShell() {
     router.replace(`?session=${encodeURIComponent(newSessionId)}`, { scroll: false });
   }, [invalidateWorkspaceRestore, router, hydrateSelectedSession]);
 
-  const handleBranchInNewChat = useCallback(async (sourceSessionId: string, sourceEntryId: string) => {
-    const result = await sendAgentCommand<{ newSessionId?: string }>(sourceSessionId, {
-      type: "fork_branch",
-      entryId: sourceEntryId,
+  const handleBranchInNewChat = useCallback(async (sourceSessionId: string, sourceEntryId: string, initialPrompt?: string) => {
+    await branchInNewChat({
+      sendCommand: sendAgentCommand,
+      sourceSessionId,
+      sourceEntryId,
+      initialPrompt,
+      setPendingPrompt: setPendingQuotePrompt,
+      onSessionForked: handleSessionForked,
+      failureMessage: translate("chat.quoteForkFailed"),
     });
-    if (!result?.newSessionId) throw new Error(translate("chat.quoteForkFailed"));
-    handleSessionForked(result.newSessionId);
   }, [handleSessionForked, translate]);
 
   const handleAskInNewChat = useCallback(async (
@@ -1007,13 +1011,15 @@ export function AppShell() {
     sourceSessionId: string,
     sourceEntryId: string,
   ) => {
-    const result = await sendAgentCommand<{ newSessionId?: string }>(sourceSessionId, {
-      type: "fork_branch",
-      entryId: sourceEntryId,
+    await branchInNewChat({
+      sendCommand: sendAgentCommand,
+      sourceSessionId,
+      sourceEntryId,
+      initialPrompt: prompt,
+      setPendingPrompt: setPendingQuotePrompt,
+      onSessionForked: handleSessionForked,
+      failureMessage: translate("chat.quoteForkFailed"),
     });
-    if (!result?.newSessionId) throw new Error(translate("chat.quoteForkFailed"));
-    setPendingQuotePrompt({ sessionId: result.newSessionId, text: prompt });
-    handleSessionForked(result.newSessionId);
   }, [handleSessionForked, translate]);
 
   const handleInitialRestoreDone = useCallback(() => {

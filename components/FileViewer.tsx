@@ -32,6 +32,7 @@ import {
   type FileViewerDisplayMode as DisplayMode,
   type FileViewerState,
 } from "@/lib/file-viewer-state";
+import { getSourceRenderMode, SOURCE_HIGHLIGHT_MAX_LINES } from "@/lib/file-source-render-mode";
 
 export type { FileViewerState } from "@/lib/file-viewer-state";
 
@@ -58,7 +59,6 @@ interface FileData {
   truncated: boolean;
 }
 
-const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
 const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
   source: "Source",
   preview: "Preview",
@@ -1373,10 +1373,14 @@ function TextFileViewer({
   const isMarkdown = language === "markdown";
   const hasPreview = !data?.truncated && (isHtml || isMarkdown);
   const effectiveDisplayMode = isDeletedDiff ? "diff" : displayMode;
-  const useLightweightSource = (data?.truncated || sourceLines.length > SOURCE_HIGHLIGHT_MAX_LINES)
-    && !highlightLargeSource
-    && !(effectiveDisplayMode === "diff" && hasGitDiff)
-    && !(effectiveDisplayMode === "preview" && hasPreview);
+  const useLightweightSource = getSourceRenderMode({
+    truncated: data?.truncated ?? false,
+    sourceLineCount: sourceLines.length,
+    highlightLargeSource,
+    effectiveDisplayMode,
+    hasGitDiff,
+    hasPreview,
+  }) === "lightweight";
   // react-syntax-highlighter rebuilds every token element on each render, which
   // costs hundreds of milliseconds on large files. Cache the rendered trees so
   // unrelated re-renders (panel open/close, selection changes) reuse them as-is.
