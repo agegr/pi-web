@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme } from "@/hooks/useTheme";
+import { useDisplayName } from "@/hooks/useDisplayName";
 import { THEME_OPTIONS } from "@/lib/theme";
 import { ThemeIcon } from "./ThemeIcon";
 import {
@@ -64,6 +65,8 @@ export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: {
 function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange">) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
+  const [displayName, setDisplayName] = useDisplayName();
+  const [displayNameDraft, setDisplayNameDraft] = useState(displayName);
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
   const [shellSettings, setShellSettings] = useState<ShellToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
@@ -74,7 +77,14 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const [logoutError, setLogoutError] = useState("");
 
   useEffect(() => {
+    setDisplayNameDraft(displayName);
+  }, [displayName]);
+
+  useEffect(() => {
     setThinkingExpanded(isThinkingExpandedByDefault());
+  }, []);
+
+  useEffect(() => {
     void fetch("/api/web-auth")
       .then((response) => response.ok ? response.json() : null)
       .then((data: { enabled?: boolean } | null) => setWebAuthEnabled(data?.enabled === true))
@@ -135,6 +145,28 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   return (
     <div className="settings-general">
       <h2 className="settings-general-title">{t("settings.general")}</h2>
+
+      <section className="settings-general-section settings-display-name-section">
+        <label className="settings-general-heading" htmlFor="settings-display-name">{t("settings.displayName")}</label>
+        <div className="settings-display-name-control">
+          <input
+            id="settings-display-name"
+            type="text"
+            value={displayNameDraft}
+            onChange={(event) => setDisplayNameDraft(event.target.value)}
+            placeholder={t("settings.displayNamePlaceholder")}
+            maxLength={80}
+          />
+          <ConfigButton
+            variant="primary"
+            size="small"
+            disabled={displayNameDraft.trim() === displayName}
+            onClick={() => setDisplayName(displayNameDraft)}
+          >
+            {t("settings.saveDisplayName")}
+          </ConfigButton>
+        </div>
+      </section>
 
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("settings.appearance")}</h3>

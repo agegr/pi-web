@@ -923,6 +923,42 @@
   margin-top: 24px;
 }
 
+.settings-display-name-section {
+  margin-top: 18px;
+}
+
+.settings-display-name-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 520px;
+}
+
+.settings-display-name-control input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.settings-display-name-control input:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.settings-display-name-control input::placeholder {
+  color: var(--text-dim);
+}
+
+
+
 .settings-general-heading {
   margin: 0 0 5px;
   color: var(--text);
