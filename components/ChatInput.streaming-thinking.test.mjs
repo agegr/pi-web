@@ -24,3 +24,12 @@ test("keeps the read-only level aligned with the neighbouring controls", () => {
   // The label collapses to the icon on mobile exactly like the editable control.
   assert.match(readOnly, /\(!isMobile \|\| controlsMenuOpen\) &&/);
 });
+
+test("shows the level the runtime actually applies, not the selector placeholder", async () => {
+  const session = await readFile(new URL("../hooks/useAgentSession.ts", import.meta.url), "utf8");
+  const start = session.slice(session.indexOf('case "agent_start":'), session.indexOf('case "agent_end":'));
+  // Choosing "auto" leaves pi's setting untouched, so the selector alone cannot be trusted.
+  assert.match(session, /if \(level === "auto"\) return;/);
+  assert.match(start, /fetch\(`\/api\/agent\/\$\{encodeURIComponent\(sessionIdRef\.current\)\}`\)/);
+  assert.match(start, /if \(!agentRunningRef\.current \|\| !d\.state\?\.thinkingLevel\) return;\s*setThinkingLevel\(d\.state\.thinkingLevel as ThinkingLevelOption\);/);
+});
