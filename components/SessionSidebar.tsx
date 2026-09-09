@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type MutableRefObject, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { listSessionFamilies } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
@@ -407,7 +407,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const wtNewInputRef = useRef<HTMLInputElement>(null);
   const [explorerOpen, setExplorerOpen] = useState(true);
   const explorerHeightRef = useRef(EXPLORER_DEFAULT_HEIGHT);
-  const sidebarBodyRef = useRef<HTMLDivElement>(null);
+  const explorerPanelRef = useRef<HTMLDivElement>(null);
   const [explorerKey, setExplorerKey] = useState(0);
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
@@ -513,13 +513,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     setExplorerOpen(loadExplorerOpen());
   }, []);
 
-  const getExplorerMaxHeight = useCallback(
-    () => Math.max(
-      EXPLORER_MIN_HEIGHT,
-      (sidebarBodyRef.current?.getBoundingClientRect().height ?? 0) - SESSION_LIST_MIN_HEIGHT,
-    ),
-    [],
-  );
+  // Only the list and the explorer share the resizable space; the header above
+  // the list keeps its height, so measure those two rather than the sidebar.
+  const getExplorerMaxHeight = useCallback(() => {
+    const listHeight = listScrollRef.current?.getBoundingClientRect().height ?? 0;
+    const explorerHeight = explorerPanelRef.current?.getBoundingClientRect().height ?? explorerHeightRef.current;
+    return Math.max(EXPLORER_MIN_HEIGHT, Math.floor(listHeight + explorerHeight) - SESSION_LIST_MIN_HEIGHT);
+  }, []);
   const explorerResizer = useResizablePanel({
     ariaLabel: t("layout.resizeExplorer"),
     cssVariable: "--explorer-height",
@@ -1043,10 +1043,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     <div
       // The explorer panel only exists once a project is open, so the resized
       // height lives on the sidebar itself and is inherited by the panel.
-      ref={(node) => {
-        sidebarBodyRef.current = node;
-        (explorerResizer.panelRef as MutableRefObject<HTMLDivElement | null>).current = node;
-      }}
+      ref={explorerResizer.panelRef}
       style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}
     >
       {customPathOpen && (
@@ -1773,6 +1770,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       {/* File Explorer section */}
       {(selectedCwdProp || selectedCwd) && (
         <div
+          ref={explorerPanelRef}
           style={{
             borderTop: "1px solid var(--border)",
             display: "flex",
