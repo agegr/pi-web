@@ -270,6 +270,20 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     return position && !position.atBottom ? position : null;
   });
   const [restoreAnchorReady, setRestoreAnchorReady] = useState(false);
+  // Lifted expanded state for tool calls — survives streaming re-renders and
+  // stream → history promotion (keyed by toolCallId, fallback to stream/entry index).
+  const [expandedToolIds, setExpandedToolIds] = useState<Set<string>>(() => new Set());
+  const handleToggleTool = useCallback((id: string) => {
+    setExpandedToolIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  useEffect(() => {
+    setExpandedToolIds(new Set());
+  }, [session?.id]);
 
   const {
     loading, error, messages, entryIds, historyCursor, hasEarlierMessages, streamState,
@@ -1060,6 +1074,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
                     writtenFiles={options.writtenFiles}
+                    expandedToolIds={expandedToolIds}
+                    onToggleTool={handleToggleTool}
                   />
                 );
                 if (!isVisible || currentRefIdx === undefined) return view;
@@ -1193,7 +1209,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               );
             })()}
             {streamState.isStreaming && hasStreamingContent && streamState.streamingMessage && (
-              <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} />
+              <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} expandedToolIds={expandedToolIds} onToggleTool={handleToggleTool} />
             )}
 
             {agentRunning && !hasStreamingContent && agentPhase && (
