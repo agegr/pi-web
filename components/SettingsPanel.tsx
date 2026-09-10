@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme } from "@/hooks/useTheme";
 import { useDisplayName } from "@/hooks/useDisplayName";
@@ -16,7 +16,7 @@ import {
   useChatAppearance,
 } from "@/hooks/useChatAppearance";
 import { sendAgentCommand } from "@/lib/agent-client";
-import type { ShellToolSettingsResponse } from "@/lib/api-types";
+import type { AppUpdateResponse, ShellToolSettingsResponse } from "@/lib/api-types";
 import {
   setLastSettingsSection,
   type SettingsSection,
@@ -30,6 +30,8 @@ import { SkillsConfig } from "./SkillsConfig";
 import { AgentsConfig } from "./AgentsConfig";
 import { PluginsConfig } from "./PluginsConfig";
 import { ConfigButton, ConfigSwitch } from "./SettingsUi";
+
+type AppInstallStatus = "idle" | "running" | "reloading" | "succeeded" | "failed";
 
 interface Props {
   cwd: string | null;
@@ -75,10 +77,80 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const [webAuthEnabled, setWebAuthEnabled] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
+  const [appUpdate, setAppUpdate] = useState<AppUpdateResponse | null>(null);
+  const [updateSourceDir, setUpdateSourceDir] = useState("");
+  const [updateSupported, setUpdateSupported] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<AppInstallStatus>("idle");
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateError, setUpdateError] = useState("");
+  const updateSawDisconnectRef = useRef(false);
 
   useEffect(() => {
     setDisplayNameDraft(displayName);
   }, [displayName]);
+
+  const checkForUpdates = async (force = false) => {
+    setCheckingUpdate(true);
+    setUpdateError("");
+    try {
+      const response = await fetch(`/api/app-update${force ? "?force=1" : ""}`, { cache: "no-store" });
+      const data = await response.json() as AppUpdateResponse & { error?: string };
+      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      setAppUpdate(data);
+    } catch (cause) {
+      setUpdateError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
+
+  useEffect(() => {
+    void checkForUpdates();
+    void fetch("/api/app-update/install", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { supported?: boolean; defaultSourceDir?: string; sourceDir?: string; status?: AppInstallStatus }) => {
+        setUpdateSupported(data.supported === true);
+        setUpdateSourceDir(data.sourceDir || data.defaultSourceDir || "");
+        if (data.status) setUpdateStatus(data.status);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (updateStatus !== "running" && updateStatus !== "reloading") return;
+    const timer = window.setInterval(() => {
+      void fetch("/api/app-update/install", { cache: "no-store" })
+        .then(async (response) => {
+          const data = await response.json() as { status?: AppInstallStatus; error?: string };
+          if (updateSawDisconnectRef.current || data.status === "succeeded") {
+            window.location.reload();
+            return;
+          }
+          if (data.status) setUpdateStatus(data.status);
+          if (data.error) setUpdateError(data.error);
+        })
+        .catch(() => { updateSawDisconnectRef.current = true; });
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [updateStatus]);
+
+  const installUpdate = async () => {
+    setUpdateStatus("running");
+    setUpdateError("");
+    updateSawDisconnectRef.current = false;
+    try {
+      const response = await fetch("/api/app-update/install", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceDir: updateSourceDir }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+    } catch (cause) {
+      setUpdateStatus("failed");
+      setUpdateError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
 
   useEffect(() => {
     setThinkingExpanded(isThinkingExpandedByDefault());
@@ -166,6 +238,46 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
             {t("settings.saveDisplayName")}
           </ConfigButton>
         </div>
+      </section>
+
+      <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.appUpdate")}</h3>
+        <p className="settings-general-description">
+          {appUpdate
+            ? t(appUpdate.updateAvailable ? "settings.updateAvailable" : "settings.upToDate", {
+                current: appUpdate.currentVersion,
+                latest: appUpdate.latestVersion,
+              })
+            : t("settings.checkForUpdatesDescription")}
+        </p>
+        <label className="settings-general-heading" htmlFor="settings-update-source">{t("settings.sourceDirectory")}</label>
+        <div className="settings-display-name-control settings-update-control">
+          <input
+            id="settings-update-source"
+            type="text"
+            value={updateSourceDir}
+            onChange={(event) => setUpdateSourceDir(event.target.value)}
+            placeholder="/path/to/pi-web"
+            disabled={updateStatus === "running" || updateStatus === "reloading"}
+          />
+          <ConfigButton
+            size="small"
+            disabled={checkingUpdate || updateStatus === "running" || updateStatus === "reloading"}
+            onClick={() => void checkForUpdates(true)}
+          >
+            {checkingUpdate ? t("i18n.checking") : t("i18n.checkUpdates")}
+          </ConfigButton>
+          <ConfigButton
+            variant="primary"
+            size="small"
+            disabled={!updateSupported || !updateSourceDir.trim() || updateStatus === "running" || updateStatus === "reloading"}
+            onClick={() => void installUpdate()}
+          >
+            {updateStatus === "running" || updateStatus === "reloading" ? t("settings.updatingApp") : t("settings.updateAndReload")}
+          </ConfigButton>
+        </div>
+        {!updateSupported && <p className="settings-general-description">{t("settings.updateMacOnly")}</p>}
+        {updateError && <p role="alert" className="settings-general-error">{updateError}</p>}
       </section>
 
       <section className="settings-general-section">

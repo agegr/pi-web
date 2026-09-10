@@ -45,8 +45,9 @@ async function fetchLatestVersion(): Promise<AppUpdateResponse> {
   };
 }
 
-async function loadUpdateStatus(): Promise<AppUpdateResponse> {
+async function loadUpdateStatus(force = false): Promise<AppUpdateResponse> {
   const cache = getCache();
+  if (force) cache.expiresAt = 0;
   if (cache.value && cache.expiresAt > Date.now()) return cache.value;
   if (!cache.inFlight) {
     cache.inFlight = fetchLatestVersion().then((value) => {
@@ -66,7 +67,7 @@ async function loadUpdateStatus(): Promise<AppUpdateResponse> {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   if (SKIP_VERSION_CHECK) {
     return NextResponse.json({
       currentVersion: CURRENT_VERSION,
@@ -76,7 +77,8 @@ export async function GET() {
     } satisfies AppUpdateResponse);
   }
   try {
-    return NextResponse.json(await loadUpdateStatus());
+    const force = new URL(request.url).searchParams.get("force") === "1";
+    return NextResponse.json(await loadUpdateStatus(force));
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },

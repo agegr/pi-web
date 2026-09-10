@@ -957,7 +957,14 @@
   color: var(--text-dim);
 }
 
+.settings-update-control {
+  flex-wrap: wrap;
+  max-width: 720px;
+}
 
+.settings-update-control input {
+  flex-basis: 280px;
+}
 
 .settings-general-heading {
   margin: 0 0 5px;

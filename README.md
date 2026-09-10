@@ -51,7 +51,7 @@ pi-web reload   # restart after an update or configuration change
 pi-web stop
 ```
 
-`start` loads a `launchd` LaunchAgent and returns immediately. `stop` unloads it; `restart` and `reload` are equivalent, and all service commands are safe to repeat. The service definition is stored at `~/Library/LaunchAgents/com.agegr.pi-web.plist` and its standard output and error logs are stored under `~/Library/Logs/Pi Web/`. The service captures the startup environment and options at `start` time, so reload it after changing configuration. Stop the service before uninstalling Pi Web.
+`start` loads a `launchd` LaunchAgent and returns immediately. `stop` unloads it; `reload` restarts the loaded service with its saved configuration, while `restart` rewrites that configuration from the current options. All service commands are safe to repeat. The service definition is stored at `~/Library/LaunchAgents/com.agegr.pi-web.plist` and its standard output and error logs are stored under `~/Library/Logs/Pi Web/`. The service captures the startup environment and options at `start` time, so reload it after changing configuration. Stop the service before uninstalling Pi Web.
 
 ## Configuration
 

@@ -19,6 +19,9 @@ function updateFromSource(sourceDir, options = {}) {
   if (pkg?.name !== "@agegr/pi-web") {
     throw new Error(`Expected @agegr/pi-web in ${packagePath}`);
   }
+  if (!fs.existsSync(path.join(resolvedDir, "package-lock.json"))) {
+    throw new Error(`Expected package-lock.json in ${resolvedDir}`);
+  }
 
   const npm = options.npmCommand ?? (process.platform === "win32" ? "npm.cmd" : "npm");
   const run = options.run ?? ((args) => spawnSync(npm, args, {
