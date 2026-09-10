@@ -246,6 +246,11 @@ function stopService(options) {
   return { message: "Pi Web service stopped.", paths: service.paths };
 }
 
+function restartService(options) {
+  stopService(options);
+  return startService(options);
+}
+
 function statusService(options) {
   const service = makeOptions(options);
   if (fs.existsSync(service.paths.plistPath)) readExistingPlist(service.paths.plistPath);
@@ -266,6 +271,7 @@ function runServiceCommand(command, options) {
   if (command === "start") return startService(options);
   if (command === "stop") return stopService(options);
   if (command === "status") return statusService(options);
+  if (command === "restart" || command === "reload") return restartService(options);
   throw new Error(`Unknown Pi Web service command: ${command}`);
 }
 
@@ -276,6 +282,7 @@ module.exports = {
   createServicePlist,
   getServicePaths,
   isManagedPlist,
+  restartService,
   runServiceCommand,
   startService,
   statusService,

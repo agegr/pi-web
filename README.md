@@ -34,17 +34,24 @@ npm install -g @agegr/pi-web@latest
 pi-web
 ```
 
-To update, stop the running process with `Ctrl+C` and run the same install command again. To uninstall, run `npm uninstall -g @agegr/pi-web`.
+To build and globally install from a local source tree:
+
+```bash
+pi-web update /path/to/pi-web
+```
+
+This runs `npm ci`, `npm run build`, and `npm install --global /path/to/pi-web` in order. To uninstall, run `npm uninstall -g @agegr/pi-web`.
 
 On macOS, the command can run as a per-user background service:
 
 ```bash
 pi-web start
 pi-web status
+pi-web reload   # restart after an update or configuration change
 pi-web stop
 ```
 
-`start` loads a `launchd` LaunchAgent and returns immediately. `stop` unloads it; both commands are safe to repeat. The service definition is stored at `~/Library/LaunchAgents/com.agegr.pi-web.plist` and its standard output and error logs are stored under `~/Library/Logs/Pi Web/`. The service captures the startup environment and options at `start` time, so run `stop` and `start` again after changing configuration. Stop the service before uninstalling Pi Web.
+`start` loads a `launchd` LaunchAgent and returns immediately. `stop` unloads it; `restart` and `reload` are equivalent, and all service commands are safe to repeat. The service definition is stored at `~/Library/LaunchAgents/com.agegr.pi-web.plist` and its standard output and error logs are stored under `~/Library/Logs/Pi Web/`. The service captures the startup environment and options at `start` time, so reload it after changing configuration. Stop the service before uninstalling Pi Web.
 
 ## Configuration
 
