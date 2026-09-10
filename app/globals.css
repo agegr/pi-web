@@ -1676,6 +1676,48 @@ span.token.table {
   }
 }
 
+/* Full-width mode keeps the mounted viewer and saved split width intact. */
+@media (min-width: 641px) {
+  .right-panel-container.right-panel-open.right-panel-full-width {
+    position: fixed;
+    inset: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
+    z-index: 250;
+    width: auto;
+    min-width: 0;
+    height: var(--app-viewport-height, 100dvh);
+    border-left: none !important;
+    box-shadow: none;
+    transform: none;
+    transition: none;
+  }
+  .right-panel-container.right-panel-full-width > * {
+    width: 100%;
+    min-width: 0;
+  }
+}
+.file-panel-expand-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: var(--bg-selected);
+  border: none;
+  border-left: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+}
+.file-panel-expand-button:hover,
+.file-panel-expand-button[aria-pressed="true"] {
+  color: var(--accent);
+}
+.file-panel-expand-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+
 /* Mobile sidebar: slide in/out as overlay */
 @media (max-width: 640px) {
   .chat-stats-center {
@@ -1722,6 +1764,7 @@ span.token.table {
     width: 100%;
     min-width: 0;
   }
+  .file-panel-expand-button,
   .panel-resize-handle,
   .right-panel-overlay-backdrop {
     display: none;
