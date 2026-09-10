@@ -111,6 +111,40 @@ const BUILTIN_TOOLS = new Set(DEFAULT_TOOLS);
 const SUBAGENT_CONTROL_TOOLS = new Set<string>(SUBAGENT_CONTROL_TOOL_NAMES);
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
+/**
+ * Frontmatter keys the web UI owns. Everything else in a profile file belongs to
+ * whichever runtime reads it (pi-subagents and friends), so a save from this app must
+ * carry those keys through untouched. Dropping them silently changed behaviour:
+ * `allowed_subagents` was lost and an orchestrator could no longer spawn anything,
+ * `exclude_extensions` was lost and an opt-out became an opt-in.
+ */
+const MANAGED_FRONTMATTER_KEYS = new Set([
+  "description",
+  "display_name",
+  "tools",
+  "load_skills",
+  "load_extensions",
+  "enabled",
+  "inherit_context",
+  "run_in_background",
+  "model",
+  "thinking",
+  "max_turns",
+  "prompt_mode",
+  "color",
+  "isolation",
+  "persist_session",
+]);
+
+const FRONTMATTER_OPEN_RE = /^(?:\uFEFF)?---[ \t]*(?:\r\n|\n|\r)/;
+
+/**
+ * The UI exposes two booleans (`load_skills` / `load_extensions`); pi-subagents reads
+ * the aliases `skills` / `extensions`, which also accept a whitelist. Aliases are
+ * carried through by `unmanagedFrontmatter` and only rewritten once we own them.
+ */
+const OWNED_ALIAS_VALUES = new Set(["none", "all", "true", "false"]);
+
 const BUILTIN_PROFILES: SubagentProfile[] = [
   {
     name: "general-purpose",
@@ -169,13 +203,17 @@ function resourceBoolean(value: unknown, fallback: boolean): boolean {
   return Array.isArray(value) || typeof value === "string" ? true : fallback;
 }
 
-function parseTools(value: unknown, fallback: string[]): string[] {
+function stringList(value: unknown): string[] {
   const values = Array.isArray(value)
     ? value
     : typeof value === "string"
       ? value.split(",")
       : [];
-  const tools = values.map((item) => String(item).trim()).filter(Boolean);
+  return values.map((item) => String(item).trim()).filter(Boolean);
+}
+
+function parseTools(value: unknown, fallback: string[]): string[] {
+  const tools = stringList(value);
   if (tools.includes("none")) return [];
   if (tools.includes("all") || tools.includes("*")) return [...DEFAULT_TOOLS];
   if (tools.length === 0) return [...fallback];
@@ -183,14 +221,60 @@ function parseTools(value: unknown, fallback: string[]): string[] {
 }
 
 function rawToolValues(value: unknown): string[] {
-  const values = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
-  return values.map((item) => String(item).trim()).filter(Boolean);
+  return stringList(value);
 }
 
 function parseExtensionToolSelectors(value: unknown): string[] {
   return [...new Set(rawToolValues(value).filter((tool) => tool.toLowerCase().startsWith("ext:")))];
 }
 
+/** Read existing frontmatter without allowing malformed metadata to be overwritten. */
+function readStoredFrontmatter(filePath: string): Record<string, unknown> {
+  if (!existsSync(filePath)) return {};
+  const source = readFileSync(filePath, "utf8");
+  const { data } = parseFrontmatter(source);
+  if (data) return data;
+  if (FRONTMATTER_OPEN_RE.test(source)) {
+    throw new Error("Cannot save agent profile: existing frontmatter is invalid");
+  }
+  return {};
+}
+
+/** Keys another runtime owns, in file order, so a save round-trips them. */
+function unmanagedFrontmatter(stored: Record<string, unknown>): Record<string, unknown> {
+  const preserved: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(stored)) {
+    if (!MANAGED_FRONTMATTER_KEYS.has(key)) preserved[key] = value;
+  }
+  return preserved;
+}
+
+/**
+ * pi-web filters `tools` down to the built-ins it can dispatch, which would drop
+ * another runtime's `ext:<name>` selectors on every save — carry them through.
+ */
+function composeToolsField(tools: string[], storedTools: unknown): string {
+  const selectors = stringList(storedTools).filter((tool) => tool.startsWith("ext:"));
+  const combined = [...tools, ...selectors.filter((selector) => !tools.includes(selector))];
+  return combined.length > 0 ? combined.join(", ") : "none";
+}
+
+/**
+ * Keep the alias in step with the boolean the UI owns. A boolean (or a "none" /
+ * "all" spelling) is ours to rewrite; a whitelist such as `extensions:
+ * pi-advisor-flow` expresses scoping the UI cannot show, so it stays as authored.
+ */
+function syncFlagAlias(
+  frontmatter: Record<string, unknown>,
+  alias: string,
+  storedValue: unknown,
+  flag: boolean,
+): void {
+  const owned = storedValue === undefined
+    || typeof storedValue === "boolean"
+    || (typeof storedValue === "string" && OWNED_ALIAS_VALUES.has(storedValue.trim().toLowerCase()));
+  if (owned) frontmatter[alias] = flag;
+}
 function parseProfileFile(filePath: string, scope: SubagentScope): SubagentProfile | null {
   try {
     const source = readFileSync(filePath, "utf8");
@@ -333,10 +417,11 @@ export function saveSubagentProfile(
     throw new Error("Agent profile directory is outside the project root");
   }
   const filePath = join(dir, `${name}.md`);
-  const frontmatter: Record<string, unknown> = {
+  const stored = readStoredFrontmatter(filePath);
+  const managed: Record<string, unknown> = {
     description,
     display_name: displayName,
-    tools: [...tools, ...extensionTools].length > 0 ? [...tools, ...extensionTools].join(", ") : "none",
+    tools: composeToolsField([...tools, ...extensionTools], stored.tools),
     load_skills: loadSkills,
     load_extensions: loadExtensions,
     enabled: profile.enabled,
@@ -344,12 +429,19 @@ export function saveSubagentProfile(
     run_in_background: profile.runInBackground,
     prompt_mode: promptMode,
   };
-  if (model) frontmatter.model = model;
-  if (profile.thinking) frontmatter.thinking = profile.thinking;
-  if (maxTurns) frontmatter.max_turns = maxTurns;
-  if (profile.color?.trim()) frontmatter.color = profile.color.trim();
-  if (profile.isolation) frontmatter.isolation = profile.isolation;
-  if (profile.persistSession !== undefined) frontmatter.persist_session = profile.persistSession;
+  syncFlagAlias(managed, "skills", stored.skills, loadSkills);
+  syncFlagAlias(managed, "extensions", stored.extensions, loadExtensions);
+  if (model) managed.model = model;
+  if (profile.thinking) managed.thinking = profile.thinking;
+  if (maxTurns) managed.max_turns = maxTurns;
+  if (profile.color?.trim()) managed.color = profile.color.trim();
+  if (profile.isolation) managed.isolation = profile.isolation;
+  if (profile.persistSession !== undefined) managed.persist_session = profile.persistSession;
+  // Managed keys win; keys this app does not own follow in their original order.
+  const frontmatter: Record<string, unknown> = { ...managed };
+  for (const [key, value] of Object.entries(unmanagedFrontmatter(stored))) {
+    if (!(key in frontmatter)) frontmatter[key] = value;
+  }
   const yaml = stringifyYaml(frontmatter, { noRefs: true, lineWidth: 1000 }).trimEnd();
   writePrivateFileAtomicSync(filePath, `---\n${yaml}\n---\n\n${systemPrompt}\n`);
   return {
