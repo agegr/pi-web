@@ -156,3 +156,10 @@ test("New restores the draft after session navigation and workspace auto-restore
     });
   }
 });
+
+test("deleting a session family keeps its project recoverable after reload", () => {
+  const body = callbackBody("handleSessionDeleted", "handleOpenFile");
+  assert.match(body, /sessionIds\.includes\(selectedSession\.id\)/);
+  assert.match(body, /router\.replace\(cwd \? `\?cwd=\$\{encodeURIComponent\(cwd\)\}`/);
+  assert.match(body, /typeof window !== "undefined" \? window\.location\.pathname : "\/"/);
+});
