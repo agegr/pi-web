@@ -826,7 +826,7 @@ export function AppShell() {
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
   useGlobalKeyboardShortcuts({
     onNewSession: (cwd: string) => handleNewSession(`kb-${Date.now()}`, cwd),
-    onFocusSlash: () => chatInputRef.current?.focusAndInsertSlash(),
+    onFocusSlash: () => chatInputRef.current?.focusInput(),
     activeCwd,
   });
 
