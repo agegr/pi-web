@@ -9,7 +9,7 @@ const settingsPanel = await readFile(new URL("./SettingsPanel.tsx", import.meta.
 const globals = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 const chatAppearanceHook = await readFile(new URL("../hooks/useChatAppearance.ts", import.meta.url), "utf8");
 const jiti = createJiti(import.meta.url);
-const { clampChatContentWidth, clampChatContentFontSize } = await jiti.import("../hooks/useChatAppearance.ts");
+const { clampChatContentWidth, clampChatContentFontSize, clampExtensionWidgetFontSize } = await jiti.import("../hooks/useChatAppearance.ts");
 
 const widthVariable = /var\(--chat-content-max-width, 820px\)/g;
 
@@ -48,4 +48,14 @@ test("chat font size preserves the default and bounds stored or supplied values"
   assert.equal(clampChatContentFontSize("18"), 18);
   assert.equal(clampChatContentFontSize(18.7), 19);
   assert.equal(clampChatContentFontSize(30), 24);
+});
+
+test("extension widget font size preserves the default and bounds stored or supplied values", () => {
+  for (const value of [undefined, null, "invalid", Infinity, NaN]) {
+    assert.equal(clampExtensionWidgetFontSize(value), 14);
+  }
+  assert.equal(clampExtensionWidgetFontSize(8), 12);
+  assert.equal(clampExtensionWidgetFontSize("18"), 18);
+  assert.equal(clampExtensionWidgetFontSize(18.7), 19);
+  assert.equal(clampExtensionWidgetFontSize(30), 24);
 });
