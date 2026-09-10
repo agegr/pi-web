@@ -49,9 +49,9 @@ export function invalidateProjectCache(): void {
   globalThis.__piProjectCache?.clear();
 }
 
-async function git(cwd: string, args: string[]): Promise<string> {
+async function git(cwd: string, args: string[], timeoutMs = 10_000): Promise<string> {
   const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], {
-    timeout: 10_000,
+    timeout: timeoutMs,
     maxBuffer: 1024 * 1024,
     // Pin the message locale so error-text matching (e.g. the dirty-worktree
     // detection in the DELETE route) works regardless of system language.
@@ -205,7 +205,16 @@ export async function addWorktree(cwd: string, branch: string): Promise<{ path: 
   }
   mkdirSync(baseDir, { recursive: true });
 
-  // Reuse the branch if it already exists, otherwise create it at HEAD.
+  // Fetch latest remote refs so new branches below can start from the up-to-date
+  // remote tip (refs/remotes/origin/<branch>) instead of local HEAD.
+  try {
+    await git(repoRoot, ["fetch", "origin"], 60_000);
+  } catch {
+    // Non-fatal: continue with whatever refs are available locally.
+  }
+
+  // Reuse the branch if it already exists, otherwise create it (from the
+  // remote tip when available, else local HEAD).
   let branchExists = false;
   try {
     await git(repoRoot, ["rev-parse", "--verify", "--quiet", `refs/heads/${trimmed}`]);
@@ -215,10 +224,23 @@ export async function addWorktree(cwd: string, branch: string): Promise<{ path: 
   }
 
   try {
+    // Large repos (30k+ files) can take minutes to checkout.
+    const WORKTREE_TIMEOUT = 5 * 60_000;
     if (branchExists) {
-      await git(repoRoot, ["worktree", "add", "--", worktreePath, trimmed]);
+      await git(repoRoot, ["worktree", "add", "--", worktreePath, trimmed], WORKTREE_TIMEOUT);
     } else {
-      await git(repoRoot, ["worktree", "add", "-b", trimmed, "--", worktreePath]);
+      // New branch: prefer the up-to-date remote tip (refs/remotes/origin/<branch>,
+      // populated by the fetch above) over local HEAD; fall back to HEAD when absent.
+      let startFrom: string | undefined;
+      try {
+        await git(repoRoot, ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${trimmed}`]);
+        startFrom = `refs/remotes/origin/${trimmed}`;
+      } catch {
+        startFrom = undefined;
+      }
+      const addArgs = ["worktree", "add", "-b", trimmed, "--", worktreePath];
+      if (startFrom) addArgs.push(startFrom);
+      await git(repoRoot, addArgs, WORKTREE_TIMEOUT);
     }
   } catch (error) {
     throw new Error(extractGitError(error));
