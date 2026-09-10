@@ -2,12 +2,20 @@ import {
   Agent,
   type AgentMessage,
   type AgentOptions,
-  type AgentTool,
 } from "@earendil-works/pi-agent-core";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
 const TITLE_TIMEOUT_MS = 90_000;
 const MAX_TITLE_LENGTH = 80;
+
+// These are per-message code-point caps, not a total transcript budget.
+// Retain every user turn so middle-of-session changes of goal remain visible.
+const USER_CHARS = 800;
+const ASSISTANT_CHARS = 300;
+const LAST_ASSISTANT_CHARS = 600;
+const SUMMARY_CHARS = 600;
+const TITLE_SYSTEM_PROMPT =
+  "You name chat sessions from a transcript. Reply with the title only.";
 
 const TITLE_PROMPT = `Create a concise title for this session based on the conversation above.
 
@@ -29,29 +37,16 @@ export interface GeneratedSessionTitle {
   };
 }
 
-function createShadowTools(tools: AgentTool[]): AgentTool[] {
-  return tools.map((tool) => ({
-    ...tool,
-    execute: async () => {
-      throw new Error("Tools cannot be executed while generating a session title");
-    },
-  }));
-}
-
-/**
- * Build a temporary Agent configuration whose provider-facing prefix matches
- * the source Agent. Tool implementations are replaced without changing their
- * names, descriptions, or schemas, so a naming run cannot mutate the project.
- */
+/** Build a temporary Agent with a separate title prompt and no tools or history. */
 export function buildSessionTitleAgentOptions(source: Agent): AgentOptions {
   const state = source.state;
   return {
     initialState: {
-      systemPrompt: state.systemPrompt,
+      systemPrompt: TITLE_SYSTEM_PROMPT,
       model: state.model,
       thinkingLevel: state.thinkingLevel,
-      tools: createShadowTools(state.tools),
-      messages: state.messages,
+      tools: [],
+      messages: [],
     },
     convertToLlm: source.convertToLlm,
     transformContext: source.transformContext,
@@ -69,23 +64,44 @@ export function buildSessionTitleAgentOptions(source: Agent): AgentOptions {
   };
 }
 
-/**
- * A running source session usually ends in the user message currently being
- * answered. Fold the title request into a copy of that message so the title
- * request does not send two consecutive user messages to the provider.
- */
-export function appendTitleRequestToTrailingUser(messages: AgentMessage[]): AgentMessage[] {
-  const lastMessage = messages.at(-1);
-  if (!lastMessage || lastMessage.role !== "user") return messages;
+function textOf(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((block): block is { type: "text"; text: string } =>
+      typeof block === "object" && block !== null && block.type === "text" && typeof block.text === "string")
+    .map((block) => block.text)
+    .join("\n");
+}
 
-  const content = typeof lastMessage.content === "string"
-    ? `${lastMessage.content}\n\n${TITLE_PROMPT}`
-    : [...lastMessage.content, { type: "text" as const, text: TITLE_PROMPT }];
+function clip(text: string, max: number): string {
+  const characters = Array.from(text);
+  return characters.length <= max ? text : `${characters.slice(0, max).join("")}…`;
+}
 
-  return [
-    ...messages.slice(0, -1),
-    { ...lastMessage, content },
-  ];
+/** Flatten user/assistant text and compaction summaries without tool traffic. */
+export function buildTitleTranscript(messages: AgentMessage[]): string {
+  let lastAssistant: AgentMessage | undefined;
+  for (const message of messages) {
+    if (message.role === "assistant" && textOf(message.content).trim()) lastAssistant = message;
+  }
+
+  const lines: string[] = [];
+  for (const message of messages) {
+    if (message.role === "compactionSummary") {
+      lines.push(`[Earlier summary] ${clip(message.summary.trim(), SUMMARY_CHARS)}`);
+      continue;
+    }
+    if (message.role !== "user" && message.role !== "assistant") continue;
+    const text = textOf(message.content).trim();
+    if (!text) continue;
+    if (message.role === "user") {
+      lines.push(`User: ${clip(text, USER_CHARS)}`);
+    } else {
+      lines.push(`Assistant: ${clip(text, message === lastAssistant ? LAST_ASSISTANT_CHARS : ASSISTANT_CHARS)}`);
+    }
+  }
+  return lines.join("\n\n");
 }
 
 function stripWrappingQuotes(value: string): string {
@@ -135,8 +151,8 @@ export function parseGeneratedSessionTitle(raw: string): string {
   return value;
 }
 
-function getAssistantResult(agent: Agent, historyLength: number): GeneratedSessionTitle {
-  const generatedMessages = agent.state.messages.slice(historyLength);
+function getAssistantResult(agent: Agent): GeneratedSessionTitle {
+  const generatedMessages = agent.state.messages;
   for (let i = generatedMessages.length - 1; i >= 0; i--) {
     const message = generatedMessages[i];
     if (message.role !== "assistant") continue;
@@ -165,72 +181,19 @@ function getAssistantResult(agent: Agent, historyLength: number): GeneratedSessi
   throw new Error("The model did not return a session title");
 }
 
-export function sanitizeTitleMessages(messages: AgentMessage[]): AgentMessage[] {
-  const sanitized: AgentMessage[] = [];
-  let expectedToolResultIds: Set<string> | undefined;
-
-  for (let index = 0; index < messages.length; index++) {
-    const message = messages[index];
-
-    if (message.role === "assistant") {
-      const followingToolResultIds = new Set<string>();
-      for (let resultIndex = index + 1; resultIndex < messages.length; resultIndex++) {
-        const resultMessage = messages[resultIndex];
-        if (resultMessage.role !== "toolResult") break;
-        followingToolResultIds.add(resultMessage.toolCallId);
-      }
-
-      expectedToolResultIds = new Set<string>();
-      const content = message.content.filter((block) => {
-        if (block.type !== "toolCall") return true;
-        if (!followingToolResultIds.has(block.id)) return false;
-        expectedToolResultIds!.add(block.id);
-        return true;
-      });
-
-      if (content.length > 0) {
-        sanitized.push({ ...message, content });
-      }
-      continue;
-    }
-
-    if (message.role === "toolResult") {
-      if (expectedToolResultIds?.delete(message.toolCallId)) {
-        sanitized.push(message);
-      }
-      continue;
-    }
-
-    expectedToolResultIds = undefined;
-    sanitized.push(message);
-  }
-
-  return sanitized;
-}
-
 export async function generateSessionTitle(source: AgentSession): Promise<GeneratedSessionTitle> {
   const sourceAgent = source.agent;
   await sourceAgent.waitForIdle();
 
-  const sanitizedMessages = sanitizeTitleMessages(sourceAgent.state.messages);
-  const historyLength = sanitizedMessages.length;
-  if (!sanitizedMessages.some(
+  const messages = sourceAgent.state.messages;
+  if (!messages.some(
     (message) => message.role === "user" || message.role === "compactionSummary",
   )) {
     throw new Error("The session has no user messages to name");
   }
 
-  const options = buildSessionTitleAgentOptions(sourceAgent);
-  options.initialState!.messages = sanitizedMessages;
-  const continuesFromTrailingUser = sanitizedMessages.at(-1)?.role === "user";
-  if (continuesFromTrailingUser) {
-    options.initialState!.messages = appendTitleRequestToTrailingUser(sanitizedMessages);
-  }
-
-  const temporaryAgent = new Agent(options);
-  const runPromise = continuesFromTrailingUser
-    ? temporaryAgent.continue()
-    : temporaryAgent.prompt(TITLE_PROMPT);
+  const temporaryAgent = new Agent(buildSessionTitleAgentOptions(sourceAgent));
+  const runPromise = temporaryAgent.prompt(`${buildTitleTranscript(messages)}\n\n${TITLE_PROMPT}`);
   let timeout: ReturnType<typeof setTimeout> | undefined;
 
   try {
@@ -251,5 +214,5 @@ export async function generateSessionTitle(source: AgentSession): Promise<Genera
     if (timeout) clearTimeout(timeout);
   }
 
-  return getAssistantResult(temporaryAgent, historyLength);
+  return getAssistantResult(temporaryAgent);
 }
