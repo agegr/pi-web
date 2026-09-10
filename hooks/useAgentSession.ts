@@ -1923,7 +1923,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             agentRunningRef.current = true;
             setAgentRunning(true);
             setAgentPhase(agentState.state.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
-            dispatch({ type: "start" });
+            // The event stream may have connected while this state fetch was in
+            // flight and already restored the in-flight partial via its
+            // snapshot; resuming keeps it instead of restarting from scratch.
+            dispatch({ type: "resume" });
             void maintainEventsConnected(session.id);
             if (!agentState.state.isStreaming && agentState.state.isPromptRunning) {
               void waitForPromptSettlement(session.id);

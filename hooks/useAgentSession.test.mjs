@@ -533,3 +533,16 @@ test("keeps a detached viewport in place when streaming completes", () => {
   assert.doesNotMatch(scrollEffectSource, /\|\|/);
   assert.match(source, /addEventListener\("scroll", handleScrollPositionChange/);
 });
+
+test("mount restore resumes the stream instead of resetting a restored snapshot", () => {
+  const mountRestoreSource = source.slice(
+    source.indexOf("if (agentState.state?.isStreaming || agentState.state?.isPromptRunning) {"),
+    source.indexOf("if (agentState.state?.isBashRunning) {"),
+  );
+
+  // The mount restore runs after the event stream may already have restored
+  // the in-flight partial via its snapshot; a plain "start" would blank it.
+  assert.match(mountRestoreSource, /dispatch\(\{ type: "resume" \}\)/);
+  assert.doesNotMatch(mountRestoreSource, /dispatch\(\{ type: "start" \}\)/);
+  assert.match(mountRestoreSource, /void maintainEventsConnected\(session\.id\)/);
+});

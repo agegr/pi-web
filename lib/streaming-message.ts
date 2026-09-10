@@ -15,6 +15,9 @@ export interface StreamingState {
 
 export type StreamAction =
   | { type: "start" }
+  // Server reports a live run (e.g. session mount): enter streaming state
+  // unless the event stream already restored a partial, which must survive.
+  | { type: "resume" }
   | { type: "snapshot"; message: AgentMessage }
   | { type: "delta"; event: ClientAssistantMessageEvent }
   | { type: "end" };
@@ -128,6 +131,12 @@ export function streamReducer(
   switch (action.type) {
     case "start":
       return { isStreaming: true, streamingMessage: null };
+    case "resume":
+      // The mount-restore path runs after the event stream may already have
+      // delivered a reconnect snapshot. Resetting here would blank the chat
+      // for the rest of the current message: later deltas no-op onto a null
+      // message while each one also clears the phase label.
+      return state.isStreaming ? state : { isStreaming: true, streamingMessage: null };
     case "snapshot": {
       const message = normalizeStreamingToolCalls(action.message);
       return message.role === "assistant"
