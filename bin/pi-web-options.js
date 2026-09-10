@@ -12,7 +12,7 @@ const CLI_OPTIONS = {
   help: { type: "boolean", short: "h" },
 };
 
-const COMMANDS = new Set(["foreground", "start", "stop", "status"]);
+const COMMANDS = new Set(["foreground", "start", "stop", "status", "restart", "reload", "update"]);
 
 function isEnabled(value) {
   return typeof value === "string" && TRUE_VALUES.has(value.trim().toLowerCase());
@@ -40,6 +40,8 @@ Commands:
   start                      Start a background service (macOS only)
   stop                       Stop and unload the background service (macOS only)
   status                     Report background service status (macOS only)
+  restart, reload            Restart the background service (macOS only)
+  update <directory>         Build and globally install from a source directory
 
 Options:
   -p, --port <port>          Server port (default: 30141, or PORT)
@@ -74,14 +76,17 @@ function parseCliArguments(args = process.argv.slice(2), env = process.env) {
   }
 
   if (values.help) return { command: "foreground", help: true };
-  if (positionals.length > 1 || (positionals.length === 1 && !COMMANDS.has(positionals[0]))) {
+  const command = positionals[0] ?? "foreground";
+  const sourceDir = positionals[1];
+  if (!COMMANDS.has(command) || (command === "update" ? positionals.length !== 2 : positionals.length > 1)) {
     throw new Error(
       `Unexpected argument(s): ${positionals.join(" ")}\nUse --help to see available options.`,
     );
   }
 
   return {
-    command: positionals[0] ?? "foreground",
+    command,
+    ...(sourceDir ? { sourceDir } : {}),
     help: false,
     port: normalizePort(values.port ?? env.PORT ?? "30141"),
     hostname: values.hostname ?? env.PI_WEB_HOSTNAME ?? "127.0.0.1",

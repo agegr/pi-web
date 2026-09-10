@@ -23,7 +23,7 @@ export function registerAbortHandler(handler: (() => void) | null): void {
 interface UseGlobalKeyboardShortcutsOptions {
   /** Called when Ctrl+Alt+N or Command+Shift+O is pressed. Receives current cwd. */
   onNewSession?: (cwd: string) => void;
-  /** Focuses the active chat input and inserts a slash. */
+  /** Focuses the active chat input without changing its text. */
   onFocusSlash?: () => void;
   /** The currently selected project directory (sidebar cwd). */
   activeCwd?: string | null;

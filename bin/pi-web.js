@@ -36,10 +36,25 @@ if (launchOptions.help) {
   process.exit(0);
 }
 
-const { command, port, hostname, openBrowser } = launchOptions;
+const { command, sourceDir, port, hostname, openBrowser } = launchOptions;
 
 const pkgDir = path.join(__dirname, "..");
 const nextDir = path.join(pkgDir, ".next");
+
+if (command === "update") {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { updateFromSource } = require("./source-update");
+    fs.writeSync(process.stdout.fd, `${updateFromSource(sourceDir)}\n`);
+    process.exit(0);
+  } catch (error) {
+    fs.writeSync(
+      process.stderr.fd,
+      `${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    process.exit(1);
+  }
+}
 
 if (command !== "foreground") {
   try {
@@ -48,7 +63,7 @@ if (command !== "foreground") {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { assertSupportedPlatform, runServiceCommand } = require("./mac-service");
     assertSupportedPlatform();
-    if (command === "start" && !fs.existsSync(nextDir)) {
+    if (["start", "restart", "reload"].includes(command) && !fs.existsSync(nextDir)) {
       throw new Error("Build artifacts not found. Install the published Pi Web package before starting its service.");
     }
     const result = runServiceCommand(command, {

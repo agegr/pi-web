@@ -246,6 +246,21 @@ function stopService(options) {
   return { message: "Pi Web service stopped.", paths: service.paths };
 }
 
+function restartService(options) {
+  stopService(options);
+  return startService(options);
+}
+
+function reloadService(options = {}) {
+  const service = makeOptions(options);
+  if (fs.existsSync(service.paths.plistPath)) readExistingPlist(service.paths.plistPath);
+  const state = inspectService(service.runLaunchctl, service.serviceTarget);
+  if (!state.loaded) throw new Error("Pi Web service is not loaded. Run `pi-web start` first.");
+  const args = ["kickstart", "-k", service.serviceTarget];
+  requireLaunchctlSuccess(service.runLaunchctl(args), args);
+  return { message: "Pi Web service reloaded.", paths: service.paths };
+}
+
 function statusService(options) {
   const service = makeOptions(options);
   if (fs.existsSync(service.paths.plistPath)) readExistingPlist(service.paths.plistPath);
@@ -266,6 +281,8 @@ function runServiceCommand(command, options) {
   if (command === "start") return startService(options);
   if (command === "stop") return stopService(options);
   if (command === "status") return statusService(options);
+  if (command === "restart") return restartService(options);
+  if (command === "reload") return reloadService(options);
   throw new Error(`Unknown Pi Web service command: ${command}`);
 }
 
@@ -276,6 +293,8 @@ module.exports = {
   createServicePlist,
   getServicePaths,
   isManagedPlist,
+  reloadService,
+  restartService,
   runServiceCommand,
   startService,
   statusService,
