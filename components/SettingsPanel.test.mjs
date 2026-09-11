@@ -4,11 +4,14 @@ import test from "node:test";
 
 const panelSource = await readFile(new URL("./SettingsPanel.tsx", import.meta.url), "utf8");
 const cssSource = await readFile(new URL("../app/settings.css", import.meta.url), "utf8");
+const globalCssSource = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 const shellSource = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
 const sidebarSource = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
 const themeSource = await readFile(new URL("../hooks/useTheme.ts", import.meta.url), "utf8");
+const themeOptionsSource = await readFile(new URL("../lib/theme.ts", import.meta.url), "utf8");
 const enSource = await readFile(new URL("../lib/i18n/messages/en.ts", import.meta.url), "utf8");
 const zhSource = await readFile(new URL("../lib/i18n/messages/zh-CN.ts", import.meta.url), "utf8");
+const loginSource = await readFile(new URL("../app/login/page.tsx", import.meta.url), "utf8");
 
 test("opens one settings panel from direct sidebar shortcuts", () => {
   assert.match(shellSource, /<SettingsPanel/);
@@ -21,14 +24,13 @@ test("opens one settings panel from direct sidebar shortcuts", () => {
   assert.doesNotMatch(shellSource, /setModelsConfigOpen|setSkillsConfigOpen|setAgentsConfigOpen|setPluginsConfigOpen/);
 });
 
-test("keeps enabled configuration surfaces inside the settings panel", () => {
-  for (const section of ["general", "models", "skills", "plugins"]) {
+test("keeps every requested configuration surface inside the settings panel", () => {
+  for (const section of ["general", "models", "skills", "agents", "plugins"]) {
     assert.match(panelSource, new RegExp(`id: "${section}"`));
   }
-  for (const component of ["ModelsConfig", "SkillsConfig", "PluginsConfig"]) {
+  for (const component of ["ModelsConfig", "SkillsConfig", "AgentsConfig", "PluginsConfig"]) {
     assert.match(panelSource, new RegExp(`<${component} embedded`));
   }
-  assert.doesNotMatch(panelSource, /id: "agents"|<AgentsConfig embedded/);
 });
 
 test("restores the settings section and each list detail selection", async () => {
@@ -51,12 +53,37 @@ test("keeps visited settings sections mounted and contains nested Escape handlin
   assert.match(modelsSource, /e\.preventDefault\(\);\s*e\.stopPropagation\(\);\s*onClose\(\);/);
 });
 
-test("offers direct light, dark, and system theme selection", () => {
-  for (const preference of ["light", "dark", "auto"]) {
-    assert.match(panelSource, new RegExp(`id: "${preference}"`));
+test("offers five palettes and system theme selection with native radios", () => {
+  for (const preference of ["light", "dark", "mist", "rose", "pine", "auto"]) {
+    assert.match(themeOptionsSource, new RegExp(`id: "${preference}"`));
   }
+  assert.match(panelSource, /THEME_OPTIONS\.map/);
+  assert.match(panelSource, /type="radio"/);
   assert.match(panelSource, /setThemePreference\(option\.id\)/);
   assert.match(themeSource, /const setThemePreference = useCallback/);
+});
+
+test("groups chat display controls together without row backgrounds", () => {
+  const appearanceSection = panelSource.slice(
+    panelSource.indexOf('{t("settings.appearance")}'),
+    panelSource.indexOf('{t("settings.chat")}'),
+  );
+  const chatSection = panelSource.slice(
+    panelSource.indexOf('{t("settings.chat")}'),
+    panelSource.indexOf("{shellSettings?.isWindows"),
+  );
+
+  assert.doesNotMatch(appearanceSection, /settings-chat-content/);
+  assert.match(chatSection, /className="settings-chat-options"/);
+  assert.equal((chatSection.match(/className="settings-chat-option(?: |")/g) ?? []).length, 4);
+  assert.equal((chatSection.match(/<ConfigSwitch/g) ?? []).length, 2);
+  for (const key of ["thinkingExpandedDefault", "chatContentWidth", "chatContentFontSize", "quoteSelection"]) {
+    assert.match(chatSection, new RegExp(`t\\("settings\\.${key}"\\)`));
+  }
+  assert.doesNotMatch(panelSource, /ThinkingIcon|settings-thinking-/);
+  const chatOptionStyles = cssSource.match(/\.settings-chat-option \{[\s\S]*?\}/)?.[0] ?? "";
+  assert.match(chatOptionStyles, /font-size: 12px/);
+  assert.doesNotMatch(chatOptionStyles, /background/);
 });
 
 test("keeps General free of divider rows", () => {
@@ -102,4 +129,15 @@ test("uses the child-session robot glyph for the sub-agents tab", () => {
 
 test("uses the compact controls glyph for General", () => {
   assert.match(panelSource, /section === "general"[\s\S]*?<path d="M20 7h-9M14 17H5" \/>[\s\S]*?<circle cx="7" cy="7" r="3" \/>[\s\S]*?<circle cx="17" cy="17" r="3" \/>/);
+});
+
+test("keeps password authentication to one login field and one settings action", () => {
+  assert.equal((loginSource.match(/type="password"/g) ?? []).length, 1);
+  assert.doesNotMatch(loginSource, /type="(?:text|email)"/);
+  assert.match(loginSource, /autoComplete="current-password"/);
+  assert.match(loginSource, /!destination\.startsWith\("\/\/"\)/);
+  assert.match(panelSource, /fetch\("\/api\/web-auth", \{ method: "DELETE" \}\)/);
+  assert.match(panelSource, /t\("auth\.logOut"\)/);
+  assert.match(loginSource, /className="web-login-composer"[\s\S]*?type="password"[\s\S]*?<button type="submit"/);
+  assert.match(globalCssSource, /\.web-login-composer \{[\s\S]*?display: flex;[\s\S]*?border-radius: 14px/);
 });

@@ -11,10 +11,31 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, modelSupportsImageInput, shouldCompressImageFile } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, modelSupportsImageInput, replaceLinksWithMarkdown, shouldCompressImageFile } = await jiti.import("./ChatInput.tsx");
 const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("@/lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
+
+test("preserves pasted HTML links as Markdown without changing plain text layout", () => {
+  const link = (label, href, occurrence = 0) => ({ label, href, occurrence });
+
+  assert.equal(
+    replaceLinksWithMarkdown(
+      "Jobs:\nEngineer\nEngineer\nDone",
+      [link("Engineer", "https://example.com/1"), link("Engineer", "https://example.com/2", 1)],
+    ),
+    "Jobs:\n[Engineer](https://example.com/1)\n[Engineer](https://example.com/2)\nDone",
+  );
+  assert.equal(
+    replaceLinksWithMarkdown("Read [this]", [link("[this]", "https://example.com/a_(b)")]),
+    "Read [\\[this\\]](https://example.com/a_\\(b\\))",
+  );
+  assert.equal(
+    replaceLinksWithMarkdown("Engineer and Engineer", [link("Engineer", "https://example.com/job", 1)]),
+    "Engineer and [Engineer](https://example.com/job)",
+  );
+  assert.equal(replaceLinksWithMarkdown("plain text", [link("missing", "https://example.com")]), null);
+});
 
 test("follow-up shortcuts preserve newline, IME, mobile and completion behavior", () => {
   const source = ts.createSourceFile("ChatInput.tsx", readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -194,6 +215,26 @@ test("renders the empty tool preset as Chat only", () => {
   assert.match(html, />Chat only<\/span>/);
 });
 
+test("renders the compact composer with the standard Send button and no session controls", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        isStreaming: false,
+        compact: true,
+      }),
+    ),
+  );
+
+  assert.match(html, /<textarea/);
+  assert.match(html, />Send<\/button>/);
+  assert.equal((html.match(/<button\b/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /type="file"|Attach image|Change tool preset/);
+});
+
 test("shows and locks the optimistic model while a switch is pending", () => {
   const html = renderToStaticMarkup(
     React.createElement(
@@ -326,6 +367,39 @@ test("clears a completed built-in only while its submitted input is unchanged", 
   assert.equal(canClearBuiltinCommandInput("/copy", 0, "/copy"), true);
   assert.equal(canClearBuiltinCommandInput("new follow-up", 0, "/copy"), false);
   assert.equal(canClearBuiltinCommandInput("/copy", 1, "/copy"), false);
+});
+
+test("locks built-in command submission until it settles", async () => {
+  const sourceText = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  const source = ts.createSourceFile("ChatInput.tsx", sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  function findCallback(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === "runBuiltinCommand") {
+      return node.initializer.arguments[0];
+    }
+    return ts.forEachChild(node, findCallback);
+  }
+  const callback = new Script(ts.transpileModule(findCallback(source).getText(source), {
+    compilerOptions: { target: ts.ScriptTarget.ES2020 },
+  }).outputText).runInNewContext({
+    attachedImages: [],
+    attachedImagesRef: { current: [] },
+    builtinCommandPendingRef: { current: false },
+    canClearBuiltinCommandInput,
+    clearInput() {},
+    onBuiltinCommand: async () => new Promise((resolve) => { callback.resolve = resolve; }),
+    setBuiltinCommandPending(value) { callback.pendingStates.push(value); },
+    valueRef: { current: "/reload" },
+  });
+  callback.pendingStates = [];
+
+  const first = callback("/reload");
+  assert.deepEqual(callback.pendingStates, [true]);
+  assert.equal(await callback("/reload"), true);
+  assert.deepEqual(callback.pendingStates, [true]);
+  callback.resolve({ handled: true });
+  assert.equal(await first, true);
+  assert.deepEqual(callback.pendingStates, [true, false]);
+  assert.match(sourceText, /<fieldset\s+disabled=\{builtinCommandPending\}\s+aria-busy=\{builtinCommandPending\}/);
 });
 
 test("keeps only read-only built-ins available while a run is active", () => {

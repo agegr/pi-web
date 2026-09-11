@@ -11,6 +11,7 @@ const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const {
   MessageView,
   ThinkingBlock,
+  getModelDisplayName,
   getTokenEstimateText,
   getToolCallInputText,
   replaceUserMessageText,
@@ -32,6 +33,17 @@ test("updates a reused message when its written files change", () => {
   const props = { message: { role: "assistant", content: [] } };
   assert.equal(MessageView.compare(props, props), true);
   assert.equal(MessageView.compare(props, { ...props, writtenFiles: [{ path: "/tmp/result.txt" }] }), false);
+});
+
+test("matches response model aliases and otherwise includes the provider", () => {
+  const names = {
+    "gateway:claude-sonnet-5": "Sonnet 5",
+    "custom-api:GLM-5.3": "GLM 5.3",
+  };
+
+  assert.equal(getModelDisplayName("gateway", "anthropic/claude-sonnet-5", names), "Sonnet 5");
+  assert.equal(getModelDisplayName("CUSTOM-API", "glm-5.3", names), "GLM 5.3");
+  assert.equal(getModelDisplayName("gateway", "unknown-model", names), "gateway/unknown-model");
 });
 
 test("previews the first thinking line and reveals the full text with the saved default", () => {
@@ -205,6 +217,18 @@ test("renders partial assistant content before the provider error", () => {
 
   assert.match(html, /Partial response/);
   assert.match(html, /Error: Connection closed/);
+});
+
+test("marks persisted assistant messages with their source entry", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "openai",
+    model: "gpt-test",
+    content: [{ type: "text", text: "Select this response" }],
+  }, { entryId: "assistant-entry" });
+
+  assert.match(html, /data-message-role="assistant"/);
+  assert.match(html, /data-entry-id="assistant-entry"/);
 });
 
 test("renders a complete SDK skill expansion as a compact command", () => {
