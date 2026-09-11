@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800">
+  <!-- P shape: outer boundary clockwise, inner hole counter-clockwise -->
+  <path fill="#fff" fill-rule="evenodd" d="
+    M88 88
+    H556
+    V400
+    H400
+    V556
+    H244
+    V712
+    H88
+    Z
+    M244 244
+    V400
+    H400
+    V244
+    Z
+  "/>
+  <!-- i dot -->
+  <path fill="#fff" d="M556 400 H712 V712 H556 Z"/>
+</svg>
