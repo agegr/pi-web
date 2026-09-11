@@ -1342,6 +1342,54 @@ pre, code {
   color: var(--text-dim);
 }
 
+.file-viewer-save-status {
+  flex: 0 0 auto;
+  color: #4ade80;
+  white-space: nowrap;
+}
+
+.file-markdown-editor-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.file-markdown-editor {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  resize: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre;
+  overflow: auto;
+  tab-size: 2;
+  outline: none;
+}
+
+.file-markdown-editor:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.file-viewer-save-error {
+  flex: 0 0 auto;
+  color: #f87171;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .file-viewer-mode-button:focus-visible,
 .file-viewer-icon-button:focus-visible {
   outline: 2px solid var(--accent);

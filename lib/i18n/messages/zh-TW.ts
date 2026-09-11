@@ -273,6 +273,7 @@ export const zhTWLocale: LocalePlugin = {
     "files.insertPath": "將路徑插入聊天",
     "files.mention": "提及",
     "files.download": "下載檔案",
+    "files.edit": "編輯 Markdown 檔案",
     "files.dismissError": "關閉錯誤訊息",
     "files.addUploadedFile": "將上傳的檔案加入聊天",
     "files.addAllUploadedFiles": "將所有上傳的檔案加入聊天",
