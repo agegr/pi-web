@@ -10,6 +10,7 @@ import { PRESET_READ_ONLY } from "./tool-presets";
 import type { SessionEntry, SubagentSessionStatus } from "./types";
 
 export const SUBAGENT_META_TYPE = "pi-web:subagent";
+export const SUBAGENT_STATUS_TYPE = "pi-web:subagent-status";
 export const SUBAGENT_RESULT_TYPE = "pi-web:subagent-result";
 export const SUBAGENT_CONTROL_TOOL_NAMES = ["Agent", "get_subagent_result", "steer_subagent"] as const;
 
@@ -23,6 +24,7 @@ export interface SubagentProfile {
   description: string;
   systemPrompt: string;
   tools: string[];
+  extensionTools?: string[];
   loadSkills: boolean;
   loadExtensions: boolean;
   model?: string;
@@ -30,6 +32,10 @@ export interface SubagentProfile {
   maxTurns?: number;
   inheritContext: boolean;
   runInBackground: boolean;
+  promptMode: "replace" | "append";
+  color?: string;
+  isolation?: "worktree" | "off";
+  persistSession?: boolean;
   enabled: boolean;
   scope: SubagentScope;
   filePath?: string;
@@ -46,6 +52,8 @@ export interface SubagentMetadata {
   runInBackground: boolean;
   createdAt: string;
   resourceSnapshot: SubagentResourceSnapshot;
+  worktreePath?: string;
+  worktreeBranch?: string;
 }
 
 export interface SubagentResourceSnapshot {
@@ -54,6 +62,7 @@ export interface SubagentResourceSnapshot {
   tools: string[];
   loadSkills: boolean;
   loadExtensions: boolean;
+  exactSystemPrompt?: string;
 }
 
 export interface SubagentSessionResources {
@@ -61,14 +70,21 @@ export interface SubagentSessionResources {
   tools: string[];
   loadSkills: boolean;
   loadExtensions: boolean;
+  exactSystemPrompt?: string;
 }
 
 export interface SubagentResultMetadata {
   version: 1;
-  status: Exclude<SubagentStatus, "starting" | "running" | "interrupted">;
+  status: Exclude<SubagentStatus, "starting" | "running" | "queued" | "interrupted">;
   completedAt: string;
   result?: string;
   error?: string;
+  worktreeCleanupError?: string;
+}
+
+export interface SubagentStatusMetadata {
+  version: 1;
+  status: Extract<SubagentStatus, "queued" | "running">;
 }
 
 export interface SubagentRunInfo {
@@ -85,6 +101,9 @@ export interface SubagentRunInfo {
   completedAt?: string;
   result?: string;
   error?: string;
+  worktreePath?: string;
+  worktreeBranch?: string;
+  worktreeCleanupError?: string;
 }
 
 const DEFAULT_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
@@ -101,6 +120,7 @@ const BUILTIN_PROFILES: SubagentProfile[] = [
     tools: DEFAULT_TOOLS,
     loadSkills: false,
     loadExtensions: false,
+    promptMode: "append",
     inheritContext: false,
     runInBackground: false,
     enabled: true,
@@ -114,6 +134,7 @@ const BUILTIN_PROFILES: SubagentProfile[] = [
     tools: [...PRESET_READ_ONLY],
     loadSkills: false,
     loadExtensions: false,
+    promptMode: "append",
     inheritContext: false,
     runInBackground: false,
     enabled: true,
@@ -127,6 +148,7 @@ const BUILTIN_PROFILES: SubagentProfile[] = [
     tools: [...PRESET_READ_ONLY],
     loadSkills: false,
     loadExtensions: false,
+    promptMode: "append",
     inheritContext: false,
     runInBackground: false,
     enabled: true,
@@ -142,6 +164,11 @@ function booleanValue(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
+function resourceBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") return value;
+  return Array.isArray(value) || typeof value === "string" ? true : fallback;
+}
+
 function parseTools(value: unknown, fallback: string[]): string[] {
   const values = Array.isArray(value)
     ? value
@@ -155,28 +182,46 @@ function parseTools(value: unknown, fallback: string[]): string[] {
   return [...new Set(tools.filter((tool) => BUILTIN_TOOLS.has(tool)))];
 }
 
+function rawToolValues(value: unknown): string[] {
+  const values = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
+  return values.map((item) => String(item).trim()).filter(Boolean);
+}
+
+function parseExtensionToolSelectors(value: unknown): string[] {
+  return [...new Set(rawToolValues(value).filter((tool) => tool.toLowerCase().startsWith("ext:")))];
+}
+
 function parseProfileFile(filePath: string, scope: SubagentScope): SubagentProfile | null {
   try {
     const source = readFileSync(filePath, "utf8");
     const { data, rest } = parseFrontmatter(source);
-    const name = basename(filePath, ".md");
+    const name = stringValue(data?.name) ?? basename(filePath, ".md");
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) return null;
     const thinkingValue = stringValue(data?.thinking) as ThinkingLevel | undefined;
     const maxTurnsValue = typeof data?.max_turns === "number" ? Math.floor(data.max_turns) : undefined;
     const tools = parseTools(data?.tools, DEFAULT_TOOLS);
     const disallowedTools = new Set(parseTools(data?.disallowed_tools, []));
+    const disallowedExtensionTools = new Set(parseExtensionToolSelectors(data?.disallowed_tools).map((tool) => tool.toLowerCase()));
+    const extensionTools = parseExtensionToolSelectors(data?.tools)
+      .filter((tool) => !disallowedExtensionTools.has(tool.toLowerCase()));
     return {
       name,
       displayName: stringValue(data?.display_name) ?? name,
       description: stringValue(data?.description) ?? name,
       systemPrompt: rest.trim(),
       tools: tools.filter((tool) => !disallowedTools.has(tool)),
-      loadSkills: booleanValue(data?.load_skills, false),
-      loadExtensions: booleanValue(data?.load_extensions, false),
+      ...(extensionTools.length > 0 ? { extensionTools } : {}),
+      loadSkills: resourceBoolean(data?.load_skills ?? data?.skills, false),
+      loadExtensions: resourceBoolean(data?.load_extensions ?? data?.extensions, extensionTools.length > 0),
       ...(stringValue(data?.model) ? { model: stringValue(data?.model) } : {}),
       ...(thinkingValue && THINKING_LEVELS.has(thinkingValue) ? { thinking: thinkingValue } : {}),
       ...(maxTurnsValue && maxTurnsValue > 0 ? { maxTurns: maxTurnsValue } : {}),
       inheritContext: booleanValue(data?.inherit_context, false),
       runInBackground: booleanValue(data?.run_in_background, false),
+      promptMode: data?.prompt_mode === "replace" ? "replace" : "append",
+      ...(stringValue(data?.color) ? { color: stringValue(data?.color) } : {}),
+      ...(data?.isolation === "worktree" || data?.isolation === "off" ? { isolation: data.isolation } : {}),
+      ...(typeof data?.persist_session === "boolean" ? { persistSession: data.persist_session } : {}),
       enabled: booleanValue(data?.enabled, true),
       scope,
       filePath,
@@ -265,6 +310,7 @@ export function saveSubagentProfile(
 ): SubagentProfile {
   const name = assertProfileName(profile.name);
   const tools = [...new Set(profile.tools.filter((tool) => BUILTIN_TOOLS.has(tool)))];
+  const extensionTools = [...new Set(profile.extensionTools ?? [])];
   if (profile.thinking && !THINKING_LEVELS.has(profile.thinking)) {
     throw new Error(`Invalid thinking level: ${profile.thinking}`);
   }
@@ -280,6 +326,7 @@ export function saveSubagentProfile(
   const model = profile.model?.trim() || undefined;
   const loadSkills = profile.loadSkills === true;
   const loadExtensions = profile.loadExtensions === true;
+  const promptMode = profile.promptMode === "replace" ? "replace" : "append";
   const dir = assertWritableProfileDirectory(cwd, scope);
   mkdirSync(dir, { recursive: true });
   if (scope === "project" && !isProjectProfilePathAllowed(cwd, dir)) {
@@ -289,16 +336,20 @@ export function saveSubagentProfile(
   const frontmatter: Record<string, unknown> = {
     description,
     display_name: displayName,
-    tools: tools.length > 0 ? tools.join(", ") : "none",
+    tools: [...tools, ...extensionTools].length > 0 ? [...tools, ...extensionTools].join(", ") : "none",
     load_skills: loadSkills,
     load_extensions: loadExtensions,
     enabled: profile.enabled,
     inherit_context: profile.inheritContext,
     run_in_background: profile.runInBackground,
+    prompt_mode: promptMode,
   };
   if (model) frontmatter.model = model;
   if (profile.thinking) frontmatter.thinking = profile.thinking;
   if (maxTurns) frontmatter.max_turns = maxTurns;
+  if (profile.color?.trim()) frontmatter.color = profile.color.trim();
+  if (profile.isolation) frontmatter.isolation = profile.isolation;
+  if (profile.persistSession !== undefined) frontmatter.persist_session = profile.persistSession;
   const yaml = stringifyYaml(frontmatter, { noRefs: true, lineWidth: 1000 }).trimEnd();
   writePrivateFileAtomicSync(filePath, `---\n${yaml}\n---\n\n${systemPrompt}\n`);
   return {
@@ -308,10 +359,15 @@ export function saveSubagentProfile(
     description,
     systemPrompt,
     tools,
+    ...(extensionTools.length > 0 ? { extensionTools } : {}),
     loadSkills,
     loadExtensions,
     ...(model ? { model } : { model: undefined }),
     ...(maxTurns ? { maxTurns } : { maxTurns: undefined }),
+    promptMode,
+    ...(profile.color ? { color: profile.color } : {}),
+    ...(profile.isolation ? { isolation: profile.isolation } : {}),
+    ...(profile.persistSession !== undefined ? { persistSession: profile.persistSession } : {}),
     scope,
     filePath,
   };
@@ -376,6 +432,7 @@ export function readSubagentSessionResources(
       tools: [...new Set(snapshot.tools)],
       loadSkills,
       loadExtensions,
+      ...(typeof snapshot.exactSystemPrompt === "string" ? { exactSystemPrompt: snapshot.exactSystemPrompt } : {}),
     };
   }
   return null;
@@ -391,14 +448,48 @@ export function withSubagentExtensionTools(
   ])];
 }
 
+export function selectSubagentExtensionTools(
+  extensions: Iterable<{ path: string; sourceInfo?: { source?: string }; tools: Map<string, unknown> }>,
+  selectors: readonly string[],
+): string[] {
+  const wanted = selectors.map((selector) => selector.slice(4).toLowerCase());
+  return [...extensions].flatMap((extension) => {
+    const pathName = extension.path.replaceAll("\\", "/").split("/").at(-2) ?? extension.path;
+    const sourceName = (extension.sourceInfo?.source ?? "").replace(/^npm:/, "");
+    const extensionNames = new Set([pathName.toLowerCase(), sourceName.toLowerCase()]);
+    const selected = wanted.some((selector) => {
+      if (selector === "*") return true;
+      const [extensionName, toolName] = selector.split("/", 2);
+      return extensionNames.has(extensionName) && (!toolName || extension.tools.has(toolName));
+    });
+    if (!selected) return [];
+    return [...extension.tools.keys()].filter((toolName) => wanted.some((selector) => {
+      if (selector === "*" || selector.endsWith("/*")) return selector === "*" || extensionNames.has(selector.slice(0, -2));
+      const [extensionName, selectedTool] = selector.split("/", 2);
+      return extensionNames.has(extensionName) && (!selectedTool || selectedTool === toolName);
+    }));
+  });
+}
+
 export function readSubagentRun(entries: readonly SessionEntry[], sessionId: string, sessionPath: string): SubagentRunInfo | null {
   const data = subagentMetadataData(entries);
   if (!data) return null;
-  const resultEntry = [...entries].reverse().find((entry) => entry.type === "custom" && entry.customType === SUBAGENT_RESULT_TYPE);
+  const lifecycleEntry = [...entries].reverse().find((entry) =>
+    entry.type === "custom" && (entry.customType === SUBAGENT_RESULT_TYPE || entry.customType === SUBAGENT_STATUS_TYPE)
+  );
+  const resultEntry = lifecycleEntry?.type === "custom" && lifecycleEntry.customType === SUBAGENT_RESULT_TYPE
+    ? lifecycleEntry
+    : undefined;
   const result = resultEntry?.type === "custom" && isRecord(resultEntry.data) ? resultEntry.data : undefined;
+  const statusEntry = lifecycleEntry?.type === "custom" && lifecycleEntry.customType === SUBAGENT_STATUS_TYPE
+    ? lifecycleEntry
+    : undefined;
+  const statusData = statusEntry?.type === "custom" && isRecord(statusEntry.data) ? statusEntry.data : undefined;
   const persistedStatus = result && (result.status === "completed" || result.status === "failed" || result.status === "aborted")
     ? result.status
-    : "interrupted";
+    : statusData?.version === 1 && (statusData.status === "queued" || statusData.status === "running")
+      ? statusData.status
+      : "interrupted";
   return {
     sessionId,
     sessionPath,
@@ -413,5 +504,8 @@ export function readSubagentRun(entries: readonly SessionEntry[], sessionId: str
     ...(result && typeof result.completedAt === "string" ? { completedAt: result.completedAt } : {}),
     ...(result && typeof result.result === "string" ? { result: result.result } : {}),
     ...(result && typeof result.error === "string" ? { error: result.error } : {}),
+    ...(typeof data.worktreePath === "string" ? { worktreePath: data.worktreePath } : {}),
+    ...(typeof data.worktreeBranch === "string" ? { worktreeBranch: data.worktreeBranch } : {}),
+    ...(result && typeof result.worktreeCleanupError === "string" ? { worktreeCleanupError: result.worktreeCleanupError } : {}),
   };
 }

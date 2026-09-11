@@ -61,6 +61,13 @@ function hasGlob(pattern: string): boolean {
   return pattern.includes("*") || pattern.includes("?") || pattern.includes("[");
 }
 
+function isSuppressibleUnmatchedGlob(pattern: string): boolean {
+  if (!hasGlob(pattern)) return false;
+  const colonIndex = pattern.lastIndexOf(":");
+  return colonIndex < 0
+    || THINKING_LEVEL_SUFFIXES.has(pattern.slice(colonIndex + 1) as ThinkingLevel);
+}
+
 function exactReferenceMatches(pattern: string, models: readonly Model<Api>[]): Model<Api>[] {
   const normalized = pattern.toLowerCase();
   const canonical = models.filter(
@@ -125,7 +132,18 @@ export async function resolveVisibleModels(
     getAvailable: async () => available,
   } as ModelRuntime;
   const { scopedModels, diagnostics } = await resolveModelScopeWithDiagnostics(cleaned, snapshotRuntime);
-  const warnings = diagnostics.map((diagnostic) => diagnostic.message);
+  // A leftover valid glob after a model was removed is not a chat-level problem
+  // when other enabledModels entries still matched. Keep exact and malformed
+  // pattern warnings, and keep all no-match warnings for a total miss, where
+  // the UI falls back to every available model and the user needs to know the
+  // scope did not apply.
+  const warnings = diagnostics
+    .filter((diagnostic) => (
+      diagnostic.code !== "no-match"
+      || scopedModels.length === 0
+      || !isSuppressibleUnmatchedGlob(diagnostic.pattern)
+    ))
+    .map((diagnostic) => diagnostic.message);
   if (scopedModels.length === 0) {
     return {
       visible: available,

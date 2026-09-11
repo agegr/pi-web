@@ -73,17 +73,17 @@ self.addEventListener("push", (event) => {
   const { title, body, url, tag } = payload;
   if (typeof title !== "string" || !title || typeof body !== "string" || !body) return;
 
-  // The in-page notification path handles the visible case (and plays the
-  // completion sound). Only surface a system notification when no window for
-  // this app is visible — e.g. a backgrounded iOS PWA.
+  // Always surface a system notification. iOS revokes the push subscription
+  // when a service worker handles a push without showing a notification, so
+  // suppressing the notification while a window is visible poisons the
+  // subscription in the background-delivery case. Notifications sharing a tag
+  // replace each other instead of stacking, so a visible window merely sees
+  // the completion notification re-appear.
   event.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-      if (clients.some((client) => client.visibilityState === "visible")) return;
-      return self.registration.showNotification(title, {
-        body,
-        data: { url: typeof url === "string" && url ? url : "/" },
-        ...(typeof tag === "string" && tag ? { tag, renotify: true } : {}),
-      });
+    self.registration.showNotification(title, {
+      body,
+      data: { url: typeof url === "string" && url ? url : "/" },
+      ...(typeof tag === "string" && tag ? { tag, renotify: true } : {}),
     }),
   );
 });
