@@ -1,6 +1,7 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { NextResponse } from "next/server";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { syncAllowlistStandalone, ensureAllowlistSegmentsStandalone } from "@/lib/allowlist-backfill";
 import { removeStoredCredentialIfType, storeProviderCredential } from "@/lib/provider-credential-store";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +43,14 @@ export async function POST(req: Request, { params }: Params) {
     // directly so a slow catalog cannot leave the save request hanging.
     await storeProviderCredential(provider, credential);
     invalidateModelsCache();
+    // A newly configured provider must not be hidden by an existing allowlist:
+    // seed just this provider's segment (a global backfill would silently
+    // revive providers the user trimmed to zero models).
+    try {
+      await ensureAllowlistSegmentsStandalone(process.cwd(), [provider]);
+    } catch {
+      // Never fail credential saving because the allowlist seed hiccupped.
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
@@ -60,6 +69,13 @@ export async function DELETE(_req: Request, { params }: Params) {
       );
     }
     invalidateModelsCache();
+    // The provider's models may be gone now; drop its stale allowlist entries
+    // so the resolver stops reporting "No models match pattern" (#727).
+    try {
+      await syncAllowlistStandalone(process.cwd(), AbortSignal.timeout(10_000));
+    } catch {
+      // Never fail the removal because the allowlist sync hiccapped.
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
