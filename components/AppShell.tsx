@@ -62,6 +62,7 @@ import type { FileViewerState } from "@/lib/file-viewer-state";
 import type { ToolEntry } from "@/lib/tool-presets";
 import { getSessionFamily } from "@/lib/session-family";
 import { getLastSettingsSection, type SettingsSection } from "@/lib/settings-navigation";
+import { useBackgroundAppearance } from "@/hooks/useBackgroundAppearance";
 
 type SessionCopyField = "file" | "id" | "projectDir" | "gitBranch" | "gitWorktree";
 type AutoNameStatus =
@@ -88,6 +89,7 @@ export function AppShell() {
   const isMobile = useIsMobile();
   const isNarrowMobile = useIsNarrowMobile();
   useViewportHeight();
+  useBackgroundAppearance();
 
   // Once the user has granted notification permission, register a Web Push
   // subscription so the server can notify backgrounded PWAs (notably iOS,
@@ -2008,7 +2010,7 @@ export function AppShell() {
       )}
 
       {/* Center: chat */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+      <div className="app-main-column" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Top bar with sidebar toggle */}
         <div ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
         <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
