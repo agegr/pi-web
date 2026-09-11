@@ -166,10 +166,12 @@ function subscribeUpwardMenuMaxHeight(
 
   update();
   const parent = menu.parentElement;
+  const layoutContainer = parent?.parentElement;
   const anchorObserver = typeof ResizeObserver === "undefined" || !parent
     ? null
     : new ResizeObserver(scheduleUpdate);
   if (parent) anchorObserver?.observe(parent);
+  if (layoutContainer) anchorObserver?.observe(layoutContainer);
   const viewport = window.visualViewport;
   viewport?.addEventListener("resize", scheduleUpdate);
   viewport?.addEventListener("scroll", scheduleUpdate);

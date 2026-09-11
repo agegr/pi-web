@@ -319,6 +319,15 @@ test("file mention menu applies the measured upward height cap", () => {
   assert.equal(block.includes("maxHeight: \"min(48vh, 400px)\""), false);
 });
 
+test("file mention menu remeasures when its layout container shifts the anchor", () => {
+  const source = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  const start = source.indexOf("function subscribeUpwardMenuMaxHeight");
+  assert.notEqual(start, -1);
+  const block = source.slice(start, start + 1800);
+  assert.match(block, /const layoutContainer = parent\?\.parentElement;/);
+  assert.match(block, /anchorObserver\?\.observe\(layoutContainer\)/);
+});
+
 test("compresses large images while preserving small images and GIFs", async () => {
   assert.equal(shouldCompressImageFile({ size: 1024 * 1024, type: "image/png" }), false);
   assert.equal(shouldCompressImageFile({ size: 1024 * 1024 + 1, type: "image/png" }), true);
