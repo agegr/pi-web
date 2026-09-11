@@ -83,7 +83,8 @@ test("keeps theme and language in settings instead of the chat toolbar", () => {
   assert.doesNotMatch(source, /toggleTopPanel\("language"/);
   assert.doesNotMatch(source, /data-mobile-toolbar-action=\{mobile \? "theme"/);
   assert.doesNotMatch(source, /data-mobile-toolbar-action=\{mobile \? "language"/);
-  assert.doesNotMatch(source, /from "@\/hooks\/useTheme"/);
+  assert.match(source, /import \{ useTheme \} from "@\/hooks\/useTheme"/);
+  assert.match(source, /useTheme\(\);/);
 });
 
 test("prioritizes context and cost when the mobile statistics area narrows", () => {
