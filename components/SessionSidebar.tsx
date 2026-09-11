@@ -488,7 +488,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     syncPointerSession();
     const id = requestAnimationFrame(() => syncPointerSession());
     return () => cancelAnimationFrame(id);
-  }, [allSessions, syncPointerSession]);
+  }, [allSessions, listScrollTop, syncPointerSession]);
 
   const loadSessions = useCallback(async (showLoading = false, force = false) => {
     const loadId = ++sessionLoadIdRef.current;
