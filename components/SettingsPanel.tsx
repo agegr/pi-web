@@ -30,6 +30,7 @@ import { SkillsConfig } from "./SkillsConfig";
 import { AgentsConfig } from "./AgentsConfig";
 import { PluginsConfig } from "./PluginsConfig";
 import { ConfigButton, ConfigSwitch } from "./SettingsUi";
+import { BackgroundSettings } from "./BackgroundSettings";
 
 interface Props {
   cwd: string | null;
@@ -185,6 +186,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
             );
           })}
         </div>
+        <BackgroundSettings />
       </section>
 
       <section className="settings-general-section">

@@ -661,6 +661,26 @@ pre, code {
   font-family: var(--font-mono);
 }
 
+/* The background stays behind the center workspace so its opacity never
+   fades text or changes hit testing. */
+.app-main-column {
+  position: relative;
+  isolation: isolate;
+}
+
+html[data-app-background="true"] .app-main-column::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background-image: var(--app-background-image);
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  content: "";
+  opacity: var(--app-background-opacity, 0.3);
+  pointer-events: none;
+}
+
 /* react-markdown output styles */
 .chat-content {
   --chat-font-size-offset: calc(var(--chat-content-font-size, 14px) - 14px);

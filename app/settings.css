@@ -1005,6 +1005,137 @@
   overflow-wrap: anywhere;
 }
 
+.settings-background {
+  width: 100%;
+  max-width: 420px;
+  margin-top: 18px;
+}
+
+.settings-background-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-background-header h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.settings-background-header p {
+  margin: 4px 0 0;
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.settings-background-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.settings-background-opacity {
+  margin-top: 12px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.settings-background-opacity > input {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.settings-background-opacity > input:disabled {
+  opacity: 0.45;
+}
+
+.settings-background-history-wrap {
+  margin-top: 14px;
+}
+
+.settings-background-history-title {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.settings-background-history {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.settings-background-item {
+  position: relative;
+  min-width: 0;
+  aspect-ratio: 4 / 3;
+}
+
+.settings-background-thumbnail {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  cursor: pointer;
+}
+
+.settings-background-thumbnail[aria-pressed="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.settings-background-thumbnail:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.settings-background-thumbnail img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.settings-background-remove {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0 0 1px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s;
+}
+
+.settings-background-item:hover .settings-background-remove,
+.settings-background-remove:focus-visible {
+  opacity: 1;
+}
+
+.settings-background-remove:hover {
+  color: #ef4444;
+}
+
 .settings-chat-options {
   display: flex;
   flex-direction: column;
@@ -1196,6 +1327,16 @@
     background: var(--bg-panel);
     color: var(--text);
     font-size: 16px;
+  }
+
+  .settings-background-header {
+    flex-direction: column;
+  }
+}
+
+@media (hover: none) {
+  .settings-background-remove {
+    opacity: 1;
   }
 }
 
