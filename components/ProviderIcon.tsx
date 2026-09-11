@@ -42,22 +42,24 @@ const PROVIDER_ICONS: Record<string, { symbol: string; color: boolean }> = {
   grok: { symbol: "grok", color: false },
 };
 
+function SpriteIcon({ symbol, color, size }: { symbol: string; color: boolean; size: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill={color ? undefined : "currentColor"}
+      style={{ color: "var(--text-muted)", flexShrink: 0 }}
+    >
+      <use href={`/provider-icons.svg#${symbol}`} />
+    </svg>
+  );
+}
+
 export function ProviderIcon({ id, size }: { id: string; size: number }) {
-  const icon = PROVIDER_ICONS[id];
-  if (icon) {
-    return (
-      <svg
-        aria-hidden="true"
-        width={size}
-        height={size}
-        viewBox="0 0 24 24"
-        fill={icon.color ? undefined : "currentColor"}
-        style={{ color: "var(--text-muted)", flexShrink: 0 }}
-      >
-        <use href={`/provider-icons.svg#${icon.symbol}`} />
-      </svg>
-    );
-  }
+  const icon = PROVIDER_ICONS[id.toLowerCase()];
+  if (icon) return <SpriteIcon symbol={icon.symbol} color={icon.color} size={size} />;
 
   const label = id
     .split(/[-_]/)
@@ -87,4 +89,39 @@ export function ProviderIcon({ id, size }: { id: string; size: number }) {
       {label}
     </span>
   );
+}
+
+const MODEL_ICON_RULES: Array<[RegExp, string]> = [
+  [/\b(?:claude|anthropic)\b/i, "anthropic"],
+  [/\b(?:gpt|chatgpt|codex|o[1-9](?:[-.]\d+)?)\b/i, "openai"],
+  [/\b(?:gemini|gemma)\b/i, "google"],
+  [/\bdeepseek\b/i, "deepseek"],
+  [/\b(?:grok|xai)\b/i, "grok"],
+  [/\b(?:qwen|通义)\b/i, "qwen"],
+  [/\b(?:glm|chatglm|智谱)\b/i, "zhipu"],
+  [/\b(?:mistral|mixtral)\b/i, "mistral"],
+  [/\b(?:kimi|moonshot)\b/i, "moonshot"],
+  [/\bminimax\b/i, "minimax"],
+];
+
+function DefaultModelIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <rect x="9" y="9" width="6" height="6" />
+      <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 15h3M1 9h3M1 15h3" />
+    </svg>
+  );
+}
+
+export function ModelIcon({ provider, modelId, modelName, size = 14 }: { provider: string; modelId: string; modelName?: string; size?: number }) {
+  const text = `${modelId} ${modelName ?? ""}`;
+  const matchedSymbol = MODEL_ICON_RULES.find(([pattern]) => pattern.test(text))?.[1];
+  const providerIcon = PROVIDER_ICONS[provider.toLowerCase()];
+  if (matchedSymbol) {
+    const icon = PROVIDER_ICONS[matchedSymbol];
+    return <SpriteIcon symbol={icon.symbol} color={icon.color} size={size} />;
+  }
+  if (providerIcon) return <SpriteIcon symbol={providerIcon.symbol} color={providerIcon.color} size={size} />;
+  return <DefaultModelIcon size={size} />;
 }
