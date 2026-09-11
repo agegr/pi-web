@@ -120,6 +120,13 @@ function GeneralSettings({ sessionId, onSessionReloaded }: Pick<Props, "sessionI
     setPushRegistering(true);
     setPushStatus(null);
     try {
+      if (typeof window === "undefined" || !("Notification" in window)) {
+        throw new Error("unsupported or not permitted");
+      }
+      const permission = Notification.permission === "default"
+        ? await Notification.requestPermission()
+        : Notification.permission;
+      if (permission !== "granted") throw new Error("unsupported or not permitted");
       const ok = await setupPushSubscription(locale);
       if (!ok) throw new Error("unsupported or not permitted");
       setPushStatus({ kind: "ok", message: t("settings.pushRegistered") });
