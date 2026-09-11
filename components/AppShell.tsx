@@ -245,6 +245,7 @@ export function AppShell() {
     reclampRightPanelWidth();
   }, [reclampRightPanelWidth, reclampSidebarWidth, rightPanelOpen]);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
+  const focusNewSessionInputRef = useRef(false);
   const [pendingQuotePrompt, setPendingQuotePrompt] = useState<{ sessionId: string; text: string } | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
   const mobileToolbarRef = useRef<HTMLDivElement>(null);
@@ -823,9 +824,14 @@ export function AppShell() {
     router.replace(typeof window !== "undefined" ? window.location.pathname : "/", { scroll: false });
   }, [invalidateWorkspaceRestore, router, isMobile]);
 
+  const handleKeyboardNewSession = useCallback((cwd: string) => {
+    focusNewSessionInputRef.current = true;
+    handleNewSession(`kb-${Date.now()}`, cwd);
+  }, [handleNewSession]);
+
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
   useGlobalKeyboardShortcuts({
-    onNewSession: (cwd: string) => handleNewSession(`kb-${Date.now()}`, cwd),
+    onNewSession: handleKeyboardNewSession,
     onFocusSlash: () => chatInputRef.current?.focusInput(),
     activeCwd,
   });
@@ -848,6 +854,12 @@ export function AppShell() {
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!focusNewSessionInputRef.current || selectedSession || !newSessionCwd) return;
+    focusNewSessionInputRef.current = false;
+    chatInputRef.current?.focusInput();
+  }, [newSessionDraftId, newSessionCwd, selectedSession, sessionKey]);
 
   const handleOpenSession = useCallback(async (sessionId: string) => {
     try {
