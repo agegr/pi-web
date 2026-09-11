@@ -2,13 +2,30 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { createJiti } from "jiti";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
 const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconfigPaths: true });
-const { getFocusedSessionRowIndex, getSessionListIndices, getSessionRows, isSessionRowSelected } = await jiti.import("./SessionSidebar.tsx");
+const { ARCHIVED_CHAT_PROJECT_ID, SessionSidebar, filterSessionsForChatProject, getFocusedSessionRowIndex, getSessionListIndices, getSessionRows, isSessionRowSelected } = await jiti.import("./SessionSidebar.tsx");
 const { listSessionFamilies } = await jiti.import("../lib/session-family.ts");
+const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
 const source = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
 const sessionItemSource = source.slice(source.indexOf("function SessionItem("));
+
+test("the default sidebar renders only the All chats and Archived chat folders", () => {
+  const html = renderToStaticMarkup(createElement(
+    I18nProvider,
+    null,
+    createElement(SessionSidebar, {
+      selectedSessionId: null,
+      onSelectSession: () => {},
+    }),
+  ));
+  assert.match(html, />All chats</);
+  assert.match(html, />Archived</);
+  assert.doesNotMatch(html, /Product launch|Research notes|Bug triage/);
+});
 
 test("scrolling keeps the focused session and the viewport mounted without expanding the whole window", () => {
   for (const [scrollTop, focusedIndex] of [[0, 1999], [10000, 0]]) {
@@ -128,6 +145,27 @@ test("offers the downstream context-menu hook only on a normal session row", () 
   );
 });
 
+test("chat projects span filesystem directories and apply to a session family", () => {
+  const sessions = [
+    makeSession("chat-a", "2026-01-01T00:00:00.000Z", undefined, "/tmp/project-a"),
+    makeSession("agent-a", "2026-01-01T00:01:00.000Z", "chat-a", "/tmp/project-a"),
+    makeSession("chat-b", "2026-01-01T00:02:00.000Z", undefined, "/tmp/project-b"),
+  ];
+  const assignments = { "chat-a": "release", "chat-b": "release" };
+
+  assert.deepEqual(
+    filterSessionsForChatProject(sessions, "release", assignments, new Set()).map(({ id }) => id),
+    ["chat-a", "agent-a", "chat-b"],
+  );
+  assert.deepEqual(
+    filterSessionsForChatProject(sessions, null, assignments, new Set(["chat-a"])).map(({ id }) => id),
+    ["chat-b"],
+  );
+  assert.deepEqual(
+    filterSessionsForChatProject(sessions, ARCHIVED_CHAT_PROJECT_ID, assignments, new Set(["chat-a"])).map(({ id }) => id),
+    ["chat-a", "agent-a"],
+  );
+});
 test("lifecycle refreshes bypass the cache while cross-window polling reuses it", () => {
   assert.match(source, /force \? "\/api\/sessions\?force=1" : "\/api\/sessions"/);
   assert.match(source, /cache: "no-store"/);
@@ -139,7 +177,7 @@ test("lifecycle refreshes bypass the cache while cross-window polling reuses it"
 
 test("does not expose disk-backed actions for transient sessions", () => {
   assert.match(sessionItemSource, /if \(session\.transient\) return;/);
-  assert.match(sessionItemSource, /\{hovered && !session\.transient && \(/);
+  assert.match(sessionItemSource, /\{!session\.transient && \(/);
 });
 
 test("visible nested session rows own selection until the family is collapsed", () => {
@@ -155,11 +193,11 @@ test("visible nested session rows own selection until the family is collapsed", 
   assert.equal(isSessionRowSelected(collapsedRows[0], "agent", new Set(["main"])), true);
 });
 
-function makeSession(id, modified, parentSessionId) {
+function makeSession(id, modified, parentSessionId, cwd = "/tmp/pi-web") {
   return {
     path: `/tmp/${id}.jsonl`,
     id,
-    cwd: "/tmp/pi-web",
+    cwd,
     created: "2026-01-01T00:00:00.000Z",
     modified,
     messageCount: 1,

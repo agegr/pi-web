@@ -4,6 +4,14 @@ import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, typ
 import type { SessionInfo } from "@/lib/types";
 import { listSessionFamilies } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
+import {
+  CHAT_PROJECT_COLORS,
+  loadChatProjectState,
+  moveChatProject,
+  moveChatProjectTo,
+  saveChatProjectState,
+  type ChatProject,
+} from "@/lib/chat-project-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
@@ -196,6 +204,68 @@ interface ValidatedProject {
 const UNREAD_SESSIONS_STORAGE_KEY = "pi-web:unread-session-ids";
 const LAST_CUSTOM_CWD_STORAGE_KEY = "pi-web:last-custom-cwd";
 const RUNNING_SESSIONS_POLL_MS = 2500;
+export const ARCHIVED_CHAT_PROJECT_ID = "__archived__";
+
+const chatProjectButtonStyle: CSSProperties = {
+  width: "100%",
+  minHeight: 28,
+  display: "flex",
+  alignItems: "center",
+  gap: 7,
+  padding: "4px 7px",
+  border: "none",
+  borderRadius: 5,
+  fontSize: 11,
+  cursor: "pointer",
+  textAlign: "left",
+};
+const chatProjectIconStyle: CSSProperties = {
+  width: 15,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  flexShrink: 0,
+};
+const chatProjectCountStyle: CSSProperties = {
+  color: "var(--text-dim)",
+  fontFamily: "var(--font-mono)",
+  fontSize: 10,
+};
+
+export function chatProjectRootId(session: SessionInfo, sessions: readonly SessionInfo[]): string {
+  const byId = new Map(sessions.map((candidate) => [candidate.id, candidate]));
+  return chatProjectRootIdFromMap(session, byId);
+}
+
+function chatProjectRootIdFromMap(session: SessionInfo, byId: ReadonlyMap<string, SessionInfo>): string {
+  const visited = new Set<string>();
+  let current = session;
+  while (current.relation?.kind === "subagent" && !visited.has(current.id)) {
+    visited.add(current.id);
+    const parent = byId.get(current.relation.parentSessionId);
+    if (!parent) break;
+    current = parent;
+  }
+  return current.id;
+}
+
+export function filterSessionsForChatProject(
+  sessions: readonly SessionInfo[],
+  selectedChatProjectId: string | null,
+  assignments: Readonly<Record<string, string>>,
+  archivedSessionIds: ReadonlySet<string>,
+): SessionInfo[] {
+  const byId = new Map(sessions.map((session) => [session.id, session]));
+  if (selectedChatProjectId === ARCHIVED_CHAT_PROJECT_ID) {
+    return sessions.filter((session) => archivedSessionIds.has(chatProjectRootIdFromMap(session, byId)));
+  }
+  return sessions.filter((session) => {
+    const rootId = chatProjectRootIdFromMap(session, byId);
+    return !archivedSessionIds.has(rootId)
+      && (selectedChatProjectId === null || assignments[rootId] === selectedChatProjectId);
+  });
+}
+
 
 function loadLastCustomCwd(): string {
   if (typeof window === "undefined") return "";
@@ -442,6 +512,24 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [sessionSearchQuery, setSessionSearchQuery] = useState("");
+  const [chatProjects, setChatProjects] = useState<ChatProject[]>([]);
+  const [chatProjectId, setChatProjectId] = useState<string | null>(null);
+  const [chatProjectComposerOpen, setChatProjectComposerOpen] = useState(false);
+  const [chatProjectDraft, setChatProjectDraft] = useState("");
+  const [chatProjectEditingId, setChatProjectEditingId] = useState<string | null>(null);
+  const [chatProjectRenameDraft, setChatProjectRenameDraft] = useState("");
+  const [chatProjectAssignments, setChatProjectAssignments] = useState<Record<string, string>>({});
+  const [chatContextMenu, setChatContextMenu] = useState<{ sessionId: string; x: number; y: number } | null>(null);
+  const [sessionActionMenu, setSessionActionMenu] = useState<{ sessionId: string; x: number; y: number } | null>(null);
+  const [pinnedSessionIds, setPinnedSessionIds] = useState<Set<string>>(() => new Set());
+  const [archivedSessionIds, setArchivedSessionIds] = useState<Set<string>>(() => new Set());
+  const [chatProjectStorageReady, setChatProjectStorageReady] = useState(false);
+  const [draggedChatProjectId, setDraggedChatProjectId] = useState<string | null>(null);
+  const [renameSessionId, setRenameSessionId] = useState<string | null>(null);
+  const chatContextMenuRef = useRef<HTMLDivElement>(null);
+  const sessionActionMenuRef = useRef<HTMLDivElement>(null);
+  const chatActionTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const activeChatFolderRef = useRef<HTMLButtonElement | null>(null);
   const sessionSearchActive = sessionSearchOpen && Boolean(sessionSearchQuery.trim());
   const [changesCount, setChangesCount] = useState(0);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
@@ -542,6 +630,25 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   useEffect(() => {
     setExplorerOpen(loadExplorerOpen());
   }, []);
+
+  useEffect(() => {
+    const saved = loadChatProjectState();
+    setChatProjects(saved.projects);
+    setChatProjectAssignments(saved.assignments);
+    setPinnedSessionIds(new Set(saved.pinnedSessionIds));
+    setArchivedSessionIds(new Set(saved.archivedSessionIds));
+    setChatProjectStorageReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!chatProjectStorageReady) return;
+    saveChatProjectState({
+      projects: chatProjects,
+      assignments: chatProjectAssignments,
+      pinnedSessionIds: [...pinnedSessionIds],
+      archivedSessionIds: [...archivedSessionIds],
+    });
+  }, [archivedSessionIds, chatProjectAssignments, chatProjectStorageReady, chatProjects, pinnedSessionIds]);
 
   // Persist unread markers so they survive a browser refresh before the user
   // has actually opened the completed session.
@@ -983,6 +1090,148 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onNewSession?.(tempId, selectedCwd);
   }, [selectedCwd, onNewSession]);
 
+  const handleCreateChatProject = useCallback(() => {
+    const name = chatProjectDraft.trim();
+    if (!name) return;
+    const project = {
+      id: typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `project-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
+      name,
+      color: CHAT_PROJECT_COLORS[chatProjects.length % CHAT_PROJECT_COLORS.length],
+    };
+    setChatProjects((previous) => [...previous, project]);
+    setChatProjectId(project.id);
+    setChatProjectDraft("");
+    setChatProjectComposerOpen(false);
+  }, [chatProjectDraft, chatProjects.length]);
+
+  const reorderChatProject = useCallback((projectId: string, offset: -1 | 1) => {
+    setChatProjects((previous) => moveChatProject(previous, projectId, offset));
+  }, []);
+
+  const dropChatProject = useCallback((targetId: string) => {
+    if (!draggedChatProjectId) return;
+    setChatProjects((previous) => moveChatProjectTo(previous, draggedChatProjectId, targetId));
+    setDraggedChatProjectId(null);
+  }, [draggedChatProjectId]);
+
+  const startRenameChatProject = useCallback((project: ChatProject) => {
+    setChatProjectEditingId(project.id);
+    setChatProjectRenameDraft(project.name);
+  }, []);
+
+  const commitRenameChatProject = useCallback(() => {
+    const name = chatProjectRenameDraft.trim();
+    if (!chatProjectEditingId || !name) return;
+    setChatProjects((previous) => previous.map((project) => (
+      project.id === chatProjectEditingId ? { ...project, name } : project
+    )));
+    setChatProjectEditingId(null);
+    setChatProjectRenameDraft("");
+  }, [chatProjectEditingId, chatProjectRenameDraft]);
+
+  const deleteChatProject = useCallback((project: ChatProject) => {
+    if (!window.confirm(`${t("sidebar.deleteChatProjectConfirm")}\n\n${project.name}`)) return;
+    setChatProjects((previous) => previous.filter((candidate) => candidate.id !== project.id));
+    setChatProjectAssignments((previous) => {
+      const next = { ...previous };
+      for (const sessionId of Object.keys(next)) {
+        if (next[sessionId] === project.id) delete next[sessionId];
+      }
+      return next;
+    });
+    if (chatProjectId === project.id) setChatProjectId(null);
+  }, [chatProjectId, t]);
+
+  const chatProjectStats = useMemo(() => chatProjects.map((project) => {
+    const sessions = allSessions.filter((session) => (
+      session.relation?.kind !== "subagent"
+      && !archivedSessionIds.has(session.id)
+      && chatProjectAssignments[session.id] === project.id
+    ));
+    return {
+      ...project,
+      sessionCount: sessions.length,
+      directoryCount: new Set(sessions.map((session) => session.cwd)).size,
+    };
+  }), [allSessions, archivedSessionIds, chatProjectAssignments, chatProjects]);
+
+  const chatConversationCount = allSessions.filter((session) => session.relation?.kind !== "subagent" && !archivedSessionIds.has(session.id)).length;
+  const archivedChatCount = allSessions.filter((session) => session.relation?.kind !== "subagent" && archivedSessionIds.has(session.id)).length;
+  const chatContextSession = chatContextMenu
+    ? allSessions.find((session) => session.id === chatContextMenu.sessionId) ?? null
+    : null;
+  const sessionActionSession = sessionActionMenu
+    ? allSessions.find((session) => session.id === sessionActionMenu.sessionId) ?? null
+    : null;
+
+  const closeChatMenus = useCallback((restoreFocus = false) => {
+    setChatContextMenu(null);
+    setSessionActionMenu(null);
+    if (restoreFocus) requestAnimationFrame(() => {
+      const trigger = chatActionTriggerRef.current;
+      if (trigger?.isConnected) trigger.focus();
+      else activeChatFolderRef.current?.focus();
+    });
+  }, []);
+
+  const moveSessionToChatProject = useCallback((sessionId: string, projectId: string | null) => {
+    const session = allSessions.find((candidate) => candidate.id === sessionId);
+    const assignmentId = session ? chatProjectRootId(session, allSessions) : sessionId;
+    setChatProjectAssignments((previous) => {
+      const next = { ...previous };
+      if (projectId === null) delete next[assignmentId];
+      else next[assignmentId] = projectId;
+      return next;
+    });
+    closeChatMenus(true);
+  }, [allSessions, closeChatMenus]);
+
+  const togglePinnedSession = useCallback((sessionId: string) => {
+    setPinnedSessionIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(sessionId)) next.delete(sessionId);
+      else next.add(sessionId);
+      return next;
+    });
+    closeChatMenus(true);
+  }, [closeChatMenus]);
+
+  const toggleArchivedSession = useCallback((sessionId: string) => {
+    setArchivedSessionIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(sessionId)) next.delete(sessionId);
+      else next.add(sessionId);
+      return next;
+    });
+    closeChatMenus(true);
+  }, [closeChatMenus]);
+
+  const openSessionRename = useCallback((sessionId: string) => {
+    setRenameSessionId(sessionId);
+    closeChatMenus();
+  }, [closeChatMenus]);
+
+  useEffect(() => {
+    const popover = chatContextMenu ? chatContextMenuRef.current : sessionActionMenuRef.current;
+    popover?.querySelector<HTMLButtonElement>("button")?.focus();
+  }, [chatContextMenu, sessionActionMenu]);
+
+  useEffect(() => {
+    if (!chatContextMenu && !sessionActionMenu) return;
+    const close = () => closeChatMenus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeChatMenus(true);
+    };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [chatContextMenu, closeChatMenus, sessionActionMenu]);
+
   const recentProjects = getRecentProjects(allSessions);
   const showProjectFilter = recentProjects.length > 8;
   const visibleProjects = projectFilter.trim()
@@ -1009,9 +1258,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     [projectActivity, selectedProject],
   );
 
-  const filteredSessions = selectedProject
-    ? sessionsForProject(allSessions, selectedProject.key)
-    : allSessions;
+  const chatFilteredSessions = filterSessionsForChatProject(
+    allSessions,
+    chatProjectId,
+    chatProjectAssignments,
+    archivedSessionIds,
+  );
+  // A chat project intentionally spans directories. The filesystem project
+  // filter remains active only in the default All conversations view.
+  const filteredSessions = chatProjectId !== null
+    ? chatFilteredSessions
+    : selectedProject
+      ? sessionsForProject(chatFilteredSessions, selectedProject.key)
+      : chatFilteredSessions;
   const showWorktreeSwitcher = Boolean(
     worktreeState?.isGit
     && worktreeState.isTopLevel
@@ -1042,6 +1301,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       : null);
 
   const sessionFamilies = listSessionFamilies(filteredSessions);
+  sessionFamilies.sort((a, b) => Number(pinnedSessionIds.has(b.root.id)) - Number(pinnedSessionIds.has(a.root.id)));
   const prioritizedFamilyIndex = prioritizedSessionId
     ? sessionFamilies.findIndex((family) => family.root.id === prioritizedSessionId)
     : -1;
@@ -1072,6 +1332,84 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           }}
           onSelect={(path) => void commitCustomPath(path)}
         />
+      )}
+      {chatContextMenu && chatContextSession && (
+        <div
+          ref={chatContextMenuRef}
+          role="group"
+          aria-label={t("sidebar.moveToProject")}
+          onMouseDown={(event) => event.stopPropagation()}
+          style={{ position: "fixed", left: chatContextMenu.x, top: chatContextMenu.y, zIndex: 500, width: 220, maxWidth: "calc(100vw - 16px)", padding: 5, border: "1px solid var(--border)", borderRadius: 7, background: "var(--bg)", boxShadow: "0 10px 28px rgba(0,0,0,0.18)" }}
+        >
+          <div style={{ padding: "5px 8px 6px", color: "var(--text-dim)", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+            {t("sidebar.moveToProject")}
+          </div>
+          {chatProjects.map((project) => (
+            <button
+              key={project.id}
+              type="button"
+              onClick={() => moveSessionToChatProject(chatContextSession.id, project.id)}
+              style={{ ...chatProjectButtonStyle, background: chatProjectAssignments[chatProjectRootId(chatContextSession, allSessions)] === project.id ? "var(--bg-selected)" : "transparent", color: "var(--text)" }}
+            >
+              <span style={{ ...chatProjectIconStyle, color: project.color }}><span style={{ width: 7, height: 7, borderRadius: 2, background: "currentColor" }} /></span>
+              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left" }}>{project.name}</span>
+              {chatProjectAssignments[chatProjectRootId(chatContextSession, allSessions)] === project.id && <span style={{ color: "var(--accent)", fontSize: 12 }}>✓</span>}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => moveSessionToChatProject(chatContextSession.id, null)}
+            style={{ ...chatProjectButtonStyle, marginTop: 2, borderTop: "1px solid var(--border)", borderRadius: 0, color: "var(--text-muted)" }}
+          >
+            <span style={{ ...chatProjectIconStyle, color: "var(--text-dim)" }}><span style={{ width: 7, height: 7, border: "1px solid currentColor", borderRadius: 2 }} /></span>
+            {t("sidebar.removeFromProject")}
+          </button>
+        </div>
+      )}
+      {sessionActionMenu && sessionActionSession && (
+        <div
+          ref={sessionActionMenuRef}
+          role="group"
+          aria-label={t("sidebar.chatActions")}
+          onMouseDown={(event) => event.stopPropagation()}
+          style={{ position: "fixed", left: sessionActionMenu.x, top: sessionActionMenu.y, zIndex: 500, width: 190, maxWidth: "calc(100vw - 16px)", padding: 5, border: "1px solid var(--border)", borderRadius: 7, background: "var(--bg)", boxShadow: "0 10px 28px rgba(0,0,0,0.18)" }}
+        >
+          <button
+            type="button"
+            onClick={() => togglePinnedSession(chatProjectRootId(sessionActionSession, allSessions))}
+            style={{ ...chatProjectButtonStyle, color: "var(--text)" }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill={pinnedSessionIds.has(chatProjectRootId(sessionActionSession, allSessions)) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m12 17-5 3 1.5-5.5L4 10.8l5.8-.3L12 5l2.2 5.5 5.8.3-4.5 3.7L17 20Z" /></svg>
+            {pinnedSessionIds.has(chatProjectRootId(sessionActionSession, allSessions)) ? t("sidebar.unpinChat") : t("sidebar.pinChat")}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSessionActionMenu(null);
+              setChatContextMenu({ sessionId: sessionActionSession.id, x: sessionActionMenu.x, y: sessionActionMenu.y });
+            }}
+            style={{ ...chatProjectButtonStyle, color: "var(--text)" }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+            {t("sidebar.moveToProject")}
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleArchivedSession(chatProjectRootId(sessionActionSession, allSessions))}
+            style={{ ...chatProjectButtonStyle, color: "var(--text)" }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18" /><path d="M5 6l1 14h12l1-14" /><path d="M9 10h6" /><path d="M10 14h4" /></svg>
+            {archivedSessionIds.has(chatProjectRootId(sessionActionSession, allSessions)) ? t("sidebar.unarchiveChat") : t("sidebar.archiveChat")}
+          </button>
+          <button
+            type="button"
+            onClick={() => openSessionRename(sessionActionSession.id)}
+            style={{ ...chatProjectButtonStyle, color: "var(--text)" }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" /></svg>
+            {t("sidebar.rename")}
+          </button>
+        </div>
       )}
       {/* Header */}
       <div
@@ -1139,6 +1477,138 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               </svg>
             </button>
           </div>
+        </div>
+
+        {/* Chat projects are conversation collections, separate from filesystem workspaces. */}
+        <div style={{ borderBottom: "1px solid var(--border)", paddingBottom: 9, marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
+            <span style={{ color: "var(--text-dim)", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+              {t("sidebar.chatProjects")}
+            </span>
+            <button
+              type="button"
+              onClick={() => setChatProjectComposerOpen((open) => !open)}
+              title={t("sidebar.newChatProject")}
+              aria-label={t("sidebar.newChatProject")}
+              style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", padding: 0, border: "none", borderRadius: 5, background: "transparent", color: "var(--text-muted)", cursor: "pointer" }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+            </button>
+          </div>
+          <div style={{ display: "grid", gap: 2 }}>
+            <button
+              ref={chatProjectId === null ? activeChatFolderRef : undefined}
+              type="button"
+              onClick={() => { setChatProjectId(null); setChatContextMenu(null); }}
+              style={{ ...chatProjectButtonStyle, background: chatProjectId === null ? "var(--bg-selected)" : "transparent", color: chatProjectId === null ? "var(--text)" : "var(--text-muted)" }}
+            >
+              <span style={chatProjectIconStyle}><span style={{ width: 6, height: 6, borderRadius: "50%", background: "currentColor" }} /></span>
+              <span style={{ flex: 1 }}>{t("sidebar.allChats")}</span>
+              <span style={chatProjectCountStyle}>{chatConversationCount}</span>
+            </button>
+            {chatProjectStats.map((project) => (
+              <div
+                key={project.id}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => { event.preventDefault(); dropChatProject(project.id); }}
+                style={{ display: "flex", alignItems: "center", gap: 2, opacity: draggedChatProjectId === project.id ? 0.55 : 1 }}
+              >
+                {chatProjectEditingId === project.id ? (
+                  <form
+                    onSubmit={(event) => { event.preventDefault(); commitRenameChatProject(); }}
+                    style={{ display: "flex", flex: 1, gap: 4 }}
+                  >
+                    <input
+                      autoFocus
+                      value={chatProjectRenameDraft}
+                      onChange={(event) => setChatProjectRenameDraft(event.target.value)}
+                      aria-label={t("sidebar.rename")}
+                      style={{ flex: 1, minWidth: 0, height: 27, boxSizing: "border-box", padding: "0 7px", border: "1px solid var(--accent)", borderRadius: 5, outline: "none", background: "var(--bg)", color: "var(--text)", fontSize: 11 }}
+                    />
+                    <button type="submit" title={t("sidebar.rename")} aria-label={t("sidebar.rename")} style={{ width: 27, height: 27, padding: 0, border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg-hover)", color: "var(--text)", cursor: "pointer" }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
+                    </button>
+                  </form>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      draggable
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", project.id);
+                        setDraggedChatProjectId(project.id);
+                      }}
+                      onDragEnd={() => setDraggedChatProjectId(null)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+                        event.preventDefault();
+                        reorderChatProject(project.id, event.key === "ArrowUp" ? -1 : 1);
+                      }}
+                      title={t("sidebar.reorderChatProjectHint")}
+                      aria-label={t("sidebar.reorderChatProject", { name: project.name })}
+                      style={{ width: 18, height: 23, display: "flex", alignItems: "center", justifyContent: "center", padding: 0, border: "none", borderRadius: 4, background: "transparent", color: "var(--text-dim)", cursor: "grab", flexShrink: 0 }}
+                    >
+                      <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1" /><circle cx="7" cy="3" r="1" /><circle cx="3" cy="7" r="1" /><circle cx="7" cy="7" r="1" /><circle cx="3" cy="11" r="1" /><circle cx="7" cy="11" r="1" /></svg>
+                    </button>
+                    <button
+                      ref={chatProjectId === project.id ? activeChatFolderRef : undefined}
+                      type="button"
+                      onClick={() => { setChatProjectId(project.id); setChatContextMenu(null); }}
+                      style={{ ...chatProjectButtonStyle, flex: 1, background: chatProjectId === project.id ? "var(--bg-selected)" : "transparent", color: chatProjectId === project.id ? "var(--text)" : "var(--text-muted)" }}
+                      title={project.directoryCount > 1 ? t("sidebar.chatProjectAcrossDirectories", { count: project.directoryCount }) : project.name}
+                    >
+                      <span style={{ ...chatProjectIconStyle, color: project.color }}><span style={{ width: 7, height: 7, borderRadius: 2, background: "currentColor" }} /></span>
+                      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left" }}>{project.name}</span>
+                      <span style={chatProjectCountStyle}>{project.sessionCount}</span>
+                    </button>
+                    <button type="button" onClick={() => startRenameChatProject(project)} title={t("sidebar.rename")} aria-label={`${t("sidebar.rename")} ${project.name}`} style={{ width: 23, height: 23, padding: 0, border: "none", borderRadius: 4, background: "transparent", color: "var(--text-dim)", cursor: "pointer", transition: "background 0.12s, color 0.12s" }}
+                      onMouseEnter={(event) => { event.currentTarget.style.background = "var(--bg-selected)"; event.currentTarget.style.color = "var(--accent)"; }}
+                      onMouseLeave={(event) => { event.currentTarget.style.background = "transparent"; event.currentTarget.style.color = "var(--text-dim)"; }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" /></svg>
+                    </button>
+                    <button type="button" onClick={() => deleteChatProject(project)} title={t("sidebar.delete")} aria-label={`${t("sidebar.delete")} ${project.name}`} style={{ width: 23, height: 23, padding: 0, border: "none", borderRadius: 4, background: "transparent", color: "var(--text-dim)", cursor: "pointer", transition: "background 0.12s, color 0.12s" }}
+                      onMouseEnter={(event) => { event.currentTarget.style.background = "rgba(239,68,68,0.08)"; event.currentTarget.style.color = "#ef4444"; }}
+                      onMouseLeave={(event) => { event.currentTarget.style.background = "transparent"; event.currentTarget.style.color = "var(--text-dim)"; }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="m19 6-1 14H6L5 6" /><path d="M10 11v5M14 11v5" /></svg>
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+            <button
+              ref={chatProjectId === ARCHIVED_CHAT_PROJECT_ID ? activeChatFolderRef : undefined}
+              type="button"
+              onClick={() => { setChatProjectId(ARCHIVED_CHAT_PROJECT_ID); setChatContextMenu(null); }}
+              style={{ ...chatProjectButtonStyle, background: chatProjectId === ARCHIVED_CHAT_PROJECT_ID ? "var(--bg-selected)" : "transparent", color: chatProjectId === ARCHIVED_CHAT_PROJECT_ID ? "var(--text)" : "var(--text-muted)" }}
+            >
+              <span style={{ ...chatProjectIconStyle, color: "var(--text-dim)" }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18" /><path d="M5 6l1 14h12l1-14" /><path d="M9 10h6" /></svg>
+              </span>
+              <span style={{ flex: 1 }}>{t("sidebar.archivedChats")}</span>
+              <span style={chatProjectCountStyle}>{archivedChatCount}</span>
+            </button>
+          </div>
+          {chatProjectComposerOpen && (
+            <form
+              onSubmit={(event) => { event.preventDefault(); handleCreateChatProject(); }}
+              style={{ display: "flex", gap: 5, marginTop: 5 }}
+            >
+              <input
+                autoFocus
+                value={chatProjectDraft}
+                onChange={(event) => setChatProjectDraft(event.target.value)}
+                placeholder={t("sidebar.chatProjectName")}
+                aria-label={t("sidebar.chatProjectName")}
+                style={{ flex: 1, minWidth: 0, height: 27, boxSizing: "border-box", padding: "0 7px", border: "1px solid var(--accent)", borderRadius: 5, outline: "none", background: "var(--bg)", color: "var(--text)", fontSize: 11 }}
+              />
+              <button type="submit" title={t("sidebar.createChatProject")} aria-label={t("sidebar.createChatProject")} style={{ width: 27, height: 27, padding: 0, border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg-hover)", color: "var(--text)", cursor: "pointer" }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
+              </button>
+            </form>
+          )}
         </div>
 
         {/* CWD picker */}
@@ -1769,8 +2239,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       isSelected={isSessionRowSelected(row, selectedSessionId, collapsedFamilyIds)}
                       isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
                       isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
+                      isPinned={pinnedSessionIds.has(family.root.id)}
                       onClick={() => handleSelectSessionFromList(family.root)}
                       onRenamed={loadSessions}
+                      onContextMenu={(session, x, y) => { chatActionTriggerRef.current = null; setChatContextMenu({ sessionId: session.id, x, y }); }}
+                      onActionMenu={(session, x, y, trigger) => { chatActionTriggerRef.current = trigger; setSessionActionMenu({ sessionId: session.id, x, y }); }}
+                      renameRequest={renameSessionId === family.root.id}
+                      onRenameRequestHandled={() => setRenameSessionId(null)}
                       onDeleted={(id) => {
                         onSessionDeleted?.(id);
                         loadSessions();
@@ -1791,9 +2266,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       isSelected={isSessionRowSelected(row, selectedSessionId, collapsedFamilyIds)}
                       isRunning={runningSessionIds.has(row.session.id)}
                       isUnread={unreadSessionIds.has(row.session.id)}
+                      isPinned={pinnedSessionIds.has(family.root.id)}
                       depth={1}
                       onClick={() => handleSelectSessionFromList(row.session)}
                       onRenamed={loadSessions}
+                      onContextMenu={(session, x, y) => { chatActionTriggerRef.current = null; setChatContextMenu({ sessionId: session.id, x, y }); }}
+                      onActionMenu={(session, x, y, trigger) => { chatActionTriggerRef.current = trigger; setSessionActionMenu({ sessionId: session.id, x, y }); }}
+                      renameRequest={renameSessionId === row.session.id}
+                      onRenameRequestHandled={() => setRenameSessionId(null)}
                       onDeleted={(id) => {
                         onSessionDeleted?.(id);
                         loadSessions();
@@ -2069,9 +2549,14 @@ function SessionItem({
   isSelected,
   isRunning,
   isUnread,
+  isPinned = false,
   onClick,
   onRenamed,
   onDeleted,
+  onContextMenu: onChatContextMenu,
+  onActionMenu,
+  renameRequest = false,
+  onRenameRequestHandled,
   depth = 0,
   hasChildren = false,
   collapsed = false,
@@ -2081,8 +2566,13 @@ function SessionItem({
   isSelected: boolean;
   isRunning?: boolean;
   isUnread?: boolean;
+  isPinned?: boolean;
   onClick: () => void;
   onRenamed?: () => void;
+  onContextMenu?: (session: SessionInfo, x: number, y: number) => void;
+  onActionMenu?: (session: SessionInfo, x: number, y: number, trigger: HTMLButtonElement) => void;
+  renameRequest?: boolean;
+  onRenameRequestHandled?: () => void;
   onDeleted?: (id: string) => void;
   depth?: number;
   hasChildren?: boolean;
@@ -2091,6 +2581,7 @@ function SessionItem({
 }) {
   const { locale, t } = useI18n();
   const [hovered, setHovered] = useState(false);
+  const [actionsFocused, setActionsFocused] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -2112,12 +2603,17 @@ function SessionItem({
   const displayFirstMessage = skillExpansionToCommand(session.firstMessage) ?? session.firstMessage;
   const title = session.name || displayFirstMessage.slice(0, 50) || session.id.slice(0, 12);
 
-  const startRename = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
+  const startRename = useCallback(() => {
     if (session.transient) return;
     setRenameValue(session.name || displayFirstMessage.slice(0, 50) || session.id.slice(0, 12));
     setRenaming(true);
   }, [session.name, session.transient, displayFirstMessage, session.id]);
+
+  useEffect(() => {
+    if (!renameRequest) return;
+    startRename();
+    onRenameRequestHandled?.();
+  }, [onRenameRequestHandled, renameRequest, startRename]);
 
   const commitRename = useCallback(async () => {
     const name = renameValue.trim();
@@ -2180,10 +2676,15 @@ function SessionItem({
       clientY: e.clientY,
       refresh: () => { onRenamed?.(); },
     });
-    if (!handled) return;
+    if (handled) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
-  }, [onRenamed, session.cwd, session.id, session.name, session.path]);
+    onChatContextMenu?.(session, e.clientX, e.clientY);
+  }, [onChatContextMenu, onRenamed, session]);
 
   // Fixed-height outer wrapper — content swaps in place so the list never reflows
   return (
@@ -2301,6 +2802,11 @@ function SessionItem({
               }}
               title={title}
             >
+              {isPinned && (
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-label={t("sidebar.pinChat")} style={{ flexShrink: 0, color: "var(--accent)" }}>
+                  <path d="m12 17-5 3 1.5-5.5L4 10.8l5.8-.3L12 5l2.2 5.5 5.8.3-4.5 3.7L17 20Z" />
+                </svg>
+              )}
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                 {title}
               </span>
@@ -2354,16 +2860,28 @@ function SessionItem({
             </button>
           )}
 
-          {/* Action buttons — shown on hover */}
-          {hovered && !session.transient && (
-            <div style={{
+          {/* Keep actions mounted for keyboard access; reveal them on hover or focus. */}
+          {!session.transient && (
+            <div
+              onFocusCapture={() => setActionsFocused(true)}
+              onBlurCapture={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setActionsFocused(false);
+              }}
+              style={{
               position: "absolute", right: hasChildren ? 32 : 8, top: 11, zIndex: 1,
               display: "flex", gap: 4, paddingLeft: 18,
               background: `linear-gradient(to right, transparent, ${isSelected ? "var(--bg-selected)" : "var(--bg-hover)"} 18px)`,
+              opacity: hovered || actionsFocused ? 1 : 0,
+              pointerEvents: hovered || actionsFocused ? "auto" : "none",
             }}>
               <button
-                onClick={startRename}
-                title={t("sidebar.rename")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  onActionMenu?.(session, e.clientX || rect.left, e.clientY || rect.bottom, e.currentTarget);
+                }}
+                title={t("sidebar.chatActions")}
+                aria-label={t("sidebar.chatActions")}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center",
                   width: 32, height: 32, padding: 0,
@@ -2383,13 +2901,12 @@ function SessionItem({
                   e.currentTarget.style.borderColor = "var(--border)";
                 }}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
-                </svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
               </button>
               <button
                 onClick={handleDeleteClick}
                 title={t("sidebar.deleteWithShiftClick")}
+                aria-label={t("sidebar.delete")}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center",
                   width: 32, height: 32, padding: 0,
