@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { ModelIcon } from "./ProviderIcon";
 
 export interface ModelSelectorOption {
   provider: string;
@@ -78,9 +79,12 @@ export function ModelSelector({
     else modelsByProvider.push({ provider: option.provider, options: [option] });
   }
 
-  const currentName = selectedLabel ?? (value
-    ? sortedOptions.find((option) => option.modelId === value.modelId && option.provider === value.provider)?.name ?? value.modelId
-    : emptyLabel ?? (sortedOptions.length > 0 ? "Select model" : "No models"));
+  const currentOption = value
+    ? sortedOptions.find((option) => option.modelId === value.modelId && option.provider === value.provider)
+    : undefined;
+  const currentName = selectedLabel ?? (currentOption?.name ?? (value
+    ? value.modelId
+    : emptyLabel ?? (sortedOptions.length > 0 ? "Select model" : "No models")));
 
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
@@ -197,14 +201,12 @@ export function ModelSelector({
             <path d="M21 12a9 9 0 1 1-2.64-6.36" />
           </svg>
         ) : (
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
-            <rect x="4" y="4" width="16" height="16" rx="2" />
-            <rect x="9" y="9" width="6" height="6" />
-            <line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" />
-            <line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" />
-            <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
-            <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
-          </svg>
+          <ModelIcon
+            provider={value?.provider ?? ""}
+            modelId={value?.modelId ?? ""}
+            modelName={currentOption?.name}
+            size={11}
+          />
         )}
         <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentName}</span>
         {variant === "field" && (
@@ -298,6 +300,8 @@ export function ModelSelector({
                       key={`${option.provider}:${option.modelId}`}
                       active={option.modelId === value?.modelId && option.provider === value?.provider}
                       label={option.name}
+                      provider={option.provider}
+                      modelId={option.modelId}
                       onClick={() => choose(option)}
                     />
                   ))}
@@ -311,7 +315,7 @@ export function ModelSelector({
   );
 }
 
-function ModelOptionButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+function ModelOptionButton({ active, label, provider, modelId, onClick }: { active: boolean; label: string; provider?: string; modelId?: string; onClick: () => void }) {
   return (
     <button
       type="button"
@@ -325,6 +329,7 @@ function ModelOptionButton({ active, label, onClick }: { active: boolean; label:
       {active
         ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }} aria-hidden="true"><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
         : <span style={{ width: 10, flexShrink: 0 }} />}
+      <ModelIcon provider={provider ?? ""} modelId={modelId ?? ""} modelName={label} size={14} />
       <span title={label} style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
     </button>
   );

@@ -18,7 +18,7 @@ import {
 } from "@/lib/file-types";
 import { resolveDirentIsDirectory } from "@/lib/file-dirent";
 import { isFilePathReferencedBySession } from "@/lib/session-file-references";
-import { isApiRequestAllowed } from "@/lib/request-security";
+import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import {
   inspectUploadTargets,
   parseUploadConflictStrategy,
@@ -43,6 +43,7 @@ const MAX_UPLOAD_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOAD_TOTAL_BYTES = 100 * 1024 * 1024;
 // Multipart boundaries and headers are not file bytes, but must be bounded too.
 const MAX_UPLOAD_REQUEST_BYTES = MAX_UPLOAD_TOTAL_BYTES + 1024 * 1024;
+const MAX_MARKDOWN_EDIT_BYTES = 5 * 1024 * 1024;
 
 const EXT_TO_LANGUAGE: Record<string, string> = {
   ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
@@ -113,6 +114,72 @@ async function getUploadDirectory(segments: string[]): Promise<
 function parseUploadFileNames(value: unknown): string[] | null {
   if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) return null;
   return value;
+}
+
+function isEditableMarkdownPath(filePath: string): boolean {
+  const extension = getFileExt(filePath);
+  return extension === "md" || extension === "mdx";
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ path: string[] }> }
+) {
+  if (!isApiRequestAllowed(request)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+  if (!hasJsonContentType(request)) {
+    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+  }
+
+  try {
+    const { path: segments } = await params;
+    const filePath = filePathFromApiSegments(segments);
+    if (!isEditableMarkdownPath(filePath)) {
+      return NextResponse.json({ error: "Only Markdown files can be edited" }, { status: 400 });
+    }
+
+    const allowedRoots = await getAllowedFileRoots();
+    if (!isFilePathAllowed(filePath, allowedRoots)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    }
+
+    let fileStat: fs.Stats;
+    try {
+      const linkStat = fs.lstatSync(filePath);
+      if (linkStat.isSymbolicLink()) {
+        return NextResponse.json({ error: "Symbolic links cannot be edited" }, { status: 400 });
+      }
+      if (!linkStat.isFile()) {
+        return NextResponse.json({ error: "Not a file" }, { status: 400 });
+      }
+      if (!isExistingFilePathAllowed(filePath, allowedRoots)) {
+        return NextResponse.json({ error: "Access denied" }, { status: 403 });
+      }
+      fileStat = linkStat;
+    } catch {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    const body = await request.json().catch(() => null) as { content?: unknown } | null;
+    if (!body || typeof body.content !== "string") {
+      return NextResponse.json({ error: "content must be a string" }, { status: 400 });
+    }
+    const contentBytes = Buffer.byteLength(body.content, "utf8");
+    if (contentBytes > MAX_MARKDOWN_EDIT_BYTES) {
+      return NextResponse.json({ error: "Markdown file is too large to edit" }, { status: 413 });
+    }
+
+    fs.writeFileSync(filePath, body.content, "utf8");
+    fileStat = fs.statSync(filePath);
+    return NextResponse.json({
+      success: true,
+      size: fileStat.size,
+      modified: fileStat.mtime.toISOString(),
+    });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+  }
 }
 
 export async function POST(

@@ -281,6 +281,7 @@ export const zhCNLocale: LocalePlugin = {
     "files.insertPath": "将路径插入聊天",
     "files.mention": "提及",
     "files.download": "下载文件",
+    "files.edit": "编辑 Markdown 文件",
     "files.dismissError": "关闭错误",
     "files.addUploadedFile": "将上传的文件添加到聊天",
     "files.addAllUploadedFiles": "将所有上传的文件添加到聊天",
