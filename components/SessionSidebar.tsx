@@ -410,6 +410,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [changesCollapsed, setChangesCollapsed] = useState(true);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
+  // Sessions blocked on an extension ui_request (ask_user_question). Reported
+  // by /api/agent/running; a strict subset of runningSessionIds.
+  const [awaitingInputSessionIds, setAwaitingInputSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
   const currentSuppressedCompletionSessionIdsRef = useRef<Set<string>>(new Set());
@@ -458,6 +461,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         sessions: SessionInfo[];
         sessionListVersion: number;
         runningSessionIds?: string[];
+        awaitingInputSessionIds?: string[];
         completionNotificationSuppressedSessionIds?: string[];
       };
       if (loadId !== sessionLoadIdRef.current) return;
@@ -541,6 +545,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         const data = await res.json() as {
           sessionListVersion: number;
           runningSessionIds?: string[];
+          awaitingInputSessionIds?: string[];
           completionNotificationSuppressedSessionIds?: string[];
         };
         if (stopped || controller !== current) return;
@@ -549,6 +554,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           data.completionNotificationSuppressedSessionIds ?? [],
         );
         setRunningSessionIds(new Set(data.runningSessionIds ?? []));
+        setAwaitingInputSessionIds(new Set(data.awaitingInputSessionIds ?? []));
         if (data.sessionListVersion !== sessionListVersionRef.current) {
           // Reuse the invalidated cache; forcing a scan would change the version again.
           await loadSessions();
@@ -957,8 +963,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // Per-project activity counts (running / unread) for the workspace selector.
   // Uses the same stable server key as the project list and filtering.
   const projectActivity = useMemo(
-    () => getProjectActivity(allSessions, runningSessionIds, unreadSessionIds),
-    [allSessions, runningSessionIds, unreadSessionIds],
+    () => getProjectActivity(allSessions, runningSessionIds, unreadSessionIds, awaitingInputSessionIds),
+    [allSessions, runningSessionIds, unreadSessionIds, awaitingInputSessionIds],
   );
 
   // Any activity in a project other than the one currently selected — shown as
@@ -966,7 +972,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // the dropdown.
   const hasOtherWorkspaceActivity = useMemo(
     () => [...projectActivity.entries()].some(
-      ([key, { running, unread }]) => key !== selectedProject?.key && (running > 0 || unread > 0),
+      ([key, { running, awaiting, unread }]) => key !== selectedProject?.key && (running > 0 || awaiting > 0 || unread > 0),
     ),
     [projectActivity, selectedProject],
   );
@@ -1719,6 +1725,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     session={displaySession}
                     isSelected={familySessions.some((session) => session.id === selectedSessionId)}
                     isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
+                    isAwaitingInput={familySessions.some((session) => awaitingInputSessionIds.has(session.id))}
                     isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
                     onClick={() => handleSelectSessionFromList(family.root)}
                     onRenamed={loadSessions}
@@ -1884,6 +1891,35 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   );
 }
 
+function AwaitingInputSessionIndicator() {
+  const { t } = useI18n();
+  return (
+    <span
+      title={t("sidebar.agentAwaitingInput")}
+      aria-label={t("sidebar.agentAwaitingInput")}
+      style={{
+        width: 14,
+        height: 14,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        color: "#e0a32e",
+      }}
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ display: "block" }}>
+        <g>
+          <path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.3 8.9 8.9 0 0 1-3.8-.9L3 21l1.9-4.6a8.2 8.2 0 0 1-.9-3.9A8.4 8.4 0 0 1 12.5 3.2 8.4 8.4 0 0 1 21 11.5Z" />
+          <path d="M9.6 9.2a2.9 2.9 0 0 1 5.4 1c0 1.9-2.7 2.4-2.7 2.4">
+            <animate attributeName="opacity" values="1;0.3;1" dur="1.6s" repeatCount="indefinite" />
+          </path>
+          <line x1="12.3" y1="15.7" x2="12.3" y2="15.8" />
+        </g>
+      </svg>
+    </span>
+  );
+}
+
 function RunningSessionIndicator() {
   const { t } = useI18n();
   return (
@@ -1956,12 +1992,28 @@ function UnreadSessionIndicator() {
  * the per-session indicators so the two stay visually consistent.
  */
 function showProjectActivity(
-  activity: { running: number; unread: number } | undefined,
+  activity: { running: number; awaiting: number; unread: number } | undefined,
   t: (key: string) => string,
 ): ReactNode {
-  if (!activity || (activity.running === 0 && activity.unread === 0)) return null;
+  if (!activity || (activity.running === 0 && activity.awaiting === 0 && activity.unread === 0)) return null;
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0, marginLeft: 6 }}>
+      {activity.awaiting > 0 && (
+        <span
+          title={t("sidebar.agentAwaitingInput")}
+          aria-label={`${t("sidebar.agentAwaitingInput")} (${activity.awaiting})`}
+          style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "#e0a32e", fontSize: 10, fontFamily: "var(--font-mono)" }}
+        >
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ display: "block" }}>
+            <path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.3 8.9 8.9 0 0 1-3.8-.9L3 21l1.9-4.6a8.2 8.2 0 0 1-.9-3.9A8.4 8.4 0 0 1 12.5 3.2 8.4 8.4 0 0 1 21 11.5Z" />
+            <path d="M9.6 9.2a2.9 2.9 0 0 1 5.4 1c0 1.9-2.7 2.4-2.7 2.4">
+              <animate attributeName="opacity" values="1;0.3;1" dur="1.6s" repeatCount="indefinite" />
+            </path>
+            <line x1="12.3" y1="15.7" x2="12.3" y2="15.8" />
+          </svg>
+          {activity.awaiting}
+        </span>
+      )}
       {activity.running > 0 && (
         <span
           title={t("sidebar.agentRunning")}
@@ -1995,6 +2047,7 @@ function SessionItem({
   session,
   isSelected,
   isRunning,
+  isAwaitingInput,
   isUnread,
   onClick,
   onRenamed,
@@ -2007,6 +2060,7 @@ function SessionItem({
   session: SessionInfo;
   isSelected: boolean;
   isRunning?: boolean;
+  isAwaitingInput?: boolean;
   isUnread?: boolean;
   onClick: () => void;
   onRenamed?: () => void;
@@ -2232,7 +2286,9 @@ function SessionItem({
               </span>
             </div>
             <div style={{ marginTop: 2, display: "flex", alignItems: "center", gap: 8, color: "var(--text-dim)", fontSize: 11, minWidth: 0 }}>
-              {isRunning ? (
+              {isAwaitingInput ? (
+                <AwaitingInputSessionIndicator />
+              ) : isRunning ? (
                 <RunningSessionIndicator />
               ) : isUnread ? (
                 <UnreadSessionIndicator />

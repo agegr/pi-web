@@ -20,6 +20,7 @@ import { hasActiveSessionLivenessProvider } from "./session-liveness";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
 import type {
+  ExtensionUiAction,
   ExtensionUiRequest,
   ExtensionUiResponse,
   ExtensionWidgetItem,
@@ -70,6 +71,15 @@ type CustomUiComponent = {
   handleInput?: (data: string) => void;
   dispose?: () => void;
   invalidate?: () => void;
+  /** 交互面声明（可选能力）：当前可点按动作，随渲染重算；row=输出行号→网页端直接点行。 */
+  getActions?: () => Array<{
+    label: string;
+    data: string;
+    kind?: "option" | "custom" | "submit" | "tab";
+    checked?: boolean;
+    active?: boolean;
+    row?: number;
+  }>;
 };
 
 type ExtensionWidgetComponent = {
@@ -91,6 +101,8 @@ type ActiveExtensionWidget = {
 type ActiveCustomUi = {
   component: CustomUiComponent;
   width: number;
+  /** Interactive dialog marker (overlayOptions.awaiting) — awaiting-input indicator + auto-expanded browser panel. */
+  awaiting: boolean;
   resolve: (value: unknown) => void;
   settled: boolean;
 };
@@ -169,13 +181,33 @@ const CODING_TOOL_NAMES = ["read", "bash", "powershell", "edit", "write", "grep"
 const THINKING_LEVEL_NAMES = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 // Extensions require a complete Theme, while the web UI applies its own styling.
+// pi 0.85 widened the Theme constructor contract: fallbacks like
+// `scrollbarTrack ?? muted` now resolve for missing keys and crash
+// `fgAnsi(undefined)`, so pass a full palette of empty colors ("" is a legal
+// color value) instead of a minimal subset. `satisfies` keeps tsc watching
+// the constructor signature for future pi upgrades.
+const EMPTY_FG_COLORS = {
+  accent: "", border: "", borderAccent: "", borderMuted: "", success: "", error: "",
+  warning: "", muted: "", dim: "", text: "", thinkingText: "", userMessageText: "",
+  customMessageText: "", customMessageLabel: "", toolTitle: "", toolOutput: "",
+  mdHeading: "", mdLink: "", mdLinkUrl: "", mdCode: "", mdCodeBlock: "",
+  mdCodeBlockBorder: "", mdQuote: "", mdQuoteBorder: "", mdHr: "", mdListBullet: "",
+  toolDiffAdded: "", toolDiffRemoved: "", toolDiffContext: "", syntaxComment: "",
+  syntaxKeyword: "", syntaxFunction: "", syntaxVariable: "", syntaxString: "",
+  syntaxNumber: "", syntaxType: "", syntaxOperator: "", syntaxPunctuation: "",
+  thinkingOff: "", thinkingMinimal: "", thinkingLow: "", thinkingMedium: "",
+  thinkingHigh: "", thinkingXhigh: "", thinkingMax: "", bashMode: "",
+  scrollbarTrack: "", scrollbarThumb: "", searchMatchText: "",
+} satisfies ConstructorParameters<typeof Theme>[0];
+
+const EMPTY_BG_COLORS = {
+  selectedBg: "", searchMatchBg: "", userMessageBg: "", customMessageBg: "",
+  toolPendingBg: "", toolSuccessBg: "", toolErrorBg: "",
+} satisfies ConstructorParameters<typeof Theme>[1];
+
 class PlainTextTheme extends Theme {
   constructor() {
-    super(
-      { muted: "", text: "", thinkingXhigh: "", searchMatchText: "" } as ConstructorParameters<typeof Theme>[0],
-      { selectedBg: "" } as ConstructorParameters<typeof Theme>[1],
-      "truecolor",
-    );
+    super(EMPTY_FG_COLORS, EMPTY_BG_COLORS, "truecolor");
   }
 
   override fg(...[, text]: Parameters<Theme["fg"]>): string { return text; }
@@ -226,6 +258,12 @@ export class AgentSessionWrapper {
   private extensionWidgetGenerations = new Map<string, number>();
   private extensionWidgetsResetting = false;
   private pendingPromptCount = 0;
+  /** Prompts parked while compaction runs. The SDK rejects prompt submissions
+   *  during compaction ("Cannot submit a prompt while compaction is in
+   *  progress"); park server-side instead and flush FIFO on compaction_end so
+   *  messages queue (visible via queuedMessages) rather than erroring. */
+  private parkedPrompts: Array<Record<string, unknown>> = [];
+  private parkedFlushScheduled = false;
   private activeMutatingCommands = 0;
   private sessionReplacement: "fork" | "clone" | null = null;
   private agentRunNeedsCompletion = false;
@@ -282,7 +320,7 @@ export class AgentSessionWrapper {
   }
 
   isRunning(): boolean {
-    return this._alive && (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning);
+    return this._alive && (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning || this.parkedPrompts.length > 0);
   }
 
   isChatOnly(): boolean {
@@ -293,6 +331,22 @@ export class AgentSessionWrapper {
     return this.suppressCompletionNotifications;
   }
 
+  /** True while the agent is blocked on at least one extension ui_request (e.g. ask_user_question) awaiting the user. */
+  hasPendingUiRequests(): boolean {
+    // Passive custom UI panels (toast notifications, footer status displays
+    // like compact-cache stats) stay pinned in the map until the extension
+    // closes them — they are not input requests and must not flip the
+    // awaiting-input indicator. Interactive dialogs (ask_user_question) opt in
+    // via overlayOptions.awaiting and DO count.
+    for (const event of this.pendingUiRequests.values()) {
+      if (!("method" in event)) return true;
+      const request = event as ExtensionUiRequest;
+      if (request.method !== "custom") return true;
+      if ((request as { awaiting?: boolean }).awaiting === true) return true;
+    }
+    return false;
+  }
+
   start(): void {
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
       if (event.type === "agent_start") this.agentRunNeedsCompletion = true;
@@ -300,10 +354,78 @@ export class AgentSessionWrapper {
         invalidateSessionListCache();
       }
       if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
+      if ((event.type === "compaction_end" || event.type === "auto_compaction_end") && this.parkedPrompts.length > 0) {
+        this.flushParkedPrompts();
+        // The SDK's own queue_update snapshot does not know about parked
+        // prompts; keep rendering them until the flush actually submits.
+        this.emitParkedQueueUpdate();
+        return;
+      }
+      if (event.type === "queue_update" && this.parkedPrompts.length > 0) {
+        this.emit({
+          ...event,
+          followUp: [
+            ...((event.followUp as string[] | undefined) ?? []),
+            ...this.parkedPrompts.map((parked) => String(parked.message ?? "")),
+          ],
+        });
+        return;
+      }
       this.emit(event);
       if (event.type === "agent_settled") this.notifyAgentRunCompleteIfIdle();
     });
     this.resetIdleTimer();
+  }
+
+  /** Emit a queue_update that merges parked prompts into the followUp list. */
+  private emitParkedQueueUpdate(): void {
+    this.emit({
+      type: "queue_update",
+      steering: [...this.inner.getSteeringMessages()],
+      followUp: [
+        ...this.inner.getFollowUpMessages(),
+        ...this.parkedPrompts.map((parked) => String(parked.message ?? "")),
+      ],
+    });
+  }
+
+  /** Submit parked prompts FIFO once compaction has finished. Re-dispatches
+   *  through send() so admission serialization, run bookkeeping, and error
+   *  surfacing reuse the normal path. */
+  private flushParkedPrompts(): void {
+    if (this.parkedFlushScheduled || this.parkedPrompts.length === 0) return;
+    this.parkedFlushScheduled = true;
+    void (async () => {
+      try {
+        while (this._alive && this.parkedPrompts.length > 0) {
+          // A new compaction started while flushing — its compaction_end will re-schedule.
+          if (this.inner.isCompacting) return;
+          const parked = this.parkedPrompts.shift()!;
+          try {
+            if (this.inner.isStreaming && parked.streamingBehavior === undefined) {
+              // Auto-compaction ended back into a live run: join its queue
+              // instead of starting an illegal parallel prompt.
+              await this.send({ ...parked, streamingBehavior: "followUp" });
+            } else {
+              await this.send(parked);
+            }
+          } catch (error) {
+            console.error("[pi-web] parked prompt flush failed:", error instanceof Error ? error.message : String(error));
+            this.emit({
+              type: "extension_error",
+              extensionPath: "parked-prompt-flush",
+              event: "prompt",
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+      } finally {
+        this.parkedFlushScheduled = false;
+        if (this._alive && this.parkedPrompts.length > 0 && !this.inner.isCompacting) {
+          this.flushParkedPrompts();
+        }
+      }
+    })();
   }
 
   private notifyAgentRunCompleteIfIdle(): void {
@@ -356,7 +478,7 @@ export class AgentSessionWrapper {
             method: "notify",
             notifyType: "warning",
             message: "Extension requested shutdown, but shutdown is not supported in Pi Web.",
-          } as ExtensionUiRequest as AgentEvent),
+          } as ExtensionUiRequest),
           onError: (error) => this.emit({
             type: "extension_error",
             extensionPath: error.extensionPath,
@@ -491,6 +613,9 @@ export class AgentSessionWrapper {
     // Pi normally delays the first flush until an assistant message exists.
     // A leading shell command has no assistant message, so mark this SDK
     // manager as flushed after writing its own generated entries.
+    // SAFETY: `flushed` is an internal SDK SessionManager field (no public API);
+    // the key matches the installed SDK's implementation and only this
+    // initialization path writes it, before any SDK flush can race.
     (manager as unknown as { flushed: boolean }).flushed = true;
     cacheSessionPath(this.inner.sessionId, sessionFile);
   }
@@ -563,6 +688,15 @@ export class AgentSessionWrapper {
       if (type === "prompt" || type === "steer" || type === "follow_up") {
         const imageError = validateAgentImages(command.images);
         if (imageError) throw new Error(imageError);
+        // steer/follow_up queue natively in the SDK even during compaction;
+        // only prompt is rejected — park it and flush on compaction_end.
+        // A prompt parked here keeps the wrapper "running" (isRunning) so it
+        // cannot be idle-reaped before the flush submits it.
+        if (type === "prompt" && this.inner.isCompacting) {
+          this.parkedPrompts.push(command);
+          this.emitParkedQueueUpdate();
+          return { parked: true };
+        }
       }
 
       switch (type) {
@@ -689,7 +823,10 @@ export class AgentSessionWrapper {
           pendingMessageCount: this.inner.pendingMessageCount,
           queuedMessages: {
             steering: [...this.inner.getSteeringMessages()],
-            followUp: [...this.inner.getFollowUpMessages()],
+            followUp: [
+              ...this.inner.getFollowUpMessages(),
+              ...this.parkedPrompts.map((parked) => String(parked.message ?? "")),
+            ],
           },
           contextUsage: contextUsage
             ? { percent: contextUsage.percent, contextWindow: contextUsage.contextWindow, tokens: contextUsage.tokens }
@@ -861,8 +998,18 @@ export class AgentSessionWrapper {
 
       case "clear_queue": {
         // Full clear only: pi has no single-item dequeue, and clear+requeue
-        // races against the agent loop pulling messages mid-flight.
-        return this.inner.clearQueue();
+        // races against the agent loop pulling messages mid-flight. Parked
+        // prompts clear with the same gesture; their texts return so the UI
+        // recall flow can restore them into the composer.
+        const parkedTexts = this.parkedPrompts.map((parked) => String(parked.message ?? ""));
+        this.parkedPrompts = [];
+        const cleared = await this.inner.clearQueue();
+        if (parkedTexts.length === 0) return cleared;
+        const result = (cleared ?? {}) as { steering?: string[]; followUp?: string[] };
+        return {
+          steering: [...(result.steering ?? [])],
+          followUp: [...(result.followUp ?? []), ...parkedTexts],
+        };
       }
 
       case "steer": {
@@ -1110,7 +1257,7 @@ export class AgentSessionWrapper {
       widgetKey: key,
       widgetLines: undefined,
       widgetPlacement: undefined,
-    } as ExtensionUiRequest as AgentEvent);
+    } as ExtensionUiRequest);
   }
 
   private clearExtensionWidget(key: string, emitClear = true): number {
@@ -1226,7 +1373,7 @@ export class AgentSessionWrapper {
       widgetKey: active.key,
       widgetLines,
       widgetPlacement: active.placement,
-    } as ExtensionUiRequest as AgentEvent);
+    } as ExtensionUiRequest);
   }
 
   private setExtensionWidgetFactory(
@@ -1286,9 +1433,24 @@ export class AgentSessionWrapper {
     const resolved = typeof overlayOptions === "function" ? overlayOptions() : overlayOptions;
     if (!resolved || typeof resolved !== "object") return DEFAULT_CUSTOM_UI_COLUMNS;
     const width = (resolved as { width?: unknown }).width;
-    return typeof width === "number" && Number.isFinite(width)
-      ? Math.max(40, Math.min(140, Math.round(width)))
-      : 92;
+    if (typeof width === "number" && Number.isFinite(width)) {
+      return Math.max(40, Math.min(140, Math.round(width)));
+    }
+    // Percentage widths (e.g. ask_user_question's "100%") mean "as wide as the
+    // host panel". The browser custom panel is min(920px, 100%) with 13px mono
+    // text (~114 columns) — map "100%" to 110 so wide layouts (ask_user's
+    // side-by-side preview needs ≥100 columns) activate without overflowing.
+    if (width === "100%") return 110;
+    return DEFAULT_CUSTOM_UI_COLUMNS;
+  }
+
+  /** True when the overlay declares itself an interactive blocking dialog (ask_user_question) via overlayOptions.awaiting. */
+  private isAwaitingCustomUi(options: unknown): boolean {
+    if (!options || typeof options !== "object") return false;
+    const overlayOptions = (options as { overlayOptions?: unknown }).overlayOptions;
+    const resolved = typeof overlayOptions === "function" ? overlayOptions() : overlayOptions;
+    return Boolean(resolved) && typeof resolved === "object"
+      && (resolved as { awaiting?: unknown }).awaiting === true;
   }
 
   private emitCustomUiRender(id: string, custom: ActiveCustomUi): void {
@@ -1298,12 +1460,31 @@ export class AgentSessionWrapper {
     } catch (error) {
       lines = [`Extension custom UI render failed: ${error instanceof Error ? error.message : String(error)}`];
     }
+    // 交互面（可选能力）：组件声明当前可点按动作，网页端渲染成触控按钮，
+    // 点按走 handleExtensionUiInput 同一条输入通道（与键盘归一）。
+    let actions: ExtensionUiAction[] | undefined;
+    try {
+      const declared = custom.component.getActions?.();
+      if (Array.isArray(declared) && declared.length > 0) {
+        actions = declared.filter(
+          (a): a is ExtensionUiAction =>
+            typeof a?.label === "string" &&
+            typeof a?.data === "string" &&
+            a.label !== "" &&
+            a.data !== "",
+        );
+      }
+    } catch {
+      // 交互面是可选能力，失败不影响 ANSI 预览
+    }
     const event = {
-      type: "extension_ui_request",
+      type: "extension_ui_request" as const,
       id,
-      method: "custom",
+      method: "custom" as const,
       lines,
-    } as ExtensionUiRequest as AgentEvent;
+      ...(actions ? { actions } : {}),
+      ...(custom.awaiting ? { awaiting: true as const } : {}),
+    } as ExtensionUiRequest;
     this.pendingUiRequests.set(id, event);
     this.emit(event);
   }
@@ -1325,7 +1506,7 @@ export class AgentSessionWrapper {
       method: "custom",
       lines: [],
       closed: true,
-    } as ExtensionUiRequest as AgentEvent);
+    } as ExtensionUiRequest);
     custom.resolve(value);
   }
 
@@ -1357,6 +1538,7 @@ export class AgentSessionWrapper {
 
     const id = randomUUID();
     const width = this.getCustomUiWidth(options);
+    const awaiting = this.isAwaitingCustomUi(options);
 
     return new Promise<T>((resolve, reject) => {
       let completed = false;
@@ -1402,6 +1584,7 @@ export class AgentSessionWrapper {
           const custom: ActiveCustomUi = {
             component: component as CustomUiComponent,
             width,
+            awaiting,
             resolve: (value) => finish(value as T),
             settled: false,
           };
@@ -1509,7 +1692,7 @@ export class AgentSessionWrapper {
           method: "notify",
           message,
           notifyType: type,
-        } as ExtensionUiRequest as AgentEvent);
+        } as ExtensionUiRequest);
       },
       onTerminalInput: () => () => {},
       setStatus: (key, text) => {
@@ -1521,7 +1704,7 @@ export class AgentSessionWrapper {
           method: "setStatus",
           statusKey: key,
           statusText: text,
-        } as ExtensionUiRequest as AgentEvent);
+        } as ExtensionUiRequest);
       },
       setWorkingMessage: () => {},
       setWorkingVisible: () => {},
@@ -1530,6 +1713,9 @@ export class AgentSessionWrapper {
       setWidget: (key, content, options) => {
         if (!this._alive || this.extensionWidgetsResetting) return;
         if (typeof content === "function") {
+          // SAFETY: the SDK's setWidget `content` union has already narrowed to
+          // a function here; its signature is structurally the widget factory
+          // setExtensionWidgetFactory expects (verified against the SDK types).
           this.setExtensionWidgetFactory(
             key,
             content as unknown as ExtensionWidgetFactory,
@@ -1558,7 +1744,7 @@ export class AgentSessionWrapper {
           widgetKey: key,
           widgetLines: content,
           widgetPlacement: options?.placement,
-        } as ExtensionUiRequest as AgentEvent);
+        } as ExtensionUiRequest);
       },
       setFooter: () => {},
       setHeader: () => {},
@@ -1568,7 +1754,7 @@ export class AgentSessionWrapper {
           id: randomUUID(),
           method: "setTitle",
           title,
-        } as ExtensionUiRequest as AgentEvent);
+        } as ExtensionUiRequest);
       },
       custom: <T = unknown>(factory: unknown, options?: unknown) => this.requestExtensionCustomUi<T>(factory, options),
       pasteToEditor: (text) => {
@@ -1577,7 +1763,7 @@ export class AgentSessionWrapper {
           id: randomUUID(),
           method: "set_editor_text",
           text,
-        } as ExtensionUiRequest as AgentEvent);
+        } as ExtensionUiRequest);
       },
       setEditorText: (text) => {
         this.emit({
@@ -1585,7 +1771,7 @@ export class AgentSessionWrapper {
           id: randomUUID(),
           method: "set_editor_text",
           text,
-        } as ExtensionUiRequest as AgentEvent);
+        } as ExtensionUiRequest);
       },
       getEditorText: () => "",
       addAutocompleteProvider: () => {},
@@ -1753,7 +1939,12 @@ export async function setRpcSessionTools(
   if (!existing?.isAlive()) {
     if (!sessionFile) throw new Error("Session not found");
     const manager = SessionManager.open(sessionFile, undefined);
-    if (readSubagentSessionResources(manager.getEntries() as unknown as SessionEntry[])) {
+    if (
+      readSubagentSessionResources(
+        // SAFETY: SDK getEntries() entries structurally mirror lib/pi-types SessionEntry[]; the double assertion only bridges the SDK generic.
+        manager.getEntries() as unknown as SessionEntry[],
+      )
+    ) {
       throw new Error("Subagent tool selection is fixed by its profile");
     }
     appendSessionToolSelection(manager, toolNames);
@@ -1763,7 +1954,12 @@ export async function setRpcSessionTools(
   }
 
   if (existing.isRunning()) throw new Error("Cannot change tools while the session is running");
-  if (readSubagentSessionResources(existing.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
+  if (
+    readSubagentSessionResources(
+      // SAFETY: same structural mirror — SDK entries vs lib/pi-types SessionEntry[].
+      existing.inner.sessionManager.getEntries() as unknown as SessionEntry[],
+    )
+  ) {
     throw new Error("Subagent tool selection is fixed by its profile");
   }
 
@@ -1832,6 +2028,8 @@ export function getRpcSessionInfos(): SessionInfo[] {
 
     const manager = session.inner.sessionManager;
     const header = manager.getHeader();
+    // SAFETY: structural mirror — SDK entry shapes vs the local loose entry /
+    // SessionMessageEntry unions; only .type / .timestamp / .message are read.
     const entries = manager.getEntries() as unknown as Array<
       { type: string; timestamp: string } | SessionMessageEntry
     >;
@@ -1839,6 +2037,7 @@ export function getRpcSessionInfos(): SessionInfo[] {
     const firstUserMessage = messages.find((entry) => entry.message.role === "user");
     const sessionFile = manager.getSessionFile() ?? session.sessionFile;
     const persisted = Boolean(sessionFile && existsSync(sessionFile));
+    // SAFETY: same structural mirror — see the entries assertion above.
     const subagent = readSubagentRun(entries as unknown as SessionEntry[], header?.id ?? session.sessionId, sessionFile ?? "");
 
     // An ensure_session call creates an idle, empty runtime while the composer
@@ -1915,6 +2114,17 @@ export function getCompletionNotificationSuppressedRpcSessionIds(): string[] {
   return [...ids];
 }
 
+/** Sessions whose agent is blocked on an extension ui_request (e.g. ask_user_question) awaiting user input. */
+export function getAwaitingInputRpcSessionIds(): string[] {
+  const ids = new Set<string>();
+  for (const [sessionId, session] of getRegistry()) {
+    if (session.isRunning() && session.hasPendingUiRequests()) {
+      ids.add(session.sessionId || sessionId);
+    }
+  }
+  return [...ids];
+}
+
 /**
  * Get or create an AgentSession for the given session.
  * For new sessions (sessionFile === ""), pi generates its own id.
@@ -1951,12 +2161,16 @@ export async function startRpcSession(
   const sessionCwd = sessionManager.getCwd();
   const subagentResources = sessionFile
     ? readSubagentSessionResources(
+        // SAFETY: structural mirror — SDK entries vs lib/pi-types SessionEntry[].
         sessionManager.getEntries() as unknown as SessionEntry[],
       )
     : null;
   const persistedToolNames = subagentResources
     ? undefined
-    : readSessionToolSelection(sessionManager.getEntries() as unknown as SessionEntry[]);
+    : readSessionToolSelection(
+        // SAFETY: same structural mirror as above.
+        sessionManager.getEntries() as unknown as SessionEntry[],
+      );
   const selectedToolNames = subagentResources?.tools ?? persistedToolNames ?? requestedToolNames;
   if (!subagentResources && persistedToolNames === undefined && requestedToolNames !== undefined) {
     appendSessionToolSelection(sessionManager, requestedToolNames);

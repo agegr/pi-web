@@ -718,6 +718,45 @@ pre, code {
 .compaction-file-list li + li {
   margin-top: 3px;
 }
+.compaction-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  cursor: pointer;
+  text-align: left;
+}
+.compaction-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.compaction-toggle[aria-expanded="true"] {
+  border-bottom: 1px solid var(--border);
+}
+.compaction-file-list li:has(> .compaction-file-link) {
+  padding: 0;
+}
+.compaction-file-link {
+  display: block;
+  width: 100%;
+  padding: 1px 3px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.compaction-file-link:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+  text-decoration: underline;
+}
 
 .markdown-code-block {
   position: relative;
@@ -1538,4 +1577,51 @@ span.token.table {
   .chat-input-textarea {
     font-size: max(16px, var(--chat-content-font-size, 14px)) !important;
   }
+}
+
+/* ask_user_question structured options (ChatWindow ExtensionDialog).
+ * Inline styles own the resting layout; these classes own the hover/focus
+ * states and the per-option preview expansion, which inline styles cannot
+ * express. Preview blocks stay hidden until the row is hovered or focused
+ * (keyboard navigation focuses rows, so arrow keys reveal previews too). */
+.ask-option {
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+.ask-option:hover,
+.ask-option:focus-visible {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+.ask-option-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  transition: border-color 0.12s ease, color 0.12s ease;
+}
+.ask-option:hover .ask-option-badge,
+.ask-option:focus-visible .ask-option-badge {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ask-option .ask-option-preview {
+  display: none;
+}
+.ask-option:hover .ask-option-preview,
+.ask-option:focus-visible .ask-option-preview {
+  display: block;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  max-height: 220px;
+  overflow-y: auto;
 }

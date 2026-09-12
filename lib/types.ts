@@ -114,6 +114,18 @@ export interface BashExecutionMessage {
 
 export type AgentMessage = UserMessage | AssistantMessage | ToolResultMessage | CustomMessage | BashExecutionMessage;
 
+/** 触控动作（交互面声明）：custom UI 组件可选暴露，网页端渲染成可点控件。 */
+export interface ExtensionUiAction {
+  label: string;
+  /** 点按后作为终端输入发回组件 handleInput 的字符串。 */
+  data: string;
+  kind?: "option" | "custom" | "submit" | "tab";
+  checked?: boolean;
+  active?: boolean;
+  /** 组件渲染输出中的行号（组件自己记录）：有值则网页端把该行直接渲染为可点行，无值则退回底部按钮。 */
+  row?: number;
+}
+
 export type ExtensionUiRequest =
   | {
       type: "extension_ui_request";
@@ -190,6 +202,10 @@ export type ExtensionUiRequest =
       id: string;
       method: "custom";
       lines: string[];
+      /** 组件可选暴露的触控动作（每次渲染后重算）；无则省略。 */
+      actions?: ExtensionUiAction[];
+      /** 交互式阻塞对话框（如 ask_user_question）标记：宿主应计入 awaiting-input 状态并默认展开面板；被动 toast/footer 不设此键。 */
+      awaiting?: true;
       closed?: boolean;
     };
 

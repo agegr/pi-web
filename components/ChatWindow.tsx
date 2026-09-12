@@ -2,8 +2,8 @@
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
-import { normalizeCustomPanelLines } from "@/lib/ansi";
+import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiAction, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
+import { normalizeCustomPanelLinesMapped } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
@@ -13,6 +13,7 @@ import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { AnsiText } from "./AnsiText";
+import { MarkdownBody } from "./MarkdownBody";
 import { useI18n } from "@/hooks/useI18n";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
 import { useDragDrop } from "@/hooks/useDragDrop";
@@ -276,6 +277,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
+    truncationBanner, setTruncationBanner,
     slashCommands, slashCommandsLoading, queuedMessages,
     notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, setNoticePaused,
     isAutoModelSelection,
@@ -292,6 +294,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   } = useAgentSession({
     session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
+    noticeTexts: {
+      extensionTurnStart: t("agent.extensionTurnStart"),
+      runAborted: t("agent.runAborted"),
+    },
     deferInitialScroll: Boolean(pendingScrollRestore),
   });
   const sessionBusy = agentRunning || bashRunning;
@@ -981,11 +987,26 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           <ExtensionCustomPanel key={extensionCustomUi.id} request={extensionCustomUi} onInput={sendExtensionCustomInput} />
         )}
         {!isEmptyNew && <>
+        {truncationBanner && (
+          <div style={{ position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)", zIndex: 30, width: "min(720px, calc(100% - 32px))" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10, background: "var(--bg-panel)", border: "1px solid #d97706", borderRadius: 8, padding: "8px 12px", boxShadow: "0 4px 16px rgba(0,0,0,0.35)" }}>
+              <span style={{ flex: 1, fontSize: 12.5, color: "var(--text)", lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{truncationBanner}</span>
+              <button
+                onClick={() => setTruncationBanner(null)}
+                aria-label="Dismiss"
+                style={{ color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 2, flexShrink: 0 }}
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        )}
         <div
           ref={scrollContainerRef}
           className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-width:none]"
           style={{ visibility: pendingScrollRestore ? "hidden" : undefined }}
         >
+
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
             <div ref={messageContentRef} onPointerUp={captureQuotedSelection} style={{ width: "100%", minWidth: 0, maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
             {(() => {
@@ -1196,9 +1217,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} />
             )}
 
-            {agentRunning && !hasStreamingContent && agentPhase && (
+            {(agentRunning || isCompacting) && !hasStreamingContent && (isCompacting || agentPhase) && (
               <div className="break-words py-2 text-[13px] text-text-muted">
-                <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t)}</span>
+                <span className="animate-[pulse_1.5s_infinite]">
+                  {isCompacting ? t("chat.compacting") : phaseLabel(agentPhase, t)}
+                </span>
               </div>
             )}
 
@@ -1446,8 +1469,72 @@ function NoticeShelf({ notices, floating = false, onPauseChange }: { notices: No
 
 type ExtensionDialogRequest = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>;
 
+/**
+ * Structured rendering for ask_user_question's RPC fallback (pi-web runs in RPC
+ * mode, so that extension folds each option into `"N. label — description"`
+ * (em-dash U+2014, see rpiv-ask-user-question/rpc-fallback.ts formatOptionLine)
+ * and any option previews into the select title as `--- N. label preview ---`
+ * blocks. Detect those shapes and render them with real hierarchy + markdown;
+ * everything else (other extensions' dialogs) keeps the legacy plain rendering.
+ * The response value always echoes the original option string, so presentation
+ * changes cannot break the dialog protocol.
+ */
+function parseStructuredOption(option: string): { label: string; description: string; recommended: boolean } | null {
+  const m = /^(\d+)\.\s+(.+?)\s+—\s+(.+)$/.exec(option);
+  if (!m) return null;
+  // ask_user_question's convention: a recommended option carries a literal
+  // "(Recommended)" suffix on its label; strip it and flag it for a badge.
+  const recommended = /\s*\((?:Recommended|推荐|推薦)\)\s*$/.test(m[2]);
+  return {
+    label: m[2].replace(/\s*\((?:Recommended|推荐|推薦)\)\s*$/, ""),
+    description: m[3],
+    recommended,
+  };
+}
+
+/** Split a dialog title into heading (first line), prose (remaining plain lines) and per-option preview markdown keyed by option number. */
+function splitDialogTitle(title: string): { heading: string; prose: string; previews: Map<number, string> } {
+  const lines = title.split("\n");
+  let previewFrom = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^---\s.+?\spreview\s---\s*$/.test(lines[i])) {
+      previewFrom = i;
+      break;
+    }
+  }
+  const headingSource = (previewFrom === -1 ? title : lines.slice(0, previewFrom).join("\n")).trimEnd();
+  const firstNl = headingSource.indexOf("\n");
+  const previews = new Map<number, string>();
+  if (previewFrom !== -1) {
+    // rpc-fallback folds each option's preview as `--- N. label preview ---`
+    // followed by the markdown body, up to the next separator or EOF.
+    let current: number | null = null;
+    const chunks = new Map<number, string[]>();
+    for (let i = previewFrom; i < lines.length; i++) {
+      const sep = /^---\s+(\d+)\..+?\spreview\s---\s*$/.exec(lines[i]);
+      if (sep) {
+        current = Number(sep[1]);
+        if (!chunks.has(current)) chunks.set(current, []);
+        continue;
+      }
+      if (current !== null) chunks.get(current)!.push(lines[i]);
+    }
+    for (const [num, chunk] of chunks) {
+      const body = chunk.join("\n").trim();
+      if (body) previews.set(num, body);
+    }
+  }
+  return {
+    heading: firstNl === -1 ? headingSource : headingSource.slice(0, firstNl),
+    prose: firstNl === -1 ? "" : headingSource.slice(firstNl + 1).trim(),
+    previews,
+  };
+}
+
 function getExtensionDialogSummary(request: ExtensionDialogRequest): string | undefined {
-  if (request.method === "select" && request.options.length > 0) return request.options[0];
+  if (request.method === "select" && request.options.length > 0) {
+    return parseStructuredOption(request.options[0])?.label ?? request.options[0];
+  }
   if (request.method === "confirm") {
     const firstLine = request.message.split("\n").find((line) => line.trim());
     return firstLine?.trim();
@@ -1467,6 +1554,7 @@ function ExtensionDialog({
   const [collapsed, setCollapsed] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const summary = getExtensionDialogSummary(request);
+  const dialogParts = useMemo(() => splitDialogTitle(request.title), [request.title]);
   const remainingSeconds = request.expiresAt === undefined
     ? null
     : Math.max(0, Math.ceil((request.expiresAt - now) / 1000));
@@ -1492,13 +1580,30 @@ function ExtensionDialog({
     }
   };
 
+  // Number-key quick select (TUI habit): pressing 1-9 in a select dialog
+  // submits that option immediately. Safe here because select dialogs hold
+  // no text input — the only keys typed are navigational.
+  const handleNumberKey = (event: React.KeyboardEvent) => {
+    if (request.method !== "select" || event.nativeEvent.isComposing) return;
+    if (!/^[1-9]$/.test(event.key)) return;
+    const index = Number(event.key) - 1;
+    if (index >= request.options.length) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onRespond(request, { value: request.options[index] });
+  };
+
   return (
     <div
       onKeyDown={(event) => {
-        if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
-        event.preventDefault();
-        event.stopPropagation();
-        onRespond(request, { cancelled: true });
+        if (event.nativeEvent.isComposing) return;
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          onRespond(request, { cancelled: true });
+          return;
+        }
+        handleNumberKey(event);
       }}
       style={{
         position: "absolute",
@@ -1555,7 +1660,7 @@ function ExtensionDialog({
         aria-label={request.title}
         style={{
           pointerEvents: "auto",
-          width: "min(560px, 100%)",
+          width: "min(720px, 100%)",
           maxHeight: "min(760px, 100%)",
           display: "flex",
           flexDirection: "column",
@@ -1568,9 +1673,15 @@ function ExtensionDialog({
       >
         <div style={{ flexShrink: 0, display: "flex", alignItems: "flex-start", gap: 8, padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650 }}>{request.title}</div>
+            <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650, overflowWrap: "anywhere" }}>{dialogParts.heading}</div>
+            {dialogParts.prose && (
+              <div style={{ color: "var(--text-muted)", fontSize: 12.5, lineHeight: 1.55, whiteSpace: "pre-wrap", marginTop: 4, overflowWrap: "anywhere" }}>{dialogParts.prose}</div>
+            )}
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>
               <span>{t("chat.extensionRequest")}</span>
+              {request.method === "select" && request.options.length > 0 && (
+                <span>{t("chat.extensionNumberHint", { count: request.options.length })}</span>
+              )}
               {countdown}
             </div>
           </div>
@@ -1622,29 +1733,73 @@ function ExtensionDialog({
                 buttons[next].focus({ preventScroll: true });
                 buttons[next].scrollIntoView({ block: "nearest" });
               }}
-              style={{ display: "grid", gap: 8 }}
+              style={{ display: "grid", gap: 6 }}
             >
-              {request.options.map((option, index) => (
-                <button
-                  key={option}
-                  autoFocus={index === 0}
-                  onClick={() => onRespond(request, { value: option })}
-                  style={{
-                    width: "100%",
-                    padding: "9px 10px",
-                    borderRadius: 7,
-                    border: "1px solid var(--border)",
-                    background: "var(--bg-panel)",
-                    color: "var(--text)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    fontSize: 13,
-                    overflowWrap: "anywhere",
-                  }}
-                >
-                  {option}
-                </button>
-              ))}
+              {request.options.map((option, index) => {
+                const structured = parseStructuredOption(option);
+                const preview = dialogParts.previews.get(index + 1);
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    className="ask-option"
+                    autoFocus={index === 0}
+                    onClick={() => onRespond(request, { value: option })}
+                    title={structured ? `${structured.label}${structured.description ? ` — ${structured.description}` : ""}` : option}
+                    style={{
+                      width: "100%",
+                      padding: "7px 10px",
+                      borderRadius: 7,
+                      border: "1px solid var(--border)",
+                      background: "var(--bg-panel)",
+                      color: "var(--text)",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      fontSize: 14,
+                    }}
+                  >
+                    <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                      <span className="ask-option-badge">{index + 1}</span>
+                      <span
+                        style={{
+                          fontWeight: 600,
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          flex: "0 1 auto",
+                          minWidth: 0,
+                        }}
+                      >
+                        {structured?.label ?? option}
+                      </span>
+                      {structured?.recommended && (
+                        <span style={{ flexShrink: 0, fontSize: 10.5, color: "var(--accent)", fontFamily: "var(--font-mono)" }}>★</span>
+                      )}
+                      {structured?.description && (
+                        <span
+                          style={{
+                            flex: "1 1 40%",
+                            minWidth: 0,
+                            fontSize: 12.5,
+                            lineHeight: 1.4,
+                            color: "var(--text-muted)",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          · {structured.description}
+                        </span>
+                      )}
+                    </span>
+                    {preview && (
+                      <span className="ask-option-preview">
+                        <MarkdownBody>{preview}</MarkdownBody>
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           )}
           {request.method === "input" && (
@@ -1757,9 +1912,21 @@ function ExtensionCustomPanel({
   const { t } = useI18n();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const composingRef = useRef(false);
-  const [collapsed, setCollapsed] = useState(false);
-  const displayLines = normalizeCustomPanelLines(request.lines);
+  // Default to the collapsed pill for passive overlays (toasts, footer status
+  // displays) — opening a 920px modal for decoration would block the chat.
+  // Interactive dialogs expand by default: those marked overlayOptions.awaiting
+  // (ask_user_question) or declaring touch actions (mobile buttons).
+  const [collapsed, setCollapsed] = useState(() => !(request.awaiting || request.actions?.length));
+  const { lines: displayLines, indexMap } = normalizeCustomPanelLinesMapped(request.lines);
   const summary = displayLines.find((line) => line.trim())?.trim();
+  // 触控行点按：带行号的动作映射到显示行（去框线/裁空行后换算）；无行号退回底部按钮
+  const rowActionByDisplay = new Map<number, ExtensionUiAction>();
+  const barActions: ExtensionUiAction[] = [];
+  for (const action of request.actions ?? []) {
+    const display = action.row === undefined ? -1 : indexMap.indexOf(action.row);
+    if (display >= 0) rowActionByDisplay.set(display, action);
+    else barActions.push(action);
+  }
 
   useEffect(() => {
     if (!collapsed) inputRef.current?.focus();
@@ -1926,7 +2093,7 @@ function ExtensionCustomPanel({
             </button>
           </div>
         </div>
-        <pre
+        <div
           style={{
             margin: 0,
             padding: 14,
@@ -1937,11 +2104,94 @@ function ExtensionCustomPanel({
             fontFamily: "var(--font-mono)",
             fontSize: 13,
             lineHeight: 1.45,
-            whiteSpace: "pre",
           }}
         >
-          <AnsiText text={displayLines.join("\n")} />
-        </pre>
+          <style>{[
+            ".ext-tap-row{cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;user-select:none}",
+            ".ext-tap-row:hover{background:rgba(96,165,250,.12)}",
+            ".ext-tap-row:active{background:rgba(96,165,250,.22)}",
+          ].join("")}</style>
+          {displayLines.map((line, i) => {
+            const action = rowActionByDisplay.get(i);
+            const content = line.length === 0 ? "\u00A0" : line;
+            if (!action) {
+              return (
+                <div key={i} style={{ whiteSpace: "pre" }}>
+                  <AnsiText text={content} />
+                </div>
+              );
+            }
+            return (
+              <div
+                key={i}
+                className="ext-tap-row"
+                role="button"
+                aria-label={action.label}
+                title={action.label}
+                onClick={() => {
+                  onInput(request, action.data);
+                  // 自定义答案：进入编辑后马上要打字，焦点回到输入捕获层
+                  if (action.kind === "custom") inputRef.current?.focus();
+                }}
+                style={{ whiteSpace: "pre", borderRadius: 4, margin: "0 -14px", padding: "0 14px" }}
+              >
+                <AnsiText text={content} />
+              </div>
+            );
+          })}
+        </div>
+        {barActions.length ? (
+          <div
+            style={{
+              flexShrink: 0,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              padding: "10px 12px",
+              borderTop: "1px solid var(--border)",
+              background: "var(--bg)",
+            }}
+          >
+            {barActions.map((action) => (
+              <button
+                key={`${action.kind ?? "action"}:${action.label}:${action.data}`}
+                type="button"
+                onClick={() => {
+                  onInput(request, action.data);
+                  // 自定义答案：进入编辑后马上要打字，焦点回到输入捕获层
+                  if (action.kind === "custom") inputRef.current?.focus();
+                }}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  minHeight: action.kind === "tab" ? 32 : 40,
+                  padding: action.kind === "tab" ? "4px 10px" : "8px 14px",
+                  borderRadius: 8,
+                  border: `1px solid ${action.checked ? "var(--accent)" : "var(--border)"}`,
+                  background:
+                    action.kind === "submit" ? "var(--accent)" : "var(--bg-panel)",
+                  color: action.kind === "submit" ? "#fff" : "var(--text)",
+                  fontWeight: action.kind === "submit" ? 650 : 400,
+                  fontSize: action.kind === "tab" ? 12 : 13,
+                  cursor: "pointer",
+                  maxWidth: "100%",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+                title={action.label}
+              >
+                {action.checked ? (
+                  <span aria-hidden style={{ color: "var(--accent)", fontSize: 12, flexShrink: 0 }}>
+                    ✓
+                  </span>
+                ) : null}
+                {action.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
       )}
     </div>

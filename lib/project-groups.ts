@@ -29,17 +29,21 @@ export function getProjectActivity(
   sessions: readonly SessionInfo[],
   runningSessionIds: ReadonlySet<string>,
   unreadSessionIds: ReadonlySet<string>,
-): Map<string, { running: number; unread: number }> {
-  const counts = new Map<string, { running: number; unread: number }>();
+  awaitingInputSessionIds?: ReadonlySet<string>,
+): Map<string, { running: number; awaiting: number; unread: number }> {
+  const counts = new Map<string, { running: number; awaiting: number; unread: number }>();
   for (const session of sessions) {
     const key = workspaceKeyOf(session);
     if (!key) continue;
     let entry = counts.get(key);
     if (!entry) {
-      entry = { running: 0, unread: 0 };
+      entry = { running: 0, awaiting: 0, unread: 0 };
       counts.set(key, entry);
     }
-    if (runningSessionIds.has(session.id)) entry.running++;
+    // Awaiting sessions are a strict subset of running; count them separately
+    // so the spinner count reflects sessions actually doing work.
+    if (awaitingInputSessionIds?.has(session.id)) entry.awaiting++;
+    else if (runningSessionIds.has(session.id)) entry.running++;
     if (unreadSessionIds.has(session.id)) entry.unread++;
   }
   return counts;

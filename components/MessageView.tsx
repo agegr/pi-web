@@ -8,6 +8,7 @@ import { ThinkingIcon } from "./ThinkingIcon";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
+import { resolveLocalFilePath } from "@/lib/file-links";
 import { getAssistantErrorMessage, getThinkingPreview, isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
 import { isEditToolName } from "@/lib/tool-names";
@@ -265,7 +266,7 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
   }
   if (message.role === "custom") {
     if ((message as CustomMessage).customType === "compaction") {
-      return <CompactionMessageView message={message as CustomMessage} />;
+      return <CompactionMessageView message={message as CustomMessage} cwd={cwd} onOpenFile={onOpenFile} />;
     }
     return <CustomMessageView message={message as CustomMessage} cwd={cwd} onOpenFile={onOpenFile} />;
   }
@@ -342,6 +343,8 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
       {imageBlocks.map((img, i) => {
         // lib/types.ts ImageContent uses {source:{type,data,media_type,url}}
         // pi-ai on-disk format uses flat {data, mimeType} — handle both
+        // SAFETY: legacy pi-ai image blocks stored the fields flat; the cast
+        // only reads optional fields and falls through to "" when absent.
         const flat = img as unknown as { data?: string; mimeType?: string };
         const src = img.source
           ? img.source.type === "base64"
@@ -1417,11 +1420,16 @@ function PairedResult({ text, images, isEmpty, isError }: {
   );
 }
 
-function CompactionMessageView({ message }: { message: CustomMessage }) {
+function CompactionMessageView({ message, cwd, onOpenFile }: { message: CustomMessage; cwd?: string; onOpenFile?: (filePath: string) => void }) {
   const { t } = useI18n();
   const summary = getMessageText(message.content);
   const parsedSummary = useMemo(() => parseCompactionSummary(summary), [summary]);
+  const [expanded, setExpanded] = useState(false);
   const time = formatTime(message.timestamp);
+
+  const countParts: string[] = [];
+  if (parsedSummary.readFiles.length > 0) countParts.push(t("i18n.compactFilesReadCount", { count: parsedSummary.readFiles.length }));
+  if (parsedSummary.modifiedFiles.length > 0) countParts.push(t("i18n.compactFilesModifiedCount", { count: parsedSummary.modifiedFiles.length }));
 
   return (
     <div style={{ marginBottom: 16 }}>
@@ -1433,68 +1441,95 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
           background: "var(--bg)",
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "7px 10px",
-            borderBottom: "1px solid var(--border)",
-            background: "var(--bg-panel)",
-            color: "var(--text-muted)",
-          }}
+        <button
+          type="button"
+          className="compaction-toggle"
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+          title={expanded ? t("i18n.compactionCollapse") : t("i18n.compactionExpand")}
+          aria-label={expanded ? t("i18n.compactionCollapse") : t("i18n.compactionExpand")}
         >
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 650 }}>
             compaction
           </span>
-          {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}>{time}</span>}
-        </div>
-
-        <div style={{ padding: "11px 13px 12px" }}>
-          <div style={{ color: "var(--text)", fontSize: "calc(15px + var(--chat-font-size-offset, 0px))", fontWeight: 700, lineHeight: 1.35 }}>
-             {t("i18n.conversationCompacted")}
-          </div>
-          <div style={{ marginTop: 3, marginBottom: 10, color: "var(--text)", fontSize: "calc(14px + var(--chat-font-size-offset, 0px))", lineHeight: 1.5 }}>
-             {t("i18n.compactionDescription")}
-          </div>
-          {parsedSummary.body ? (
-            <MarkdownBody className="markdown-compaction-message">{parsedSummary.body}</MarkdownBody>
-          ) : (
-             <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noSummary")}</span>
+          <span style={{ fontSize: 12 }}>{t("i18n.conversationCompacted")}</span>
+          {countParts.length > 0 && (
+            <span style={{ color: "var(--text-dim)", fontSize: 11 }}>{countParts.join(" · ")}</span>
           )}
-          <CompactionFileMetadata readFiles={parsedSummary.readFiles} modifiedFiles={parsedSummary.modifiedFiles} />
-        </div>
+          {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10, flexShrink: 0 }}>{time}</span>}
+          <svg
+            width={10}
+            height={10}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s", flexShrink: 0 }}
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
+        {expanded && (
+          <div style={{ padding: "11px 13px 12px" }}>
+            <div style={{ color: "var(--text)", fontSize: "calc(15px + var(--chat-font-size-offset, 0px))", fontWeight: 700, lineHeight: 1.35 }}>
+               {t("i18n.conversationCompacted")}
+            </div>
+            <div style={{ marginTop: 3, marginBottom: 10, color: "var(--text)", fontSize: "calc(14px + var(--chat-font-size-offset, 0px))", lineHeight: 1.5 }}>
+               {t("i18n.compactionDescription")}
+            </div>
+            {parsedSummary.body ? (
+              <MarkdownBody className="markdown-compaction-message">{parsedSummary.body}</MarkdownBody>
+            ) : (
+               <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noSummary")}</span>
+            )}
+            <CompactionFileMetadata readFiles={parsedSummary.readFiles} modifiedFiles={parsedSummary.modifiedFiles} cwd={cwd} onOpenFile={onOpenFile} />
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function CompactionFileMetadata({ readFiles, modifiedFiles }: { readFiles: string[]; modifiedFiles: string[] }) {
+function CompactionFileMetadata({ readFiles, modifiedFiles, cwd, onOpenFile }: { readFiles: string[]; modifiedFiles: string[]; cwd?: string; onOpenFile?: (filePath: string) => void }) {
   const { t } = useI18n();
   const total = readFiles.length + modifiedFiles.length;
   if (total === 0) return null;
 
   const parts = [];
-  if (readFiles.length > 0) parts.push(`${readFiles.length} read`);
-  if (modifiedFiles.length > 0) parts.push(`${modifiedFiles.length} modified`);
+  if (readFiles.length > 0) parts.push(t("i18n.compactFilesReadCount", { count: readFiles.length }));
+  if (modifiedFiles.length > 0) parts.push(t("i18n.compactFilesModifiedCount", { count: modifiedFiles.length }));
 
   return (
     <details className="compaction-file-details">
        <summary>{t("i18n.fileContext", { details: parts.join(", ") })}</summary>
-       {modifiedFiles.length > 0 && <CompactionFileList title={t("i18n.modifiedFiles")} files={modifiedFiles} />}
-       {readFiles.length > 0 && <CompactionFileList title={t("i18n.readFiles")} files={readFiles} />}
+       {modifiedFiles.length > 0 && <CompactionFileList title={t("i18n.modifiedFiles")} files={modifiedFiles} cwd={cwd} onOpenFile={onOpenFile} />}
+       {readFiles.length > 0 && <CompactionFileList title={t("i18n.readFiles")} files={readFiles} cwd={cwd} onOpenFile={onOpenFile} />}
     </details>
   );
 }
 
-function CompactionFileList({ title, files }: { title: string; files: string[] }) {
+function CompactionFileList({ title, files, cwd, onOpenFile }: { title: string; files: string[]; cwd?: string; onOpenFile?: (filePath: string) => void }) {
+  const openFile = (file: string) => {
+    onOpenFile?.(resolveLocalFilePath(file, cwd) ?? file);
+  };
+
   return (
     <div className="compaction-file-section">
       <div className="compaction-file-title">{title}</div>
       <ul className="compaction-file-list">
-        {files.map((file) => (
-          <li key={file}>{file}</li>
-        ))}
+        {files.map((file) =>
+          onOpenFile ? (
+            <li key={file}>
+              <button type="button" className="compaction-file-link" title={file} onClick={() => openFile(file)}>
+                {file}
+              </button>
+            </li>
+          ) : (
+            <li key={file}>{file}</li>
+          )
+        )}
       </ul>
     </div>
   );
@@ -1678,6 +1713,8 @@ function getMessageImages(content: CustomMessage["content"] | UserMessage["conte
 }
 
 function imageSource(img: ImageContent): string {
+  // SAFETY: legacy pi-ai image blocks stored the fields flat; the cast only
+  // reads optional fields and the expression falls back to "" when absent.
   const flat = img as unknown as { data?: string; mimeType?: string };
   if (img.source) {
     return img.source.type === "base64"

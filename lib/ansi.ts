@@ -56,10 +56,23 @@ function trimEndVisibleSpaces(text: string): string {
 }
 
 export function normalizeCustomPanelLines(lines: string[]): string[] {
+  return normalizeCustomPanelLinesMapped(lines).lines;
+}
+
+/**
+ * 同 normalizeCustomPanelLines，但附带 indexMap：displayLines[i] 来自原始 lines[indexMap[i]]。
+ * 供触控行点按把「组件声明的原始行号」映射到「去框线/裁首尾空行后的显示行号」。
+ */
+export function normalizeCustomPanelLinesMapped(lines: string[]): {
+  lines: string[];
+  indexMap: number[];
+} {
   const horizontalFrameLine = /^[┌├└╭╰][─┬┴┼]+[┐┤┘╮╯]$/;
   const normalized: string[] = [];
+  const indexMap: number[] = [];
 
-  for (const rawLine of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i]!;
     const lineWithoutCursor = rawLine.replace(TUI_CURSOR_MARKER_RE, "");
     const plain = stripAnsi(lineWithoutCursor).trimEnd();
     if (horizontalFrameLine.test(plain)) continue;
@@ -78,9 +91,21 @@ export function normalizeCustomPanelLines(lines: string[]): string[] {
     }
 
     normalized.push(trimEndVisibleSpaces(line));
+    indexMap.push(i);
   }
 
-  while (normalized.length > 0 && stripAnsi(normalized[0]).trim() === "") normalized.shift();
-  while (normalized.length > 0 && stripAnsi(normalized[normalized.length - 1]).trim() === "") normalized.pop();
-  return normalized.length ? normalized : lines;
+  while (normalized.length > 0 && stripAnsi(normalized[0]).trim() === "") {
+    normalized.shift();
+    indexMap.shift();
+  }
+  while (
+    normalized.length > 0 &&
+    stripAnsi(normalized[normalized.length - 1]!).trim() === ""
+  ) {
+    normalized.pop();
+    indexMap.pop();
+  }
+  if (normalized.length) return { lines: normalized, indexMap };
+  // 全空防御：退回原始行，映射恒等
+  return { lines, indexMap: lines.map((_, i) => i) };
 }

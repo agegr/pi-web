@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const source = await readFile(new URL("./useAgentSession.ts", import.meta.url), "utf8");
-const chatWindowSource = await readFile(new URL("../components/ChatWindow.tsx", import.meta.url), "utf8");
-const chatInputSource = await readFile(new URL("../components/ChatInput.tsx", import.meta.url), "utf8");
-const appShellSource = await readFile(new URL("../components/AppShell.tsx", import.meta.url), "utf8");
+const readSource = (path) =>
+  readFile(new URL(path, import.meta.url), "utf8").then((s) => s.replace(/\r\n/g, "\n"));
+const source = await readSource("./useAgentSession.ts");
+const chatWindowSource = await readSource("../components/ChatWindow.tsx");
+const chatInputSource = await readSource("../components/ChatInput.tsx");
+const appShellSource = await readSource("../components/AppShell.tsx");
 
 test("keeps the session event stream open through the idle grace window", () => {
   const finishSource = source.slice(
@@ -265,7 +267,7 @@ test("delegates event stream readiness and hides an empty agent phase", () => {
   assert.match(ensureSource, /eventConnectionRef\.current!\.maintain\(sid\)/);
   assert.match(chatWindowSource, /const hasStreamingContent = Boolean\(streamState\.streamingMessage\?\.content\.length\)/);
   assert.match(chatWindowSource, /streamState\.isStreaming && hasStreamingContent && streamState\.streamingMessage/);
-  assert.match(chatWindowSource, /agentRunning && !hasStreamingContent && agentPhase/);
+  assert.match(chatWindowSource, /\(agentRunning \|\| isCompacting\) && !hasStreamingContent && \(isCompacting \|\| agentPhase\)/);
   assert.match(chatWindowSource, /return null;/);
 });
 
