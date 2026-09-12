@@ -51,3 +51,36 @@ export function sessionsForProject(
 ): SessionInfo[] {
   return sessions.filter((session) => workspaceKeyOf(session) === projectKey);
 }
+
+function normalizeWorkspacePathForBrowser(value: string): string {
+  const isWindowsPath = /^[a-zA-Z]:[\\/]/.test(value) || value.startsWith("\\\\");
+  const slashPath = value.replace(/\\/g, "/");
+  const rootLength = slashPath === "/"
+    ? 1
+    : /^[a-zA-Z]:\/$/.test(slashPath)
+      ? 3
+      : slashPath.startsWith("//")
+        ? 2
+        : 0;
+  let end = slashPath.length;
+  while (end > rootLength && slashPath[end - 1] === "/") end--;
+  const normalized = slashPath.slice(0, end);
+  return isWindowsPath ? normalized.toLowerCase() : normalized;
+}
+
+/** Browser-safe lexical comparison for server-normalized workspace paths. */
+export function sameWorkspacePath(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  if (!a || !b) return false;
+  return a === b || normalizeWorkspacePathForBrowser(a) === normalizeWorkspacePathForBrowser(b);
+}
+
+/** Sessions whose effective cwd is the selected top-level checkout. */
+export function sessionsForWorktree(
+  sessions: readonly SessionInfo[],
+  worktreePath: string,
+): SessionInfo[] {
+  return sessions.filter((session) => sameWorkspacePath(session.cwd, worktreePath));
+}
