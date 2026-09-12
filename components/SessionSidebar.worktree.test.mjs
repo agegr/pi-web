@@ -24,5 +24,6 @@ test("quick worktree buttons drive cwd selection and client-side session filteri
   assert.match(source, /setShowAllWorktreeSessions\(true\)/);
   assert.match(source, /hasRunning \? t\("sidebar\.agentRunning"\) : null/);
   assert.match(source, /hasUnread \? t\("sidebar\.newSessionActivity"\) : null/);
+  assert.match(source, /aria-label=\{`\$\{index \+ 1\}: \$\{label\}\$\{activityLabel/);
   assert.match(source, /hasRunning \? "var\(--accent\)" : "#0891b2"/);
 });

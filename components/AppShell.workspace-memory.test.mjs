@@ -131,6 +131,7 @@ test("New restores the draft after session navigation and workspace auto-restore
         fetch: () => response.promise,
         getLastOpenSession: (key) => key === cwd ? session.id : null,
         clearLastOpen() {},
+        sameWorkspacePath: (a, b) => a.replace(/\/$/, "") === b.replace(/\/$/, ""),
         workspaceKeyOf: (value) => value.projectKey ?? value.cwd,
         useCallback: (callback) => callback,
         useGlobalKeyboardShortcuts() {},

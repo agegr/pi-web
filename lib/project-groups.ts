@@ -53,13 +53,19 @@ export function sessionsForProject(
 }
 
 function normalizeWorkspacePathForBrowser(value: string): string {
+  const isWindowsPath = /^[a-zA-Z]:[\\/]/.test(value) || value.startsWith("\\\\");
   const slashPath = value.replace(/\\/g, "/");
-  const withoutTrailingSlash = slashPath.length > 1
-    ? slashPath.replace(/\/+$/, "")
-    : slashPath;
-  return /^[a-zA-Z]:\//.test(withoutTrailingSlash) || withoutTrailingSlash.startsWith("//")
-    ? withoutTrailingSlash.toLowerCase()
-    : withoutTrailingSlash;
+  const rootLength = slashPath === "/"
+    ? 1
+    : /^[a-zA-Z]:\/$/.test(slashPath)
+      ? 3
+      : slashPath.startsWith("//")
+        ? 2
+        : 0;
+  let end = slashPath.length;
+  while (end > rootLength && slashPath[end - 1] === "/") end--;
+  const normalized = slashPath.slice(0, end);
+  return isWindowsPath ? normalized.toLowerCase() : normalized;
 }
 
 /** Browser-safe lexical comparison for server-normalized workspace paths. */

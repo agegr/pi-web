@@ -617,6 +617,7 @@ export function AppShell() {
     setActiveCwd(cwd);
     // Skip if cwd is null (initial mount).
     if (!cwd) return;
+    const currentFreshCwdMatchesTarget = sameWorkspacePath(currentFreshCwd, cwd);
     const newProject = projectKey ?? projectRoot ?? cwd;
     const currentProject = activeProjectKeyRef.current
       ?? (selectedSession ? workspaceKeyOf(selectedSession) : null);
@@ -630,7 +631,7 @@ export function AppShell() {
     }
     // The server may hydrate a normalized key after a custom cwd is already
     // active. Updating identity for the exact same cwd is not a user switch.
-    if (currentFreshCwd === cwd && currentProject !== newProject) return;
+    if (currentFreshCwdMatchesTarget && currentProject !== newProject) return;
     // A worktree switch is a real cwd context change even inside one project.
     // Keep only a session/composer that already belongs to the target cwd;
     // otherwise park it and open the target worktree's fresh composer below.
@@ -639,7 +640,7 @@ export function AppShell() {
       : false;
     if (
       currentProject === newProject
-      && (selectedSessionMatchesCwd || (selectedSession === null && currentFreshCwd === cwd))
+      && (selectedSessionMatchesCwd || (selectedSession === null && currentFreshCwdMatchesTarget))
     ) {
       return;
     }
