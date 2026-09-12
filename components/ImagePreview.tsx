@@ -13,6 +13,8 @@ interface ImagePreviewProps {
 
 export function ImagePreview({ src, alt = "", children, className, style }: ImagePreviewProps) {
   const { t } = useI18n();
+  const previewLabel = t("chat.previewImage");
+  const triggerLabel = alt.trim() ? `${previewLabel}: ${alt}` : previewLabel;
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -59,10 +61,10 @@ export function ImagePreview({ src, alt = "", children, className, style }: Imag
           ...style,
         }}
         onClick={() => setOpen(true)}
-        aria-label={t("chat.previewImage")}
+        aria-label={triggerLabel}
         aria-haspopup="dialog"
         aria-expanded={open}
-        title={t("chat.previewImage")}
+        title={previewLabel}
       >
         {children}
       </button>
