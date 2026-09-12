@@ -81,7 +81,8 @@ lib/
   file-access.ts       allowed file roots for /api/files and worktrees
   file-paths.ts        client/server path encoding helpers
   markdown.ts          shared markdown helpers
-  npx.ts               npx runner used by skill install
+  npx.ts               npx runner used by skill install (npm-cli.js / npx-cli.js, no shell)
+  plugin-updates.ts    npm view update checks for /api/plugins/check
   pi-types.ts          local structural types for pi SDK objects
   rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
   session-reader.ts   SessionManager wrappers + path cache + buildSessionContext adapter
