@@ -22,5 +22,7 @@ test("quick worktree buttons drive cwd selection and client-side session filteri
     /showWorktreeSwitcher\s+&& !showAllWorktreeSessions\s+&& currentWorktreePath\s+\? sessionsForWorktree\(projectSessions, currentWorktreePath\)/,
   );
   assert.match(source, /setShowAllWorktreeSessions\(true\)/);
+  assert.match(source, /hasRunning \? t\("sidebar\.agentRunning"\) : null/);
+  assert.match(source, /hasUnread \? t\("sidebar\.newSessionActivity"\) : null/);
   assert.match(source, /hasRunning \? "var\(--accent\)" : "#0891b2"/);
 });

@@ -27,6 +27,7 @@ import { copyText } from "@/lib/clipboard";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
+import { sameWorkspacePath } from "@/lib/project-groups";
 import {
   claimExtensionAttentionNotification,
   shouldShowBrowserNotification,
@@ -633,7 +634,9 @@ export function AppShell() {
     // A worktree switch is a real cwd context change even inside one project.
     // Keep only a session/composer that already belongs to the target cwd;
     // otherwise park it and open the target worktree's fresh composer below.
-    const selectedSessionMatchesCwd = selectedSession?.cwd === cwd;
+    const selectedSessionMatchesCwd = selectedSession
+      ? sameWorkspacePath(selectedSession.cwd, cwd)
+      : false;
     if (
       currentProject === newProject
       && (selectedSessionMatchesCwd || (selectedSession === null && currentFreshCwd === cwd))

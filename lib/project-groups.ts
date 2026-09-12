@@ -52,10 +52,25 @@ export function sessionsForProject(
   return sessions.filter((session) => workspaceKeyOf(session) === projectKey);
 }
 
+function normalizeWorkspacePathForBrowser(value: string): string {
+  const slashPath = value.replace(/\\/g, "/");
+  const withoutTrailingSlash = slashPath.length > 1
+    ? slashPath.replace(/\/+$/, "")
+    : slashPath;
+  return /^[a-zA-Z]:\//.test(withoutTrailingSlash) || withoutTrailingSlash.startsWith("//")
+    ? withoutTrailingSlash.toLowerCase()
+    : withoutTrailingSlash;
+}
+
+/** Browser-safe lexical comparison for server-normalized workspace paths. */
+export function sameWorkspacePath(a: string, b: string): boolean {
+  return a === b || normalizeWorkspacePathForBrowser(a) === normalizeWorkspacePathForBrowser(b);
+}
+
 /** Sessions whose effective cwd is the selected top-level checkout. */
 export function sessionsForWorktree(
   sessions: readonly SessionInfo[],
   worktreePath: string,
 ): SessionInfo[] {
-  return sessions.filter((session) => session.cwd === worktreePath);
+  return sessions.filter((session) => sameWorkspacePath(session.cwd, worktreePath));
 }

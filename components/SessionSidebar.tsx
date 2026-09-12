@@ -1436,12 +1436,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     const hasRunning = worktreeSessions.some((session) => runningSessionIds.has(session.id));
                     const hasUnread = worktreeSessions.some((session) => unreadSessionIds.has(session.id));
                     const label = wt.branch ?? displayCwd(wt.path, homeDir);
+                    const activityLabel = [
+                      hasRunning ? t("sidebar.agentRunning") : null,
+                      hasUnread ? t("sidebar.newSessionActivity") : null,
+                    ].filter(Boolean).join(", ");
                     return (
                       <button
                         key={wt.path}
                         type="button"
                         aria-pressed={isCurrent}
-                        aria-label={`${index + 1}: ${label}`}
+                        aria-label={`${index + 1}: ${label}${activityLabel ? `, ${activityLabel}` : ""}`}
                         title={`${index + 1} · ${label}\n${wt.path}`}
                         onClick={() => {
                           setShowAllWorktreeSessions(false);
