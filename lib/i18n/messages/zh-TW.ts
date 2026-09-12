@@ -307,6 +307,8 @@ export const zhTWLocale: LocalePlugin = {
     "chat.runningCommand": "正在執行命令...",
     "chat.thinking": "正在思考...",
     "chat.processDetails": "處理詳細資料",
+    "chat.turnDuration": "耗時 {duration}",
+    "chat.turnRunningDuration": "正在處理 · {duration}",
     "chat.message": "則訊息",
     "chat.messages": "則訊息",
     "chat.toolCall": "次工具呼叫",

@@ -22,6 +22,7 @@ import type { SessionStatsInfo } from "@/lib/pi-types";
 import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { AgentEventConnection } from "@/lib/agent-event-connection";
+import { mergeTurnTiming, type TurnTiming } from "@/lib/turn-timing";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
 import {
   CHAT_SCROLL_REATTACH_TOLERANCE,
@@ -42,6 +43,7 @@ export interface SessionData {
   leafId: string | null;
   toolNames?: string[];
   context: {
+    turnTimings?: TurnTiming[];
     messages: AgentMessage[];
     entryIds: string[];
     oldestEntryId: string | null;
@@ -68,6 +70,7 @@ interface LastAssistantTextResponse {
 }
 
 type AgentStateResponse = {
+  turnTiming?: TurnTiming | null;
   model?: { provider: string; id: string };
   contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
   systemPrompt?: string;
@@ -283,6 +286,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const isNew = session === null && newSessionCwd !== null;
 
   const [data, setData] = useState<SessionData | null>(null);
+  const [turnTiming, setTurnTiming] = useState<TurnTiming | null>(null);
   const [loading, setLoading] = useState(!isNew);
   const [error, setError] = useState<string | null>(null);
   const [activeLeafId, setActiveLeafId] = useState<string | null>(null);
@@ -354,6 +358,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const newSessionModelOverrideRef = useRef<SelectedModel | null>(null);
   const thinkingLevelOverrideRef = useRef<Exclude<ThinkingLevelOption, "auto"> | null>(null);
   const promptRunIdRef = useRef(0);
+  const turnTimingRef = useRef<TurnTiming | null>(null);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
   const modelSwitchPendingRef = useRef(false);
   const draftKeyAliasesRef = useRef(new Map<string, string>());
@@ -413,6 +418,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       : null);
   }, []);
 
+  const applyTurnTiming = useCallback((incoming: TurnTiming | null, detectIndependentRun = false) => {
+    const previous = turnTimingRef.current;
+    if (detectIndependentRun
+      && incoming
+      && incoming.endedAt === undefined
+      && incoming.id !== previous?.id
+      && !rpcPromptPendingRef.current
+      && !sdkAgentActiveRef.current) {
+      // Extension-triggered runs have no handleSend boundary. Advancing the
+      // same generation guard keeps an older state request from settling them.
+      promptRunIdRef.current += 1;
+    }
+    const next = mergeTurnTiming(previous, incoming);
+    turnTimingRef.current = next;
+    setTurnTiming(next);
+  }, []);
+
   const resolveComposerDraftKey = useCallback((key: string | undefined) => {
     if (!key) return undefined;
     let resolved = key;
@@ -468,6 +490,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [messages, sessionStatsOverride, contextUsage, data?.context.messages, data?.filePath, data?.totalActiveMs, data?.stats, session?.id, session?.name]);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
+    const timingRunId = promptRunIdRef.current;
     let messagesLoaded = false;
     try {
       if (showLoading) setLoading(true);
@@ -513,6 +536,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (sessionIdRef.current !== sid) return null;
 
         const liveState = agentState.state;
+        if (promptRunIdRef.current === timingRunId) applyTurnTiming(
+          liveState?.turnTiming ?? null,
+          Boolean(agentState.running && liveState?.isStreaming),
+        );
         syncLiveModel(liveState);
         if (liveState) {
           if (liveState.contextUsage !== undefined) setContextUsage(liveState.contextUsage ?? null);
@@ -535,7 +562,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (showLoading && !messagesLoaded) setLoading(false);
     }
-  }, [setToolPresetState, syncLiveModel]);
+  }, [applyTurnTiming, setToolPresetState, syncLiveModel]);
 
   const loadContext = useCallback(async (sid: string, leafId: string | null, before?: string | null, options?: { tail?: number; signal?: AbortSignal }) => {
     try {
@@ -558,6 +585,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           ...prev.context,
           messages: [...d.context.messages, ...prev.context.messages],
           entryIds: [...d.context.entryIds, ...prev.context.entryIds],
+          turnTimings: [...new Map([...(prev.context.turnTimings ?? []), ...(d.context.turnTimings ?? [])].map((timing) => [timing.id, timing])).values()],
           oldestEntryId: d.context.oldestEntryId,
           hasMore: d.context.hasMore,
         } : d.context;
@@ -916,6 +944,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       ) return;
 
       try {
+        const runId = promptRunIdRef.current;
         const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
@@ -923,11 +952,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           generation !== eventStreamGraceGenerationRef.current
           || sessionIdRef.current !== sid
           || !eventStreamGraceActiveRef.current
+          || promptRunIdRef.current !== runId
         ) return;
 
         const state = data.state;
-        syncLiveModel(state);
         const promptActive = Boolean(data.running && state && (state.isStreaming || state.isPromptRunning));
+        if (state?.turnTiming !== undefined) applyTurnTiming(
+          state.turnTiming ?? null,
+          Boolean(promptActive && state.isStreaming),
+        );
+        syncLiveModel(state);
         if (promptActive) {
           eventStreamGraceActiveRef.current = false;
           eventStreamGraceTimerRef.current = null;
@@ -960,7 +994,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
 
     eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), EVENT_STREAM_IDLE_GRACE_MS);
-  }, [cancelEventStreamGrace, closeEvents, syncLiveModel]);
+  }, [applyTurnTiming, cancelEventStreamGrace, closeEvents, syncLiveModel]);
 
   const finishPromptWithoutStream = useCallback(async (sid: string | null = sessionIdRef.current, runId = promptRunIdRef.current) => {
     // Bail out before loadSession too: a stale finish for a previous run
@@ -1046,6 +1080,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const reconcileAgentState = useCallback(async (sid: string) => {
     if (!agentRunningRef.current || sessionIdRef.current !== sid) return;
     const runId = promptRunIdRef.current;
+    const timingId = turnTimingRef.current?.id;
     try {
       const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
       if (!res.ok) return;
@@ -1055,14 +1090,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // flight) — everything in it is stale, drop it.
       if (sessionIdRef.current !== sid || promptRunIdRef.current !== runId) return;
       const state = data.state;
+      const currentTiming = turnTimingRef.current;
+      if (currentTiming
+        && currentTiming.endedAt === undefined
+        && currentTiming.id !== timingId
+        && state?.turnTiming?.id !== currentTiming.id) return;
+      const busy = data.running && state
+        && (state.isStreaming || state.isPromptRunning || state.isCompacting);
+      applyTurnTiming(
+        state?.turnTiming ?? null,
+        Boolean(busy && state?.isStreaming),
+      );
       syncLiveModel(state);
       // Mirror compaction state unconditionally: a missed compaction_end
       // would otherwise leave the "Stop compaction" UI stuck. No state
       // (wrapper destroyed) means nothing is compacting.
       setIsCompacting(state?.isCompacting ?? false);
       setQueuedMessages(normalizeQueuedMessages(state?.queuedMessages));
-      const busy = data.running && state
-        && (state.isStreaming || state.isPromptRunning || state.isCompacting);
       if (busy) {
         sdkAgentActiveRef.current = Boolean(state.isStreaming);
         rpcPromptPendingRef.current = Boolean(state.isPromptRunning);
@@ -1079,7 +1123,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch {
       // Network still down — the next poll / visibility / online tick retries.
     }
-  }, [finishPromptWithoutStream, syncLiveModel]);
+  }, [applyTurnTiming, finishPromptWithoutStream, syncLiveModel]);
 
   // Recovery net for missed SSE events: while the agent is running, verify
   // against the server periodically and whenever the tab returns to the
@@ -1111,9 +1155,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
+      case "turn_timing": {
+        const incoming = event.turnTiming as TurnTiming | null;
+        applyTurnTiming(incoming, incoming?.endedAt === undefined);
+        break;
+      }
       case "connected": {
+        if (event.turnTiming !== undefined) applyTurnTiming(
+          event.turnTiming as TurnTiming | null,
+          event.isStreaming === true,
+        );
         dispatch({ type: "end" });
         if (event.isStreaming === true) {
+          if (!rpcPromptPendingRef.current
+            && !sdkAgentActiveRef.current
+            && (!turnTimingRef.current || turnTimingRef.current.endedAt !== undefined)) {
+            promptRunIdRef.current += 1;
+          }
           cancelEventStreamGrace();
           sdkAgentActiveRef.current = true;
           agentRunningRef.current = true;
@@ -1123,6 +1181,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         break;
       }
       case "agent_start":
+        if (!rpcPromptPendingRef.current
+          && !sdkAgentActiveRef.current
+          && (!turnTimingRef.current || turnTimingRef.current.endedAt !== undefined)) {
+          promptRunIdRef.current += 1;
+        }
         cancelEventStreamGrace();
         sdkAgentActiveRef.current = true;
         agentRunningRef.current = true;
@@ -1363,7 +1426,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setExtensionDialog((current) => current?.id === event.id ? null : current);
         break;
     }
-  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
+  }, [addNotice, applyTurnTiming, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -1402,6 +1465,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setMessages((prev) => [...prev, userMsg]);
     optimisticUserMessageKeyRef.current = userMessageKey(userMsg);
     promptRunIdRef.current = promptRunId;
+    turnTimingRef.current = null;
+    setTurnTiming(null);
     agentRunningRef.current = true;
     setAgentRunning(true);
     setAgentPhase(isSlashCommandPrompt ? { kind: "running_command" } : { kind: "waiting_model" });
@@ -1461,6 +1526,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         return;
       }
       rpcPromptPendingRef.current = false;
+      if (promptRunIdRef.current === promptRunId) promptRunIdRef.current += 1;
       setMessages((prev) => {
         const optimisticIndex = prev.lastIndexOf(userMsg);
         return optimisticIndex === -1
@@ -2166,6 +2232,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, activeToolResults, entryIds, historyCursor, hasEarlierMessages, streamState,
+    turnTiming, turnTimings: data?.context.turnTimings ?? [],
     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats,

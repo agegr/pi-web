@@ -14,6 +14,7 @@ import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "./tool-res
 import { resolveProject, type ProjectInfo } from "./worktree";
 import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
 import { listSessionsIncremental } from "./session-list-scanner";
+import { readTurnTimings } from "./turn-timing";
 
 export { getAgentDir };
 
@@ -481,6 +482,7 @@ export function buildSessionContext(
   return {
     messages,
     entryIds,
+    turnTimings: readTurnTimings(entries, entryIds),
     oldestEntryId: sliced[0]?.id ?? null,
     hasMore,
     ...getSessionSettings(entries, leafId),

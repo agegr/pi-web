@@ -70,6 +70,33 @@ test("a rejected submission preserves a different run reported by the server", (
   assert.match(reconcileSource, /if \(!agentRunningRef\.current\) return;[\s\S]*?finishPromptWithoutStream/);
 });
 
+test("extension runs advance the same generation guard used by prompt reconciliation", () => {
+  const timingSource = source.slice(
+    source.indexOf("  const applyTurnTiming = useCallback"),
+    source.indexOf("  const resolveComposerDraftKey"),
+  );
+  const reconcileSource = source.slice(
+    source.indexOf("  const reconcileAgentState = useCallback"),
+    source.indexOf("  // Recovery net for missed SSE events"),
+  );
+  const eventSource = source.slice(
+    source.indexOf('case "turn_timing"'),
+    source.indexOf('case "agent_end"'),
+  );
+  const sendSource = source.slice(
+    source.indexOf("  const handleSend = useCallback"),
+    source.indexOf("  const executeBash = useCallback"),
+  );
+
+  assert.match(timingSource, /detectIndependentRun[\s\S]*?!rpcPromptPendingRef\.current[\s\S]*?!sdkAgentActiveRef\.current[\s\S]*?promptRunIdRef\.current \+= 1/);
+  assert.match(reconcileSource, /promptRunIdRef\.current !== runId/);
+  assert.match(reconcileSource, /currentTiming\.id !== timingId[\s\S]*?state\?\.turnTiming\?\.id !== currentTiming\.id/);
+  assert.match(reconcileSource, /applyTurnTiming\([\s\S]*?Boolean\(busy && state\?\.isStreaming\)/);
+  assert.match(eventSource, /applyTurnTiming\(incoming, incoming\?\.endedAt === undefined\)/);
+  assert.match(eventSource, /case "agent_start":[\s\S]*?promptRunIdRef\.current \+= 1/);
+  assert.match(sendSource, /if \(promptRunIdRef\.current === promptRunId\) promptRunIdRef\.current \+= 1;[\s\S]*?reconcileAgentState\(sentSessionId\)/);
+});
+
 test("opening System or Tools lazily starts a dormant session without sending a prompt", () => {
   const loadSystemInfoSource = source.slice(
     source.indexOf("  const loadSystemInfo = useCallback"),
@@ -295,7 +322,7 @@ test("delegates event stream readiness and hides an empty agent phase", () => {
   assert.match(ensureSource, /eventConnectionRef\.current!\.maintain\(sid\)/);
   assert.match(chatWindowSource, /const hasStreamingContent = Boolean\(streamState\.streamingMessage\?\.content\.length\)/);
   assert.match(chatWindowSource, /streamState\.isStreaming && hasStreamingContent && streamState\.streamingMessage/);
-  assert.match(chatWindowSource, /agentRunning && !hasStreamingContent && agentPhase/);
+  assert.match(chatWindowSource, /agentRunning && !hasStreamingContent && \(agentPhase \|\| turnTiming\)/);
   assert.match(chatWindowSource, /return null;/);
 });
 
@@ -407,7 +434,7 @@ test("reconnects active shell output to its streaming tool call", () => {
   assert.match(updateSource, /content,/);
   assert.match(endSource, /setActiveToolResults[\s\S]*next\.delete\(id\)/);
   assert.match(chatWindowSource, /const map = new Map\(activeToolResults\)/);
-  assert.match(chatWindowSource, /<MessageView message=\{streamState\.streamingMessage as AgentMessage\} toolResults=\{toolResultsMap\}/);
+  assert.match(chatWindowSource, /<MessageView turnTiming=\{turnTiming \?\? undefined\} message=\{streamState\.streamingMessage as AgentMessage\} toolResults=\{toolResultsMap\}/);
 });
 
 test("plays the enabled sound once for each extension dialog", () => {
