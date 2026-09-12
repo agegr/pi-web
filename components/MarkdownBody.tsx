@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, type MouseEvent } from "react";
+import { useMemo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
-import { resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
+import { resolveLocalFileHref } from "@/lib/file-links";
+import { LocalFileLink } from "./LocalFileLink";
 import { encodeFilePathForApi } from "@/lib/file-paths";
+import { remarkFileLinks } from "@/lib/remark-file-links";
 import { markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
 
@@ -17,6 +19,9 @@ interface MarkdownBodyProps {
 
 export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
+  const remarkPlugins = useMemo(() => onOpenFile
+    ? [...(markdownRemarkPlugins ?? []), [remarkFileLinks, { cwd }] as [typeof remarkFileLinks, { cwd?: string }]]
+    : markdownRemarkPlugins, [cwd, onOpenFile]);
   // Stable renderer identities keep stateful blocks mounted across message hover updates.
   const components = useMemo<Components>(() => ({
     code({ className, children, ...props }) {
@@ -48,6 +53,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
       return <>{children}</>;
     },
     a({ href, children, ...props }) {
+      const fullPathLabel = props.node?.properties.dataFilePathLabel;
       // `node` is react-markdown metadata, not a DOM attribute.
       delete props.node;
       const filePath = onOpenFile ? resolveLocalFileHref(href, cwd) : null;
@@ -60,18 +66,18 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
         );
       }
 
-      const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
-        if (!shouldOpenLocalFileInApp(event)) return;
-        const target = event.currentTarget.getAttribute("target");
-        if (target && target !== "_self") return;
-        event.preventDefault();
-        openFile(filePath);
-      };
-
       return (
-        <a href={href} {...props} onClick={handleClick}>
+        <LocalFileLink
+          key={filePath}
+          href={href}
+          filePath={filePath}
+          title={props.title}
+          target={props.target}
+          fullPathLabel={typeof fullPathLabel === "string" ? fullPathLabel : undefined}
+          onOpenFile={openFile}
+        >
           {children}
-        </a>
+        </LocalFileLink>
       );
     },
     img({ src, alt, ...props }) {
@@ -96,7 +102,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
   return (
     <div className={["markdown-body", className].filter(Boolean).join(" ")}>
       <ReactMarkdown
-        remarkPlugins={markdownRemarkPlugins}
+        remarkPlugins={remarkPlugins}
         rehypePlugins={markdownRehypePlugins}
         urlTransform={onOpenFile ? markdownUrlTransform : undefined}
         components={components}
