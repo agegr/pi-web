@@ -1401,7 +1401,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   style={{
                     display: "flex",
                     gap: 5,
-                    marginTop: 5,
+                    marginTop: 4,
+                    marginBottom: -5,
                     paddingBottom: 1,
                     overflowX: "auto",
                     scrollbarWidth: "thin",
