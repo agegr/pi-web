@@ -205,6 +205,33 @@ test("renders a provider error when the assistant message has no content", () =>
   assert.match(html, /&lt;html&gt;request forbidden&lt;\/html&gt;/);
 });
 
+test("renders a truncation notice for stopReason length", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [{ type: "thinking", thinking: "Long reasoning chain" }],
+    stopReason: "length",
+  });
+
+  assert.match(html, /role="alert"/);
+  assert.match(html, /output limit/i);
+  assert.match(html, /follow-up/i);
+});
+
+test("renders a truncation notice for thinking-only messages with stopReason length", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [],
+    stopReason: "length",
+  });
+
+  assert.match(html, /role="alert"/);
+  assert.match(html, /output limit/i);
+});
+
 test("renders partial assistant content before the provider error", () => {
   const html = renderMessage({
     role: "assistant",

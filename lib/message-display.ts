@@ -32,6 +32,16 @@ export function getAssistantErrorMessage(
   return message.errorMessage?.trim() || "Unknown provider error";
 }
 
+const TRUNCATION_NOTICE = "This response was cut off after reaching the model\u2019s output limit. Send a follow-up to continue.";
+
+export function getAssistantTruncationNotice(
+  message: AssistantMessage,
+  options: DisplayOptions = {},
+): string | null {
+  if (options.isStreaming || message.stopReason !== "length") return null;
+  return TRUNCATION_NOTICE;
+}
+
 function isFinalAnswerBlock(block: AssistantContentBlock): boolean {
   return block.type === "text" || block.type === "image";
 }

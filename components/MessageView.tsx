@@ -8,7 +8,7 @@ import { ThinkingIcon } from "./ThinkingIcon";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
-import { getAssistantErrorMessage, getThinkingPreview, isEmptyThinkingBlock } from "@/lib/message-display";
+import { getAssistantErrorMessage, getAssistantTruncationNotice, getThinkingPreview, isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell, type SplitDiffFile } from "@/lib/patch";
 import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput } from "@/lib/apply-patch";
 import { isApplyPatchToolName, isEditToolName } from "@/lib/tool-names";
@@ -631,6 +631,7 @@ function AssistantMessageView({
     .filter(({ block }) => !isEmptyThinkingBlock(block, { isStreaming })), [message.content, isStreaming]);
   const blocks = useMemo(() => blockItems.map(({ block }) => block), [blockItems]);
   const providerError = getAssistantErrorMessage(message, { isStreaming });
+  const truncationNotice = getAssistantTruncationNotice(message, { isStreaming });
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const streamStartRef = useRef<number | null>(null);
@@ -748,7 +749,7 @@ function AssistantMessageView({
     return () => clearInterval(id);
   }, [isStreaming]);
 
-  if (blocks.length === 0 && !isStreaming && !providerError) return null;
+  if (blocks.length === 0 && !isStreaming && !providerError && !truncationNotice) return null;
 
   return (
     <div
@@ -824,6 +825,27 @@ function AssistantMessageView({
           }}
         >
           Error: {providerError}
+        </div>
+      )}
+
+      {truncationNotice && (
+        <div
+          role="alert"
+          style={{
+            marginTop: blocks.length > 0 || providerError ? 8 : 0,
+            padding: "7px 10px",
+            border: "1px solid rgba(234,179,8,0.3)",
+            borderRadius: 6,
+            background: "rgba(234,179,8,0.07)",
+            color: "#ca8a04",
+            fontFamily: "var(--font-mono)",
+            fontSize: 12,
+            lineHeight: 1.5,
+            whiteSpace: "pre-wrap",
+            overflowWrap: "anywhere",
+          }}
+        >
+          {truncationNotice}
         </div>
       )}
 
