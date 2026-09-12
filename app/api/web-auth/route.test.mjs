@@ -41,7 +41,7 @@ test("logs in with one password and reports the signed session", async () => {
   const cookie = response.headers.get("set-cookie");
   assert.match(cookie, /^pi_web_session=v1\./);
   assert.match(cookie, /HttpOnly/i);
-  assert.match(cookie, /SameSite=strict/i);
+  assert.match(cookie, /SameSite=Lax/i);
   assert.match(cookie, /Path=\//i);
 
   const cookiePair = cookie.split(";", 1)[0];
