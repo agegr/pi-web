@@ -69,7 +69,11 @@ function normalizeWorkspacePathForBrowser(value: string): string {
 }
 
 /** Browser-safe lexical comparison for server-normalized workspace paths. */
-export function sameWorkspacePath(a: string, b: string): boolean {
+export function sameWorkspacePath(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  if (!a || !b) return false;
   return a === b || normalizeWorkspacePathForBrowser(a) === normalizeWorkspacePathForBrowser(b);
 }
 
