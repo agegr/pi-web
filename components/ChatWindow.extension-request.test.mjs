@@ -31,7 +31,7 @@ test("adds collapse without replacing cancel", () => {
 test("renders extension confirmation and options as markdown", () => {
   assert.match(source, /import \{ MarkdownBody \} from "\.\/MarkdownBody"/);
   assert.match(dialogSource, /<MarkdownBody>\{request\.message\}<\/MarkdownBody>/);
-  assert.match(dialogSource, /role="button"[\s\S]*?data-extension-option[\s\S]*?<div inert>[\s\S]*?<MarkdownBody>\{option\}<\/MarkdownBody>/);
+  assert.match(dialogSource, /role="button"[\s\S]*?data-extension-option[\s\S]*?ask-option-badge[\s\S]*?\{structured\?\.label \?\? option\}/);
   assert.match(dialogSource, /ref=\{index === 0 \? focusFirstOption : undefined\}/);
 });
 
@@ -39,4 +39,16 @@ test("resets collapse state when a new extension request arrives", () => {
   assert.match(source, /<ExtensionDialog key=\{extensionDialog.id\}/);
   assert.match(source, /<ExtensionCustomPanel key=\{extensionCustomUi.id\}/);
   assert.match(customSource, /if \(!collapsed\) inputRef.current\?\.focus\(\);\s*}, \[collapsed\]\)/);
+});
+
+test("interactive custom panels expand by default after SSE replay", () => {
+  // Re-entry recovery re-mounts the panel from the replayed
+  // extension_ui_request: panels flagged overlayOptions.awaiting
+  // (ask_user_question) or carrying touch actions must mount expanded.
+  // Only passive overlays (toasts, footer stats) stay collapsed pills —
+  // 80cb661 collapsed ALL custom panels and made ask_user look unrecoverable.
+  assert.match(
+    customSource,
+    /const \[collapsed, setCollapsed\] = useState\(\(\) => !\(request\.awaiting \|\| request\.actions\?\.length\)\)/,
+  );
 });

@@ -42,7 +42,10 @@ export function isBlockingExtensionUiRequest(
     case "editor":
       return true;
     case "custom":
-      return request.closed !== true;
+      // Only interactive dialogs (overlayOptions.awaiting, e.g.
+      // ask_user_question) request user input; passive toasts must not fire
+      // "input needed" browser notifications.
+      return request.awaiting === true && request.closed !== true;
     default:
       return false;
   }

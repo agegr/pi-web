@@ -21,6 +21,7 @@ import { getPresetFromToolNames, getToolNamesForPreset, type ToolEntry, type Too
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { userMessageKey } from "@/lib/prompt-recovery";
+
 import { AgentEventConnection } from "@/lib/agent-event-connection";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
 import {
@@ -76,6 +77,7 @@ type AgentStateResponse = {
   isPromptRunning?: boolean;
   isBashRunning?: boolean;
   isCompacting?: boolean;
+  autoCompactionEnabled?: boolean;
   extensionStatuses?: ExtensionStatusItem[];
   extensionWidgets?: ExtensionWidgetItem[];
   queuedMessages?: { steering?: string[]; followUp?: string[] } | null;
@@ -140,11 +142,19 @@ export type BuiltinSlashCommandResult =
   | { handled: false }
   | { handled: true; message?: string; error?: string; action?: "openSessionStats" };
 
+export interface AgentNoticeTexts {
+  /** Transient cue when an extension-injected custom message starts a new turn. */
+  extensionTurnStart: string;
+  /** Cue when the running agent turn is aborted. */
+  runAborted: string;
+}
+
 export interface UseAgentSessionOptions {
   session: SessionInfo | null;
   sessionRunning?: boolean;
   newSessionCwd: string | null;
   newSessionDraftKey: string | null;
+  noticeTexts?: Partial<AgentNoticeTexts>;
   onAgentEnd?: () => void;
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
   onSessionCreated?: (session: SessionInfo, sourceDraftKey: string) => void;
@@ -234,6 +244,30 @@ function noticeReducer(state: NoticeState, action: NoticeAction): NoticeState {
   }
 }
 
+/**
+ * cyRouter injects a human-readable notice ("> ⚠️ cyRouter：… 静默断流…") into
+ * truncated streams, then synthesizes stopReason="length" so pi-core triggers
+ * auto-compaction+retry. The truncated assistant message is paged out of the
+ * render window quickly on tool-heavy turns (default tail=50 entries), leaving
+ * no visible trace of the incident. Detect that combo so the UI can pin a
+ * dismissible banner instead. Returns the one-line notice text, or null.
+ */
+function extractTruncationNotice(message: AgentMessage): string | null {
+  if (message.role !== "assistant") return null;
+  if ((message as { stopReason?: string }).stopReason !== "length") return null;
+  const content = (message as { content?: unknown }).content;
+  if (!Array.isArray(content)) return null;
+  const text = content
+    .map((block) =>
+      block && typeof block === "object" && (block as { type?: string }).type === "text"
+        ? String((block as { text?: unknown }).text ?? "")
+        : "",
+    )
+    .join("\n");
+  const match = text.match(/⚠️\s*cyRouter[：:][^\n]*/);
+  return match ? match[0].trim() : null;
+}
+
 function readCompactResult(result: unknown, reason: string): CompactResultInfo | null {
   if (!result || typeof result !== "object") return null;
   const r = result as CompactCommandResult;
@@ -280,6 +314,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
   } = opts;
 
+  const noticeTexts = useMemo<AgentNoticeTexts>(() => ({
+    extensionTurnStart: opts.noticeTexts?.extensionTurnStart ?? "Extension triggered a new run",
+    runAborted: opts.noticeTexts?.runAborted ?? "Run was interrupted",
+  }), [opts.noticeTexts?.extensionTurnStart, opts.noticeTexts?.runAborted]);
+
   const isNew = session === null && newSessionCwd !== null;
 
   const [data, setData] = useState<SessionData | null>(null);
@@ -314,6 +353,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [pendingModel, setPendingModel] = useState<{ provider: string; modelId: string } | null>(null);
   const [modelSwitching, setModelSwitching] = useState(false);
   const [isCompacting, setIsCompacting] = useState(false);
+  const [autoCompactionEnabled, setAutoCompactionEnabled] = useState(true);
+  const [truncationBanner, setTruncationBanner] = useState<string | null>(null);
   const [compactError, setCompactError] = useState<string | null>(null);
   const [compactResult, setCompactResult] = useState<CompactResultInfo | null>(null);
   const [agentPhase, setAgentPhase] = useState<AgentPhase>(null);
@@ -389,6 +430,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (!existingSessionId && (!isNew || sessionIdRef.current)) return;
     setToolPresetState(getPreferredToolPreset());
   }, [existingSessionId, isNew, setToolPresetState]);
+
+  // Session switch: drop any pinned truncation banner from the previous session.
+  useEffect(() => {
+    setTruncationBanner(null);
+  }, [existingSessionId]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const container = scrollContainerRef.current;
@@ -575,7 +621,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       if (!options?.signal?.aborted) console.error("Failed to load context:", e);
     }
-  }, []);
+  }, [setMessages]);
 
   const loadTools = useCallback(async (sid: string) => {
     try {
@@ -728,6 +774,26 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     eventConnectionRef.current!.maintain(sid);
   }, []);
 
+  // Reconcile when the tab becomes visible again: while hidden, the sidebar
+  // running-poll is suspended and the SSE stream may already be closed by the
+  // idle grace. Agent activity that started AND ended while hidden (e.g. an
+  // extension-injected auto-continue turn that got aborted) leaves no running
+  // flag for the poll to catch, so the transcript would stay stale forever.
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      if (agentRunningRef.current) return; // live SSE covers running agents
+      const sid = sessionIdRef.current;
+      if (sid) void loadSession(sid);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [loadSession]);
+
+  // A different browser can start this session after it was opened here.
+  // The sidebar's lightweight running-state poll gives us a cheap signal to
+  // attach to the existing SSE stream without adding another synchronization
+  // protocol to the chat.
   // Keep the selected session warm even while its agent is idle. The SSE lease
   // is renewed separately below and expires if the browser disappears.
   useEffect(() => {
@@ -1060,6 +1126,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // would otherwise leave the "Stop compaction" UI stuck. No state
       // (wrapper destroyed) means nothing is compacting.
       setIsCompacting(state?.isCompacting ?? false);
+      setAutoCompactionEnabled(state?.autoCompactionEnabled ?? true);
       setQueuedMessages(normalizeQueuedMessages(state?.queuedMessages));
       const busy = data.running && state
         && (state.isStreaming || state.isPromptRunning || state.isCompacting);
@@ -1212,6 +1279,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             dispatch({ type: "snapshot", message: msg });
             if (msg.content.length > 0) setAgentPhase(null);
           } else if (msg) {
+            if (msg.role === "custom") {
+              // Extension-injected turn (status-core auto-continue, process wake-ups):
+              // the custom trigger message renders no bubble, so the restarted run
+              // would be completely invisible. Surface a transient cue instead.
+              addNotice({ type: "info", message: noticeTexts.extensionTurnStart });
+            }
             setAgentPhase(null);
           }
         } else {
@@ -1260,7 +1333,27 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             return [...prev, delivered];
           });
         } else if (completed) {
-          setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
+          const stopReason = (completed as { stopReason?: string }).stopReason;
+          const aborted = stopReason === "aborted";
+          // An aborted turn that streamed nothing leaves an empty assistant
+          // message; skip it (invisible blank bubble) and surface the
+          // interruption as a notice instead.
+          const blocks = (("content" in completed ? completed.content : []) ?? []) as Array<{ type?: string; text?: string }>;
+          const hasContent = blocks.some((b) => {
+            if (!b || typeof b !== "object") return false;
+            if (b.type === "text") return Boolean(b.text?.trim());
+            return true;
+          });
+          if (!aborted || hasContent) {
+            setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
+          }
+          if (aborted) {
+            addNotice({ type: "warning", message: noticeTexts.runAborted });
+          }
+          // Pin cyRouter truncation notices (see extractTruncationNotice) —
+          // otherwise the incident vanishes from view with no trace.
+          const truncationNotice = extractTruncationNotice(completed);
+          if (truncationNotice) setTruncationBanner(truncationNotice);
         }
         dispatch({ type: "end" });
         setAgentPhase({ kind: "waiting_model" });
@@ -1363,7 +1456,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setExtensionDialog((current) => current?.id === event.id ? null : current);
         break;
     }
-  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
+  }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, noticeTexts, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -1374,6 +1467,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return;
     }
     const isSlashCommandPrompt = !images?.length && trimmedMessage.startsWith("/");
+    setTruncationBanner(null);
 
     const isBashCommand = !images?.length && trimmedMessage.startsWith("!");
     if (isBashCommand) {
@@ -1483,7 +1577,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
+  }, [setMessages, isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -1730,6 +1824,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           return complete({ handled: true, message: "Compacted context" });
         }
 
+        case "auto-compact": {
+          if (!sid) return complete({ handled: true, error: "No active session" });
+          const nextEnabled = !autoCompactionEnabled;
+          await sendAgentCommand(sid, { type: "set_auto_compaction", enabled: nextEnabled });
+          setAutoCompactionEnabled(nextEnabled);
+          return complete({ handled: true, message: nextEnabled ? "Auto-compaction enabled" : "Auto-compaction disabled" });
+        }
+
         case "reload": {
           if (!sid) return complete({ handled: true, error: "No active session to reload" });
           await sendAgentCommand(sid, { type: "reload" });
@@ -1794,7 +1896,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [activeLeafId, addNotice, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionForked, onSessionStatsPanelOpen]);
+  }, [activeLeafId, addNotice, autoCompactionEnabled, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionForked, onSessionStatsPanelOpen]);
 
   // Let AgentSession.prompt decide atomically whether to queue against the
   // current run or start a new turn if it settled while the request was in
@@ -2016,6 +2118,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
         if (agentState?.state) {
           if (agentState.state.isCompacting !== undefined) setIsCompacting(agentState.state.isCompacting);
+          if (agentState.state.autoCompactionEnabled !== undefined) setAutoCompactionEnabled(agentState.state.autoCompactionEnabled);
           if (agentState.state.contextUsage !== undefined) setContextUsage(agentState.state.contextUsage ?? null);
           if (agentState.state.systemPrompt !== undefined) setSystemPrompt(agentState.state.systemPrompt ?? null);
           if (agentState.state.thinkingLevel !== undefined) setThinkingLevel((agentState.state.thinkingLevel as ThinkingLevelOption) ?? "auto");
@@ -2169,6 +2272,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats,
+    truncationBanner,
     slashCommands, slashCommandsLoading, queuedMessages,
     notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,
@@ -2186,7 +2290,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setNoticePaused: setPausedNoticeId,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
     scrollToBottom, scrollUserMsgToTop, scrollToMessage,
-    dispatch, setAgentRunning, setForkingEntryId,
+    dispatch, setAgentRunning, setForkingEntryId, setTruncationBanner,
     bashRunning, pendingBash,
     // Subscriptions
     handleAgentEventRef,

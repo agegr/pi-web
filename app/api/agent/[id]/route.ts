@@ -83,7 +83,14 @@ export async function GET(
     }
 
     const state = await session.send({ type: "get_state" });
-    return NextResponse.json({ running: true, state });
+    // 附带待处理的扩展 UI 请求：客户端（pi-mobile 冷启动等）SSE 重放丢失时
+    // 可凭 state 快照主动恢复 ask 面板，而不是依赖事件单次推送。
+    const pendingUiRequests = session.getPendingUiRequests();
+    const stateObj = (state ?? {}) as Record<string, unknown>;
+    return NextResponse.json({
+      running: true,
+      state: pendingUiRequests.length > 0 ? { ...stateObj, pendingUiRequests } : state,
+    });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
