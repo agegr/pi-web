@@ -2,12 +2,39 @@ import {
   Agent,
   type AgentMessage,
   type AgentOptions,
-  type AgentTool,
+  type ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
+import {
+  getSupportedThinkingLevels,
+  type Api,
+  type Model,
+} from "@earendil-works/pi-ai";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
 const TITLE_TIMEOUT_MS = 90_000;
 const MAX_TITLE_LENGTH = 80;
+
+// Per-message caps. A title needs what the user asked for (every user turn,
+// including mid-session pivots) and what came out of it (the last reply); the
+// replies in between only need their opening line. Tool calls and results are
+// dropped outright: they dominate the token count and say nothing about intent.
+const USER_CHARS = 800;
+const ASSISTANT_CHARS = 300;
+const LAST_ASSISTANT_CHARS = 600;
+const SUMMARY_CHARS = 600;
+// Total budget across all messages. Without it the transcript still grows with
+// the session, and a long session ends up costing more than replaying a cached
+// prefix would have.
+const TRANSCRIPT_CHARS = 6000;
+// Share of the budget reserved for the opening turns. A session often states
+// its goal early and then drifts into routine follow-ups, so spending the whole
+// budget on the newest turns can title a session after its last chore.
+const TRANSCRIPT_HEAD_CHARS = Math.round(TRANSCRIPT_CHARS * 0.4);
+
+const TITLE_SYSTEM_PROMPT =
+  "You name chat sessions from a transcript. Reply with the title only.";
+
+const ELISION = "[…]";
 
 const TITLE_PROMPT = `Create a concise title for this session based on the conversation above.
 
@@ -29,29 +56,38 @@ export interface GeneratedSessionTitle {
   };
 }
 
-function createShadowTools(tools: AgentTool[]): AgentTool[] {
-  return tools.map((tool) => ({
-    ...tool,
-    execute: async () => {
-      throw new Error("Tools cannot be executed while generating a session title");
-    },
-  }));
+/**
+ * Naming is a short classification task, so thinking only adds latency and
+ * tokens: use the cheapest level the model actually supports. Gemini rejects
+ * "minimal" and its SDK emits that level when thinking is disabled, so it
+ * skips to the next supported level instead.
+ */
+export function resolveTitleThinkingLevel(model: Model<Api>): ThinkingLevel {
+  if (!model.reasoning) return "off";
+  // getSupportedThinkingLevels lists levels in ascending cost order.
+  const supported = getSupportedThinkingLevels(model);
+  const rejectsMinimal = model.api === "google-generative-ai" || /gemini/i.test(model.id);
+  const usable = rejectsMinimal ? supported.filter((level) => level !== "off" && level !== "minimal") : supported;
+  return usable[0] ?? supported[0] ?? "off";
 }
 
 /**
- * Build a temporary Agent configuration whose provider-facing prefix matches
- * the source Agent. Tool implementations are replaced without changing their
- * names, descriptions, or schemas, so a naming run cannot mutate the project.
+ * Build a throwaway Agent that shares the source's transport and credentials
+ * but nothing of its context: no system prompt, no tools, no history. The
+ * transcript goes in as a single user turn, so the request is the same size
+ * whichever model answers it and never depends on a prompt cache.
  */
-export function buildSessionTitleAgentOptions(source: Agent): AgentOptions {
-  const state = source.state;
+export function buildSessionTitleAgentOptions(
+  source: Agent,
+  model: Model<Api> = source.state.model,
+): AgentOptions {
   return {
     initialState: {
-      systemPrompt: state.systemPrompt,
-      model: state.model,
-      thinkingLevel: state.thinkingLevel,
-      tools: createShadowTools(state.tools),
-      messages: state.messages,
+      systemPrompt: TITLE_SYSTEM_PROMPT,
+      model,
+      thinkingLevel: resolveTitleThinkingLevel(model),
+      tools: [],
+      messages: [],
     },
     convertToLlm: source.convertToLlm,
     transformContext: source.transformContext,
@@ -69,23 +105,77 @@ export function buildSessionTitleAgentOptions(source: Agent): AgentOptions {
   };
 }
 
+function textOf(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((block): block is { type: "text"; text: string } =>
+      typeof block === "object" && block !== null && (block as { type?: string }).type === "text")
+    .map((block) => block.text)
+    .join("\n");
+}
+
+function clip(text: string, max: number): string {
+  const characters = Array.from(text);
+  return characters.length <= max ? text : `${characters.slice(0, max).join("")}…`;
+}
+
 /**
- * A running source session usually ends in the user message currently being
- * answered. Fold the title request into a copy of that message so the title
- * request does not send two consecutive user messages to the provider.
+ * A title needs the goal the session opened with and the outcome it reached.
+ * The middle is what makes a long session expensive, so keep both ends and drop
+ * it. Cost and latency then stop tracking session length.
  */
-export function appendTitleRequestToTrailingUser(messages: AgentMessage[]): AgentMessage[] {
-  const lastMessage = messages.at(-1);
-  if (!lastMessage || lastMessage.role !== "user") return messages;
+function boundTranscript(lines: string[]): string {
+  const joined = lines.join("\n\n");
+  if (joined.length <= TRANSCRIPT_CHARS || lines.length < 2) return joined;
 
-  const content = typeof lastMessage.content === "string"
-    ? `${lastMessage.content}\n\n${TITLE_PROMPT}`
-    : [...lastMessage.content, { type: "text" as const, text: TITLE_PROMPT }];
+  const head: string[] = [];
+  let used = ELISION.length + 4;
+  let next = 0;
+  // The first line always survives, however long the session is.
+  for (; next < lines.length; next++) {
+    const size = used + lines[next].length + 2;
+    if (head.length > 0 && size > TRANSCRIPT_HEAD_CHARS) break;
+    head.push(lines[next]);
+    used = size;
+  }
 
-  return [
-    ...messages.slice(0, -1),
-    { ...lastMessage, content },
-  ];
+  const tail: string[] = [];
+  for (let i = lines.length - 1; i >= next; i--) {
+    const size = used + lines[i].length + 2;
+    if (size > TRANSCRIPT_CHARS) break;
+    tail.unshift(lines[i]);
+    used = size;
+  }
+
+  // Everything fit after all: the budget only looked tight because of joins.
+  if (next + tail.length >= lines.length) return joined;
+  return [...head, ELISION, ...tail].join("\n\n");
+}
+
+/** Flatten the session into the plain-text transcript the title model reads. */
+export function buildTitleTranscript(messages: AgentMessage[]): string {
+  let lastAssistant: AgentMessage | undefined;
+  for (const message of messages) {
+    if (message.role === "assistant" && textOf(message.content).trim()) lastAssistant = message;
+  }
+
+  const lines: string[] = [];
+  for (const message of messages) {
+    if (message.role === "compactionSummary") {
+      lines.push(`[Earlier summary] ${clip(message.summary.trim(), SUMMARY_CHARS)}`);
+      continue;
+    }
+    if (message.role !== "user" && message.role !== "assistant") continue;
+    const text = textOf(message.content).trim();
+    if (!text) continue;
+    if (message.role === "user") {
+      lines.push(`User: ${clip(text, USER_CHARS)}`);
+    } else {
+      lines.push(`Assistant: ${clip(text, message === lastAssistant ? LAST_ASSISTANT_CHARS : ASSISTANT_CHARS)}`);
+    }
+  }
+  return boundTranscript(lines);
 }
 
 function stripWrappingQuotes(value: string): string {
@@ -135,10 +225,10 @@ export function parseGeneratedSessionTitle(raw: string): string {
   return value;
 }
 
-function getAssistantResult(agent: Agent, historyLength: number): GeneratedSessionTitle {
-  const generatedMessages = agent.state.messages.slice(historyLength);
-  for (let i = generatedMessages.length - 1; i >= 0; i--) {
-    const message = generatedMessages[i];
+function getAssistantResult(agent: Agent): GeneratedSessionTitle {
+  const messages = agent.state.messages;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
     if (message.role !== "assistant") continue;
     if (message.stopReason === "error") {
       throw new Error(message.errorMessage || "The title model request failed");
@@ -165,72 +255,50 @@ function getAssistantResult(agent: Agent, historyLength: number): GeneratedSessi
   throw new Error("The model did not return a session title");
 }
 
-export function sanitizeTitleMessages(messages: AgentMessage[]): AgentMessage[] {
-  const sanitized: AgentMessage[] = [];
-  let expectedToolResultIds: Set<string> | undefined;
-
-  for (let index = 0; index < messages.length; index++) {
-    const message = messages[index];
-
-    if (message.role === "assistant") {
-      const followingToolResultIds = new Set<string>();
-      for (let resultIndex = index + 1; resultIndex < messages.length; resultIndex++) {
-        const resultMessage = messages[resultIndex];
-        if (resultMessage.role !== "toolResult") break;
-        followingToolResultIds.add(resultMessage.toolCallId);
-      }
-
-      expectedToolResultIds = new Set<string>();
-      const content = message.content.filter((block) => {
-        if (block.type !== "toolCall") return true;
-        if (!followingToolResultIds.has(block.id)) return false;
-        expectedToolResultIds!.add(block.id);
-        return true;
-      });
-
-      if (content.length > 0) {
-        sanitized.push({ ...message, content });
-      }
-      continue;
-    }
-
-    if (message.role === "toolResult") {
-      if (expectedToolResultIds?.delete(message.toolCallId)) {
-        sanitized.push(message);
-      }
-      continue;
-    }
-
-    expectedToolResultIds = undefined;
-    sanitized.push(message);
-  }
-
-  return sanitized;
+export interface GenerateSessionTitleOptions {
+  /** "provider/model-id" from settings, or "inherit" to name with the session's own model. */
+  model?: string;
 }
 
-export async function generateSessionTitle(source: AgentSession): Promise<GeneratedSessionTitle> {
-  const sourceAgent = source.agent;
-  await sourceAgent.waitForIdle();
+/**
+ * A configured model that cannot be resolved must fail loudly. Falling back to
+ * the session's own model would silently spend the request the user chose the
+ * dedicated model to avoid. Refresh first, as set_model does, so a model added
+ * while this session's runtime was already alive is still found.
+ */
+async function resolveTitleModel(source: AgentSession, spec: string): Promise<Model<Api>> {
+  const slash = spec.indexOf("/");
+  if (slash <= 0) throw new Error(`Invalid session title model: ${spec}`);
+  const provider = spec.slice(0, slash);
+  const modelId = spec.slice(slash + 1);
+  const runtime = source.modelRuntime;
+  let model = runtime.getModel(provider, modelId);
+  if (!model) {
+    await runtime.refresh({ allowNetwork: false });
+    model = runtime.getModel(provider, modelId);
+  }
+  if (!model) throw new Error(`Session title model not found: ${spec}`);
+  return model;
+}
 
-  const sanitizedMessages = sanitizeTitleMessages(sourceAgent.state.messages);
-  const historyLength = sanitizedMessages.length;
-  if (!sanitizedMessages.some(
-    (message) => message.role === "user" || message.role === "compactionSummary",
-  )) {
+export async function generateSessionTitle(
+  source: AgentSession,
+  options?: GenerateSessionTitleOptions,
+): Promise<GeneratedSessionTitle> {
+  const sourceAgent = source.agent;
+  // Snapshot whatever the session holds right now. The transcript is plain
+  // text the title model reads once, so a turn still in flight only means the
+  // newest reply is missing from it; there is nothing to wait for.
+  const messages = [...sourceAgent.state.messages];
+  if (!messages.some((message) => message.role === "user" || message.role === "compactionSummary")) {
     throw new Error("The session has no user messages to name");
   }
 
-  const options = buildSessionTitleAgentOptions(sourceAgent);
-  options.initialState!.messages = sanitizedMessages;
-  const continuesFromTrailingUser = sanitizedMessages.at(-1)?.role === "user";
-  if (continuesFromTrailingUser) {
-    options.initialState!.messages = appendTitleRequestToTrailingUser(sanitizedMessages);
-  }
-
-  const temporaryAgent = new Agent(options);
-  const runPromise = continuesFromTrailingUser
-    ? temporaryAgent.continue()
-    : temporaryAgent.prompt(TITLE_PROMPT);
+  const model = options?.model && options.model !== "inherit"
+    ? await resolveTitleModel(source, options.model)
+    : undefined;
+  const temporaryAgent = new Agent(buildSessionTitleAgentOptions(sourceAgent, model));
+  const runPromise = temporaryAgent.prompt(`${buildTitleTranscript(messages)}\n\n${TITLE_PROMPT}`);
   let timeout: ReturnType<typeof setTimeout> | undefined;
 
   try {
@@ -251,5 +319,5 @@ export async function generateSessionTitle(source: AgentSession): Promise<Genera
     if (timeout) clearTimeout(timeout);
   }
 
-  return getAssistantResult(temporaryAgent, historyLength);
+  return getAssistantResult(temporaryAgent);
 }
