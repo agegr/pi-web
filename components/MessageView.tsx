@@ -1,4 +1,6 @@
 "use client";
+import { TurnDuration } from "./TurnDuration";
+import type { TurnTiming } from "@/lib/turn-timing";
 
 import { memo, useState, useRef, useEffect, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
@@ -180,6 +182,7 @@ function loadThinkingContent(sessionId: string, entryId: string, blockIndex: num
 }
 
 interface Props {
+  turnTiming?: TurnTiming;
   message: AgentMessage;
   isStreaming?: boolean;
   toolResults?: Map<string, ToolResultMessage>;
@@ -270,12 +273,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSession, entryId, searchBlock, onFork, forking, onNavigate, onEditContent, showTimestamp, prevTimestamp, sessionId, writtenFiles }: Props) {
+export const MessageView = memo(function MessageView({ turnTiming, message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSession, entryId, searchBlock, onFork, forking, onNavigate, onEditContent, showTimestamp, prevTimestamp, sessionId, writtenFiles }: Props) {
   if (message.role === "user") {
-    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} onEditContent={onEditContent} />;
+    return <UserMessageView turnTiming={turnTiming} message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} onEditContent={onEditContent} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} />;
+    return <AssistantMessageView turnTiming={turnTiming} message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -283,9 +286,9 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
   }
   if (message.role === "custom") {
     if ((message as CustomMessage).customType === "compaction") {
-      return <CompactionMessageView message={message as CustomMessage} />;
+      return <CompactionMessageView turnTiming={turnTiming} message={message as CustomMessage} />;
     }
-    return <CustomMessageView message={message as CustomMessage} cwd={cwd} onOpenFile={onOpenFile} />;
+    return <CustomMessageView turnTiming={turnTiming} message={message as CustomMessage} cwd={cwd} onOpenFile={onOpenFile} />;
   }
   if (message.role === "bashExecution") {
     return <BashExecutionView message={message as BashExecutionMessage} sessionId={sessionId} />;
@@ -308,11 +311,13 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.showTimestamp === next.showTimestamp
     && prev.prevTimestamp === next.prevTimestamp
     && prev.writtenFiles === next.writtenFiles
+    && prev.turnTiming === next.turnTiming
     && prev.sessionId === next.sessionId;
 });
 
-function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, onEditContent }: {
+function UserMessageView({ turnTiming, message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, onEditContent }: {
   message: UserMessage;
+  turnTiming?: TurnTiming;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
   entryId?: string;
@@ -586,7 +591,8 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
               )}
             </div>
           )}
-          {time && <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{time}</span>}
+          {turnTiming && <span style={{ flexShrink: 0, whiteSpace: "nowrap", fontSize: 10, color: "var(--text-dim)" }}><TurnDuration timing={turnTiming} /></span>}
+          {time && <span style={{ flexShrink: 0, whiteSpace: "nowrap", fontSize: 10, color: "var(--text-dim)" }}>{time}</span>}
         </div>
       )}
     </div>
@@ -594,6 +600,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
 }
 
 function AssistantMessageView({
+  turnTiming,
   message,
   isStreaming,
   toolResults,
@@ -609,6 +616,7 @@ function AssistantMessageView({
   writtenFiles,
 }: {
   message: AssistantMessage;
+  turnTiming?: TurnTiming;
   isStreaming?: boolean;
   toolResults?: Map<string, ToolResultMessage>;
   modelNames?: Record<string, string>;
@@ -765,11 +773,13 @@ function AssistantMessageView({
           display: "flex",
           alignItems: "center",
           gap: 6,
+          flexWrap: "wrap",
         }}
       >
         {message.provider && (
           <span>{getModelDisplayName(message.provider, message.model, modelNames)}</span>
         )}
+        {turnTiming && <span>{message.provider ? "· " : ""}<TurnDuration timing={turnTiming} live={isStreaming} /></span>}
         {isStreaming && (() => {
           const est = Math.round(estimatedTokens);
           return (
@@ -1435,7 +1445,7 @@ function PairedResult({ text, images, isEmpty, isError }: {
   );
 }
 
-function CompactionMessageView({ message }: { message: CustomMessage }) {
+function CompactionMessageView({ turnTiming, message }: { turnTiming?: TurnTiming; message: CustomMessage }) {
   const { t } = useI18n();
   const summary = getMessageText(message.content);
   const parsedSummary = useMemo(() => parseCompactionSummary(summary), [summary]);
@@ -1465,7 +1475,8 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 650 }}>
             compaction
           </span>
-          {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}>{time}</span>}
+          {turnTiming && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}><TurnDuration timing={turnTiming} /></span>}
+          {time && <span style={{ marginLeft: turnTiming ? 0 : "auto", color: "var(--text-dim)", fontSize: 10 }}>{time}</span>}
         </div>
 
         <div style={{ padding: "11px 13px 12px" }}>
@@ -1518,7 +1529,7 @@ function CompactionFileList({ title, files }: { title: string; files: string[] }
   );
 }
 
-function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessage; cwd?: string; onOpenFile?: (filePath: string) => void }) {
+function CustomMessageView({ turnTiming, message, cwd, onOpenFile }: { turnTiming?: TurnTiming; message: CustomMessage; cwd?: string; onOpenFile?: (filePath: string) => void }) {
   const { t } = useI18n();
   const isHiddenDisplay = message.display === false;
   const [contentExpanded, setContentExpanded] = useState(!isHiddenDisplay);
@@ -1565,7 +1576,8 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
             {title}
           </span>
            {isHiddenDisplay && <span style={{ color: "var(--text-dim)", fontSize: 11 }}>{t("i18n.hiddenExtensionMessage")}</span>}
-          {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}>{time}</span>}
+          {turnTiming && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}><TurnDuration timing={turnTiming} /></span>}
+          {time && <span style={{ marginLeft: turnTiming ? 0 : "auto", color: "var(--text-dim)", fontSize: 10 }}>{time}</span>}
         </div>
 
         {contentExpanded ? (

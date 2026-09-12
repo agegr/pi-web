@@ -165,6 +165,10 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - While a run is active, `useAgentSession` periodically calls `GET /api/agent/[id]` and also reconciles on `visibilitychange`/`online`. This fixes missed terminal events from background tabs or half-open connections.
 - Prompt runs use a monotonic run id; late SSE or slow reconciliation responses from an old run must be ignored so they cannot resurrect stale streaming bubbles.
 
+### Turn duration
+
+Whole-run duration uses the server run lifecycle, including retries, queued follow-ups, tools and automatic compaction. SSE and state snapshots carry `turnTiming`; completed records use the versioned `pi-web:turn-timing` custom entry anchored to a visible entry. Old sessions without this record show no duration. Keep the timer in existing process, phase or message metadata rows so history pagination is still based on the existing rendered rows.
+
 ### Worktrees and project grouping
 - `lib/worktree.ts` resolves linked worktree top-levels back to the main repo `projectRoot`; `listAllSessions()` attaches that to each `SessionInfo` so all worktrees for one repo are grouped together in the sidebar.
 - Worktree operations are served by `/api/worktrees` and guarded by the same allowed-root rules as `/api/files`.

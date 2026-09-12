@@ -348,6 +348,7 @@ export interface SessionInfo {
 }
 
 export interface SessionContext {
+  turnTimings?: import("./turn-timing").TurnTiming[];
   messages: AgentMessage[];
   entryIds: string[]; // parallel to messages — the session entry id for each message
   oldestEntryId: string | null;

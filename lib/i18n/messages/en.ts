@@ -307,6 +307,8 @@ export const enLocale: LocalePlugin = {
     "chat.runningCommand": "Running command...",
     "chat.thinking": "Thinking...",
     "chat.processDetails": "Process details",
+    "chat.turnDuration": "Took {duration}",
+    "chat.turnRunningDuration": "Working · {duration}",
     "chat.message": "message",
     "chat.messages": "messages",
     "chat.toolCall": "tool call",

@@ -10,6 +10,8 @@ import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-fi
 import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { MessageView } from "./MessageView";
 import { MarkdownBody } from "./MarkdownBody";
+import { TurnDuration } from "./TurnDuration";
+import type { TurnTiming } from "@/lib/turn-timing";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
@@ -193,12 +195,12 @@ function withAssistantBlocks(
   return next;
 }
 
-function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = false, reveal = false, children, t }: { messageCount: number; toolCallCount: number; defaultExpanded?: boolean; reveal?: boolean; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
+function ProcessDetailsGroup({ messageCount, toolCallCount, timing, defaultExpanded = false, reveal = false, children, t }: { messageCount: number; toolCallCount: number; timing?: TurnTiming; defaultExpanded?: boolean; reveal?: boolean; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   useLayoutEffect(() => {
     if (reveal) setExpanded(true);
   }, [reveal]);
-  const parts = [t("chat.processDetails"), `${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`];
+  const parts = [`${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`];
   if (toolCallCount > 0) parts.push(`${toolCallCount} ${t(toolCallCount === 1 ? "chat.toolCall" : "chat.toolCalls")}`);
 
   return (
@@ -212,6 +214,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
           alignItems: "center",
           gap: 8,
           width: "auto",
+          maxWidth: "100%",
           minHeight: 24,
           padding: "2px 0",
           border: "none",
@@ -226,8 +229,10 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
           <polyline points="4 2.5 7.5 6 4 9.5" />
         </svg>
-        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {parts.join(" · ")}
+        <span style={{ minWidth: 0, display: "flex", alignItems: "baseline", flexWrap: "wrap", columnGap: 4 }}>
+          <span>{t("chat.processDetails")}</span>
+          {timing && <> · <TurnDuration timing={timing} /></>}
+          {` · ${parts.join(" · ")}`}
         </span>
       </button>
       {(expanded || reveal) && (
@@ -273,7 +278,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const [restoreAnchorReady, setRestoreAnchorReady] = useState(false);
 
   const {
-    loading, error, messages, activeToolResults, entryIds, historyCursor, hasEarlierMessages, streamState,
+    loading, error, messages, activeToolResults, entryIds, historyCursor, hasEarlierMessages, streamState, turnTiming, turnTimings,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
@@ -296,6 +301,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     deferInitialScroll: Boolean(pendingScrollRestore),
   });
   const sessionBusy = agentRunning || bashRunning;
+  const timingsByEntry = useMemo(() => {
+    const timings = new Map<string, TurnTiming>();
+    for (const timing of [...turnTimings, ...(turnTiming?.endedAt !== undefined ? [turnTiming] : [])]) {
+      if (timing.anchorEntryId && timing.endedAt !== undefined) timings.set(timing.anchorEntryId, timing);
+    }
+    return timings;
+  }, [turnTimings, turnTiming]);
   const [quotedSelection, setQuotedSelection] = useState<{
     text: string;
     top: number;
@@ -1017,7 +1029,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
               };
 
-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[] } = {}): ReactNode => {
+              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[]; turnTiming?: TurnTiming } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
                 const isVisible = isMessageGroupAnchor(msg) || msg.role === "assistant";
                 const currentRefIdx = visibleRefIndexByMessage.get(idx);
@@ -1056,6 +1068,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
                     writtenFiles={options.writtenFiles}
+                    turnTiming={options.turnTiming}
                   />
                 );
                 if (!isVisible || currentRefIdx === undefined) return view;
@@ -1070,7 +1083,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               for (let idx = 0; idx < messages.length;) {
                 const msg = messages[idx];
                 if (!isMessageGroupAnchor(msg)) {
-                  rendered.push(renderMessage(idx));
+                  rendered.push(renderMessage(idx, {
+                    turnTiming: timingsByEntry.get(entryIds[idx]),
+                  }));
                   idx += 1;
                   continue;
                 }
@@ -1080,16 +1095,23 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 while (endIdx < messages.length && !isMessageGroupAnchor(messages[endIdx])) endIdx += 1;
 
                 const finalAssistantIdx = findFinalAssistantIndex(messages, userIdx, endIdx);
+                const isLiveTail = (sessionBusy || streamState.isStreaming) && endIdx === messages.length && userIdx === lastAnchorIdx;
+                let timing: TurnTiming | undefined;
+                for (let timingIdx = endIdx - 1; timingIdx >= userIdx; timingIdx--) {
+                  timing = timingsByEntry.get(entryIds[timingIdx]);
+                  if (timing) break;
+                }
+                if (isLiveTail && turnTiming?.endedAt === undefined) timing = turnTiming ?? undefined;
+
 
                 if (finalAssistantIdx === -1) {
                   for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
-                    rendered.push(renderMessage(renderIdx));
+                    rendered.push(renderMessage(renderIdx, { turnTiming: !isLiveTail && renderIdx === userIdx ? timing : undefined }));
                   }
                   idx = endIdx;
                   continue;
                 }
 
-                const isLiveTail = (sessionBusy || streamState.isStreaming) && endIdx === messages.length && userIdx === lastAnchorIdx;
                 if (isLiveTail) {
                   for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
                     rendered.push(renderMessage(renderIdx));
@@ -1098,11 +1120,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   continue;
                 }
 
-                rendered.push(renderMessage(userIdx));
-
                 const finalAssistant = messages[finalAssistantIdx] as AssistantMessage;
                 const finalSplit = splitFinalAssistantBlocks(finalAssistant);
-                const finalAnswerMessage = finalSplit.answerBlocks.length > 0 || getAssistantErrorMessage(finalAssistant)
+                const providerError = getAssistantErrorMessage(finalAssistant);
+                const providerErrorOnly = finalSplit.answerBlocks.length === 0 && Boolean(providerError);
+                const finalAnswerMessage = finalSplit.answerBlocks.length > 0 || providerError
                   ? withAssistantBlocks(finalAssistant, finalSplit.answerBlocks)
                   : null;
 
@@ -1139,13 +1161,18 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   }));
                 }
 
+                const timingOnUser = processViews.length === 0 && (providerErrorOnly || !finalAnswerMessage)
+                  ? timing
+                  : undefined;
+                rendered.push(renderMessage(userIdx, { turnTiming: timingOnUser }));
+
                 if (processViews.length > 0) {
                   rendered.push(
                     <div
                       key={`process-group-${entryIds[userIdx] ?? userIdx}`}
                       ref={processRefIdx === undefined ? undefined : (el) => { messageRefs.current[processRefIdx] = el; }}
                     >
-                      <ProcessDetailsGroup messageCount={processViews.length} toolCallCount={processToolCount} defaultExpanded={!finalAnswerMessage} reveal={revealProcess} t={t}>
+                      <ProcessDetailsGroup messageCount={processViews.length} toolCallCount={processToolCount} timing={timing} defaultExpanded={!finalAnswerMessage} reveal={revealProcess} t={t}>
                         {processViews}
                       </ProcessDetailsGroup>
                     </div>,
@@ -1167,6 +1194,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   const writtenFiles = extractTurnWrittenFiles(turnContent, toolResultsMap, messageCwd);
                   rendered.push(renderMessage(finalAssistantIdx, {
                     messageOverride: finalAnswerMessage,
+                    turnTiming: processViews.length === 0 && !timingOnUser ? timing : undefined,
                     writtenFiles,
                   }));
                 }
@@ -1189,12 +1217,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               );
             })()}
             {streamState.isStreaming && hasStreamingContent && streamState.streamingMessage && (
-              <MessageView message={streamState.streamingMessage as AgentMessage} toolResults={toolResultsMap} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} />
+              <MessageView turnTiming={turnTiming ?? undefined} message={streamState.streamingMessage as AgentMessage} toolResults={toolResultsMap} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} />
             )}
 
-            {agentRunning && !hasStreamingContent && agentPhase && (
+            {agentRunning && !hasStreamingContent && (agentPhase || turnTiming) && (
               <div className="break-words py-2 text-[13px] text-text-muted">
-                <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t)}</span>
+                <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t) ?? t("chat.processDetails")}</span>
+                {turnTiming && <> · <TurnDuration timing={turnTiming} live elapsedOnly /></>}
               </div>
             )}
 

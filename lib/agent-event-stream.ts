@@ -4,10 +4,12 @@ import {
   type AgentEventLike,
 } from "./agent-event-wire";
 import { acquireSessionLivenessLease } from "./session-liveness";
+import type { TurnTiming } from "./turn-timing";
 
 export interface AgentEventStreamSession {
   readonly isStreaming: boolean;
   readonly streamingMessage: unknown;
+  readonly turnTiming?: TurnTiming | null;
   onEvent(listener: (event: AgentEventLike) => void): () => void;
 }
 
@@ -97,6 +99,7 @@ export function createAgentEventStream(
             type: "connected",
             sessionId,
             isStreaming: session.isStreaming,
+            turnTiming: session.turnTiming ?? null,
           });
           for (const event of bufferedEvents) forwardEvent(event, snapshot);
           if (snapshot !== undefined && snapshot !== null) {
