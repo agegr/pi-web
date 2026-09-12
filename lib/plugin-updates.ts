@@ -1,6 +1,7 @@
 import { execFile } from "child_process";
 import { existsSync, readFileSync } from "fs";
-import { join } from "path";
+import { dirname, join } from "path";
+import { execPath } from "process";
 import { promisify } from "util";
 import {
   DefaultPackageManager,
@@ -97,13 +98,44 @@ async function runCommand(
   args: string[],
   options: { cwd: string; env?: NodeJS.ProcessEnv },
 ): Promise<string> {
-  const { stdout } = await execFileAsync(command, args, {
+  let invokeCommand = command;
+  let invokeArgs = args;
+  // Same Windows npm.cmd / CVE-2024-27980 constraint as lib/npx.ts.
+  if (isNpmCommand(command)) {
+    const npmCli = findNpmCli();
+    if (npmCli) {
+      invokeCommand = execPath;
+      invokeArgs = [npmCli, ...args];
+    }
+  }
+  const { stdout } = await execFileAsync(invokeCommand, invokeArgs, {
     cwd: options.cwd,
     env: options.env ? { ...process.env, ...options.env } : process.env,
     encoding: "utf8",
     timeout: 10_000,
   });
   return stdout;
+}
+
+function findNpmCli(): string | null {
+  const nodeDir = dirname(execPath);
+  const candidates = [
+    join(nodeDir, "node_modules", "npm", "bin", "npm-cli.js"),
+    join(nodeDir, "..", "lib", "node_modules", "npm", "bin", "npm-cli.js"),
+  ];
+  for (const p of candidates) {
+    try {
+      if (existsSync(p)) return p;
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+}
+
+function isNpmCommand(command: string): boolean {
+  const base = command.replace(/\\/g, "/").split("/").pop()?.toLowerCase() ?? "";
+  return base === "npm" || base === "npm.cmd" || base === "npm.exe";
 }
 
 function readInstalledVersion(installedPath: string): string {
