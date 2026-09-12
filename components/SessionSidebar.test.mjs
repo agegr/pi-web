@@ -7,6 +7,7 @@ const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconf
 const { getSessionListIndices } = await jiti.import("./SessionSidebar.tsx");
 
 const source = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
+const globalStyles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 const sessionItemSource = source.slice(source.indexOf("function SessionItem("));
 
 test("scrolling keeps the focused session and the viewport mounted without expanding the whole window", () => {
@@ -42,9 +43,11 @@ test("only Shift+click bypasses session deletion confirmation", () => {
 test("persists and exposes a vertical session/explorer resize handle", () => {
   assert.match(source, /axis: "vertical"/);
   assert.match(source, /storageKey: "pi-web:sidebar-session-pane-height"/);
-  assert.match(source, /Math\.round\(\(listHeight \+ explorerHeight\) \/ 2\)/);
+  assert.match(source, /Math\.round\(\(paneHeight \+ explorerHeight\) \/ 2\)/);
+  assert.match(source, /ref=\{sessionPaneRef\}[\s\S]*?<SessionSearch/);
   assert.match(source, /data-resize-handle="sidebar-sections"/);
   assert.match(source, /sidebar-section-resize-handle/);
+  assert.match(globalStyles, /\.sidebar-section-resize-handle:focus-visible/);
   assert.match(source, /var\(--sidebar-session-pane-height, 320px\)/);
   assert.match(source, /minHeight: explorerOpen \? EXPLORER_PANE_MIN_HEIGHT : 0/);
 });
