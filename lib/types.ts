@@ -74,6 +74,8 @@ export interface AssistantMessage {
   content: AssistantContentBlock[];
   model: string;
   provider: string;
+  /** Display label copied from the composer or read from session settings. */
+  thinkingLevel?: string;
   stopReason?: string;
   errorMessage?: string;
   timestamp?: number;

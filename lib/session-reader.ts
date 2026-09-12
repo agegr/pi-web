@@ -14,6 +14,7 @@ import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "./tool-res
 import { resolveProject, type ProjectInfo } from "./worktree";
 import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
 import { listSessionsIncremental } from "./session-list-scanner";
+import { readMessageThinkingLevels } from "./message-thinking";
 
 export { getAgentDir };
 
@@ -470,10 +471,12 @@ export function buildSessionContext(
   // Convert messages and their IDs together to keep fork/navigation targets aligned.
   const messages: AgentMessage[] = [];
   const entryIds: string[] = [];
+  const messageThinkingLevels = readMessageThinkingLevels(entries, sliced.map((entry) => entry.id));
   for (const entry of sliced) {
     const m = entryToUiMessage(entry, options);
     if (m) {
-      messages.push(m);
+      const level = messageThinkingLevels.get(entry.id);
+      messages.push(m.role === "assistant" && level !== undefined ? { ...m, thinkingLevel: level } : m);
       entryIds.push(entry.id);
     }
   }

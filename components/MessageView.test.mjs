@@ -29,6 +29,29 @@ function renderMessage(message, props = {}) {
   );
 }
 
+test("model labels show the answer's recorded thinking level during and after streaming", () => {
+  for (const isStreaming of [false, true]) {
+    for (const thinkingLevel of ["high", "off", "xhigh", "auto"]) {
+      const html = renderMessage({
+        role: "assistant", provider: "test", model: "astra", thinkingLevel,
+        content: [{ type: "text", text: "Answer" }],
+      }, { isStreaming, modelNames: { "test:astra": "GPT-6 Astra" } });
+      assert.ok(html.includes(`<span>GPT-6 Astra · ${thinkingLevel}</span>`));
+    }
+  }
+});
+
+test("model labels omit the separator for unknown or blank thinking levels", () => {
+  for (const thinkingLevel of [undefined, null, 3, "", " "]) {
+    const html = renderMessage({
+      role: "assistant", provider: "test", model: "astra", thinkingLevel,
+      content: [{ type: "text", text: "Answer" }],
+    }, { modelNames: { "test:astra": "GPT-6 Astra" } });
+    assert.match(html, /<span>GPT-6 Astra<\/span>/);
+    assert.doesNotMatch(html, /GPT-6 Astra ·/);
+  }
+});
+
 test("updates a reused message when its written files change", () => {
   const props = { message: { role: "assistant", content: [] } };
   assert.equal(MessageView.compare(props, props), true);

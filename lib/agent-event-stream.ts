@@ -8,6 +8,7 @@ import { acquireSessionLivenessLease } from "./session-liveness";
 export interface AgentEventStreamSession {
   readonly isStreaming: boolean;
   readonly streamingMessage: unknown;
+  readonly messageThinkingLevel?: string;
   onEvent(listener: (event: AgentEventLike) => void): () => void;
 }
 
@@ -97,6 +98,9 @@ export function createAgentEventStream(
             type: "connected",
             sessionId,
             isStreaming: session.isStreaming,
+            ...(session.messageThinkingLevel
+              ? { messageThinkingLevel: session.messageThinkingLevel }
+              : {}),
           });
           for (const event of bufferedEvents) forwardEvent(event, snapshot);
           if (snapshot !== undefined && snapshot !== null) {

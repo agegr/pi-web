@@ -629,6 +629,7 @@ function AssistantMessageView({
     .filter(({ block }) => !isEmptyThinkingBlock(block, { isStreaming })), [message.content, isStreaming]);
   const blocks = useMemo(() => blockItems.map(({ block }) => block), [blockItems]);
   const providerError = getAssistantErrorMessage(message, { isStreaming });
+  const thinkingLevel = typeof message.thinkingLevel === "string" ? message.thinkingLevel.trim() : undefined;
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const streamStartRef = useRef<number | null>(null);
@@ -768,7 +769,7 @@ function AssistantMessageView({
         }}
       >
         {message.provider && (
-          <span>{getModelDisplayName(message.provider, message.model, modelNames)}</span>
+          <span>{getModelDisplayName(message.provider, message.model, modelNames)}{thinkingLevel ? ` · ${thinkingLevel}` : ""}</span>
         )}
         {isStreaming && (() => {
           const est = Math.round(estimatedTokens);
