@@ -12,6 +12,38 @@ export interface AgentEventStreamSession {
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
+/**
+ * Registry of live SSE streams. Next.js 16 (prod mode) handles SIGINT/SIGTERM
+ * by calling server.close() and waiting INDEFINITELY for every connection to
+ * end — with no timeout and no closeAllConnections (those are dev-only, see
+ * node_modules/next/dist/server/lib/start-server.js cleanup()). An SSE stream
+ * never ends on its own (it waits for the CLIENT to disconnect), so on
+ * shutdown the process lingers forever: listener closed (502 upstream) but
+ * node alive as an orphan, Servy never sees the exit. CloseAll below lets our
+ * signal hook terminate the streams so Next's own drain completes and the
+ * process exits normally. See instrumentation.ts.
+ */
+// IMPORTANT: instrumentation.ts and the route handlers are bundled into
+// SEPARATE module graphs — each gets its own copy of this module, so a plain
+// module-level Set would be two disconnected registries (verified live: the
+// shutdown hook closed an empty set while the route's SSE kept heart-beating).
+// Symbol.for + globalThis gives every copy the SAME registry.
+const CLOSER_REGISTRY: symbol = Symbol.for("pi-web.agentEventStreamClosers");
+type StreamCloser = (closeController: boolean | "error") => void;
+const activeStreamClosers: Set<StreamCloser> =
+  ((globalThis as Record<symbol, Set<StreamCloser>>)[CLOSER_REGISTRY] ??= new Set<StreamCloser>());
+
+/** Close every live SSE stream (called on process shutdown signals). */
+export function closeAllAgentEventStreams(): void {
+  for (const close of [...activeStreamClosers]) {
+    try { close("error"); } catch { /* stream already closed */ }
+  }
+}
+
+export function activeAgentEventStreamCount(): number {
+  return activeStreamClosers.size;
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -25,7 +57,7 @@ export function createAgentEventStream(
   sessionId: string,
   sessionPromise: Promise<AgentEventStreamSession>,
 ): ReadableStream<Uint8Array> {
-  let cancelStream: (closeController: boolean) => void = () => {};
+  let cancelStream: (closeController: boolean | "error") => void = () => {};
 
   return new ReadableStream<Uint8Array>({
     start(controller) {
@@ -35,18 +67,28 @@ export function createAgentEventStream(
       let unsubscribe: (() => void) | null = null;
       let abortHandler: (() => void) | null = null;
 
-      const cleanup = (closeController: boolean) => {
+      // "error": hard-terminate the response (SSE client sees a broken
+      // stream and reconnects). Used on process shutdown: a plain close() is
+      // swallowed by the Next/Node response pipeline without emitting a
+      // chunked termination, so the socket stays ESTABLISHED and Next's
+      // server.close() drain never completes (the original zombie bug).
+      // "true": graceful close after we finished writing a final event.
+      const cleanup = (closeController: boolean | "error") => {
         if (closed) return;
         closed = true;
+        activeStreamClosers.delete(cleanup);
         if (heartbeat !== null) clearInterval(heartbeat);
         unsubscribe?.();
         unsubscribe = null;
         if (abortHandler) req.signal.removeEventListener("abort", abortHandler);
-        if (closeController) {
+        if (closeController === "error") {
+          try { controller.error(new Error("pi-web server shutting down")); } catch { /* already closed */ }
+        } else if (closeController) {
           try { controller.close(); } catch { /* stream already closed */ }
         }
       };
       cancelStream = cleanup;
+      activeStreamClosers.add(cleanup);
 
       const enqueueText = (text: string) => {
         if (closed) return;
