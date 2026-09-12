@@ -1005,6 +1005,17 @@
   overflow-wrap: anywhere;
 }
 
+.settings-title-model-select {
+  width: 100%;
+  max-width: 420px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
 .settings-chat-options {
   display: flex;
   flex-direction: column;
