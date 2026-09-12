@@ -86,6 +86,9 @@ function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, 
 
 const CHAT_MINIMAP_WIDTH = 36;
 const CHAT_COLUMN_PADDING = 16;
+// A dialog replacing another one within this window is a single interaction
+// (e.g. select followed by a free-text input) and must not re-ring.
+const EXTENSION_DIALOG_SOUND_MIN_GAP_MS = 2000;
 
 function NewSessionUpdateLink({
   label,
@@ -253,6 +256,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const soundEnabledRef = useRef(soundEnabled);
   soundEnabledRef.current = soundEnabled;
   const soundedExtensionDialogIdRef = useRef<string | null>(null);
+  const extensionDialogLastSoundAtRef = useRef(0);
   const wrappedOnAgentEnd = useCallback(() => {
     if (completionNotificationsEnabled && soundEnabledRef.current) {
       playDoneSoundRef.current();
@@ -452,6 +456,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       || soundedExtensionDialogIdRef.current === extensionDialog.id
     ) return;
     soundedExtensionDialogIdRef.current = extensionDialog.id;
+    const now = Date.now();
+    if (now - extensionDialogLastSoundAtRef.current < EXTENSION_DIALOG_SOUND_MIN_GAP_MS) return;
+    extensionDialogLastSoundAtRef.current = now;
     playDoneSoundRef.current();
   }, [completionNotificationsEnabled, extensionDialog]);
 
@@ -1464,6 +1471,11 @@ function ExtensionDialog({
   const [now, setNow] = useState(() => Date.now());
   const focusFirstOption = useCallback((element: HTMLDivElement | null) => element?.focus(), []);
   const summary = getExtensionDialogSummary(request);
+  // Hosts may fold extra context into the title (previews, instructions). The
+  // first paragraph is the real title; the rest reads better as body text.
+  const titleParagraphs = request.title.split(/\n{2,}/);
+  const headerTitle = titleParagraphs[0];
+  const bodyTitle = titleParagraphs.slice(1).join("\n\n");
   const remainingSeconds = request.expiresAt === undefined
     ? null
     : Math.max(0, Math.ceil((request.expiresAt - now) / 1000));
@@ -1502,7 +1514,7 @@ function ExtensionDialog({
         inset: 0,
         zIndex: 90,
         display: "flex",
-        alignItems: collapsed ? "flex-start" : "center",
+        alignItems: collapsed ? "flex-start" : "flex-end",
         justifyContent: "center",
         padding: 20,
         pointerEvents: "none",
@@ -1534,7 +1546,7 @@ function ExtensionDialog({
             {t("chat.extensionPending")}
           </span>
           <span style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-            {request.title}
+            {headerTitle}
           </span>
           {summary && (
             <span style={{ fontSize: 12, color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "34%", flexShrink: 1 }}>
@@ -1565,7 +1577,7 @@ function ExtensionDialog({
       >
         <div style={{ flexShrink: 0, display: "flex", alignItems: "flex-start", gap: 8, padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650 }}>{request.title}</div>
+            <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650 }}>{headerTitle}</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>
               <span>{t("chat.extensionRequest")}</span>
               {countdown}
@@ -1602,6 +1614,9 @@ function ExtensionDialog({
             flex: "1 1 auto", minHeight: 0, overflowY: "auto",
           }}
         >
+          {bodyTitle && (
+            <div style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap", marginBottom: 12, overflowWrap: "anywhere" }}>{bodyTitle}</div>
+          )}
           {request.method === "confirm" && (
             <MarkdownBody>{request.message}</MarkdownBody>
           )}
@@ -1780,7 +1795,7 @@ function ExtensionCustomPanel({
         inset: 0,
         zIndex: 95,
         display: "flex",
-        alignItems: collapsed ? "flex-start" : "center",
+        alignItems: collapsed ? "flex-start" : "flex-end",
         justifyContent: "center",
         padding: 20,
         pointerEvents: "none",

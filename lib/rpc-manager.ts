@@ -350,14 +350,17 @@ export class AgentSessionWrapper {
       if (typeof this.inner.bindExtensions === "function") {
         const bindExtensions = this.inner.bindExtensions as (bindings: {
           uiContext?: ExtensionUiContextLike;
-          mode?: "rpc";
+          mode?: "tui";
           commandContextActions?: ExtensionCommandContextActionsLike;
           shutdownHandler?: () => void;
           onError?: (error: { extensionPath: string; event: string; error: string }) => void;
         }) => Promise<void>;
         await bindExtensions.call(this.inner, {
           uiContext,
-          mode: "rpc",
+          // Advertise "tui": this uiContext implements custom() (terminal-rendered
+          // panel), so extensions may use their full TUI components instead of
+          // the select/input fallback they reserve for genuine RPC hosts.
+          mode: "tui",
           commandContextActions: this.createExtensionCommandContextActions(),
           shutdownHandler: () => this.emit({
             type: "extension_ui_request",
@@ -374,7 +377,7 @@ export class AgentSessionWrapper {
           }),
         });
       } else {
-        this.inner.extensionRunner.setUIContext?.(uiContext, "rpc");
+        this.inner.extensionRunner.setUIContext?.(uiContext, "tui");
       }
       this.extensionsBound = true;
       this.applyExactSystemPrompt();
@@ -954,7 +957,7 @@ export class AgentSessionWrapper {
         await this.inner.reload();
         this.setActiveToolSelection(activeToolNames);
         if (typeof this.inner.bindExtensions !== "function") {
-          this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
+          this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "tui");
         }
         this.applyExactSystemPrompt();
         invalidateModelsCache();
@@ -1641,7 +1644,7 @@ export class AgentSessionWrapper {
         this.syncProjectTrust();
         await this.inner.reload({
           beforeSessionStart: () => {
-            this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
+            this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "tui");
           },
         });
         this.applyExactSystemPrompt();
