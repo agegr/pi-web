@@ -14,6 +14,7 @@ import type {
 } from "@/lib/types";
 import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
 import { normalizeToolCalls } from "@/lib/normalize";
+import { withMessageThinking } from "@/lib/message-thinking";
 import { isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
 import { clearDraft, rekeyDraft, restoreDraftSubmission } from "@/lib/draft-store";
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
@@ -72,6 +73,7 @@ type AgentStateResponse = {
   contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
   systemPrompt?: string;
   thinkingLevel?: string;
+  messageThinkingLevel?: string;
   isStreaming?: boolean;
   isPromptRunning?: boolean;
   isBashRunning?: boolean;
@@ -354,6 +356,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const newSessionModelOverrideRef = useRef<SelectedModel | null>(null);
   const thinkingLevelOverrideRef = useRef<Exclude<ThinkingLevelOption, "auto"> | null>(null);
   const promptRunIdRef = useRef(0);
+  const sentThinkingLevelRef = useRef<string | undefined>(undefined);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
   const modelSwitchPendingRef = useRef(false);
   const draftKeyAliasesRef = useRef(new Map<string, string>());
@@ -489,6 +492,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const d = await res.json() as SessionData;
       if (sessionIdRef.current !== sid) return null;
       const persistedMessages = d.context.messages;
+      sentThinkingLevelRef.current ??= d.context.thinkingLevel;
       setData(d);
       setActiveLeafId(d.leafId);
       setMessages(persistedMessages);
@@ -513,6 +517,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (sessionIdRef.current !== sid) return null;
 
         const liveState = agentState.state;
+        if (!rpcPromptPendingRef.current && liveState?.messageThinkingLevel) {
+          sentThinkingLevelRef.current = liveState.messageThinkingLevel;
+        }
         syncLiveModel(liveState);
         if (liveState) {
           if (liveState.contextUsage !== undefined) setContextUsage(liveState.contextUsage ?? null);
@@ -1112,6 +1119,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
       case "connected": {
+        if (!rpcPromptPendingRef.current && typeof event.messageThinkingLevel === "string") {
+          sentThinkingLevelRef.current = event.messageThinkingLevel;
+        }
         dispatch({ type: "end" });
         if (event.isStreaming === true) {
           cancelEventStreamGrace();
@@ -1209,7 +1219,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const msg = event.message as AgentMessage | undefined;
           if (msg?.role === "user") break;
           if (msg?.role === "assistant") {
-            dispatch({ type: "snapshot", message: msg });
+            dispatch({ type: "snapshot", message: withMessageThinking(msg, sentThinkingLevelRef.current) });
             if (msg.content.length > 0) setAgentPhase(null);
           } else if (msg) {
             setAgentPhase(null);
@@ -1260,7 +1270,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             return [...prev, delivered];
           });
         } else if (completed) {
-          setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
+          setMessages((prev) => [...prev, withMessageThinking(normalizeToolCalls(completed), sentThinkingLevelRef.current)]);
         }
         dispatch({ type: "end" });
         setAgentPhase({ kind: "waiting_model" });
@@ -1388,6 +1398,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
 
     const promptRunId = promptRunIdRef.current + 1;
+    const previousThinkingLabel = sentThinkingLevelRef.current;
+    const levelMap = displayModel ? modelThinkingLevelMaps[`${displayModel.provider}:${displayModel.modelId}`] : undefined;
+    sentThinkingLevelRef.current = thinkingLevel === "auto" ? "auto" : (levelMap?.[thinkingLevel] ?? thinkingLevel);
     cancelEventStreamGrace();
     rpcPromptPendingRef.current = true;
 
@@ -1432,6 +1445,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         await sendAgentCommand(sid, {
           type: "prompt",
           message,
+          displayThinkingLevel: sentThinkingLevelRef.current,
           ...(piImages?.length ? { images: piImages } : {}),
         });
         promoteNewSession(1, message);
@@ -1442,6 +1456,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         await sendAgentCommand(session.id, {
           type: "prompt",
           message,
+          displayThinkingLevel: sentThinkingLevelRef.current,
           ...(piImages?.length ? { images: piImages } : {}),
         });
       } else {
@@ -1460,6 +1475,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         void waitForPromptSettlement(sentSessionId, promptRunId);
         return;
       }
+      sentThinkingLevelRef.current = previousThinkingLabel;
       rpcPromptPendingRef.current = false;
       setMessages((prev) => {
         const optimisticIndex = prev.lastIndexOf(userMsg);
@@ -1483,7 +1499,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission, thinkingLevel, displayModel, modelThinkingLevelMaps]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -1812,11 +1828,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return;
     }
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
+    const previousThinkingLabel = sentThinkingLevelRef.current;
+    const levelMap = displayModel ? modelThinkingLevelMaps[`${displayModel.provider}:${displayModel.modelId}`] : undefined;
+    const displayThinkingLevel = thinkingLevel === "auto" ? "auto" : (levelMap?.[thinkingLevel] ?? thinkingLevel);
+    sentThinkingLevelRef.current = displayThinkingLevel;
     try {
       await sendAgentCommand(sid, {
         type: "prompt",
         message,
         streamingBehavior: behavior,
+        displayThinkingLevel,
         ...(piImages?.length ? { images: piImages } : {}),
       });
     } catch (e) {
@@ -1824,13 +1845,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // A transport failure after dispatch is ambiguous: the server may have
       // accepted the queued prompt before the response was lost. Restoring in
       // that case would invite a duplicate turn.
-      if (isPromptRejectedError(e)) restore();
+      if (isPromptRejectedError(e)) {
+        sentThinkingLevelRef.current = previousThinkingLabel;
+        restore();
+      }
       addNotice({
         type: "error",
         message: e instanceof Error ? e.message : String(e),
       });
     }
-  }, [addNotice, composerDraftKey, restoreSubmission]);
+  }, [addNotice, composerDraftKey, displayModel, modelThinkingLevelMaps, restoreSubmission, thinkingLevel]);
 
   const handleSteer = useCallback(async (message: string, images?: AttachedImage[]) => {
     await sendStreamingPrompt(message, "steer", images);

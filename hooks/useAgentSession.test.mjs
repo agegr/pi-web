@@ -256,7 +256,7 @@ test("streaming submissions cannot be stranded in an idle direct queue", () => {
 
   assert.match(queueSource, /type: "prompt"/);
   assert.match(queueSource, /streamingBehavior: behavior/);
-  assert.match(queueSource, /if \(isPromptRejectedError\(e\)\) restore\(\)/);
+  assert.match(queueSource, /if \(isPromptRejectedError\(e\)\) \{[\s\S]*?restore\(\);[\s\S]*?\}/);
   assert.doesNotMatch(queueSource, /type: "steer"/);
   assert.doesNotMatch(queueSource, /type: "follow_up"/);
 });
@@ -359,7 +359,7 @@ test("keeps one reducer-owned assistant partial and consumes Pi JSON deltas", ()
   assert.match(connectedSource, /dispatch\(\{ type: "end" \}\)/);
   assert.match(connectedSource, /event\.isStreaming === true/);
   assert.match(connectedSource, /agentRunningRef\.current = true/);
-  assert.match(streamSource, /msg\?\.role === "assistant"[\s\S]*dispatch\(\{ type: "snapshot", message: msg \}\)/);
+  assert.match(streamSource, /msg\?\.role === "assistant"[\s\S]*dispatch\(\{ type: "snapshot", message: withMessageThinking\(msg, sentThinkingLevelRef\.current\) \}\)/);
   assert.match(streamSource, /event\.assistantMessageEvent as ClientAssistantMessageEvent/);
   assert.match(streamSource, /dispatch\(\{ type: "delta", event: delta \}\)/);
   assert.match(streamSource, /delta\.type !== "toolcall_start" && delta\.type !== "toolcall_delta"/);
@@ -368,6 +368,19 @@ test("keeps one reducer-owned assistant partial and consumes Pi JSON deltas", ()
   assert.match(messageEndSource, /normalizeToolCalls\(completed\)/);
   assert.match(messageEndSource, /dispatch\(\{ type: "end" \}\)/);
   assert.doesNotMatch(messageEndSource, /streamState\.streamingMessage/);
+});
+
+test("a reconnect cannot replace the thinking label of a pending prompt", () => {
+  const connectedSource = source.slice(
+    source.indexOf('case "connected"'),
+    source.indexOf('case "agent_start"'),
+  );
+  assert.match(
+    connectedSource,
+    /!rpcPromptPendingRef\.current && typeof event\.messageThinkingLevel === "string"/,
+  );
+  assert.match(source, /!rpcPromptPendingRef\.current && liveState\?\.messageThinkingLevel/);
+  assert.match(source, /const previousThinkingLabel = sentThinkingLevelRef\.current;[\s\S]*?sentThinkingLevelRef\.current = previousThinkingLabel;[\s\S]*?rpcPromptPendingRef\.current = false/);
 });
 
 test("restoring a running session does not clear an SSE snapshot", () => {

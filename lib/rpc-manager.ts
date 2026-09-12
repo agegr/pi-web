@@ -43,6 +43,11 @@ import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
 import {
+  MESSAGE_THINKING_CUSTOM_TYPE,
+  normalizeMessageThinkingLabel,
+  readCurrentMessageThinkingLabel,
+} from "./message-thinking";
+import {
   appendSessionToolSelection,
   readSessionToolSelection,
   validateSessionToolSelection,
@@ -276,6 +281,15 @@ export class AgentSessionWrapper {
 
   get isStreaming(): boolean {
     return this.inner.isStreaming;
+  }
+
+  get messageThinkingLevel(): string | undefined {
+    const manager = this.inner.sessionManager as unknown as { getBranch?: () => unknown };
+    if (typeof manager.getBranch !== "function") return undefined;
+    const entries = manager.getBranch();
+    return readCurrentMessageThinkingLabel(
+      Array.isArray(entries) ? entries as SessionEntry[] : [],
+    );
   }
 
   isAlive(): boolean {
@@ -590,15 +604,31 @@ export class AgentSessionWrapper {
           }
           const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
           const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
+          const messageThinkingLevel = normalizeMessageThinkingLabel(command.displayThinkingLevel);
           let preflightAccepted = false;
           let preflightSettled = false;
           let promptSettled = false;
+          let thinkingLabelPersisted = false;
           let acceptPreflight!: () => void;
           let rejectPreflight!: (error: unknown) => void;
           const preflight = new Promise<void>((resolve, reject) => {
             acceptPreflight = () => {
               preflightAccepted = true;
               this.agentRunNeedsCompletion = true;
+              if (messageThinkingLevel && !thinkingLabelPersisted) {
+                thinkingLabelPersisted = true;
+                try {
+                  this.inner.sessionManager.appendCustomEntry(
+                    MESSAGE_THINKING_CUSTOM_TYPE,
+                    { version: 1, label: messageThinkingLevel },
+                  );
+                } catch (error) {
+                  console.error(
+                    "[pi-web] failed to persist message thinking label:",
+                    error instanceof Error ? error.message : error,
+                  );
+                }
+              }
               if (preflightSettled) return;
               preflightSettled = true;
               resolve();
@@ -706,6 +736,7 @@ export class AgentSessionWrapper {
             : null,
           systemPrompt: this.inner.agent.state?.systemPrompt ?? "",
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
+          messageThinkingLevel: this.messageThinkingLevel,
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),
         };
