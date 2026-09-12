@@ -2437,7 +2437,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       return (
                         <button
                           key={lvl}
-                          onClick={() => { setThinkingDropdownOpen(false); if (!isActive) onThinkingLevelChange(lvl); }}
+                          onClick={() => { setThinkingDropdownOpen(false); onThinkingLevelChange(lvl); }}
                           style={{
                             display: "flex", alignItems: "center", gap: 8,
                             width: "100%", padding: "7px 12px",
