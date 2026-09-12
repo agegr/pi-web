@@ -294,3 +294,31 @@ test("renders custom-message images as buttons that open a larger preview", () =
   assert.match(html, /<button[^>]+aria-label="Preview image"[^>]*>/);
   assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
 });
+
+test("shows tool-result images while the tool details stay collapsed", () => {
+  const block = {
+    type: "toolCall",
+    toolCallId: "call-shot-1",
+    toolName: "page_screenshot",
+    input: { tabId: 7 },
+  };
+  const result = {
+    role: "toolResult",
+    toolCallId: block.toolCallId,
+    content: [
+      { type: "text", text: "captured-1280x720" },
+      { type: "image", data: "YWJj", mimeType: "image/png" },
+    ],
+  };
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [block],
+  }, { toolResults: new Map([[block.toolCallId, result]]) });
+
+  assert.match(html, /<button[^>]+aria-label="Preview image"[^>]*>/);
+  assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
+  assert.doesNotMatch(html, /captured-1280x720/);
+  assert.doesNotMatch(html, /"tabId"/);
+});
