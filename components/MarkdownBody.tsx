@@ -5,6 +5,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import { resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
 import { markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
+import { ImagePreview } from "./ImagePreview";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
 
 interface MarkdownBodyProps {
@@ -82,7 +83,13 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
         : src;
       // Dynamic local paths are served directly by the file API.
       // eslint-disable-next-line @next/next/no-img-element
-      return <img src={imageSrc} alt={alt ?? ""} loading="lazy" {...props} />;
+      const image = <img src={imageSrc} alt={alt ?? ""} loading="lazy" {...props} />;
+      if (typeof imageSrc !== "string") return image;
+      return (
+        <ImagePreview src={imageSrc} alt={alt ?? ""} className="markdown-image">
+          {image}
+        </ImagePreview>
+      );
     },
     table({ children }) {
       return (

@@ -144,3 +144,14 @@ test("keeps Mermaid source visible while the response is streaming", () => {
   assert.match(html, />Preview</);
   assert.match(html, /A --&gt; B/);
 });
+
+test("opens markdown images in the shared image preview", () => {
+  const localHtml = renderMarkdown("![chart](docs/tmp/chart.png)");
+  const remoteHtml = renderMarkdown("![logo](https://example.com/logo.png)");
+
+  assert.match(localHtml, /<button[^>]+aria-label="Preview image"[^>]*>/);
+  assert.match(localHtml, /<img[^>]+src="\/api\/files\/home\/me\/project\/docs\/tmp\/chart\.png\?type=read"/);
+  assert.match(localHtml, /<img[^>]+alt="chart"/);
+  assert.match(remoteHtml, /<button[^>]+aria-label="Preview image"[^>]*>/);
+  assert.match(remoteHtml, /<img[^>]+src="https:\/\/example\.com\/logo\.png"/);
+});
