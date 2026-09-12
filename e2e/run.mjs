@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { createWriteStream, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -28,6 +28,7 @@ const LONG = "e2e-long-session";
 const BRANCH = "e2e-branch-session";
 const RICH = "e2e-rich-session";
 const COMPACTED = "e2e-compacted-session";
+const APPEND = "e2e-external-append-session";
 const text = (i) => `E2E message ${String(i).padStart(4, "0")}`;
 const ids = (start, end) => Array.from({ length: end - start }, (_, i) => `e${start + i}`);
 
@@ -114,6 +115,10 @@ try {
     + "E2E compacted answer paragraph.\n\n".repeat(20),
   }]));
   writeSession(COMPACTED, compactedEntries);
+  writeSession(APPEND, [
+    message("root", null, "user", "E2E wrapper root"),
+    message("reply", "root", "assistant", "E2E wrapper reply"),
+  ]);
 
   const probe = createServer();
   probe.listen(0, "127.0.0.1");
@@ -137,6 +142,17 @@ try {
     return response.json();
   }
 
+  async function post(path, body) {
+    const response = await fetch(`${base}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(60_000),
+    });
+    assert.ok(response.ok, `POST ${path} -> ${response.status}`);
+    return response.json();
+  }
+
   const deadline = Date.now() + 120_000;
   while (true) {
     if (serverError) throw serverError;
@@ -144,7 +160,7 @@ try {
     const response = await fetch(`${base}/api/sessions`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
     if (response?.ok) {
       const { sessions } = await response.json();
-      assert.deepEqual(sessions.map((session) => session.id).sort(), [LONG, BRANCH, RICH, COMPACTED].sort());
+      assert.deepEqual(sessions.map((session) => session.id).sort(), [LONG, BRANCH, RICH, COMPACTED, APPEND].sort());
       break;
     }
     assert.ok(Date.now() < deadline, "Server readiness timed out; see server.log");
@@ -173,6 +189,27 @@ try {
   assert.equal(compacted.context.entryIds[0], "compact");
   assert.equal(compacted.context.messages.some((entry) => entry.role === "user"), false);
   console.log("PASS: bounded history, branch context, pagination root, and API errors");
+
+  // #632 regression: a live in-memory wrapper used to shadow the session file,
+  // so entries appended by another pi process were invisible — even after a
+  // manual refresh. The wrapper must yield to what is actually on disk.
+  {
+    const file = join(sessionDir, `2026-08-23T00-00-00-000Z_${APPEND}.jsonl`);
+    // Warm a real wrapper so the shadowing code path is active.
+    await post(`/api/agent/${APPEND}`, { type: "get_state" });
+    const beforeAppend = await api(`/api/sessions/${APPEND}`);
+    assert.deepEqual(beforeAppend.context.entryIds, ["root", "reply"], "the wrapper must serve its own snapshot first");
+    // Append exactly as the pi TUI would: one more JSONL entry, same file.
+    appendFileSync(file, `${JSON.stringify(message("external", "reply", "assistant", "E2E external append"))}\n`);
+    const afterAppend = await api(`/api/sessions/${APPEND}`);
+    assert.deepEqual(afterAppend.context.entryIds, ["root", "reply", "external"], "an external append must become visible");
+    // A second read must stay correct rather than flap or re-evict forever.
+    const again = await api(`/api/sessions/${APPEND}`);
+    assert.deepEqual(again.context.entryIds, ["root", "reply", "external"], "repeated reads must stay stable");
+    const appended = await api(`/api/sessions/${APPEND}/context?tail=1`);
+    assert.deepEqual(appended.context.entryIds, ["external"], "the appended entry must be readable on its own");
+    console.log("PASS: external session-file appends are visible despite a live wrapper");
+  }
 
   browser = await chromium.launch();
   for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {

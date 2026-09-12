@@ -12,6 +12,7 @@ import {
   invalidateSessionListCache,
   buildSessionContext,
   readSessionHeader,
+  readLatestSessionEntryId,
 } from "@/lib/session-reader";
 import { sessionPathKey } from "@/lib/session-path";
 import { abortSubagent, getRpcSession, getRpcSessionInfos } from "@/lib/rpc-manager";
@@ -30,7 +31,25 @@ export async function GET(
   const { id } = await params;
   try {
     const rpc = getRpcSession(id);
-    const liveRpc = rpc?.isAlive() ? rpc : undefined;
+
+    // A live wrapper only reflects the appends pi-web itself made. When another
+    // pi process (the TUI) writes the same session file, the wrapper's in-memory
+    // entries silently diverge from disk and every read — including a manual
+    // refresh — keeps serving the stale snapshot. Detect the newest on-disk
+    // entry the wrapper never saw and drop the wrapper, so this request rebuilds
+    // from the file instead of from memory. Only while idle: mid-run the wrapper
+    // owns the write path, so an external write then is the genuinely
+    // unsupported concurrent-write case rather than a stale read.
+    let liveWrapper = rpc?.isAlive() ? rpc : undefined;
+    if (liveWrapper && !liveWrapper.isRunning()) {
+      const diskLatestId = readLatestSessionEntryId(liveWrapper.sessionFile);
+      if (diskLatestId && !liveWrapper.inner.sessionManager.getEntry(diskLatestId)) {
+        liveWrapper.destroy();
+        invalidateSessionListCache();
+        liveWrapper = undefined;
+      }
+    }
+    const liveRpc = liveWrapper;
     const resolvedPath = liveRpc ? null : await resolveSessionPath(id);
     if (!liveRpc && !resolvedPath) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
