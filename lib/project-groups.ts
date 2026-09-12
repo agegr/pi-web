@@ -51,3 +51,11 @@ export function sessionsForProject(
 ): SessionInfo[] {
   return sessions.filter((session) => workspaceKeyOf(session) === projectKey);
 }
+
+/** Sessions whose effective cwd is the selected top-level checkout. */
+export function sessionsForWorktree(
+  sessions: readonly SessionInfo[],
+  worktreePath: string,
+): SessionInfo[] {
+  return sessions.filter((session) => session.cwd === worktreePath);
+}

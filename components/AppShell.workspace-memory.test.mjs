@@ -54,6 +54,55 @@ test("workspace restoration remains inside the cross-project branch", () => {
   );
 });
 
+test("same-project worktree switches park a session from the previous cwd", () => {
+  const callback = callbackBody("handleCwdChange", "handleSelectSession");
+  const replacements = [];
+  const rekeys = [];
+  const context = vm.createContext({
+    crypto: globalThis.crypto,
+    useCallback: (fn) => fn,
+    invalidateWorkspaceRestore() {},
+    newSessionCwd: null,
+    activeCwd: "/repo",
+    activeFileTabId: null,
+    activeProjectKeyRef: { current: "project:repo" },
+    activeNewSessionDraftKeyRef: { current: null },
+    suppressCwdBumpRef: { current: false },
+    selectedSession: { id: "main-session", cwd: "/repo", projectKey: "project:repo" },
+    workspaceKeyOf: (session) => session.projectKey ?? session.cwd,
+    rekeyDraft: (...args) => rekeys.push(args),
+    parkedNewSessionDraftKey: (cwd) => `parked:${cwd}`,
+    restoreWorkspaceContext() {
+      throw new Error("same-project switch must not restore project workspace state");
+    },
+    window: { location: { pathname: "/", search: "?session=main-session", hash: "" } },
+    router: { replace: (...args) => replacements.push(args) },
+    sessionKey: 0,
+  });
+  for (const [setter] of callback.matchAll(/\bset[A-Z]\w*(?=\()/g)) {
+    context[setter] = () => {};
+  }
+  context.setSelectedSession = (value) => { context.selectedSession = value; };
+  context.setActiveCwd = (value) => { context.activeCwd = value; };
+  context.setSessionKey = (value) => {
+    context.sessionKey = typeof value === "function" ? value(context.sessionKey) : value;
+  };
+
+  vm.runInContext(
+    stripTypeScriptTypes(`${callback}\nhandleCwdChange('/repo-worktrees/feature', '/repo', 'project:repo');`),
+    context,
+  );
+
+  assert.equal(context.activeCwd, "/repo-worktrees/feature");
+  assert.equal(context.selectedSession, null);
+  assert.equal(context.sessionKey, 1);
+  assert.equal(rekeys.length, 1);
+  assert.equal(rekeys[0][0], "parked:/repo-worktrees/feature");
+  assert.equal(replacements.length, 1);
+  assert.equal(replacements[0][0], "/");
+  assert.equal(replacements[0][1].scroll, false);
+});
+
 test("New restores the draft after session navigation and workspace auto-restore", async (t) => {
   const callbacks = [
     callbackBody("restoreWorkspaceContext", "handleCwdChange"),

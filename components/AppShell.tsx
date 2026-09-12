@@ -630,17 +630,17 @@ export function AppShell() {
     // The server may hydrate a normalized key after a custom cwd is already
     // active. Updating identity for the exact same cwd is not a user switch.
     if (currentFreshCwd === cwd && currentProject !== newProject) return;
-    // Existing sessions stay open when the worktree selector moves within the
-    // same project. A fresh composer must remount when its effective cwd moves,
-    // otherwise its already-created runtime would keep sending to the old cwd.
+    // A worktree switch is a real cwd context change even inside one project.
+    // Keep only a session/composer that already belongs to the target cwd;
+    // otherwise park it and open the target worktree's fresh composer below.
+    const selectedSessionMatchesCwd = selectedSession?.cwd === cwd;
     if (
       currentProject === newProject
-      && (selectedSession !== null || currentFreshCwd === cwd)
+      && (selectedSessionMatchesCwd || (selectedSession === null && currentFreshCwd === cwd))
     ) {
       return;
     }
-    // Close any session that belongs to a different project — it no longer
-    // matches the selected project directory.
+    // Close any session that no longer belongs to the selected cwd context.
     const previousDraftKey = activeNewSessionDraftKeyRef.current;
     if (previousDraftKey && currentFreshCwd) {
       rekeyDraft(previousDraftKey, parkedNewSessionDraftKey(currentFreshCwd));

@@ -218,9 +218,10 @@ test("stale fresh-session completion cannot replace the active composer", () => 
   assert.match(newSessionSource, /activeNewSessionDraftKeyRef\.current = draftKey/);
   assert.match(createdSource, /activeNewSessionDraftKeyRef\.current !== sourceDraftKey/);
   assert.match(cwdChangeSource, /const currentFreshCwd = newSessionCwd \?\? activeCwd/);
+  assert.match(cwdChangeSource, /const selectedSessionMatchesCwd = selectedSession\?\.cwd === cwd/);
   assert.match(
     cwdChangeSource,
-    /currentProject === newProject\s*&& \(selectedSession !== null \|\| currentFreshCwd === cwd\)/,
+    /currentProject === newProject\s*&& \(selectedSessionMatchesCwd \|\| \(selectedSession === null && currentFreshCwd === cwd\)\)/,
   );
   assert.match(cwdChangeSource, /if \(currentProject !== newProject\) \{[\s\S]*?setFileTabs\(\[\]\)/);
   assert.match(

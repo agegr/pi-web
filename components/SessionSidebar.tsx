@@ -6,7 +6,7 @@ import { listSessionFamilies } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
-import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
+import { getProjectActivity, getRecentProjects, sessionsForProject, sessionsForWorktree } from "@/lib/project-groups";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import { useI18n } from "@/hooks/useI18n";
@@ -396,6 +396,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [wtError, setWtError] = useState<string | null>(null);
   const [wtBusy, setWtBusy] = useState(false);
   const [wtConfirmRemove, setWtConfirmRemove] = useState<string | null>(null);
+  const [showAllWorktreeSessions, setShowAllWorktreeSessions] = useState(false);
   const [worktreeLoadingCwd, setWorktreeLoadingCwd] = useState<string | null>(null);
   const wtDropdownRef = useRef<HTMLDivElement>(null);
   const wtNewInputRef = useRef<HTMLInputElement>(null);
@@ -808,6 +809,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       });
       saveLastCustomCwd(data.cwd);
       setCustomPathValue(data.cwd);
+      setShowAllWorktreeSessions(false);
       setSelectedCwd(data.cwd);
       setCustomPathOpen(false);
       setDropdownOpen(false);
@@ -828,6 +830,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       const res = await fetch("/api/default-cwd", { method: "POST" });
       const data = await res.json() as { cwd?: string; error?: string };
       if (data.cwd) {
+        setShowAllWorktreeSessions(false);
         setSelectedCwd(data.cwd);
         setCustomPathOpen(false);
         setCustomPathError(null);
@@ -866,6 +869,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         currentWorktreePath: data.path!,
         worktrees: [...prev.worktrees, { path: data.path!, branch, isMain: false }],
       } : prev);
+      setShowAllWorktreeSessions(false);
       setSelectedCwd(data.path);
       setWtRefreshKey((k) => k + 1);
     } catch (e) {
@@ -896,7 +900,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         return;
       }
       setWtConfirmRemove(null);
-      if (currentWorktreePath === path) setSelectedCwd(worktreeState.projectRoot);
+      if (currentWorktreePath === path) {
+        setShowAllWorktreeSessions(false);
+        setSelectedCwd(worktreeState.projectRoot);
+      }
       setWtRefreshKey((k) => k + 1);
     } catch (e) {
       setWtError(e instanceof Error ? e.message : String(e));
@@ -931,7 +938,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // open session after manually switching worktrees.
   const handleSelectSessionFromList = useCallback((s: SessionInfo, entryId?: string, blockIndex?: number) => {
     setAllSessions((current) => current.some((session) => session.id === s.id) ? current : [s, ...current]);
-    if (s.cwd) setSelectedCwd(s.cwd);
+    if (s.cwd) {
+      setShowAllWorktreeSessions(false);
+      setSelectedCwd(s.cwd);
+    }
     onSelectSession(s, false, entryId, blockIndex);
   }, [onSelectSession]);
 
@@ -971,7 +981,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     [projectActivity, selectedProject],
   );
 
-  const filteredSessions = selectedProject
+  const projectSessions = selectedProject
     ? sessionsForProject(allSessions, selectedProject.key)
     : allSessions;
   const showWorktreeSwitcher = Boolean(
@@ -980,6 +990,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     && selectedCwd
     && selectedProject?.key === worktreeState.projectKey
   );
+  const filteredSessions = showWorktreeSwitcher
+    && !showAllWorktreeSessions
+    && currentWorktreePath
+    ? sessionsForWorktree(projectSessions, currentWorktreePath)
+    : projectSessions;
   const worktreeGuide = selectedCwd
     && worktreeState
     && selectedProject?.key === worktreeState.projectKey
@@ -1203,6 +1218,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   <button
                     key={project.key}
                     onClick={() => {
+                      setShowAllWorktreeSessions(false);
                       setSelectedCwd(project.root);
                       setProjectFilter("");
                       setCustomPathOpen(false);
@@ -1379,6 +1395,97 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 </svg>
               </button>
 
+              {worktreeState.worktrees.length > 1 && (
+                <div
+                  aria-label={t("sidebar.quickWorktreeSwitch")}
+                  style={{
+                    display: "flex",
+                    gap: 5,
+                    marginTop: 5,
+                    paddingBottom: 1,
+                    overflowX: "auto",
+                    scrollbarWidth: "thin",
+                  }}
+                >
+                  <button
+                    type="button"
+                    aria-pressed={showAllWorktreeSessions}
+                    title={t("sidebar.showAllWorktrees")}
+                    onClick={() => setShowAllWorktreeSessions(true)}
+                    style={{
+                      position: "relative",
+                      width: 24,
+                      height: 24,
+                      padding: 0,
+                      flex: "0 0 24px",
+                      borderRadius: 5,
+                      border: showAllWorktreeSessions ? "1px solid var(--accent)" : "1px solid var(--border)",
+                      background: showAllWorktreeSessions ? "var(--bg-selected)" : "var(--bg)",
+                      color: showAllWorktreeSessions ? "var(--accent)" : "var(--text-muted)",
+                      cursor: "pointer",
+                      fontSize: 10,
+                      fontWeight: 650,
+                    }}
+                  >
+                    {t("sidebar.allWorktreesShort")}
+                  </button>
+                  {worktreeState.worktrees.map((wt, index) => {
+                    const isCurrent = !showAllWorktreeSessions && wt.path === currentWorktreePath;
+                    const worktreeSessions = sessionsForWorktree(projectSessions, wt.path);
+                    const hasRunning = worktreeSessions.some((session) => runningSessionIds.has(session.id));
+                    const hasUnread = worktreeSessions.some((session) => unreadSessionIds.has(session.id));
+                    const label = wt.branch ?? displayCwd(wt.path, homeDir);
+                    return (
+                      <button
+                        key={wt.path}
+                        type="button"
+                        aria-pressed={isCurrent}
+                        aria-label={`${index + 1}: ${label}`}
+                        title={`${index + 1} · ${label}\n${wt.path}`}
+                        onClick={() => {
+                          setShowAllWorktreeSessions(false);
+                          setSelectedCwd(wt.path);
+                          setWtDropdownOpen(false);
+                          setWtError(null);
+                          setWtFilter("");
+                        }}
+                        style={{
+                          position: "relative",
+                          width: 24,
+                          height: 24,
+                          padding: 0,
+                          flex: "0 0 24px",
+                          borderRadius: 5,
+                          border: isCurrent ? "1px solid var(--accent)" : "1px solid var(--border)",
+                          background: isCurrent ? "var(--bg-selected)" : "var(--bg)",
+                          color: isCurrent ? "var(--accent)" : "var(--text-muted)",
+                          cursor: "pointer",
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 10,
+                          fontWeight: isCurrent ? 700 : 550,
+                        }}
+                      >
+                        {index + 1}
+                        {(hasRunning || hasUnread) && (
+                          <span
+                            aria-hidden="true"
+                            style={{
+                              position: "absolute",
+                              top: 2,
+                              right: 2,
+                              width: 4,
+                              height: 4,
+                              borderRadius: "50%",
+                              background: hasRunning ? "var(--accent)" : "#0891b2",
+                            }}
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
               <AnimatedDropdown
                 open={wtDropdownOpen}
                 style={{
@@ -1455,6 +1562,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                         >
                           <button
                             onClick={() => {
+                              setShowAllWorktreeSessions(false);
                               setSelectedCwd(wt.path);
                               setWtDropdownOpen(false);
                               setWtError(null);
