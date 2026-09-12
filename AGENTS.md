@@ -74,6 +74,12 @@ app/api/
   skills/search/route.ts          GET/POST skills.sh search
   subagents/settings/route.ts     GET/PUT built-in subagent feature setting
   worktrees/route.ts              GET/POST/DELETE git worktrees
+  web-auth/route.ts               POST login | DELETE logout (browser password)
+  plugins/check/route.ts          POST check plugin package updates
+  project-trust/route.ts          GET/POST project trust for package installs
+  sessions/search/route.ts        GET session search
+  terminal/route.ts               GET/POST terminal sessions
+  cwd/browse/route.ts             GET browse allowed cwd directories
 
 lib/
   agent-client.ts      typed fetch helper for /api/agent commands
