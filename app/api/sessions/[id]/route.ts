@@ -53,6 +53,8 @@ export async function GET(
     // Cumulative usage over ALL entries, including history compacted away —
     // the same aggregation the SDK's getSessionStats() uses. Lets the client
     // keep monotonic token/cost counters across compaction and page reloads.
+    // SAFETY: SDK session entries are structurally SessionEntry-compatible
+    // (same discriminated-union shape pi writes to .jsonl files).
     const stats = computeSessionStats(entries as unknown as SessionEntry[]);
     const sessionName = sm.getSessionName();
     const firstUserEntry = entries.find((entry) => entry.type === "message" && entry.message.role === "user");
