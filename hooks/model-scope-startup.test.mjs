@@ -41,10 +41,18 @@ test("model-list refresh does not overwrite a live session or explicit thinking 
     source.indexOf("const handleBuiltinSlashCommand"),
   );
 
-  assert.match(loadModelsSource, /if \(isNew && !sessionIdRef\.current\)/);
-  assert.match(
-    loadModelsSource,
-    /thinkingLevelOverrideRef\.current === null/,
+  assert.match(loadModelsSource, /if \(isNew && !sessionIdRef\.current && !d\.modelError && thinkingModel\)/);
+  assert.match(loadModelsSource, /applyNewSessionThinking\(thinkingModel, d\)/);
+  assert.match(loadModelsSource, /displayDefaultModel \? \{ provider: displayDefaultModel.provider, modelId: displayDefaultModel.id \} : null/);
+});
+
+test("a lazily-created composer reapplies remembered thinking after a model switch", () => {
+  const modelChangeSource = source.slice(
+    source.indexOf("const handleModelChange"),
+    source.indexOf("const handleCompact"),
   );
-  assert.match(loadModelsSource, /setThinkingLevel\(\(pinned[\s\S]*\?\? "auto"\)/);
+  assert.match(modelChangeSource, /applyNewSessionThinking\(selectedModel, modelsResponseRef\.current\)/);
+  assert.match(modelChangeSource, /type: "set_model"/);
+  assert.match(modelChangeSource, /type: "set_thinking_level", level: selectedThinkingLevel/);
+  assert.match(modelChangeSource, /type: "get_state"/);
 });
